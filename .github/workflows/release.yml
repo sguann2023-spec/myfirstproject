@@ -113,6 +113,9 @@ jobs:
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
+          # 发布到公共仓库
+          repository: sun-guannan/CapCutMaker
+          
           files: |
             macos-latest-build-artifacts/*.dmg
             macos-latest-build-artifacts/*.zip
