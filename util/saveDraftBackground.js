@@ -70,17 +70,71 @@ async function copyFolderRecursive(source, destination) {
  * @returns {Promise<Object>} - 返回结果对象 {success: boolean, error: string, message: string}
  */
 async function saveDraftBackground(draftId, draftFolder, taskId, progressCallback, is_capcut, apiKey, apiHost) {
+  let script;
+  const draftPath = path.join(draftFolder, draftId);
+  const downloadTasks = []; // 存储所有下载任务的完整列表
+
+  // --- 辅助函数：根据下载任务列表计算总体进度 ---
+  const calculateOverallProgress = (tasks) => {
+    if (tasks.length === 0) return { overallProgress: 100, totalBytes: 0, downloadedBytes: 0 };
+    
+    let totalBytes = 0;
+    let downloadedBytes = 0;
+    
+    tasks.forEach(task => {
+        // 如果文件大小未知 (total <= 0)，使用已下载大小作为估算，并给一个权重 (例如 1MB)
+        if (task.total > 0) {
+            totalBytes += task.total;
+            downloadedBytes += task.downloaded;
+        } else {
+             // 对于大小未知的文件，我们假定它们都是 1MB，并使用已下载量
+            const UNKNOWN_SIZE_WEIGHT = 1024 * 1024; 
+            totalBytes += UNKNOWN_SIZE_WEIGHT;
+            // 如果状态是 completed，则计入全部权重，否则计入 0
+            downloadedBytes += task.status === 'completed' ? UNKNOWN_SIZE_WEIGHT : 0;
+        }
+    });
+
+    const overallProgress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+    return { overallProgress, totalBytes, downloadedBytes };
+  };
+
+  // --- 辅助函数：发送进度报告 (包含文件列表) ---
+  const sendProgress = (baseProgress, message, tasks) => {
+      const { overallProgress, totalBytes, downloadedBytes } = calculateOverallProgress(tasks);
+      
+      // 下载部分占 40% (从 30% 到 70%)
+      const downloadSectionProgress = overallProgress * 0.40; 
+      const finalProgress = Math.floor(baseProgress + downloadSectionProgress);
+
+      const totalMB = totalBytes / 1024 / 1024;
+      const downloadedMB = downloadedBytes / 1024 / 1024;
+      
+      const statusText = `${message} (${downloadedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB)`;
+      
+      if (progressCallback) {
+          progressCallback(finalProgress, statusText, tasks.map(task => ({
+              id: task.id,
+              name: task.material.material_name || task.material.name || path.basename(task.localPath),
+              url: task.url,
+              downloaded: task.downloaded / 1024 / 1024, // 转换为MB
+              total: task.total > 0 ? task.total / 1024 / 1024 : 1, // 转换为MB, 至少为 1MB 避免 UI 崩溃
+              unit: 'MB',
+              status: task.status,
+              folderPath: path.dirname(task.localPath),
+              type: task.type
+          })));
+      }
+      return finalProgress;
+  };
+  
   try {
-    // 初始化进度
+    // 1. 获取草稿信息 (10%)
     if (progressCallback) {
       progressCallback(5, i18next.t('getting_draft_info'));
     }
     
-    // 1.从API获取草稿信息
-    let script;
-    console.log('is_capcut_', is_capcut)
     try {
-        // 根据apiHost构建API URL
         const baseHost = apiHost || DEFAULT_HOST;
         const apiPath = is_capcut ? '/cut_capcut/query_script' : '/query_script';
         const apiUrl = baseHost + apiPath;
@@ -112,6 +166,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       return { success: false, error: error.message, message: i18next.t('cannot_get_draft_info', { error: error.message }) };
     }
     
+    // 2. 准备草稿文件和文件夹 (20%)
     if (progressCallback) {
       progressCallback(10, i18next.t('preparing_draft_files'));
     }
@@ -190,31 +245,41 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       progressCallback(20, i18next.t('collecting_download_tasks'));
     }
     
-    // 收集下载任务
-    const downloadTasks = [];
+    // 3. 收集下载任务 (30%)
+    let fileIdCounter = 1;
     
+    const addTask = (type, material, remoteUrl, localPath, downloadOptions = {}) => {
+        if (!remoteUrl) {
+            logger.warning(`文件 ${material.material_name || material.name} 没有 remote_url，跳过下载。`);
+            return;
+        }
+        
+        downloadTasks.push({
+            id: fileIdCounter++,
+            type: type,
+            url: remoteUrl,
+            localPath: localPath,
+            material: material,
+            downloadOptions: downloadOptions,
+            total: 0,                   // 稍后获取文件大小（字节）
+            downloaded: 0,              // 初始下载量（字节）
+            status: 'downloading',          // pending | downloading | completed | failed
+        });
+    };
+
     // 收集音频下载任务
     const audios = script.materials.audios;
     if (audios && audios.length > 0) {
       for (const audio of audios) {
         const remoteUrl = audio.remote_url;
         const materialName = audio.name;
+        const localPath = buildAssetPath(draftFolder, draftId, "audio", materialName);
         // 使用辅助函数构建路径
         if (draftFolder) {
-          audio.path = buildAssetPath(draftFolder, draftId, "audio", materialName);
-        }
-        if (!remoteUrl) {
-          logger.warning(`音频文件 ${materialName} 没有 remote_url，跳过下载。`);
-          continue;
+          audio.path = localPath;
         }
         
-        // 添加音频下载任务
-        downloadTasks.push({
-          type: 'audio',
-          func: downloader.downloadFile,
-          args: [remoteUrl, buildAssetPath(draftFolder, draftId, "audio", materialName)],
-          material: audio
-        });
+        addTask('audio', audio, remoteUrl, localPath);
       }
     }
     
@@ -223,42 +288,26 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     if (videos && videos.length > 0) {
       for (const video of videos) {
         const remoteUrl = video.remote_url;
-        const materialName = video.material_name;
+        const materialName = video.material_name; // 注意：视频/图片用的是 material_name
         
         if (video.type === 'photo') {
-          // 使用辅助函数构建路径
+          const localPath = buildAssetPath(draftFolder, draftId, "image", materialName);
+          
+          // 更新草稿路径
           if (draftFolder) {
-            video.path = buildAssetPath(draftFolder, draftId, "image", materialName);
-          }
-          if (!remoteUrl) {
-            logger.warning(`图片文件 ${materialName} 没有 remote_url，跳过下载。`);
-            continue;
+            video.path = localPath;
           }
           
-          // 添加图片下载任务
-          downloadTasks.push({
-            type: 'image',
-            func: downloader.downloadFile,
-            args: [remoteUrl, buildAssetPath(draftFolder, draftId, "image", materialName)],
-            material: video
-          });
+          addTask('image', video, remoteUrl, localPath);
         } else if (video.type === 'video') {
-          // 使用辅助函数构建路径
+          const localPath = buildAssetPath(draftFolder, draftId, "video", materialName);
+
+          // 更新草稿路径
           if (draftFolder) {
-            video.path = buildAssetPath(draftFolder, draftId, "video", materialName);
-          }
-          if (!remoteUrl) {
-            logger.warning(`视频文件 ${materialName} 没有 remote_url，跳过下载。`);
-            continue;
+            video.path = localPath;
           }
           
-          // 添加视频下载任务
-          downloadTasks.push({
-            type: 'video',
-            func: downloader.downloadFile,
-            args: [remoteUrl, buildAssetPath(draftFolder, draftId, "video", materialName)],
-            material: video
-          });
+          addTask('video', video, remoteUrl, localPath);
         }
       }
     }
@@ -268,15 +317,23 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     if (effects && effects.length > 0) {
       for (const effect of effects) {
         if (effect.type === 'TextEffect') {
-          effect.path = buildAssetPath(draftFolder, draftId, "artistEffect", effect.effect_id);
-          const downloadUrl = await downloader.getArtistEffectDownloadUrl(effect.effect_id, apiKey);
+          const effectId = effect.effect_id;
+          const localPath = path.join(draftPath, "assets", "artistEffect", `${effectId}.zip`);
+
+          // 更新草稿路径
+          effect.path = buildAssetPath(draftFolder, draftId, "artistEffect", effectId);
+          
+          const downloadUrl = await downloader.getArtistEffectDownloadUrl(effectId, apiKey);
+          
           if (downloadUrl) {
-            downloadTasks.push({
-              type: 'text_effect',
-              func: downloader.downloadFile,
-              args: [downloadUrl, path.join(draftPath, "assets", "artistEffect", `${effect.effect_id}.zip`), 3, 180000, 'text_artist'],
-              material: effect
-            });
+            // 注意：这里需要传递下载所需的额外选项
+            addTask(
+              'text_effect', 
+              effect, 
+              downloadUrl, 
+              localPath, 
+              { retry: 3, timeout: 180000, context: 'text_artist' } // 额外选项
+            );
           }
         }
       }
@@ -286,14 +343,18 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     const textTemplates = script.materials.text_templates;
     if (textTemplates && textTemplates.length > 0) {
       for (const template of textTemplates) {
-        const downloadUrl = `https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/text_template/${template.effect_id}/${template.effect_id}.zip`;
-        const localFilename = path.join(draftPath, "assets", "textTemplate", `${template.effect_id}.zip`);
-        downloadTasks.push({
-          type: 'text_template',
-          func: downloader.downloadFile,
-          args: [downloadUrl, localFilename, 3, 180000, 'text_template'],
-          material: template
-        });
+        const effectId = template.effect_id;
+        const downloadUrl = `https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/text_template/${effectId}/${effectId}.zip`;
+        const localPath = path.join(draftPath, "assets", "textTemplate", `${effectId}.zip`);
+
+        // 注意：这里需要传递下载所需的额外选项
+        addTask(
+            'text_template', 
+            template, 
+            downloadUrl, 
+            localPath, 
+            { retry: 3, timeout: 180000, context: 'text_template' } // 额外选项
+        );
       }
     }
 
@@ -305,6 +366,8 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     // 并发执行所有下载任务
     const downloadedPaths = [];
     let completedFiles = 0;
+    const failedDownloads = [];
+
     if (downloadTasks.length > 0) {
       logger.info(`开始并发下载 ${downloadTasks.length} 个文件...`);
       
@@ -317,32 +380,71 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
         batches.push(downloadTasks.slice(i, i + batchSize));
       }
       
+      // 预先获取所有文件大小 (并发进行)
+      await Promise.all(downloadTasks.map(async task => {
+          task.total = await downloader.getFileSize(task.url);
+      }));
+      
+      // 更新一次进度，显示文件总大小
+      sendProgress(30, i18next.t('download_tasks_ready'), downloadTasks);
+      
       for (const batch of batches) {
         const promises = batch.map(task => {
           return (async () => {
             try {
-              const localPath = await task.func(...task.args);
-              downloadedPaths.push(localPath);
+                // 1. 更新状态为 downloading
+                task.status = 'downloading';
+                sendProgress(30, i18next.t('downloading'), downloadTasks);
               
-              // 更新任务状态 - 更新已完成文件数和进度
-              completedFiles += 1;
-              const total = downloadTasks.length;
-              const downloadProgress = Math.floor(30 + (completedFiles / total) * 40); // 从30%到70%的进度
+                // 2. 执行下载，传入实时回调
+                await downloader.downloadFile(
+                    task.url, 
+                    task.localPath, 
+                    (downloadedBytes, totalBytes) => {
+                        // 进度回调 (频繁触发)
+                        task.downloaded = downloadedBytes;
+                        // 实时更新 total (如果 totalBytes 在回调中更新)
+                        if (totalBytes > 0) task.total = totalBytes; 
+                        task.status = 'downloading';
+                        // 限制 progressCallback 的调用频率以防性能问题，这里简化为每次都调用
+                        sendProgress(30, i18next.t('downloading'), downloadTasks);
+                    },
+                    task.downloadOptions.retry,
+                    task.downloadOptions.timeout,
+                    task.downloadOptions.context
+                );
               
-              // 在开始下载前显示当前文件链接
-              if (progressCallback) {
-                const fileUrl = task.args[0];
-                progressCallback(downloadProgress, `已完成: ${completedFiles}/${total} 个文件...\n正在下载: ${fileUrl}`);
+              // 3. 下载成功逻辑
+              let finalSize = 0;
+              
+              // 使用异步 stat 获取最终文件大小，并确保文件存在
+              try {
+                  const stats = await fs.promises.stat(task.localPath);
+                  finalSize = stats.size;
+              } catch (statError) {
+                  // 如果下载成功返回，但文件不存在 (ENOENT)，视为下载任务最终失败
+                  // 这样会将错误捕获到外层 catch 块，并加入 failedDownloads 列表
+                  statError.message = `Download succeeded, but final file check failed: ${statError.message}`;
+                  throw statError; 
               }
-              // logger.info(`任务 ${taskId}：成功下载 ${task.type} 文件。进度: ${completedFiles}/${total}`);
-              return localPath;
+
+              task.downloaded = finalSize;
+              task.total = finalSize; 
+              task.status = 'completed';
+              
+              sendProgress(30, i18next.t('downloading'), downloadTasks);
+
+              return { success: true, url: task.url };
             } catch (error) {
-              logger.error(`任务 ${taskId}：下载 ${task.type} 文件失败:`, error);
-              // 继续处理其他文件，不中断整个流程
-              if (progressCallback) {
-                progressCallback(-1, `下载文件失败: ${error.message}，继续处理其他文件...`);
-              }
-              return null;
+              // 标记失败
+              logger.error(`任务 ${taskId}：下载 ${task.type} 文件失败: ${task.url}`, error);
+              task.status = 'failed'; 
+              failedDownloads.push({ url: task.url, error: error.message });
+              
+              // 报告失败，继续处理其他文件
+              sendProgress(30, i18next.t('downloading_with_errors'), downloadTasks);
+
+              return { success: false, url: task.url };
             }
           })();
         });
@@ -352,8 +454,41 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       
       logger.info(`任务 ${taskId}：并发下载完成，共下载 ${downloadedPaths.length} 个文件。`);
     }
+
+    // 4. 解压和清理文件 (60% - 70%)
+    logger.info(`任务 ${taskId} 进度60%：正在进行文件解压和清理。`);
+
+    const cleanupTasks = downloadTasks
+        .filter(task => task.status === 'completed' && 
+                      (task.downloadOptions.context === 'text_artist' || task.downloadOptions.context === 'text_template'));
+
+    if (cleanupTasks.length > 0) {
+        await Promise.all(cleanupTasks.map(async (task) => {
+            const isArtistEffectZip = task.downloadOptions.context === 'text_artist';
+            const isTextTemplate = task.downloadOptions.context === 'text_template';
+
+            try {
+                if (isArtistEffectZip) {
+                    // 使用导出的解压函数
+                    await downloader.unzipAndCleanup(task.localPath); 
+                }
+                if (isTextTemplate) {
+                    // 使用导出的解压函数
+                    await downloader.unzipTextTemplate(task.localPath); 
+                }
+            } catch (cleanupError) {
+                // 如果解压/清理失败，将其添加到失败列表，但不中断主流程
+                logger.error(`任务 ${taskId}：解压/清理文件 ${task.localPath} 失败`, cleanupError);
+                failedDownloads.push({ 
+                    url: task.url, 
+                    error: `Cleanup failed: ${cleanupError.message}`,
+                    isCleanupError: true 
+                });
+            }
+        }));
+    }
     
-    // 更新任务状态 - 开始保存草稿信息
+    // 5. 保存草稿信息 (70% - 90%)
     if (progressCallback) {
       progressCallback(70, i18next.t('saving_draft_info'));
     }
@@ -408,12 +543,27 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       }
     }
 
+
+    // ========== 新增的异常抛出逻辑 ==========
+    if (failedDownloads.length > 0) {
+        const total = downloadTasks.length;
+        const failedCount = failedDownloads.length;
+        const failedUrls = failedDownloads.map(f => `  - URL: ${f.url}\n    Error: ${f.error}`).join('\n');
+        
+        const errorMessage = `**部分文件下载失败！**\n总任务数: ${total}\n失败数: ${failedCount}\n\n失败列表:\n${failedUrls}`;
+        
+        logger.error(`任务 ${taskId}：最终下载失败，将抛出异常。\n${errorMessage}`);
+        
+        // 抛出包含失败列表的异常
+        throw new Error(errorMessage);
+    }
+    
     // 更新任务状态 - 完成
     logger.info(`任务 ${taskId} 已完成`);
     if (progressCallback) {
-      progressCallback(100, '下载完成！');
+      progressCallback(100, i18next.t('download_complete'));
     }
-    return { success: true, message: '下载完成！' };
+    return { success: true, message: i18next.t('download_complete') };
 
   } catch (error) {
     // 更新任务状态 - 失败

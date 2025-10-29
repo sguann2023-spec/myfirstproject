@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, protocol, ipcMain, dialog, shell } = require('electron');
 const { Worker } = require('worker_threads');
 
 
@@ -19,23 +19,23 @@ const Backend = require('i18next-fs-backend');
 let i18n;
 
 function initI18n() {
-  const isDev = process.env.NODE_ENV === 'development';
-  const localesPath = isDev 
-    ? path.join(__dirname, 'locales') 
-    : path.join(process.resourcesPath, 'locales');
-
-  i18n = i18next.use(Backend).init({
+    const isDev = process.env.NODE_ENV === 'development';
+    const localesPath = isDev 
+      ? path.join(__dirname, 'locales') 
+      : path.join(process.resourcesPath, 'locales');
+    
+    i18n = i18next.use(Backend).init({
     backend: {
       loadPath: path.join(localesPath, '{{lng}}/{{ns}}.json')
     },
-    fallbackLng: 'en',
-    debug: isDev,
-    interpolation: {
-      escapeValue: false
-    }
-  });
+      fallbackLng: 'en',
+      debug: isDev,
+      interpolation: {
+        escapeValue: false
+      }
+    });
 
-  return i18n;
+    return i18n;
 }
 
 // 在应用启动时初始化 i18n
@@ -158,6 +158,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      preload: path.join(__dirname, 'preload.js'), // 引入 preload 脚本路径
       webSecurity: false, // 允许加载本地资源
       allowRunningInsecureContent: true, // 允许运行不安全内容
       additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`]
@@ -311,13 +312,13 @@ ipcMain.handle('get-draft-folder', () => {
 
 ipcMain.on('process-parameters', async (event, params) => {
   console.log('从渲染进程接收到参数:', params);
-  
   // 获取draft_id、draft_folder和is_capcut参数
   const { draft_id, draft_folder, is_capcut, api_key_hash } = params;
   console.log('api_key_hash:', api_key_hash);
   
   if (!draft_id) {
-    event.reply('process-result', { success: false, message: i18next.t('missing_draft_id') });
+    // 启动前检查错误：发送 download-error
+    event.reply('download-error', i18next.t('missing_draft_id'));
     return;
   }
   
@@ -343,24 +344,19 @@ ipcMain.on('process-parameters', async (event, params) => {
       fs.mkdirSync(draftFolder, { recursive: true });
     }
     
-    // 通知渲染进程任务已开始
+    // 通知下载进程任务已开始
     event.reply('process-result', { 
       success: true, 
       message: i18next.t('start_processing', { draft_id, task_id: taskId })
     });
     
-    // 发送下载中的loading状态
-    event.reply('download-status', {
-      status: 'loading',
-      message: i18next.t('downloading_please_wait')
-    });
-    
     // 创建进度回调函数
-    const progressCallback = (progress, message) => {
-      event.reply('download-status', {
-        status: progress < 0 ? 'error' : 'downloading',
-        progress: progress < 0 ? 0 : progress,
-        message: message
+    const progressCallback = (progress, message, fileList) => {
+      // 只需要发送 progress 和 message
+      event.reply('download-progress', {
+        progress: progress,
+        text: message,
+        fileList: fileList,
       });
     };
     
@@ -373,10 +369,7 @@ ipcMain.on('process-parameters', async (event, params) => {
     if (api_key_hash && api_key_hash !== currentApiKeyHash) {
       try {
         // 添加复制中的提示
-        event.reply('download-status', {
-          status: 'loading',
-          message: i18next.t('copying_draft')
-        });
+        progressCallback(0, i18next.t('copying_draft'), null);
         
         const copyResponse = await axios.post(`${apiHost}/copy_draft`, {
           source_api_key_hash: api_key_hash,
@@ -392,22 +385,14 @@ ipcMain.on('process-parameters', async (event, params) => {
         if (copyResponse.data.code === 200) {
           // 复制成功，继续下载
           console.log('Draft copied successfully');
-          // 添加复制成功的提示
-          event.reply('download-status', {
-            status: 'loading',
-            message: i18next.t('copy_draft_success')
-          });
+          progressCallback(0, i18next.t('copy_draft_success'), null);
         } else {
           // 复制失败，返回错误
           throw new Error(`Copy draft failed: ${copyResponse.data.message}`);
         }
       } catch (copyError) {
         console.error('Copy draft error:', copyError);
-        event.reply('download-status', {
-          status: 'error',
-          message: i18next.t('copy_draft_failed')
-        });
-        event.reply('download-error', copyError.message || 'Failed to copy draft');
+        event.reply('download-error', copyError.message || i18next.t('copy_draft_failed'));
         return;
       }
     }
@@ -427,35 +412,26 @@ ipcMain.on('process-parameters', async (event, params) => {
     // 监听工作线程的消息
     worker.on('message', (message) => {
       if (message.type === 'progress') {
-        // 更新进度
-        progressCallback(message.progress, message.message);
+        // 更新进度 (使用修正后的 progressCallback，它会发送 download-progress)
+        progressCallback(message.progress, message.message, message.fileList);
       } else if (message.type === 'complete') {
-        // 下载完成
-        event.reply('download-status', {
-          status: 'completed',
-          draft_id: draft_id,
+        // 下载完成：发送 download-complete
+        event.reply('download-complete', {
+          draft_id: draft_id, // 确保发送 draft_id
           message: message.message || i18next.t('download_complete')
         });
       } else if (message.type === 'error') {
-        // 下载失败
-        event.reply('download-status', {
-          status: 'error',
-          message: message.message || i18next.t('download_failed')
-        });
-        
-        // 发送详细错误信息
-        event.reply('download-error', message.error || i18next.t('processing_failed', { error: '未知错误' }));
+        console.log('worker message error'); // 保持日志，观察是否执行
+        // 下载失败：发送 download-error
+        event.reply('download-error', message.error || i18next.t('download_failed'));
       }
     });
     
     // 监听工作线程错误
     worker.on('error', (error) => {
       console.error('工作线程错误:', error);
-      event.reply('download-status', {
-        status: 'error',
-        message: i18next.t('worker_error')
-      });
-      event.reply('download-error', error.message || 'Worker thread error');
+      // 只发送 download-error
+      event.reply('download-error', error.message || i18next.t('worker_error'));
     });
     
     // 监听工作线程退出
@@ -467,17 +443,6 @@ ipcMain.on('process-parameters', async (event, params) => {
     
   } catch (error) {
     console.error('处理草稿时出错:', error);
-    event.reply('process-result', { 
-      success: false, 
-      message: i18next.t('processing_failed', { error: error.message })
-    });
-    
-    // 发送下载错误状态
-    event.reply('download-status', {
-      status: 'error',
-      message: i18next.t('download_failed')
-    });
-    
     // 发送详细错误信息
     event.reply('download-error', error.message || 'Unknown error');
   }
@@ -493,6 +458,63 @@ if (app.isPackaged) {
 // 添加 IPC 处理程序来获取翻译
 ipcMain.handle('get-translation', (event, key) => {
   return i18next.t(key);
+});
+
+// 1. 处理打开文件夹的请求 (保持不变)
+ipcMain.on('open-download-directory', (event, directoryPath) => {
+    console.log(`[Main Process] Received request to open folder: ${directoryPath}`);
+    // 1. 验证路径是否有效
+    if (!directoryPath || typeof directoryPath !== 'string') {
+        console.error('[Main Process] Invalid folder path received.');
+        return;
+    }
+    
+    // 2. 尝试创建目录，如果已存在则不会报错 (recursive: true)
+    try {
+        fs.mkdirSync(directoryPath, { recursive: true });
+        console.log(`[Main Process] Directory ensured: ${directoryPath}`);
+    } catch (err) {
+        console.error(`[Main Process] Failed to create or access directory: ${directoryPath}`, err);
+        // 如果创建失败，停止执行
+        return;
+    }
+    // 使用 Electron 的 shell 模块打开系统文件管理器
+    shell.openPath(directoryPath)
+        .catch(err => {
+            console.error('无法打开目录:', err);
+            // 使用您现有的 dialog 模块来显示错误
+            dialog.showMessageBox(mainWindow, {
+                type: 'error',
+                title: '打开目录失败',
+                message: `无法打开目录: ${directoryPath}`,
+                detail: err.toString()
+            });
+        });
+});
+
+/**
+ * 监听 'check-file-existence'，检查文件是否存在
+ * - 接收: { id: number, expectedPath: string }
+ * - 成功时发送: 'file-found' (id)
+ */
+ipcMain.on('check-file-existence', (event, { id, expectedPath }) => { // 移除 async 关键字，因为我们不再 await
+    console.log(`[Main] Checking file existence for ID: ${id} at path: ${expectedPath}`);
+    
+    // 核心修复：使用同步的 fs.existsSync() 代替回调/Promise 混用的 fs.access()
+    // 用户的代码使用的是 require('fs')，所以 fs.existsSync 是最安全和直接的检查方法
+    const fileExists = fs.existsSync(expectedPath);
+        
+    if (fileExists) {
+        // 如果文件存在
+        console.log(`[Main] File found for ID: ${id}. Sending 'file-found'.`);
+        
+        // 通知渲染进程文件已找到
+        event.sender.send('file-found', { id });
+    } else {
+        // 如果文件不存在
+        console.warn(`[Main] File not found at ${expectedPath}.`);
+        // 只有文件找到时才发送消息，失败时忽略即可
+    }
 });
 
 // 计算API密钥的SHA-256哈希值

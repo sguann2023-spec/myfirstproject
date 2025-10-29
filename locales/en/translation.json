@@ -44,5 +44,7 @@
   "api_host_placeholder": "https://open.capcutapi.top/cut_jianying",
   "advanced_settings": "Advanced Settings",
   "worker_error": "Worker thread error",
-  "close_jianying_and_retry": "Failed to delete draft folder: {{error}}, please close CapCut/JianYing and try downloading again."
+  "close_jianying_and_retry": "Failed to delete draft folder: {{error}}, please close CapCut/JianYing and try downloading again.",
+  "download_list": "Download List",
+  "download_partially_failed": "Download partially failed."
 }

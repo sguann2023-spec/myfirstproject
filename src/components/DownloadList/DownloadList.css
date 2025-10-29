@@ -1,0 +1,269 @@
+/* DownloadList.css */
+
+/* 外层容器样式 */
+.download-list-container {
+    padding: 0 0px;
+}
+
+.custom-space-align-center{
+    padding-left: 10px;
+}
+
+/* 顶部总体状态栏的样式 */
+.download-list-header {
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 16px;
+}
+
+/* 顶部状态栏的路径文本样式 */
+.header-path-text {
+    color: #626262;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 0 !important;
+}
+
+/* 路径点样式 */
+.header-path-dot {
+    font-size: 12px;
+    font-weight: 600;
+    color: #626262;
+    align-items: center;
+    margin: 0px 4px 2px 4px !important;
+}
+
+.file-list-header-name {
+    font-size: 12px;
+    color: #C2C2C2;
+    font-weight: 400;
+    margin-bottom: 0 !important;
+}
+
+.file-icon{
+    width: 24px;
+    height: 30px;
+}
+
+.ant-space-align-center {
+    /* Ant Design 默认会给 Space 容器设置 align-items: center，
+       但如果有其他样式覆盖，我们可以再次强制设置。
+       注意：您可能需要在 JSX 中给 Space 加上一个 className
+    */
+    align-items: center !important; 
+}
+
+.header-path-svg-arrow {
+    /* 设置 SVG 图片的宽度和高度，以匹配字体大小（例如 12px 或 16px） */
+    width: 8px;
+    height: 8px;
+    
+    /* 确保 SVG 在行内垂直居中对齐 */
+    align-items: center;
+    
+    /* 添加左右外边距，以替代 Space 组件的默认间隔或手动调整 */
+    /* 如果使用了 Space 组件，这个 margin 可以省略或设置为较小的值 */
+    margin: 1px 2px;
+}
+
+/* 顶部状态栏的橙色状态文本样式 */
+.header-status-text {
+    color: #fa8c16;
+}
+
+/* 文件列表头部的样式 */
+.file-list-header-row {
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 9px;
+    padding-top: 9px;
+    padding-left: 12px;
+    color: #8c8c8c;
+    font-weight: bold;
+}
+
+/* 单个文件项的样式，包括底部分割线 */
+.download-list-item {
+    padding-left: 12px;
+    padding-top: 12px;
+    height: 60px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.file-item-text-container {
+    /* 移除或减小 Space 自动给子元素添加的垂直空间 */
+    padding-top: 0px !important; 
+    padding-bottom: 0 !important;
+    margin-top: 0px !important;
+    margin-bottom: 0 !important;
+}
+
+.file-list-item-name{
+    font-size: 14px;
+    color: #252525;
+    margin: 0 !important;
+    padding: 0 !important;
+    
+    /* 1. 强制文本只显示一行 */
+    white-space: nowrap; 
+    
+    /* 2. 隐藏超出容器的部分 */
+    overflow: hidden; 
+    
+    /* 3. 在被截断的部分显示省略号 */
+    text-overflow: ellipsis; 
+    
+    /* 4. 关键：将行内元素转换为块级或行内块级，使其宽度可控 */
+    display: block; 
+    
+    /* 5. (可选) 限制最大宽度：如果 Col span={10} 太宽，您可以限制最大宽度 */
+    max-width: 220px;
+}
+/* ⚡️ 新增：失败状态的容器样式 (确保文本和图标垂直居中) */
+.status-failed-container {
+    display: flex;
+    align-items: center; 
+    /* 由于 Row align="middle" 已经在 Col 级别做了垂直居中，这个容器可以保证其内部元素对齐 */
+}
+
+/* 失败状态的文本样式 (红色) */
+.file-list-item-status-failed {
+    font-size: 12px;
+    color: #EC3C3C !important; /* Ant Design 默认错误红 */
+    align-items: center; 
+    margin: 0 !important;
+    /* 继承 file-list-item-status 的其他样式，但我们使用新类来定义颜色 */
+}
+
+/* 状态操作图标的样式 (红色，并设置指针) */
+.status-action-icon {
+    font-size: 12px;
+    color: #EC3C3C; /* 保持与文本一致的红色 */
+    cursor: pointer; 
+    margin: 0 2px; /* 图标之间的微小间距 */
+    /* 确保图标与文本垂直对齐 */
+    display: inline-flex;
+    align-items: center;
+}
+.file-list-item-url{
+    font-size: 12px;
+    color: #bababa;
+    margin: 0 !important;
+    padding: 0 !important;
+    /* 1. 强制文本只显示一行 */
+    white-space: nowrap; 
+    
+    /* 2. 隐藏超出容器的部分 */
+    overflow: hidden; 
+    
+    /* 3. 在被截断的部分显示省略号 */
+    text-overflow: ellipsis; 
+    
+    /* 4. 关键：将行内元素转换为块级或行内块级，使其宽度可控 */
+    display: block; 
+    
+    /* 5. (可选) 限制最大宽度：如果 Col span={10} 太宽，您可以限制最大宽度 */
+    max-width: 220px;
+}
+
+.file-list-item-status{
+    font-size: 12px;
+    color: #626262;
+    margin: 0 !important;
+    padding: 0 !important;
+    /* 1. 强制文本只显示一行 */
+    white-space: nowrap; 
+    
+    /* 2. 隐藏超出容器的部分 */
+    overflow: hidden; 
+    
+    /* 3. 在被截断的部分显示省略号 */
+    text-overflow: ellipsis; 
+    
+    /* 4. 关键：将行内元素转换为块级或行内块级，使其宽度可控 */
+    display: block; 
+    
+    /* 5. (可选) 限制最大宽度：如果 Col span={10} 太宽，您可以限制最大宽度 */
+    max-width: 220px;
+}
+
+.file-list-item-size{
+    font-size: 12px;
+    color: #626262;
+    margin: 0 !important;
+    padding: 0 !important;
+    /* 1. 强制文本只显示一行 */
+    white-space: nowrap; 
+    
+    /* 2. 隐藏超出容器的部分 */
+    overflow: hidden; 
+    
+    /* 3. 在被截断的部分显示省略号 */
+    text-overflow: ellipsis; 
+    
+    /* 4. 关键：将行内元素转换为块级或行内块级，使其宽度可控 */
+    display: block; 
+    
+    /* 5. (可选) 限制最大宽度：如果 Col span={10} 太宽，您可以限制最大宽度 */
+    max-width: 220px;
+}
+
+/* 文件图标样式 */
+.file-icon {
+    font-size: 20px;
+    color: #1890ff; /* Ant Design Primary Color */
+}
+
+/* 文件描述/路径文本样式 */
+.file-desc {
+    font-size: 12px;
+    color: #8c8c8c;
+}
+
+/* 列表体样式 */
+.file-list-body {
+    padding: 0;
+    
+    /* ⚡️ 关键 1: 设置固定的最大高度 */
+    height: 240px; 
+    
+    /* ⚡️ 关键 2: 允许垂直滚动条出现（当内容超出 400px 时） */
+    overflow-y: auto; 
+    
+    /* 确保水平不出现滚动条 */
+    overflow-x: hidden;
+}
+.status-and-progress-wrapper {
+    /* 强制 Flex 布局，实现垂直排列 */
+    display: flex; 
+    flex-direction: column; 
+    
+    /* ⚡️ 解决间距问题：让子元素紧密挨着，没有行高/外边距干扰 */
+    /* 默认的 column flex 布局下，子元素会自动从顶部开始堆叠，无额外间距 */
+
+    /* ⚡️ 解决垂直居中问题：让整个包裹器在 Col 容器内垂直居中 */
+    /* 由于 Col 已经被 Row align="middle" 垂直居中，这里的设置影响的是文字和进度条之间的间距 */
+    /* 确保文字和进度条在 Wrapper 内部是紧凑排列的 */
+    
+    /* 如果文字和进度条挨得太紧，可以添加一个小的 gap */
+    gap: 0px; /* 设置垂直间距为 0px */
+}
+
+/* ⚡️ 新增：限制进度条的宽度 */
+.status-and-progress-wrapper .ant-progress {
+    width: 130px; /* 进度条固定长度 100px */
+    margin-top: -4px; /* 给进度条与文字之间留一点点垂直间距 (2px) */
+    margin-left: 0; /* 确保不向右偏移 */
+}
+
+.status-and-progress-wrapper .ant-progress-inner {
+    /* 调整内部轨道的高度 */
+    height: 3px !important; /* 将高度设置为 4px (默认 small 可能是 6px 或 8px) */
+    line-height: 3px !important;
+}
+.status-and-progress-wrapper .ant-progress-bg {
+    /* 确保填充条的高度与轨道一致 */
+    height: 3px !important;
+    background-color: #A9A9A9 !important;
+}
+.file-list-body .download-list-item:last-child {
+    border-bottom: none;
+}

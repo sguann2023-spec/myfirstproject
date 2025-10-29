@@ -28,12 +28,18 @@ async function runDownload() {
   try {
     const { draft_id, draftFolder, taskId, is_capcut, apiKey, apiHost } = workerData;
     
-    // 创建进度回调函数，将进度消息发送回主线程
-    const progressCallback = (progress, message) => {
+    /**
+     * 创建进度回调函数，将进度消息和文件列表发送回主线程
+     * @param {number} progress - 总体进度百分比 (0-100)
+     * @param {string} message - 状态信息
+     * @param {Array<Object>} fileList - 包含每个文件详细进度的列表
+     */
+    const progressCallback = (progress, message, fileList) => {
       parentPort.postMessage({
         type: 'progress',
         progress,
-        message
+        message,
+        fileList // 重点：现在将 fileList 传递给主线程
       });
     };
     
@@ -50,8 +56,8 @@ async function runDownload() {
       // 下载失败，发送错误消息
       parentPort.postMessage({
         type: 'error',
-        message: result.message || '下载失败',
-        error: result.error || '未知错误'
+        message: '下载失败',
+        error: '下载失败'
       });
     }
   } catch (error) {
@@ -59,10 +65,7 @@ async function runDownload() {
     parentPort.postMessage({
       type: 'error',
       message: '处理过程中发生错误',
-      error: error.message || '未知错误'
+      error: '下载失败'
     });
   }
 }
-
-// 运行下载任务
-runDownload();

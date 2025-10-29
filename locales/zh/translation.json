@@ -44,5 +44,7 @@
   "api_host_placeholder": "https://open.capcutapi.top/cut_jianying",
   "advanced_settings": "高级设置",
   "worker_error": "工作线程错误",
-  "close_jianying_and_retry": "删除草稿文件夹失败: {{error}}，请关闭剪映后再次尝试下载。"
+  "close_jianying_and_retry": "删除草稿文件夹失败: {{error}}，请关闭剪映后再次尝试下载。",
+  "download_list": "下载列表",
+  "download_partially_failed": "下载失败"
 }
