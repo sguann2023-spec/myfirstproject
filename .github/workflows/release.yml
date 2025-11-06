@@ -89,6 +89,7 @@ jobs:
       with:
         name: ${{ matrix.os }}-build-artifacts
         path: build/
+        retention-days: 1
 
   # 任务3：在所有构建任务成功后，统一创建 Release 并上传所有附件
   release-after-build:
