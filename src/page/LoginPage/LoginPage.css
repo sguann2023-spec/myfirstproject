@@ -1,0 +1,58 @@
+/* page/LoginPage.css */
+
+body {
+    /* 移除静态渐变，为动画做准备，并设置一个基础色 */
+    /* background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); <--- 移除或注释掉 */
+    background-color: #f5f7fa; /* 基础背景色 */
+    
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: transparent;
+    overflow: hidden;
+
+    /* ⬇️ 添加动态渐变背景动画 ⬇️ */
+    /* 使用一个较大的 background 属性来定义动画中的渐变色，并设置动画 */
+    background: linear-gradient(-45deg, #FFFED1, #D0F0FD, #F3E0EE, #DDEFFD);
+    background-size: 400% 400%; /* 关键：让渐变区域大于容器，以便移动 */
+    animation: gradientShift 10s ease infinite; /* 动画名称 | 时长 | 缓动函数 | 循环 */
+}
+
+/* 确保所有父级元素都占据 100% 的窗口高度 */
+html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0; /* 消除浏览器默认的边距 */
+    padding: 0; /* 消除浏览器默认的填充 */
+}
+
+/* 确保 login-container 是相对定位的，且也占据 100% 高度 */
+.login-container {
+    height: 100%;
+    width: 100%;
+    position: relative; 
+}
+
+/* ⬇️ 定义关键帧动画 ⬇️ */
+@keyframes gradientShift {
+    0% {
+        background-position: 0% 50%; /* 渐变从左侧开始 */
+    }
+    50% {
+        background-position: 100% 50%; /* 渐变移动到右侧 */
+    }
+    100% {
+        background-position: 0% 50%; /* 渐变回到左侧，实现循环 */
+    }
+}
+
+/* 针对顶部按钮，移除悬停和点击时的背景色 */
+.control-button.ant-btn-text:hover,
+.control-button.ant-btn-text:focus,
+.control-button.ant-btn-text:active {
+    background-color: transparent !important;
+}
