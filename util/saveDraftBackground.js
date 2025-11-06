@@ -275,7 +275,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
         const materialName = audio.name;
         const localPath = buildAssetPath(draftFolder, draftId, "audio", materialName);
         // 使用辅助函数构建路径
-        if (draftFolder) {
+        if (draftFolder && remoteUrl) {
           audio.path = localPath;
         }
         
@@ -294,7 +294,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
           const localPath = buildAssetPath(draftFolder, draftId, "image", materialName);
           
           // 更新草稿路径
-          if (draftFolder) {
+          if (draftFolder && remoteUrl) {
             video.path = localPath;
           }
           
@@ -303,7 +303,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
           const localPath = buildAssetPath(draftFolder, draftId, "video", materialName);
 
           // 更新草稿路径
-          if (draftFolder) {
+          if (draftFolder && remoteUrl) {
             video.path = localPath;
           }
           
@@ -355,6 +355,137 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
             localPath, 
             { retry: 3, timeout: 180000, context: 'text_template' } // 额外选项
         );
+      }
+    }
+
+    // --- 新增：收集预设/复合片段里的下载任务 (script.materials.drafts) ---
+    const nestedDrafts = script.materials.drafts;
+    if (nestedDrafts && nestedDrafts.length > 0) {
+      for (const draftItem of nestedDrafts) {
+        // 访问嵌套的 draft 对象，兼容对象或字典的取值方式
+        const nestedDraft = draftItem.draft; // 假设JS中访问嵌套对象可以直接用 .draft
+        if (!nestedDraft) {
+          continue;
+        }
+
+        const materials = nestedDraft.materials;
+        if (!materials) {
+          continue;
+        }
+
+        // 💡 注意：在 nested draft 中，路径使用 .path 和 .replace_path 都可以，这里我们统一用 .path 
+        // 并在 draftFolder 存在时更新。
+
+        // 1. 收集嵌套音频下载任务
+        const nestedAudios = materials.audios;
+        if (nestedAudios && nestedAudios.length > 0) {
+          for (const audio of nestedAudios) {
+            const remoteUrl = audio.remote_url;
+            // material_name 在 Python 中兼容了 name，这里也兼容
+            const materialName = audio.material_name || audio.name; 
+            const localPath = buildAssetPath(draftFolder, draftId, "audio", materialName);
+
+            if (draftFolder && materialName && remoteUrl) {
+              // 更新素材路径，为后续草稿写入做准备
+              audio.path = localPath; 
+            }
+
+            if (!remoteUrl) {
+              console.warn(`[Nested Draft] 音频文件 ${materialName} 没有 remote_url，跳过下载。`);
+              continue;
+            }
+
+            // 注意：这里需要确保 localPath 是实际下载路径，
+            // 假设 os.path.join(current_dir, f"{draft_id}/assets/audio/{material_name}")
+            // 等同于在你的 addTask 中使用 localPath 作为最终路径。
+            addTask('audio', audio, remoteUrl, localPath);
+          }
+        }
+
+        // 2. 收集嵌套视频和图片下载任务
+        const nestedVideos = materials.videos;
+        if (nestedVideos && nestedVideos.length > 0) {
+          for (const video of nestedVideos) {
+            const remoteUrl = video.remote_url;
+            const materialName = video.material_name;
+            // Python 代码中是 material_type，这里兼容 JS 原始代码的 type
+            const videoType = video.material_type || video.type; 
+
+            if (!remoteUrl) {
+              console.warn(`[Nested Draft] 视频/图片文件 ${materialName} 没有 remote_url，跳过下载。`);
+              continue;
+            }
+
+            if (videoType === 'photo') {
+              const localPath = buildAssetPath(draftFolder, draftId, "image", materialName);
+              if (draftFolder && materialName && remoteUrl) {
+                video.path = localPath;
+              }
+              addTask('image', video, remoteUrl, localPath);
+              
+            } else if (videoType === 'video') {
+              const localPath = buildAssetPath(draftFolder, draftId, "video", materialName);
+              if (draftFolder && materialName && remoteUrl) {
+                video.path = localPath;
+              }
+              addTask('video', video, remoteUrl, localPath);
+            }
+          }
+        }
+
+        // 3. 收集嵌套花字特效下载任务
+        const nestedEffects = materials.filters;
+        if (nestedEffects && nestedEffects.length > 0) {
+          for (const effect of nestedEffects) {
+            // 假设 TextEffect 是一个可识别的 type 字段
+            if (effect.type === 'TextEffect') {
+              const effectId = effect.effect_id;
+              
+              // 更新草稿路径
+              effect.path = buildAssetPath(draftFolder, draftId, "artistEffect", effectId);
+              
+              // 实际下载路径
+              const localZipPath = path.join(draftPath, "assets", "artistEffect", `${effectId}.zip`);
+
+              // 异步获取下载链接
+              const downloadUrl = await downloader.getArtistEffectDownloadUrl(effectId, apiKey);
+              
+              if (downloadUrl) {
+                addTask(
+                  'text_effect', 
+                  effect, 
+                  downloadUrl, 
+                  localZipPath, 
+                  { retry: 3, timeout: 180000, context: 'text_artist' }
+                );
+              } else {
+                console.warn(`[Nested Draft] 花字特效 ${effectId} 获取下载链接失败，跳过下载。`);
+              }
+            }
+          }
+        }
+
+        // 4. 收集嵌套文本模板下载任务
+        const nestedTextTemplates = materials.text_templates;
+        if (nestedTextTemplates && nestedTextTemplates.length > 0) {
+          for (const template of nestedTextTemplates) {
+            const effectId = template.effect_id;
+            if (!effectId) continue;
+            
+            const downloadUrl = `https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/text_template/${effectId}/${effectId}.zip`;
+            const localZipPath = path.join(draftPath, "assets", "textTemplate", `${effectId}.zip`);
+
+            // 文本模板不需要提前更新 path，下载完成后会解压到对应目录
+            
+            addTask(
+                'text_template', 
+                template, 
+                downloadUrl, 
+                localZipPath, 
+                { retry: 3, timeout: 180000, context: 'text_template' }
+            );
+          }
+        }
       }
     }
 
