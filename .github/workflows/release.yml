@@ -156,7 +156,7 @@ jobs:
   # 任务 4: 流程终点，并将 Release 草稿发布
   release-complete:
     runs-on: ubuntu-latest
-    if: always() 
+    if: startsWith(github.ref, 'refs/tags/') && needs.build-and-upload-mac.result == 'success' && needs.build-and-upload-win.result == 'success'
     # 依赖所有构建/上传任务
     needs: [build-and-upload-mac, build-and-upload-win] 
     permissions:
