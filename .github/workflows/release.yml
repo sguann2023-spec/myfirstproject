@@ -54,7 +54,6 @@ jobs:
   create-release-draft:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    needs: create-tag # 确保 Tag 已创建
     permissions:
       contents: write
     steps:
