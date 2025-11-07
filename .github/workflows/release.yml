@@ -48,64 +48,92 @@ jobs:
               })
               console.log(`Created tag ${tagName} at ${sha}`)
             }
-
-  # 任务 2: 构建并直接发布到公共仓库 Release
-  # 关键更改：移除 Artifact 步骤，直接在构建机上执行 Release 上传
-  build-and-release-asset:
-    runs-on: ${{ matrix.os }}
+  
+  # 任务 2A: macOS 构建并负责创建 Release 和上传 macOS 资产
+  build-and-release-mac:
+    runs-on: macos-latest # 锁定为 macOS
     if: startsWith(github.ref, 'refs/tags/')
-    # 确保写入公共仓库的权限
     permissions:
       contents: write 
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
-        node-version: [24.x]
+        node-version: [24.x] # Node 版本矩阵保持不变
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'yarn'
-    
-    - name: Install dependencies
-      run: yarn install --frozen-lockfile
-    
-    - name: Build application
-      id: build
-      run: |
-        if [ "${{ matrix.os }}" == "macos-latest" ]; then
-          yarn build:mac --universal
-        else
-          yarn build:win
-        fi
-      shell: bash
-      env:
-        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      - uses: actions/checkout@v4
+      
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
+      
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      
+      - name: Build Mac application
+        run: yarn build:mac --universal
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-    # 替换上传 Artifact 的步骤：直接上传到 Release Asset
-    - name: Upload Release Asset to Public Repo
-      uses: softprops/action-gh-release@v2
-      with:
-        # 使用具有公共仓库写入权限的 Token
-        token: ${{ secrets.GH_TOKEN }} 
-        # 指定目标公共仓库
-        repository: sun-guannan/CapCutMaker 
-        # **重要：** 必须指定要上传的文件。
-        files: |
-          build/*.zip
-          build/*.dmg
-          build/*.exe
-          build/latest*.yml
-        
-        # 使用 upload_assets_only: true 意味着它不会尝试创建新的 Release，
-        # 它只会将文件附加到现有的 Tag/Release 上。
-        upload_assets_only: true
-        tag_name: ${{ github.ref }} # 使用当前 Tag 名称附加文件
-  
+      # 关键步骤 1: 创建 Release 并上传 macOS 资产
+      # 由于没有 upload_assets_only: true，此任务会负责创建 Release
+      - name: Create or Update Release (macOS)
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }} 
+          repository: sun-guannan/CapCutMaker 
+          # 只上传 macOS 相关的资产
+          files: |
+            build/*.zip
+            build/*.dmg
+            build/latest-mac.yml 
+          tag_name: ${{ github.ref }} # 使用当前 Tag 名称
+
+  # 任务 2B: Windows 构建并附加 Windows 资产
+  build-and-release-win:
+    runs-on: windows-latest # 锁定为 Windows
+    if: startsWith(github.ref, 'refs/tags/')
+    # 强制依赖 macOS 任务，确保 Release 已被创建
+    needs: build-and-release-mac 
+    permissions:
+      contents: write 
+    strategy:
+      matrix:
+        node-version: [24.x] # Node 版本矩阵保持不变
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
+      
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      
+      - name: Build Windows application
+        run: yarn build:win
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      # 关键步骤 2: 附加 Windows 资产
+      # Release 已经存在，此任务只会附加文件，从而解决竞争条件
+      - name: Attach Assets to Existing Release (Windows)
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }} 
+          repository: sun-guannan/CapCutMaker 
+          # 只上传 Windows 相关的资产
+          files: |
+            build/*.exe
+            build/latest.yml
+          tag_name: ${{ github.ref }} 
+
   # 任务 3: 确保所有构建完成后，仅用于依赖管理和后续流程（例如通知）。
   # **此任务不再下载或上传任何大文件，它只是一个流程的终点。**
   release-complete:
