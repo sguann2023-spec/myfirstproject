@@ -138,12 +138,12 @@ jobs:
   # **此任务不再下载或上传任何大文件，它只是一个流程的终点。**
   release-complete:
     runs-on: ubuntu-latest
-    if: always() # 即使 Job 2 失败，也要记录完成情况
-    needs: [build-and-release-asset] # 依赖所有构建任务
+    if: always() 
+    # 依赖两个构建/发布任务
+    needs: [build-and-release-mac, build-and-release-win] 
     steps:
       - name: Release Process Finished
         run: echo "All assets for ${{ github.ref }} should now be uploaded to CapCutMaker Release."
-
   # # 发布到GitHub Packages
   # publish-package:
   #   needs: [create-release, release]
