@@ -11,6 +11,10 @@ const { autoUpdater } = require('electron-updater');
 const axios = require('axios');
 const crypto = require('crypto'); // 添加crypto模块
 
+// 添加 electron-store 引入
+const Store = require('electron-store');
+const store = new Store();
+
 // 添加 i18next 相关依赖
 const i18next = require('i18next');
 const Backend = require('i18next-fs-backend');
@@ -149,11 +153,13 @@ ipcMain.on('restart-and-update', () => {
   autoUpdater.quitAndInstall();
 });
 
+const savedLanguage = store.get('language') || 'zh';
+
 function createWindow() {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 320,
+    height: 450,
     icon: path.join(__dirname, 'src/logo.png'),
     webPreferences: {
       nodeIntegration: true,
@@ -163,15 +169,25 @@ function createWindow() {
       allowRunningInsecureContent: true, // 允许运行不安全内容
       additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`]
     },
-    autoHideMenuBar: true
+    autoHideMenuBar: true,
+    frame: false, // 移除系统边框
+    transparent: true, // 使窗口透明
+    // macOS 专用：隐藏标题栏，但保留交通灯按钮浮动在您的内容上
+    titleBarStyle: 'hidden', 
+    
+    // Windows 专用：创建一个覆盖层，包含系统按钮
+    // 在 Windows 上，这将创建一个默认 30px 高的覆盖层
+    titleBarOverlay: true, 
+    
+    // 可选：自定义 macOS 交通灯按钮的位置 (相对于窗口左上角)
+    trafficLightPosition: { x: 12, y: 10 }, 
   });
   const isDev = process.env.NODE_ENV === 'development';
 
+
   if (isDev) {
-    // 在开发模式下，webpack --watch 会将文件输出到 dist 目录
     mainWindow.loadFile('dist/index.html');
   } else {
-    // 生产环境，加载dist目录下的index.html
     mainWindow.loadFile('dist/index.html');
   }
 
@@ -272,11 +288,32 @@ if (!gotTheLock) {
 app.setAsDefaultProtocolClient('capcutmaker');
 
 // 添加IPC监听器来处理从渲染进程发送的参数
-// 在文件顶部添加 electron-store 引入
-const Store = require('electron-store');
-const store = new Store();
 
 // store.clear()
+
+// 添加 IPC 监听器来处理登录成功
+ipcMain.on('login-success', () => {
+    console.log('Login successful. Loading main application...');
+    // 登录成功后，加载主应用页面
+    if (isDev) {
+        mainWindow.loadFile('dist/index.html');
+    } else {
+        mainWindow.loadFile('dist/index.html');
+    }
+    // 可以调整窗口大小以适应主应用
+    mainWindow.setSize(1200, 800, true);
+    mainWindow.center();
+});
+
+ipcMain.on('close-window', () => mainWindow.close());
+ipcMain.on('minimize-window', () => mainWindow.minimize());
+ipcMain.on('maximize-window', () => {
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
+});
 
 // 添加保存设置的IPC监听器
 ipcMain.on('save-settings', (event, settings) => {
@@ -292,6 +329,9 @@ ipcMain.on('save-settings', (event, settings) => {
   }
   if (settings.apiHost !== undefined) {
     store.set('apiHost', settings.apiHost);
+  }
+  if (settings.language !== undefined) {
+    store.set('language', settings.language);
   }
 });
 
