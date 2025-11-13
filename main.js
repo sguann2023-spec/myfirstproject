@@ -365,38 +365,6 @@ ipcMain.on('process-parameters', async (event, params) => {
 
     console.log('currentApiKeyHash:', currentApiKeyHash);
     
-    // 如果有api_key_hash，则调用copy_draft接口
-    if (api_key_hash && api_key_hash !== currentApiKeyHash) {
-      try {
-        // 添加复制中的提示
-        progressCallback(0, i18next.t('copying_draft'), null);
-        
-        const copyResponse = await axios.post(`${apiHost}/copy_draft`, {
-          source_api_key_hash: api_key_hash,
-          source_draft_id: draft_id
-        }, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`
-          }
-        });
-        
-        console.log('Copy draft response:', copyResponse.data);
-        
-        if (copyResponse.data.code === 200) {
-          // 复制成功，继续下载
-          console.log('Draft copied successfully');
-          progressCallback(0, i18next.t('copy_draft_success'), null);
-        } else {
-          // 复制失败，返回错误
-          throw new Error(`Copy draft failed: ${copyResponse.data.message}`);
-        }
-      } catch (copyError) {
-        console.error('Copy draft error:', copyError);
-        event.reply('download-error', copyError.message || i18next.t('copy_draft_failed'));
-        return;
-      }
-    }
-    
     // 创建工作线程来处理下载任务
     const worker = new Worker(path.join(__dirname, 'util/downloadWorker.js'), {
       workerData: {
