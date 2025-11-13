@@ -1,0 +1,81 @@
+.home-container {
+  height: 100%;
+  width: 100%;
+  background-color: #E4E3E2;
+  /* 作为占位的空白页面，这里先不放任何内容和样式 */
+}
+
+
+/* 内容区域：三栏布局，禁用拖拽以允许点击交互 */
+.home-content {
+  position: absolute;
+  top: 40px;          /* 顶部留给拖动条（需与拖动条高度一致） */
+  left: 4px;
+  right: 4px;
+  bottom: 4px;        /* 贴底对齐父容器 */
+  background-color: transparent;
+  display: flex;
+  border-radius: 8px;
+  gap: 1px;
+  overflow: hidden;
+}
+
+
+.home-header {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+}
+
+/* 圆形头像 */
+.header-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  margin-left: 80px;
+  border: 1px solid #ffffff;  /* 白色描边 */
+}
+
+/* 用户名与欢迎语 */
+.header-username {
+  font-size: 14px;
+  font-weight: 500;
+  margin-left: 8px;
+  color: #000000;
+
+}
+
+.header-welcome {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 6px;
+  color: #5B5B5B;
+}
+
+
+/* 栏通用样式（当前用红色边框便于检查布局） */
+.column {
+  height: 100%;
+  background: transparent;
+}
+
+/* 三栏尺寸：左侧窄，中间中等，右侧自适应 */
+.left-pane {
+  width: 52px;
+  background-color: #F5F5F5;
+}
+
+.center-pane {
+  width: 250px;
+  background-color: #F5F5F5;
+}
+
+.right-pane {
+  flex: 1;
+  min-width: 0;     /* 允许内容正确收缩 */
+  overflow: auto;   /* 详情区域超出时可滚动 */
+  background-color: #F5F5F5;
+}

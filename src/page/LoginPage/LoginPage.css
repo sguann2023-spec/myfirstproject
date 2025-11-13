@@ -22,6 +22,97 @@ body {
     animation: gradientShift 10s ease infinite; /* 动画名称 | 时长 | 缓动函数 | 循环 */
 }
 
+.qq-logo {
+    /* 1. 定义一个蓝紫色调的渐变背景 */
+    background: linear-gradient(90deg, #b974f9, #6A5ACD, #6389fa);
+    
+    /* 2. 核心：将背景裁剪到文字的形状 */
+    -webkit-background-clip: text;
+    background-clip: text;
+    
+    /* 3. 使文字本身透明，露出裁剪后的背景 */
+    -webkit-text-fill-color: transparent;
+    color: transparent; 
+    
+    /* 4. 可选：设置文字大小和粗细，让渐变更明显 */
+    font-size: 32px; /* 调整为您 Typography.Title level=2 对应的大小 */
+    font-weight: 700;
+    
+    /* 5. 可选：让文字渐变也动起来 (如果需要，可取消注释) */
+    background-size: 200% auto;
+    animation: logoGradientFlow 3s linear infinite;
+
+    font-weight: 300 !important;
+    padding-top: 20px;
+    text-align: center;
+
+}
+
+.logo-avatar {
+  width: 96px;           /* 圆的直径（保持不变） */
+  height: 96px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;  /* 白色描边 */
+  overflow: hidden;      /* 裁剪内部图片 */
+  box-sizing: border-box;
+  margin: 24px auto 0;        /* 水平居中 */
+}
+
+/* 内部图片：占满容器并放大 */
+.logo-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.5); /* 放大比例，可按需调整 */
+  transform-origin: center center;
+  display: block;
+}
+/* 头像与用户名的包裹容器：相对定位，便于将用户名绝对定位到头像下方 */
+.avatar-section {
+  position: relative;
+  width: 110px;         /* 与 .logo-avatar 相同直径 */
+  margin: 24px auto 0;  /* 保持原来头像的上边距与居中 */
+}
+
+/* 用户名：绝对定位，不占文档流空间 */
+.user-name-text {
+  position: absolute;
+  top: calc(100%);  /* 距离头像底部 10px，可按需调整 */
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;               /* 不再用 margin 参与外部间距 */
+  font-size: 18px;
+  font-weight: 600;
+  color: #000000;
+}
+
+/* 登录按钮保持原样，margin-top 将只基于 avatar-section 生效 */
+.login-button {
+  display: block;                 /* 让 margin: auto 生效 */
+  height: 40px;
+  width: 260px !important;
+  line-height: 35px;              /* 文本垂直居中 */
+  border-radius: 8px !important;
+  font-size: 16px !important;
+  background-color: #0099FF !important;
+  color: #fff !important;
+  margin: 106px auto 0;            /* 居中 + 顶部间距 */
+}
+.login-button > span {
+  letter-spacing: 0px !important;
+  word-spacing: 0px !important;
+}
+/* 提高优先级，覆盖 AntD 默认边框与状态色 */
+.login-button.ant-btn {
+  border: none;
+}
+
+.login-button.ant-btn:hover,
+.login-button.ant-btn:focus {
+  background-color: #0086e6 !important;
+  color: #fff !important;
+}
+
 /* 确保所有父级元素都占据 100% 的窗口高度 */
 html, body, #root {
     height: 100%;
@@ -55,4 +146,29 @@ html, body, #root {
 .control-button.ant-btn-text:focus,
 .control-button.ant-btn-text:active {
     background-color: transparent !important;
+}
+
+.user-name-text {
+  display: block;              /* span -> block，否则 auto 不生效 */
+  width: max-content;          /* 宽度随内容，便于居中 */
+  margin: 16px auto 0;         /* 水平居中 + 顶部间距 */
+  font-size: 18px;
+  font-weight: 500;
+  color: #000000;
+}
+
+/* 登录按钮下的“切换账号” */
+.switch-account {
+  display: block;              /* 让 margin: auto 生效实现水平居中 */
+  width: max-content;          /* 收缩到文本宽度 */
+  margin: 38px auto;         /* 底部 12px 间距 + 水平居中 */
+  color: #4275DE;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-app-region: no-drag; /* 确保可点击 */
+}
+
+.switch-account:hover {
+  color: #0086e6;
 }

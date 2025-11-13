@@ -11,9 +11,10 @@ const { autoUpdater } = require('electron-updater');
 const axios = require('axios');
 const crypto = require('crypto'); // 添加crypto模块
 
-// 添加 electron-store 引入
 const Store = require('electron-store');
-const store = new Store();
+// const store = new Store();
+global.__ELECTRON_STORE__ = global.__ELECTRON_STORE__ || new Store({ name: 'capcuthelper', watch: true });
+const electronStore = global.__ELECTRON_STORE__;
 
 // 添加 i18next 相关依赖
 const i18next = require('i18next');
@@ -21,6 +22,8 @@ const Backend = require('i18next-fs-backend');
 
 // 初始化 i18next
 let i18n;
+
+let authWindow = null;
 
 function initI18n() {
     const isDev = process.env.NODE_ENV === 'development';
@@ -153,7 +156,7 @@ ipcMain.on('restart-and-update', () => {
   autoUpdater.quitAndInstall();
 });
 
-const savedLanguage = store.get('language') || 'zh';
+const savedLanguage = electronStore.get('language') || 'zh';
 
 function createWindow() {
   // 创建浏览器窗口
@@ -319,28 +322,28 @@ ipcMain.on('maximize-window', () => {
 ipcMain.on('save-settings', (event, settings) => {
   console.log('保存设置:', settings);
   if (settings.draftFolder) {
-    store.set('draftFolder', settings.draftFolder);
+    electronStore.set('draftFolder', settings.draftFolder);
   }
   if (settings.isCapcut !== undefined) {
-    store.set('isCapcut', settings.isCapcut);
+    electronStore.set('isCapcut', settings.isCapcut);
   }
   if (settings.apiKey !== undefined) {
-    store.set('apiKey', settings.apiKey);
+    electronStore.set('apiKey', settings.apiKey);
   }
   if (settings.apiHost !== undefined) {
-    store.set('apiHost', settings.apiHost);
+    electronStore.set('apiHost', settings.apiHost);
   }
   if (settings.language !== undefined) {
-    store.set('language', settings.language);
+    electronStore.set('language', settings.language);
   }
 });
 
 // 修改获取设置的IPC处理函数
 ipcMain.handle('get-draft-folder', () => {
-  const draftFolder = store.get('draftFolder', ''); // 默认为空字符串
-  const isCapcut = store.get('isCapcut', true); // 默认为true
-  const apiKey = store.get('apiKey', ''); // 默认为空字符串
-  const apiHost = store.get('apiHost', DEFAULT_HOST); // 默认API Host
+  const draftFolder = electronStore.get('draftFolder', ''); // 默认为空字符串
+  const isCapcut = electronStore.get('isCapcut', true); // 默认为true
+  const apiKey = electronStore.get('apiKey', ''); // 默认为空字符串
+  const apiHost = electronStore.get('apiHost', DEFAULT_HOST); // 默认API Host
   
   return {
     draftFolder: draftFolder,
@@ -371,13 +374,13 @@ ipcMain.on('process-parameters', async (event, params) => {
     
     // 设置草稿文件夹路径，如果提供了新路径则保存到 store 中
     if (draft_folder) {
-      store.set('draftFolder', draft_folder);
+      electronStore.set('draftFolder', draft_folder);
     }
     
     // 从 store 中获取保存的路径，如果没有则使用默认路径
-    const draftFolder = store.get('draftFolder') || path.join(__dirname, 'drafts');
-    const apiKey = store.get('apiKey', '');
-    const apiHost = store.get('apiHost', DEFAULT_HOST);
+    const draftFolder = electronStore.get('draftFolder') || path.join(__dirname, 'drafts');
+    const apiKey = electronStore.get('apiKey', '');
+    const apiHost = electronStore.get('apiHost', DEFAULT_HOST);
     
     // 确保草稿文件夹存在
     if (!fs.existsSync(draftFolder)) {
@@ -557,7 +560,110 @@ ipcMain.on('check-file-existence', (event, { id, expectedPath }) => { // 移除 
     }
 });
 
+
+function safeCloseAuthWindow() {
+  const win = authWindow;
+  if (!win) return;
+  try {
+    if (!win.isDestroyed()) win.close();
+  } catch (e) {
+    console.warn('[Main] safeCloseAuthWindow close error:', e);
+  } finally {
+    authWindow = null;
+  }
+}
+
+/**
+ * 监听渲染进程请求打开一个独立的子窗口并加载 URL。
+ * 此窗口用于加载 Authing Guard 登录页面。
+ */
+ipcMain.on('open-auth-guard-window', (event, authUrl) => {
+    // 1. 关闭任何旧的登录窗口
+    if (authWindow) {
+      safeCloseAuthWindow()
+    }
+
+    // 2. 创建子窗口
+    authWindow = new BrowserWindow({
+        width: 420,
+        height: 550,
+        show: false,
+        parent: mainWindow, // 设为主窗口的子窗口
+        modal: false,
+        resizable: false,
+        frame: true, // 用户可以自己关闭
+        titleBarStyle: 'default', // 显式设置为 'default' 或 'hiddenInset' (更美观)
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            webSecurity: true,
+        }
+    });
+    authWindow.on('closed', () => {
+        const refreshToken = electronStore.get('auth.refresh_token');
+        console.log('[Main] AuthWindow closed. storage refresh_token:', refreshToken);
+        safeCloseAuthWindow()
+    });
+
+    // 3. 监听导航事件，捕获 Guard 登录成功后的回调 URI
+    // Guard 登录成功后会重定向到您配置的回调 URL。
+    authWindow.webContents.on('will-redirect', (event, url) => {
+        const AUTHING_REDIRECT_URI = 'https://localhost/authing-guard-callback'; // 必须与 Guard 配置一致
+        const urlObj = new URL(url);
+        const EXPECTED_HOSTNAME = 'localhost';
+        const EXPECTED_PATHNAME = '/authing-guard-callback';
+
+        if (urlObj.hostname === EXPECTED_HOSTNAME && urlObj.pathname === EXPECTED_PATHNAME) {
+            event.preventDefault();
+            
+            // 捕获授权码 Code (或 token/error)
+            const urlObj = new URL(url);
+            const code = urlObj.searchParams.get('code');
+            
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                if (code) {
+                    mainWindow.webContents.send('guard-auth-code', code);
+                } else if (urlObj.searchParams.has('error')) {
+                    mainWindow.webContents.send('guard-auth-error', urlObj.searchParams.get('error'));
+                }
+            }
+
+            if (authWindow && !authWindow.isDestroyed()) {
+                safeCloseAuthWindow()
+            }
+
+            // if (code) {
+            //     // 将 code 发送回主窗口的渲染进程
+            //     mainWindow.webContents.send('guard-auth-code', code);
+            // } else if (urlObj.searchParams.has('error')) {
+            //     mainWindow.webContents.send('guard-auth-error', urlObj.searchParams.get('error'));
+            // }
+
+            // // 关闭登录窗口
+            // authWindow.close();
+            // authWindow = null;
+        }
+    });
+
+    // 4. 加载 Authing 授权 URL
+    authWindow.loadURL(authUrl);
+    authWindow.show();
+});
+
 // 计算API密钥的SHA-256哈希值
 function hashApiKey(apiKey) {
   return crypto.createHash('sha256').update(apiKey).digest('hex');
 }
+
+ipcMain.on('resize-main-window', (event, { width, height }) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const w = Number(width);
+      const h = Number(height);
+      mainWindow.setSize(w, h);
+      mainWindow.center();
+    }
+  } catch (e) {
+    console.warn('[Main] resize-main-window failed:', e);
+  }
+});
