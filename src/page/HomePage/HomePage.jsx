@@ -27,7 +27,7 @@ const HomePage = () => {
   }, []);
 
   return (
-    <div className="home-container" style={{ WebkitAppRegion: 'drag' }}>
+    <div className="home-container" style={{ WebkitAppRegion: 'no-drag' }}>
         <div className="home-header">
             <img src={avatarSrc} alt="avatar" className="header-avatar" />
             <span className="header-username">{userName}</span>
