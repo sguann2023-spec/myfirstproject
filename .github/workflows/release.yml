@@ -161,6 +161,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Wait 60 seconds for asset processing
+        run: sleep 60
+        shell: bash
+
       - name: Publish Final Release
         uses: softprops/action-gh-release@v2
         with:
