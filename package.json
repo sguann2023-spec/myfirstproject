@@ -1,6 +1,6 @@
 {
   "name": "@sun-guannan/capcutmaker",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "CapCut Helper Application",
   "main": "main.js",
   "scripts": {
@@ -54,7 +54,7 @@
         "**/*.node"
       ],
       "icon": "src/logo.icns",
-      "artifactName": "Pipet-${version}-${arch}",
+      "artifactName": "Pipet-${version}-${arch}.${ext}",
       "target": [
         {
           "target": "dmg",
