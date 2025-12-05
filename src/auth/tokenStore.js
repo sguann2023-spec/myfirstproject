@@ -1,6 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { getStorage, setStorage, removeStorage } from './storage';
 import { refreshTokensRequest } from './authClient';
+import logger from '../shared/logger';
 
 class TokenStore {
   idToken = null;
@@ -33,7 +34,7 @@ class TokenStore {
 
     if (refreshToken) {
       this.refreshToken = refreshToken;
-      console.log('set refreshToken', refreshToken);
+      logger.debug('set refreshToken', refreshToken);
       setStorage('auth.refresh_token', refreshToken);
     }
   }
@@ -90,8 +91,8 @@ class TokenStore {
     }
   }
   async refreshAccessToken() {
-      console.log('refreshAccessToken');
-      console.log('refreshToken', getStorage('auth.refresh_token'));
+      logger.debug('refreshAccessToken');
+      logger.debug('refreshToken', getStorage('auth.refresh_token'));
 
       // 兜底：刷新前确保 refreshToken 可用
       const rt = this.refreshToken || getStorage('auth.refresh_token');

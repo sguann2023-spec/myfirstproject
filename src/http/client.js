@@ -1,5 +1,6 @@
 import { authFetch } from '../auth/authFetch';
 import { tokenStore } from '../auth'; // 统一从 index 导入
+import logger from '../shared/logger';
 
 let authFailureHandler = null;
 
@@ -14,8 +15,6 @@ async function request(url, options = {}, retryOn401 = true) {
   // 首次请求（会自动附加 access_token）
   let res = await authFetch(url, options);
 
-  console.log('res', res);
-
   // 非 401 或400 或不重试，直接返回
   if ((res.status !== 401 && res.status !== 400) || !retryOn401) return res;
 
@@ -24,7 +23,7 @@ async function request(url, options = {}, retryOn401 = true) {
     await tokenStore.refreshAccessToken();
   } catch (err) {
     // 刷新失败：清理并通知外部打开登录页
-    console.log('Token refresh failed:', err);
+    logger.debug('Token refresh failed:', err);
     tokenStore.signOut();
     if (authFailureHandler) authFailureHandler(err);
     throw err;

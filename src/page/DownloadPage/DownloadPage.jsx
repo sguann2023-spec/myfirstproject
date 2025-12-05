@@ -93,6 +93,23 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
             }
         });
 
+        // 监听设置变更广播，实现实时联动
+        ipcRenderer.on('settings-updated', (event, updated) => {
+            if (updated.draftFolder !== undefined) setDraftFolder(updated.draftFolder);
+            if (updated.isCapcut !== undefined) setIsCapcut(updated.isCapcut);
+            if (updated.apiHost !== undefined) {
+                setApiHost(updated.apiHost);
+                setTempApiHost(updated.apiHost);
+            }
+            if (updated.apiKey !== undefined) {
+                setTempApiKey(updated.apiKey);
+                if (updated.apiKey !== apiKey && onUpdateApiKey) {
+                    onUpdateApiKey(updated.apiKey);
+                }
+            }
+            // 如需联动语言，可在入口统一处理
+        });
+
         ipcRenderer.on('protocol-url', (event, url) => {
             const parsedData = parseUrlParams(url);
             if (parsedData.params && parsedData.params.draft_id) {

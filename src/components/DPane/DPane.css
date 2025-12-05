@@ -12,6 +12,24 @@
   background: transparent;
 }
 
+/* 🚀 新样式：顶部图标组 - 默认靠顶部，无特殊 margin */
+.d-pane-top-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+}
+
+/* 🚀 新样式：底部图标组 - 关键样式！使用 margin-top: auto 将其推到底部 */
+.d-pane-bottom-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-top: auto; 
+    margin-bottom: 8px;
+}
+
 /* 仅图标悬停：圆角灰底，符合参考图 */
 .d-pane-icon {
   width: 22px;
@@ -27,8 +45,7 @@
 }
 
 .d-pane-body {
-  width: 100%;
-  height: 100%;
+  display: none;
 }
 
 /* 图标 + Tip 容器：用于定位 tip */
@@ -37,6 +54,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* 新增：下载队列角标样式（红底白字 + 白色外环） */
+.d-pane-badge {
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  padding: 2px 4px;
+  min-width: 10px;
+  color: white;
+  border-radius: 9px;
+  background: #E4593E;
+  font-size: 11px;
+  text-align: center;
+  z-index: 20;
 }
 
 /* 右侧 Tip：默认隐藏，悬停时显示到图标右侧 */

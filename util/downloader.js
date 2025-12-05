@@ -4,6 +4,7 @@ const axios = require('axios');
 const { promisify } = require('util');
 const AdmZip = require('adm-zip');
 const { log } = require('console');
+const logger = require('../src/shared/logger');
 
 /**
  * 通过 HEAD 请求获取文件大小
@@ -22,7 +23,7 @@ async function getFileSize(url) {
         const totalSize = parseInt(response.headers['content-length'] || 0, 10);
         return isNaN(totalSize) ? 0 : totalSize;
     } catch (error) {
-        console.error(`无法通过 HEAD 获取文件大小 ${url}: ${error.message}`);
+        logger.error(`无法通过 HEAD 获取文件大小 ${url}: ${error.message}`);
         // 尝试 GET 请求获取 Content-Length (但不下载 body)
         try {
             const response = await axios.get(url, {
@@ -37,41 +38,6 @@ async function getFileSize(url) {
         } catch (e) {
              return 0; // 无法获取大小，返回 0
         }
-    }
-}
-
-async function getArtistEffectDownloadUrl(effectId, apiKey) {
-    const apiUrl = `https://open.capcutapi.top/cut_jianying/artist/get_artist_item?id=${effectId}`;
-    const headers = {
-        "Authorization": `Bearer ${apiKey}`
-    };
-
-    try {
-        const response = await axios.post(apiUrl, {}, { headers });
-        const result = response.data;
-
-        if (result && result.status_code === 200) {
-            const data = result.data && result.data.data ? result.data.data : {};
-            const effectItems = data.effect_item_list || [];
-
-            if (effectItems.length > 0) {
-                const itemUrls = effectItems[0].common_attr && effectItems[0].common_attr.item_urls ? effectItems[0].common_attr.item_urls : [];
-                if (itemUrls.length > 0) {
-                    return itemUrls[0];
-                }
-            }
-        }
-
-        console.log(`无法获取花字特效 ${effectId} 的下载链接`);
-        return null;
-
-    } catch (error) {
-        if (error.response) {
-            console.log(`请求花字特效API失败: ${error.message}`);
-        } else {
-            console.log(`处理花字特效API响应时出错: ${error.message}`);
-        }
-        return null;
     }
 }
 
@@ -95,17 +61,17 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
         // 创建目标目录（如果不存在）
         if (directory && !fs.existsSync(directory)) {
             await fs.promises.mkdir(directory, { recursive: true });
-            console.log(`Created directory: ${directory}`);
+            logger.debug(`Created directory: ${directory}`);
         }
         
-        console.log(`Copying local file: ${url} to ${localFilename}`);
+        logger.debug(`Copying local file: ${url} to ${localFilename}`);
         const startTime = Date.now();
         
         // 复制文件
         await fs.promises.copyFile(url, localFilename);
         
-        console.log(`Copy completed in ${(Date.now() - startTime) / 1000} seconds`);
-        console.log(`File saved as: ${path.resolve(localFilename)}`);
+        logger.debug(`Copy completed in ${(Date.now() - startTime) / 1000} seconds`);
+        logger.debug(`File saved as: ${path.resolve(localFilename)}`);
         return true;
     }
     
@@ -125,16 +91,16 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
         try {
             if (retries > 0) {
                 const waitTime = Math.pow(2, retries);  // 指数退避策略
-                console.log(`Retrying in ${waitTime} seconds... (Attempt ${retries+1}/${maxRetries})`);
+                logger.debug(`Retrying in ${waitTime} seconds... (Attempt ${retries+1}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             }
             
-            console.log(`Downloading file: ${localFilename}`);
+            logger.debug(`Downloading file: ${localFilename}`);
             
             // 创建目录（如果不存在）
             if (directory && !fs.existsSync(directory)) {
                 await fs.promises.mkdir(directory, { recursive: true });
-                console.log(`Created directory: ${directory}`);
+                logger.debug(`Created directory: ${directory}`);
             }
 
             // 增强请求头
@@ -173,12 +139,6 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
                 // 如果 totalSize 首次为 0 (例如 chunked transfer)，尝试使用 bytesWritten 作为估值，但主逻辑使用 0
                 totalSize = parseInt(response.headers['content-length'] || 0); 
                 progressCallback(bytesWritten, totalSize);
-                
-                if (totalSize > 0) {
-                    const progress = bytesWritten / totalSize * 100;
-                    // 保留控制台日志输出用于调试
-                    process.stdout.write(`\r[PROGRESS] ${progress.toFixed(2)}% (${(bytesWritten/1024).toFixed(2)}KB/${(totalSize/1024).toFixed(2)}KB)`);
-                }
             });
             
             await new Promise((resolve, reject) => {
@@ -196,7 +156,7 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
 
             // 保持原有的图片小文件 fallback 逻辑
             if (isImage && finalDownloadedSize < 2048) {
-                console.log(`Downloaded image size is suspiciously small (${finalDownloadedSize} bytes). Attempting fallback download.`);
+                logger.debug(`Downloaded image size is suspiciously small (${finalDownloadedSize} bytes). Attempting fallback download.`);
                 const fallbackHeaders = {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 };
@@ -221,7 +181,7 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
                 progressCallback(fallbackSize, fallbackSize); // 更新最终大小
             }
             
-            console.log(`\nFile saved as: ${path.resolve(localFilename)}`);
+            // logger.debug(`\nFile saved as: ${path.resolve(localFilename)}`);
 
             // if (isArtistEffectZip) {
             //     await unzipAndCleanup(localFilename);
@@ -234,13 +194,13 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
                 
         } catch (error) {
             if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
-                console.log(`Download timed out after ${timeout/1000} seconds`);
+                logger.debug(`Download timed out after ${timeout/1000} seconds`);
                 lastError = new Error(`Download timed out after ${timeout/1000}s for URL: ${url}`);
             } else if (error.response) {
-                console.log(`Request failed with status ${error.response.status}: ${error.message}`);
+                logger.debug(`Request failed with status ${error.response.status}: ${error.message}`);
                 lastError = new Error(`Request failed with status ${error.response.status} for URL: ${url}. Details: ${error.message}`);
             } else {
-                console.log(`Unexpected error during download: ${error.message}`);
+                logger.debug(`Unexpected error during download: ${error.message}`);
                 lastError = error; // 捕获原始错误对象
             }
             
@@ -248,7 +208,7 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
         }
     }
     
-    console.log(`Download failed after ${maxRetries} attempts for URL: ${url}`);
+    logger.debug(`Download failed after ${maxRetries} attempts for URL: ${url}`);
 
     // 如果所有重试都失败了，抛出最后一次的错误，或者一个通用的失败信息
     if (lastError) {
@@ -266,20 +226,20 @@ async function unzipAndCleanup(zipFilePath) {
     try {
         const zip = new AdmZip(zipFilePath);
         zip.extractAllTo(extractPath, true);
-        console.log(`Successfully unzipped text template: ${zipFilePath}`);
+        logger.debug(`Successfully unzipped text template: ${zipFilePath}`);
         
         // 递归删除__MACOSX文件夹
         const macosxDir = path.join(extractPath, '__MACOSX');
         if (fs.existsSync(macosxDir)) {
             fs.rmSync(macosxDir, { recursive: true, force: true });
-            console.log(`Removed __MACOSX directory from ${extractPath}`);
+            logger.debug(`Removed __MACOSX directory from ${extractPath}`);
         }
 
         // 删除原始zip文件
         fs.unlinkSync(zipFilePath);
-        console.log(`Removed original zip file: ${zipFilePath}`);
+        logger.debug(`Removed original zip file: ${zipFilePath}`);
     } catch (e) {
-        console.error(`Failed to unzip text template ${zipFilePath}: ${e.message}`, e);
+        logger.error(`Failed to unzip text template ${zipFilePath}: ${e.message}`, e);
     }
 }
 
@@ -288,25 +248,24 @@ async function unzipTextTemplate(zipFilePath) {
     try {
         const zip = new AdmZip(zipFilePath);
         zip.extractAllTo(extractPath, true);
-        console.log(`Successfully unzipped text template: ${zipFilePath}`);
+        logger.debug(`Successfully unzipped text template: ${zipFilePath}`);
         
         // 递归删除__MACOSX文件夹
         const macosxDir = path.join(extractPath, '__MACOSX');
         if (fs.existsSync(macosxDir)) {
             fs.rmSync(macosxDir, { recursive: true, force: true });
-            console.log(`Removed __MACOSX directory from ${extractPath}`);
+            logger.debug(`Removed __MACOSX directory from ${extractPath}`);
         }
 
         // 删除原始zip文件
         fs.unlinkSync(zipFilePath);
-        console.log(`Removed original zip file: ${zipFilePath}`);
+        logger.debug(`Removed original zip file: ${zipFilePath}`);
     } catch (e) {
-        console.error(`Failed to unzip text template ${zipFilePath}: ${e.message}`, e);
+        logger.error(`Failed to unzip text template ${zipFilePath}: ${e.message}`, e);
     }
 }
 
 module.exports = {
-    getArtistEffectDownloadUrl,
     downloadFile,
     unzipAndCleanup,
     unzipTextTemplate,

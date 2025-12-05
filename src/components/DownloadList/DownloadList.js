@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import './DownloadList.css'; // 引入外部 CSS 文件
 import RightArrowIcon from '../../../public/right_arrow.svg'
 import FileIcon from '../../../public/download_file_icon.svg'
+import logger from '../../shared/logger';
 const { ipcRenderer, shell } = window.require('electron');
 const path = window.require('path'); // 如果需要路径操作，也可以直接引入
 
@@ -48,6 +49,7 @@ const DownloadList = ({
 }) => {
     const { draftName, overallProgress, overallStatusText, downloadFiles } = project;
     const { t } = useTranslation();
+    const hasActiveDraft = typeof draftName === 'string' && draftName.trim().length > 0;
 
     const renderFileItem = (item) => {
         const percent = Math.round((item.downloaded / item.total) * 100);
@@ -60,11 +62,11 @@ const DownloadList = ({
             if (shell) {
                 // 使用 shell.openExternal() 调用系统默认浏览器打开链接
                 shell.openExternal(url).catch(err => {
-                    console.error('Failed to open external URL:', err);
+                    logger.error('Failed to open external URL:', err);
                     // 可以在这里添加一个 Ant Design message 提示用户失败
                 });
             } else {
-                console.error("Electron shell module not available.");
+                logger.error("Electron shell module not available.");
             }
         };
         
@@ -72,33 +74,33 @@ const DownloadList = ({
             e.preventDefault(); 
             e.stopPropagation();
             
-            console.log('[React Component] Click event triggered. Attempting to call IPC directly.');
+            logger.debug('[React Component] Click event triggered. Attempting to call IPC directly.');
             
             const targetDirectory = item.folderPath; 
             
             // ✅ 使用 ipcRenderer 直接发送消息给 main.js
             if (ipcRenderer) {
-                console.log('IPC Renderer found. Sending messages directly. ',targetDirectory);
+                logger.debug('IPC Renderer found. Sending messages directly. ',targetDirectory);
                 
                 // 1. 通知主进程打开下载目录
                 // 注意：这里我们使用的是您 main.js 中已有的通道名称
                 ipcRenderer.send('open-download-directory', targetDirectory); 
                 
             } else {
-                console.error("IPC Renderer not available. Check main.js for contextIsolation/nodeIntegration.");
+                logger.error("IPC Renderer not available. Check main.js for contextIsolation/nodeIntegration.");
             }
         };
         // 处理刷新操作
         const handleRefresh = (e) => {
             e.preventDefault(); 
             e.stopPropagation();
-            console.log(`[React Component] Refresh triggered for file ID: ${item.id}. In a real app, this would re-check the file status.`);
+            logger.debug(`[React Component] Refresh triggered for file ID: ${item.id}. In a real app, this would re-check the file status.`);
             
             // 构造完整的预期文件路径
             const expectedPath = path.join(item.folderPath, item.name);
 
             if (ipcRenderer) {
-                console.log(`[React Component] Sending IPC to check file existence for ID: ${item.id} at path: ${expectedPath}`);
+                logger.debug(`[React Component] Sending IPC to check file existence for ID: ${item.id} at path: ${expectedPath}`);
                 // 发送 IPC 消息给主进程，请求检查文件是否存在
                 // 主进程应该监听 'check-file-existence'，检查文件后，如果存在，则发送 'file-found'
                 ipcRenderer.send('check-file-existence', { 
@@ -106,7 +108,7 @@ const DownloadList = ({
                     expectedPath: expectedPath 
                 });
             } else {
-                console.error("IPC Renderer not available. Cannot check file existence.");
+                logger.error("IPC Renderer not available. Cannot check file existence.");
             }
         };
 
@@ -124,11 +126,7 @@ const DownloadList = ({
                     href="#"
                     onClick={handleOpenFolder}
                     style={{ color: '#fff', textDecoration: 'underline' }}
-                >文件夹</a> 并重命名为 {item.name} 然后 <a
-                    href="#"
-                    onClick={handleRefresh} // ⚡️ 绑定刷新事件
-                    style={{ color: '#fff', textDecoration: 'underline' }}
-                >刷新</a>
+                >文件夹</a> 并重命名为 {item.name}
             </span>
         );
         if (item.status === 'failed') {
@@ -210,19 +208,22 @@ const DownloadList = ({
             <div className="download-list-header">
                 <Row align="middle">
                     <Col span={23}>
-                    {/* 使用 Space 确保所有子元素横向排布 */}
-                    <Space className="custom-space-align-center" size={4}> 
-                        <Text className="header-path-text">{t('download_list')}</Text>
-                        <img 
-                            src={RightArrowIcon} 
-                            alt="Arrow" 
-                            className="header-path-svg-arrow" 
-                        />
-                        <Text className="header-path-text">{draftName}</Text>
-                        <Text className="header-path-dot">·</Text>
-                        <Text className="header-path-text">已下载 {overallProgress}%</Text>
-                    </Space>
-                </Col>
+                        <Space className="custom-space-align-center" size={4}> 
+                            <Text className="header-path-text">{t('download_list')}</Text>
+                            <img 
+                                src={RightArrowIcon} 
+                                alt="Arrow" 
+                                className="header-path-svg-arrow" 
+                            />
+                            {hasActiveDraft && (
+                                <>
+                                    <Text className="header-path-text">{draftName}</Text>
+                                    <Text className="header-path-dot">·</Text>
+                                </>
+                            )}
+                            <Text className="header-path-text">已下载 {overallProgress}%</Text>
+                        </Space>
+                    </Col>
                 </Row>
             </div>
 

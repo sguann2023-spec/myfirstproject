@@ -15,6 +15,7 @@ const axios = require('axios');
 import { tokenStore } from '../../auth'; // 统一从 index 导入
 import { createDraft } from '../../api/capcut';
 import { addUser } from '../../api/user';
+import logger from '../../shared/logger';
 
 // --- Authing 配置常量 ---
 const AUTHING_CONFIG = {
@@ -32,7 +33,7 @@ function parseJwt(token) {
         const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
         return JSON.parse(jsonPayload);
     } catch (e) {
-        console.error('parseJwt failed:', e);
+        logger.error('parseJwt failed:', e);
         return null;
     }
 }
@@ -143,7 +144,7 @@ const exchangeToken = async (code, trans) => {
 
         return response.data;
     } catch (error) {
-        console.error('Token 交换失败:', error.response ? error.response.data : error.message);
+        logger.error('Token 交换失败:', error.response ? error.response.data : error.message);
         message.error(i18n('login_failed') + `: ${error.response?.data?.error_description || 'Token exchange failed'}`);
         throw error;
     }
@@ -218,7 +219,7 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
                 }
             }
         } catch (err) {
-            console.warn('Silent login failed, will open Guard:', err);
+            logger.warn('Silent login failed, will open Guard:', err);
         }
 
         // 没有 refresh_token 或刷新失败，走 Guard 登录
@@ -229,19 +230,20 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
         // 登录成功或已有 token 后，直接发起测试请求
         try {
             const result = await createDraft({ width: 1080, height: 1920 });
-            console.log('create_draft result:', result);
+            logger.debug('create_draft result:', result);
         } catch (err) {
-            console.error('create_draft failed:', err);
+            logger.error('create_draft failed:', err);
         }
     }
 
     // --- 监听来自主进程的授权码回调 ---
     useEffect(() => { 
         const handleAuthCode = async (event, code) => {
+            logger.debug('Received Auth Code:', code);
             try {
                 // 3. 交换 Token
                 const tokenData = await exchangeToken(code, trans);
-                console.log('tokenData', tokenData);
+                logger.debug('tokenData', tokenData);
                 const { id_token, access_token, refresh_token, expires_in } = tokenData;
                 tokenStore.setTokens({
                     idToken: id_token,

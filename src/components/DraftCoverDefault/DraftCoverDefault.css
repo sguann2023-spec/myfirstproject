@@ -1,0 +1,19 @@
+.draft-cover-default {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 适配父容器的圆角（搜索结果里是 8px） */
+  border-radius: 8px;
+  position: relative;
+}
+
+.draft-cover-default-text {
+  font-size: 8px;
+  font-weight: 400;
+  color: #333;
+}

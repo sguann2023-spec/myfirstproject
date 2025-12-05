@@ -5,16 +5,9 @@ const { promisify } = require('util');
 const axios = require('axios');
 const downloader = require('./downloader');
 const { log } = require('console');
-
-// 获取 i18next 实例
 const i18next = require('i18next');
-
-// 日志记录器
-const logger = {
-  info: (message) => console.log(`[INFO] ${message}`),
-  warning: (message) => console.warn(`[WARNING] ${message}`),
-  error: (message, error) => console.error(`[ERROR] ${message}`, error)
-};
+const logger = require('../src/shared/logger');
+const { parentPort } = require('worker_threads'); // 新增
 
 /**
  * 构建资源文件路径
@@ -66,10 +59,9 @@ async function copyFolderRecursive(source, destination) {
  * @param {string} taskId - 任务ID
  * @param {Function} progressCallback - 进度回调函数
  * @param {boolean} is_capcut - 是否为CapCut
- * @param {string} apiKey - API密钥
  * @returns {Promise<Object>} - 返回结果对象 {success: boolean, error: string, message: string}
  */
-async function saveDraftBackground(draftId, draftFolder, taskId, progressCallback, is_capcut, apiKey, apiHost) {
+async function saveDraftBackground(draftId, draftFolder, taskId, progressCallback, is_capcut, apiHost, scriptFromRenderer) {
   let script;
   const draftPath = path.join(draftFolder, draftId);
   const downloadTasks = []; // 存储所有下载任务的完整列表
@@ -133,39 +125,19 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     if (progressCallback) {
       progressCallback(5, i18next.t('getting_draft_info'));
     }
-    
-    try {
-        const baseHost = apiHost || DEFAULT_HOST;
-        const apiPath = is_capcut ? '/cut_capcut/query_script' : '/query_script';
-        const apiUrl = baseHost + apiPath;
-        
-        const response = await axios.post(apiUrl, 
-            { 
-              draft_id: draftId,
-              is_capcut: is_capcut
-            },
-            { 
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            }
-        );
 
-        if (response.data && response.data.success) {
-            script = JSON.parse(JSON.parse(JSON.stringify(response.data)).output);
-            logger.info(`成功从API获取草稿 ${draftId}。`);
-        } else {
-            throw new Error(`${JSON.parse(JSON.stringify(response.data)).error}`);
-        }
-    } catch (error) {
-      logger.error(`无法从API获取草稿 ${draftId}，任务 ${taskId} 失败。`, error);
-      if (progressCallback) {
-        progressCallback(-1, i18next.t('cannot_get_draft_info', { error: error.message }));
-      }
-      return { success: false, error: error.message, message: i18next.t('cannot_get_draft_info', { error: error.message }) };
+    // 使用渲染进程传来的脚本，避免在 worker 内触发前端逻辑
+    if (!scriptFromRenderer) {
+      const errMsg = '未提供草稿脚本，请在前端查询后再下载';
+      throw new Error(errMsg);
     }
-    
+
+    const parsed = typeof scriptFromRenderer === 'string'
+      ? JSON.parse(scriptFromRenderer)
+      : scriptFromRenderer;
+    script = parsed;
+    logger.info(`成功使用前端提供的脚本，草稿 ${draftId}。`);
+
     // 2. 准备草稿文件和文件夹 (20%)
     if (progressCallback) {
       progressCallback(10, i18next.t('preparing_draft_files'));
@@ -176,13 +148,13 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     // 删除可能已存在的草稿文件夹
     const draftPath = path.join(draftFolder, draftId);
     if (fs.existsSync(draftPath)) {
-      logger.warning(`删除已存在的草稿文件夹: ${draftPath}`);
+      logger.warn(`删除已存在的草稿文件夹: ${draftPath}`);
       try {
         await fs.promises.rm(draftPath, { recursive: true, force: true });
       } catch (error) {
         // 如果是目录非空错误，尝试单独处理.backup目录
         if (error.code === 'ENOTEMPTY') {
-          logger.warning(`无法删除目录，尝试单独处理问题文件夹: ${error.message}`);
+          logger.warn(`无法删除目录，尝试单独处理问题文件夹: ${error.message}`);
           
           // 尝试先删除.backup目录中的文件
           const backupDir = path.join(draftPath, '.backup');
@@ -250,7 +222,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     
     const addTask = (type, material, remoteUrl, localPath, downloadOptions = {}) => {
         if (!remoteUrl) {
-            logger.warning(`文件 ${material.material_name || material.name} 没有 remote_url，跳过下载。`);
+            logger.warn(`文件 ${material.material_name || material.name} 没有 remote_url，跳过下载。`);
             return;
         }
         
@@ -323,7 +295,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
           // 更新草稿路径
           effect.path = buildAssetPath(draftFolder, draftId, "artistEffect", effectId);
           
-          const downloadUrl = await downloader.getArtistEffectDownloadUrl(effectId, apiKey);
+          const downloadUrl = await getArtistEffectDownloadUrl(effectId);
           
           if (downloadUrl) {
             // 注意：这里需要传递下载所需的额外选项
@@ -391,7 +363,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
             }
 
             if (!remoteUrl) {
-              console.warn(`[Nested Draft] 音频文件 ${materialName} 没有 remote_url，跳过下载。`);
+              logger.warn(`[Nested Draft] 音频文件 ${materialName} 没有 remote_url，跳过下载。`);
               continue;
             }
 
@@ -412,7 +384,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
             const videoType = video.material_type || video.type; 
 
             if (!remoteUrl) {
-              console.warn(`[Nested Draft] 视频/图片文件 ${materialName} 没有 remote_url，跳过下载。`);
+              logger.warn(`[Nested Draft] 视频/图片文件 ${materialName} 没有 remote_url，跳过下载。`);
               continue;
             }
 
@@ -448,7 +420,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
               const localZipPath = path.join(draftPath, "assets", "artistEffect", `${effectId}.zip`);
 
               // 异步获取下载链接
-              const downloadUrl = await downloader.getArtistEffectDownloadUrl(effectId, apiKey);
+              const downloadUrl = await getArtistEffectDownloadUrl(effectId);
               
               if (downloadUrl) {
                 addTask(
@@ -459,7 +431,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
                   { retry: 3, timeout: 180000, context: 'text_artist' }
                 );
               } else {
-                console.warn(`[Nested Draft] 花字特效 ${effectId} 获取下载链接失败，跳过下载。`);
+                logger.warn(`[Nested Draft] 花字特效 ${effectId} 获取下载链接失败，跳过下载。`);
               }
             }
           }
@@ -653,8 +625,9 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       
       // 更新时间戳
       const currentMillisTimestamp = Date.now(); // 毫秒级时间戳
-      const currentMicrosTimestamp = currentMillisTimestamp * 1000 + Math.floor(Math.random() * 1000); // 微秒级时间戳
-      metaInfo.tm_draft_create = currentMillisTimestamp;
+      logger.info(`当前毫秒级时间戳: ${currentMillisTimestamp}`);
+      const currentMicrosTimestamp = currentMillisTimestamp * 1000; // 微秒级时间戳
+      metaInfo.tm_draft_create = currentMicrosTimestamp;
       metaInfo.tm_draft_modified = currentMicrosTimestamp;
       
       // 保存更新后的文件
@@ -662,8 +635,15 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
         metaInfoPath,
         JSON.stringify(metaInfo, null, 2)
       );
+
+      // 新增：触发草稿目录及父目录的文件系统事件
+      await bumpDraftFolderMTime(draftPath);
+      upsertRootMetaTimes(draftPath, undefined, path.basename(draftPath), currentMicrosTimestamp, currentMicrosTimestamp);
+      // pulseDraftSubdir(draftFolder)
+      await bounceDraftByMoving(draftPath);
+      await bumpParentDirectoryEvents(draftPath);
       
-      logger.info(`已更新 draft_meta_info.json 中的时间戳字段。`);
+      logger.info(`已更新 draft_meta_info.json 中的时间戳，并触发目录与父目录事件。`);
       if (progressCallback) {
         progressCallback(90, i18next.t('finalizing'));
       }
@@ -710,7 +690,7 @@ async function processTextTemplatePaths(draftId, effectId, draftPath, draftFolde
   try {
     const processedPathsFile = path.join(draftPath, "assets", "textTemplate", effectId, "processed_paths.json");
     if (!fs.existsSync(processedPathsFile)) {
-      logger.warning(`processed_paths.json文件不存在: ${processedPathsFile}`);
+      logger.warn(`processed_paths.json文件不存在: ${processedPathsFile}`);
       return;
     }
 
@@ -718,7 +698,7 @@ async function processTextTemplatePaths(draftId, effectId, draftPath, draftFolde
     const draftInfoPath = path.join(draftPath, "draft_info.json");
 
     if (!fs.existsSync(draftInfoPath)) {
-      logger.warning(`draft_info.json文件不存在: ${draftInfoPath}`);
+      logger.warn(`draft_info.json文件不存在: ${draftInfoPath}`);
       return;
     }
 
@@ -745,3 +725,171 @@ module.exports = {
   saveDraftBackground,
   buildAssetPath
 };
+
+// 新增：触发草稿根目录的 mtime/ctime 变化
+async function bumpDraftFolderMTime(draftPath) {
+  const now = new Date();
+  // 1) 尝试直接更新目录 mtime
+  try {
+    await fs.promises.utimes(draftPath, now, now);
+  } catch (_) {}
+  // 2) 创建并删除一个临时文件，更新目录的 mtime/ctime
+  try {
+    const tmp = path.join(draftPath, `.touch_${Date.now()}`);
+    await fs.promises.writeFile(tmp, '');
+    await fs.promises.unlink(tmp);
+  } catch (_) {}
+  // 3) 最后手段：原子重命名再改回，强制更新目录 ctime
+  try {
+    const parent = path.dirname(draftPath);
+    const base = path.basename(draftPath);
+    const bounce = path.join(parent, `${base}.__ren_bounce__`);
+    await fs.promises.rename(draftPath, bounce);
+    await fs.promises.rename(bounce, draftPath);
+  } catch (_) {}
+}
+
+// 新增：同时触发父目录事件，确保目录监听器刷新排序
+async function bumpParentDirectoryEvents(draftPath) {
+  const parentDir = path.dirname(draftPath);
+  const now = new Date();
+  // 1) 更新父目录 mtime
+  try {
+    await fs.promises.utimes(parentDir, now, now);
+  } catch (_) {}
+  // 2) 在父目录创建并删除一个临时文件
+  try {
+    const tmp = path.join(parentDir, `.parent_touch_${Date.now()}`);
+    await fs.promises.writeFile(tmp, '');
+    await fs.promises.unlink(tmp);
+  } catch (_) {}
+  // 3) 再次执行对草稿目录的重命名-回滚，以确保父目录事件也被触发
+  try {
+    const base = path.basename(draftPath);
+    const bounce = path.join(parentDir, `${base}.__parent_bounce__`);
+    await fs.promises.rename(draftPath, bounce);
+    await fs.promises.rename(bounce, draftPath);
+  } catch (_) {}
+}
+
+// 在 worker 里通过主进程代理获取花字下载链接
+async function getArtistEffectDownloadUrl(effectId) {
+  if (!parentPort) throw new Error('parentPort not available');
+  return new Promise((resolve, reject) => {
+    const reqId = `artist:${effectId}:${Date.now()}`;
+    const onMessage = (msg) => {
+      if (msg && msg.type === 'artist-effect-url-response' && msg.reqId === reqId) {
+        parentPort.off('message', onMessage);
+        if (msg.error) reject(new Error(msg.error));
+        else resolve(msg.url);
+      }
+    };
+    parentPort.on('message', onMessage);
+    parentPort.postMessage({ type: 'artist-effect-url-request', effectId, reqId });
+    setTimeout(() => {
+      parentPort.off('message', onMessage);
+      reject(new Error('artist-effect-url timeout'));
+    }, 15000);
+  });
+}
+
+async function bounceDraftByMoving(draftPath) {
+    const fs = require('fs');
+    const fsp = fs.promises;
+    const path = require('path');
+
+    const parentDir = path.dirname(draftPath);
+    const grandParentDir = path.dirname(parentDir);
+    const baseName = path.basename(draftPath);
+    const tmpPath = path.join(grandParentDir, `${baseName}.tmp_move_${Date.now()}`);
+    logger.info(`bounceDraftByMoving: ${draftPath} -> ${tmpPath}`);
+    const sleep = ms => new Promise(res => setTimeout(res, ms));
+
+    try {
+        // 第一次剪切：draftPath -> tmpPath
+        await fsp.rename(draftPath, tmpPath);
+        await sleep(2000);
+
+        // 第二次剪切：tmpPath -> draftPath
+        await fsp.rename(tmpPath, draftPath);
+    } catch (_) {
+        // 尝试兜底恢复（若仍在 tmpPath）
+        try {
+            const stat = await fsp.stat(tmpPath);
+            if (stat && stat.isDirectory()) {
+                await sleep(300);
+                await fsp.rename(tmpPath, draftPath);
+            }
+        } catch (_) {}
+    }
+}
+
+function upsertRootMetaTimes(draftFolderPath, targetDraftId, targetDraftName, tmCreateMillis, tmModifiedMicros) {
+    const fs = require('fs');
+    const path = require('path');
+
+    const rootMetaPath = path.join(path.dirname(draftFolderPath), 'root_meta_info.json');
+
+    let json;
+    try {
+        json = JSON.parse(fs.readFileSync(rootMetaPath, 'utf8'));
+    } catch (_) {
+        json = { all_draft_store: [] };
+    }
+
+    const store = Array.isArray(json.all_draft_store) ? json.all_draft_store : [];
+
+    if (!targetDraftId) {
+        try {
+            const info = JSON.parse(fs.readFileSync(path.join(draftFolderPath, 'draft_info.json'), 'utf8'));
+            if (info && typeof info === 'object' && info.id) {
+                targetDraftId = info.id;
+            }
+        } catch (_) {}
+    }
+
+    const draftJsonPath = path.join(draftFolderPath, 'draft_info.json');
+    const draftCoverPath = path.join(draftFolderPath, 'draft_cover.jpg');
+    const baseRootPath = path.dirname(draftFolderPath);
+    const effectiveName = targetDraftName || path.basename(draftFolderPath);
+
+    const idx = store.findIndex(i =>
+        i.draft_id === targetDraftId ||
+        i.draft_name === effectiveName ||
+        i.draft_fold_path === draftFolderPath ||
+        i.draft_json_file === draftJsonPath
+    );
+
+    if (idx >= 0) {
+        store[idx].tm_draft_create = tmCreateMillis;
+        store[idx].tm_draft_modified = tmModifiedMicros;
+    } else {
+        store.unshift({
+            draft_cloud_last_action_download: false,
+            draft_cloud_purchase_info: "",
+            draft_cloud_template_id: "",
+            draft_cloud_tutorial_info: "",
+            draft_cloud_videocut_purchase_info: "",
+            draft_cover: draftCoverPath,
+            draft_fold_path: draftFolderPath,
+            draft_id: targetDraftId || "",
+            draft_is_ai_shorts: false,
+            draft_is_invisible: false,
+            draft_json_file: draftJsonPath,
+            draft_name: effectiveName,
+            draft_new_version: "",
+            draft_root_path: baseRootPath,
+            draft_timeline_materials_size: 0,
+            draft_type: "",
+            tm_draft_cloud_completed: "",
+            tm_draft_cloud_modified: 0,
+            tm_draft_create: tmCreateMillis,
+            tm_draft_modified: tmModifiedMicros,
+            tm_draft_removed: 0,
+            tm_duration: 0
+        });
+    }
+
+    json.all_draft_store = store;
+    fs.writeFileSync(rootMetaPath, JSON.stringify(json));
+}

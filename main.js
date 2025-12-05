@@ -8,6 +8,7 @@ const path = require('path');
 const url = require('url');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
+const PROXY_PREFIX = 'https://gh-proxy.com/';
 const axios = require('axios');
 const crypto = require('crypto'); // 添加crypto模块
 
@@ -19,6 +20,7 @@ const electronStore = global.__ELECTRON_STORE__;
 // 添加 i18next 相关依赖
 const i18next = require('i18next');
 const Backend = require('i18next-fs-backend');
+const logger = require('./src/shared/logger');
 
 // 初始化 i18next
 let i18n;
@@ -77,70 +79,33 @@ function generateVersionCode(version) {
 }
 
 const versionCode = generateVersionCode(appVersion);
-console.log(`App Version: ${appVersion}, Version Code: ${versionCode}`);
+logger.info(`App Version: ${appVersion}, Version Code: ${versionCode}`);
 
 // 保持对window对象的全局引用，如果不这么做的话，当JavaScript对象被
 // 垃圾回收的时候，window对象将会自动的关闭
 let mainWindow;
 
-// 配置自动更新
-autoUpdater.logger = require('electron-log');
-autoUpdater.logger.transports.file.level = 'info';
+function setupUpdater() {
+  // ... existing code ...
+  autoUpdater.autoDownload = true;
+  autoUpdater.allowPrerelease = false;
 
-// 配置正确的更新包文件名格式
-autoUpdater.configOnLoad = true;
-autoUpdater.setFeedURL({
-  provider: 'generic',
-  url: 'https://gh-proxy.com/https://api.github.com/repos/sun-guannan/CapCutMaker/releases',
-  updaterCacheDirName: 'capcutmaker-updater'
-});
+  // 开发模式，强制更新
+  // autoUpdater.forceDevUpdateConfig = true;
 
-// 为Mac指定使用zip格式
-if (process.platform === 'darwin') {
-  autoUpdater.forceDevUpdateConfig = true;
+  autoUpdater.on('error', (err) => logger.error('[updater] error', err.message));
+  autoUpdater.on('update-available', (info) => logger.info('[updater] update available', info.version));
+  autoUpdater.on('update-not-available', () => logger.info('[updater] no updates'));
+  autoUpdater.on('download-progress', (p) => logger.info('[updater] progress', Math.round(p.percent) + '%'));
+  autoUpdater.on('update-downloaded', () => logger.info('[updater] update downloaded'));
+
+  // 关键：不再 setFeedURL，直接检查更新，并做好错误捕获
+  autoUpdater.checkForUpdates().catch((e) => logger.error('[updater] check failed', e.message));
 }
-
-// 自动更新事件监听
-autoUpdater.on('checking-for-update', () => {
-  sendStatusToWindow('正在检查更新...');
-});
-
-autoUpdater.on('update-available', (info) => {
-  sendStatusToWindow('发现新版本，正在下载...');
-});
-
-autoUpdater.on('update-not-available', (info) => {
-  sendStatusToWindow('当前已是最新版本');
-});
-
-autoUpdater.on('error', (err) => {
-  sendStatusToWindow('更新出错: ' + err.toString());
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-  let logMessage = `下载速度: ${progressObj.bytesPerSecond} - 已下载 ${progressObj.percent}% (${progressObj.transferred}/${progressObj.total})`;
-  sendStatusToWindow(logMessage);
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-  sendStatusToWindow('更新已下载，将在退出时安装');
-  // 询问用户是否立即重启应用
-  dialog.showMessageBox({
-    type: 'info',
-    title: '应用更新',
-    message: '发现新版本，已下载完成',
-    detail: '是否现在重启应用并安装更新？',
-    buttons: ['是', '否']
-  }).then((returnValue) => {
-    if (returnValue.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
-});
 
 // 发送更新消息到渲染进程
 function sendStatusToWindow(text) {
-  console.log(text);
+  logger.info(text);
   if (mainWindow) {
     mainWindow.webContents.send('update-message', text);
   }
@@ -204,14 +169,11 @@ function createWindow() {
     mainWindow = null;
   });
   
-  // 检查更新
-  autoUpdater.checkForUpdatesAndNotify();
-  
   // 处理冷启动时的协议URL
   const args = process.argv;
   const protocolUrl = args.find(arg => arg.startsWith('capcutmaker://'));
   if (protocolUrl && mainWindow.webContents) {
-    console.log('Cold start protocol URL:', protocolUrl);
+    logger.info('Cold start protocol URL:', protocolUrl);
     mainWindow.webContents.on('did-finish-load', () => {
       mainWindow.webContents.send('protocol-url', protocolUrl);
     });
@@ -220,12 +182,13 @@ function createWindow() {
 
 // 注册自定义协议
 app.whenReady().then(() => {
+  setupUpdater();
   protocol.registerFileProtocol('capcutmaker', (request, callback) => {
     const url = request.url.substr('capcutmaker://'.length);
     try {
       return callback(decodeURIComponent(url));
     } catch (error) {
-      console.error('Failed to register protocol', error);
+      logger.error('Failed to register protocol', error);
     }
   });
 });
@@ -246,7 +209,7 @@ if (!gotTheLock) {
       const url = commandLine.pop();
       if (url.startsWith('capcutmaker://')) {
         // 在这里处理URL参数
-        console.log('Protocol URL:', url);
+        logger.info('Protocol URL:', url);
         // 可以将URL参数发送到渲染进程
         if (mainWindow.webContents) {
           mainWindow.webContents.send('protocol-url', url);
@@ -262,7 +225,7 @@ if (!gotTheLock) {
   app.on('open-url', (event, url) => {
     event.preventDefault();
     if (url.startsWith('capcutmaker://')) {
-      console.log('Protocol URL (macOS):', url);
+      logger.info('Protocol URL (macOS):', url);
       if (mainWindow && mainWindow.webContents) {
         mainWindow.webContents.send('protocol-url', url);
       }
@@ -292,20 +255,18 @@ app.setAsDefaultProtocolClient('capcutmaker');
 
 // 添加IPC监听器来处理从渲染进程发送的参数
 
-// store.clear()
+// electronStore.clear()
 
 // 添加 IPC 监听器来处理登录成功
 ipcMain.on('login-success', () => {
-    console.log('Login successful. Loading main application...');
-    // 登录成功后，加载主应用页面
-    if (isDev) {
-        mainWindow.loadFile('dist/index.html');
-    } else {
-        mainWindow.loadFile('dist/index.html');
+    logger.info('Login successful. Loading main application...');
+    // 若未设置草稿目录，自动打开设置页
+    const draftFolder = electronStore.get('draftFolder', '');
+    logger.info('draftFolder:', draftFolder);
+    if (!draftFolder) {
+      // 复用同样的设置窗口逻辑
+      openSettingsWindow();
     }
-    // 可以调整窗口大小以适应主应用
-    mainWindow.setSize(1200, 800, true);
-    mainWindow.center();
 });
 
 ipcMain.on('close-window', () => mainWindow.close());
@@ -320,44 +281,45 @@ ipcMain.on('maximize-window', () => {
 
 // 添加保存设置的IPC监听器
 ipcMain.on('save-settings', (event, settings) => {
-  console.log('保存设置:', settings);
+  logger.info('保存设置:', settings);
+  const updated = {};
   if (settings.draftFolder) {
     electronStore.set('draftFolder', settings.draftFolder);
+    updated.draftFolder = settings.draftFolder;
   }
   if (settings.isCapcut !== undefined) {
     electronStore.set('isCapcut', settings.isCapcut);
-  }
-  if (settings.apiKey !== undefined) {
-    electronStore.set('apiKey', settings.apiKey);
+    updated.isCapcut = settings.isCapcut;
   }
   if (settings.apiHost !== undefined) {
     electronStore.set('apiHost', settings.apiHost);
+    updated.apiHost = settings.apiHost;
   }
   if (settings.language !== undefined) {
     electronStore.set('language', settings.language);
+    updated.language = settings.language;
   }
+  // 广播设置更新，确保其他窗口（主窗口/下载页）实时联动
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('settings-updated', updated);
+  });
 });
 
 // 修改获取设置的IPC处理函数
 ipcMain.handle('get-draft-folder', () => {
   const draftFolder = electronStore.get('draftFolder', ''); // 默认为空字符串
   const isCapcut = electronStore.get('isCapcut', true); // 默认为true
-  const apiKey = electronStore.get('apiKey', ''); // 默认为空字符串
   const apiHost = electronStore.get('apiHost', DEFAULT_HOST); // 默认API Host
   
   return {
     draftFolder: draftFolder,
     isCapcut: isCapcut,
-    apiKey: apiKey,
     apiHost: apiHost
   };
 });
 
 ipcMain.on('process-parameters', async (event, params) => {
-  console.log('从渲染进程接收到参数:', params);
-  // 获取draft_id、draft_folder和is_capcut参数
-  const { draft_id, draft_folder, is_capcut, api_key_hash } = params;
-  console.log('api_key_hash:', api_key_hash);
+  const { draft_id, draft_folder, is_capcut, script } = params;
   
   if (!draft_id) {
     // 启动前检查错误：发送 download-error
@@ -379,7 +341,6 @@ ipcMain.on('process-parameters', async (event, params) => {
     
     // 从 store 中获取保存的路径，如果没有则使用默认路径
     const draftFolder = electronStore.get('draftFolder') || path.join(__dirname, 'drafts');
-    const apiKey = electronStore.get('apiKey', '');
     const apiHost = electronStore.get('apiHost', DEFAULT_HOST);
     
     // 确保草稿文件夹存在
@@ -394,8 +355,12 @@ ipcMain.on('process-parameters', async (event, params) => {
     });
     
     // 创建进度回调函数
+    let lastFileList = null;
     const progressCallback = (progress, message, fileList) => {
-      // 只需要发送 progress 和 message
+      // 缓存最新的文件列表（仅当传入时）
+      if (Array.isArray(fileList)) {
+        lastFileList = fileList;
+      }
       event.reply('download-progress', {
         progress: progress,
         text: message,
@@ -403,43 +368,7 @@ ipcMain.on('process-parameters', async (event, params) => {
       });
     };
     
-    // 计算当前API密钥的哈希值
-    const currentApiKeyHash = hashApiKey(apiKey);
-
-    console.log('currentApiKeyHash:', currentApiKeyHash);
-    
-    // 如果有api_key_hash，则调用copy_draft接口
-    if (api_key_hash && api_key_hash !== currentApiKeyHash) {
-      try {
-        // 添加复制中的提示
-        progressCallback(0, i18next.t('copying_draft'), null);
-        
-        const copyResponse = await axios.post(`${apiHost}/copy_draft`, {
-          source_api_key_hash: api_key_hash,
-          source_draft_id: draft_id
-        }, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`
-          }
-        });
-        
-        console.log('Copy draft response:', copyResponse.data);
-        
-        if (copyResponse.data.code === 200) {
-          // 复制成功，继续下载
-          console.log('Draft copied successfully');
-          progressCallback(0, i18next.t('copy_draft_success'), null);
-        } else {
-          // 复制失败，返回错误
-          throw new Error(`Copy draft failed: ${copyResponse.data.message}`);
-        }
-      } catch (copyError) {
-        console.error('Copy draft error:', copyError);
-        event.reply('download-error', copyError.message || i18next.t('copy_draft_failed'));
-        return;
-      }
-    }
-    
+    logger.info('send workders')
     // 创建工作线程来处理下载任务
     const worker = new Worker(path.join(__dirname, 'util/downloadWorker.js'), {
       workerData: {
@@ -447,13 +376,31 @@ ipcMain.on('process-parameters', async (event, params) => {
         draftFolder,
         taskId,
         is_capcut,
-        apiKey,
-        apiHost
+        apiHost,
+        script
       }
     });
     
     // 监听工作线程的消息
-    worker.on('message', (message) => {
+    worker.on('message', async (message) => {
+      if (message.type === 'artist-effect-url-request') {
+        const { effectId, reqId } = message;
+
+        const responseHandler = (e, payload) => {
+          if (!payload || payload.reqId !== reqId) return;
+          ipcMain.removeListener('resolve-artist-effect-url-response', responseHandler);
+
+          if (payload.error) {
+            worker.postMessage({ type: 'artist-effect-url-response', reqId, error: payload.error });
+          } else {
+            worker.postMessage({ type: 'artist-effect-url-response', reqId, url: payload.url });
+          }
+        };
+
+        ipcMain.on('resolve-artist-effect-url-response', responseHandler);
+        mainWindow.webContents.send('resolve-artist-effect-url', { effectId, reqId });
+        return;
+      }
       if (message.type === 'progress') {
         // 更新进度 (使用修正后的 progressCallback，它会发送 download-progress)
         progressCallback(message.progress, message.message, message.fileList);
@@ -464,15 +411,20 @@ ipcMain.on('process-parameters', async (event, params) => {
           message: message.message || i18next.t('download_complete')
         });
       } else if (message.type === 'error') {
-        console.log('worker message error'); // 保持日志，观察是否执行
+        logger.info('worker message error:', message.error);
+
         // 下载失败：发送 download-error
-        event.reply('download-error', message.error || i18next.t('download_failed'));
+        // 错误时携带最后的文件列表（包含失败项）
+        event.reply('download-error', {
+          error: message.error || i18next.t('download_failed'),
+          fileList: lastFileList || [],
+        });
       }
     });
     
     // 监听工作线程错误
     worker.on('error', (error) => {
-      console.error('工作线程错误:', error);
+      logger.error('工作线程错误:', error);
       // 只发送 download-error
       event.reply('download-error', error.message || i18next.t('worker_error'));
     });
@@ -480,12 +432,12 @@ ipcMain.on('process-parameters', async (event, params) => {
     // 监听工作线程退出
     worker.on('exit', (code) => {
       if (code !== 0) {
-        console.error(`工作线程以退出码 ${code} 退出`);
+        logger.error(`工作线程以退出码 ${code} 退出`);
       }
     });
     
   } catch (error) {
-    console.error('处理草稿时出错:', error);
+    logger.error('处理草稿时出错:', error);
     // 发送详细错误信息
     event.reply('download-error', error.message || 'Unknown error');
   }
@@ -505,26 +457,26 @@ ipcMain.handle('get-translation', (event, key) => {
 
 // 1. 处理打开文件夹的请求 (保持不变)
 ipcMain.on('open-download-directory', (event, directoryPath) => {
-    console.log(`[Main Process] Received request to open folder: ${directoryPath}`);
+    logger.info(`[Main Process] Received request to open folder: ${directoryPath}`);
     // 1. 验证路径是否有效
     if (!directoryPath || typeof directoryPath !== 'string') {
-        console.error('[Main Process] Invalid folder path received.');
+        logger.error('[Main Process] Invalid folder path received.');
         return;
     }
     
     // 2. 尝试创建目录，如果已存在则不会报错 (recursive: true)
     try {
         fs.mkdirSync(directoryPath, { recursive: true });
-        console.log(`[Main Process] Directory ensured: ${directoryPath}`);
+        logger.info(`[Main Process] Directory ensured: ${directoryPath}`);
     } catch (err) {
-        console.error(`[Main Process] Failed to create or access directory: ${directoryPath}`, err);
+        logger.error(`[Main Process] Failed to create or access directory: ${directoryPath}`, err);
         // 如果创建失败，停止执行
         return;
     }
     // 使用 Electron 的 shell 模块打开系统文件管理器
     shell.openPath(directoryPath)
         .catch(err => {
-            console.error('无法打开目录:', err);
+            logger.error('无法打开目录:', err);
             // 使用您现有的 dialog 模块来显示错误
             dialog.showMessageBox(mainWindow, {
                 type: 'error',
@@ -541,7 +493,7 @@ ipcMain.on('open-download-directory', (event, directoryPath) => {
  * - 成功时发送: 'file-found' (id)
  */
 ipcMain.on('check-file-existence', (event, { id, expectedPath }) => { // 移除 async 关键字，因为我们不再 await
-    console.log(`[Main] Checking file existence for ID: ${id} at path: ${expectedPath}`);
+    logger.info(`[Main] Checking file existence for ID: ${id} at path: ${expectedPath}`);
     
     // 核心修复：使用同步的 fs.existsSync() 代替回调/Promise 混用的 fs.access()
     // 用户的代码使用的是 require('fs')，所以 fs.existsSync 是最安全和直接的检查方法
@@ -549,13 +501,13 @@ ipcMain.on('check-file-existence', (event, { id, expectedPath }) => { // 移除 
         
     if (fileExists) {
         // 如果文件存在
-        console.log(`[Main] File found for ID: ${id}. Sending 'file-found'.`);
+        logger.info(`[Main] File found for ID: ${id}. Sending 'file-found'.`);
         
         // 通知渲染进程文件已找到
         event.sender.send('file-found', { id });
     } else {
         // 如果文件不存在
-        console.warn(`[Main] File not found at ${expectedPath}.`);
+        logger.warn(`[Main] File not found at ${expectedPath}.`);
         // 只有文件找到时才发送消息，失败时忽略即可
     }
 });
@@ -567,7 +519,7 @@ function safeCloseAuthWindow() {
   try {
     if (!win.isDestroyed()) win.close();
   } catch (e) {
-    console.warn('[Main] safeCloseAuthWindow close error:', e);
+    logger.warn('[Main] safeCloseAuthWindow close error:', e);
   } finally {
     authWindow = null;
   }
@@ -601,7 +553,7 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
     });
     authWindow.on('closed', () => {
         const refreshToken = electronStore.get('auth.refresh_token');
-        console.log('[Main] AuthWindow closed. storage refresh_token:', refreshToken);
+        logger.info('[Main] AuthWindow closed. storage refresh_token:', refreshToken);
         safeCloseAuthWindow()
     });
 
@@ -609,11 +561,16 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
     // Guard 登录成功后会重定向到您配置的回调 URL。
     authWindow.webContents.on('will-redirect', (event, url) => {
         const AUTHING_REDIRECT_URI = 'https://localhost/authing-guard-callback'; // 必须与 Guard 配置一致
+        logger.info('[Main] will-redirect:', url);
+
         const urlObj = new URL(url);
         const EXPECTED_HOSTNAME = 'localhost';
         const EXPECTED_PATHNAME = '/authing-guard-callback';
 
+        logger.info(urlObj.hostname, urlObj.pathname)
+
         if (urlObj.hostname === EXPECTED_HOSTNAME && urlObj.pathname === EXPECTED_PATHNAME) {
+            logger.info('[Main] Auth Guard callback URL:', url);
             event.preventDefault();
             
             // 捕获授权码 Code (或 token/error)
@@ -622,6 +579,7 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
             
             if (mainWindow && !mainWindow.isDestroyed()) {
                 if (code) {
+                    logger.info('[Main] Auth Code:', code);
                     mainWindow.webContents.send('guard-auth-code', code);
                 } else if (urlObj.searchParams.has('error')) {
                     mainWindow.webContents.send('guard-auth-error', urlObj.searchParams.get('error'));
@@ -650,10 +608,6 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
     authWindow.show();
 });
 
-// 计算API密钥的SHA-256哈希值
-function hashApiKey(apiKey) {
-  return crypto.createHash('sha256').update(apiKey).digest('hex');
-}
 
 ipcMain.on('resize-main-window', (event, { width, height }) => {
   try {
@@ -664,6 +618,97 @@ ipcMain.on('resize-main-window', (event, { width, height }) => {
       mainWindow.center();
     }
   } catch (e) {
-    console.warn('[Main] resize-main-window failed:', e);
+    logger.warn('[Main] resize-main-window failed:', e);
+  }
+});
+
+let settingsWindow = null;
+
+// 抽取为函数，便于在登录成功时复用
+function openSettingsWindow() {
+  if (settingsWindow) {
+    settingsWindow.focus(); // 如果窗口已存在，则聚焦
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 840,
+    height: 730,
+    autoHideMenuBar: true,
+    frame: false, // 移除系统边框
+    transparent: true, // 使窗口透明
+    // macOS 专用：隐藏标题栏，但保留交通灯按钮浮动在您的内容上
+    titleBarStyle: 'hidden', 
+    
+    // Windows 专用：创建一个覆盖层，包含系统按钮
+    // 在 Windows 上，这将创建一个默认 30px 高的覆盖层
+    titleBarOverlay: true, 
+    
+    // 可选：自定义 macOS 交通灯按钮的位置 (相对于窗口左上角)
+    trafficLightPosition: { x: 12, y: 10 }, 
+    // Windows 专用：创建一个覆盖层，包含系统按钮
+    // 在 Windows 上，这将创建一个默认 30px 高的覆盖层
+    titleBarOverlay: true, 
+    webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
+        additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`],
+        preload: path.join(__dirname, 'src/preload.js')
+    }
+  });
+
+  // 加载设置页面的 URL
+  settingsWindow.loadFile('dist/settings.html');
+  // settingsWindow.webContents.openDevTools();
+
+  // 当窗口关闭时，清空引用并根据是否已设置草稿目录决定是否回到登录页
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+
+    const draftFolder = electronStore.get('draftFolder', '');
+    if (!draftFolder && mainWindow && !mainWindow.isDestroyed()) {
+      // 回到登录页（缩回小窗口）
+      mainWindow.loadFile('dist/index.html');
+      mainWindow.setSize(320, 450, true);
+      mainWindow.center();
+    }
+  });
+}
+
+ipcMain.on('open-settings-window', () => {
+  openSettingsWindow();
+});
+
+
+// 新增：选择草稿保存目录
+ipcMain.handle('select-draft-folder', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
+});
+
+ipcMain.handle('upload-logs', async (event, { url, meta }) => {
+    try {
+        const result = await logger.uploadLogs(url, meta);
+        return { ok: true, result };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+});
+// 在现有 ipcMain 监听附近添加
+ipcMain.on('log-message', (event, { level, messages }) => {
+  try {
+    if (level === 'error') logger.error(...messages);
+    else if (level === 'warn') logger.warn(...messages);
+    else if (level === 'debug') logger.debug(...messages);
+    else logger.info(...messages);
+  } catch (e) {
+    // 兜底：不影响业务
   }
 });
