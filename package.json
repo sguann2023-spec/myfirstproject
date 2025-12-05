@@ -1,6 +1,6 @@
 {
   "name": "@sun-guannan/capcutmaker",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "CapCut Helper Application",
   "main": "main.js",
   "scripts": {
@@ -54,6 +54,7 @@
         "**/*.node"
       ],
       "icon": "src/logo.icns",
+      "artifactName": "Pipet-${version}-${arch}",
       "target": [
         {
           "target": "dmg",
@@ -75,7 +76,7 @@
     "win": {
       "target": "nsis",
       "icon": "src/logo.ico",
-      "artifactName": "${productName}-Setup-${version}.exe",
+      "artifactName": "Pipet-Setup-${version}.exe",
       "extraResources": [
         {
           "from": "locales",
