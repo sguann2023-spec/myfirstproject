@@ -1,0 +1,150 @@
+/* SettingPage.css */
+html, body, #root {
+    /* 1. 确保它们从窗口继承 100% 尺寸 */
+    width: 100%;
+    height: 100%;
+    
+    /* 2. 移除浏览器默认的外边距 */
+    margin: 0;
+    padding: 0;
+    
+    /* 3. 推荐：设置盒子模型，防止边框/内边距导致溢出 */
+    box-sizing: border-box;
+}
+
+.window-top-container {
+    display: flex;
+    flex-direction: column; /* 确保顶部栏在上面，内容在下面 */
+    width: 100%;
+    height: 100%;
+}
+
+/* 🚀 拖动区域：占据整个顶部栏，并启用拖动 */
+.window-top-bar {
+    height: 30px; 
+    flex-shrink: 0;
+    /* 启用 Flex 布局来划分左右两部分 */
+    display: flex; 
+    width: 100%;
+    /* 移除之前的 border-bottom，让内容区域的颜色接管 */
+    /* border-bottom: 1px solid #e3e3e3; */ 
+}
+
+/* 🚀 1. 左侧拖动区域 (Sidebar 颜色) */
+.top-left-drag-area {
+    width: 200px; /* 必须与侧边栏 (.setting-sidebar) 宽度一致 */
+    flex-shrink: 0;
+    background-color: #e3e3e3; /* 与侧边栏颜色一致 */
+    
+    /* 关键：启用拖动功能 */
+    -webkit-app-region: drag;
+    
+    /* 可选：设置一个右侧边框来分隔，但通常由主内容区域的阴影来完成 */
+    /* border-right: 1px solid #d8ddce; */
+}
+
+/* 🚀 2. 右侧拖动区域 (Content 颜色) */
+.top-right-drag-area {
+    flex-grow: 1; /* 占据所有剩余宽度 */
+    background-color: #f5f5f5; /* 与右侧内容区颜色一致 */
+    
+    /* 关键：启用拖动功能 */
+    -webkit-app-region: drag;
+}
+
+/* --- 整体容器 --- */
+.setting-page-container {
+  display: flex;
+  flex-grow: 1; /* 占据顶部栏以下的所有剩余空间 */
+  /* height: 100%; <-- 移除或改为 flex-grow: 1 */
+  background-color: #f7f7f7; 
+  overflow: hidden;
+}
+
+/* --- 左侧导航栏 (Sidebar) --- */
+.setting-sidebar {
+  width: 200px; /* 根据 QQ 截图，左侧导航栏的宽度 */
+  flex-shrink: 0;
+  padding: 0 0;
+  background-color: #e3e3e3; /* 侧边栏的深灰色背景 */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative; /* 用于 footer 定位 */
+}
+
+.setting-menu-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px; /* 内部留白 */
+  margin: 0 8px; /* 左右边距，形成圆角效果 */
+  cursor: pointer;
+  border-radius: 10px; /* 圆角 */
+  font-size: 14px;
+  color: #333;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.setting-menu-item:hover {
+  background-color: #dadada;
+}
+
+/* 选中状态 */
+.setting-menu-item.selected {
+  background-color: #D2D2D2; /* 选中时背景变白 */
+  color: #000;
+  /* QQ 截图中的选中效果，左侧有更深的阴影或边框 */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); 
+}
+
+.setting-menu-icon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.setting-sidebar-footer {
+    /* 将底部的菜单项推到底部 */
+    margin-top: auto; 
+    padding-top: 10px;
+}
+
+
+/* --- 右侧内容区 --- */
+.setting-content-area {
+  flex-grow: 1;
+  background-color: #f5f5f5; /* 右侧主内容区背景为白色 */
+  padding: 0;
+  overflow-y: auto; /* 允许内容滚动 */
+}
+
+/* 顶部标题栏 */
+.setting-content-header {
+  padding: 4px 38px 8px;
+  font-size: 18px;
+  font-weight: 500;
+  color: #000;
+  border-bottom: 1px solid #eee; /* 底部细线分隔 */
+}
+
+/* 实际内容区域 */
+.setting-content-body {
+  padding: 20px 18px;
+}
+
+/* 确保右侧内容不会在顶部导航栏后面 */
+.setting-content-body > div {
+    /* 确保内容组件继承宽度 */
+    width: 100%; 
+}
+.setting-sidebar-footer div {
+    /* 确保菜单项可以被点击，而不是被上面的 .window-drag-area 捕获 */
+    -webkit-app-region: no-drag; 
+}
+
+.setting-icon {
+  width: 17px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

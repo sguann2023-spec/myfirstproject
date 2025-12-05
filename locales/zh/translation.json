@@ -1,5 +1,5 @@
 {
-  "title": "CapCutAPI",
+  "title": "流光剪辑",
   "version": "版本",
   "draft_url_label": "草稿URL:",
   "draft_url_placeholder": "https://cn.capcutapi.top/draft/downloader?draft_id=xxx",
@@ -43,5 +43,12 @@
   "worker_error": "工作线程错误",
   "close_jianying_and_retry": "删除草稿文件夹失败: {{error}}，请关闭剪映后再次尝试下载。",
   "download_list": "下载列表",
-  "download_partially_failed": "下载失败"
+  "download_partially_failed": "下载失败",
+  "logo_title": "流光剪辑",
+  "login_button": "登录",
+  "language": "语言",
+  "confirm": "确认",
+  "lang_zh": "中文",
+  "lang_en": "English",
+  "switch_account": "切换账号"
 }

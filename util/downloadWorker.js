@@ -4,6 +4,7 @@ const i18next = require('i18next');
 const Backend = require('i18next-fs-backend');
 const path = require('path');
 const fs = require('fs');
+const logger = require('../src/shared/logger');
 
 // 初始化i18next
 function initI18n() {
@@ -25,8 +26,9 @@ function initI18n() {
 initI18n().then(() => runDownload());
 
 async function runDownload() {
+  logger.info('runDownload')
   try {
-    const { draft_id, draftFolder, taskId, is_capcut, apiKey, apiHost } = workerData;
+    const { draft_id, draftFolder, taskId, is_capcut, apiHost, script } = workerData;
     
     /**
      * 创建进度回调函数，将进度消息和文件列表发送回主线程
@@ -44,7 +46,15 @@ async function runDownload() {
     };
     
     // 调用saveDraftBackground函数
-    const result = await saveDraftBackground(draft_id, draftFolder, taskId, progressCallback, is_capcut, apiKey, apiHost);
+    const result = await saveDraftBackground(
+      draft_id,
+      draftFolder,
+      taskId,
+      progressCallback,
+      is_capcut,
+      apiHost,
+      script // 传入前端获取的脚本
+    );
     
     if (result.success) {
       // 下载完成，发送完成消息

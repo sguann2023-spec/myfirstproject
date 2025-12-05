@@ -7,10 +7,21 @@ import { app } from 'electron';
 // 在渲染进程中，我们需要通过remote获取app对象
 // 注意：在Electron 12+中，remote模块已被移除，需要使用contextBridge或preload脚本
 const electron = window.require('electron');
+import { electronStore } from './shared/electronStore'; // 从共享模块导入
 const isDev = process.env.NODE_ENV === 'development';
+
+// 核心修正：获取初始语言
+const getInitialLanguage = () => {
+  const savedLang = electronStore.get('language'); // 从 store 中读取保存的语言 
+  if (savedLang) {
+    return savedLang;
+  }
+  return 'zh'; // 默认回退语言
+};
 
 // 确定本地化文件的路径
 let localesPath;
+
 if (isDev) {
   // 开发环境下的路径
   localesPath = path.join(__dirname, '../locales');
@@ -26,6 +37,8 @@ i18n
     backend: {
       loadPath: path.join(localesPath, '{{lng}}/{{ns}}.json')
     },
+    // 修正：使用获取到的初始语言
+    lng: getInitialLanguage(), 
     fallbackLng: 'zh',
     debug: isDev,
     interpolation: {

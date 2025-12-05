@@ -2,7 +2,9 @@
 
 /* 外层容器样式 */
 .download-list-container {
+    height: 100%;
     padding: 0 0px;
+    margin-top: 19px;
 }
 
 .custom-space-align-center{
@@ -223,7 +225,7 @@
     padding: 0;
     
     /* ⚡️ 关键 1: 设置固定的最大高度 */
-    height: 240px; 
+    height: 100%; 
     
     /* ⚡️ 关键 2: 允许垂直滚动条出现（当内容超出 400px 时） */
     overflow-y: auto; 

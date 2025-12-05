@@ -20,6 +20,8 @@ jobs:
       # 生成一个固定的最新路径 (latest/CapCutAPI-0.3.9.dmg)
       oss_latest_path: latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Get Version and Timestamp
         id: set_path
         run: |
@@ -30,6 +32,7 @@ jobs:
           # 设置 OSS 部署路径为 'dev/202511061940/'
           echo "oss_version_path=dev/${TIMESTAMP}/" >> $GITHUB_OUTPUT
         shell: bash
+        working-directory: ${{ github.workspace }}
 
   # 任务 2A: macOS 构建并上传到 OSS
   build-and-deploy-mac-dev:
