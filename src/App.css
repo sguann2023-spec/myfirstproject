@@ -9,3 +9,28 @@ html, body, #root {
 .app-container {
   height: 120%;
 }
+
+.titlebar-overlay {
+  position: fixed;
+  top: 8px;
+  right: 10px;
+  height: 30px;
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: drag; /* 区域可拖拽 */
+  z-index: 1000;
+}
+
+.traffic-btn {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag; /* 按钮本身不可拖拽，便于点击 */
+}
+
+.traffic-btn.close { background-color: #ff5f56; }
+.traffic-btn.minimize { background-color: #ffbd2e; }
+.traffic-btn.maximize { background-color: #27c93f; }

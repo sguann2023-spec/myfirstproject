@@ -59,6 +59,17 @@ function App() {
     };
   }, []);
 
+  const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+
+  const handleWinCtrl = (action) => {
+      try {
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.send('window-controls', action);
+      } catch (e) {
+          // ignore
+      }
+  };
+
   return (
     <ConfigProvider locale={locale}>
       <div

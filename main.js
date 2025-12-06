@@ -646,9 +646,8 @@ function openSettingsWindow() {
     
     // 可选：自定义 macOS 交通灯按钮的位置 (相对于窗口左上角)
     trafficLightPosition: { x: 12, y: 10 }, 
-    // Windows 专用：创建一个覆盖层，包含系统按钮
-    // 在 Windows 上，这将创建一个默认 30px 高的覆盖层
-    titleBarOverlay: true, 
+    // Windows 关闭系统覆盖按钮，改用自定义控件
+    titleBarOverlay: isWin ? false : true,
     webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -710,5 +709,18 @@ ipcMain.on('log-message', (event, { level, messages }) => {
     else logger.info(...messages);
   } catch (e) {
     // 兜底：不影响业务
+  }
+});
+
+// 新增：窗口控制 IPC（全部窗口通用）
+ipcMain.on('window-controls', (event, action) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) return;
+  if (action === 'minimize') {
+    win.minimize();
+  } else if (action === 'maximize') {
+    win.isMaximized() ? win.unmaximize() : win.maximize();
+  } else if (action === 'close') {
+    win.close();
   }
 });
