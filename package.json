@@ -9,6 +9,7 @@
     "build": "webpack && electron-builder --mac --win",
     "build:mac": "webpack && electron-builder --mac",
     "build:win": "webpack && electron-builder --win",
+    "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy webpack && electron-builder --win --x64",
     "dev": "webpack --watch",
     "dev-start": "concurrently \"npm run dev\" \"npm run start\"",
     "test": "echo \"No tests specified\" && exit 0"
@@ -74,15 +75,21 @@
       "target": []
     },
     "win": {
-      "target": "nsis",
       "icon": "src/logo.ico",
-      "artifactName": "Pipet-Setup-${version}.exe",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "artifactName": "Pipet-Setup-${version}-${arch}.exe",
+      "executableName": "Pipet",
       "extraResources": [
-        {
-          "from": "locales",
-          "to": "locales"
-        }
+        { "from": "locales", "to": "locales" }
       ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": "always",
+      "shortcutName": "流光剪辑",
+      "uninstallDisplayName": "流光剪辑"
     }
   },
   "keywords": [

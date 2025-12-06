@@ -59,6 +59,17 @@ function App() {
     };
   }, []);
 
+  const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+
+  const handleWinCtrl = (action) => {
+      try {
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.send('window-controls', action);
+      } catch (e) {
+          // ignore
+      }
+  };
+
   return (
     <ConfigProvider locale={locale}>
       <div
@@ -77,6 +88,26 @@ function App() {
             language={language}
             toggleLanguage={toggleLanguage}
           />
+        )}
+        {/* 新增：仅在 Windows 渲染自定义窗口控制按钮 */}
+        {isWindows && (
+            <div className="titlebar-overlay">
+                <button
+                    className="traffic-btn minimize"
+                    onClick={() => handleWinCtrl('minimize')}
+                    title="最小化"
+                />
+                <button
+                    className="traffic-btn maximize"
+                    onClick={() => handleWinCtrl('maximize')}
+                    title="最大化/还原"
+                />
+                <button
+                    className="traffic-btn close"
+                    onClick={() => handleWinCtrl('close')}
+                    title="关闭"
+                />
+            </div>
         )}
       </div>
     </ConfigProvider>
