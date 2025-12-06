@@ -59,3 +59,8 @@ export async function getArtistEffectDownloadUrl({ effectId }) {
   }
   return null;
 }
+
+// 新增：获取客户端 Banner 列表
+export async function getClientBanner() {
+  return http.getJson(`${BASE_URL}/ad/client_banner`);
+}

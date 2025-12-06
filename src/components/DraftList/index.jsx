@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { draftList, searchDraft } from '../../api/capcut';
+import { draftList, getClientBanner, searchDraft } from '../../api/capcut';
 import './index.css';
 import DraftIcon from '../../../public/draft_icon.svg';
 import SearchIcon from '../../../public/search_unfocus.svg';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
+import BannerCarousel from '../BannerCarousel/BannerCarousel'; // 新增导入
 
 const LIMIT = 20;
 
@@ -18,6 +19,38 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId }) {
   const wheelStopTimerRef = useRef(null);
   const lastWheelDeltaRef = useRef(0);
   const isRefreshingRef = useRef(false);
+
+  // 新增：Banner 数据与轮播索引
+  const [banners, setBanners] = useState([]);
+  const [bannerError, setBannerError] = useState('');
+  const [bannerIndex, setBannerIndex] = useState(0);
+useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getClientBanner();
+        const list = Array.isArray(res) ? res : (res?.data || []);
+        if (!cancelled) {
+          const filtered = list.filter(b => b?.cover && b?.jump_url);
+          setBanners(filtered);
+        }
+      } catch (e) {
+        if (!cancelled) setBannerError('Banner 加载失败');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 轮播：长度变化时归零；长度>1时每3秒切换
+  useEffect(() => { setBannerIndex(0); }, [banners.length]);
+  useEffect(() => {
+    if (banners.length <= 1) return;
+    const t = setInterval(() => {
+      setBannerIndex(prev => (prev + 1) % banners.length);
+    }, 3000);
+    return () => clearInterval(t);
+  }, [banners.length]);
+
   useEffect(() => { isRefreshingRef.current = isRefreshing; }, [isRefreshing]);
 
   // 新增：搜索状态与引用
@@ -188,6 +221,12 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId }) {
 
   return (
     <div className="draftlist-root">
+        
+      {/* 顶部 Banner 区域（只显示一个，轮播） */}
+      {bannerError && <div className="draftlist-banner-error">{bannerError}</div>}
+      {banners.length > 0 && (
+        <BannerCarousel banners={banners} interval={3000} />  // 使用新组件
+      )}
       {/* 顶部搜索框 */}
       <div className="draftlist-search">
         <img
