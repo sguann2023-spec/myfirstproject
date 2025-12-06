@@ -1,120 +1,120 @@
-# name: Dev Build and Deploy to OSS
+name: Dev Build and Deploy to OSS
 
-# on:
-#   push:
-#     branches:
-#       - dev # 仅在推送到 dev 分支时触发
+on:
+  push:
+    branches:
+      - dev # 仅在推送到 dev 分支时触发
 
-# # 权限设置，确保可以读取代码并访问 Secret
-# permissions:
-#   contents: read
-#   id-token: write # 如果使用 OIDC 认证，则需要此权限
+# 权限设置，确保可以读取代码并访问 Secret
+permissions:
+  contents: read
+  id-token: write # 如果使用 OIDC 认证，则需要此权限
 
-# jobs:
-#   # 任务 1: 定义变量和 Nightly 路径
-#   vars:
-#     runs-on: ubuntu-latest
-#     outputs:
-#       # 生成一个基于时间戳的唯一路径 (例如: 202511061940/CapCutAPI-0.3.9.dmg)
-#       oss_version_path: ${{ steps.set_path.outputs.oss_version_path }}
-#       # 生成一个固定的最新路径 (latest/CapCutAPI-0.3.9.dmg)
-#       oss_latest_path: latest
-#     steps:
-#       - uses: actions/checkout@v4
+jobs:
+  # 任务 1: 定义变量和 Nightly 路径
+  vars:
+    runs-on: ubuntu-latest
+    outputs:
+      # 生成一个基于时间戳的唯一路径 (例如: 202511061940/CapCutAPI-0.3.9.dmg)
+      oss_version_path: ${{ steps.set_path.outputs.oss_version_path }}
+      # 生成一个固定的最新路径 (latest/CapCutAPI-0.3.9.dmg)
+      oss_latest_path: latest
+    steps:
+      - uses: actions/checkout@v4
 
-#       - name: Get Version and Timestamp
-#         id: set_path
-#         run: |
-#           # 提取 package.json 中的版本号
-#           VERSION=$(node -p "require('./package.json').version")
-#           # 获取当前时间戳
-#           TIMESTAMP=$(date +%Y%m%d%H%M)
-#           # 设置 OSS 部署路径为 'dev/202511061940/'
-#           echo "oss_version_path=dev/${TIMESTAMP}/" >> $GITHUB_OUTPUT
-#         shell: bash
-#         working-directory: ${{ github.workspace }}
+      - name: Get Version and Timestamp
+        id: set_path
+        run: |
+          # 提取 package.json 中的版本号
+          VERSION=$(node -p "require('./package.json').version")
+          # 获取当前时间戳
+          TIMESTAMP=$(date +%Y%m%d%H%M)
+          # 设置 OSS 部署路径为 'dev/202511061940/'
+          echo "oss_version_path=dev/${TIMESTAMP}/" >> $GITHUB_OUTPUT
+        shell: bash
+        working-directory: ${{ github.workspace }}
 
-#   # 任务 2A: macOS 构建并上传到 OSS
-#   build-and-deploy-mac-dev:
-#     runs-on: macos-latest
-#     needs: vars
-#     strategy:
-#       matrix:
-#         node-version: [24.x]
+  # 任务 2A: macOS 构建并上传到 OSS
+  build-and-deploy-mac-dev:
+    runs-on: macos-latest
+    needs: vars
+    strategy:
+      matrix:
+        node-version: [24.x]
 
-#     steps:
-#       - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
       
-#       - name: Use Node.js ${{ matrix.node-version }}
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: ${{ matrix.node-version }}
-#           cache: 'yarn'
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
       
-#       - name: Install dependencies
-#         run: yarn install --frozen-lockfile
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
       
-#       - name: Build Mac application
-#         run: yarn build:mac --universal
-#         shell: bash
+      - name: Build Mac application
+        run: yarn build:mac --universal
+        shell: bash
 
-#       # 关键步骤 1: 上传到 OSS (带版本号的路径)
-#       - name: Deploy Mac Assets to OSS (Versioned Path)
-#         uses: aliyun/ossutil-action@v1.1 # 使用官方或常用 Action
-#         with:
-#           endpoint: ${{ secrets.OSS_ENDPOINT }}
-#           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-#           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-#           args: cp -r build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_version_path }}
+      # 关键步骤 1: 上传到 OSS (带版本号的路径)
+      - name: Deploy Mac Assets to OSS (Versioned Path)
+        uses: aliyun/ossutil-action@v1.1 # 使用官方或常用 Action
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          args: cp -r build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_version_path }}
           
-#       # 关键步骤 2: 上传到 OSS (latest 路径, 覆盖旧文件)
-#       - name: Deploy Mac Assets to OSS (Latest Path)
-#         uses: aliyun/ossutil-action@v1.1
-#         with:
-#           endpoint: ${{ secrets.OSS_ENDPOINT }}
-#           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-#           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-#           # 强制覆盖 'latest' 路径下的文件
-#           args: cp -f build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_latest_path }}/
+      # 关键步骤 2: 上传到 OSS (latest 路径, 覆盖旧文件)
+      - name: Deploy Mac Assets to OSS (Latest Path)
+        uses: aliyun/ossutil-action@v1.1
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          # 强制覆盖 'latest' 路径下的文件
+          args: cp -f build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_latest_path }}/
 
-#   # 任务 2B: Windows 构建并上传到 OSS
-#   build-and-deploy-win-dev:
-#     runs-on: windows-latest
-#     needs: vars
-#     strategy:
-#       matrix:
-#         node-version: [24.x]
+  # 任务 2B: Windows 构建并上传到 OSS
+  build-and-deploy-win-dev:
+    runs-on: windows-latest
+    needs: vars
+    strategy:
+      matrix:
+        node-version: [24.x]
 
-#     steps:
-#       - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
       
-#       - name: Use Node.js ${{ matrix.node-version }}
-#         uses: actions/setup-node@v4
-#         with:
-#           node-version: ${{ matrix.node-version }}
-#           cache: 'yarn'
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
       
-#       - name: Install dependencies
-#         run: yarn install --frozen-lockfile
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
       
-#       - name: Build Windows application
-#         run: yarn build:win
-#         shell: bash
+      - name: Build Windows application
+        run: yarn build:win
+        shell: bash
 
-#       # 关键步骤 1: 上传到 OSS (带版本号的路径)
-#       - name: Deploy Windows Assets to OSS (Versioned Path)
-#         uses: aliyun/ossutil-action@v1.1
-#         with:
-#           endpoint: ${{ secrets.OSS_ENDPOINT }}
-#           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-#           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-#           args: cp -r build/*.exe build/latest.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_version_path }}
+      # 关键步骤 1: 上传到 OSS (带版本号的路径)
+      - name: Deploy Windows Assets to OSS (Versioned Path)
+        uses: aliyun/ossutil-action@v1.1
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          args: cp -r build/*.exe build/latest.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_version_path }}
           
-#       # 关键步骤 2: 上传到 OSS (latest 路径, 覆盖旧文件)
-#       - name: Deploy Windows Assets to OSS (Latest Path)
-#         uses: aliyun/ossutil-action@v1.1
-#         with:
-#           endpoint: ${{ secrets.OSS_ENDPOINT }}
-#           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-#           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-#           args: cp -f build/*.exe build/latest.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_latest_path }}/
+      # 关键步骤 2: 上传到 OSS (latest 路径, 覆盖旧文件)
+      - name: Deploy Windows Assets to OSS (Latest Path)
+        uses: aliyun/ossutil-action@v1.1
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          args: cp -f build/*.exe build/latest.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_latest_path }}/
