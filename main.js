@@ -27,6 +27,8 @@ let i18n;
 
 let authWindow = null;
 
+const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+
 function initI18n() {
     const isDev = process.env.NODE_ENV === 'development';
     const localesPath = isDev 
@@ -139,16 +141,16 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     frame: false, // 移除系统边框
-    transparent: true, // 使窗口透明
-    // macOS 专用：隐藏标题栏，但保留交通灯按钮浮动在您的内容上
-    titleBarStyle: 'hidden', 
-    
-    // Windows 专用：创建一个覆盖层，包含系统按钮
-    // 在 Windows 上，这将创建一个默认 30px 高的覆盖层
-    titleBarOverlay: true, 
-    
-    // 可选：自定义 macOS 交通灯按钮的位置 (相对于窗口左上角)
-    trafficLightPosition: { x: 12, y: 10 }, 
+    // 修改：Windows 关闭透明，避免最大化失效；macOS 可保持透明
+    transparent: isWindows ? false : true,
+    titleBarStyle: 'hidden',
+    // 修改：Windows 关闭系统覆盖层，改用自定义控件
+    titleBarOverlay: isWindows ? false : true,
+    trafficLightPosition: { x: 12, y: 10 },
+    // 新增：显式开启窗口能力（frameless/transparent 下在 Windows 有时会失效）
+    minimizable: true,
+    maximizable: true,
+    resizable: true
   });
   const isDev = process.env.NODE_ENV === 'development';
 
@@ -159,10 +161,10 @@ function createWindow() {
     mainWindow.loadFile('dist/index.html');
   }
 
-  // // 打开开发者工具
-  // if (isDev) {
-  //   mainWindow.webContents.openDevTools();
-  // }
+  // 打开开发者工具
+  if (isDev) {
+    mainWindow.webContents.openDevTools();
+  }
 
   // 当window被关闭，这个事件会被触发
   mainWindow.on('closed', function () {
@@ -544,7 +546,8 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
         modal: false,
         resizable: false,
         frame: true, // 用户可以自己关闭
-        titleBarStyle: 'default', // 显式设置为 'default' 或 'hiddenInset' (更美观)
+        titleBarStyle: 'hidden', // 显式设置为 'default' 或 'hiddenInset' (更美观)
+        titleBarOverlay: true,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -640,14 +643,10 @@ function openSettingsWindow() {
     // macOS 专用：隐藏标题栏，但保留交通灯按钮浮动在您的内容上
     titleBarStyle: 'hidden', 
     
-    // Windows 专用：创建一个覆盖层，包含系统按钮
-    // 在 Windows 上，这将创建一个默认 30px 高的覆盖层
-    titleBarOverlay: true, 
-    
     // 可选：自定义 macOS 交通灯按钮的位置 (相对于窗口左上角)
     trafficLightPosition: { x: 12, y: 10 }, 
     // Windows 关闭系统覆盖按钮，改用自定义控件
-    titleBarOverlay: isWin ? false : true,
+    titleBarOverlay: isWindows ? false : true,
     webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -716,6 +715,14 @@ ipcMain.on('log-message', (event, { level, messages }) => {
 ipcMain.on('window-controls', (event, action) => {
   const win = BrowserWindow.getFocusedWindow();
   if (!win) return;
+  // 新增：Windows 下兜底确保能力开启
+  if (isWindows) {
+    try {
+      win.setMinimizable(true);
+      win.setMaximizable(true);
+      win.setResizable(true);
+    } catch (e) { /* ignore */ }
+  }
   if (action === 'minimize') {
     win.minimize();
   } else if (action === 'maximize') {

@@ -169,6 +169,9 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
     // 展示的用户头像
     const [avatarUrl, setAvatarUrl] = useState(() => electronStore.get('user')?.avatar || '');
 
+    // 根据平台决定按钮位置
+    const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+
     // **新增：处理设置按钮点击**
     const handleOpenSettings = () => {
         setViewState('settings');
@@ -368,45 +371,43 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
                 height: '100%', 
             }}
         >
-
-            <div 
+        {/* 顶部可拖拽区域 */}
+        <div 
+            style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '30px',
+                WebkitAppRegion: 'drag',
+                zIndex: 10,
+            }}
+        />
+        {/* 顶部设置按钮：Windows 左上角，非 Windows 右上角 */}
+        <div
+            className="top-right-controls"
+            style={{
+                position: 'absolute',
+                top: 0,
+                left: isWindows ? 5 : undefined,
+                right: isWindows ? undefined : 5,
+                zIndex: 20,
+                WebkitAppRegion: 'no-drag'
+            }}
+        >
+            <Button
+                icon={<SettingOutlined style={{ fontSize: '14px' }} />}
+                type="text"
+                className="control-button"
+                onClick={() => viewState === 'settings' ? handleBackToLogin() : handleOpenSettings()}
                 style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: '30px', // 给定一个明确的拖动高度
-                    WebkitAppRegion: 'drag', // 👈 确保此条可拖动
-                    zIndex: 10,
+                    color: 'rgba(0, 0, 0)'
                 }}
-            >
-                {/* ⚠️ 这个 div 是空的，其目的就是为了拖动 */}
-            </div>
-
-            <div
-                className="top-right-controls"
-                style={{
-                    position: 'absolute',
-                    top: 0,
-                    right: 5, // 调整右侧间距，与左侧的 15px 对应
-                    zIndex: 20,
-                    WebkitAppRegion: 'no-drag' // 确保按钮可点击
-                }}
-            >
-                <Button
-                    icon={<SettingOutlined style={{ fontSize: '14px' }} />} // 使用 Ant Design 的设置图标，可以调整大小
-                    type="text"
-                    className="control-button" // 👈 添加自定义类名
-                    onClick={() => viewState === 'settings' ? handleBackToLogin() : handleOpenSettings()}
-                    style={{
-                        color: 'rgba(0, 0, 0)' // 默认颜色
-                    }}
-                />
-            </div>
-
-
-            {renderView()}
+            />
         </div>
+
+        {renderView()}
+    </div>
     );
 };
 
