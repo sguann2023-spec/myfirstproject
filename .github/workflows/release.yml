@@ -71,7 +71,7 @@ jobs:
   build-and-upload-mac:
     runs-on: macos-latest
     if: startsWith(github.ref, 'refs/tags/')
-    needs: create-release-draft # 依赖 Release 草稿存在
+    needs: build-and-upload-win # 依赖 Release 草稿存在
     permissions:
       contents: write 
     strategy:
