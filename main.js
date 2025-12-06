@@ -552,8 +552,18 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
             nodeIntegration: false,
             contextIsolation: true,
             webSecurity: true,
+            javascript: true,         // 显式允许 JS
+            nativeWindowOpen: true,   // 允许 Google 弹窗/重定向
         }
     });
+
+    // 关键：设定现代 Chrome UA，避免被判为嵌入式/不支持
+    const chromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    authWindow.webContents.setUserAgent(chromeUA);
+
+    // 放行 window.open
+    authWindow.webContents.setWindowOpenHandler(() => ({ action: 'allow' }));
+
     authWindow.on('closed', () => {
         const refreshToken = electronStore.get('auth.refresh_token');
         logger.info('[Main] AuthWindow closed. storage refresh_token:', refreshToken);
@@ -607,7 +617,8 @@ ipcMain.on('open-auth-guard-window', (event, authUrl) => {
     });
 
     // 4. 加载 Authing 授权 URL
-    authWindow.loadURL(authUrl);
+    // 使用 UA 发起加载
+    authWindow.loadURL(authUrl, { userAgent: chromeUA });
     authWindow.show();
 });
 

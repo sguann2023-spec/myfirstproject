@@ -1,0 +1,55 @@
+/* 容器占满父宽度，外边距与搜索框对齐 */
+.banner-carousel {
+  margin: 8px 12px 0 12px;
+}
+
+/* 视窗：宽度 100%，高度按 16:9 比例；相对定位以承载指示点 */
+.banner-carousel-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+/* 轨道：横向排列，按索引左滑 */
+.banner-carousel-track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.45s ease;
+  transform: translateX(calc(var(--index) * -100%));
+}
+
+/* 单张：占满视窗宽度，高度跟随视窗；点击可打开外部浏览器 */
+.banner-carousel-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.banner-carousel-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 指示点：居中覆盖在 banner 下方左右居中位置  */
+.banner-carousel-dots {
+  position: absolute;
+  top: 90%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 6px;
+  pointer-events: none; /* 不拦截点击，保证点击图片可打开链接 */
+}
+.banner-carousel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+}
+.banner-carousel-dot.active {
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+}
