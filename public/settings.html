@@ -4,10 +4,61 @@
   <meta charset="UTF-8">
   <title>设置</title> <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval';">
   <link rel="stylesheet">
+  <style>
+    /* 设置页的自定义窗口按钮样式（与 App.css 保持一致） */
+    .titlebar-overlay {
+      position: fixed;
+      top: 8px;
+      right: 10px;
+      height: 30px;
+      display: flex;
+      gap: 8px;
+      -webkit-app-region: drag;
+      z-index: 1000;
+    }
+    .traffic-btn {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: none;
+      outline: none;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+    .traffic-btn.close { background-color: #ff5f56; }
+    .traffic-btn.minimize { background-color: #ffbd2e; }
+    .traffic-btn.maximize { background-color: #27c93f; }
+  </style>
 </head>
 <body>
   <div id="root"></div>
   
   <script defer src="settings.bundle.js"></script> 
+
+  <!-- Windows 自定义窗口控制按钮 -->
+  <div class="titlebar-overlay">
+    <button class="traffic-btn minimize" title="最小化"></button>
+    <button class="traffic-btn maximize" title="最大化/还原"></button>
+    <button class="traffic-btn close" title="关闭"></button>
+  </div>
+
+  <script>
+    // 仅在 Windows 显示（避免干扰 macOS）
+    const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+    if (!isWindows) {
+      document.querySelector('.titlebar-overlay').style.display = 'none';
+    } else {
+      const { ipcRenderer } = window.require('electron');
+      document.querySelector('.traffic-btn.minimize').addEventListener('click', () => {
+        ipcRenderer.send('window-controls', 'minimize');
+      });
+      document.querySelector('.traffic-btn.maximize').addEventListener('click', () => {
+        ipcRenderer.send('window-controls', 'maximize');
+      });
+      document.querySelector('.traffic-btn.close').addEventListener('click', () => {
+        ipcRenderer.send('window-controls', 'close');
+      });
+    }
+  </script>
 </body>
 </html>
