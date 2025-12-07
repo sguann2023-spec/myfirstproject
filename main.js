@@ -650,8 +650,7 @@ function openSettingsWindow() {
     height: 730,
     autoHideMenuBar: true,
     frame: false, // 移除系统边框
-    transparent: true, // 使窗口透明
-    // macOS 专用：隐藏标题栏，但保留交通灯按钮浮动在您的内容上
+    transparent: isWindows ? false : true, // Windows 关闭透明，避免最大化失效
     titleBarStyle: 'hidden', 
     
     // 可选：自定义 macOS 交通灯按钮的位置 (相对于窗口左上角)
