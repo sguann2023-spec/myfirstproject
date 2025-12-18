@@ -163,7 +163,7 @@ function createWindow() {
 
   // // 打开开发者工具
   // if (isDev) {
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   // }
 
   // 当window被关闭，这个事件会被触发
