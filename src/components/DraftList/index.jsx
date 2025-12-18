@@ -16,9 +16,11 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId }) {
   const [isLoadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState('');
+  const [pullTip, setPullTip] = useState('');
   const wheelStopTimerRef = useRef(null);
   const lastWheelDeltaRef = useRef(0);
   const isRefreshingRef = useRef(false);
+  const pullUpCountRef = useRef(0);
 
   // 新增：Banner 数据与轮播索引
   const [banners, setBanners] = useState([]);
@@ -106,19 +108,39 @@ useEffect(() => {
       lastWheelDeltaRef.current = e.deltaY; // 方向：负数表示向上
       if (wheelStopTimerRef.current) clearTimeout(wheelStopTimerRef.current);
 
-      // 200ms 内没有新的滚轮事件 => 认为停止
-      wheelStopTimerRef.current = setTimeout(() => {
-        wheelStopTimerRef.current = null;
-        const currentEl = containerRef.current;
-        if (!currentEl) return;
+      const currentEl = containerRef.current;
+      const atTop = !!currentEl && currentEl.scrollTop <= 0;
+      const pullingUp = e.deltaY < 0;
 
-        if (lastWheelDeltaRef.current < 0 && currentEl.scrollTop <= 0 && !isRefreshingRef.current) {
+      if (atTop && pullingUp && !isRefreshingRef.current) {
+        pullUpCountRef.current += 1;
+        setPullTip('下拉可刷新');
+
+        if (pullUpCountRef.current >= 2) {
+          setPullTip('正在刷新…');
+          isRefreshingRef.current = true;
           setRefreshing(true);
           // 同步触发 HomePage 的今日数量刷新请求
           if (typeof onRefreshTodayCount === 'function') {
               onRefreshTodayCount();
           }
-          fetchPage(0, true).finally(() => setRefreshing(false));
+          fetchPage(0, true).finally(() => {
+            setRefreshing(false);
+            isRefreshingRef.current = false;
+            setPullTip('');
+            pullUpCountRef.current = 0;
+          });
+        }
+      } else if (!isRefreshingRef.current) {
+        pullUpCountRef.current = 0;
+        setPullTip('');
+      }
+
+      // 200ms 内没有新的滚轮事件 => 认为停止，仅用于清理提示
+      wheelStopTimerRef.current = setTimeout(() => {
+        wheelStopTimerRef.current = null;
+        if (!isRefreshingRef.current) {
+          setPullTip('');
         }
       }, 200);
     };
@@ -287,7 +309,12 @@ useEffect(() => {
       </div>
 
       <div ref={containerRef} className="draftlist-container">
-
+        {(isRefreshing || pullTip) && (
+          <div className="draftlist-refresh-tip">
+            {isRefreshing && <span className="draftlist-spinner"></span>}
+            <span>{isRefreshing ? '正在刷新…' : pullTip}</span>
+          </div>
+        )}
         {error && <div className="draftlist-error">{error}</div>}
 
         {items.map(item => (
