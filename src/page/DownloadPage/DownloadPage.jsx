@@ -16,7 +16,7 @@ const { Title, Text } = Typography;
 
 const { ipcRenderer } = window.require('electron');
 
-const DEFAULT_HOST = 'https://open.capcutapi.top/cut_jianying';
+const DEFAULT_HOST = 'https://cut-jianying-vdvswivepm.cn-hangzhou.fcapp.run/cut_jianying';
 
 // ----------------------------------------------------
 // 💥 模拟数据生成器 (用于测试) 💥
@@ -349,7 +349,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
     return (
         <Layout className="app-container">
             <Header className="app-header">
-                <div className="app-title" onClick={() => window.open('https://www.capcutapi.top', '_blank', 'width=1200,height=900')}>
+                <div className="app-title" onClick={() => window.open('https://www.vectcut.com', '_blank', 'width=1200,height=900')}>
                     <img src={logo} alt="CapCutAPI Logo" className="app-logo" />
                     <Title level={3} style={{ margin: 0 }}>{t('title')}</Title>
                 </div>

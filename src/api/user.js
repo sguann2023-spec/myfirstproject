@@ -1,7 +1,7 @@
 import { http } from '../http';
 import logger from '../shared/logger';
 
-const BASE_URL = 'https://login.capcutapi.top';
+const BASE_URL = 'https://wechat-n-server-teqowehjws.cn-hangzhou.fcapp.run';
 
 export async function addUser({ id, name = '', avatar = '', creation_channel = 'client' }) {
   const payload = { user_id: id, name, avatar, creation_channel };

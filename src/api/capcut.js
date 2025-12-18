@@ -1,6 +1,6 @@
 import { http } from '../http';
 
-const BASE_URL = 'https://open.capcutapi.top';
+const BASE_URL = 'https://cut-jianying-vdvswivepm.cn-hangzhou.fcapp.run';
 
 export async function createDraft({ width, height }) {
   return http.postJson(`${BASE_URL}/cut_jianying/create_draft`, { width, height });
