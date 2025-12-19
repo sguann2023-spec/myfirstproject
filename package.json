@@ -1,6 +1,6 @@
 {
   "name": "@sun-guannan/capcutmaker",
-  "version": "1.1.8",
+  "version": "1.1.10",
   "description": "CapCut Helper Application",
   "main": "main.js",
   "scripts": {
@@ -55,7 +55,7 @@
         "**/*.node"
       ],
       "icon": "src/logo.icns",
-      "artifactName": "Pipet-${version}-${arch}.${ext}",
+      "artifactName": "VectCut-${version}-${arch}.${ext}",
       "target": [
         {
           "target": "dmg",
@@ -79,8 +79,8 @@
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ],
-      "artifactName": "Pipet-Setup-${version}-${arch}.exe",
-      "executableName": "Pipet",
+      "artifactName": "VectCut-Setup-${version}-${arch}.exe",
+      "executableName": "VectCut",
       "extraResources": [
         { "from": "locales", "to": "locales" }
       ]
@@ -94,7 +94,7 @@
   },
   "keywords": [
     "capcutapi",
-    "Pipet",
+    "VectCut",
     "electron",
     "desktop"
   ],
