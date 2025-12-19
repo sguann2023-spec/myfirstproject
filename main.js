@@ -49,9 +49,27 @@ function initI18n() {
     return i18n;
 }
 
-// 在应用启动时初始化 i18n
-app.whenReady().then(() => {
+// 在应用启动时初始化 i18n，并在启动前尝试切换到已缓存的新版本
+app.whenReady().then(async () => {
   initI18n();
+  try {
+    const staged = electronStore.get('stagedUpdate');
+    const curVer = app.getVersion();
+    if (staged && staged.appPath && staged.version && staged.version !== curVer) {
+      logger.info('[updater] launching staged app', staged.version, staged.appPath);
+      try { require('child_process').spawn('xattr', ['-dr','com.apple.quarantine', staged.appPath]); } catch {}
+      try {
+        require('child_process').spawn('open', [staged.appPath], { detached: true });
+        electronStore.delete('stagedUpdate');
+        app.quit();
+        return;
+      } catch (e) {
+        logger.error('[updater] launch staged failed', e.message);
+      }
+    }
+  } catch (e) {
+    logger.error('[updater] staged check failed', e.message);
+  }
   createWindow();
 });
 
@@ -88,20 +106,104 @@ logger.info(`App Version: ${appVersion}, Version Code: ${versionCode}`);
 let mainWindow;
 
 function setupUpdater() {
-  // ... existing code ...
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowPrerelease = false;
 
-  // 开发模式，强制更新
-  // autoUpdater.forceDevUpdateConfig = true;
+  const electronLog = require('electron-log');
+  try { electronLog.transports.file.level = 'debug'; } catch {}
+  autoUpdater.logger = electronLog;
+  logger.info('[updater] currentVersion', app.getVersion());
 
-  autoUpdater.on('error', (err) => logger.error('[updater] error', err.message));
-  autoUpdater.on('update-available', (info) => logger.info('[updater] update available', info.version));
-  autoUpdater.on('update-not-available', () => logger.info('[updater] no updates'));
-  autoUpdater.on('download-progress', (p) => logger.info('[updater] progress', Math.round(p.percent) + '%'));
-  autoUpdater.on('update-downloaded', () => logger.info('[updater] update downloaded'));
+  const feedUrl = 'https://gh-proxy.com/https://github.com/sun-guannan/CapCutMaker/releases/latest/download';
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl, channel: 'latest' });
+    const indexFile = process.platform === 'darwin' ? 'latest-mac.yml' : 'latest.yml';
+    logger.info('[updater] feed URL set', feedUrl, 'index:', `${feedUrl}/${indexFile}`);
+  } catch (e) {
+    logger.error('[updater] setFeedURL failed', e.message);
+  }
 
-  // 关键：不再 setFeedURL，直接检查更新，并做好错误捕获
+  const stageDir = path.join(app.getPath('userData'), 'updates');
+  try { fs.mkdirSync(stageDir, { recursive: true }); } catch {}
+  async function extractZip(zipPath, extractPath) {
+    if (process.platform === 'darwin') {
+      await new Promise((resolve, reject) => {
+        const p = require('child_process').spawn('ditto', ['-x','-k', zipPath, extractPath]);
+        p.on('error', reject);
+        p.on('exit', code => code === 0 ? resolve() : reject(new Error(`ditto exit ${code}`)));
+      });
+      return;
+    }
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(extractPath, true);
+  }
+  async function stageUpdate(info) {
+    try {
+      const ver = info && info.version ? info.version : '';
+      const base = /\/$/.test(feedUrl) ? feedUrl : (feedUrl + '/');
+      const pick = Array.isArray(info?.files)
+        ? (info.files.find(f => ((f?.url || f?.path || '')).endsWith('.zip')) || info.files[0])
+        : null;
+      const candidate = pick || {};
+      const candidatePath = candidate.url || candidate.path || '';
+      const fileUrl = /^https?:\/\//.test(candidatePath) ? candidatePath : (base + candidatePath);
+      if (!fileUrl) { logger.warn('[updater] no file url'); return; }
+      logger.info('[updater] stage url', fileUrl);
+      const zipPath = path.join(stageDir, `update-${ver}.zip`);
+      const resp = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+      const total = parseInt(resp.headers['content-length'] || '0', 10);
+      let received = 0; let lastTs = 0; let lastPct = -1;
+      const writer = fs.createWriteStream(zipPath);
+      await new Promise((resolve, reject) => {
+        resp.data.on('data', (chunk) => {
+          received += chunk.length;
+          if (total > 0) {
+            const pct = Math.floor((received / total) * 100);
+            const now = Date.now();
+            if (pct !== lastPct && (now - lastTs) > 500) {
+              lastPct = pct; lastTs = now;
+              logger.info('[updater] stage download', `${pct}%`, `${(received/1048576).toFixed(1)}MB/${(total/1048576).toFixed(1)}MB`);
+              sendStatusToWindow(`[updater] stage download ${pct}%`);
+            }
+          } else {
+            const now = Date.now();
+            if ((now - lastTs) > 1000) { lastTs = now; logger.info('[updater] stage downloaded', `${(received/1048576).toFixed(1)}MB`); }
+          }
+        });
+        resp.data.on('error', reject);
+        writer.on('error', reject);
+        writer.on('finish', resolve);
+        resp.data.pipe(writer);
+      });
+      const extractPath = path.join(stageDir, `app-${ver}`);
+      try { fs.rmSync(extractPath, { recursive: true, force: true }); } catch {}
+      await extractZip(zipPath, extractPath);
+      let appPath;
+      try {
+        const items = fs.readdirSync(extractPath);
+        const appDir = items.find(n => n.endsWith('.app'));
+        appPath = appDir ? path.join(extractPath, appDir) : path.join(extractPath, `${app.getName()}.app`);
+      } catch (_) {
+        appPath = path.join(extractPath, `${app.getName()}.app`);
+      }
+      if (!fs.existsSync(appPath)) { logger.error('[updater] staged app not found', appPath); return; }
+      try { require('child_process').spawn('xattr', ['-dr','com.apple.quarantine', appPath]); } catch {}
+      const asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar');
+      if (!fs.existsSync(asarPath)) { logger.error('[updater] staged app missing app.asar', asarPath); }
+      electronStore.set('stagedUpdate', { version: ver, appPath });
+      logger.info('[updater] staged at', appPath);
+    } catch (e) {
+      logger.error('[updater] stage failed', e.message);
+    }
+  }
+
+  autoUpdater.on('checking-for-update', () => logger.info('[updater] checking-for-update'));
+  autoUpdater.on('update-available', (info) => { logger.info('[updater] update-available', info?.version || ''); stageUpdate(info); });
+  autoUpdater.on('update-not-available', (info) => logger.info('[updater] no updates', info ? (info.version || '') : ''));
+  autoUpdater.on('error', (err) => logger.error('[updater] error', err?.message || ''));
+
   autoUpdater.checkForUpdates().catch((e) => logger.error('[updater] check failed', e.message));
 }
 
