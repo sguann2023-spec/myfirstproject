@@ -1,5 +1,5 @@
 {
-  "title": "Pipet",
+  "title": "VectCut",
   "version": "Version",
   "draft_url_label": "Draft URL:",
   "draft_url_placeholder": "https://cn.capcutapi.top/draft/downloader?draft_id=xxx",
@@ -44,7 +44,7 @@
   "close_jianying_and_retry": "Failed to delete draft folder: {{error}}, please close CapCut/JianYing and try downloading again.",
   "download_list": "Download List",
   "download_partially_failed": "Download partially failed.",
-  "logo_title": "Pipet",
+  "logo_title": "VectCut",
   "login_button": "Login",
   "language": "Language",
   "confirm": "Confirm",
