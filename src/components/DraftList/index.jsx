@@ -21,6 +21,7 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId }) {
   const lastWheelDeltaRef = useRef(0);
   const isRefreshingRef = useRef(false);
   const pullUpCountRef = useRef(0);
+  const refreshCooldownRef = useRef(false);
 
   // 新增：Banner 数据与轮播索引
   const [banners, setBanners] = useState([]);
@@ -112,17 +113,18 @@ useEffect(() => {
       const atTop = !!currentEl && currentEl.scrollTop <= 0;
       const pullingUp = e.deltaY < 0;
 
-      if (atTop && pullingUp && !isRefreshingRef.current) {
+      if (atTop && pullingUp && !isRefreshingRef.current && !refreshCooldownRef.current) {
         pullUpCountRef.current += 1;
         setPullTip('下拉可刷新');
 
         if (pullUpCountRef.current >= 2) {
           setPullTip('正在刷新…');
           isRefreshingRef.current = true;
+          refreshCooldownRef.current = true;
+          setTimeout(() => { refreshCooldownRef.current = false; }, 2000);
           setRefreshing(true);
-          // 同步触发 HomePage 的今日数量刷新请求
           if (typeof onRefreshTodayCount === 'function') {
-              onRefreshTodayCount();
+            onRefreshTodayCount();
           }
           fetchPage(0, true).finally(() => {
             setRefreshing(false);
