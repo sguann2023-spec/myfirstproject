@@ -57,9 +57,17 @@ app.whenReady().then(async () => {
     const curVer = app.getVersion();
     if (staged && staged.appPath && staged.version && staged.version !== curVer) {
       logger.info('[updater] launching staged app', staged.version, staged.appPath);
-      try { require('child_process').spawn('xattr', ['-dr','com.apple.quarantine', staged.appPath]); } catch {}
       try {
-        require('child_process').spawn('open', [staged.appPath], { detached: true });
+        const cp = require('child_process');
+        if (process.platform === 'darwin') {
+          try { cp.spawn('xattr', ['-dr','com.apple.quarantine', staged.appPath]); } catch {}
+          cp.spawn('open', [staged.appPath], { detached: true });
+        } else if (process.platform === 'win32') {
+          const proc = cp.spawn(staged.appPath, [], { detached: true, stdio: 'ignore' });
+          try { proc.unref(); } catch {}
+        } else {
+          cp.spawn(staged.appPath, [], { detached: true, stdio: 'ignore' });
+        }
         electronStore.delete('stagedUpdate');
         app.quit();
         return;
@@ -143,19 +151,22 @@ function setupUpdater() {
     try {
       const ver = info && info.version ? info.version : '';
       const base = /\/$/.test(feedUrl) ? feedUrl : (feedUrl + '/');
-      const pick = Array.isArray(info?.files)
-        ? (info.files.find(f => ((f?.url || f?.path || '')).endsWith('.zip')) || info.files[0])
-        : null;
+      const files = Array.isArray(info?.files) ? info.files : [];
+      const preferExt = process.platform === 'win32' ? '.exe' : '.zip';
+      const pick = files.find(f => ((f?.url || f?.path || '').toLowerCase()).endsWith(preferExt))
+        || files.find(f => ((f?.url || f?.path || '').toLowerCase()).endsWith('.zip'))
+        || files[0];
       const candidate = pick || {};
       const candidatePath = candidate.url || candidate.path || '';
       const fileUrl = /^https?:\/\//.test(candidatePath) ? candidatePath : (base + candidatePath);
+      const ext = path.extname(candidatePath || '').toLowerCase();
       if (!fileUrl) { logger.warn('[updater] no file url'); return; }
-      logger.info('[updater] stage url', fileUrl);
-      const zipPath = path.join(stageDir, `update-${ver}.zip`);
+      logger.info('[updater] stage url', fileUrl, 'ext', ext);
+      const targetPath = path.join(stageDir, ext === '.exe' ? `installer-${ver}.exe` : `update-${ver}.zip`);
       const resp = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
       const total = parseInt(resp.headers['content-length'] || '0', 10);
       let received = 0; let lastTs = 0; let lastPct = -1;
-      const writer = fs.createWriteStream(zipPath);
+      const writer = fs.createWriteStream(targetPath);
       await new Promise((resolve, reject) => {
         resp.data.on('data', (chunk) => {
           received += chunk.length;
@@ -177,9 +188,14 @@ function setupUpdater() {
         writer.on('finish', resolve);
         resp.data.pipe(writer);
       });
+      if (process.platform === 'win32' && ext === '.exe') {
+        electronStore.set('stagedUpdate', { version: ver, appPath: targetPath });
+        logger.info('[updater] staged installer at', targetPath);
+        return;
+      }
       const extractPath = path.join(stageDir, `app-${ver}`);
       try { fs.rmSync(extractPath, { recursive: true, force: true }); } catch {}
-      await extractZip(zipPath, extractPath);
+      await extractZip(targetPath, extractPath);
       let appPath;
       try {
         const items = fs.readdirSync(extractPath);
