@@ -69,7 +69,7 @@ function getProgressState() {
 
 let nextJobId = 1; // 唯一任务ID，用于区分同一 draft_id 的多次入队
 
-function enqueue({ draft_id, draft_name, createdAt }) {
+function enqueue({ draft_id, draft_name, cover, createdAt }) {
   if (!draft_id) return;
   // 允许重复入队，移除去重逻辑
   // if (state.current && state.current.draft_id === draft_id) return;
@@ -82,6 +82,7 @@ function enqueue({ draft_id, draft_name, createdAt }) {
     jobId,
     draft_id,
     draft_name: draft_name || draft_id,
+    cover,
     status: 'queued',
     progress: 0,
     message: '排队中',
@@ -142,6 +143,7 @@ async function startNextIfIdle() {
     logger.debug('send download worker, draft_id', next.draft_id);
     ipc.send('process-parameters', {
       draft_id: next.draft_id,
+      draft_name: next.draft_name,
       draft_folder: draftFolder,
       is_capcut: isCapcut,
       script, // 将脚本传给主进程
@@ -166,6 +168,7 @@ function loadCompletedFromStore() {
         const base = {
           draft_id: item.draft_id,
           draft_name: item.draft_name || item.draft_id,
+          cover: item.cover,
           status: item.status === 'success' ? 'success' : 'failed',
           progress: typeof item.progress === 'number' ? item.progress : (item.status === 'success' ? 100 : 0),
           message: item.message || (item.status === 'success' ? '下载完成' : '下载失败'),

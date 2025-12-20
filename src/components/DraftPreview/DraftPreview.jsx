@@ -31,6 +31,7 @@ function DraftPreview({ draft }) {
     DownloadController.enqueue({
       draft_id: draft.draft_id,
       draft_name: draft.draft_name,
+      cover: draft.cover,
       createdAt: draft.created_at
     });
   };

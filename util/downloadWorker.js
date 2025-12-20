@@ -28,7 +28,7 @@ initI18n().then(() => runDownload());
 async function runDownload() {
   logger.info('runDownload')
   try {
-    const { draft_id, draftFolder, taskId, is_capcut, apiHost, script } = workerData;
+    const { draft_id, draft_name, draftFolder, taskId, is_capcut, apiHost, script } = workerData;
     
     /**
      * 创建进度回调函数，将进度消息和文件列表发送回主线程
@@ -48,6 +48,7 @@ async function runDownload() {
     // 调用saveDraftBackground函数
     const result = await saveDraftBackground(
       draft_id,
+      draft_name,
       draftFolder,
       taskId,
       progressCallback,
@@ -57,25 +58,22 @@ async function runDownload() {
     );
     
     if (result.success) {
-      // 下载完成，发送完成消息
       parentPort.postMessage({
         type: 'complete',
         message: result.message || '下载完成！'
       });
     } else {
-      // 下载失败，发送错误消息
       parentPort.postMessage({
         type: 'error',
-        message: '下载失败',
-        error: '下载失败'
+        message: result.message || '下载失败',
+        error: result.error || '下载失败'
       });
     }
   } catch (error) {
-    // 发生异常，发送错误消息
     parentPort.postMessage({
       type: 'error',
-      message: '处理过程中发生错误',
-      error: '下载失败'
+      message: error?.message || '处理过程中发生错误',
+      error: error?.message || '下载失败'
     });
   }
 }

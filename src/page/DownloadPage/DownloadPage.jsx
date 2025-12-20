@@ -333,6 +333,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
 
         const params = {
             draft_id: currentDraftId,
+            draft_name: currentDraftId,
             draft_folder: draftFolder,
             is_capcut: isCapcut,
             api_key: apiKey,
