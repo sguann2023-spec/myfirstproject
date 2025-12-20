@@ -439,7 +439,7 @@ ipcMain.handle('get-draft-folder', () => {
 });
 
 ipcMain.on('process-parameters', async (event, params) => {
-  const { draft_id, draft_folder, is_capcut, script } = params;
+  const { draft_id, draft_folder, is_capcut, script, draft_name } = params;
   
   if (!draft_id) {
     // 启动前检查错误：发送 download-error
@@ -493,6 +493,7 @@ ipcMain.on('process-parameters', async (event, params) => {
     const worker = new Worker(path.join(__dirname, 'util/downloadWorker.js'), {
       workerData: {
         draft_id,
+        draft_name,
         draftFolder,
         taskId,
         is_capcut,

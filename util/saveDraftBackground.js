@@ -12,14 +12,14 @@ const { parentPort } = require('worker_threads'); // 新增
 /**
  * 构建资源文件路径
  * @param {string} draftFolder - 草稿文件夹路径
- * @param {string} draftId - 草稿ID
+ * @param {string} draftName - 草稿名称
  * @param {string} assetType - 资源类型（audio, image, video）
  * @param {string} materialName - 素材名称
  * @returns {string} - 构建好的路径
  */
-function buildAssetPath(draftFolder, draftId, assetType, materialName) {
+function buildAssetPath(draftFolder, draftName, assetType, materialName) {
   // 简化版本，仅处理macOS/Linux路径
-  return path.join(draftFolder, draftId, "assets", assetType, materialName);
+  return path.join(draftFolder, draftName, "assets", assetType, materialName);
 }
 
 /**
@@ -55,15 +55,19 @@ async function copyFolderRecursive(source, destination) {
 /**
  * 后台保存草稿到OSS
  * @param {string} draftId - 草稿ID
+ * @param {string} draftName - 草稿名称
  * @param {string} draftFolder - 草稿文件夹路径
  * @param {string} taskId - 任务ID
  * @param {Function} progressCallback - 进度回调函数
  * @param {boolean} is_capcut - 是否为CapCut
  * @returns {Promise<Object>} - 返回结果对象 {success: boolean, error: string, message: string}
  */
-async function saveDraftBackground(draftId, draftFolder, taskId, progressCallback, is_capcut, apiHost, scriptFromRenderer) {
+async function saveDraftBackground(draftId, draftName, draftFolder, taskId, progressCallback, is_capcut, apiHost, scriptFromRenderer) {
   let script;
-  const draftPath = path.join(draftFolder, draftId);
+  // 如果draftName为空，就应该设置为draftId
+  draftName = draftName || draftId;
+
+  const draftPath = path.join(draftFolder, draftName);
   const downloadTasks = []; // 存储所有下载任务的完整列表
 
   // --- 辅助函数：根据下载任务列表计算总体进度 ---
@@ -136,7 +140,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       ? JSON.parse(scriptFromRenderer)
       : scriptFromRenderer;
     script = parsed;
-    logger.info(`成功使用前端提供的脚本，草稿 ${draftId}。`);
+    logger.info(`成功使用前端提供的脚本，草稿 ${draftName}。`);
 
     // 2. 准备草稿文件和文件夹 (20%)
     if (progressCallback) {
@@ -146,7 +150,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
     logger.info(`任务 ${taskId} 状态更新为 'processing'：正在准备草稿文件。`);
     
     // 删除可能已存在的草稿文件夹
-    const draftPath = path.join(draftFolder, draftId);
+    const draftPath = path.join(draftFolder, draftName);
     if (fs.existsSync(draftPath)) {
       logger.warn(`删除已存在的草稿文件夹: ${draftPath}`);
       try {
@@ -199,7 +203,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       }
     }
 
-    logger.info(`开始保存草稿: ${draftId}`);
+    logger.info(`开始保存草稿: ${draftName}`);
     
     // 根据配置选择不同的模板目录
     const templateDir = is_capcut ? "template" : "template_jianying";
@@ -245,7 +249,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       for (const audio of audios) {
         const remoteUrl = audio.remote_url;
         const materialName = audio.name;
-        const localPath = buildAssetPath(draftFolder, draftId, "audio", materialName);
+        const localPath = buildAssetPath(draftFolder, draftName, "audio", materialName);
         // 使用辅助函数构建路径
         if (draftFolder && remoteUrl) {
           audio.path = localPath;
@@ -263,7 +267,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
         const materialName = video.material_name; // 注意：视频/图片用的是 material_name
         
         if (video.type === 'photo') {
-          const localPath = buildAssetPath(draftFolder, draftId, "image", materialName);
+          const localPath = buildAssetPath(draftFolder, draftName, "image", materialName);
           
           // 更新草稿路径
           if (draftFolder && remoteUrl) {
@@ -272,7 +276,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
           
           addTask('image', video, remoteUrl, localPath);
         } else if (video.type === 'video') {
-          const localPath = buildAssetPath(draftFolder, draftId, "video", materialName);
+          const localPath = buildAssetPath(draftFolder, draftName, "video", materialName);
 
           // 更新草稿路径
           if (draftFolder && remoteUrl) {
@@ -293,7 +297,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
           const localPath = path.join(draftPath, "assets", "artistEffect", `${effectId}.zip`);
 
           // 更新草稿路径
-          effect.path = buildAssetPath(draftFolder, draftId, "artistEffect", effectId);
+          effect.path = buildAssetPath(draftFolder, draftName, "artistEffect", effectId);
           
           const downloadUrl = await getArtistEffectDownloadUrl(effectId);
           
@@ -355,7 +359,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
             const remoteUrl = audio.remote_url;
             // material_name 在 Python 中兼容了 name，这里也兼容
             const materialName = audio.material_name || audio.name; 
-            const localPath = buildAssetPath(draftFolder, draftId, "audio", materialName);
+            const localPath = buildAssetPath(draftFolder, draftName, "audio", materialName);
 
             if (draftFolder && materialName && remoteUrl) {
               // 更新素材路径，为后续草稿写入做准备
@@ -389,14 +393,21 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
             }
 
             if (videoType === 'photo') {
-              const localPath = buildAssetPath(draftFolder, draftId, "image", materialName);
+              const localPath = buildAssetPath(draftFolder, draftName, "image", materialName);
               if (draftFolder && materialName && remoteUrl) {
                 video.path = localPath;
+                video.replace_path = localPath;
               }
               addTask('image', video, remoteUrl, localPath);
+              const coverDraftId = (nestedDraft && typeof nestedDraft === 'object') ? (nestedDraft.id || nestedDraft.draft_id) : null;
+              if (coverDraftId === "28D7F8DB-7861-49CB-B634-C116DE87AE69") {
+                logger.info(`封面图片 ${materialName}`);
+                const coverPath = path.join(draftPath, "draft_cover.jpg");
+                addTask('image', video, remoteUrl, coverPath);
+              }
               
             } else if (videoType === 'video') {
-              const localPath = buildAssetPath(draftFolder, draftId, "video", materialName);
+              const localPath = buildAssetPath(draftFolder, draftName, "video", materialName);
               if (draftFolder && materialName && remoteUrl) {
                 video.path = localPath;
               }
@@ -414,7 +425,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
               const effectId = effect.effect_id;
               
               // 更新草稿路径
-              effect.path = buildAssetPath(draftFolder, draftId, "artistEffect", effectId);
+              effect.path = buildAssetPath(draftFolder, draftName, "artistEffect", effectId);
               
               // 实际下载路径
               const localZipPath = path.join(draftPath, "assets", "artistEffect", `${effectId}.zip`);
@@ -602,12 +613,12 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
       path.join(draftPath, `draft_info.json`),
       JSON.stringify(script, null, 2)
     );
-    logger.info(`草稿信息已保存到 ${draftId}/draft_info.json。`);
+    logger.info(`草稿信息已保存到 ${draftName}/draft_info.json。`);
     
     // 处理文本模板路径
     if (textTemplates && textTemplates.length > 0) {
       for (const template of textTemplates) {
-        await processTextTemplatePaths(draftId, template.effect_id, draftPath, draftFolder);
+        await processTextTemplatePaths(draftName, template.effect_id, draftPath, draftFolder);
       }
     }
 
@@ -678,7 +689,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
 
   } catch (error) {
     // 更新任务状态 - 失败
-    logger.error(`保存草稿 ${draftId} 任务 ${taskId} 失败:`, error);
+    logger.error(`保存草稿 ${draftName} 任务 ${taskId} 失败: ${error?.message || ''}`);
     if (progressCallback) {
       progressCallback(-1, i18next.t('processing_failed', { error: error.message }));
     }
@@ -686,7 +697,7 @@ async function saveDraftBackground(draftId, draftFolder, taskId, progressCallbac
   }
 }
 
-async function processTextTemplatePaths(draftId, effectId, draftPath, draftFolder) {
+async function processTextTemplatePaths(draftName, effectId, draftPath, draftFolder) {
   try {
     const processedPathsFile = path.join(draftPath, "assets", "textTemplate", effectId, "processed_paths.json");
     if (!fs.existsSync(processedPathsFile)) {
@@ -708,7 +719,7 @@ async function processTextTemplatePaths(draftId, effectId, draftPath, draftFolde
       if (pathItem.original_path && pathItem.target_path) {
         const originalPath = pathItem.original_path;
         const targetPath = pathItem.target_path;
-        const newPath = `${draftFolder}/${draftId}/assets/textTemplate/${effectId}/${targetPath}`.replace(/\\/g, '/');
+        const newPath = `${draftFolder}/${draftName}/assets/textTemplate/${effectId}/${targetPath}`.replace(/\\/g, '/');
         const findPattern = new RegExp(originalPath.replace(/\\/g, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
         draftInfoContent = draftInfoContent.replace(findPattern, newPath);
       }

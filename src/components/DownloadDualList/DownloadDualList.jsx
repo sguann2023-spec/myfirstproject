@@ -9,7 +9,7 @@ import { DownloadController } from '../../shared/DownloadController';
 import logger from '../../shared/logger';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
 
-function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedCompletedId }) {
+function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedCompletedKey }) {
   const [pending, setPending] = useState(() => {
     const bootQueue = Array.isArray(window.downloadDualQueue) ? [...window.downloadDualQueue] : [];
     // 清空全局暂存，避免重复入队
@@ -17,6 +17,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
     return bootQueue.map(item => ({
       draft_id: item.draft_id,
       draft_name: item.draft_name || item.draft_id,
+      cover: item.cover,
       status: 'queued',
       progress: 0,
       message: '排队中',
@@ -253,13 +254,11 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
             ) : (
               completed.map((item, idx) => (
                 <div
-                  key={`${item.draft_id}-${idx}`}
-                  // 根据选中态高亮条目
-                  className={`draftlist-item ${selectedCompletedId === item.draft_id ? 'selected' : ''}`}
+                  key={item.jobId || `${item.draft_id}-${idx}`}
+                  className={`draftlist-item ${selectedCompletedKey === (item.jobId || `${item.draft_id}-${idx}`) ? 'selected' : ''}`}
                   onClick={() => {
                     logger.info('select completed item', item);
-                    // if (typeof onViewChange === 'function') onViewChange('completed');
-                    if (typeof onSelectCompletedItem === 'function') onSelectCompletedItem(item);
+                    if (typeof onSelectCompletedItem === 'function') onSelectCompletedItem(item, idx);
                   }}
                 >
                   <div className="draftlist-cover">

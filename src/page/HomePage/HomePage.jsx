@@ -24,6 +24,7 @@ const HomePage = () => {
   const [downloadProject, setDownloadProject] = useState(null);
   // 用“选中项”驱动右侧展示
   const [selectedCompleted, setSelectedCompleted] = useState(null);
+  const [selectedCompletedKey, setSelectedCompletedKey] = useState(null);
 
   // 暴露一个可复用的计数刷新方法
   const refreshTodayCount = () => {
@@ -137,13 +138,16 @@ const HomePage = () => {
                 onViewChange={(v) => {
                     const prev = downloadDualView;
                     setDownloadDualView(v);
-                    // 仅在“实际切换到已完成”时清空选中项
-                    if (v === 'completed' && prev !== 'completed') setSelectedCompleted(null);
+                    if (v === 'completed' && prev !== 'completed') {
+                      setSelectedCompleted(null);
+                      setSelectedCompletedKey(null);
+                    }
                 }}
-                // 列表内的选中态，用于高亮与右侧联动
-                selectedCompletedId={selectedCompleted?.draft_id}
-                // 选中项变更时，右侧展示相应内容
-                onSelectCompletedItem={(item) => setSelectedCompleted(item)}
+                selectedCompletedKey={selectedCompletedKey}
+                onSelectCompletedItem={(item, idx) => {
+                  setSelectedCompleted(item);
+                  setSelectedCompletedKey(item?.jobId ?? `${item.draft_id}-${idx}`);
+                }}
               />
             )}
           </div>

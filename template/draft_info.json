@@ -43,7 +43,13 @@
         "video_mute": false,
         "zoom_info_params": null
     },
-    "cover": null,
+    "cover": {
+        "cover_draft_id": "28D7F8DB-7861-49CB-B634-C116DE87AE69_material",
+        "cover_template": null,
+        "sub_type": "local",
+        "type": "image",
+        "web_cover_info": null
+    },
     "create_time": 0,
     "duration": 0,
     "extra_info": null,
