@@ -16,7 +16,7 @@ const { Title, Text } = Typography;
 
 const { ipcRenderer } = window.require('electron');
 
-const DEFAULT_HOST = 'https://cut-jianying-vdvswivepm.cn-hangzhou.fcapp.run/cut_jianying';
+const DEFAULT_HOST = 'https://open.vectcut.com/cut_jianying';
 
 // ----------------------------------------------------
 // 💥 模拟数据生成器 (用于测试) 💥
