@@ -3,7 +3,7 @@ const { Worker } = require('worker_threads');
 
 
 // 定义常量
-const DEFAULT_HOST = 'https://cut-jianying-vdvswivepm.cn-hangzhou.fcapp.run/cut_jianying';
+const DEFAULT_HOST = 'https://open.vectcut.com/cut_jianying';
 const path = require('path');
 const url = require('url');
 const fs = require('fs');
