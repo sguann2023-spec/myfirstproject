@@ -106,7 +106,7 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
             // 增强请求头
             const headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Referer': 'https://www.google.com/',  // 更通用的 Referer
+                'Referer': 'https://www.coze.cn/',  // 更通用的 Referer
                 'Accept': '*/*',  // 接受任何类型的内容
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'Accept-Encoding': 'gzip, deflate, br',
