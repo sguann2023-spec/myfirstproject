@@ -29,6 +29,20 @@ let authWindow = null;
 
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
 
+let pendingProtocolUrl = null;
+function forwardProtocolUrl(url) {
+  try {
+    if (!url || !/^vectcut:\/\//.test(url)) return;
+    pendingProtocolUrl = url;
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send('protocol-url', url);
+      pendingProtocolUrl = null;
+    }
+  } catch (e) { logger.warn('forwardProtocolUrl failed', e); }
+}
+
 function initI18n() {
     const isDev = process.env.NODE_ENV === 'development';
     const localesPath = isDev 
@@ -291,11 +305,24 @@ function createWindow() {
   
   // 处理冷启动时的协议URL
   const args = process.argv;
-  const protocolUrl = args.find(arg => arg.startsWith('capcutmaker://'));
-  if (protocolUrl && mainWindow.webContents) {
+  const protocolUrl = args.find(arg => arg.startsWith('vectcut://'));
+  if (protocolUrl) {
     logger.info('Cold start protocol URL:', protocolUrl);
-    mainWindow.webContents.on('did-finish-load', () => {
-      mainWindow.webContents.send('protocol-url', protocolUrl);
+    forwardProtocolUrl(protocolUrl);
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.once('did-finish-load', () => {
+        if (pendingProtocolUrl) {
+          mainWindow.webContents.send('protocol-url', pendingProtocolUrl);
+          pendingProtocolUrl = null;
+        }
+      });
+    }
+  } else if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (pendingProtocolUrl) {
+        mainWindow.webContents.send('protocol-url', pendingProtocolUrl);
+        pendingProtocolUrl = null;
+      }
     });
   }
 }
@@ -303,8 +330,8 @@ function createWindow() {
 // 注册自定义协议
 app.whenReady().then(() => {
   setupUpdater();
-  protocol.registerFileProtocol('capcutmaker', (request, callback) => {
-    const url = request.url.substr('capcutmaker://'.length);
+  protocol.registerFileProtocol('vectcut', (request, callback) => {
+    const url = request.url.substr('vectcut://'.length);
     try {
       return callback(decodeURIComponent(url));
     } catch (error) {
@@ -325,15 +352,10 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
       
-      // 处理协议URL
       const url = commandLine.pop();
-      if (url.startsWith('capcutmaker://')) {
-        // 在这里处理URL参数
+      if (url && url.startsWith('vectcut://')) {
         logger.info('Protocol URL:', url);
-        // 可以将URL参数发送到渲染进程
-        if (mainWindow.webContents) {
-          mainWindow.webContents.send('protocol-url', url);
-        }
+        forwardProtocolUrl(url);
       }
     }
   });
@@ -344,11 +366,9 @@ if (!gotTheLock) {
   // 协议处理 - macOS
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    if (url.startsWith('capcutmaker://')) {
+    if (url && url.startsWith('vectcut://')) {
       logger.info('Protocol URL (macOS):', url);
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.send('protocol-url', url);
-      }
+      forwardProtocolUrl(url);
     }
   });
 
@@ -371,7 +391,7 @@ if (!gotTheLock) {
 }
 
 // 在macOS上，需要在app.setAsDefaultProtocolClient之前调用这个
-app.setAsDefaultProtocolClient('capcutmaker');
+app.setAsDefaultProtocolClient('vectcut');
 
 // 添加IPC监听器来处理从渲染进程发送的参数
 
