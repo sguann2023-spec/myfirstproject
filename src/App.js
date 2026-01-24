@@ -9,6 +9,7 @@ import LoginPage from './page/LoginPage/LoginPage.jsx';
 import HomePage from './page/HomePage/HomePage.jsx';
 import { getArtistEffectDownloadUrl } from './api/capcut'; // 新增：导入解析 API
 import logger from './shared/logger.js';
+import { DownloadController } from './shared/DownloadController';
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -54,8 +55,25 @@ function App() {
       }
     };
     ipcRenderer.on('resolve-artist-effect-url', handler);
+
+    // 新增：全局监听深链 protocol-url，直接入队下载并切到主页
+    const onProtocolUrl = (event, url) => {
+      try {
+        const raw = typeof url === 'string' ? url : '';
+        const qs = raw.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').split('?')[1] || '';
+        const params = new URLSearchParams(qs);
+        const draftId = params.get('draft_id');
+        if (draftId) {
+          try { DownloadController.enqueue({ draft_id: draftId, draft_name: draftId }); } catch (_) {}
+          setCurrentPage('home');
+        }
+      } catch (_) {}
+    };
+    ipcRenderer.on('protocol-url', onProtocolUrl);
+
     return () => {
       ipcRenderer.removeListener('resolve-artist-effect-url', handler);
+      ipcRenderer.removeListener('protocol-url', onProtocolUrl);
     };
   }, []);
 
