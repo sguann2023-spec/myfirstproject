@@ -113,7 +113,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
   }, [view, onViewChange]);
 
   const handleOpenItemFolder = (item) => {
-    DownloadController.openItemFolder(item.draft_id);
+    DownloadController.openItemFolder(item.draft_name || item.draft_id);
   };
 
   const handleClearItem = (item, e) => {
