@@ -7,7 +7,7 @@ import './i18n';
 import './App.css';
 import LoginPage from './page/LoginPage/LoginPage.jsx';
 import HomePage from './page/HomePage/HomePage.jsx';
-import { getArtistEffectDownloadUrl } from './api/capcut'; // 新增：导入解析 API
+import { getArtistEffectDownloadUrl, searchDraft } from './api/capcut'; // 新增：导入解析 API和按ID搜索草稿
 import logger from './shared/logger.js';
 import { DownloadController } from './shared/DownloadController';
 
@@ -57,14 +57,23 @@ function App() {
     ipcRenderer.on('resolve-artist-effect-url', handler);
 
     // 新增：全局监听深链 protocol-url，直接入队下载并切到主页
-    const onProtocolUrl = (event, url) => {
+    const onProtocolUrl = async (event, url) => {
       try {
         const raw = typeof url === 'string' ? url : '';
         const qs = raw.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').split('?')[1] || '';
         const params = new URLSearchParams(qs);
         const draftId = params.get('draft_id');
         if (draftId) {
-          try { DownloadController.enqueue({ draft_id: draftId, draft_name: draftId }); } catch (_) {}
+          try {
+            const res = await searchDraft({ draft_id: draftId });
+            const draft = res?.draft;
+            const name = (draft?.draft_name && draft.draft_name.trim()) ? draft.draft_name : draftId;
+            const cover = draft?.cover || null;
+            const createdAt = draft?.created_at;
+            DownloadController.enqueue({ draft_id: draftId, draft_name: name, cover, createdAt });
+          } catch (e) {
+            try { DownloadController.enqueue({ draft_id: draftId, draft_name: draftId }); } catch (_) {}
+          }
           setCurrentPage('home');
         }
       } catch (_) {}
