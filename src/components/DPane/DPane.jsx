@@ -6,11 +6,14 @@ import DraftSelectedIcon from '../../../public/draft_selected_icon.svg';
 import SettingsIcon from '../../../public/settings.png';
 import DownloadIcon from '../../../public/download_icon.png';
 import DownloadSelectedIcon from '../../../public/download_selected_icon.png';
+import PresetIcon from '../../../public/preset_icon.svg';
+import PresetSelectedIcon from '../../../public/preset_selected_icon.svg';
 import logger from '../../shared/logger';
 
 const DPane = ({ children, style, className = '', selected = 'draft', onSelect }) => {
   const isDraftSelected = selected === 'draft';
   const isDownloadSelected = selected === 'download';
+  const isPresetSelected = selected === 'preset';
   const isSettingsSelected = selected === 'settings';
   // ⚠️ 移除：const navigate = useNavigate();
 
@@ -71,7 +74,17 @@ const DPane = ({ children, style, className = '', selected = 'draft', onSelect }
           )}
           <div className="d-pane-tip">下载</div>
         </div>
-        {/* 如果未来有其他顶部图标，放在这里 */}
+        <div
+          className={`d-pane-item ${isPresetSelected ? 'selected' : ''}`}
+          onClick={() => onSelect && onSelect('preset')}
+        >
+          <img
+            src={isPresetSelected ? PresetSelectedIcon : PresetIcon}
+            alt="Preset Icon"
+            className="d-pane-icon"
+          />
+          <div className="d-pane-tip">预设</div>
+        </div>
       </div>
 
       {/* 底部图标组：利用 Flexbox 将其推到底部 */}
