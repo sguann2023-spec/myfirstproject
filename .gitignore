@@ -6,6 +6,8 @@ dist/
 out/
 build/
 
+tmp_upload/
+
 # 日志
 npm-debug.log*
 yarn-debug.log*
