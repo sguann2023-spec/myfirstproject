@@ -604,9 +604,8 @@ const Preset = ({ preset }) => {
     try {
       const pathMod = window.require ? window.require('path') : null;
       const fs = window.require ? window.require('fs') : null;
-      const base = electronStore.get('draftFolder') || '';
-      if (!pathMod || !fs || !base) return;
-      const root = pathMod.join(base, '..', '..', 'Presets', 'Combination', 'Presets');
+      const root = pathMod ? pathMod.join(electronStore.get('presetFolder') || '', 'Combination', 'Presets') : '';
+      if (!pathMod || !fs || !root) return;
       const projectName = preset.id || preset.name || '';
       const draftFolder = pathMod.join(root, projectName);
       const jsonPath = pathMod.join(draftFolder, 'preset_draft', 'draft_content.json');
@@ -824,10 +823,9 @@ const Preset = ({ preset }) => {
     try {
       const pathMod = window.require ? window.require('path') : null;
       const fs = window.require ? window.require('fs') : null;
-      const base = electronStore.get('draftFolder') || '';
+      const root = pathMod ? pathMod.join(electronStore.get('presetFolder') || '', 'Combination', 'Presets') : '';
       const projectName = preset?.id || preset?.name || '';
-      if (!pathMod || !fs || !base || !projectName) return '';
-      const root = pathMod.join(base, '..', '..', 'Presets', 'Combination', 'Presets');
+      if (!pathMod || !fs || !root || !projectName) return '';
       const folder = pathMod.join(root, projectName);
       return fs.existsSync(folder) ? folder : '';
     } catch {
