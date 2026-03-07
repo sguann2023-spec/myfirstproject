@@ -296,11 +296,9 @@ const PresetList = ({ onSelect }) => {
     try {
       const path = window.require ? window.require('path') : null;
       const fs = window.require ? window.require('fs') : null;
-      const base = electronStore.get('draftFolder') || '';
-      console.log('base', base);
-      if (!path || !fs || !base) throw new Error('unavailable');
-      const root = path.join(base, '..', '..', 'Presets', 'Combination', 'Presets');
+      const root = path.join(electronStore.get('presetFolder'),"Combination","Presets") || '';
       console.log('root', root);
+      if (!path || !fs || !root) throw new Error('unavailable');
       if (!fs.existsSync(root)) throw new Error('not_exists');
       const names = fs.readdirSync(root).filter((n) => {
         try {

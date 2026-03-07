@@ -3,6 +3,7 @@ import './GeneralSettings.css';
 import JianyingImg from '../../../public/jianying.png';
 import CapcutImg from '../../../public/capcut.png';
 import DraftFolderImg from '../../../public/draft_folder_setting.png';
+import PresetFolderImg from '../../../public/preset_folder_setting.png';
 import InfoIcon from '../../../public/info.png';
 import { electronStore } from '../../shared/electronStore';
 
@@ -10,6 +11,7 @@ const GeneralSettings = () => {
   const [interfaceMode, setInterfaceMode] = useState('jianying'); // 'jianying' | 'capcut'
 
   const [draftFolder, setDraftFolder] = useState('');
+  const [presetFolder, setPresetFolder] = useState('');
 
   // 统一的 IPC 调用封装：优先使用 preload 暴露的 window.ipc，降级到 ipcRenderer
   const ipcInvoke = (channel, data) => {
@@ -29,22 +31,29 @@ const GeneralSettings = () => {
   };
 
   useEffect(() => {
-    const getDefaultDownloads = () => {
-        // 优先从本地缓存读取，作为回退值
-        return electronStore?.get('draftFolder', '') || '';
-    };
-    const fallback = getDefaultDownloads();
+    const draftFallback = electronStore?.get('draftFolder', '') || '';
+    const presetFallback = electronStore?.get('presetFolder', '') || '';
+    setPresetFolder(presetFallback);
     ipcInvoke('get-draft-folder')
-      .then(({ draftFolder }) => setDraftFolder(draftFolder || fallback))
-      .catch(() => setDraftFolder(fallback));
+      .then(({ draftFolder }) => setDraftFolder(draftFolder || draftFallback))
+      .catch(() => setDraftFolder(draftFallback));
   }, []);
 
   const handleChangeDraftFolder = async () => {
     const selected = await ipcInvoke('select-draft-folder').catch(() => null);
     if (selected) {
       ipcSend('save-settings', { draftFolder: selected });
-      electronStore.set('draftFolder', selected); // 本地缓存，便于同窗口其他模块读取
+      electronStore.set('draftFolder', selected);
       setDraftFolder(selected);
+    }
+  };
+
+  const handleChangePresetFolder = async () => {
+    const selected = await ipcInvoke('select-draft-folder').catch(() => null);
+    if (selected) {
+      ipcSend('save-settings', { presetFolder: selected });
+      electronStore.set('presetFolder', selected);
+      setPresetFolder(selected);
     }
   };
 
@@ -104,6 +113,40 @@ const GeneralSettings = () => {
             onClick={handleChangeDraftFolder}
           >
             设置草稿位置
+          </button>
+        </div>
+      </div>
+
+
+      {/* 预设路径设置 */}
+      <div className="gs-section">
+        <div className="gs-section-title">预设位置</div>
+        <div className="gs-save-row">
+          <div className="gs-save-desc">
+            <div className="gs-save-text">
+              剪映预设位置<span className="gs-required">*</span>
+              <span className="gs-hint-wrapper">
+                <img src={InfoIcon} alt="提示" className="gs-hint-icon" />
+                <div className="gs-hint-popover">
+                  <div className="gs-hint-desc">打开剪映，在“全局设置-预设保存位置"，可以找到预设文件夹</div>
+                  <img
+                    src={PresetFolderImg}
+                    alt="预设位置设置示例"
+                    className="gs-hint-image"
+                  />
+                </div>
+              </span>
+            </div>
+            <div className={`gs-save-path ${!presetFolder?.trim() ? 'empty' : ''}`}>
+              {presetFolder || '未设置'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="gs-save-button"
+            onClick={handleChangePresetFolder}
+          >
+            设置预设位置
           </button>
         </div>
       </div>

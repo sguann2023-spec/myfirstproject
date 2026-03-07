@@ -835,11 +835,20 @@ const Preset = ({ preset }) => {
     }
   };
   const handleUpload = async () => {
-    if (!preset || preset.preset_id || isUploading || uploadInFlightRef.current) return;
+    if (!preset || preset.preset_id || isUploading || uploadInFlightRef.current) {
+      logger.info('[Preset] handleUpload:skip', {
+        hasPreset: !!preset,
+        presetId: String(preset?.preset_id || ''),
+        isUploading,
+        inFlight: uploadInFlightRef.current,
+      });
+      return;
+    }
     uploadInFlightRef.current = true;
     const localFolder = getLocalPresetFolder();
     if (!localFolder) {
       uploadInFlightRef.current = false;
+      logger.warn('[Preset] handleUpload:no_local_folder', { presetName: preset?.name || preset?.id || '' });
       message.error('未找到本地预设目录，无法上传');
       return;
     }
@@ -848,6 +857,13 @@ const Preset = ({ preset }) => {
         .filter((m) => m?.id)
         .map((m) => ({ id: m.id, name: m.name, content: m.value, type }))
     );
+    logger.info('[Preset] handleUpload:start', {
+      localFolder,
+      presetName: editableName,
+      groupId: selectedGroupId || '',
+      tagCount: Array.isArray(tags) ? tags.length : 0,
+      materialCount: materialJson.length,
+    });
     try {
       setIsUploading(true);
       const result = await uploadFolderZipToOSS(localFolder, {
@@ -857,6 +873,11 @@ const Preset = ({ preset }) => {
         materialJson,
         group_id: selectedGroupId || undefined,
       });
+      logger.info('[Preset] handleUpload:result', {
+        success: !!result?.success,
+        presetId: String(result?.preset_id || ''),
+        hasUrl: !!result?.url,
+      });
       if (result?.success) {
         syncUploadedPresetCache(result);
         message.success(`上传成功：${result.preset_id}`);
@@ -864,8 +885,10 @@ const Preset = ({ preset }) => {
         message.error('上传失败，请稍后重试');
       }
     } catch (e) {
+      logger.error('[Preset] handleUpload:error', { message: e?.message || '', stack: e?.stack || '' });
       message.error(e?.message || '上传失败，请稍后重试');
     } finally {
+      logger.info('[Preset] handleUpload:finish', { presetName: editableName, localFolder });
       setIsUploading(false);
       uploadInFlightRef.current = false;
     }

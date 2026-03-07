@@ -214,6 +214,9 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
     throw new Error(`本地文件夹不存在或不是目录: ${localFolder}`);
   }
 
+  const traceId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  logger.info('[UploadPreset] uploadFolderZipToOSS:trace_start', { traceId, localFolder, group_id: group_id || '' });
+
   const token = await (await import('../../auth')).tokenStore.ensureValidAccessToken();
   if (!token) throw new Error('登录已失效，请重新登录');
 
@@ -249,10 +252,17 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
     fs.writeFileSync(tempJsonPath, JSON.stringify(materialJsonToUpload, null, 2), 'utf-8');
     materialJsonToUpload = tempJsonPath;
   }
+  logger.info('[UploadPreset] material_json:prepared', {
+    traceId,
+    presetId,
+    materialJsonMode: Array.isArray(materialJson) ? 'array' : (materialJson ? 'path' : 'scan'),
+    materialJsonToUpload,
+  });
 
   const tempProcessingFolder = path.join(tmpDir, `${folderName}_processing_${presetId}`);
   if (fs.existsSync(tempProcessingFolder)) fse.removeSync(tempProcessingFolder);
   fse.copySync(localFolder, tempProcessingFolder);
+  logger.info('[UploadPreset] workspace:prepared', { traceId, presetId, tmpDir, tempProcessingFolder });
 
   const draftContentPath = path.join(tempProcessingFolder, 'preset_draft', 'draft_content.json');
   if (fs.existsSync(draftContentPath)) {
@@ -266,6 +276,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
       if (Array.isArray(m.audios)) audios.push(...m.audios);
       if (Array.isArray(m.videos)) videos.push(...m.videos);
     });
+    logger.info('[UploadPreset] draft_materials:collected', { traceId, presetId, draftCount: draftsList.length, audioCount: audios.length, videoCount: videos.length });
 
     for (const audio of audios) {
       const real = resolvePresetPlaceholderPath(audio?.path, localFolder);
@@ -315,6 +326,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
   const zipUrl = await uploadFileToOSS(zipPath, zipObjectName, akid, aks, securityToken, 'application/zip', type, region, bucket, endpoint);
   if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
   if (!zipUrl) throw new Error('上传zip文件失败');
+  logger.info('[UploadPreset] zip:uploaded', { traceId, presetId, zipObjectName, zipUrl });
 
   let materialJsonOssUrl = null;
   if (materialJsonToUpload) {
@@ -366,7 +378,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
     };
   }
 
-  logger.warn('[UploadPreset] uploadFolderZipToOSS:update_failed', { presetId, userId });
+  logger.warn('[UploadPreset] uploadFolderZipToOSS:update_failed', { traceId, presetId, userId });
   return {
     preset_id: presetId,
     user_id: userId,
