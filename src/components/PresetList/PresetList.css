@@ -1,0 +1,308 @@
+.presetlist-root {
+  height: calc(100% - 6px);
+  min-height: 0;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+
+.presetlist-container {
+  background: transparent;
+}
+
+.presetlist-refresh-tip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #888;
+  font-size: 12px;
+  padding-bottom: 8px;
+}
+
+.presetlist-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #ccc;
+  border-top-color: #666;
+  border-radius: 50%;
+  display: inline-block;
+  animation: presetlist-spin 0.8s linear infinite;
+}
+
+@keyframes presetlist-spin {
+  to { transform: rotate(360deg); }
+}
+
+.presetlist-error {
+  color: #ff4d4f;
+  margin-bottom: 8px;
+}
+
+.presetlist-item {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 10px 12px;
+  margin: 0 2px 4px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.presetlist-item:hover {
+  background: #e8e8e8;
+}
+
+.presetlist-item.selected {
+  background: #e2e2e2;
+}
+
+.presetlist-cover {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #999;
+}
+
+.presetlist-cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.presetlist-meta {
+  flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+}
+
+.presetlist-title {
+  font-weight: 400;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: #000;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  max-width: var(--presetlist-title-max, 220px);
+}
+
+.presetlist-title-inner {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.presetlist-item.marquee:hover .presetlist-title-inner {
+  animation: presetlist-marquee 6s linear infinite;
+}
+
+@keyframes presetlist-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1 * var(--marquee-distance, 50%))); }
+}
+
+.presetlist-sub {
+  color: #bfbfbf;
+  font-size: 7px;
+}
+
+.presetlist-load-tip {
+  text-align: center;
+  color: #888;
+  font-size: 12px;
+  padding-top: 8px;
+}
+
+/* 折叠标题样式 */
+.presetlist-section {
+  display: block;
+}
+
+.presetlist-section-cloud {
+  min-height: 0;
+}
+
+.presetlist-local-container {
+  background: transparent;
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+
+.presetlist-section-header {
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  padding: 11px 12px;
+  margin-left: 2px;
+  margin-right: 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.presetlist-section > .presetlist-section-header,
+.presetlist-container > div > .presetlist-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.presetlist-section-header:hover {
+  background: #e8e8e8;
+}
+
+.presetlist-section-header:active {
+  background: #d7d7d7;
+}
+
+.presetlist-section-title {
+  font-weight: 500;
+  font-size: 13px;
+  color: #333;
+  margin-left: 12px;
+}
+
+.presetlist-section-arrow-img {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s ease;
+}
+
+.presetlist-context-menu {
+  position: fixed;
+  z-index: 999;
+  background: #fff;
+  gap: 8px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+}
+
+.presetlist-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  font-size: 14px;
+  line-height: 1;
+  color: #111;
+  background: #fdfdfd;
+  cursor: default;
+  user-select: none;
+  padding: 4px 13px 4px 8px;
+}
+
+.presetlist-context-menu-item:hover {
+  background: #f3f3f3;
+  border-radius: 4px;
+}
+
+.presetlist-context-menu-icon {
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.presetlist-dialog-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.26);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.presetlist-dialog {
+  width: 330px;
+  height: 140px;
+  background: #fff;
+  border-radius: 9px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.presetlist-dialog-title {
+  height: 26px;
+  border-bottom: 1px solid #efefef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: #000;
+}
+
+.presetlist-dialog-body {
+  padding: 16px;
+}
+
+.presetlist-dialog-input.ant-input,
+.presetlist-dialog-input.ant-input-affix-wrapper {
+  height: 33px;
+  border-radius: 4px;
+  border: 1px solid #dfdfdf;
+}
+
+.presetlist-dialog-input .ant-input {
+  font-size: 22px;
+}
+
+.presetlist-dialog-input .ant-input::placeholder {
+  color: #7f7f7f;
+}
+
+.presetlist-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-right: 18px;
+}
+
+.presetlist-dialog-btn {
+  height: 30px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: default;
+  padding: 4px 20px 4px 20px;
+}
+
+.presetlist-dialog-btn-cancel {
+  background: #fff;
+  color: #111;
+  border: 1px solid #d8d8d8;
+}
+
+.presetlist-dialog-btn-cancel:hover {
+  background: #f5f5f5;
+}
+
+.presetlist-dialog-btn-confirm {
+  color: #fff;
+  border: 1px solid #9fd8ff;
+}
+
+.presetlist-dialog-btn-confirm.is-disabled {
+  background: #b2e0ff;
+  border-color: #b2e0ff;
+  cursor: not-allowed;
+}
+
+.presetlist-dialog-btn-confirm.is-enabled {
+  background: #0099ff;
+  border-color: #0099ff;
+  cursor: pointer;
+}
+
+.presetlist-dialog-btn-confirm.is-enabled:hover {
+  background: #008deb;
+  border-color: #008deb;
+}

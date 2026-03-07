@@ -5,6 +5,7 @@ import DraftIcon from '../../../public/draft_icon.svg';
 import SearchIcon from '../../../public/search_unfocus.svg';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
 import BannerCarousel from '../BannerCarousel/BannerCarousel'; // 新增导入
+import { DownloadController } from '../../shared/DownloadController';
 
 const LIMIT = 20;
 
@@ -324,6 +325,15 @@ useEffect(() => {
             key={item.draft_id}
             className={`draftlist-item ${selectedId === item.draft_id ? 'selected' : ''}`}
             onClick={() => onSelectDraft && onSelectDraft(item)}
+            onDoubleClick={() => {
+              if (!item?.draft_id) return;
+              DownloadController.enqueue({
+                draft_id: item.draft_id,
+                draft_name: item.draft_name,
+                cover: item.cover,
+                createdAt: item.created_at
+              });
+            }}
             >
             <div className="draftlist-cover"> 
                 {item.cover ? (

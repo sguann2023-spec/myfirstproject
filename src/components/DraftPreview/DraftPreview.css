@@ -55,7 +55,7 @@
   cursor: pointer;
   padding: 6px 18px;
   border-radius: 6px;
-  background: #6f82f7;
+  background: #0099ff;
   color: #FFFFFF;
   font-size: 14px;
   font-weight: 400;
@@ -63,7 +63,7 @@
 }
 
 .download-button:hover {
-  background: #5473f2;
+  background: #008deb;
 }
 
 .download-button:active {

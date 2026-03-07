@@ -11,6 +11,8 @@ import DraftPreview from '../../components/DraftPreview/DraftPreview';
 import logger from '../../shared/logger';
 import DownloadList from '../../components/DownloadList/DownloadList';
 import DraftDownloadSuccessPreview from '../../components/DraftDownloadSuccessPreview/DraftDownloadSuccessPreview';
+import PresetList from '../../components/PresetList/PresetList';
+import Preset from '../../components/Preset/Preset';
 
 const HomePage = () => {
   logger.debug('HomePage rendered');
@@ -22,6 +24,7 @@ const HomePage = () => {
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [downloadDualView, setDownloadDualView] = useState('downloading');
   const [downloadProject, setDownloadProject] = useState(null);
+  const [selectedPreset, setSelectedPreset] = useState(null);
   // 用“选中项”驱动右侧展示
   const [selectedCompleted, setSelectedCompleted] = useState(null);
   const [selectedCompletedKey, setSelectedCompletedKey] = useState(null);
@@ -150,10 +153,16 @@ const HomePage = () => {
                 }}
               />
             )}
+            {selectedPane === 'preset' && (
+              <PresetList onSelect={setSelectedPreset} />
+            )}
           </div>
           <div className="right-pane column">
             {selectedPane === 'draft' && selectedDraft ? (
               <DraftPreview draft={selectedDraft} />
+            ) : null}
+            {selectedPane === 'preset' ? (
+              <Preset preset={selectedPreset} />
             ) : null}
             {/* 下载中视图：显示当前下载详情 */}
             {selectedPane === 'download' && downloadDualView === 'downloading' ? (

@@ -64,3 +64,45 @@ export async function getArtistEffectDownloadUrl({ effectId }) {
 export async function getClientBanner() {
   return http.getJson(`${BASE_URL}/ad/client_banner`);
 }
+
+// 回包：{
+//     "error": "",
+//     "output": {
+//         "draft_id": "dfd_cat_1762657936_33c76364",
+//         "draft_url": "https://cn.capcutapi.top/draft/downloader?draft_id=dfd_cat_1762657936_33c76364&is_capcut=0&api_key_hash=8d9c14ce4af7ba82880b412d7808f45f4f71fb41188c365fc54dd46d3bfdedf3"
+//     },
+//     "purchase_link": "https://www.coze.cn/store/project/7498257920212647946?entity_id=1&bid=6g6miqtbk3009",
+//     "success": true
+// }
+export async function addPreset({
+  preset_id,
+  replacements = [],
+  target_start,
+  draft_id,
+  transform_x,
+  transform_y,
+  rotation,
+  scale_x,
+  scale_y,
+  track_name,
+  width,
+  height,
+} = {}) {
+  if (!preset_id) {
+    throw new Error('preset_id is required');
+  }
+  return http.postJson(`${BASE_URL}/cut_jianying/add_preset`, {
+    preset_id,
+    replacements,
+    target_start,
+    draft_id,
+    transform_x,
+    transform_y,
+    rotation,
+    scale_x,
+    scale_y,
+    track_name,
+    width,
+    height,
+  });
+}
