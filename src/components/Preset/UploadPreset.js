@@ -207,7 +207,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
   const path = req('path');
   const fse = req('fs-extra');
   const AdmZip = req('adm-zip');
-  const processMod = req('process');
+  const os = req('os');
   logger.info('[UploadPreset] uploadFolderZipToOSS:start', { localFolder, name, hasDescription: !!description, tagsCount: Array.isArray(tags) ? tags.length : 0, materialJsonType: Array.isArray(materialJson) ? 'array' : typeof materialJson });
 
   if (!localFolder || !fs.existsSync(localFolder) || !fs.statSync(localFolder).isDirectory()) {
@@ -240,7 +240,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
   logger.info('[UploadPreset] credential_ready', { presetId, userId, type, region, bucket, endpoint });
 
   const folderName = path.basename(path.resolve(localFolder));
-  const tmpDir = path.join(processMod.cwd(), 'tmp_upload');
+  const tmpDir = path.join(os.tmpdir(), 'CapCutHelper', 'tmp_upload');
   fse.ensureDirSync(tmpDir);
 
   let materialJsonToUpload = materialJson;
