@@ -223,24 +223,40 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     
     // 3. 收集下载任务 (30%)
     let fileIdCounter = 1;
+    const taskIndexByKey = new Map();
     
     const addTask = (type, material, remoteUrl, localPath, downloadOptions = {}) => {
         if (!remoteUrl) {
             logger.warn(`文件 ${material.material_name || material.name} 没有 remote_url，跳过下载。`);
             return;
         }
-        
-        downloadTasks.push({
+
+        const contextKey = downloadOptions.context || 'default';
+        const taskKey = `${remoteUrl}::${contextKey}`;
+        const existingTask = taskIndexByKey.get(taskKey);
+
+        if (existingTask) {
+            if (localPath && existingTask.localPath !== localPath && !existingTask.aliasLocalPaths.includes(localPath)) {
+                existingTask.aliasLocalPaths.push(localPath);
+            }
+            return;
+        }
+
+        const task = {
             id: fileIdCounter++,
             type: type,
             url: remoteUrl,
             localPath: localPath,
+            aliasLocalPaths: [],
             material: material,
             downloadOptions: downloadOptions,
-            total: 0,                   // 稍后获取文件大小（字节）
-            downloaded: 0,              // 初始下载量（字节）
-            status: 'downloading',          // pending | downloading | completed | failed
-        });
+            total: 0,   // 稍后获取文件大小（字节）
+            downloaded: 0,  // 初始下载量（字节）
+            status: 'downloading',  // pending | downloading | completed | failed
+        };
+
+        downloadTasks.push(task);
+        taskIndexByKey.set(taskKey, task);
     };
 
     // 收集音频下载任务
@@ -545,6 +561,16 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
               task.downloaded = finalSize;
               task.total = finalSize; 
               task.status = 'completed';
+
+              if (Array.isArray(task.aliasLocalPaths) && task.aliasLocalPaths.length > 0) {
+                await Promise.all(task.aliasLocalPaths.map(async aliasPath => {
+                  if (!aliasPath || aliasPath === task.localPath) {
+                    return;
+                  }
+                  await fs.promises.mkdir(path.dirname(aliasPath), { recursive: true });
+                  await fs.promises.copyFile(task.localPath, aliasPath);
+                }));
+              }
               
               sendProgress(30, i18next.t('downloading'), downloadTasks);
 
