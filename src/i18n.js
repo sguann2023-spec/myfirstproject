@@ -1,6 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import Backend from 'i18next-fs-backend';
+import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 
@@ -27,7 +28,10 @@ if (isDev) {
   localesPath = path.join(__dirname, '../locales');
 } else {
   // 生产环境下的路径（打包后）
-  localesPath = path.join(electron.remote ? electron.remote.app.getAppPath() : process.resourcesPath, 'locales');
+  const appPath = electron.remote ? electron.remote.app.getAppPath() : __dirname;
+  const asarLocales = path.join(appPath, 'locales');
+  const resourcesLocales = path.join(process.resourcesPath, 'locales');
+  localesPath = fs.existsSync(path.join(asarLocales, 'zh', 'translation.json')) ? asarLocales : resourcesLocales;
 }
 
 i18n
