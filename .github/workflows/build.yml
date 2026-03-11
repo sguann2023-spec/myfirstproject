@@ -11,7 +11,7 @@ permissions:
   id-token: write # 如果使用 OIDC 认证，则需要此权限
 
 jobs:
-  upload-test-file:
+  vars:
     runs-on: ubuntu-latest
     outputs:
       # 统一上传到固定目录: client/versioncode/
