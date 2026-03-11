@@ -117,13 +117,23 @@ jobs:
           # 关键：设置为仅上传资产，不更改 Release 状态 (upload_assets_only: true 在 V2 中已被移除)
           # 由于我们已经创建了草稿，这个步骤将自动附加文件。
 
+      - name: Install ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+
       - name: Deploy macOS Assets to OSS (Latest Path)
-        uses: aliyun/ossutil-action@v1.1
-        with:
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          args: cp -f build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/latest/
+        env:
+          MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
+          MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+          MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
+        run: |
+          ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          ossutil cp -f build/*.zip "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+          ossutil cp -f build/*.dmg "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+          ossutil cp -f build/latest-mac.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
 
   # 任务 3B: Windows 构建并上传 Windows 资产到 Release 草稿
   # 注意：Job 名称改为 build-and-upload-win 以示区别
@@ -167,13 +177,23 @@ jobs:
           tag_name: ${{ github.ref }}
           draft: true  # 关键：仅上传到草稿，禁止该步骤发布
 
+      - name: Install ossutil (Windows)
+        shell: bash
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64.exe -o ossutil64.exe
+          chmod +x ossutil64.exe
+
       - name: Deploy Windows Assets to OSS (Latest Path)
-        uses: aliyun/ossutil-action@v1.1
-        with:
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          args: cp -f build/*.exe build/latest.yml oss://oss-oversea-bucket/client/latest/
+        shell: bash
+        env:
+          MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
+          MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+          MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
+        run: |
+          ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
 
   # 任务 4: 流程终点，并将 Release 草稿发布
   release-complete:
