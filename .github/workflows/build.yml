@@ -56,9 +56,10 @@ jobs:
 
       - name: Install ossutil
         run: |
-          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutilmac64 -o ossutil
           chmod +x ossutil
           sudo mv ossutil /usr/local/bin/ossutil
+          ossutil --version
 
       - name: Deploy Mac Assets to OSS
         env:
@@ -98,19 +99,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-      - name: Install ossutil
+      - name: Install ossutil (Windows)
+        shell: bash
         run: |
-          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
-          chmod +x ossutil
-          sudo mv ossutil /usr/local/bin/ossutil
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64.exe -o ossutil64.exe
+          chmod +x ossutil64.exe
+          ./ossutil64.exe --version
 
       - name: Deploy Windows Assets to OSS
+        shell: bash
         env:
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
-          ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ossutil cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
-          ossutil cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig

@@ -25,9 +25,10 @@ jobs:
       
       - name: Install ossutil
         run: |
-          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutilmac64 -o ossutil
           chmod +x ossutil
           sudo mv ossutil /usr/local/bin/ossutil
+          ossutil --version
 
       - name: Create Tag
         uses: actions/github-script@v6
