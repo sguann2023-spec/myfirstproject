@@ -6,10 +6,10 @@
   "scripts": {
     "start": "NODE_ENV=development electron .",
     "debug": "electron --inspect=9229 .",
-    "build": "NODE_ENV=production OBFUSCATE=1 webpack --mode production && electron-builder --mac --win",
-    "build:mac": "NODE_ENV=production OBFUSCATE=1 webpack --mode production && electron-builder --mac",
-    "build:win": "NODE_ENV=production OBFUSCATE=1 webpack --mode production && electron-builder --win",
-    "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy NODE_ENV=production OBFUSCATE=1 webpack --mode production && electron-builder --win --x64",
+    "build": "webpack --mode production && electron-builder --mac --win",
+    "build:mac": "webpack --mode production && electron-builder --mac",
+    "build:win": "webpack --mode production && electron-builder --win",
+    "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy webpack --mode production && electron-builder --win --x64",
     "dev": "webpack --watch",
     "dev-start": "concurrently \"npm run dev\" \"npm run start\"",
     "test": "echo \"No tests specified\" && exit 0"
