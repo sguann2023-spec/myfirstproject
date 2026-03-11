@@ -120,9 +120,10 @@ jobs:
 
       - name: Install ossutil
         run: |
-          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutilmac64 -o ossutil
           chmod +x ossutil
           sudo mv ossutil /usr/local/bin/ossutil
+          ossutil --version
 
       - name: Deploy macOS Assets to OSS (Latest Path)
         env:
@@ -131,10 +132,15 @@ jobs:
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
+          MAC_ZIP=$(ls build/*.zip | head -n 1)
+          MAC_DMG=$(ls build/*.dmg | head -n 1)
+          cp "$MAC_ZIP" build/VectCut-latest-universal.zip
+          cp "$MAC_DMG" build/VectCut-latest-universal.dmg
+          node -e "const fs=require('fs');const p='build/latest-mac.yml';let s=fs.readFileSync(p,'utf8');s=s.replace(/[\w.-]+\.zip/g,'VectCut-latest-universal.zip').replace(/[\w.-]+\.dmg/g,'VectCut-latest-universal.dmg');fs.writeFileSync(p,s);"
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ossutil cp -f build/*.zip "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
-          ossutil cp -f build/*.dmg "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
-          ossutil cp -f build/latest-mac.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+          ossutil cp -f build/VectCut-latest-universal.zip "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-latest-universal.zip" -c /tmp/.ossutilconfig
+          ossutil cp -f build/VectCut-latest-universal.dmg "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-latest-universal.dmg" -c /tmp/.ossutilconfig
+          ossutil cp -f build/latest-mac.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/latest-mac.yml" -c /tmp/.ossutilconfig
 
   # 任务 3B: Windows 构建并上传 Windows 资产到 Release 草稿
   # 注意：Job 名称改为 build-and-upload-win 以示区别
@@ -192,9 +198,12 @@ jobs:
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
+          WIN_EXE=$(ls build/*.exe | head -n 1)
+          cp "$WIN_EXE" build/VectCut-Setup-latest-x64.exe
+          node -e "const fs=require('fs');const p='build/latest.yml';let s=fs.readFileSync(p,'utf8');s=s.replace(/[\w.-]+\.exe/g,'VectCut-Setup-latest-x64.exe');fs.writeFileSync(p,s);"
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/VectCut-Setup-latest-x64.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-Setup-latest-x64.exe" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/latest.yml" -c /tmp/.ossutilconfig
 
   # 任务 4: 流程终点，并将 Release 草稿发布
   release-complete:

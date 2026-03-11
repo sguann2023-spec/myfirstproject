@@ -23,8 +23,9 @@ jobs:
       - name: Set OSS Target Path
         id: set_path
         run: |
+          VERSION=$(node -p "require('./package.json').version")
           TIMESTAMP=$(date +%Y-%m-%d_%H_%M_%S)
-          echo "oss_version_path=versioncode_${TIMESTAMP}/" >> $GITHUB_OUTPUT
+          echo "oss_version_path=${VERSION}_${TIMESTAMP}/" >> $GITHUB_OUTPUT
         shell: bash
         working-directory: ${{ github.workspace }}
 
