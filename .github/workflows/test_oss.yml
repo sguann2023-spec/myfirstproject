@@ -1,0 +1,38 @@
+name: test_oss Build and Send to OSS
+
+on:
+  push:
+    branches:
+      - test_oss # 仅在推送到 test_oss 分支时触发
+
+# 权限设置，确保可以读取代码并访问 Secret
+permissions:
+  contents: read
+  id-token: write # 如果使用 OIDC 认证，则需要此权限
+
+jobs:
+  upload-test-file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create test file
+        run: |
+          TS=$(date +%Y%m%d%H%M%S)
+          echo "oss upload test: ${TS}" > /tmp/oss-upload-test.txt
+          echo "repo=${GITHUB_REPOSITORY}" >> /tmp/oss-upload-test.txt
+          echo "sha=${GITHUB_SHA}" >> /tmp/oss-upload-test.txt
+
+      - name: Install ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+
+      - name: Upload test file to OSS
+        env:
+          MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
+          MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+          MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
+        run: |
+          ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          ossutil cp -f /tmp/oss-upload-test.txt "oss://${MP4_OSS_BUCKET_NAME}/client/test_oss/oss-upload-test.txt" -c /tmp/.ossutilconfig

@@ -15,22 +15,16 @@ jobs:
   vars:
     runs-on: ubuntu-latest
     outputs:
-      # 生成一个基于时间戳的唯一路径 (例如: 202511061940/CapCutAPI-0.3.9.dmg)
+      # 统一上传到固定目录: client/versioncode/
       oss_version_path: ${{ steps.set_path.outputs.oss_version_path }}
-      # 生成一个固定的最新路径 (latest/CapCutAPI-0.3.9.dmg)
-      oss_latest_path: latest
+      oss_latest_path: versioncode
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get Version and Timestamp
+      - name: Set OSS Target Path
         id: set_path
         run: |
-          # 提取 package.json 中的版本号
-          VERSION=$(node -p "require('./package.json').version")
-          # 获取当前时间戳
-          TIMESTAMP=$(date +%Y%m%d%H%M)
-          # 设置 OSS 部署路径为 'dev/202511061940/'
-          echo "oss_version_path=dev/${TIMESTAMP}/" >> $GITHUB_OUTPUT
+          echo "oss_version_path=versioncode/" >> $GITHUB_OUTPUT
         shell: bash
         working-directory: ${{ github.workspace }}
 
@@ -58,24 +52,23 @@ jobs:
         run: yarn build:mac --universal
         shell: bash
 
-      # 关键步骤 1: 上传到 OSS (带版本号的路径)
-      - name: Deploy Mac Assets to OSS (Versioned Path)
-        uses: aliyun/ossutil-action@v1.1 # 使用官方或常用 Action
-        with:
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          args: cp -r build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_version_path }}
-          
-      # 关键步骤 2: 上传到 OSS (latest 路径, 覆盖旧文件)
-      - name: Deploy Mac Assets to OSS (Latest Path)
-        uses: aliyun/ossutil-action@v1.1
-        with:
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          # 强制覆盖 'latest' 路径下的文件
-          args: cp -f build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_latest_path }}/
+      - name: Install ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+
+      - name: Deploy Mac Assets to OSS
+        env:
+          MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
+          MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+          MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
+        run: |
+          ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          ossutil cp -f build/*.zip "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ossutil cp -f build/*.dmg "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ossutil cp -f build/latest-mac.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
 
   # 任务 2B: Windows 构建并上传到 OSS
   build-and-deploy-win-dev:
@@ -101,20 +94,19 @@ jobs:
         run: yarn build:win
         shell: bash
 
-      # 关键步骤 1: 上传到 OSS (带版本号的路径)
-      - name: Deploy Windows Assets to OSS (Versioned Path)
-        uses: aliyun/ossutil-action@v1.1
-        with:
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          args: cp -r build/*.exe build/latest.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_version_path }}
-          
-      # 关键步骤 2: 上传到 OSS (latest 路径, 覆盖旧文件)
-      - name: Deploy Windows Assets to OSS (Latest Path)
-        uses: aliyun/ossutil-action@v1.1
-        with:
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          args: cp -f build/*.exe build/latest.yml oss://oss-oversea-bucket/client/${{ needs.vars.outputs.oss_latest_path }}/
+      - name: Install ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+
+      - name: Deploy Windows Assets to OSS
+        env:
+          MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
+          MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+          MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
+        run: |
+          ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          ossutil cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ossutil cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
