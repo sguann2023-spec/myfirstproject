@@ -23,6 +23,12 @@ jobs:
         id: package-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       
+      - name: Install ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutil64 -o ossutil
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+
       - name: Create Tag
         uses: actions/github-script@v6
         with:
@@ -111,6 +117,14 @@ jobs:
           # 关键：设置为仅上传资产，不更改 Release 状态 (upload_assets_only: true 在 V2 中已被移除)
           # 由于我们已经创建了草稿，这个步骤将自动附加文件。
 
+      - name: Deploy macOS Assets to OSS (Latest Path)
+        uses: aliyun/ossutil-action@v1.1
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          args: cp -f build/*.zip build/*.dmg build/latest-mac.yml oss://oss-oversea-bucket/client/latest/
+
   # 任务 3B: Windows 构建并上传 Windows 资产到 Release 草稿
   # 注意：Job 名称改为 build-and-upload-win 以示区别
   build-and-upload-win:
@@ -152,6 +166,14 @@ jobs:
             build/latest.yml
           tag_name: ${{ github.ref }}
           draft: true  # 关键：仅上传到草稿，禁止该步骤发布
+
+      - name: Deploy Windows Assets to OSS (Latest Path)
+        uses: aliyun/ossutil-action@v1.1
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          args: cp -f build/*.exe build/latest.yml oss://oss-oversea-bucket/client/latest/
 
   # 任务 4: 流程终点，并将 Release 草稿发布
   release-complete:

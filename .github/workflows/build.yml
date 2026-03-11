@@ -14,7 +14,7 @@ jobs:
   vars:
     runs-on: ubuntu-latest
     outputs:
-      # 统一上传到固定目录: client/versioncode/
+      # 上传到时间戳目录: client/versioncode_yyyy-mm-dd_hh_mm_ss/
       oss_version_path: ${{ steps.set_path.outputs.oss_version_path }}
       oss_latest_path: versioncode
     steps:
@@ -23,7 +23,8 @@ jobs:
       - name: Set OSS Target Path
         id: set_path
         run: |
-          echo "oss_version_path=versioncode/" >> $GITHUB_OUTPUT
+          TIMESTAMP=$(date +%Y-%m-%d_%H_%M_%S)
+          echo "oss_version_path=versioncode_${TIMESTAMP}/" >> $GITHUB_OUTPUT
         shell: bash
         working-directory: ${{ github.workspace }}
 
@@ -50,6 +51,8 @@ jobs:
       - name: Build Mac application
         run: yarn build:mac --universal
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Install ossutil
         run: |
@@ -92,6 +95,8 @@ jobs:
       - name: Build Windows application
         run: yarn build:win
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Install ossutil
         run: |
