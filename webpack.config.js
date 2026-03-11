@@ -2,6 +2,7 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const WebpackObfuscator = require('webpack-obfuscator');
+const { getI18nReservedStrings } = require('./config/obfuscation.i18n');
 
 module.exports = (env, argv) => {
   const isProd = argv.mode === 'production';
@@ -69,11 +70,12 @@ module.exports = (env, argv) => {
               compact: true,
               identifierNamesGenerator: 'hexadecimal',
               renameGlobals: false,
+              ignoreRequireImports: true,
               stringArray: true,
-              stringArrayThreshold: 0.75,
-              splitStrings: true,
-              splitStringsChunkLength: 8,
-              transformObjectKeys: true
+              stringArrayThreshold: 0.6,
+              splitStrings: false,
+              transformObjectKeys: false,
+              reservedStrings: getI18nReservedStrings()
             })
           ]
         : [])
