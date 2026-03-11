@@ -3,7 +3,7 @@ name: Dev Build and Deploy to OSS
 on:
   push:
     branches:
-      - test_oss # 仅在推送到 test_oss 分支时触发
+      - dev # 仅在推送到 dev 分支时触发
 
 # 权限设置，确保可以读取代码并访问 Secret
 permissions:
