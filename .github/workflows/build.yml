@@ -3,7 +3,7 @@ name: Dev Build and Deploy to OSS
 on:
   push:
     branches:
-      - dev # 仅在推送到 dev 分支时触发
+      - test_oss # 仅在推送到 test_oss 分支时触发
 
 # 权限设置，确保可以读取代码并访问 Secret
 permissions:
@@ -11,8 +11,7 @@ permissions:
   id-token: write # 如果使用 OIDC 认证，则需要此权限
 
 jobs:
-  # 任务 1: 定义变量和 Nightly 路径
-  vars:
+  upload-test-file:
     runs-on: ubuntu-latest
     outputs:
       # 统一上传到固定目录: client/versioncode/
