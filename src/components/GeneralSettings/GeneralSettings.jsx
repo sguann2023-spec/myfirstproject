@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { message } from 'antd';
 import './GeneralSettings.css';
 import JianyingImg from '../../../public/jianying.png';
 import CapcutImg from '../../../public/capcut.png';
@@ -45,6 +46,35 @@ const GeneralSettings = () => {
       ipcSend('save-settings', { draftFolder: selected });
       electronStore.set('draftFolder', selected);
       setDraftFolder(selected);
+      try {
+        const fs = window.require ? window.require('fs') : null;
+        const path = window.require ? window.require('path') : null;
+        if (!fs || !path || !fs.existsSync(selected)) {
+          message.error('未检测到任何草稿，建议您再次确认！');
+          return;
+        }
+        const hitFolders = fs.readdirSync(selected).filter((folderName) => {
+          try {
+            const folderPath = path.join(selected, folderName);
+            if (!fs.statSync(folderPath).isDirectory()) return false;
+            const children = fs.readdirSync(folderPath);
+            return children.some((childName) => /^draft/i.test(childName));
+          } catch {
+            return false;
+          }
+        });
+        if (hitFolders.length > 0) {
+          const preview = hitFolders.slice(0, 3).join(',');
+          const suffix = hitFolders.length > 3 ? '等等' : '';
+          message.success({
+            content: <>已检测到有 <span style={{ color: '#8d8d8d' }}>{preview}</span> {suffix}草稿</>
+          });
+        } else {
+          message.warning('未检测到任何草稿，建议您再次确认！如果草稿箱为空，可以忽略该提示');
+        }
+      } catch {
+        message.error('未检测到任何草稿，建议您再次确认！');
+      }
     }
   };
 
