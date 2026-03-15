@@ -40,67 +40,80 @@ const generateOssSignature = (accessKeyId, accessKeySecret, method, contentType,
   return { authorization: `OSS ${accessKeyId}:${signature}`, date, token: securityToken };
 };
 
-const nodePut = (urlStr, headers, bodyBuffer) =>
+const nodePut = (urlStr, headers, localFile) =>
   new Promise((resolve, reject) => {
     const { URL } = req('url');
+    const fs = req('fs');
     const urlObj = new URL(urlStr);
     const transport = req(urlObj.protocol === 'https:' ? 'https' : 'http');
-    const request = transport.request(
-      urlObj,
-      { method: 'PUT', headers },
-      (response) => {
-        const chunks = [];
-        response.on('data', (c) => chunks.push(c));
-        response.on('end', () =>
-          resolve({
-            statusCode: response.statusCode || 0,
-            headers: response.headers || {},
-            body: Buffer.concat(chunks).toString('utf8'),
-          })
-        );
-      }
-    );
-    request.on('error', reject);
-    request.write(bodyBuffer);
-    request.end();
+    let settled = false;
+    const done = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    const request = transport.request(urlObj, { method: 'PUT', headers }, (response) => {
+      const chunks = [];
+      response.on('data', (c) => chunks.push(c));
+      response.on('error', (e) => done(reject, e));
+      response.on('end', () => done(resolve, {
+        statusCode: response.statusCode || 0,
+        headers: response.headers || {},
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    request.setTimeout(30000, () => request.destroy(new Error('上传超时')));
+    request.on('error', (e) => done(reject, e));
+    const stream = fs.createReadStream(localFile);
+    stream.on('error', (e) => {
+      request.destroy(e);
+      done(reject, e);
+    });
+    stream.pipe(request);
   });
 
 const uploadFileToOSS = async (localFile, objectName, accessKeyId, accessKeySecret, securityToken, contentType, type, region, bucket, endpoint) => {
-  const fs = req('fs');
-  const path = req('path');
-  if (!fs.existsSync(localFile) || !fs.statSync(localFile).isFile()) {
-    logger.warn('[UploadPreset] uploadFileToOSS:missing_local_file', { localFile, objectName });
+  try {
+    const fs = req('fs');
+    if (!fs.existsSync(localFile) || !fs.statSync(localFile).isFile()) {
+      logger.warn('[UploadPreset] uploadFileToOSS:missing_local_file', { localFile, objectName });
+      return null;
+    }
+    if (type === 'VOLC') {
+      logger.error('[UploadPreset] uploadFileToOSS:unsupported_provider', { type, objectName });
+      return null;
+    }
+    const size = fs.statSync(localFile).size;
+    logger.info('[UploadPreset] uploadFileToOSS:start', { localFile, objectName, contentType, size, type, region, bucket, endpoint });
+
+    const finalBucket = bucket || OSS_CONFIG.bucket_name;
+    const finalEndpoint = (endpoint || OSS_CONFIG.endpoint).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    const host = `${finalBucket}.${finalEndpoint}`;
+    const resource = `${finalBucket}/${objectName}`;
+    const { authorization, date, token } = generateOssSignature(accessKeyId, accessKeySecret, 'PUT', contentType, resource, securityToken);
+    const url = `https://${host}/${objectName}`;
+    const headers = {
+      Host: host,
+      Date: date,
+      'Content-Type': contentType,
+      'Content-Length': String(size),
+      Authorization: authorization,
+    };
+    if (token) headers['x-oss-security-token'] = token;
+
+    const res = await nodePut(url, headers, localFile);
+    if (res.statusCode === 200) {
+      const publicEndpoint = (OSS_CONFIG.public_endpoint || '').replace(/\/+$/, '');
+      const finalUrl = publicEndpoint ? `${publicEndpoint}/${objectName}` : url;
+      logger.info('[UploadPreset] uploadFileToOSS:success', { objectName, finalUrl });
+      return finalUrl;
+    }
+    logger.error('[UploadPreset] uploadFileToOSS:failed', { objectName, statusCode: res.statusCode, body: res.body });
+    return null;
+  } catch (e) {
+    logger.error('[UploadPreset] uploadFileToOSS:error', { objectName, message: e?.message || '', stack: e?.stack || '' });
     return null;
   }
-  if (type === 'VOLC') throw new Error('当前前端JS实现暂不支持 VOLC/TOS 上传');
-  const size = fs.statSync(localFile).size;
-  logger.info('[UploadPreset] uploadFileToOSS:start', { localFile, objectName, contentType, size, type, region, bucket, endpoint });
-
-  const finalBucket = bucket || OSS_CONFIG.bucket_name;
-  const finalEndpoint = (endpoint || OSS_CONFIG.endpoint).replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const host = `${finalBucket}.${finalEndpoint}`;
-  const resource = `${finalBucket}/${objectName}`;
-  const { authorization, date, token } = generateOssSignature(accessKeyId, accessKeySecret, 'PUT', contentType, resource, securityToken);
-  const body = fs.readFileSync(localFile);
-  const url = `https://${host}/${objectName}`;
-  const headers = {
-    Host: host,
-    Date: date,
-    'Content-Type': contentType,
-    'Content-Length': String(body.length),
-    Authorization: authorization,
-  };
-  if (token) headers['x-oss-security-token'] = token;
-
-  const res = await nodePut(url, headers, body);
-  if (res.statusCode === 200) {
-    const publicEndpoint = (OSS_CONFIG.public_endpoint || '').replace(/\/+$/, '');
-    const finalUrl = publicEndpoint ? `${publicEndpoint}/${objectName}` : url;
-    logger.info('[UploadPreset] uploadFileToOSS:success', { objectName, finalUrl });
-    return finalUrl;
-  }
-  logger.error('[UploadPreset] uploadFileToOSS:failed', { objectName, statusCode: res.statusCode, body: res.body });
-  return null;
 };
 
 const createPreset = async (group_id) => {

@@ -1,0 +1,283 @@
+[2026-03-08 09:23:10.516] [info]  App Version: 1.2.2, Version Code: 1002002
+[2026-03-08 09:23:10.871] [info]  [updater] currentVersion 1.2.2
+[2026-03-08 09:23:10.873] [info]  [updater] feed URL set https://gh-proxy.com/https://github.com/sun-guannan/CapCutMaker/releases/latest/download index: https://gh-proxy.com/https://github.com/sun-guannan/CapCutMaker/releases/latest/download/latest.yml
+[2026-03-08 09:23:10.879] [info]  Checking for update
+[2026-03-08 09:23:10.880] [info]  [updater] checking-for-update
+[2026-03-08 09:23:10.909] [info]  Generated new staging user ID: 6205602e-9417-5e5e-8b80-d3c9f7869219
+[2026-03-08 09:23:13.821] [debug] notifyCount 0
+[2026-03-08 09:23:27.015] [info]  Update for version 1.2.2 is not available (latest version: 1.2.2, downgrade is disallowed).
+[2026-03-08 09:23:27.016] [info]  [updater] no updates 1.2.2
+[2026-03-08 09:24:27.852] [info]  [Main] will-redirect: https://mlbd8l6vgi13-demo.authing.cn/login?app_id=6901dd145dafc6f1f3143938&module=login_and_register&redirect_uri=https%3A%2F%2Flocalhost%2Fauthing-guard-callback&response_type=code&scope=openid%20profile%20email
+[2026-03-08 09:24:27.853] [info]  mlbd8l6vgi13-demo.authing.cn /login
+[2026-03-08 09:24:29.276] [info]  [Main] will-redirect: https://mlbd8l6vgi13-demo.authing.cn/login?app_id=6901dd145dafc6f1f3143938&protocol=oidc&finish_login_url=%2Finteraction%2Foidc%2F714f3194-5ac3-458b-9926-22ee1893a31f%2Flogin&login_page_context=
+[2026-03-08 09:24:29.277] [info]  mlbd8l6vgi13-demo.authing.cn /login
+[2026-03-08 09:24:42.719] [info]  [Main] will-redirect: https://localhost/authing-guard-callback?code=QCXFJsRkMbviHVrhSCK4CpMovdU8Z-iQ-7jdrH7VL0N&state=-7Wqsp23V
+[2026-03-08 09:24:42.720] [info]  localhost /authing-guard-callback
+[2026-03-08 09:24:42.721] [info]  [Main] Auth Guard callback URL: https://localhost/authing-guard-callback?code=QCXFJsRkMbviHVrhSCK4CpMovdU8Z-iQ-7jdrH7VL0N&state=-7Wqsp23V
+[2026-03-08 09:24:42.723] [info]  [Main] Auth Code: QCXFJsRkMbviHVrhSCK4CpMovdU8Z-iQ-7jdrH7VL0N
+[2026-03-08 09:24:42.728] [debug] Received Auth Code: QCXFJsRkMbviHVrhSCK4CpMovdU8Z-iQ-7jdrH7VL0N
+[2026-03-08 09:24:42.745] [info]  [Main] AuthWindow closed. storage refresh_token: undefined
+[2026-03-08 09:24:42.821] [debug] tokenData {"scope":"openid offline_access email profile phone","token_type":"Bearer","access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJzY29wZSI6Im9wZW5pZCBvZmZsaW5lX2FjY2VzcyBlbWFpbCBwcm9maWxlIHBob25lIiwiaWF0IjoxNzcyOTM2ODA2LCJleHAiOjE3NzQxNDY0MDYsImp0aSI6InFFa0wzNnBTSkVhLWpiXzdrdkNxdC1qMks3U0Jobjc1aG1Ga19UNWRyNzciLCJpc3MiOiJodHRwczovL21sYmQ4bDZ2Z2kxMy1kZW1vLmF1dGhpbmcuY24vb2lkYyJ9.Q9lJ4NnVa10exKd9vbNoUVEse965gB4BWvQjpDVm_0tQPwVUpmT_I7cdDeWViuO7tbg3ySAijYjKdKnVlchW-3Ricnq3-nc-IRvjrObAf-H8zmZZ1glp8yWaj6KkzhDDMEJYG2jvpsvRX1qxgWM6cQ74U5B3QkWGIErAdHe4kbjDrsy3eGBDZA_AeARCpWckhdOXnGKxAxycO1AbpJpeOuL_h0AmpcApiy5Q-yxG7FWYC7UHJTpHvUVk5FwxcuhdlfA7NNW_yYlQRgcASN0bWk8ToGsTloSUcmm0drDKJ1dfEP1xCf8PcadcH5pB6Wp9wlaMTg0Q9gtGKkQHRjlB_g","expires_in":1209600,"id_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJpYXQiOjE3NzI5MzY4MDYsImV4cCI6MTc3NDE0NjQwNiwiaXNzIjoiaHR0cHM6Ly9tbGJkOGw2dmdpMTMtZGVtby5hdXRoaW5nLmNuL29pZGMiLCJub25jZSI6IkdVd2drSjk2N24iLCJuYW1lIjpudWxsLCJnaXZlbl9uYW1lIjpudWxsLCJtaWRkbGVfbmFtZSI6bnVsbCwiZmFtaWx5X25hbWUiOm51bGwsIm5pY2tuYW1lIjoi5a2Z6KeC5qWgIiwicHJlZmVycmVkX3VzZXJuYW1lIjpudWxsLCJwcm9maWxlIjpudWxsLCJwaWN0dXJlIjoiaHR0cHM6Ly90aGlyZHd4LnFsb2dvLmNuL21tb3Blbi92aV8zMi9EWUFJT2dxODNlb1g4alZucDdTV1ZRSlVQaks5YWpjcWV0bE5wUTZGUFVIN1pWdEMwSTRGT2liQ1dZU1NpYWFRVFNYNk5ROEFYemxvaWNMS1cxQ0tUOHpwZy8xMzIiLCJ3ZWJzaXRlIjpudWxsLCJiaXJ0aGRhdGUiOm51bGwsImdlbmRlciI6IlUiLCJ6b25laW5mbyI6bnVsbCwibG9jYWxlIjoiIiwidXBkYXRlZF9hdCI6IjIwMjYtMDMtMDhUMDI6MjY6NDUuMTk3WiIsImVtYWlsIjpudWxsLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX251bWJlciI6bnVsbCwicGhvbmVfbnVtYmVyX3ZlcmlmaWVkIjpmYWxzZX0.1tKmruEaaQituBLqDeqNhBKjQkFKSjoyUxgJqpu-V9HZiZIH-dibXqOo9ZJONFjurlw1huvZ0fS9-FUiTMdMhLMIdrk8ELI7k4LBLLnPbS3EmRX5iUhSaSjIoQfg9pGCI1kCaSreHO3Drwq5U1AuQZ5FIe0RVNFZFNpmX58yBWKEpMVN1RBk8qIZXFHl-J8rNvwskNJv8s27R2FmxrqBBqhReeoVSEF8__W6FnElwmgbFTVn8VIHIZ032w_mxawoyUlpxPscVTBAI2JJApofsxvt4325-Yk3s8Qmz2IS0fXGs7lU6hV1pvPf_f0Io3A_kdNSODx1O9pi2nBdqAkVVQ","refresh_token":"aXNPl4Y83OwREcQV6RbxxkzzqLOABiNiZ_PeE-TgJZl"}
+[2026-03-08 09:24:42.822] [debug] set refreshToken aXNPl4Y83OwREcQV6RbxxkzzqLOABiNiZ_PeE-TgJZl
+[2026-03-08 09:24:42.860] [debug] login success
+[2026-03-08 09:24:42.861] [debug] id_token: eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJpYXQiOjE3NzI5MzY4MDYsImV4cCI6MTc3NDE0NjQwNiwiaXNzIjoiaHR0cHM6Ly9tbGJkOGw2dmdpMTMtZGVtby5hdXRoaW5nLmNuL29pZGMiLCJub25jZSI6IkdVd2drSjk2N24iLCJuYW1lIjpudWxsLCJnaXZlbl9uYW1lIjpudWxsLCJtaWRkbGVfbmFtZSI6bnVsbCwiZmFtaWx5X25hbWUiOm51bGwsIm5pY2tuYW1lIjoi5a2Z6KeC5qWgIiwicHJlZmVycmVkX3VzZXJuYW1lIjpudWxsLCJwcm9maWxlIjpudWxsLCJwaWN0dXJlIjoiaHR0cHM6Ly90aGlyZHd4LnFsb2dvLmNuL21tb3Blbi92aV8zMi9EWUFJT2dxODNlb1g4alZucDdTV1ZRSlVQaks5YWpjcWV0bE5wUTZGUFVIN1pWdEMwSTRGT2liQ1dZU1NpYWFRVFNYNk5ROEFYemxvaWNMS1cxQ0tUOHpwZy8xMzIiLCJ3ZWJzaXRlIjpudWxsLCJiaXJ0aGRhdGUiOm51bGwsImdlbmRlciI6IlUiLCJ6b25laW5mbyI6bnVsbCwibG9jYWxlIjoiIiwidXBkYXRlZF9hdCI6IjIwMjYtMDMtMDhUMDI6MjY6NDUuMTk3WiIsImVtYWlsIjpudWxsLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX251bWJlciI6bnVsbCwicGhvbmVfbnVtYmVyX3ZlcmlmaWVkIjpmYWxzZX0.1tKmruEaaQituBLqDeqNhBKjQkFKSjoyUxgJqpu-V9HZiZIH-dibXqOo9ZJONFjurlw1huvZ0fS9-FUiTMdMhLMIdrk8ELI7k4LBLLnPbS3EmRX5iUhSaSjIoQfg9pGCI1kCaSreHO3Drwq5U1AuQZ5FIe0RVNFZFNpmX58yBWKEpMVN1RBk8qIZXFHl-J8rNvwskNJv8s27R2FmxrqBBqhReeoVSEF8__W6FnElwmgbFTVn8VIHIZ032w_mxawoyUlpxPscVTBAI2JJApofsxvt4325-Yk3s8Qmz2IS0fXGs7lU6hV1pvPf_f0Io3A_kdNSODx1O9pi2nBdqAkVVQ
+[2026-03-08 09:24:42.862] [info]  Login successful. Loading main application...
+[2026-03-08 09:24:42.866] [info]  draftFolder: 
+[2026-03-08 09:24:42.948] [debug] HomePage rendered
+[2026-03-08 09:24:42.948] [debug] HomePage rendered
+[2026-03-08 09:24:42.957] [debug] HomePage rendered
+[2026-03-08 09:24:42.958] [debug] HomePage rendered
+[2026-03-08 09:24:43.874] [debug] settingPage
+[2026-03-08 09:24:43.875] [debug] settingPage
+[2026-03-08 09:24:43.918] [debug] settingPage
+[2026-03-08 09:24:43.919] [debug] settingPage
+[2026-03-08 09:24:44.207] [debug] HomePage rendered
+[2026-03-08 09:24:44.208] [debug] HomePage rendered
+[2026-03-08 09:25:07.468] [info]  保存设置: {"draftFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Projects\\com.lveditor.draft"}
+[2026-03-08 09:25:22.615] [info]  保存设置: {"presetFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Projects\\com.lveditor.draft"}
+[2026-03-08 09:25:30.709] [info]  保存设置: {"presetFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets"}
+[2026-03-08 09:25:38.383] [debug] HomePage rendered
+[2026-03-08 09:25:38.385] [debug] HomePage rendered
+[2026-03-08 09:25:43.840] [debug] HomePage rendered
+[2026-03-08 09:25:43.841] [debug] HomePage rendered
+[2026-03-08 09:25:47.662] [debug] HomePage rendered
+[2026-03-08 09:25:47.663] [debug] HomePage rendered
+[2026-03-08 09:25:49.646] [debug] HomePage rendered
+[2026-03-08 09:25:49.647] [debug] HomePage rendered
+[2026-03-08 09:27:50.963] [info]  [Preset] handleUpload:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","presetName":"windows上传测试1","groupId":"8747d4b7-9874-4f99-86de-4b0fbd98f98b","tagCount":1,"materialCount":2}
+[2026-03-08 09:27:51.079] [info]  [UploadPreset] uploadFolderZipToOSS:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","name":"windows上传测试1","hasDescription":true,"tagsCount":0,"materialJsonType":"array"}
+[2026-03-08 09:27:51.081] [info]  [UploadPreset] uploadFolderZipToOSS:trace_start {"traceId":"upload_1772933271080_dwu4ur","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","group_id":"8747d4b7-9874-4f99-86de-4b0fbd98f98b"}
+[2026-03-08 09:27:51.104] [info]  [UploadPreset] createPreset:start {"group_id":"8747d4b7-9874-4f99-86de-4b0fbd98f98b"}
+[2026-03-08 09:27:52.477] [info]  [UploadPreset] createPreset:response {"success":true,"hasData":true,"message":"预设ID及上传凭证创建成功"}
+[2026-03-08 09:27:52.479] [info]  [UploadPreset] credential_ready {"presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","userId":"6921810bab8bfad6516eccd1","type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:27:52.481] [info]  [UploadPreset] material_json:prepared {"traceId":"upload_1772933271080_dwu4ur","presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","materialJsonMode":"array","materialJsonToUpload":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\59a08257-8ef2-445b-90b0-4e5dbab6a36b_provided_materials.json"}
+[2026-03-08 09:27:52.502] [info]  [UploadPreset] workspace:prepared {"traceId":"upload_1772933271080_dwu4ur","presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","tmpDir":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload","tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_59a08257-8ef2-445b-90b0-4e5dbab6a36b"}
+[2026-03-08 09:27:52.518] [info]  [UploadPreset] draft_materials:collected {"traceId":"upload_1772933271080_dwu4ur","presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","draftCount":1,"audioCount":0,"videoCount":0}
+[2026-03-08 09:27:52.519] [info]  [UploadPreset] zip:start {"tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_59a08257-8ef2-445b-90b0-4e5dbab6a36b","zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_59a08257-8ef2-445b-90b0-4e5dbab6a36b.zip"}
+[2026-03-08 09:27:52.608] [info]  [UploadPreset] zip:done {"zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_59a08257-8ef2-445b-90b0-4e5dbab6a36b.zip","zipSize":14841}
+[2026-03-08 09:27:52.617] [info]  [UploadPreset] uploadFileToOSS:start {"localFile":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_59a08257-8ef2-445b-90b0-4e5dbab6a36b.zip","objectName":"preset/6921810bab8bfad6516eccd1/59a08257-8ef2-445b-90b0-4e5dbab6a36b/59a08257-8ef2-445b-90b0-4e5dbab6a36b.zip","contentType":"application/zip","size":14841,"type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:27:58.719] [error] [Preset] handleUpload:error {"message":"getaddrinfo EAI_AGAIN oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com","stack":"Error: getaddrinfo EAI_AGAIN oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)"}
+[2026-03-08 09:27:58.721] [info]  [Preset] handleUpload:finish {"presetName":"windows上传测试1","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1"}
+[2026-03-08 09:28:19.507] [debug] HomePage rendered
+[2026-03-08 09:28:19.511] [debug] HomePage rendered
+[2026-03-08 09:28:19.648] [debug] HomePage rendered
+[2026-03-08 09:28:19.649] [debug] HomePage rendered
+[2026-03-08 09:28:21.141] [debug] HomePage rendered
+[2026-03-08 09:28:21.142] [debug] HomePage rendered
+[2026-03-08 09:28:21.845] [debug] HomePage rendered
+[2026-03-08 09:28:21.846] [debug] HomePage rendered
+[2026-03-08 09:28:22.940] [debug] HomePage rendered
+[2026-03-08 09:28:22.942] [debug] HomePage rendered
+[2026-03-08 09:28:23.008] [debug] HomePage rendered
+[2026-03-08 09:28:23.009] [debug] HomePage rendered
+[2026-03-08 09:28:26.546] [debug] HomePage rendered
+[2026-03-08 09:28:26.547] [debug] HomePage rendered
+[2026-03-08 09:28:33.064] [debug] HomePage rendered
+[2026-03-08 09:28:33.065] [debug] HomePage rendered
+[2026-03-08 09:28:34.668] [debug] HomePage rendered
+[2026-03-08 09:28:34.669] [debug] HomePage rendered
+[2026-03-08 09:28:34.729] [debug] HomePage rendered
+[2026-03-08 09:28:34.730] [debug] HomePage rendered
+[2026-03-08 09:28:36.093] [debug] HomePage rendered
+[2026-03-08 09:28:36.096] [debug] HomePage rendered
+[2026-03-08 09:28:37.916] [debug] HomePage rendered
+[2026-03-08 09:28:37.916] [debug] HomePage rendered
+[2026-03-08 09:28:40.109] [info]  [Preset] handleUpload:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","presetName":"我的预设1","groupId":"","tagCount":0,"materialCount":2}
+[2026-03-08 09:28:40.110] [info]  [UploadPreset] uploadFolderZipToOSS:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","name":"我的预设1","hasDescription":false,"tagsCount":0,"materialJsonType":"array"}
+[2026-03-08 09:28:40.111] [info]  [UploadPreset] uploadFolderZipToOSS:trace_start {"traceId":"upload_1772933320110_o9jv85","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","group_id":""}
+[2026-03-08 09:28:40.122] [info]  [UploadPreset] createPreset:start {"group_id":""}
+[2026-03-08 09:28:40.358] [info]  [UploadPreset] createPreset:response {"success":true,"hasData":true,"message":"预设ID及上传凭证创建成功"}
+[2026-03-08 09:28:40.359] [info]  [UploadPreset] credential_ready {"presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","userId":"6921810bab8bfad6516eccd1","type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:28:40.360] [info]  [UploadPreset] material_json:prepared {"traceId":"upload_1772933320110_o9jv85","presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","materialJsonMode":"array","materialJsonToUpload":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\800fb9ff-b88e-4e8a-a092-3bc394a955d6_provided_materials.json"}
+[2026-03-08 09:28:40.378] [info]  [UploadPreset] workspace:prepared {"traceId":"upload_1772933320110_o9jv85","presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","tmpDir":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload","tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_800fb9ff-b88e-4e8a-a092-3bc394a955d6"}
+[2026-03-08 09:28:40.396] [info]  [UploadPreset] draft_materials:collected {"traceId":"upload_1772933320110_o9jv85","presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","draftCount":1,"audioCount":0,"videoCount":0}
+[2026-03-08 09:28:40.397] [info]  [UploadPreset] zip:start {"tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_800fb9ff-b88e-4e8a-a092-3bc394a955d6","zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_800fb9ff-b88e-4e8a-a092-3bc394a955d6.zip"}
+[2026-03-08 09:28:40.450] [info]  [UploadPreset] zip:done {"zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_800fb9ff-b88e-4e8a-a092-3bc394a955d6.zip","zipSize":14841}
+[2026-03-08 09:28:40.454] [info]  [UploadPreset] uploadFileToOSS:start {"localFile":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_800fb9ff-b88e-4e8a-a092-3bc394a955d6.zip","objectName":"preset/6921810bab8bfad6516eccd1/800fb9ff-b88e-4e8a-a092-3bc394a955d6/800fb9ff-b88e-4e8a-a092-3bc394a955d6.zip","contentType":"application/zip","size":14841,"type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:28:46.487] [error] [Preset] handleUpload:error {"message":"getaddrinfo EAI_AGAIN oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com","stack":"Error: getaddrinfo EAI_AGAIN oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)"}
+[2026-03-08 09:28:46.488] [info]  [Preset] handleUpload:finish {"presetName":"我的预设1","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1"}
+[2026-03-08 09:31:05.713] [info]  [Preset] handleUpload:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","presetName":"我的预设1","groupId":"","tagCount":0,"materialCount":2}
+[2026-03-08 09:31:05.714] [info]  [UploadPreset] uploadFolderZipToOSS:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","name":"我的预设1","hasDescription":false,"tagsCount":0,"materialJsonType":"array"}
+[2026-03-08 09:31:05.715] [info]  [UploadPreset] uploadFolderZipToOSS:trace_start {"traceId":"upload_1772933465713_ldty4r","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","group_id":""}
+[2026-03-08 09:31:05.731] [info]  [UploadPreset] createPreset:start {"group_id":""}
+[2026-03-08 09:31:06.313] [info]  [UploadPreset] createPreset:response {"success":true,"hasData":true,"message":"预设ID及上传凭证创建成功"}
+[2026-03-08 09:31:06.314] [info]  [UploadPreset] credential_ready {"presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","userId":"6921810bab8bfad6516eccd1","type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:31:06.316] [info]  [UploadPreset] material_json:prepared {"traceId":"upload_1772933465713_ldty4r","presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","materialJsonMode":"array","materialJsonToUpload":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\0ef212dd-d64b-4447-aa1b-90c8eb7e88e3_provided_materials.json"}
+[2026-03-08 09:31:06.332] [info]  [UploadPreset] workspace:prepared {"traceId":"upload_1772933465713_ldty4r","presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","tmpDir":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload","tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_0ef212dd-d64b-4447-aa1b-90c8eb7e88e3"}
+[2026-03-08 09:31:06.351] [info]  [UploadPreset] draft_materials:collected {"traceId":"upload_1772933465713_ldty4r","presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","draftCount":1,"audioCount":0,"videoCount":0}
+[2026-03-08 09:31:06.352] [info]  [UploadPreset] zip:start {"tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_0ef212dd-d64b-4447-aa1b-90c8eb7e88e3.zip"}
+[2026-03-08 09:31:06.396] [info]  [UploadPreset] zip:done {"zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_0ef212dd-d64b-4447-aa1b-90c8eb7e88e3.zip","zipSize":14841}
+[2026-03-08 09:31:06.401] [info]  [UploadPreset] uploadFileToOSS:start {"localFile":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_0ef212dd-d64b-4447-aa1b-90c8eb7e88e3.zip","objectName":"preset/6921810bab8bfad6516eccd1/0ef212dd-d64b-4447-aa1b-90c8eb7e88e3/0ef212dd-d64b-4447-aa1b-90c8eb7e88e3.zip","contentType":"application/zip","size":14841,"type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:31:06.768] [error] [UploadPreset] uploadFileToOSS:failed {"objectName":"preset/6921810bab8bfad6516eccd1/0ef212dd-d64b-4447-aa1b-90c8eb7e88e3/0ef212dd-d64b-4447-aa1b-90c8eb7e88e3.zip","statusCode":403,"body":"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error>\n  <Code>RequestTimeTooSkewed</Code>\n  <Message>The difference between the request time and the current time is too large.</Message>\n  <RequestId>69ACDFE662131A3534523B07</RequestId>\n  <HostId>oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com</HostId>\n  <MaxAllowedSkewMilliseconds>900000</MaxAllowedSkewMilliseconds>\n  <RequestTime>2026-03-08T01:31:06.000Z</RequestTime>\n  <ServerTime>2026-03-08T02:33:10.000Z</ServerTime>\n  <EC>0002-00000504</EC>\n  <RecommendDoc>https://api.aliyun.com/troubleshoot?q=0002-00000504</RecommendDoc>\n</Error>\n"}
+[2026-03-08 09:31:06.770] [error] [Preset] handleUpload:error {"message":"上传zip文件失败","stack":"Error: 上传zip文件失败\n    at eval (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:636:17)\n    at Generator.eval (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:24:1660)\n    at Generator.eval [as next] (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:25:255)\n    at asyncGeneratorStep (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:26:70)\n    at _next (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:27:163)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)"}
+[2026-03-08 09:31:06.771] [info]  [Preset] handleUpload:finish {"presetName":"我的预设1","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1"}
+[2026-03-08 09:31:09.931] [info]  [Preset] handleUpload:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","presetName":"我的预设1","groupId":"","tagCount":0,"materialCount":2}
+[2026-03-08 09:31:09.932] [info]  [UploadPreset] uploadFolderZipToOSS:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","name":"我的预设1","hasDescription":false,"tagsCount":0,"materialJsonType":"array"}
+[2026-03-08 09:31:09.933] [info]  [UploadPreset] uploadFolderZipToOSS:trace_start {"traceId":"upload_1772933469931_wmrlrf","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","group_id":""}
+[2026-03-08 09:31:09.948] [info]  [UploadPreset] createPreset:start {"group_id":""}
+[2026-03-08 09:31:10.205] [info]  [UploadPreset] createPreset:response {"success":true,"hasData":true,"message":"预设ID及上传凭证创建成功"}
+[2026-03-08 09:31:10.206] [info]  [UploadPreset] credential_ready {"presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","userId":"6921810bab8bfad6516eccd1","type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:31:10.207] [info]  [UploadPreset] material_json:prepared {"traceId":"upload_1772933469931_wmrlrf","presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","materialJsonMode":"array","materialJsonToUpload":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\feb22bfc-5580-4d8d-8254-43b7a4bb99ff_provided_materials.json"}
+[2026-03-08 09:31:10.225] [info]  [UploadPreset] workspace:prepared {"traceId":"upload_1772933469931_wmrlrf","presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","tmpDir":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload","tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_feb22bfc-5580-4d8d-8254-43b7a4bb99ff"}
+[2026-03-08 09:31:10.243] [info]  [UploadPreset] draft_materials:collected {"traceId":"upload_1772933469931_wmrlrf","presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","draftCount":1,"audioCount":0,"videoCount":0}
+[2026-03-08 09:31:10.245] [info]  [UploadPreset] zip:start {"tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_feb22bfc-5580-4d8d-8254-43b7a4bb99ff","zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_feb22bfc-5580-4d8d-8254-43b7a4bb99ff.zip"}
+[2026-03-08 09:31:10.294] [info]  [UploadPreset] zip:done {"zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_feb22bfc-5580-4d8d-8254-43b7a4bb99ff.zip","zipSize":14841}
+[2026-03-08 09:31:10.297] [info]  [UploadPreset] uploadFileToOSS:start {"localFile":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_feb22bfc-5580-4d8d-8254-43b7a4bb99ff.zip","objectName":"preset/6921810bab8bfad6516eccd1/feb22bfc-5580-4d8d-8254-43b7a4bb99ff/feb22bfc-5580-4d8d-8254-43b7a4bb99ff.zip","contentType":"application/zip","size":14841,"type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:31:10.370] [error] [UploadPreset] uploadFileToOSS:failed {"objectName":"preset/6921810bab8bfad6516eccd1/feb22bfc-5580-4d8d-8254-43b7a4bb99ff/feb22bfc-5580-4d8d-8254-43b7a4bb99ff.zip","statusCode":403,"body":"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error>\n  <Code>RequestTimeTooSkewed</Code>\n  <Message>The difference between the request time and the current time is too large.</Message>\n  <RequestId>69ACDFE962131A3534374707</RequestId>\n  <HostId>oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com</HostId>\n  <MaxAllowedSkewMilliseconds>900000</MaxAllowedSkewMilliseconds>\n  <RequestTime>2026-03-08T01:31:10.000Z</RequestTime>\n  <ServerTime>2026-03-08T02:33:13.000Z</ServerTime>\n  <EC>0002-00000504</EC>\n  <RecommendDoc>https://api.aliyun.com/troubleshoot?q=0002-00000504</RecommendDoc>\n</Error>\n"}
+[2026-03-08 09:31:10.372] [error] [Preset] handleUpload:error {"message":"上传zip文件失败","stack":"Error: 上传zip文件失败\n    at eval (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:636:17)\n    at Generator.eval (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:24:1660)\n    at Generator.eval [as next] (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:25:255)\n    at asyncGeneratorStep (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:26:70)\n    at _next (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:27:163)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)"}
+[2026-03-08 09:31:10.373] [info]  [Preset] handleUpload:finish {"presetName":"我的预设1","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1"}
+[2026-03-08 09:31:12.200] [info]  [Preset] handleUpload:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","presetName":"我的预设1","groupId":"","tagCount":0,"materialCount":2}
+[2026-03-08 09:31:12.202] [info]  [UploadPreset] uploadFolderZipToOSS:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","name":"我的预设1","hasDescription":false,"tagsCount":0,"materialJsonType":"array"}
+[2026-03-08 09:31:12.203] [info]  [UploadPreset] uploadFolderZipToOSS:trace_start {"traceId":"upload_1772933472201_7pxnx5","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1","group_id":""}
+[2026-03-08 09:31:12.217] [info]  [UploadPreset] createPreset:start {"group_id":""}
+[2026-03-08 09:31:12.463] [info]  [UploadPreset] createPreset:response {"success":true,"hasData":true,"message":"预设ID及上传凭证创建成功"}
+[2026-03-08 09:31:12.464] [info]  [UploadPreset] credential_ready {"presetId":"932c1749-291b-438d-95f4-598200f21cab","userId":"6921810bab8bfad6516eccd1","type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:31:12.465] [info]  [UploadPreset] material_json:prepared {"traceId":"upload_1772933472201_7pxnx5","presetId":"932c1749-291b-438d-95f4-598200f21cab","materialJsonMode":"array","materialJsonToUpload":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\932c1749-291b-438d-95f4-598200f21cab_provided_materials.json"}
+[2026-03-08 09:31:12.483] [info]  [UploadPreset] workspace:prepared {"traceId":"upload_1772933472201_7pxnx5","presetId":"932c1749-291b-438d-95f4-598200f21cab","tmpDir":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload","tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_932c1749-291b-438d-95f4-598200f21cab"}
+[2026-03-08 09:31:12.499] [info]  [UploadPreset] draft_materials:collected {"traceId":"upload_1772933472201_7pxnx5","presetId":"932c1749-291b-438d-95f4-598200f21cab","draftCount":1,"audioCount":0,"videoCount":0}
+[2026-03-08 09:31:12.500] [info]  [UploadPreset] zip:start {"tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_processing_932c1749-291b-438d-95f4-598200f21cab","zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_932c1749-291b-438d-95f4-598200f21cab.zip"}
+[2026-03-08 09:31:12.540] [info]  [UploadPreset] zip:done {"zipPath":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_932c1749-291b-438d-95f4-598200f21cab.zip","zipSize":14841}
+[2026-03-08 09:31:12.546] [info]  [UploadPreset] uploadFileToOSS:start {"localFile":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设1_932c1749-291b-438d-95f4-598200f21cab.zip","objectName":"preset/6921810bab8bfad6516eccd1/932c1749-291b-438d-95f4-598200f21cab/932c1749-291b-438d-95f4-598200f21cab.zip","contentType":"application/zip","size":14841,"type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-08 09:31:12.617] [error] [UploadPreset] uploadFileToOSS:failed {"objectName":"preset/6921810bab8bfad6516eccd1/932c1749-291b-438d-95f4-598200f21cab/932c1749-291b-438d-95f4-598200f21cab.zip","statusCode":403,"body":"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error>\n  <Code>RequestTimeTooSkewed</Code>\n  <Message>The difference between the request time and the current time is too large.</Message>\n  <RequestId>69ACDFEB62131A3534674E07</RequestId>\n  <HostId>oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com</HostId>\n  <MaxAllowedSkewMilliseconds>900000</MaxAllowedSkewMilliseconds>\n  <RequestTime>2026-03-08T01:31:12.000Z</RequestTime>\n  <ServerTime>2026-03-08T02:33:15.000Z</ServerTime>\n  <EC>0002-00000504</EC>\n  <RecommendDoc>https://api.aliyun.com/troubleshoot?q=0002-00000504</RecommendDoc>\n</Error>\n"}
+[2026-03-08 09:31:12.618] [error] [Preset] handleUpload:error {"message":"上传zip文件失败","stack":"Error: 上传zip文件失败\n    at eval (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:636:17)\n    at Generator.eval (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:24:1660)\n    at Generator.eval [as next] (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:25:255)\n    at asyncGeneratorStep (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:26:70)\n    at _next (webpack://@sun-guannan/capcutmaker/./src/components/Preset/UploadPreset.js?:27:163)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)"}
+[2026-03-08 09:31:12.619] [info]  [Preset] handleUpload:finish {"presetName":"我的预设1","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设1"}
+[2026-03-08 09:31:19.876] [debug] HomePage rendered
+[2026-03-08 09:31:19.877] [debug] HomePage rendered
+[2026-03-08 09:31:19.910] [debug] [cloudMaterials] load:start {"presetId":"932c1749-291b-438d-95f4-598200f21cab","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:19.910] [debug] [cloudMaterials] load:skip_no_url {"presetId":"932c1749-291b-438d-95f4-598200f21cab"}
+[2026-03-08 09:31:19.913] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"932c1749-291b-438d-95f4-598200f21cab","cacheKeys":[]}
+[2026-03-08 09:31:19.947] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"932c1749-291b-438d-95f4-598200f21cab","cacheKeys":[]}
+[2026-03-08 09:31:22.863] [debug] HomePage rendered
+[2026-03-08 09:31:22.864] [debug] HomePage rendered
+[2026-03-08 09:31:22.885] [debug] [cloudMaterials] load:start {"presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:22.886] [debug] [cloudMaterials] load:skip_no_url {"presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff"}
+[2026-03-08 09:31:22.887] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","cacheKeys":[]}
+[2026-03-08 09:31:22.908] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"feb22bfc-5580-4d8d-8254-43b7a4bb99ff","cacheKeys":[]}
+[2026-03-08 09:31:24.796] [debug] HomePage rendered
+[2026-03-08 09:31:24.797] [debug] HomePage rendered
+[2026-03-08 09:31:24.816] [debug] [cloudMaterials] load:start {"presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:24.817] [debug] [cloudMaterials] load:skip_no_url {"presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3"}
+[2026-03-08 09:31:24.818] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","cacheKeys":[]}
+[2026-03-08 09:31:24.838] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"0ef212dd-d64b-4447-aa1b-90c8eb7e88e3","cacheKeys":[]}
+[2026-03-08 09:31:26.690] [debug] HomePage rendered
+[2026-03-08 09:31:26.691] [debug] HomePage rendered
+[2026-03-08 09:31:26.710] [debug] [cloudMaterials] load:start {"presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:26.711] [debug] [cloudMaterials] load:skip_no_url {"presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6"}
+[2026-03-08 09:31:26.711] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","cacheKeys":[]}
+[2026-03-08 09:31:26.738] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"800fb9ff-b88e-4e8a-a092-3bc394a955d6","cacheKeys":[]}
+[2026-03-08 09:31:28.643] [debug] HomePage rendered
+[2026-03-08 09:31:28.644] [debug] HomePage rendered
+[2026-03-08 09:31:28.665] [debug] [cloudMaterials] load:start {"presetId":"95a31222-20c9-4dad-b7dd-a23d99355de4","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:28.666] [debug] [cloudMaterials] load:skip_no_url {"presetId":"95a31222-20c9-4dad-b7dd-a23d99355de4"}
+[2026-03-08 09:31:28.667] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"95a31222-20c9-4dad-b7dd-a23d99355de4","cacheKeys":[]}
+[2026-03-08 09:31:28.689] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"95a31222-20c9-4dad-b7dd-a23d99355de4","cacheKeys":[]}
+[2026-03-08 09:31:30.471] [debug] HomePage rendered
+[2026-03-08 09:31:30.472] [debug] HomePage rendered
+[2026-03-08 09:31:30.493] [debug] [cloudMaterials] load:start {"presetId":"7bf5ac73-37b7-47c5-97c5-884138f8e2e7","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:30.494] [debug] [cloudMaterials] load:skip_no_url {"presetId":"7bf5ac73-37b7-47c5-97c5-884138f8e2e7"}
+[2026-03-08 09:31:30.495] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"7bf5ac73-37b7-47c5-97c5-884138f8e2e7","cacheKeys":[]}
+[2026-03-08 09:31:30.524] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"7bf5ac73-37b7-47c5-97c5-884138f8e2e7","cacheKeys":[]}
+[2026-03-08 09:31:32.415] [debug] HomePage rendered
+[2026-03-08 09:31:32.416] [debug] HomePage rendered
+[2026-03-08 09:31:32.432] [debug] [cloudMaterials] load:start {"presetId":"c50fa78f-8ecd-4689-984e-4f6232d03464","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:32.433] [debug] [cloudMaterials] load:skip_no_url {"presetId":"c50fa78f-8ecd-4689-984e-4f6232d03464"}
+[2026-03-08 09:31:32.434] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"c50fa78f-8ecd-4689-984e-4f6232d03464","cacheKeys":[]}
+[2026-03-08 09:31:32.456] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"c50fa78f-8ecd-4689-984e-4f6232d03464","cacheKeys":[]}
+[2026-03-08 09:31:34.167] [debug] HomePage rendered
+[2026-03-08 09:31:34.169] [debug] HomePage rendered
+[2026-03-08 09:31:34.185] [debug] [cloudMaterials] load:start {"presetId":"986483cb-70a5-4dd0-aa15-fad14ee572ad","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:34.186] [debug] [cloudMaterials] load:skip_no_url {"presetId":"986483cb-70a5-4dd0-aa15-fad14ee572ad"}
+[2026-03-08 09:31:34.187] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"986483cb-70a5-4dd0-aa15-fad14ee572ad","cacheKeys":[]}
+[2026-03-08 09:31:34.209] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"986483cb-70a5-4dd0-aa15-fad14ee572ad","cacheKeys":[]}
+[2026-03-08 09:31:35.859] [debug] HomePage rendered
+[2026-03-08 09:31:35.860] [debug] HomePage rendered
+[2026-03-08 09:31:35.885] [debug] [cloudMaterials] load:start {"presetId":"5418bd21-4d2a-4773-a0cd-b89e31e7309b","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:35.886] [debug] [cloudMaterials] load:skip_no_url {"presetId":"5418bd21-4d2a-4773-a0cd-b89e31e7309b"}
+[2026-03-08 09:31:35.887] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"5418bd21-4d2a-4773-a0cd-b89e31e7309b","cacheKeys":[]}
+[2026-03-08 09:31:35.911] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"5418bd21-4d2a-4773-a0cd-b89e31e7309b","cacheKeys":[]}
+[2026-03-08 09:31:37.646] [debug] HomePage rendered
+[2026-03-08 09:31:37.648] [debug] HomePage rendered
+[2026-03-08 09:31:37.665] [debug] [cloudMaterials] load:start {"presetId":"3cc2c440-6caf-4c53-8ebb-edebfa97e2af","materialsUrl":"","fetchUrl":""}
+[2026-03-08 09:31:37.667] [debug] [cloudMaterials] load:skip_no_url {"presetId":"3cc2c440-6caf-4c53-8ebb-edebfa97e2af"}
+[2026-03-08 09:31:37.667] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"3cc2c440-6caf-4c53-8ebb-edebfa97e2af","cacheKeys":[]}
+[2026-03-08 09:31:37.683] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"3cc2c440-6caf-4c53-8ebb-edebfa97e2af","cacheKeys":[]}
+[2026-03-15 10:01:58.667] [info]  App Version: 1.2.2, Version Code: 1002002
+[2026-03-15 10:01:59.831] [info]  [updater] currentVersion 1.2.2
+[2026-03-15 10:01:59.833] [info]  [updater] feed URL set https://gh-proxy.com/https://github.com/sun-guannan/CapCutMaker/releases/latest/download index: https://gh-proxy.com/https://github.com/sun-guannan/CapCutMaker/releases/latest/download/latest.yml
+[2026-03-15 10:01:59.839] [info]  Checking for update
+[2026-03-15 10:01:59.839] [info]  [updater] checking-for-update
+[2026-03-15 10:02:06.653] [debug] notifyCount 0
+[2026-03-15 10:02:10.831] [warn]  Silent login failed, will open Guard: {}
+[2026-03-15 10:02:11.090] [info]  [Main] will-redirect: https://mlbd8l6vgi13-demo.authing.cn/login?app_id=6901dd145dafc6f1f3143938&module=login_and_register&redirect_uri=https%3A%2F%2Flocalhost%2Fauthing-guard-callback&response_type=code&scope=openid%20profile%20email
+[2026-03-15 10:02:11.091] [info]  mlbd8l6vgi13-demo.authing.cn /login
+[2026-03-15 10:02:12.949] [info]  [Main] will-redirect: https://mlbd8l6vgi13-demo.authing.cn/login?app_id=6901dd145dafc6f1f3143938&protocol=oidc&finish_login_url=%2Finteraction%2Foidc%2F5cdb0a1d-bed6-4cc2-8084-22bce2cdfcd3%2Flogin&login_page_context=
+[2026-03-15 10:02:12.950] [info]  mlbd8l6vgi13-demo.authing.cn /login
+[2026-03-15 10:02:25.521] [info]  [Main] will-redirect: https://localhost/authing-guard-callback?code=qA3PdxKLnt2Xg5zM_vqzCNgIxAaWN9jpsK9VbVFA-AE&state=cZZAG5v1R
+[2026-03-15 10:02:25.522] [info]  localhost /authing-guard-callback
+[2026-03-15 10:02:25.523] [info]  [Main] Auth Guard callback URL: https://localhost/authing-guard-callback?code=qA3PdxKLnt2Xg5zM_vqzCNgIxAaWN9jpsK9VbVFA-AE&state=cZZAG5v1R
+[2026-03-15 10:02:25.524] [info]  [Main] Auth Code: qA3PdxKLnt2Xg5zM_vqzCNgIxAaWN9jpsK9VbVFA-AE
+[2026-03-15 10:02:25.558] [info]  [Main] AuthWindow closed. storage refresh_token: undefined
+[2026-03-15 10:02:25.676] [debug] Received Auth Code: qA3PdxKLnt2Xg5zM_vqzCNgIxAaWN9jpsK9VbVFA-AE
+[2026-03-15 10:02:26.351] [debug] tokenData {"scope":"email profile openid offline_access phone","token_type":"Bearer","access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJzY29wZSI6ImVtYWlsIHByb2ZpbGUgb3BlbmlkIG9mZmxpbmVfYWNjZXNzIHBob25lIiwiaWF0IjoxNzczNTQwMTQ2LCJleHAiOjE3NzQ3NDk3NDYsImp0aSI6Im5iX2FYV3RZN0JzdXRfeDlmbkpjQmpydnNHVnVOQmVOdXpUZk5Pc2NLVDYiLCJpc3MiOiJodHRwczovL21sYmQ4bDZ2Z2kxMy1kZW1vLmF1dGhpbmcuY24vb2lkYyJ9.DIrLq7JPJ_ymfrCqOF3sRJ0VwxSZWsYd9TCWxYD6YL0eSQZwNgj9JCf4Ihe6FlLnLZVOIgmiuXuzmbl_qTlWtJVk8TiERaQjhPzZB8rFydmcfmDO1gx7mWsokawyhABm3XkbTQKA169hXmeqpjohzCNDtcBtRWpyq6Xnv6gAqVVWI7HtoOikmldgkcqrVh8aV5qJil6nNyOnTlToYHEM6mB-ZOKZQ2IevAHRvot_lKujb0a6vTYJAwkkO6XHztpASLvSK6ACjrRhtHN2v8ffRBZ6f3BGN9tIYPa9VUo8MqsqzIk6aOeKTfXZPu9X8o1YcF2EOzIbqPan9SrRFhfuBg","expires_in":1209600,"id_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJpYXQiOjE3NzM1NDAxNDYsImV4cCI6MTc3NDc0OTc0NiwiaXNzIjoiaHR0cHM6Ly9tbGJkOGw2dmdpMTMtZGVtby5hdXRoaW5nLmNuL29pZGMiLCJub25jZSI6Ii16R0w1Z1R4cXYiLCJuYW1lIjpudWxsLCJnaXZlbl9uYW1lIjpudWxsLCJtaWRkbGVfbmFtZSI6bnVsbCwiZmFtaWx5X25hbWUiOm51bGwsIm5pY2tuYW1lIjoi5a2Z6KeC5qWgIiwicHJlZmVycmVkX3VzZXJuYW1lIjpudWxsLCJwcm9maWxlIjpudWxsLCJwaWN0dXJlIjoiaHR0cHM6Ly90aGlyZHd4LnFsb2dvLmNuL21tb3Blbi92aV8zMi9EWUFJT2dxODNlb1g4alZucDdTV1ZRSlVQaks5YWpjcWV0bE5wUTZGUFVIN1pWdEMwSTRGT2liQ1dZU1NpYWFRVFNYNk5ROEFYemxvaWNMS1cxQ0tUOHpwZy8xMzIiLCJ3ZWJzaXRlIjpudWxsLCJiaXJ0aGRhdGUiOm51bGwsImdlbmRlciI6IlUiLCJ6b25laW5mbyI6bnVsbCwibG9jYWxlIjoiIiwidXBkYXRlZF9hdCI6IjIwMjYtMDMtMTVUMDI6MDI6MjQuNTgwWiIsImVtYWlsIjpudWxsLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX251bWJlciI6bnVsbCwicGhvbmVfbnVtYmVyX3ZlcmlmaWVkIjpmYWxzZX0.zlyGBwS9aVh7lYZscvZfNsy6SurPeOm29mhsthartqx3km1tj4_FB-83l0B5_CFUzrDoiLIxzXpEDfkpAU_h8BGCF4GKXcZ5ECKv9b_L8oGqnWMJNe6nLA1Ph09ClwuwY1zI_KtJeAgTpuA6-7JhivHyGnNpo0ifgW8uryLi958i8TYJaA0sZ-8bW2jBMpAc8riAjtKFj4p440hYY7Rg0Dtf8R8KGChTadJ9epND4OOHl_oqVEIuRSDhK_XlK7J3MoqrZFjpSmXCO5xNtfD6ZnyroJYOUDedTiPMC_C4iWTV_QCEL4dSvQ9MFOQDOkxM31hzXvT2utfyNj55ysRtvQ","refresh_token":"H8irgwD49tpQkcCUHMGVchyI_FTN1tNkOpnjOJNGaFm"}
+[2026-03-15 10:02:26.352] [debug] set refreshToken H8irgwD49tpQkcCUHMGVchyI_FTN1tNkOpnjOJNGaFm
+[2026-03-15 10:02:26.398] [debug] login success
+[2026-03-15 10:02:26.399] [debug] id_token: eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJpYXQiOjE3NzM1NDAxNDYsImV4cCI6MTc3NDc0OTc0NiwiaXNzIjoiaHR0cHM6Ly9tbGJkOGw2dmdpMTMtZGVtby5hdXRoaW5nLmNuL29pZGMiLCJub25jZSI6Ii16R0w1Z1R4cXYiLCJuYW1lIjpudWxsLCJnaXZlbl9uYW1lIjpudWxsLCJtaWRkbGVfbmFtZSI6bnVsbCwiZmFtaWx5X25hbWUiOm51bGwsIm5pY2tuYW1lIjoi5a2Z6KeC5qWgIiwicHJlZmVycmVkX3VzZXJuYW1lIjpudWxsLCJwcm9maWxlIjpudWxsLCJwaWN0dXJlIjoiaHR0cHM6Ly90aGlyZHd4LnFsb2dvLmNuL21tb3Blbi92aV8zMi9EWUFJT2dxODNlb1g4alZucDdTV1ZRSlVQaks5YWpjcWV0bE5wUTZGUFVIN1pWdEMwSTRGT2liQ1dZU1NpYWFRVFNYNk5ROEFYemxvaWNMS1cxQ0tUOHpwZy8xMzIiLCJ3ZWJzaXRlIjpudWxsLCJiaXJ0aGRhdGUiOm51bGwsImdlbmRlciI6IlUiLCJ6b25laW5mbyI6bnVsbCwibG9jYWxlIjoiIiwidXBkYXRlZF9hdCI6IjIwMjYtMDMtMTVUMDI6MDI6MjQuNTgwWiIsImVtYWlsIjpudWxsLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX251bWJlciI6bnVsbCwicGhvbmVfbnVtYmVyX3ZlcmlmaWVkIjpmYWxzZX0.zlyGBwS9aVh7lYZscvZfNsy6SurPeOm29mhsthartqx3km1tj4_FB-83l0B5_CFUzrDoiLIxzXpEDfkpAU_h8BGCF4GKXcZ5ECKv9b_L8oGqnWMJNe6nLA1Ph09ClwuwY1zI_KtJeAgTpuA6-7JhivHyGnNpo0ifgW8uryLi958i8TYJaA0sZ-8bW2jBMpAc8riAjtKFj4p440hYY7Rg0Dtf8R8KGChTadJ9epND4OOHl_oqVEIuRSDhK_XlK7J3MoqrZFjpSmXCO5xNtfD6ZnyroJYOUDedTiPMC_C4iWTV_QCEL4dSvQ9MFOQDOkxM31hzXvT2utfyNj55ysRtvQ
+[2026-03-15 10:02:26.400] [info]  Login successful. Loading main application...
+[2026-03-15 10:02:26.437] [info]  draftFolder: C:\Users\Administrator\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft
+[2026-03-15 10:02:26.475] [debug] HomePage rendered
+[2026-03-15 10:02:26.476] [debug] HomePage rendered
+[2026-03-15 10:02:26.606] [debug] HomePage rendered
+[2026-03-15 10:02:26.607] [debug] HomePage rendered
+[2026-03-15 10:02:27.082] [debug] HomePage rendered
+[2026-03-15 10:02:27.083] [debug] HomePage rendered
+[2026-03-15 10:02:29.760] [debug] HomePage rendered
+[2026-03-15 10:02:29.761] [debug] HomePage rendered
+[2026-03-15 10:02:37.094] [debug] HomePage rendered
+[2026-03-15 10:02:37.098] [debug] HomePage rendered
+[2026-03-15 10:03:03.957] [error] Error: Error: net::ERR_CONNECTION_TIMED_OUT
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:123921)
+    at SimpleURLLoaderWrapper.emit (node:events:518:28)
+[2026-03-15 10:03:03.961] [error] [updater] error net::ERR_CONNECTION_TIMED_OUT
+[2026-03-15 10:03:03.961] [error] [updater] check failed net::ERR_CONNECTION_TIMED_OUT
+[2026-03-15 10:38:35.187] [debug] HomePage rendered
+[2026-03-15 10:38:35.278] [debug] HomePage rendered
+[2026-03-15 10:38:36.770] [debug] HomePage rendered
+[2026-03-15 10:38:36.772] [debug] HomePage rendered
+[2026-03-15 10:38:37.443] [debug] HomePage rendered
+[2026-03-15 10:38:37.446] [debug] HomePage rendered
+[2026-03-15 10:39:18.517] [debug] HomePage rendered
+[2026-03-15 10:39:18.592] [debug] HomePage rendered
+[2026-03-15 10:41:56.668] [info]  [Preset] handleUpload:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设4","presetName":"方舟去重预设","groupId":"8747d4b7-9874-4f99-86de-4b0fbd98f98b","tagCount":1,"materialCount":44}
+[2026-03-15 10:41:57.238] [info]  [UploadPreset] uploadFolderZipToOSS:start {"localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设4","name":"方舟去重预设","hasDescription":true,"tagsCount":0,"materialJsonType":"array"}
+[2026-03-15 10:41:57.239] [info]  [UploadPreset] uploadFolderZipToOSS:trace_start {"traceId":"upload_1773542517236_qx0gje","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设4","group_id":"8747d4b7-9874-4f99-86de-4b0fbd98f98b"}
+[2026-03-15 10:41:57.324] [info]  [UploadPreset] createPreset:start {"group_id":"8747d4b7-9874-4f99-86de-4b0fbd98f98b"}
+[2026-03-15 10:42:00.246] [info]  [UploadPreset] createPreset:response {"success":true,"hasData":true,"message":"预设ID及上传凭证创建成功"}
+[2026-03-15 10:42:00.247] [info]  [UploadPreset] credential_ready {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","userId":"6921810bab8bfad6516eccd1","type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-15 10:42:00.257] [info]  [UploadPreset] material_json:prepared {"traceId":"upload_1773542517236_qx0gje","presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","materialJsonMode":"array","materialJsonToUpload":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1_provided_materials.json"}
+[2026-03-15 10:42:00.372] [info]  [UploadPreset] workspace:prepared {"traceId":"upload_1773542517236_qx0gje","presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","tmpDir":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload","tempProcessingFolder":"C:\\Users\\Administrator\\AppData\\Local\\Programs\\@sun-guannancapcutmaker\\tmp_upload\\我的预设4_processing_34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1"}
+[2026-03-15 10:42:00.410] [info]  [UploadPreset] draft_materials:collected {"traceId":"upload_1773542517236_qx0gje","presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","draftCount":1,"audioCount":0,"videoCount":44}
+[2026-03-15 10:42:00.412] [info]  [UploadPreset] uploadFileToOSS:start {"localFile":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Resources\\27589cdee6c43d0448316c217983365f.mp4","objectName":"preset/6921810bab8bfad6516eccd1/34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1/27589cdee6c43d0448316c217983365f.mp4","contentType":"video/mp4","size":9683679,"type":null,"region":null,"bucket":null,"endpoint":null}
+[2026-03-15 10:42:06.991] [error] [Preset] handleUpload:error {"message":"getaddrinfo EAI_AGAIN oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com","stack":"Error: getaddrinfo EAI_AGAIN oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)"}
+[2026-03-15 10:42:06.994] [info]  [Preset] handleUpload:finish {"presetName":"方舟去重预设","localFolder":"C:\\Users\\Administrator\\AppData\\Local\\JianyingPro\\User Data\\Presets\\Combination\\Presets\\我的预设4"}
+[2026-03-15 10:43:19.671] [debug] HomePage rendered
+[2026-03-15 10:43:19.674] [debug] HomePage rendered
+[2026-03-15 10:43:20.655] [debug] HomePage rendered
+[2026-03-15 10:43:20.656] [debug] HomePage rendered
+[2026-03-15 10:43:56.346] [debug] HomePage rendered
+[2026-03-15 10:43:56.347] [debug] HomePage rendered
+[2026-03-15 10:43:56.481] [debug] [cloudMaterials] load:start {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","materialsUrl":"","fetchUrl":""}
+[2026-03-15 10:43:56.482] [debug] [cloudMaterials] load:skip_no_url {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1"}
+[2026-03-15 10:43:56.483] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","cacheKeys":[]}
+[2026-03-15 10:43:56.567] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","cacheKeys":[]}
+[2026-03-15 10:43:58.576] [debug] HomePage rendered
+[2026-03-15 10:43:58.577] [debug] HomePage rendered
+[2026-03-15 10:43:58.607] [debug] [cloudMaterials] load:start {"presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","materialsUrl":"","fetchUrl":""}
+[2026-03-15 10:43:58.608] [debug] [cloudMaterials] load:skip_no_url {"presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b"}
+[2026-03-15 10:43:58.609] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","cacheKeys":[]}
+[2026-03-15 10:43:58.637] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"59a08257-8ef2-445b-90b0-4e5dbab6a36b","cacheKeys":[]}
+[2026-03-15 10:44:02.080] [debug] HomePage rendered
+[2026-03-15 10:44:02.081] [debug] HomePage rendered
+[2026-03-15 10:44:02.102] [debug] [cloudMaterials] load:start {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","materialsUrl":"","fetchUrl":""}
+[2026-03-15 10:44:02.103] [debug] [cloudMaterials] load:skip_no_url {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1"}
+[2026-03-15 10:44:02.104] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","cacheKeys":[]}
+[2026-03-15 10:44:02.146] [debug] [cloudMaterials] sync:skip_no_cache {"presetId":"34fa9f2b-8745-4ada-a5aa-ad93d59bb1c1","cacheKeys":[]}

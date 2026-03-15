@@ -2,8 +2,10 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  box-sizing: border-box;
   padding: 12px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-width: 0;
   scrollbar-color: #D8D8D8 transparent;
   scrollbar-width: thin;

@@ -22,6 +22,24 @@ const i18next = require('i18next');
 const Backend = require('i18next-fs-backend');
 const logger = require('./src/shared/logger');
 
+process.on('unhandledRejection', (reason) => {
+  try {
+    logger.error('[Main] unhandledRejection', {
+      message: reason?.message || String(reason || ''),
+      stack: reason?.stack || '',
+    });
+  } catch {}
+});
+
+process.on('uncaughtException', (error) => {
+  try {
+    logger.error('[Main] uncaughtException', {
+      message: error?.message || String(error || ''),
+      stack: error?.stack || '',
+    });
+  } catch {}
+});
+
 // 初始化 i18next
 let i18n;
 

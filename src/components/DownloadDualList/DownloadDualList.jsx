@@ -278,7 +278,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                     </div>
                     <div className="draftlist-time">
                       <span className="draftlist-status">
-                        {item.status === 'success' ? '下载成功' : '下载失败'}
+                        {item.status === 'success' ? '下载成功，去剪映草稿箱查看该草稿' : '下载失败'}
                       </span>
                       <div className="draftlist-actions">
                         <button

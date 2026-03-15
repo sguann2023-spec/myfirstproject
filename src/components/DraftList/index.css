@@ -77,6 +77,8 @@
   flex: 1;
   min-width: 0;
   margin-left: 10px;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .draftlist-title {
