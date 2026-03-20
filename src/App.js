@@ -62,17 +62,27 @@ function App() {
         const raw = typeof url === 'string' ? url : '';
         const qs = raw.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').split('?')[1] || '';
         const params = new URLSearchParams(qs);
-        const draftId = params.get('draft_id');
-        if (draftId) {
-          try {
-            const res = await searchDraft({ draft_id: draftId });
-            const draft = res?.draft;
-            const name = (draft?.draft_name && draft.draft_name.trim()) ? draft.draft_name : draftId;
-            const cover = draft?.cover || null;
-            const createdAt = draft?.created_at;
-            DownloadController.enqueue({ draft_id: draftId, draft_name: name, cover, createdAt });
-          } catch (e) {
-            try { DownloadController.enqueue({ draft_id: draftId, draft_name: draftId }); } catch (_) {}
+
+        const draftIds = Array.from(new Set(
+          params
+            .getAll('draft_id')
+            .flatMap(v => String(v || '').split(','))
+            .map(v => v.trim())
+            .filter(Boolean)
+        ));
+
+        if (draftIds.length > 0) {
+          for (const draftId of draftIds) {
+            try {
+              const res = await searchDraft({ draft_id: draftId });
+              const draft = res?.draft;
+              const name = (draft?.draft_name && draft.draft_name.trim()) ? draft.draft_name : draftId;
+              const cover = draft?.cover || null;
+              const createdAt = draft?.created_at;
+              DownloadController.enqueue({ draft_id: draftId, draft_name: name, cover, createdAt });
+            } catch (e) {
+              try { DownloadController.enqueue({ draft_id: draftId, draft_name: draftId }); } catch (_) {}
+            }
           }
           setCurrentPage('home');
         }
