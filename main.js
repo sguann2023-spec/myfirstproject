@@ -399,14 +399,14 @@ if (!gotTheLock) {
   });
 
   app.on('activate', function () {
-    // 在macOS上，当单击dock图标并且没有其他窗口打开时，
-    // 通常在应用程序中重新创建一个窗口
-    if (!mainWindow) {
-        // createWindow();
+    // 在 macOS 上，点击 Dock 图标时如果没有可用窗口则重建主窗口
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
     } else {
-        mainWindow.focus();
+      mainWindow.show();
+      mainWindow.focus();
     }
-});
+  });
 }
 
 // 在macOS上，需要在app.setAsDefaultProtocolClient之前调用这个
