@@ -43,9 +43,14 @@ async function requestJson(url, options = {}, retryOn401 = true) {
   const data = ct.includes('application/json') ? await res.json() : await res.text();
 
   if (!res.ok) {
-    const err = new Error(`HTTP ${res.status}`);
+    const serverMessage =
+      (data && typeof data === 'object' && String(data.message || '').trim())
+      || (data && typeof data === 'object' && String(data.error || '').trim())
+      || (typeof data === 'string' ? data.trim() : '');
+    const err = new Error(serverMessage || `HTTP ${res.status}`);
     err.status = res.status;
     err.data = data;
+    err.httpMessage = `HTTP ${res.status}`;
     throw err;
   }
   return data;
