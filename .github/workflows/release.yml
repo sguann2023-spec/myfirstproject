@@ -165,6 +165,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
+      - name: Download EVSign CLI
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://down.evsign.cn/software/SignClient_v2.3.1_CLI.exe" -OutFile "SignClient.exe"
+
+      - name: Sign Windows installer
+        shell: powershell
+        env:
+          EVSIGN_LICENSE: ${{ secrets.EVSIGN_LICENSE }}
+        run: |
+          $exe = Get-ChildItem -Path "build" -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "No Windows installer (.exe) found in build directory." }
+          .\SignClient.exe "$($exe.FullName)" -key "$env:EVSIGN_LICENSE" -sha256
+
+      - name: Verify signature
+        shell: powershell
+        run: |
+          $exe = Get-ChildItem -Path "build" -Filter "*.exe" | Select-Object -First 1
+          $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
+          if ($sig.Status -ne 'Valid') { throw "Signature verification failed: $($sig.Status)" }
+          Write-Host "Signed file: $($exe.Name)"
+
       # 关键步骤 2: 上传 Windows 资产 (只附加文件到已有的 Release 草稿)
       - name: Upload Windows Assets
         uses: softprops/action-gh-release@v2
