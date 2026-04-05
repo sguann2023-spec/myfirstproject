@@ -115,9 +115,10 @@ jobs:
       - name: Verify macOS code signing
         shell: bash
         run: |
-          APP_PATH=$(find build -maxdepth 1 -name "*.app" | head -n 1)
+          APP_PATH=$(find build -type d -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "No .app bundle found in build directory."
+            find build -maxdepth 3 -print
             exit 1
           fi
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
