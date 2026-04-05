@@ -90,17 +90,17 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Prepare macOS signing certificate
+      - name: Import macOS signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+      - name: Prepare macOS signing environment
         shell: bash
-        env:
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: |
-          CERT_PATH="$RUNNER_TEMP/macos-signing-cert.p12"
-          export CERT_PATH
-          python3 -c "import os,base64;open(os.environ['CERT_PATH'],'wb').write(base64.b64decode(os.environ['MACOS_CERT_P12_BASE64']))"
-          echo "CSC_LINK=$CERT_PATH" >> "$GITHUB_ENV"
-          echo "CSC_KEY_PASSWORD=$MACOS_CERT_PASSWORD" >> "$GITHUB_ENV"
+          echo "CSC_NAME=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)" >> "$GITHUB_ENV"
+          security find-identity -v -p codesigning
       
       - name: Build Mac application
         run: yarn build:mac --universal
@@ -109,7 +109,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Verify macOS code signing
@@ -121,8 +120,25 @@ jobs:
             find build -maxdepth 3 -print
             exit 1
           fi
+          APP_SIGN_INFO=$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)
+          echo "$APP_SIGN_INFO"
+          echo "$APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+          echo "$APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           spctl --assess --type execute --verbose=4 "$APP_PATH"
+          DMG_PATH=$(find build -maxdepth 2 -type f -name "*.dmg" | head -n 1)
+          if [ -z "$DMG_PATH" ]; then
+            echo "No .dmg artifact found in build directory."
+            find build -maxdepth 3 -print
+            exit 1
+          fi
+          DMG_SIGN_INFO=$(codesign -dv --verbose=4 "$DMG_PATH" 2>&1)
+          echo "$DMG_SIGN_INFO"
+          echo "$DMG_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+          echo "$DMG_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
 
       # 关键步骤 1: 上传 macOS 资产 (只附加文件到已有的 Release 草稿)
       - name: Upload macOS Assets
