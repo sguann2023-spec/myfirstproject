@@ -1,10 +1,39 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const https = require('https');
 const { promisify } = require('util');
 const AdmZip = require('adm-zip');
 const { log } = require('console');
 const logger = require('../src/shared/logger');
+
+const TLS_CERT_ERROR_CODES = new Set([
+    'CERT_HAS_EXPIRED',
+    'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+    'SELF_SIGNED_CERT_IN_CHAIN',
+    'DEPTH_ZERO_SELF_SIGNED_CERT'
+]);
+
+function isTlsCertificateError(error) {
+    return Boolean(error && error.code && TLS_CERT_ERROR_CODES.has(error.code));
+}
+
+async function requestWithTlsFallback(requestConfig) {
+    try {
+        return await axios(requestConfig);
+    } catch (error) {
+        if (!isTlsCertificateError(error) || requestConfig.httpsAgent) {
+            throw error;
+        }
+
+        logger.warn(`[download] 检测到证书异常(${error.code})，执行一次 TLS 校验降级重试: ${requestConfig.url}`);
+        const insecureAgent = new https.Agent({ rejectUnauthorized: false });
+        return axios({
+            ...requestConfig,
+            httpsAgent: insecureAgent
+        });
+    }
+}
 
 /**
  * 通过 HEAD 请求获取文件大小
@@ -119,7 +148,7 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
                 'Upgrade-Insecure-Requests': '1'
             };
 
-            const response = await axios({
+            const response = await requestWithTlsFallback({
                 method: 'GET',
                 url: url,
                 responseType: 'stream',
@@ -160,7 +189,7 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
                 const fallbackHeaders = {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 };
-                const fallbackResponse = await axios({
+                const fallbackResponse = await requestWithTlsFallback({
                     method: 'GET',
                     url: url,
                     responseType: 'stream',
@@ -193,7 +222,10 @@ async function downloadFile(url, localFilename, progressCallback, maxRetries = 3
             return true;
                 
         } catch (error) {
-            if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
+            if (isTlsCertificateError(error)) {
+                logger.debug(`TLS certificate validation failed (${error.code}) for URL: ${url}`);
+                lastError = new Error(`TLS certificate validation failed (${error.code}) for URL: ${url}`);
+            } else if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKETTIMEDOUT') {
                 logger.debug(`Download timed out after ${timeout/1000} seconds`);
                 lastError = new Error(`Download timed out after ${timeout/1000}s for URL: ${url}`);
             } else if (error.response) {
