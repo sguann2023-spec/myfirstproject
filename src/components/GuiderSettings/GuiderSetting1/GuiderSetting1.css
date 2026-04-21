@@ -1,0 +1,87 @@
+.gs1-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gs1-section {
+  background: transparent;
+}
+
+.gs1-section-title {
+  font-size: 24px;
+  font-weight: 500;
+  color: #000;
+  margin-bottom: 6px;
+  margin-left: 12px;
+}
+
+.gs1-section-subtitle {
+  font-size: 14px;
+  font-weight: 300;
+  color: #666666;
+  margin-bottom: 16px;
+  margin-left: 12px;
+}
+
+.gs1-options {
+  display: flex;
+  gap: 1px;
+  flex-wrap: wrap;
+}
+
+.gs1-options-large {
+  background-color: #fff;
+  padding: 10px;
+  padding-bottom: 2px;
+  border-radius: 12px;
+}
+
+.gs1-options-large .gs1-card {
+  width: 135px;
+  height: 106px;
+}
+
+.gs1-card {
+  position: relative;
+  width: 55px;
+  height: 55px;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.gs1-card-preview.selected {
+  border-color: #4397f7;
+  border-width: 2px;
+}
+
+.gs1-card-title {
+  position: absolute;
+  bottom: 8px;
+  font-size: 12px;
+  color: #333;
+}
+
+.gs1-card-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 10px;
+  bottom: 28px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  background-color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gs1-card-image {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border-radius: 6px;
+  display: block;
+}

@@ -5,8 +5,8 @@ import ReactDOM from 'react-dom/client';
 import { ConfigProvider } from 'antd';
 // 确保导入您需要的本地化文件
 import zhCN from 'antd/locale/zh_CN'; 
-// 🚀 导入您完整的 SettingPage 组件
-import SettingPage from './SettingPage.jsx'; 
+import SettingPage from './SettingPage.jsx';
+import GuiderPage from '../GuiderPage/GuiderPage.jsx';
 // 假设您的 i18n 逻辑也需要被加载
 import '../../i18n'; // 确保国际化加载
 
@@ -17,13 +17,15 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+const view = new URLSearchParams(window.location.search).get('view');
+const PageComponent = view === 'guider' ? GuiderPage : SettingPage;
 
-// 2. 独立地渲染 SettingPage
+// 2. 通过 query 参数区分渲染 GuiderPage / SettingPage
 root.render(
   <React.StrictMode>
     {/* 🚀 关键：包裹 ConfigProvider 和本地化 */}
     <ConfigProvider locale={zhCN}> 
-      <SettingPage />
+      <PageComponent />
     </ConfigProvider>
   </React.StrictMode>
 );

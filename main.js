@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, protocol, ipcMain, dialog, shell, screen } = require('electron');
 const { Worker } = require('worker_threads');
 
 
@@ -423,9 +423,26 @@ ipcMain.on('login-success', () => {
     const draftFolder = electronStore.get('draftFolder', '');
     logger.info('draftFolder:', draftFolder);
     if (!draftFolder) {
-      // 复用同样的设置窗口逻辑
-      openSettingsWindow();
+      // 新用户先进入引导页
+      openGuiderWindow();
     }
+});
+
+ipcMain.on('guider-finished', () => {
+  try {
+    if (guiderWindow && !guiderWindow.isDestroyed()) {
+      guiderWindow.close();
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send('guider-finished');
+      mainWindow.setSize(960, 640, true);
+      mainWindow.center();
+    }
+  } catch (e) {
+    logger.warn('[Main] guider-finished failed:', e);
+  }
 });
 
 ipcMain.on('close-window', () => mainWindow.close());
@@ -795,6 +812,7 @@ ipcMain.on('resize-main-window', (event, { width, height }) => {
 });
 
 let settingsWindow = null;
+let guiderWindow = null;
 
 // 抽取为函数，便于在登录成功时复用
 function openSettingsWindow() {
@@ -816,17 +834,17 @@ function openSettingsWindow() {
     // Windows 关闭系统覆盖按钮，改用自定义控件
     titleBarOverlay: isWindows ? false : true,
     webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false,
-        webSecurity: false,
-        allowRunningInsecureContent: true,
-        additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`],
-        preload: path.join(__dirname, 'src/preload.js')
+      // Guider/Settings 窗口不需要 preload，用最简单配置防止 contextBridge 报错
+      nodeIntegration: true,
+      contextIsolation: false,
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`]
     }
   });
 
   // 加载设置页面的 URL
-  settingsWindow.loadFile('dist/settings.html');
+  settingsWindow.loadFile('dist/settings.html', { search: '?view=settings' });
   // settingsWindow.webContents.openDevTools();
 
   // 当窗口关闭时，清空引用并根据是否已设置草稿目录决定是否回到登录页
@@ -839,6 +857,50 @@ function openSettingsWindow() {
       mainWindow.loadFile('dist/index.html');
       mainWindow.setSize(320, 450, true);
       mainWindow.center();
+    }
+  });
+}
+
+function openGuiderWindow() {
+  if (guiderWindow) {
+    guiderWindow.focus();
+    return;
+  }
+  const guiderWindowHeight = 600;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+
+  guiderWindow = new BrowserWindow({
+    width: 960,
+    height: guiderWindowHeight,
+    autoHideMenuBar: true,
+    frame: false,
+    transparent: isWindows ? false : true,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 10 },
+    titleBarOverlay: isWindows ? false : true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`]
+    }
+  });
+
+  guiderWindow.loadFile('dist/settings.html', { search: '?view=guider' });
+  guiderWindow.on('closed', () => {
+    guiderWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      const draftFolder = electronStore.get('draftFolder', '');
+      if (!draftFolder) {
+        mainWindow.setSize(320, 450, true);
+        mainWindow.center();
+      }
     }
   });
 }

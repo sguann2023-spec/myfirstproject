@@ -1,0 +1,169 @@
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  background: #f7f7f7;
+  overflow: hidden;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
+
+.guider-page {
+  width: calc(100% - 16px);
+  height: calc(100% - 50px);
+  margin: 42px 8px 8px;
+  background: #fff;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 顶部 42px 作为无控件拖拽条 */
+#root::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 42px;
+  -webkit-app-region: drag;
+}
+
+.guider-topbar {
+  height: 56px;
+  padding: 14px 24px 0;
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+}
+
+.guider-topbar-spacer {
+  flex: 1;
+}
+
+.guider-nav-btn {
+  border: none;
+  background: transparent;
+  color: #b2b2b2;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.guider-nav-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guider-nav-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.guider-guide-label {
+  font-size: 14px;
+  color: #aaaaaa;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.guider-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 6px 24px 22px;
+  overflow: hidden;
+}
+
+.guider-title {
+  margin: 0;
+  font-size: 50px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #101010;
+}
+
+.guider-subtitle {
+  margin: 10px 0 26px;
+  font-size: 33px;
+  color: #8f8f8f;
+}
+
+.guider-field {
+  margin-bottom: 18px;
+}
+
+.guider-field-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 30px;
+  font-weight: 600;
+  color: #171717;
+}
+
+.guider-info-icon {
+  font-size: 18px;
+  color: #999;
+}
+
+.guider-select.ant-select {
+  width: 100%;
+}
+
+.guider-select .ant-select-selector {
+  height: 62px !important;
+  border-radius: 12px !important;
+  border-color: #e8e8e8 !important;
+  box-shadow: none !important;
+}
+
+.guider-select .ant-select-selection-item {
+  line-height: 60px !important;
+  font-size: 35px;
+  font-weight: 500;
+  color: #1d1d1d;
+}
+
+.guider-select .ant-select-arrow {
+  font-size: 14px;
+  color: #bdbdbd;
+}
+
+.guider-start-btn.ant-btn {
+  display: block;                 /* 让 margin: auto 生效 */
+  height: 40px;
+  width: 260px !important;
+  line-height: 35px;              /* 文本垂直居中 */
+  border-radius: 8px !important;
+  font-size: 16px !important;
+  background-color: #0099FF !important;
+  color: #fff !important;
+  margin: auto auto 0px;             /* 贴底并与窗口内边距对齐 */
+}
+
+.guider-start-btn.ant-btn:hover,
+.guider-start-btn.ant-btn:focus {
+  background: #0088EE !important;
+}
+
+.guider-footer-tip {
+  margin: 14px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: #9e9e9e;
+}

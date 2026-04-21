@@ -25,19 +25,19 @@ function App() {
     i18n.changeLanguage(lang);
   };
 
-  const handleLogin = (id_token) => {
+  const handleLogin = async (id_token) => {
     logger.debug('login success');
     logger.debug('id_token:', id_token);
-    setCurrentPage('home');
-
-    // 通知主进程调整窗口尺寸以适配 HomePage
     try {
       const { ipcRenderer } = window.require('electron');
-      // 新增：通知主进程登录成功
       ipcRenderer.send('login-success');
 
-      // 保留：调整窗口尺寸（如需仅由主进程控制尺寸，可移除此行）
-      ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
+      // 仅已完成引导/已配置草稿目录时直接进首页
+      const settings = await ipcRenderer.invoke('get-draft-folder');
+      if (settings?.draftFolder) {
+        setCurrentPage('home');
+        ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
+      }
     } catch (e) {
       logger.warn('ipcRenderer not available:', e);
     }
@@ -90,9 +90,18 @@ function App() {
     };
     ipcRenderer.on('protocol-url', onProtocolUrl);
 
+    const onGuiderFinished = () => {
+      setCurrentPage('home');
+      try {
+        ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
+      } catch (_) {}
+    };
+    ipcRenderer.on('guider-finished', onGuiderFinished);
+
     return () => {
       ipcRenderer.removeListener('resolve-artist-effect-url', handler);
       ipcRenderer.removeListener('protocol-url', onProtocolUrl);
+      ipcRenderer.removeListener('guider-finished', onGuiderFinished);
     };
   }, []);
 
