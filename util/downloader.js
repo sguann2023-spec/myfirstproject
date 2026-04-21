@@ -81,24 +81,38 @@ async function getFileSize(url) {
  * @returns {Promise<boolean>} - 是否下载成功
  * @throws {Error} - 如果所有重试都失败，则抛出包含失败信息的错误
  */
+async function copyLocalFileWithRetry(src, dest, retries = 3) {
+    const directory = path.dirname(dest);
+    if (directory && !fs.existsSync(directory)) {
+        await fs.promises.mkdir(directory, { recursive: true });
+    }
+
+    let lastErr;
+    for (let i = 0; i < retries; i++) {
+        try {
+            await fs.promises.copyFile(src, dest);
+            return;
+        } catch (e) {
+            lastErr = e;
+            const isLast = i === retries - 1;
+            if (e && e.code === 'ENOENT' && !isLast) {
+                await new Promise(r => setTimeout(r, 120 * (i + 1)));
+                continue;
+            }
+            throw e;
+        }
+    }
+    throw lastErr || new Error('copy local file failed');
+}
+
 async function downloadFile(url, localFilename, progressCallback, maxRetries = 3, timeout = 180000, fileType = null) { 
     // 检查是否是本地文件路径
     if (fs.existsSync(url) && fs.statSync(url).isFile()) {
-        // 是本地文件，直接复制
-        const directory = path.dirname(localFilename);
-        
-        // 创建目标目录（如果不存在）
-        if (directory && !fs.existsSync(directory)) {
-            await fs.promises.mkdir(directory, { recursive: true });
-            logger.debug(`Created directory: ${directory}`);
-        }
-        
         logger.debug(`Copying local file: ${url} to ${localFilename}`);
         const startTime = Date.now();
-        
-        // 复制文件
-        await fs.promises.copyFile(url, localFilename);
-        
+
+        await copyLocalFileWithRetry(url, localFilename, 3);
+
         logger.debug(`Copy completed in ${(Date.now() - startTime) / 1000} seconds`);
         logger.debug(`File saved as: ${path.resolve(localFilename)}`);
         return true;

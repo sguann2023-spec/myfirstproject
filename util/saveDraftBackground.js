@@ -29,27 +29,80 @@ function buildAssetPath(draftFolder, draftName, assetType, materialName) {
  * @returns {Promise<void>}
  */
 async function copyFolderRecursive(source, destination) {
-  // 确保目标文件夹存在
   if (!fs.existsSync(destination)) {
     await fs.promises.mkdir(destination, { recursive: true });
   }
-
-  // 读取源文件夹中的所有文件和子文件夹
   const entries = await fs.promises.readdir(source, { withFileTypes: true });
-
-  // 遍历并复制每个文件和子文件夹
   for (const entry of entries) {
     const srcPath = path.join(source, entry.name);
     const destPath = path.join(destination, entry.name);
-
     if (entry.isDirectory()) {
-      // 递归复制子文件夹
       await copyFolderRecursive(srcPath, destPath);
     } else {
-      // 复制文件
       await fs.promises.copyFile(srcPath, destPath);
     }
   }
+}
+
+async function stabilizeLocalRemoteUrls(script, draftId) {
+  const os = require('os');
+  const cacheDir = path.join(os.tmpdir(), 'CapCutHelper', 'material-cache', String(draftId || Date.now()));
+  await fs.promises.mkdir(cacheDir, { recursive: true });
+
+  const seen = new Map();
+  const visited = new WeakSet();
+  let replaced = 0;
+  let missingLocalFiles = 0;
+
+  const isLocalLike = (v) => typeof v === 'string' &&
+    (v.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(v) || v.startsWith('file://'));
+
+  const normalizeLocalPath = (v) => {
+    if (v.startsWith('file://')) {
+      try { return decodeURI(v.replace(/^file:\/\//, '')); } catch { return v.replace(/^file:\/\//, ''); }
+    }
+    return v;
+  };
+
+  const walk = async (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (visited.has(node)) return;
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) await walk(item);
+      return;
+    }
+
+    for (const key of Object.keys(node)) {
+      const val = node[key];
+      if (key === 'remote_url' && isLocalLike(val)) {
+        const src = normalizeLocalPath(val);
+        try {
+          if (fs.existsSync(src) && fs.statSync(src).isFile()) {
+            let staged = seen.get(src);
+            if (!staged) {
+              const ext = path.extname(src);
+              const base = path.basename(src, ext) || 'material';
+              staged = path.join(cacheDir, `${base}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
+              await fs.promises.copyFile(src, staged);
+              seen.set(src, staged);
+            }
+            node[key] = staged;
+            replaced++;
+          } else {
+            missingLocalFiles++;
+          }
+        } catch {
+          missingLocalFiles++;
+        }
+      }
+      await walk(val);
+    }
+  };
+
+  await walk(script);
+  return { replaced, missingLocalFiles, cacheDir };
 }
 
 /**
@@ -141,6 +194,14 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       : scriptFromRenderer;
     script = parsed;
     logger.info(`成功使用前端提供的脚本，草稿 ${draftName}。`);
+
+    const stagedLocal = await stabilizeLocalRemoteUrls(script, draftId);
+    if (stagedLocal.replaced > 0) {
+      logger.info(`已稳定化本地临时素材路径: ${stagedLocal.replaced} 个，缓存目录: ${stagedLocal.cacheDir}`);
+    }
+    if (stagedLocal.missingLocalFiles > 0) {
+      logger.warn(`检测到失效本地临时素材路径: ${stagedLocal.missingLocalFiles} 个（可能由系统清理临时文件导致）`);
+    }
 
     // 2. 准备草稿文件和文件夹 (20%)
     if (progressCallback) {
