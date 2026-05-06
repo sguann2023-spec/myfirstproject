@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import './DPane.css';
 import DraftIcon from '../../../public/draft_icon.svg';
 import DraftSelectedIcon from '../../../public/draft_selected_icon.svg';
+import ChatIcon from '../../../public/chat_icon.svg';
+import ChatSelectedIcon from '../../../public/chat_selected_icon.svg';
 import SettingsIcon from '../../../public/settings.png';
 import DownloadIcon from '../../../public/download_icon.png';
 import DownloadSelectedIcon from '../../../public/download_selected_icon.png';
@@ -10,8 +12,9 @@ import PresetIcon from '../../../public/preset_icon.svg';
 import PresetSelectedIcon from '../../../public/preset_selected_icon.svg';
 import logger from '../../shared/logger';
 
-const DPane = ({ children, style, className = '', selected = 'draft', onSelect }) => {
+const DPane = ({ children, style, className = '', selected = 'chat', onSelect }) => {
   const isDraftSelected = selected === 'draft';
+  const isChatSelected = selected === 'chat';
   const isDownloadSelected = selected === 'download';
   const isPresetSelected = selected === 'preset';
   const isSettingsSelected = selected === 'settings';
@@ -46,7 +49,19 @@ const DPane = ({ children, style, className = '', selected = 'draft', onSelect }
       
       {/* 🚀 新容器：顶部图标组 */}
       <div className="d-pane-top-group">
-        {/* 草稿图标保持在顶部 */}
+        <div
+          className={`d-pane-item ${isChatSelected ? 'selected' : ''}`}
+          onClick={() => onSelect && onSelect('chat')}
+        >
+          <img
+            src={isChatSelected ? ChatSelectedIcon : ChatIcon}
+            alt="Chat Icon" 
+            className="d-pane-icon"
+          />
+          <div className="d-pane-tip">助手</div>
+        </div>
+
+        {/* 草稿图标 */}
         <div
           className={`d-pane-item ${isDraftSelected ? 'selected' : ''}`}
           onClick={() => onSelect && onSelect('draft')}

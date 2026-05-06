@@ -35,14 +35,13 @@ body {
     color: transparent; 
     
     /* 4. 可选：设置文字大小和粗细，让渐变更明显 */
-    font-size: 32px; /* 调整为您 Typography.Title level=2 对应的大小 */
-    font-weight: 700;
+    font-size: 36px; /* 调整为您 Typography.Title level=2 对应的大小 */
     
     /* 5. 可选：让文字渐变也动起来 (如果需要，可取消注释) */
     background-size: 200% auto;
     animation: logoGradientFlow 3s linear infinite;
 
-    font-weight: 300 !important;
+    font-weight: 200 !important;
     padding-top: 20px;
     text-align: center;
 

@@ -48,7 +48,7 @@ const DownloadList = ({
     }
 }) => {
     const { draftName, overallProgress, overallStatusText, downloadFiles } = project;
-    const { t } = useTranslation();
+    const { t } = useTranslation('legacy');
     const hasActiveDraft = typeof draftName === 'string' && draftName.trim().length > 0;
 
     const renderFileItem = (item) => {

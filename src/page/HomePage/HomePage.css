@@ -70,7 +70,24 @@
 
 .center-pane {
   width: 250px;
+  flex: 0 0 250px;
+  min-width: 0;
+  overflow: hidden;
   background-color: #F5F5F5;
+}
+
+.center-pane--chat.center-pane--animate {
+  transition: width 0.3s ease, flex-basis 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
+}
+
+.center-pane--chat.center-pane--collapsed {
+  width: 0;
+  flex-basis: 0;
+  opacity: 0;
+  transform: translateX(-8px);
+  pointer-events: none;
+  margin-left: -1px;
+  margin-right: -1px;
 }
 
 .right-pane {
@@ -78,4 +95,12 @@
   min-width: 0;     /* 允许内容正确收缩 */
   overflow: auto;   /* 详情区域超出时可滚动 */
   background-color: #F5F5F5;
+}
+
+.right-pane--chat {
+  overflow: hidden;
+}
+
+.right-pane--chat-collapsed {
+  border-left: 1px solid #e4e3e2;
 }

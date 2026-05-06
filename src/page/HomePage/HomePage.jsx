@@ -1,9 +1,10 @@
 // HomePage 组件
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import LogoIcon from '../../../public/logo-circle.png';
 import { countTodayDrafts } from '../../api/capcut';
+import { fetchMessagesSummary, getChatModelList } from '../../api/chat';
 import DPane from '../../components/DPane/DPane';
 import DraftList from '../../components/DraftList';
 import DownloadDualList from '../../components/DownloadDualList/DownloadDualList';
@@ -13,14 +14,193 @@ import DownloadList from '../../components/DownloadList/DownloadList';
 import DraftDownloadSuccessPreview from '../../components/DraftDownloadSuccessPreview/DraftDownloadSuccessPreview';
 import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
+import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
+import Chat from '../../components/Chat/Chat';
+import { tokenStore } from '../../auth';
+import { normalizeChatError } from '../../shared/chatError';
+import {
+  appendFlowSegment,
+  appendToolFlowSegment,
+  buildAssistantDisplayContent,
+  buildAssistantDisplayContentFromFlow,
+  buildStreamAssistantBlocks,
+  getFlowCombinedContent,
+  getPersistedAssistantMainText,
+  hasThinkTag,
+  mergeStreamingAccumulated,
+  normalizePersistedAssistantBlocks,
+  serializeStructuredValue,
+  summarizeBlockTypes
+} from '../../components/Chat/MessagePane/MessageContent/messageFlow';
+
+const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
+const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
+const CHAT_MODEL_KEY = 'capcut-helper-chat-model-v1';
+const DEFAULT_CHAT_TITLE = '新对话';
+const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
+const REDUX_STORE_READY_CHANNEL = 'redux-store-ready';
+const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
+
+const resolveProviderIdByModel = (modelId = '') => {
+  const lower = String(modelId || '').toLowerCase();
+  if (lower.startsWith('claude-')) return { id: 'anthropic', type: 'anthropic', name: 'Anthropic' };
+  if (lower.startsWith('qwen-') || lower.startsWith('qvq-') || lower.startsWith('qwq-')) return { id: 'bailian', type: 'openai', name: 'Aliyun Bailian' };
+  if (lower.startsWith('gemini-')) return { id: 'gemini', type: 'openai', name: 'Google Gemini' };
+  return { id: 'openai', type: 'openai', name: 'OpenAI' };
+};
+
+const buildProvidersState = (modelIds = [], apiKey = '') => {
+  const providersMap = new Map();
+  const normalizedApiKey = String(apiKey || '').trim();
+  modelIds.forEach((rawModelId) => {
+    const modelId = String(rawModelId || '').trim();
+    if (!modelId) return;
+    const p = resolveProviderIdByModel(modelId);
+    if (!providersMap.has(p.id)) {
+      providersMap.set(p.id, { id: p.id, name: p.name, type: p.type, enabled: true, apiKey: normalizedApiKey, apiHost: '', models: [] });
+    }
+    const provider = providersMap.get(p.id);
+    provider.models.push({ id: modelId, name: modelId, provider: p.id });
+  });
+  return { llm: { providers: Array.from(providersMap.values()) } };
+};
+
+const toModelOption = (model_id, name, icon = '') => ({
+  value: model_id,
+  label: name,
+  icon,
+});
+
+const isModelInOptions = (model, options = []) => {
+  const target = String(model || '').trim();
+  if (!target) return false;
+  return options.some((item) => String(item?.value || '').trim() === target);
+};
+
+const createChatId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const summarizeLogValue = (value) => {
+  if (typeof value === 'string') {
+    return {
+      type: 'string',
+      length: value.length,
+      preview: value.slice(0, 240)
+    };
+  }
+  if (value === undefined || value === null) {
+    return {
+      type: String(value),
+      length: 0,
+      preview: ''
+    };
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return {
+      type: Array.isArray(value) ? 'array' : typeof value,
+      length: serialized.length,
+      preview: serialized.slice(0, 240)
+    };
+  } catch {
+    const fallback = String(value);
+    return {
+      type: typeof value,
+      length: fallback.length,
+      preview: fallback.slice(0, 240)
+    };
+  }
+};
+
+const summarizeMapKeys = (mapLike, limit = 6) => {
+  try {
+    if (!mapLike || typeof mapLike.keys !== 'function') return [];
+    return [...mapLike.keys()].slice(0, limit);
+  } catch {
+    return [];
+  }
+};
+
+const parseJwtPayload = (token) => {
+  try {
+    const base64Url = String(token || '').split('.')[1];
+    if (!base64Url) return {};
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const normalized = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    const json = decodeURIComponent(
+      atob(normalized)
+        .split('')
+        .map((ch) => `%${(`00${ch.charCodeAt(0).toString(16)}`).slice(-2)}`)
+        .join('')
+    );
+    return JSON.parse(json);
+  } catch {
+    return {};
+  }
+};
+
+const getAgentApiKeyFromLoginState = async () => {
+  try {
+    // 与 http/client.js 一致：优先确保拿到当前有效 access token。
+    const accessToken = await tokenStore.ensureValidAccessToken();
+    if (typeof accessToken === 'string' && accessToken.trim()) {
+      return accessToken.trim();
+    }
+  } catch (error) {
+    logger.warn('Failed to resolve access token for agent runtime.', error);
+  }
+  const user = electronStore.get('user') || {};
+  const claims = parseJwtPayload(tokenStore?.idToken || '');
+  const namespaced = claims['https://open.vectcut.com/claims'] || claims['https://vectcut.com/claims'] || {};
+  const appMetadata = claims.app_metadata || {};
+  const userMetadata = claims.user_metadata || {};
+  const candidates = [
+    electronStore.get('auth.vectcut_api_key'),
+    user.agentApiKey,
+    user.vectcutApiKey,
+    user.apiKey,
+    claims.vectcut_api_key,
+    claims.vectcutApiKey,
+    claims.agent_api_key,
+    claims.agentApiKey,
+    claims.api_key,
+    claims.apiKey,
+    namespaced.vectcut_api_key,
+    namespaced.agent_api_key,
+    namespaced.api_key,
+    appMetadata.vectcut_api_key,
+    appMetadata.agent_api_key,
+    appMetadata.api_key,
+    userMetadata.vectcut_api_key,
+    userMetadata.agent_api_key,
+    userMetadata.api_key
+  ];
+  const hit = candidates.find((item) => typeof item === 'string' && item.trim());
+  return hit ? hit.trim() : '';
+};
+
+const createEmptyChatSession = () => {
+  const now = Date.now();
+  return {
+    id: createChatId(),
+    title: DEFAULT_CHAT_TITLE,
+    titleAutoGenerated: false,
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+  };
+};
+
+const sortChatSessions = (sessions) => {
+  return [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+};
 
 const HomePage = () => {
-  logger.debug('HomePage rendered');
   const user = electronStore.get('user') || {};
   const avatarSrc = user?.avatar || LogoIcon;
   const userName = user?.name || '';
   const [todayCount, setTodayCount] = useState(null);
-  const [selectedPane, setSelectedPane] = useState('draft');
+  const [selectedPane, setSelectedPane] = useState('chat');
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [downloadDualView, setDownloadDualView] = useState('downloading');
   const [downloadProject, setDownloadProject] = useState(null);
@@ -28,6 +208,30 @@ const HomePage = () => {
   // 用“选中项”驱动右侧展示
   const [selectedCompleted, setSelectedCompleted] = useState(null);
   const [selectedCompletedKey, setSelectedCompletedKey] = useState(null);
+  const [chatSessions, setChatSessions] = useState(() => [createEmptyChatSession()]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [chatSending, setChatSending] = useState(false);
+  const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
+  const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
+  const [chatModelListLoading, setChatModelListLoading] = useState(true);
+  const [chatHistoryVisible, setChatHistoryVisible] = useState(false);
+  const [chatHistoryAnimated, setChatHistoryAnimated] = useState(false);
+  const chatHistoryAnimTimerRef = useRef(null);
+  const chatSessionsRef = useRef([]);
+  const chatTitleGeneratingSessionIdsRef = useRef(new Set());
+  const chatAgentSessionIdByChatIdRef = useRef(new Map());
+  const chatIdByAgentSessionIdRef = useRef(new Map());
+  const chatPendingByAgentSessionIdRef = useRef(new Map());
+  const chatToolEventSeqBySessionRef = useRef(new Map());
+  const chatToolLastSignatureBySessionRef = useRef(new Map());
+  const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
+  const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
+  const chatTitleRevealTimersRef = useRef(new Map());
+  const reduxReadyNotifiedRef = useRef(false);
+  const canUseAgentRuntime = Boolean(
+    window?.electronAPI?.cherryChatStream
+    && typeof window.electronAPI.cherryChatStream.createSession === 'function'
+  );
 
   // 暴露一个可复用的计数刷新方法
   const refreshTodayCount = () => {
@@ -51,6 +255,1054 @@ const HomePage = () => {
       });
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await getChatModelList();
+        if (cancelled) return;
+
+        const models = Array.isArray(payload?.models) && payload.models.length > 0
+          ? payload.models
+          : CHAT_MODELS;
+        const iconMap = payload?.blackIconMap || {};
+        const nextOptions = models.map((name) => toModelOption(name, name, iconMap?.[name] || ''));
+        setChatModelOptions(nextOptions);
+
+        setChatModel((prev) => {
+          if (isModelInOptions(prev, nextOptions)) return prev;
+          let storedModel = '';
+          try {
+            storedModel = String(localStorage.getItem(CHAT_MODEL_KEY) || '').trim();
+          } catch {
+            storedModel = '';
+          }
+          if (isModelInOptions(storedModel, nextOptions)) return storedModel;
+          const defaultModel = String(payload?.defaultModel || '').trim();
+          if (isModelInOptions(defaultModel, nextOptions)) return defaultModel;
+          return String(nextOptions[0]?.value || CHAT_MODELS[0]);
+        });
+      } catch (error) {
+        logger.warn('Failed to load chat model list, fallback to built-in models.', error);
+      } finally {
+        if (!cancelled) setChatModelListLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const storedModel = localStorage.getItem(CHAT_MODEL_KEY);
+      if (storedModel && isModelInOptions(storedModel, chatModelOptions)) {
+        setChatModel(storedModel);
+      }
+    } catch (error) {
+      logger.warn('Failed to load chat model settings.', error);
+    }
+  }, [chatModelOptions]);
+
+  useEffect(() => {
+    const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
+    const initialApiKey = String(electronStore.get('auth.vectcut_api_key') || '').trim();
+    const state = buildProvidersState(modelIds.length > 0 ? modelIds : CHAT_MODELS, initialApiKey);
+    window.store = {
+      getState: () => state,
+      dispatch: () => undefined
+    };
+
+    if (!reduxReadyNotifiedRef.current && window?.ipc?.invoke) {
+      reduxReadyNotifiedRef.current = true;
+      void window.ipc.invoke(REDUX_STORE_READY_CHANNEL).catch((error) => {
+        reduxReadyNotifiedRef.current = false;
+        logger.warn('[HomePage] Failed to notify redux store ready', error);
+      });
+    }
+  }, [chatModelOptions]);
+
+  useEffect(() => {
+    try {
+      const rawSessions = localStorage.getItem(CHAT_STORAGE_KEY);
+      const rawActiveId = localStorage.getItem(CHAT_ACTIVE_ID_KEY);
+      const parsed = rawSessions ? JSON.parse(rawSessions) : [];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed
+          .filter((item) => item && typeof item === 'object' && item.id)
+          .map((item) => ({
+            id: item.id,
+            title: item.title || DEFAULT_CHAT_TITLE,
+            titleAutoGenerated: item.titleAutoGenerated === true,
+            createdAt: Number(item.createdAt) || Date.now(),
+            updatedAt: Number(item.updatedAt) || Date.now(),
+            messages: Array.isArray(item.messages) ? item.messages : [],
+          }));
+        if (normalized.length > 0) {
+          const sorted = sortChatSessions(normalized);
+          setChatSessions(sorted);
+          const activeExists = sorted.some((item) => item.id === rawActiveId);
+          setActiveChatId(activeExists ? rawActiveId : sorted[0].id);
+          return;
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to load chat sessions from localStorage.', error);
+    }
+    setActiveChatId((prev) => prev || chatSessions[0]?.id || null);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatSessions));
+      if (activeChatId) {
+        localStorage.setItem(CHAT_ACTIVE_ID_KEY, activeChatId);
+      }
+    } catch (error) {
+      logger.warn('Failed to persist chat sessions to localStorage.', error);
+    }
+  }, [chatSessions, activeChatId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_MODEL_KEY, chatModel);
+    } catch (error) {
+      logger.warn('Failed to persist chat model settings.', error);
+    }
+  }, [chatModel]);
+
+  const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
+
+  useEffect(() => {
+    chatSessionsRef.current = chatSessions;
+  }, [chatSessions]);
+
+  const triggerAutoRenameSessionTitle = async (sessionId) => {
+    const id = String(sessionId || '').trim();
+    if (!id) return;
+    if (chatTitleGeneratingSessionIdsRef.current.has(id)) return;
+
+    const session = chatSessionsRef.current.find((item) => item.id === id);
+    if (!session) return;
+
+    const currentTitle = String(session.title || '').trim();
+    if (currentTitle && currentTitle !== DEFAULT_CHAT_TITLE) return;
+
+    const normalizedMessages = Array.isArray(session.messages) ? session.messages : [];
+    const assistantReplies = normalizedMessages.filter((item) => (
+      item?.role === 'assistant'
+      && String(item?.content || '').trim()
+      && !item?.error
+    ));
+    const hasAssistantReply = assistantReplies.length > 0;
+    const hasUserMessage = normalizedMessages.some((item) => item?.role === 'user' && String(item?.content || '').trim());
+    if (!hasUserMessage || !hasAssistantReply) return;
+    if (assistantReplies.length !== 1) return;
+
+    const latestAssistant = [...normalizedMessages].reverse().find((item) => item?.role === 'assistant');
+    const summaryModel = String(latestAssistant?.model || chatModel || '').trim();
+    if (!summaryModel) return;
+
+    chatTitleGeneratingSessionIdsRef.current.add(id);
+    setChatTitleRenamingSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+
+    try {
+      const { text } = await fetchMessagesSummary({
+        messages: normalizedMessages,
+        model: summaryModel
+      });
+      const nextTitle = String(text || '').trim();
+      if (!nextTitle) return;
+
+      let updated = false;
+      setChatSessions((prev) => {
+        const next = prev.map((item) => {
+          if (item.id !== id) return item;
+          const titleNow = String(item.title || '').trim();
+          if (titleNow && titleNow !== DEFAULT_CHAT_TITLE) return item;
+          if (titleNow === nextTitle && item.titleAutoGenerated) return item;
+          updated = true;
+          return {
+            ...item,
+            title: nextTitle,
+            titleAutoGenerated: true,
+            updatedAt: Date.now()
+          };
+        });
+        return updated ? sortChatSessions(next) : prev;
+      });
+      if (!updated) return;
+
+      setChatTitleNewlyRenamedSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+      const oldTimer = chatTitleRevealTimersRef.current.get(id);
+      if (oldTimer) clearTimeout(oldTimer);
+      const timer = setTimeout(() => {
+        setChatTitleRenamingSessionIds((prev) => prev.filter((item) => item !== id));
+        setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((item) => item !== id));
+        chatTitleRevealTimersRef.current.delete(id);
+      }, 1600);
+      chatTitleRevealTimersRef.current.set(id, timer);
+    } finally {
+      chatTitleGeneratingSessionIdsRef.current.delete(id);
+      setChatTitleRenamingSessionIds((prev) => prev.filter((item) => item !== id));
+    }
+  };
+
+
+  const ensureAgentSessionForChat = async (chatId) => {
+    if (!chatId || !canUseAgentRuntime) return '';
+    const cached = chatAgentSessionIdByChatIdRef.current.get(chatId);
+    if (cached) return cached;
+
+    const vectcutApiKey = await getAgentApiKeyFromLoginState();
+    const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
+    const runtimeState = buildProvidersState(modelIds.length > 0 ? modelIds : CHAT_MODELS, vectcutApiKey);
+    window.store = {
+      getState: () => runtimeState,
+      dispatch: () => undefined
+    };
+
+    logger.info('[HomePage] createSession invoke', {
+      chatId,
+      agentId: 'vectcut_claw_default',
+      model: chatModel,
+      hasApiKey: Boolean(vectcutApiKey)
+    });
+    const created = await window.electronAPI.cherryChatStream.createSession({
+      agent_id: 'vectcut_claw_default',
+      model: chatModel,
+      configuration: {
+        permission_mode: 'bypassPermissions',
+        env_vars: {
+          VECTCUT_API_KEY: vectcutApiKey,
+          VECTCUT_ANTHROPIC_API_BASE_URL
+        }
+      }
+    });
+    logger.info('[HomePage] createSession result', {
+      chatId,
+      ok: Boolean(created?.ok),
+      sessionId: created?.session?.id || '',
+      error: created?.error || ''
+    });
+    if (!created?.ok || !created?.session?.id) {
+      throw new Error(created?.error || 'agent session create failed');
+    }
+    const agentSessionId = created.session.id;
+    chatAgentSessionIdByChatIdRef.current.set(chatId, agentSessionId);
+    chatIdByAgentSessionIdRef.current.set(agentSessionId, chatId);
+    logger.info('[HomePage][StreamTrace] subscribe start', {
+      chatId,
+      sessionId: agentSessionId
+    });
+    await window.electronAPI.cherryChatStream.subscribe(agentSessionId);
+    logger.info('[HomePage][StreamTrace] subscribe done', {
+      chatId,
+      sessionId: agentSessionId,
+      mappedChatSessionCount: chatAgentSessionIdByChatIdRef.current.size,
+      mappedAgentSessionCount: chatIdByAgentSessionIdRef.current.size
+    });
+    return agentSessionId;
+  };
+
+  useEffect(() => {
+    if (!canUseAgentRuntime) return;
+    if (selectedPane !== 'chat') return;
+    if (!activeChatId) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        logger.info('[HomePage] prewarm session on page enter', {
+          activeChatId,
+          selectedPane,
+          model: chatModel
+        });
+        const sessionId = await ensureAgentSessionForChat(activeChatId);
+        if (cancelled) return;
+        logger.info('[HomePage] prewarm session ready', {
+          activeChatId,
+          sessionId
+        });
+      } catch (error) {
+        if (cancelled) return;
+        logger.warn('[HomePage] prewarm session failed', {
+          activeChatId,
+          error: error?.message || String(error)
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseAgentRuntime, selectedPane, activeChatId, chatModel]);
+
+  useEffect(() => {
+    if (!canUseAgentRuntime || !window?.electronAPI?.cherryChatStream) return undefined;
+
+    const offPermissionRequest = window.electronAPI.cherryChatStream.onPermissionRequest(async (payload) => {
+      const requestId = String(payload?.requestId || '').trim();
+      if (!requestId) return;
+
+      logger.info('[HomePage][ToolPermission] request received', {
+        requestId,
+        toolName: payload?.toolName || '',
+        toolCallId: payload?.toolCallId || '',
+        autoApprove: Boolean(payload?.autoApprove)
+      });
+
+      try {
+        const response = payload?.autoApprove
+          ? await window.electronAPI.agentTools.respondToPermission({
+            requestId,
+            behavior: 'allow',
+            updatedInput: payload?.input,
+            updatedPermissions: Array.isArray(payload?.suggestions) ? payload.suggestions : undefined
+          })
+          : await window.electronAPI.agentTools.respondToPermission({
+            requestId,
+            behavior: 'deny',
+            message: 'Tool approval UI is unavailable in HomePage runtime.'
+          });
+
+        logger.info('[HomePage][ToolPermission] response sent', {
+          requestId,
+          ok: Boolean(response?.success),
+          behavior: payload?.autoApprove ? 'allow' : 'deny'
+        });
+      } catch (error) {
+        logger.error('[HomePage][ToolPermission] failed to send response', {
+          requestId,
+          error: error?.message || String(error)
+        });
+      }
+    });
+
+    const offPermissionResult = window.electronAPI.cherryChatStream.onPermissionResult((payload) => {
+      logger.info('[HomePage][ToolPermission] result received', {
+        requestId: payload?.requestId || '',
+        behavior: payload?.behavior || '',
+        reason: payload?.reason || ''
+      });
+    });
+
+    const offChunk = window.electronAPI.cherryChatStream.onChunk((payload) => {
+      const agentSessionId = payload?.sessionId;
+      if (!agentSessionId) {
+        logger.warn('[HomePage][StreamTrace] drop payload without sessionId', {
+          payloadType: payload?.type || '',
+          chunkType: payload?.chunk?.type || '',
+          hasChunk: Boolean(payload?.chunk)
+        });
+        return;
+      }
+      const pending = chatPendingByAgentSessionIdRef.current.get(agentSessionId);
+      if (!pending) {
+        const payloadType = String(payload?.type || '');
+        const chunkType = String(payload?.chunk?.type || '');
+        const isToolRelated =
+          chunkType.startsWith('tool-') || payloadType === 'complete' || payloadType === 'error' || payloadType === 'cancelled';
+        if (isToolRelated) {
+          logger.warn('[HomePage][StreamTrace] drop payload without pending state', {
+            sessionId: agentSessionId,
+            payloadType,
+            chunkType,
+            pendingMapSize: chatPendingByAgentSessionIdRef.current.size,
+            knownPendingSessionIds: summarizeMapKeys(chatPendingByAgentSessionIdRef.current),
+            knownChatSessionIds: summarizeMapKeys(chatAgentSessionIdByChatIdRef.current)
+          });
+        }
+        return;
+      }
+      const { chatId, assistantMessageId } = pending;
+      const toOrderedTools = (pendingState) => {
+        const list = Object.values(pendingState?.toolMap || {});
+        return list.sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0));
+      };
+
+      const applyContent = (content, error = null) => {
+        setChatSessions((prev) => {
+          const updated = prev.map((item) => {
+            if (item.id !== chatId) return item;
+            const pendingState = chatPendingByAgentSessionIdRef.current.get(agentSessionId) || pending;
+            const streamBlocks = buildStreamAssistantBlocks({
+              assistantMessageId,
+              pendingState
+            });
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              messages: item.messages.map((message) => (
+                message.id === assistantMessageId
+                  ? {
+                    ...message,
+                    content,
+                    blocks: streamBlocks,
+                    error,
+                    updatedAt: Date.now()
+                  }
+                  : message
+              ))
+            };
+          });
+          return sortChatSessions(updated);
+        });
+      };
+
+      if (payload.type === 'chunk') {
+        const chunk = payload.chunk || {};
+        if (chunk.type === 'text-delta' || chunk.type === 'text-end') {
+          const nextFlowSegments = appendFlowSegment(
+            pending.flowSegments,
+            'text',
+            chunk.accumulated,
+            chunk.text
+          );
+          const textAccumulated = getFlowCombinedContent(nextFlowSegments, 'text')
+            || mergeStreamingAccumulated(pending.accumulated, chunk.accumulated, chunk.text);
+          const reasoningAccumulated = getFlowCombinedContent(nextFlowSegments, 'thinking')
+            || String(pending.reasoning || '');
+          const tools = toOrderedTools(pending);
+          const accumulated = buildAssistantDisplayContentFromFlow({ segments: nextFlowSegments, tools })
+            || buildAssistantDisplayContent({ text: textAccumulated, reasoning: reasoningAccumulated, tools });
+          chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
+            ...pending,
+            accumulated: textAccumulated,
+            reasoning: reasoningAccumulated,
+            flowSegments: nextFlowSegments
+          });
+          applyContent(accumulated, null);
+        }
+        if (chunk.type === 'reasoning-delta') {
+          const nextFlowSegments = appendFlowSegment(
+            pending.flowSegments,
+            'thinking',
+            chunk.accumulated,
+            chunk.text
+          );
+          const textAccumulated = getFlowCombinedContent(nextFlowSegments, 'text') || String(pending.accumulated || '');
+          const reasoning = getFlowCombinedContent(nextFlowSegments, 'thinking') || String(pending.reasoning || '');
+          const tools = toOrderedTools(pending);
+          const accumulated = buildAssistantDisplayContentFromFlow({ segments: nextFlowSegments, tools })
+            || buildAssistantDisplayContent({ text: textAccumulated, reasoning, tools });
+          chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
+            ...pending,
+            accumulated: textAccumulated,
+            reasoning,
+            flowSegments: nextFlowSegments
+          });
+          applyContent(accumulated, null);
+        }
+        if (
+          chunk.type === 'tool-call'
+          || chunk.type === 'tool-result'
+          || chunk.type === 'tool-error'
+          || chunk.type === 'tool-input-start'
+          || chunk.type === 'tool-input-delta'
+          || chunk.type === 'tool-input-end'
+        ) {
+          const rawToolCallId = String(chunk.toolCallId || chunk.id || '').trim();
+          const isToolInputEvent =
+            chunk.type === 'tool-input-start'
+            || chunk.type === 'tool-input-delta'
+            || chunk.type === 'tool-input-end';
+
+          if (!rawToolCallId) {
+            if (isToolInputEvent) {
+              logger.warn('[HomePage][ToolStream] skip tool input event without toolCallId', {
+                chunkType: chunk.type,
+                toolName: String(chunk.toolName || '')
+              });
+              return;
+            }
+            logger.warn('[HomePage][ToolStream] skip tool event without toolCallId', {
+              chunkType: chunk.type,
+              toolName: String(chunk.toolName || '')
+            });
+            return;
+          }
+
+          const toolCallId = rawToolCallId;
+          const shouldBumpToolOrder = !pending?.toolMap?.[toolCallId];
+          const prevTool = pending?.toolMap?.[toolCallId] || {
+            id: toolCallId,
+            name: 'tool',
+            args: '',
+            result: '',
+            status: 'pending',
+            order: Number(pending?.toolOrder || 0),
+            textOffset: undefined,
+            responseOrder: undefined
+          };
+          const nextTool = { ...prevTool };
+          nextTool.name = String(chunk.toolName || nextTool.name || 'tool');
+          const prevStatus = String(prevTool?.status || 'pending');
+
+          if (chunk.type === 'tool-call') {
+            nextTool.args = serializeStructuredValue(chunk.input);
+            nextTool.status = 'running';
+          }
+          if (chunk.type === 'tool-input-start') {
+            nextTool.status = 'running';
+          }
+          if (chunk.type === 'tool-input-delta') {
+            nextTool.args = `${String(nextTool.args || '')}${String(chunk.delta || '')}`;
+            nextTool.status = 'running';
+          }
+          if (chunk.type === 'tool-input-end') {
+            nextTool.status = 'running';
+          }
+          if (chunk.type === 'tool-result') {
+            nextTool.args = nextTool.args || serializeStructuredValue(chunk.input);
+            nextTool.result = serializeStructuredValue(chunk.output);
+            nextTool.status = 'done';
+            if (!Number.isFinite(Number(nextTool.textOffset))) {
+              nextTool.textOffset = Number(pending?.accumulated?.length || 0);
+            }
+            if (!Number.isFinite(Number(nextTool.responseOrder))) {
+              nextTool.responseOrder = Number(pending?.toolResponseOrder || 0) + 1;
+            }
+          }
+          if (chunk.type === 'tool-error') {
+            nextTool.args = nextTool.args || serializeStructuredValue(chunk.input);
+            nextTool.result = serializeStructuredValue(chunk.error);
+            nextTool.status = 'error';
+            if (!Number.isFinite(Number(nextTool.textOffset))) {
+              nextTool.textOffset = Number(pending?.accumulated?.length || 0);
+            }
+            if (!Number.isFinite(Number(nextTool.responseOrder))) {
+              nextTool.responseOrder = Number(pending?.toolResponseOrder || 0) + 1;
+            }
+          }
+
+          const nextToolMap = {
+            ...(pending?.toolMap || {}),
+            [toolCallId]: nextTool
+          };
+          const nextFlowSegments = appendToolFlowSegment(pending?.flowSegments, toolCallId);
+          const shouldBumpToolResponseOrder =
+            (chunk.type === 'tool-result' || chunk.type === 'tool-error')
+            && !Number.isFinite(Number(prevTool?.responseOrder));
+          const nextPending = {
+            ...pending,
+            flowSegments: nextFlowSegments,
+            toolMap: nextToolMap,
+            toolOrder: shouldBumpToolOrder ? Number(pending?.toolOrder || 0) + 1 : Number(pending?.toolOrder || 0),
+            toolResponseOrder: shouldBumpToolResponseOrder
+              ? Number(pending?.toolResponseOrder || 0) + 1
+              : Number(pending?.toolResponseOrder || 0)
+          };
+
+          const eventSignature = [
+            String(chunk.type || ''),
+            String(nextTool.name || ''),
+            String(prevStatus || ''),
+            String(nextTool.status || ''),
+            String(toolCallId || '')
+          ].join('|');
+          const lastSignatureMap = chatToolLastSignatureBySessionRef.current;
+          const previousSignature = lastSignatureMap.get(agentSessionId);
+          const shouldLogEvent =
+            chunk.type !== 'tool-input-delta'
+            && eventSignature !== previousSignature;
+          if (shouldLogEvent) {
+            const seqMap = chatToolEventSeqBySessionRef.current;
+            const nextSeq = Number(seqMap.get(agentSessionId) || 0) + 1;
+            seqMap.set(agentSessionId, nextSeq);
+            lastSignatureMap.set(agentSessionId, eventSignature);
+            logger.info('[HomePage][ToolStream] event', {
+              sessionId: agentSessionId,
+              seq: nextSeq,
+              chunkType: chunk.type,
+              toolCallId,
+              toolName: nextTool.name,
+              statusTransition: `${prevStatus}->${nextTool.status}`,
+              isNewToolCall: shouldBumpToolOrder
+            });
+          }
+          if (chunk.type === 'tool-error') {
+            logger.error('[HomePage][ToolStream] tool-error detail', {
+              sessionId: agentSessionId,
+              toolCallId,
+              toolName: nextTool.name,
+              error: (() => {
+                if (typeof chunk.error === 'string') return chunk.error;
+                if (chunk.error === undefined || chunk.error === null) return '';
+                try {
+                  return JSON.stringify(chunk.error);
+                } catch {
+                  return String(chunk.error);
+                }
+              })()
+            });
+          }
+
+          chatPendingByAgentSessionIdRef.current.set(agentSessionId, nextPending);
+          const streamDisplayContent = Array.isArray(nextPending.flowSegments) && nextPending.flowSegments.length > 0
+            ? buildAssistantDisplayContentFromFlow({
+              segments: nextPending.flowSegments,
+              tools: toOrderedTools(nextPending)
+            })
+            : buildAssistantDisplayContent({
+              text: nextPending.accumulated || '',
+              reasoning: nextPending.reasoning || '',
+              tools: toOrderedTools(nextPending)
+            });
+          applyContent(streamDisplayContent, null);
+        }
+        return;
+      }
+
+      if (payload.type === 'error') {
+        const errorMessage = String(payload?.error?.message || '');
+        if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
+          chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+          chatIdByAgentSessionIdRef.current.delete(agentSessionId);
+          chatAgentSessionIdByChatIdRef.current.delete(chatId);
+        }
+        const normalizedError = normalizeChatError(new Error(payload?.error?.message || 'agent request failed'));
+        const errorDisplayContent = Array.isArray(pending.flowSegments) && pending.flowSegments.length > 0
+          ? buildAssistantDisplayContentFromFlow({
+            segments: pending.flowSegments,
+            tools: toOrderedTools(pending)
+          })
+          : buildAssistantDisplayContent({
+            text: pending.accumulated || '',
+            reasoning: pending.reasoning || '',
+            tools: toOrderedTools(pending)
+          });
+        applyContent(errorDisplayContent, normalizedError);
+        chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        setChatSending(false);
+        return;
+      }
+
+      if (payload.type === 'cancelled') {
+        chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        chatToolEventSeqBySessionRef.current.delete(agentSessionId);
+        chatToolLastSignatureBySessionRef.current.delete(agentSessionId);
+        setChatSending(false);
+        return;
+      }
+
+      if (payload.type === 'complete') {
+        logger.info('[HomePage] cherryChatStream complete handling', {
+          sessionId: agentSessionId,
+          chatId,
+          assistantMessageId,
+          accumulatedLength: String(pending?.accumulated || '').length,
+          reasoningLength: String(pending?.reasoning || '').length,
+          toolCount: pending?.toolMap ? Object.keys(pending.toolMap).length : 0
+        });
+        const completedTools = toOrderedTools(pending).map((tool) => ({
+          order: Number(tool?.order || 0),
+          toolCallId: String(tool?.id || ''),
+          toolName: String(tool?.name || ''),
+          status: String(tool?.status || '')
+        }));
+        logger.info('[HomePage][ToolStream] complete summary', {
+          sessionId: agentSessionId,
+          toolEventCount: Number(chatToolEventSeqBySessionRef.current.get(agentSessionId) || 0),
+          completedTools
+        });
+        void (async () => {
+          try {
+            const listResult = await window.electronAPI.cherryChatStream.listMessages(agentSessionId);
+            const persistedMessages = Array.isArray(listResult?.messages) ? listResult.messages : [];
+            const latestAssistantMessage = [...persistedMessages]
+              .reverse()
+              .find((item) => String(item?.role || '').toLowerCase() === 'assistant');
+            const persistedBlocks = normalizePersistedAssistantBlocks(latestAssistantMessage);
+            const persistedMainText = getPersistedAssistantMainText(persistedBlocks);
+            const persistedToolBlocks = persistedBlocks.filter((block) => String(block?.type || '').toLowerCase() === 'tool');
+            const persistedSkillToolBlocks = persistedToolBlocks.filter((block) => {
+              const name = String(block?.metadata?.rawMcpToolResponse?.tool?.name || '').toLowerCase();
+              return name === 'skill' || name === 'find-skills';
+            });
+            logger.info('[HomePage] cherryChatStream complete listMessages merged', {
+              sessionId: agentSessionId,
+              listOk: Boolean(listResult?.ok),
+              persistedMessageCount: persistedMessages.length,
+              persistedBlockCount: persistedBlocks.length,
+              persistedToolBlockCount: persistedToolBlocks.length,
+              persistedSkillToolBlockCount: persistedSkillToolBlocks.length,
+              persistedBlockTypes: summarizeBlockTypes(persistedBlocks)
+            });
+            setChatSessions((prev) => {
+              const updated = prev.map((item) => {
+                if (item.id !== chatId) return item;
+                return {
+                  ...item,
+                  updatedAt: Date.now(),
+                  messages: item.messages.map((message) => (
+                    message.id === assistantMessageId
+                      ? (() => {
+                        const keepStreamBlocks =
+                          (!Array.isArray(persistedBlocks) || persistedBlocks.length === 0)
+                          || persistedToolBlocks.length === 0;
+                        const mergedBlocks = keepStreamBlocks
+                          ? buildStreamAssistantBlocks({ assistantMessageId, pendingState: pending || {} })
+                          : persistedBlocks;
+                        const latestPending = chatPendingByAgentSessionIdRef.current.get(agentSessionId) || pending || {};
+                        const mergedDisplayContent =
+                          (Array.isArray(latestPending?.flowSegments) && latestPending.flowSegments.length > 0)
+                            ? buildAssistantDisplayContentFromFlow({
+                              segments: latestPending.flowSegments,
+                              tools: toOrderedTools(latestPending)
+                            })
+                            : buildAssistantDisplayContent({
+                              text: persistedMainText || latestPending?.accumulated || message.content || '',
+                              reasoning: latestPending?.reasoning || '',
+                              tools: toOrderedTools(latestPending)
+                            });
+                        logger.info('[HomePage][ReasoningRenderProbe] complete merge snapshot', {
+                          sessionId: agentSessionId,
+                          assistantMessageId,
+                          pendingReasoningLength: String(latestPending?.reasoning || '').length,
+                          mergedContentLength: String(mergedDisplayContent || '').length,
+                          mergedContentHasThinkTag: hasThinkTag(mergedDisplayContent),
+                          mergedBlockCount: Array.isArray(mergedBlocks) ? mergedBlocks.length : 0,
+                          mergedBlockTypes: summarizeBlockTypes(mergedBlocks),
+                          mergedHasThinkingBlock: (Array.isArray(mergedBlocks) ? mergedBlocks : [])
+                            .some((b) => String(b?.type || '').toLowerCase() === 'thinking')
+                        });
+                        return {
+                          ...message,
+                          content: mergedDisplayContent,
+                          blocks: mergedBlocks,
+                          updatedAt: Date.now()
+                        };
+                      })()
+                      : message
+                  ))
+                };
+              });
+              return sortChatSessions(updated);
+            });
+          } catch (error) {
+            logger.warn('[HomePage] cherryChatStream listMessages on complete failed', {
+              sessionId: agentSessionId,
+              error: error?.message || String(error)
+            });
+          } finally {
+            chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+            chatToolEventSeqBySessionRef.current.delete(agentSessionId);
+            chatToolLastSignatureBySessionRef.current.delete(agentSessionId);
+            setChatSending(false);
+            void triggerAutoRenameSessionTitle(chatId);
+          }
+        })();
+      }
+    });
+    return () => {
+      if (typeof offPermissionRequest === 'function') offPermissionRequest();
+      if (typeof offPermissionResult === 'function') offPermissionResult();
+      if (typeof offChunk === 'function') offChunk();
+    };
+  }, [canUseAgentRuntime]);
+
+  const handleCreateChatSession = () => {
+    const session = createEmptyChatSession();
+    setChatSessions((prev) => [session, ...prev]);
+    setActiveChatId(session.id);
+  };
+
+  const handleDeleteChatSession = (sessionId) => {
+    const timer = chatTitleRevealTimersRef.current.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      chatTitleRevealTimersRef.current.delete(sessionId);
+    }
+    setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
+    setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
+    setChatSessions((prev) => {
+      const remaining = prev.filter((item) => item.id !== sessionId);
+      if (remaining.length === 0) {
+        const next = createEmptyChatSession();
+        setActiveChatId(next.id);
+        return [next];
+      }
+      if (activeChatId === sessionId) {
+        setActiveChatId(remaining[0].id);
+      }
+      return remaining;
+    });
+  };
+
+  const handleRenameActiveChatTitle = (nextTitle) => {
+    const normalized = String(nextTitle || '').trim() || DEFAULT_CHAT_TITLE;
+    if (!activeChatId) return;
+    const timer = chatTitleRevealTimersRef.current.get(activeChatId);
+    if (timer) {
+      clearTimeout(timer);
+      chatTitleRevealTimersRef.current.delete(activeChatId);
+    }
+    setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== activeChatId));
+    setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== activeChatId));
+    setChatSessions((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== activeChatId) return item;
+        if ((item.title || '').trim() === normalized) return item;
+        return {
+          ...item,
+          title: normalized,
+          titleAutoGenerated: false,
+          updatedAt: Date.now(),
+        };
+      });
+      return sortChatSessions(updated);
+    });
+  };
+
+  const handleSendChatMessage = async (inputText) => {
+    const text = String(inputText || '').trim();
+    if (!text || chatSending) return;
+
+    let targetSessionId = activeChatId;
+    if (!targetSessionId) {
+      const created = createEmptyChatSession();
+      targetSessionId = created.id;
+      setChatSessions((prev) => [created, ...prev]);
+      setActiveChatId(created.id);
+    }
+
+    const userMessage = {
+      id: createMessageId(),
+      role: 'user',
+      content: text,
+      createdAt: Date.now(),
+    };
+
+    const now = Date.now();
+
+    setChatSessions((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== targetSessionId) return item;
+        return {
+          ...item,
+          updatedAt: now,
+          messages: [...item.messages, userMessage],
+        };
+      });
+      return sortChatSessions(updated);
+    });
+
+    const assistantMessageId = createMessageId();
+    const assistantMessage = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      blocks: [],
+      createdAt: Date.now(),
+      model: chatModel,
+    };
+    setChatSessions((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== targetSessionId) return item;
+        return {
+          ...item,
+          updatedAt: Date.now(),
+          messages: [...item.messages, assistantMessage],
+        };
+      });
+      return sortChatSessions(updated);
+    });
+
+    if (!canUseAgentRuntime) {
+      const normalizedError = normalizeChatError(new Error('agent runtime unavailable'));
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: item.messages.map((message) => (
+              message.id === assistantMessageId
+                ? {
+                  ...message,
+                  error: normalizedError,
+                  updatedAt: Date.now()
+                }
+                : message
+            ))
+          };
+        });
+        return sortChatSessions(updated);
+      });
+      return;
+    }
+
+    setChatSending(true);
+    try {
+      const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
+      logger.info('[HomePage][StreamTrace] register pending before createMessage', {
+        chatId: targetSessionId,
+        sessionId: agentSessionId,
+        assistantMessageId
+      });
+      chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
+        chatId: targetSessionId,
+        assistantMessageId,
+        accumulated: '',
+        reasoning: '',
+        flowSegments: [],
+        toolMap: {},
+        toolOrder: 0,
+        toolResponseOrder: 0
+      });
+      const result = await window.electronAPI.cherryChatStream.createMessage({
+        sessionId: agentSessionId,
+        content: text,
+        model: chatModel
+      });
+      logger.info('[HomePage][StreamTrace] createMessage roundtrip done', {
+        chatId: targetSessionId,
+        sessionId: agentSessionId,
+        assistantMessageId,
+        pendingMapSize: chatPendingByAgentSessionIdRef.current.size,
+        knownPendingSessionIds: summarizeMapKeys(chatPendingByAgentSessionIdRef.current)
+      });
+      logger.info('[HomePage] cherryChatStream createMessage result', {
+        chatId: targetSessionId,
+        sessionId: agentSessionId,
+        ok: Boolean(result?.ok),
+        error: result?.error || '',
+        model: chatModel
+      });
+      if (!result?.ok) {
+        throw new Error(result?.error || 'agent createMessage failed');
+      }
+    } catch (error) {
+      const normalizedError = normalizeChatError(error);
+      logger.error('Chat send failed', normalizedError?.detail || error?.message || String(error));
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: item.messages.map((message) => (
+              message.id === assistantMessageId
+                ? {
+                  ...message,
+                  error: normalizedError,
+                  updatedAt: Date.now(),
+                }
+                : message
+            )),
+          };
+        });
+        return sortChatSessions(updated);
+      });
+      setChatSending(false);
+    }
+  };
+
+  const handleStopChatMessage = () => {
+    if (canUseAgentRuntime) {
+      const pendingEntries = [...chatPendingByAgentSessionIdRef.current.entries()];
+      const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
+      if (active && active[0]) {
+        void window.electronAPI.cherryChatStream.abort(active[0]);
+        setChatSending(false);
+        return;
+      }
+    }
+  };
+
+  const handleCopyAssistantMessage = async (message) => {
+    const text = String(message?.content || '').trim();
+    if (!text) {
+      throw new Error('empty message');
+    }
+    await navigator.clipboard.writeText(text);
+  };
+
+  const handleDeleteAssistantMessage = (message) => {
+    const messageId = message?.id;
+    if (!messageId || !activeChatId) return;
+    setChatSessions((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== activeChatId) return item;
+        return {
+          ...item,
+          updatedAt: Date.now(),
+          messages: item.messages.filter((msg) => msg.id !== messageId),
+        };
+      });
+      return sortChatSessions(updated);
+    });
+  };
+
+  const handleRetryAssistantMessage = async (message) => {
+    if (chatSending || !activeChatId || !canUseAgentRuntime) return;
+    const messageId = message?.id;
+    if (!messageId) return;
+    const session = chatSessions.find((item) => item.id === activeChatId);
+    if (!session || !Array.isArray(session.messages)) return;
+    const targetIndex = session.messages.findIndex((item) => item.id === messageId && item.role === 'assistant');
+    if (targetIndex < 0) return;
+    const prevUser = [...session.messages.slice(0, targetIndex)].reverse().find((item) => item.role === 'user');
+    if (!prevUser?.content) return;
+
+    setChatSessions((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== activeChatId) return item;
+        return {
+          ...item,
+          updatedAt: Date.now(),
+          messages: item.messages.map((msg) => (
+            msg.id === messageId
+              ? { ...msg, content: '', blocks: [], error: null, updatedAt: Date.now(), model: chatModel }
+              : msg
+          )),
+        };
+      });
+      return sortChatSessions(updated);
+    });
+
+    setChatSending(true);
+    try {
+      const agentSessionId = await ensureAgentSessionForChat(activeChatId);
+      chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
+        chatId: activeChatId,
+        assistantMessageId: messageId,
+        accumulated: '',
+        reasoning: '',
+        flowSegments: [],
+        toolMap: {},
+        toolOrder: 0,
+        toolResponseOrder: 0
+      });
+      const result = await window.electronAPI.cherryChatStream.createMessage({
+        sessionId: agentSessionId,
+        content: String(prevUser.content || ''),
+        model: chatModel
+      });
+      if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
+    } catch (error) {
+      const normalizedError = normalizeChatError(error);
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== activeChatId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: item.messages.map((msg) => (
+              msg.id === messageId
+                ? { ...msg, error: normalizedError, updatedAt: Date.now(), model: chatModel }
+                : msg
+            )),
+          };
+        });
+        return sortChatSessions(updated);
+      });
+      setChatSending(false);
+    }
+  };
 
   // 订阅当前下载任务的文件列表，映射为 DownloadList 所需的 project
   useEffect(() => {
@@ -104,7 +1356,6 @@ const HomePage = () => {
   let rightPanel = null;
   if (selectedPane === 'download') {
       if (downloadDualView === 'completed') {
-          logger.info('selectedCompleted', selectedCompleted);
           if (selectedCompleted) {
               if (selectedCompleted.status === 'success') {
                   rightPanel = <DraftDownloadSuccessPreview draft={selectedCompleted} />;
@@ -114,6 +1365,36 @@ const HomePage = () => {
           }
       }
   }
+
+  const handleToggleChatHistory = () => {
+    if (chatHistoryAnimTimerRef.current) {
+      clearTimeout(chatHistoryAnimTimerRef.current);
+    }
+    setChatHistoryAnimated(true);
+    setChatHistoryVisible((v) => !v);
+    chatHistoryAnimTimerRef.current = setTimeout(() => {
+      setChatHistoryAnimated(false);
+      chatHistoryAnimTimerRef.current = null;
+    }, 320);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (chatHistoryAnimTimerRef.current) {
+        clearTimeout(chatHistoryAnimTimerRef.current);
+      }
+      if (canUseAgentRuntime) {
+        for (const agentSessionId of chatAgentSessionIdByChatIdRef.current.values()) {
+          void window.electronAPI.cherryChatStream.unsubscribe(agentSessionId);
+        }
+      }
+      chatTitleRevealTimersRef.current.forEach((timer) => {
+        clearTimeout(timer);
+      });
+      chatTitleRevealTimersRef.current.clear();
+    };
+  }, [canUseAgentRuntime]);
+
   return (
     <div className="home-container" style={{ WebkitAppRegion: 'no-drag' }}>
         <div className="home-header">
@@ -128,7 +1409,15 @@ const HomePage = () => {
           <div className="left-pane column">
               <DPane selected={selectedPane} onSelect={setSelectedPane} />
           </div>
-          <div className="center-pane column">
+          <div
+            className={`center-pane column ${
+              selectedPane === 'chat' ? 'center-pane--chat' : ''
+            } ${
+              selectedPane === 'chat' && chatHistoryAnimated ? 'center-pane--animate' : ''
+            } ${
+              selectedPane === 'chat' && !chatHistoryVisible ? 'center-pane--collapsed' : ''
+            }`}
+          >
             {selectedPane === 'draft' && (
               <DraftList
                 onRefreshTodayCount={refreshTodayCount}
@@ -156,8 +1445,24 @@ const HomePage = () => {
             {selectedPane === 'preset' && (
               <PresetList onSelect={setSelectedPreset} />
             )}
+            {selectedPane === 'chat' && (
+              <ChatHistoryList
+                sessions={chatSessions}
+                activeSessionId={activeChatId}
+                onCreateSession={handleCreateChatSession}
+                onSelectSession={setActiveChatId}
+                onDeleteSession={handleDeleteChatSession}
+                visible={chatHistoryVisible}
+              />
+            )}
           </div>
-          <div className="right-pane column">
+          <div
+            className={`right-pane column ${
+              selectedPane === 'chat' ? 'right-pane--chat' : ''
+            } ${
+              selectedPane === 'chat' && !chatHistoryVisible ? 'right-pane--chat-collapsed' : ''
+            }`}
+          >
             {selectedPane === 'draft' && selectedDraft ? (
               <DraftPreview draft={selectedDraft} />
             ) : null}
@@ -167,6 +1472,33 @@ const HomePage = () => {
             {/* 下载中视图：显示当前下载详情 */}
             {selectedPane === 'download' && downloadDualView === 'downloading' ? (
               <DownloadList project={downloadProject || { draftName: '', overallProgress: 0, overallStatusText: '', downloadFiles: [] }} />
+            ) : null}
+            {selectedPane === 'chat' ? (
+              <Chat
+                session={activeChatSession}
+                onSendMessage={handleSendChatMessage}
+                onStopSending={handleStopChatMessage}
+                onCopyAssistantMessage={handleCopyAssistantMessage}
+                onRetryAssistantMessage={handleRetryAssistantMessage}
+                onDeleteAssistantMessage={handleDeleteAssistantMessage}
+                sending={chatSending}
+                model={chatModel}
+                modelOptions={chatModelOptions}
+                modelListLoading={chatModelListLoading}
+                onModelChange={setChatModel}
+                historyVisible={chatHistoryVisible}
+                onToggleHistory={handleToggleChatHistory}
+                sessionTitle={activeChatSession?.title || DEFAULT_CHAT_TITLE}
+                sessionTitleRenaming={
+                  Boolean(activeChatId) && chatTitleRenamingSessionIds.includes(activeChatId)
+                }
+                sessionTitleNewlyRenamed={
+                  Boolean(activeChatId) && chatTitleNewlyRenamedSessionIds.includes(activeChatId)
+                }
+                onRenameSessionTitle={handleRenameActiveChatTitle}
+                userName={userName}
+                userAvatar={avatarSrc}
+              />
             ) : null}
             {/* 已完成视图：仅在选中具体项后展示右侧内容 */}
             {rightPanel}

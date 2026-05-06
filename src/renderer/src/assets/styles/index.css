@@ -1,0 +1,218 @@
+@import './color.css';
+@import './font.css';
+@import './markdown.css';
+@import './ant.css';
+@import './scrollbar.css';
+@import './container.css';
+@import './animation.css';
+@import './richtext.css';
+@import './responsive.css';
+@import '../fonts/icon-fonts/iconfont.css';
+@import '../fonts/ubuntu/ubuntu.css';
+@import '../fonts/country-flag-fonts/flag.css';
+
+@layer base {
+  .tw-scope *,
+  .tw-scope *::before,
+  .tw-scope *::after {
+    box-sizing: border-box;
+    /* margin: 0; */
+    font-weight: normal;
+  }
+
+  .tw-scope .lucide:not(.lucide-custom) {
+    color: var(--color-icon);
+  }
+}
+
+.tw-scope *:focus {
+  outline-style: none;
+}
+
+.tw-scope * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tw-root-scope,
+.tw-root-scope #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+}
+
+.tw-root-scope #root {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+}
+
+.tw-root-scope {
+  display: flex;
+  min-height: 100vh;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+  font-family: var(--font-family);
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.3s linear;
+  background-color: unset;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.tw-scope input,
+.tw-scope textarea,
+.tw-scope [contenteditable='true'],
+.tw-scope .markdown,
+.tw-scope #messages,
+.tw-scope .selectable,
+.tw-scope pre,
+.tw-scope code {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+.tw-scope a {
+  -webkit-user-drag: none;
+}
+
+.tw-scope ul {
+  list-style: none;
+}
+
+/* Keep markdown list markers visible (do not let global ul reset override it). */
+.tw-scope .markdown ul {
+  list-style: initial;
+}
+
+.tw-scope .markdown ol {
+  list-style: decimal;
+}
+
+.tw-scope .markdown ul,
+.tw-scope .markdown ol {
+  padding-left: 1.5em;
+}
+
+.tw-scope .loader {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #000;
+  box-shadow:
+    32px 0 #000,
+    -32px 0 #000;
+  position: relative;
+  animation: flash 0.5s ease-out infinite alternate;
+}
+
+.tw-scope .drag {
+  -webkit-app-region: drag;
+}
+
+.tw-scope .nodrag {
+  -webkit-app-region: no-drag;
+}
+
+.tw-scope .text-nowrap {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  line-clamp: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .block-wrapper {
+  display: flow-root;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .block-wrapper:last-child > *:last-child {
+  margin-bottom: 0;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-content-container > *:last-child {
+  margin-bottom: 0;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-thought-container {
+  margin-top: 8px;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-user .message-header {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-user .message-header .message-header-info-wrap {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-user .message-content-container {
+  border-radius: 10px;
+  padding: 10px 16px 10px 16px;
+  background-color: var(--chat-background-user);
+  align-self: self-end;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-user .MessageFooter {
+  margin-top: 2px;
+  align-self: self-end;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-assistant .message-content-container {
+  padding-left: 0;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .message-assistant .MessageFooter {
+  margin-left: 0;
+}
+
+/* Compatibility for current chat-panel DOM structure.
+   Keep assistant-only behavior aligned with legacy `.bubble` selectors. */
+.tw-scope .chat-panel__message.assistant .chat-panel__message-body .chat-message-content {
+  padding-left: 0;
+}
+
+.tw-scope .chat-panel__message.assistant .chat-panel__message-actions {
+  margin-left: 0;
+}
+
+.tw-scope .bubble:not(.multi-select-mode) code {
+  color: var(--color-text);
+}
+
+.tw-scope .bubble:not(.multi-select-mode) .markdown {
+  display: flow-root;
+}
+
+/* Chat message markdown typography baseline */
+.tw-scope .message-content-container .markdown {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tw-scope ::highlight(search-matches) {
+  background-color: var(--color-background-highlight);
+  color: var(--color-highlight);
+}
+
+.tw-scope ::highlight(current-match) {
+  background-color: var(--color-background-highlight-accent);
+}
+
+.tw-scope textarea::-webkit-resizer {
+  display: none;
+}

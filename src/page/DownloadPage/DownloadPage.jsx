@@ -7,7 +7,7 @@ import translateIcon from '../../public/translate.png';
 import updateIcon from '../../public/update.png';
 import settingsIcon from '../../public/settings.png';
 import { useTranslation } from 'react-i18next';
-import '../../i18n';
+import '@renderer/i18n';
 import packageInfo from '../../package.json';
 import DownloadList from '../../components/DownloadList/DownloadList';
 
@@ -17,6 +17,7 @@ const { Title, Text } = Typography;
 const { ipcRenderer } = window.require('electron');
 
 const DEFAULT_HOST = 'https://open.vectcut.com/cut_jianying';
+const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
 // ----------------------------------------------------
 // 💥 模拟数据生成器 (用于测试) 💥
@@ -45,7 +46,7 @@ function parseUrlParams(protocolUrl) {
 }
 
 const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) => {
-    const { t } = useTranslation();
+    const { t } = useTranslation('legacy');
 
     const [draftUrl, setDraftUrl] = useState('');
     const [draftId, setDraftId] = useState('');
@@ -348,7 +349,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
     };
 
     return (
-        <Layout className="app-container">
+        <Layout className="app-container" style={{ fontFamily: APP_FONT_FAMILY }}>
             <Header className="app-header">
                 <div className="app-title" onClick={() => window.open('https://www.vectcut.com', '_blank', 'width=1200,height=900')}>
                     <img src={logo} alt="CapCutAPI Logo" className="app-logo" />

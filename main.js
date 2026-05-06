@@ -10,17 +10,164 @@ const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const PROXY_PREFIX = 'https://gh-proxy.com/';
 const axios = require('axios');
-const crypto = require('crypto'); // 添加crypto模块
 
 const Store = require('electron-store');
+const logger = require('./src/shared/logger');
 // const store = new Store();
-global.__ELECTRON_STORE__ = global.__ELECTRON_STORE__ || new Store({ name: 'capcuthelper', watch: true });
+global.__ELECTRON_STORE__ = global.__ELECTRON_STORE__ || new Store({ name: 'vectcut', watch: true });
 const electronStore = global.__ELECTRON_STORE__;
+
+try {
+  process.env.TS_NODE_PROJECT = process.env.TS_NODE_PROJECT || path.join(__dirname, 'tsconfig.json');
+  process.env.TS_NODE_TRANSPILE_ONLY = process.env.TS_NODE_TRANSPILE_ONLY || '1';
+  require('ts-node/register/transpile-only');
+  require('tsconfig-paths/register');
+} catch (error) {
+  logger.warn('[Main] TS bridge not available (ts-node/tsconfig-paths)', {
+    error: error?.message || String(error),
+  });
+}
+
+const agentsService = {
+  registerSessionStreamIpc: null,
+  bootstrapBuiltinAgents: null,
+  installBuiltinSkills: null,
+  initialized: false,
+};
+
+function loadTsModule(modulePath) {
+  return Promise.resolve().then(() => require(modulePath));
+}
+
+function syncMainWindowToWindowService(win) {
+  try {
+    const mod = require('./src/main/services/WindowService.ts');
+    const windowService = mod?.windowService;
+    if (windowService && typeof windowService.attachMainWindow === 'function') {
+      windowService.attachMainWindow(win || null);
+    }
+  } catch (error) {
+    logger.warn('[Main] sync windowService mainWindow failed', {
+      error: error?.message || String(error)
+    });
+  }
+}
+
+async function initializeAgentServices() {
+  if (agentsService.initialized) return;
+  logger.info('[Main][trace] initializeAgentServices start');
+
+  try {
+    require('./src/main/config.ts');
+    logger.info('[Main] config.ts preloaded');
+  } catch (error) {
+    logger.warn('[Main] config.ts preload failed', {
+      error: error?.message || String(error),
+    });
+  }
+
+  try {
+    const { bootstrapBuiltinAgents } = await loadTsModule('./src/main/services/agents/services/builtin/BuiltinAgentBootstrap.ts');
+    agentsService.bootstrapBuiltinAgents = bootstrapBuiltinAgents;
+  } catch (error) {
+    logger.warn('[Main] bootstrapBuiltinAgents not available', {
+      error: error?.message || String(error),
+    });
+  }
+
+  // Fallback path: if built-in agent bootstrap cannot be loaded,
+  // still seed built-in skills so Skill list is not empty.
+  if (typeof agentsService.bootstrapBuiltinAgents !== 'function') {
+    try {
+      const { installBuiltinSkills } = await loadTsModule('./src/main/utils/builtinSkills.ts');
+      agentsService.installBuiltinSkills = installBuiltinSkills;
+    } catch (error) {
+      logger.warn('[Main] installBuiltinSkills fallback not available', {
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  if (typeof agentsService.bootstrapBuiltinAgents === 'function') {
+    try {
+      await agentsService.bootstrapBuiltinAgents();
+      logger.info('[Main] agentsService bootstrapped (new API)');
+    } catch (error) {
+      logger.warn('[Main] agentsService init failed', {
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  if (typeof agentsService.installBuiltinSkills === 'function') {
+    try {
+      await agentsService.installBuiltinSkills();
+      logger.info('[Main] builtin skills seeded via fallback');
+    } catch (error) {
+      logger.warn('[Main] installBuiltinSkills fallback failed', {
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  try {
+    const { registerSessionStreamIpc } = await loadTsModule('./src/main/services/agents/services/channels/sessionStreamIpc.ts');
+    agentsService.registerSessionStreamIpc = registerSessionStreamIpc;
+    logger.info('[Main][trace] registerSessionStreamIpc module loaded');
+  } catch (error) {
+    logger.warn('[Main] registerSessionStreamIpc not available', {
+      error: error?.message || String(error),
+    });
+  }
+
+  if (typeof agentsService.registerSessionStreamIpc === 'function') {
+    try {
+      logger.info('[Main][trace] registerSessionStreamIpc invoke');
+      agentsService.registerSessionStreamIpc();
+      logger.info('[Main] session stream IPC registered');
+    } catch (error) {
+      logger.warn('[Main] registerSessionStreamIpc failed', {
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  agentsService.initialized = true;
+  logger.info('[Main][trace] initializeAgentServices done', {
+    hasBootstrapBuiltinAgents: typeof agentsService.bootstrapBuiltinAgents === 'function',
+    hasInstallBuiltinSkillsFallback: typeof agentsService.installBuiltinSkills === 'function',
+    hasRegisterSessionStreamIpc: typeof agentsService.registerSessionStreamIpc === 'function'
+  });
+}
+
+let cachedSkillService = null;
+let skillServiceLoadingPromise = null;
+
+async function getSkillService() {
+  if (cachedSkillService) return cachedSkillService;
+  if (skillServiceLoadingPromise) return skillServiceLoadingPromise;
+
+  skillServiceLoadingPromise = (async () => {
+    try {
+      const mod = require('./src/main/services/agents/skills/SkillService.ts');
+      cachedSkillService = mod?.skillService || null;
+      return cachedSkillService;
+    } catch (error) {
+      logger.warn('[Main] skillService load failed', {
+        error: error?.message || String(error),
+      });
+      return null;
+    } finally {
+      skillServiceLoadingPromise = null;
+    }
+  })();
+
+  return skillServiceLoadingPromise;
+}
 
 // 添加 i18next 相关依赖
 const i18next = require('i18next');
 const Backend = require('i18next-fs-backend');
-const logger = require('./src/shared/logger');
 
 process.on('unhandledRejection', (reason) => {
   try {
@@ -62,7 +209,8 @@ function forwardProtocolUrl(url) {
 }
 
 function initI18n() {
-    const isDev = process.env.NODE_ENV === 'development';
+    syncMainWindowToWindowService(mainWindow);
+  const isDev = process.env.NODE_ENV === 'development';
     const localesPath = isDev 
       ? path.join(__dirname, 'locales') 
       : path.join(process.resourcesPath, 'locales');
@@ -110,7 +258,21 @@ app.whenReady().then(async () => {
   } catch (e) {
     logger.error('[updater] staged check failed', e.message);
   }
+  await initializeAgentServices();
   createWindow();
+  try {
+    const { registerIpc } = await loadTsModule('./src/main/ipc.ts');
+    if (typeof registerIpc === 'function' && mainWindow && !mainWindow.isDestroyed()) {
+      await registerIpc(mainWindow, app);
+      logger.info('[Main] registerIpc wired from src/main/ipc.ts');
+    } else {
+      logger.warn('[Main] registerIpc skipped: export missing or mainWindow unavailable');
+    }
+  } catch (error) {
+    logger.warn('[Main] registerIpc failed', {
+      error: error?.message || String(error)
+    });
+  }
 });
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -140,6 +302,80 @@ function generateVersionCode(version) {
 
 const versionCode = generateVersionCode(appVersion);
 logger.info(`App Version: ${appVersion}, Version Code: ${versionCode}`);
+
+try {
+  ipcMain.handle('skill:list', async (_event, agentId) => {
+    const skillService = await getSkillService();
+    if (!skillService) {
+      return { success: true, data: [] };
+    }
+    try {
+      const data = await skillService.list(agentId);
+      return { success: true, data };
+    } catch (error) {
+      logger.error('[Main] Failed to list skills', { error });
+      return { success: false, error };
+    }
+  });
+
+  ipcMain.handle('skill:toggle', async (_event, options) => {
+    const skillService = await getSkillService();
+    if (!skillService) {
+      return { success: false, error: 'skillService unavailable' };
+    }
+    try {
+      if (
+        !options ||
+        typeof options.skillId !== 'string' ||
+        !options.skillId ||
+        typeof options.agentId !== 'string' ||
+        !options.agentId ||
+        typeof options.isEnabled !== 'boolean'
+      ) {
+        return { success: false, error: 'Invalid toggle options' };
+      }
+      const data = await skillService.toggle(options);
+      return { success: true, data };
+    } catch (error) {
+      logger.error('[Main] Failed to toggle skill', { options, error });
+      return { success: false, error };
+    }
+  });
+
+  ipcMain.handle('skill:install-from-directory', async (_event, options) => {
+    const skillService = await getSkillService();
+    if (!skillService) {
+      return { success: false, error: 'skillService unavailable' };
+    }
+    try {
+      const data = await skillService.installFromDirectory(options);
+      return { success: true, data };
+    } catch (error) {
+      logger.error('[Main] Failed to install skill from directory', { options, error });
+      return { success: false, error };
+    }
+  });
+
+  ipcMain.handle('skill:uninstall', async (_event, skillId) => {
+    const skillService = await getSkillService();
+    if (!skillService) {
+      return { success: false, error: 'skillService unavailable' };
+    }
+    try {
+      await skillService.uninstall(skillId);
+      return { success: true, data: undefined };
+    } catch (error) {
+      logger.error('[Main] Failed to uninstall skill', { skillId, error });
+      return { success: false, error };
+    }
+  });
+
+  logger.info('[Main] skill IPC handlers registered');
+} catch (error) {
+  logger.warn('[Main] skill IPC handlers registration failed', {
+    error: error?.message || String(error),
+  });
+}
 
 // 保持对window对象的全局引用，如果不这么做的话，当JavaScript对象被
 // 垃圾回收的时候，window对象将会自动的关闭
@@ -276,6 +512,43 @@ ipcMain.on('restart-and-update', () => {
 
 const savedLanguage = electronStore.get('language') || 'zh';
 
+function normalizeLanguageForMain(language) {
+  const raw = String(language || '').trim();
+  const lower = raw.toLowerCase();
+  const map = {
+    en: 'en-US',
+    'en-us': 'en-US',
+    zh: 'zh-CN',
+    'zh-cn': 'zh-CN',
+    'zh-hans': 'zh-CN',
+    'zh-tw': 'zh-TW',
+    'zh-hk': 'zh-TW',
+    'zh-hant': 'zh-TW',
+    de: 'de-DE',
+    'de-de': 'de-DE',
+    el: 'el-GR',
+    'el-gr': 'el-GR',
+    es: 'es-ES',
+    'es-es': 'es-ES',
+    fr: 'fr-FR',
+    'fr-fr': 'fr-FR',
+    ja: 'ja-JP',
+    'ja-jp': 'ja-JP',
+    pt: 'pt-PT',
+    'pt-pt': 'pt-PT',
+    ro: 'ro-RO',
+    'ro-ro': 'ro-RO',
+    ru: 'ru-RU',
+    'ru-ru': 'ru-RU',
+    vi: 'vi-VN',
+    'vi-vn': 'vi-VN'
+  };
+
+  if (map[lower]) return map[lower];
+  const languageCode = lower.split('-')[0];
+  return map[languageCode] || 'en-US';
+}
+
 function createWindow() {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
@@ -285,7 +558,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      preload: path.join(__dirname, 'preload.js'), // 引入 preload 脚本路径
+      preload: path.join(__dirname, 'src/preload.js'), // 引入 preload 脚本路径
       webSecurity: false, // 允许加载本地资源
       allowRunningInsecureContent: true, // 允许运行不安全内容
       additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`]
@@ -303,6 +576,7 @@ function createWindow() {
     maximizable: true,
     resizable: true
   });
+  syncMainWindowToWindowService(mainWindow);
   const isDev = process.env.NODE_ENV === 'development';
 
 
@@ -319,6 +593,7 @@ function createWindow() {
 
   // 当window被关闭，这个事件会被触发
   mainWindow.on('closed', function () {
+    syncMainWindowToWindowService(null);
     mainWindow = null;
   });
   
@@ -474,6 +749,19 @@ ipcMain.on('save-settings', (event, settings) => {
   if (settings.language !== undefined) {
     electronStore.set('language', settings.language);
     updated.language = settings.language;
+    try {
+      const { configManager } = require('./src/main/services/ConfigManager.ts');
+      const normalizedLanguage = normalizeLanguageForMain(settings.language);
+      configManager.setLanguage(normalizedLanguage);
+      logger.info('[Main] synced language to configManager', {
+        rawLanguage: settings.language,
+        normalizedLanguage
+      });
+    } catch (error) {
+      logger.warn('[Main] failed to sync language to configManager', {
+        error: error?.message || String(error)
+      });
+    }
   }
   // 广播设置更新，确保其他窗口（主窗口/下载页）实时联动
   BrowserWindow.getAllWindows().forEach(win => {
@@ -630,6 +918,33 @@ if (app.isPackaged) {
 // 添加 IPC 处理程序来获取翻译
 ipcMain.handle('get-translation', (event, key) => {
   return i18next.t(key);
+});
+
+const registerIpcHandle = (channel, handler) => {
+  try {
+    ipcMain.removeHandler(channel);
+  } catch (error) {
+    logger.warn(`[Main] removeHandler failed for ${channel}`, error);
+  }
+  ipcMain.handle(channel, handler);
+};
+
+const getLegacyFileStorageDir = () => path.join(app.getPath('userData'), 'files');
+
+registerIpcHandle('file:read', async (_event, id) => {
+  const filePath = path.join(getLegacyFileStorageDir(), String(id || ''));
+  return fs.promises.readFile(filePath, 'utf8');
+});
+
+registerIpcHandle('file:readExternal', async (_event, filePath) => {
+  return fs.promises.readFile(String(filePath || ''), 'utf8');
+});
+
+registerIpcHandle('file:writeWithId', async (_event, id, content) => {
+  const storageDir = getLegacyFileStorageDir();
+  const filePath = path.join(storageDir, String(id || ''));
+  await fs.promises.mkdir(storageDir, { recursive: true });
+  await fs.promises.writeFile(filePath, String(content ?? ''), 'utf8');
 });
 
 // 1. 处理打开文件夹的请求 (保持不变)

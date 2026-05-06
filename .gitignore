@@ -22,3 +22,9 @@ Thumbs.db
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# 本地参考
+claw-code-main/
+cherry-studio-main/
+.claude/
+.agents-v2-workspaces/

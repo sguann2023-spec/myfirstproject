@@ -1,0 +1,106 @@
+.chat-panel__message {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.chat-panel__message.user {
+  align-items: flex-end;
+}
+
+.chat-panel__message.assistant {
+  align-items: flex-start;
+}
+
+.chat-panel__message-body {
+  margin-top: -12px;
+  margin-left: 45px;
+  max-width: calc(100% - 45px);
+}
+
+.chat-panel__message-body.user {
+  margin-left: 0;
+  margin-right: 45px;
+  background: #ccebff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #222;
+}
+
+.chat-panel__message-body.assistant {
+  width: calc(100% - 45px);
+  min-width: 0;
+  color: #111;
+}
+
+.chat-panel__message-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.chat-panel__message.assistant:hover .chat-panel__message-actions,
+.chat-panel__message.assistant .chat-panel__message-actions:focus-within {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.chat-panel__message-action-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.chat-panel__message-action-icon {
+  color: var(--color-icon, #666);
+  transition: color 0.2s ease;
+}
+
+.chat-panel__message-action-icon.copied {
+  color: var(--color-primary, #5a95f0);
+}
+
+.chat-panel__message-action-btn:hover:not(:disabled) {
+  background: var(--color-background-mute, #e7e7e7);
+}
+
+.chat-panel__message-action-btn:hover:not(:disabled) .chat-panel__message-action-icon {
+  color: var(--color-text-1, #111);
+}
+
+.chat-panel__message-action-btn:hover:not(:disabled) .chat-panel__message-action-icon.copied {
+  color: var(--color-primary, #5a95f0);
+}
+
+.chat-panel__message-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chat-panel__message.user .chat-message-header {
+  flex-direction: row-reverse;
+}
+
+.chat-panel__message.user .chat-message-header__meta {
+  align-items: flex-end;
+}
+
+.chat-panel__message.user .chat-message-header__title,
+.chat-panel__message.user .chat-message-header__time {
+  text-align: right;
+}

@@ -6,6 +6,8 @@ import GuiderSetting1 from '../../components/GuiderSettings/GuiderSetting1/Guide
 import GuiderSetting2 from '../../components/GuiderSettings/GuiderSetting2/GuiderSetting2';
 import logger from '../../shared/logger';
 
+const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
 const GuiderPage = () => {
   logger.debug('GuiderPage');
   const [step, setStep] = useState(1);
@@ -33,7 +35,7 @@ const GuiderPage = () => {
   };
 
   return (
-    <div className="guider-page">
+    <div className="guider-page" style={{ fontFamily: APP_FONT_FAMILY }}>
       <div className="guider-topbar">
         <button className="guider-nav-btn" type="button" title="返回" onClick={handleBack}>
           <img src={ArrowBackIcon} alt="back" className="guider-nav-icon" />

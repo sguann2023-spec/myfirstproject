@@ -3,7 +3,16 @@ import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
-import './i18n';
+import { Provider } from 'react-redux';
+import { PersistGate } from 'redux-persist/integration/react';
+import '@renderer/i18n';
+import '@renderer/assets/styles/tailwind.css';
+import '@renderer/assets/styles/index.css';
+import '@renderer/assets/styles/CommandListPopover.css';
+import '@renderer/assets/styles/selection-toolbar.css';
+import store, { persistor } from '@renderer/store';
+import { ThemeProvider } from '@renderer/context/ThemeProvider';
+import { CodeStyleProvider } from '@renderer/context/CodeStyleProvider';
 import './App.css';
 import LoginPage from './page/LoginPage/LoginPage.jsx';
 import HomePage from './page/HomePage/HomePage.jsx';
@@ -11,18 +20,24 @@ import { getArtistEffectDownloadUrl, searchDraft } from './api/capcut'; // æ–°å¢
 import logger from './shared/logger.js';
 import { DownloadController } from './shared/DownloadController';
 
+const toLegacyLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
+const toModernLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US');
+
 function App() {
-  const { t, i18n } = useTranslation();
+  const { t, i18n } = useTranslation('legacy');
+  const initialLegacyLanguage = toLegacyLanguage(i18n.resolvedLanguage || i18n.language);
 
   const [apiKey, setApiKey] = useState('');
-  const [language, setLanguage] = useState('zh');
-  const [locale, setLocale] = useState(zhCN);
+  const [language, setLanguage] = useState(initialLegacyLanguage);
+  const [locale, setLocale] = useState(initialLegacyLanguage === 'zh' ? zhCN : enUS);
   const [currentPage, setCurrentPage] = useState('login');
 
   const toggleLanguage = (lang) => {
-    setLanguage(lang);
-    setLocale(lang === 'zh' ? zhCN : enUS);
-    i18n.changeLanguage(lang);
+    const modernLanguage = toModernLanguage(lang);
+    setLanguage(toLegacyLanguage(modernLanguage));
+    setLocale(modernLanguage.startsWith('zh') ? zhCN : enUS);
+    localStorage.setItem('language', modernLanguage);
+    i18n.changeLanguage(modernLanguage);
   };
 
   const handleLogin = async (id_token) => {
@@ -125,7 +140,15 @@ function App() {
             : { width: 320, height: 450, margin: '0 auto' }}
       >
         {currentPage === 'home' ? (
-          <HomePage />
+          <Provider store={store}>
+            <PersistGate loading={null} persistor={persistor}>
+              <ThemeProvider>
+                <CodeStyleProvider>
+                  <HomePage />
+                </CodeStyleProvider>
+              </ThemeProvider>
+            </PersistGate>
+          </Provider>
         ) : (
           <LoginPage
             initialApiKey={apiKey}

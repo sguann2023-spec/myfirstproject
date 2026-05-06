@@ -10,6 +10,10 @@ import logger from './shared/logger';
 const urlParams = new URLSearchParams(window.location.search);
 const view = urlParams.get('view');
 
+const DEFAULT_THEME_MODE = 'light';
+document.body.setAttribute('theme-mode', DEFAULT_THEME_MODE);
+document.documentElement.setAttribute('theme-mode', DEFAULT_THEME_MODE);
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
 window.addEventListener('unhandledrejection', (event) => {

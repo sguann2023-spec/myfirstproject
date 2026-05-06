@@ -502,6 +502,7 @@ const Preset = ({ preset }) => {
       return clean.includes('?') ? `${clean}&_ts=${Date.now()}` : `${clean}?_ts=${Date.now()}`;
     }
   };
+  const DISABLE_MEDIA_SIZE_LIMIT = true; // 专用包：关闭素材大小上限提示
   const MEDIA_SIZE_LIMIT_MB = { audio: 2, image: 2, video: 10 };
   const mediaTypeLabel = { audio: '音频', image: '图片', video: '视频' };
   const toStatPath = (value) => {
@@ -512,6 +513,7 @@ const Preset = ({ preset }) => {
   };
   const getMediaLimitTip = (value, type, fs) => {
     try {
+      if (DISABLE_MEDIA_SIZE_LIMIT) return '';
       const limit = MEDIA_SIZE_LIMIT_MB[type];
       if (!limit || !value || !fs?.existsSync || !fs?.statSync) return '';
       const localPath = toStatPath(value);

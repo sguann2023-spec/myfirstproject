@@ -1,0 +1,12 @@
+.chat-panel__message-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-panel__message-group--user {
+  align-items: stretch;
+}
+
+.chat-panel__message-group--assistant {
+  align-items: stretch;
+}

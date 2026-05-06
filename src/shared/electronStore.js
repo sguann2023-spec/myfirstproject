@@ -2,7 +2,7 @@
 const Store = window.require('electron-store');
 
 if (!globalThis.__ELECTRON_STORE__) {
-  globalThis.__ELECTRON_STORE__ = new Store({ name: 'capcuthelper', watch: true });
+  globalThis.__ELECTRON_STORE__ = new Store({ name: 'vectcut', watch: true });
 }
 
 export const electronStore = globalThis.__ELECTRON_STORE__;

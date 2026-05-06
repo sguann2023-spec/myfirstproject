@@ -1,0 +1,15 @@
+.chat-code-viewer .shiki {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+  background: transparent !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.chat-code-viewer .shiki code {
+  display: block;
+  white-space: pre;
+}
+

@@ -22,21 +22,29 @@ module.exports = (env, argv) => {
     module: {
       rules: [
         {
-          test: /\.(js|jsx)$/,
+          test: /\.(js|jsx|ts|tsx)$/,
           exclude: /node_modules/,
           use: {
             loader: 'babel-loader',
             options: {
-              presets: ['@babel/preset-env', '@babel/preset-react']
+              presets: [
+                '@babel/preset-env',
+                ['@babel/preset-react', { runtime: 'automatic' }],
+                '@babel/preset-typescript'
+              ]
             }
           }
         },
         {
           test: /\.css$/,
-          use: ['style-loader', 'css-loader']
+          use: ['style-loader', 'css-loader', 'postcss-loader']
         },
         {
-          test: /\.(png|svg|jpg|jpeg|gif)$/i,
+          test: /\.(png|svg|jpg|jpeg|gif|webp)$/i,
+          type: 'asset/resource'
+        },
+        {
+          test: /\.(woff2?|ttf|eot|otf)$/i,
           type: 'asset/resource'
         }
       ]
@@ -81,7 +89,32 @@ module.exports = (env, argv) => {
         : [])
     ],
     resolve: {
-      extensions: ['.js', '.jsx']
+      extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      alias: {
+        '@renderer': path.resolve(__dirname, 'src/renderer/src'),
+        '@shared': path.resolve(__dirname, 'src/packages/shared'),
+        '@logger': path.resolve(__dirname, 'src/shared/logger'),
+        '@cherrystudio/ai-core/built-in/plugins': path.resolve(
+          __dirname,
+          'src/packages/aiCore/src/core/plugins/built-in/index.ts'
+        ),
+        '@cherrystudio/ai-core/provider': path.resolve(__dirname, 'src/packages/aiCore/src/core/providers/index.ts'),
+        '@cherrystudio/ai-core/core/plugins': path.resolve(__dirname, 'src/packages/aiCore/src/core/plugins/index.ts'),
+        '@cherrystudio/ai-core': path.resolve(__dirname, 'src/packages/aiCore/src'),
+        '@cherrystudio/ai-sdk-provider': path.resolve(__dirname, 'src/packages/ai-sdk-provider/src'),
+        '@mcp-trace/trace-core': path.resolve(__dirname, 'src/packages/mcp-trace/trace-core/index.ts'),
+        '@mcp-trace/trace-web': path.resolve(__dirname, 'src/packages/mcp-trace/trace-web/index.ts'),
+        '@types': path.resolve(__dirname, 'src/renderer/src/types'),
+        '@renderer/store$': path.resolve(__dirname, 'src/components/Chat/MessagePane/RendererCompat/storeShim.js'),
+        '@renderer/store/messageBlock$': path.resolve(
+          __dirname,
+          'src/components/Chat/MessagePane/RendererCompat/messageBlockShim.js'
+        ),
+        '@renderer/hooks/useSettings$': path.resolve(
+          __dirname,
+          'src/components/Chat/MessagePane/RendererCompat/useSettingsShim.js'
+        )
+      }
     },
     target: 'electron-renderer'
   };

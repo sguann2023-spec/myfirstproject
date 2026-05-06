@@ -17,6 +17,8 @@ import { createDraft } from '../../api/capcut';
 import { addUser } from '../../api/user';
 import logger from '../../shared/logger';
 
+const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
 // --- Authing 配置常量 ---
 const AUTHING_CONFIG = {
     APP_ID: '6901dd145dafc6f1f3143938',
@@ -36,6 +38,31 @@ function parseJwt(token) {
         logger.error('parseJwt failed:', e);
         return null;
     }
+}
+
+function extractAgentApiKeyFromClaims(claims = {}) {
+    const namespaced = claims['https://open.vectcut.com/claims'] || claims['https://vectcut.com/claims'] || {};
+    const appMetadata = claims.app_metadata || {};
+    const userMetadata = claims.user_metadata || {};
+    const candidates = [
+        claims.vectcut_api_key,
+        claims.vectcutApiKey,
+        claims.agent_api_key,
+        claims.agentApiKey,
+        claims.api_key,
+        claims.apiKey,
+        namespaced.vectcut_api_key,
+        namespaced.agent_api_key,
+        namespaced.api_key,
+        appMetadata.vectcut_api_key,
+        appMetadata.agent_api_key,
+        appMetadata.api_key,
+        userMetadata.vectcut_api_key,
+        userMetadata.agent_api_key,
+        userMetadata.api_key
+    ];
+    const hit = candidates.find((item) => typeof item === 'string' && item.trim());
+    return hit ? hit.trim() : '';
 }
 
 // NetworkSettingsView 组件
@@ -205,12 +232,19 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
                 if (idToken) {
                     const claims = parseJwt(idToken) || {};
                     const name = claims.name || claims.preferred_username || claims.nickname || claims.email || '';
+                    const agentApiKey = extractAgentApiKeyFromClaims(claims);
                     electronStore.set('user', {
                         id: claims.sub,
                         name,
                         email: claims.email,
-                        avatar: claims.picture || claims.avatar || claims.photo || null
+                        avatar: claims.picture || claims.avatar || claims.photo || null,
+                        agentApiKey: agentApiKey || null
                     });
+                    if (agentApiKey) {
+                        electronStore.set('auth.vectcut_api_key', agentApiKey);
+                    } else {
+                        electronStore.delete('auth.vectcut_api_key');
+                    }
                     setAvatarUrl(claims.picture || claims.avatar || claims.photo || null);
                     setDisplayName(name);
 
@@ -257,12 +291,19 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
                 // 4. 解析 id_token，提取并保存用户信息
                 const claims = parseJwt(id_token) || {};
                 const name = claims.name || claims.preferred_username || claims.nickname || claims.email || '';
+                const agentApiKey = extractAgentApiKeyFromClaims(claims);
                 electronStore.set('user', {
                     id: claims.sub,
                     name: name,
                     email: claims.email,
-                    avatar: claims.picture || claims.avatar || claims.photo || null
+                    avatar: claims.picture || claims.avatar || claims.photo || null,
+                    agentApiKey: agentApiKey || null
                 });
+                if (agentApiKey) {
+                    electronStore.set('auth.vectcut_api_key', agentApiKey);
+                } else {
+                    electronStore.delete('auth.vectcut_api_key');
+                }
                 // 更新到本地状态以驱动 UI
                 setAvatarUrl(claims.picture || claims.avatar || claims.photo || null);
                 setDisplayName(name);
@@ -369,6 +410,7 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
         <div 
             style={{ 
                 height: '100%', 
+                fontFamily: APP_FONT_FAMILY,
             }}
         >
         {/* 顶部可拖拽区域 */}
@@ -413,4 +455,3 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
 
 // 导出组件
 export default LoginPage;
-

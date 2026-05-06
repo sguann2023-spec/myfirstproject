@@ -10,6 +10,7 @@ class TokenStore {
   accessTokenExpiresAt = null;
   idTokenExpiresAt = null;
   isRefreshing = false;
+  refreshPromise = null;
 
   constructor() {
     makeAutoObservable(this);
@@ -64,20 +65,27 @@ class TokenStore {
 
     // 兜底：内存缺失时从 localStorage 读取
     const rt = this.refreshToken || getStorage('auth.refresh_token');
-    if (!rt || this.isRefreshing) return null;
+    if (!rt) return null;
+    if (this.isRefreshing && this.refreshPromise) {
+      await this.refreshPromise;
+      return this.accessToken;
+    }
     this.refreshToken = rt;
 
     this.isRefreshing = true;
     try {
-      const res = await refreshTokensRequest(this.refreshToken);
-      runInAction(() => {
-        this.setTokens({
-          accessToken: res.access_token,
-          idToken: res.id_token,
-          refreshToken: res.refresh_token || this.refreshToken,
-          accessTokenExpiresIn: res.expires_in,
+      this.refreshPromise = (async () => {
+        const res = await refreshTokensRequest(this.refreshToken);
+        runInAction(() => {
+          this.setTokens({
+            accessToken: res.access_token,
+            idToken: res.id_token,
+            refreshToken: res.refresh_token || this.refreshToken,
+            accessTokenExpiresIn: res.expires_in,
+          });
         });
-      });
+      })();
+      await this.refreshPromise;
       return this.accessToken;
     } catch (e) {
       runInAction(() => {
@@ -87,6 +95,7 @@ class TokenStore {
     } finally {
       runInAction(() => {
         this.isRefreshing = false;
+        this.refreshPromise = null;
       });
     }
   }
@@ -96,24 +105,32 @@ class TokenStore {
 
       // 兜底：刷新前确保 refreshToken 可用
       const rt = this.refreshToken || getStorage('auth.refresh_token');
-      if (!rt || this.isRefreshing) throw new Error('No refresh token');
+      if (!rt) throw new Error('No refresh token');
+      if (this.isRefreshing && this.refreshPromise) {
+        await this.refreshPromise;
+        return this.accessToken;
+      }
       this.refreshToken = rt;
 
       this.isRefreshing = true;
       try {
-          const res = await refreshTokensRequest(this.refreshToken);
-          runInAction(() => {
+          this.refreshPromise = (async () => {
+            const res = await refreshTokensRequest(this.refreshToken);
+            runInAction(() => {
               this.setTokens({
-                  accessToken: res.access_token,
-                  idToken: res.id_token,
-                  refreshToken: res.refresh_token || this.refreshToken,
-                  accessTokenExpiresIn: res.expires_in,
+                accessToken: res.access_token,
+                idToken: res.id_token,
+                refreshToken: res.refresh_token || this.refreshToken,
+                accessTokenExpiresIn: res.expires_in,
               });
-          });
+            });
+          })();
+          await this.refreshPromise;
           return this.accessToken;
       } finally {
           runInAction(() => {
               this.isRefreshing = false;
+              this.refreshPromise = null;
           });
       }
   }

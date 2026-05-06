@@ -1,8 +1,10 @@
 const log = require('electron-log');
 
 let isDev = false;
+let electronApp = null;
 try {
     const { app } = require('electron');
+    electronApp = app || null;
     // Electron 主进程最可靠的判断：是否打包
     isDev = app ? !app.isPackaged : false;
 } catch (e) {
@@ -29,17 +31,68 @@ if (isDev) {
     // 仅主进程配置文件输出，渲染进程跳过
     if (isBrowser && log.transports && log.transports.file) {
         log.transports.file.level = 'info';
-        log.transports.file.fileName = 'capcut-helper.log';
+        log.transports.file.fileName = 'vectcut.log';
         log.transports.file.maxSize = 10 * 1024 * 1024; // 10MB
     }
 }
 
+// 启动时打印运行环境关键信息，便于排查实际读写目录
+try {
+    const runtimeInfo = {
+        isDev,
+        processType: process && process.type ? process.type : 'unknown',
+        cwd: process && process.cwd ? process.cwd() : null,
+        userData: electronApp && electronApp.getPath ? electronApp.getPath('userData') : null,
+        appPath: electronApp && electronApp.getAppPath ? electronApp.getAppPath() : null,
+    };
+    log.info('[logger-bootstrap]', runtimeInfo);
+    console.info('[logger-bootstrap]', runtimeInfo);
+} catch (e) {
+    // ignore bootstrap logging errors
+}
+
 // 尽量避免直接打印大对象，统一做轻量字符串化
+function normalizeError(err) {
+    if (!err) return null;
+    if (typeof err === 'string') return { message: err };
+    if (err instanceof Error) {
+        return {
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+        };
+    }
+    return err;
+}
+
+function formatOne(a) {
+    if (typeof a === 'string') return a;
+    if (a instanceof Error) {
+        return JSON.stringify(normalizeError(a));
+    }
+    try { return JSON.stringify(a); } catch { return String(a); }
+}
+
 function formatArgs(args) {
-    return args.map((a) => {
-        if (typeof a === 'string') return a;
-        try { return JSON.stringify(a); } catch { return String(a); }
-    });
+    return args.map(formatOne);
+}
+
+function createScopedLogger(scope, target) {
+    const scopeText = String(scope || '').trim();
+    const prefix = scopeText ? `[${scopeText}]` : '';
+    const wrap = (method) => (...args) => {
+        if (prefix) return method(prefix, ...args);
+        return method(...args);
+    };
+    return {
+        isDev: target.isDev,
+        log: wrap(target.log),
+        info: wrap(target.info),
+        warn: wrap(target.warn),
+        error: wrap(target.error),
+        debug: wrap(target.debug),
+        silly: wrap(target.silly || target.debug),
+    };
 }
 
 // 新增：获取日志文件路径（用于上传或展示给用户）
@@ -98,6 +151,9 @@ module.exports = isBrowser
       warn: (...args) => log.warn(...formatArgs(args)),
       error: (...args) => log.error(...formatArgs(args)),
       debug: (...args) => log.debug(...formatArgs(args)),
+      silly: (...args) => log.debug(...formatArgs(args)),
+      normalizeError,
+      withScope: (scope) => createScopedLogger(scope, module.exports),
       getLogFilePath,
       uploadLogs,
     }
@@ -120,7 +176,21 @@ module.exports = isBrowser
         warn: (...args) => send('warn', args),
         error: (...args) => send('error', args),
         debug: (...args) => send('debug', args),
+        silly: (...args) => send('debug', args),
+        normalizeError,
+        withScope: (scope) => createScopedLogger(scope, module.exports),
         getLogFilePath,
         uploadLogs,
       };
     })();
+
+// Compatibility shim for TS modules importing:
+//   import { loggerService } from '@logger'
+// and expecting loggerService.withContext(...)
+const exportedLogger = module.exports;
+if (typeof exportedLogger.withContext !== 'function' && typeof exportedLogger.withScope === 'function') {
+  exportedLogger.withContext = exportedLogger.withScope;
+}
+if (!exportedLogger.loggerService) {
+  exportedLogger.loggerService = exportedLogger;
+}

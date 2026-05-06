@@ -8,7 +8,7 @@ import zhCN from 'antd/locale/zh_CN';
 import SettingPage from './SettingPage.jsx';
 import GuiderPage from '../GuiderPage/GuiderPage.jsx';
 // 假设您的 i18n 逻辑也需要被加载
-import '../../i18n'; // 确保国际化加载
+import '@renderer/i18n'; // 确保国际化加载
 
 // 1. 获取 DOM 根节点
 const rootElement = document.getElementById('root');

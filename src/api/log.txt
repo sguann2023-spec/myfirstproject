@@ -1,0 +1,43 @@
+FC Invoke End RequestId: 1-69fa99ba-1538350b-b5e4ea31f363
+2026-05-06 09:30:35[llm/chat][messages/count_tokens] model=gemini-3.1-pro-preview estimated_input_tokens=300 required_points=0.3 verify_status=200
+21.0.0.1 - - [06/May/2026 09:30:34] "POST /llm/chat/v1/messages/count_tokens?beta=true HTTP/1.1" 200 -
+2026-05-06 09:30:37
+FC Invoke Start RequestId: 1-69fa99bd-1538350b-010e83e89a54
+2026-05-06 09:30:38[llm/chat][retry] req_id=msg_ff12129d3587 attempt=1/5 model=gemini-3.1-pro-preview
+[llm/chat] upstream request model=gemini-3.1-pro-preview stream=True stream_options={'include_usage': True}
+2026-05-06 09:31:19
+FC Invoke End RequestId: 1-69fa99bd-1538350b-010e83e89a54
+2026-05-06 09:31:20[llm/chat][timing] req_id=msg_ff12129d3587 attempt=1/5 model=gemini-3.1-pro-preview status=200 t_headers_ms=41579
+[llm/chat][timing] req_id=msg_ff12129d3587 attempt=1/5 model=gemini-3.1-pro-preview t_first_byte_ms=41579 first_byte_hex=64
+[llm/chat][first_event] req_id=msg_ff12129d3587 attempt=1/5 model=gemini-3.1-pro-preview payload={"id":"chatcmpl-20260506093041149256781M8M3hwDH","object":"chat.completion.chunk","created":1778031079,"model":"gemini-3.1-pro-preview","system_fingerprint":null,"choices":[{"delta":{"content":"","role":"assistant","tool_calls":[{"index":0,"id":"call_b49c8207c6374d71b0f573e1da13a8d8","type":"function","function":{"name":"Skill","arguments":"{\"skill\":\"add-bgm\"}"},"extra_content":{"google":{"thought_signature":"EsERCr4RAQw51sf4utOCxi+hh7SsKyMfbkSv8n3i8CCXM4uQk6CGiCvs3tUIXPfxebI0lSagR83vLSvfZ4P...(truncated)
+[llm/chat] stream chunk#1 keys=['id', 'object', 'created', 'model', 'system_fingerprint', 'choices', 'usage']
+[llm/chat] stream usage type chunk#1 type=NoneType value=None
+[llm/chat] stream chunk#2 keys=['id', 'object', 'created', 'model', 'system_fingerprint', 'choices', 'usage']
+[llm/chat] stream usage type chunk#2 type=NoneType value=None
+[llm/chat] stream chunk#3 keys=['id', 'object', 'created', 'model', 'system_fingerprint', 'choices', 'usage']
+[llm/chat] stream usage type chunk#3 type=NoneType value=None
+21.0.0.1 - - [06/May/2026 09:31:19] "POST /llm/chat/v1/messages?beta=true HTTP/1.1" 200 -
+[anthropic_bridge] choices[0].delta.tool_calls observed type=list sample=[{"index": 0, "id": "call_b49c8207c6374d71b0f573e1da13a8d8", "type": "function", "function": {"name": "Skill", "arguments": "{\"skill\":\"add-bgm\"}"}, "extra_content": {"google": {"thought_signature": "EsERCr4RAQw51sf4utOCxi+hh7SsKyMfbkSv8n3i8CCXM4uQk6CGiCvs3tUIXPfxebI0lSagR83vLSvfZ4Pm0rzd5LpAywIDkgzvfvl80kvIrFGtmgYO2SQ7lONOc1TPp9B7vmZmAnR8i5hc9NH3AQVeUpKn/ShJKXS6/n2/P82IJ/DiBO8KrlXxA0v32U132fP1xPUj75FYC+JtDtkb4pOOLYRTVUq9ZFsaHiVbcRaMJXfQH5rbcUEPzcbhN9ITu6gmfM/LMr7z5m+BmWB7mPlj8fEh/m/hQrvCW/NhNGRh0R/j6xJMbJfkreenSAbsaJMijm31A5lDbWQlmtW4QZUexjtXDYbFDZdc0GRL2Pk1jjrcdrzrFR+yhbGFkzDSShRZiJ6ReOlXCUdiEA7Ac5hJ+Vw3JUCTBWoqpf4xzB3sI1BYtNmMSxZMsIjNHeIqgPL1EmoMORTFLUjXgxPAJRYXKafxjUDUGzrNwWMj7Bo92vldAf47/ag8rvatMQG1vQ+cLrkgF+01yhnWUHefBHQlRlXI1yjLmFrlVKCYmyG726aEyH9BOj1So01lHo72tQeWk74fb7P6HPzByZdFo...(truncated)
+[anthropic_bridge][gemini] delta tool_calls detected msg_id=msg_476b1382d1db4910835d0779a9bf48e0 count=1 first_tool=Skill first_call_id=call_b49c8207c6374d71b0f573e1da13a8d8
+[llm/chat] stream chunk#4 keys=['id', 'object', 'created', 'model', 'system_fingerprint', 'choices', 'usage']
+[llm/chat] stream usage type chunk#4 type=dict value={'prompt_tokens': 11303, 'completion_tokens': 17, 'total_tokens': 11843, 'prompt_tokens_details': {'cached_tokens': 0, 'text_tokens': 11303, 'audio_tokens': 0, 'image_tokens': 0}, 'completion_tokens_details': {'text_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 523}, 'input_tokens': 0, 'output_tokens': 0, 'input_tokens_details': None, 'claude_cache_creation_5_m_tokens': 0, 'claude_cache_creation_1_h_tokens': 0}
+[llm/chat] stream usage chunk#4 usage={'prompt_tokens': 11303, 'completion_tokens': 17, 'total_tokens': 11843, 'prompt_tokens_details': {'cached_tokens': 0, 'text_tokens': 11303, 'audio_tokens': 0, 'image_tokens': 0}, 'completion_tokens_details': {'text_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 523}, 'input_tokens': 0, 'output_tokens': 0, 'input_tokens_details': None, 'claude_cache_creation_5_m_tokens': 0, 'claude_cache_creation_1_h_tokens': 0}
+[anthropic_bridge][gemini] empty choices observed msg_id=msg_476b1382d1db4910835d0779a9bf48e0 model=gemini-3.1-pro-preview payload={"id":"chatcmpl-20260506093041149256781M8M3hwDH","object":"chat.completion.chunk","created":1778031079,"model":"gemini-3.1-pro-preview","system_fingerprint":null,"choices":[],"usage":{"prompt_tokens":11303,"completion_tokens":17,"total_tokens":11843,"prompt_tokens_details":{"cached_tokens":0,"text_tokens":11303,"audio_tokens":0,"image_tokens":0},"completion_tokens_details":{"text_tokens":0,"audio_tokens":0,"reasoning_tokens":523},"input_tokens":0,"output_tokens":0,"input_tokens_details":null,"cl...(truncated)
+[llm/chat][billing] raw usage model=gemini-3.1-pro-preview usage_obj={'prompt_tokens': 11303, 'completion_tokens': 17, 'total_tokens': 11843, 'prompt_tokens_details': {'cached_tokens': 0, 'text_tokens': 11303, 'audio_tokens': 0, 'image_tokens': 0}, 'completion_tokens_details': {'text_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 523}, 'input_tokens': 0, 'output_tokens': 0, 'input_tokens_details': None, 'claude_cache_creation_5_m_tokens': 0, 'claude_cache_creation_1_h_tokens': 0}
+[llm/chat][billing] parsed usage model=gemini-3.1-pro-preview prompt_tokens=11303 completion_tokens=17 in_units=12 out_units=1 input_pid=52 output_pid=53
+2026-05-06 09:31:21
+FC Invoke Start RequestId: 1-69fa99e9-1538350b-c5a74bfb376e
+2026-05-06 09:31:21[llm/chat][billing] consume success model=gemini-3.1-pro-preview
+[anthropic_bridge][gemini] stream summary msg_id=msg_476b1382d1db4910835d0779a9bf48e0 model=gemini-3.1-pro-preview saw_tool_calls=True saw_finish_reason=True saw_done_sentinel=True saw_empty_choices=True line_buffer_tail=
+2026-05-06 09:31:22[llm/chat][retry] req_id=msg_5289feb47d5b attempt=1/5 model=gemini-3.1-pro-preview
+[llm/chat] upstream request model=gemini-3.1-pro-preview stream=True stream_options={'include_usage': True}
+2026-05-06 09:31:42
+FC Invoke End RequestId: 1-69fa99e9-1538350b-c5a74bfb376e
+2026-05-06 09:31:43[llm/chat][timing] req_id=msg_5289feb47d5b attempt=1/5 model=gemini-3.1-pro-preview status=429 t_headers_ms=21174
+[llm/chat] 上游非成功状态 status=429 model=gemini-3.1-pro-preview
+[llm/chat] 上游错误响应 model=gemini-3.1-pro-preview body={"error":{"message":"当前分组上游负载已饱和，请稍后再试 (request id: 20260506093124739864892oUeVZqKI)","type":"new_api_error","param":"","code":"model_not_found"}}
+21.0.0.1 - - [06/May/2026 09:31:42] "POST /llm/chat/v1/messages?beta=true HTTP/1.1" 429 -
+2026-05-06 09:31:52
+FC Invoke Start RequestId: 1-69fa9a07-1538350b-06af701d5865
+2026-05-06 09:31:53[llm/chat][retry] req_id=msg_72cd7fb43dbc attempt=1/5 model=gemini-3.1-pro-preview
+[llm/chat] upstream request model=gemini-3.1-pro-preview stream=True stream_options={'include_usage': True}
