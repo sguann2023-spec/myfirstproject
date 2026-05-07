@@ -142,7 +142,7 @@ function App() {
       <div
         className="app-container"
         style={currentPage === 'home'
-            ? { width: 960, height: 640, margin: '0 auto' }
+            ? { width: '100%', height: '100%', margin: 0 }
             : { width: 320, height: 450, margin: '0 auto' }}
       >
         {currentPage === 'home' ? (
