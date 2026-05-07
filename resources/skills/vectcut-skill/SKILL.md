@@ -1,6 +1,6 @@
 ---
 name: vectcut-skill
-description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI补镜、AI配音、平台视频抓取、渲染导出）。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”等需求时，必须优先使用本技能。"
+description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI补镜、AI配音、预设、平台视频抓取、渲染导出）。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”等需求时，必须优先使用本技能。"
 homepage: "https://www.vectcut.com/"
 metadata:
   openclaw:
@@ -16,6 +16,7 @@ dependency:
 - 口播自动成片、网感剪辑、去气口重排、口播包装
 - 混剪视频（多素材重组、节奏强化、字幕动画、转场特效）
 - 电商广告（卖点强化、人物抠像、画中画、关键词强调、提示音）
+- 需要基于“预设片段”替换素材、组合复杂包装效果（如把 `text1` 改为指定文案）
 - 需要“抓取抖音/快手/小红书/B站/TikTok/YouTube 链接后分析并剪辑”
 - 想要查看VectCut 流光剪辑的API都支持哪些功能，具体API怎么使用。
 - 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 云渲染导出”
@@ -84,6 +85,7 @@ dependency:
 - [add-bgm](rules/add-bgm.md)
 - [add-effect](rules/add-effect.md)
 - [add-effect_audio](rules/add-effect_audio.md)
+- [add-preset](rules/add-preset.md)
 - [add-subtitle-template](rules/add-subtitle-template.md)
 - [add-title](rules/add-title.md)
 - [asr-vad](rules/asr-vad.md)
