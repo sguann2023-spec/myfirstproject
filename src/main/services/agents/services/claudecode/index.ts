@@ -808,42 +808,50 @@ class ClaudeCodeService implements AgentServiceInterface {
       // options.forkSession = true
     }
 
-    // Final safeguard: MCP is not supported for Claude Code SDK requests in this app.
-    // Even if MCP servers/tools were injected earlier, strip them right before query.
-    const isMcpToolPattern = (tool: string) => tool.trim().toLowerCase().startsWith('mcp__')
-    const mcpServerNamesBeforeStrip = Object.keys(options.mcpServers || {})
-    const allowedToolsBeforeStrip = Array.isArray(options.allowedTools) ? [...options.allowedTools] : undefined
-    const autoAllowToolsBeforeStrip = Array.from(autoAllowTools)
+    // // Final safeguard: MCP is not supported for Claude Code SDK requests in this app.
+    // // Even if MCP servers/tools were injected earlier, strip them right before query.
+    // const isMcpToolPattern = (tool: string) => tool.trim().toLowerCase().startsWith('mcp__')
+    // const mcpServerNamesBeforeStrip = Object.keys(options.mcpServers || {})
+    // const allowedToolsBeforeStrip = Array.isArray(options.allowedTools) ? [...options.allowedTools] : undefined
+    // const autoAllowToolsBeforeStrip = Array.from(autoAllowTools)
 
-    if (Array.isArray(options.allowedTools)) {
-      options.allowedTools = options.allowedTools.filter((tool) => !isMcpToolPattern(tool))
-    }
+    // if (Array.isArray(options.allowedTools)) {
+    //   options.allowedTools = options.allowedTools.filter((tool) => !isMcpToolPattern(tool))
+    // }
 
-    for (const toolName of Array.from(autoAllowTools)) {
-      if (isMcpToolPattern(toolName)) {
-        autoAllowTools.delete(toolName)
-      }
-    }
+    // for (const toolName of Array.from(autoAllowTools)) {
+    //   if (isMcpToolPattern(toolName)) {
+    //     autoAllowTools.delete(toolName)
+    //   }
+    // }
 
-    if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
-      delete (options as { mcpServers?: unknown }).mcpServers
-      delete (options as { strictMcpConfig?: unknown }).strictMcpConfig
-    }
+    // if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
+    //   delete (options as { mcpServers?: unknown }).mcpServers
+    //   delete (options as { strictMcpConfig?: unknown }).strictMcpConfig
+    // }
 
-    const strippedMcpAllowedTools = (allowedToolsBeforeStrip || []).filter((tool) => isMcpToolPattern(tool))
-    const strippedMcpAutoAllowTools = autoAllowToolsBeforeStrip.filter((tool) => isMcpToolPattern(tool))
-    if (
-      mcpServerNamesBeforeStrip.length > 0 ||
-      strippedMcpAllowedTools.length > 0 ||
-      strippedMcpAutoAllowTools.length > 0
-    ) {
-      logger.info('MCP tools are stripped before SDK query', {
-        sessionId: session.id,
-        removedMcpServers: mcpServerNamesBeforeStrip,
-        removedAllowedTools: strippedMcpAllowedTools,
-        removedAutoAllowTools: strippedMcpAutoAllowTools
-      })
-    }
+    // const strippedMcpAllowedTools = (allowedToolsBeforeStrip || []).filter((tool) => isMcpToolPattern(tool))
+    // const strippedMcpAutoAllowTools = autoAllowToolsBeforeStrip.filter((tool) => isMcpToolPattern(tool))
+    // if (
+    //   mcpServerNamesBeforeStrip.length > 0 ||
+    //   strippedMcpAllowedTools.length > 0 ||
+    //   strippedMcpAutoAllowTools.length > 0
+    // ) {
+    //   logger.info('MCP tools are stripped before SDK query', {
+    //     sessionId: session.id,
+    //     removedMcpServers: mcpServerNamesBeforeStrip,
+    //     removedAllowedTools: strippedMcpAllowedTools,
+    //     removedAutoAllowTools: strippedMcpAutoAllowTools
+    //   })
+    // }
+    logger.info('MCP configuration retained for SDK query', {
+      sessionId: session.id,
+      mcpServerNames: Object.keys(options.mcpServers || {}),
+      mcpAllowedTools: (Array.isArray(options.allowedTools) ? options.allowedTools : []).filter((tool) =>
+        tool.trim().toLowerCase().startsWith('mcp__')
+      ),
+      mcpAutoAllowTools: Array.from(autoAllowTools).filter((tool) => tool.trim().toLowerCase().startsWith('mcp__'))
+    })
 
     logger.info('AllowedTools probe', {
       sessionId: session.id,
