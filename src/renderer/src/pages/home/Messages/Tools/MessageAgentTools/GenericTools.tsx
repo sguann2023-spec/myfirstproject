@@ -149,8 +149,15 @@ export function ToolStatusIndicator({ status, hasError = false }: { status: Tool
       case 'done':
         return hasError
           ? {
-              label: t('message.tools.error'),
-              icon: <TriangleAlert size={13} className="lucide-custom" />,
+              // label: t('message.tools.error'),
+              label: '',
+              icon: (
+                <TriangleAlert
+                  size={13}
+                  className="lucide-custom"
+                  color="var(--color-status-warning, #faad14)"
+                />
+              ),
               color: 'error'
             }
           : {
@@ -160,8 +167,15 @@ export function ToolStatusIndicator({ status, hasError = false }: { status: Tool
             }
       case 'error':
         return {
-          label: t('message.tools.error'),
-          icon: <TriangleAlert size={13} className="lucide-custom" />,
+          // label: t('message.tools.error'),
+          label: '',
+          icon: (
+            <TriangleAlert
+              size={13}
+              className="lucide-custom"
+              color="var(--color-status-warning, #faad14)"
+            />
+          ),
           color: 'error'
         }
       default:
