@@ -67,6 +67,61 @@ function extractAgentApiKeyFromClaims(claims = {}) {
     return hit ? hit.trim() : '';
 }
 
+function normalizeCreationChannel(value) {
+    const s = String(value || '').toLowerCase();
+    if (!s) return '';
+    if (s.includes('wechat') || s.includes('weixin') || s.includes('wx')) return 'wechat';
+    if (s.includes('google') || s.includes('gmail')) return 'google';
+    if (s.includes('phone') || s.includes('sms') || s.includes('mobile')) return 'phone';
+    if (s.includes('email')) return 'email';
+    if (s.includes('username')) return 'username';
+    return s;
+}
+
+function inferCreationChannelFromClaims(claims = {}, accessToken = '') {
+    const candidates = [];
+    const identities = Array.isArray(claims.identities) ? claims.identities : [];
+    identities.forEach((item) => {
+        if (!item || typeof item !== 'object') return;
+        candidates.push(item.provider, item.connection, item.type, item.identityType, item.name);
+    });
+
+    candidates.push(
+        claims.provider,
+        claims.connection,
+        claims.registerSource,
+        claims.source,
+        claims.loginSource
+    );
+
+    const amr = Array.isArray(claims.amr) ? claims.amr : [];
+    candidates.push(...amr);
+
+    const accessClaims = parseJwt(accessToken) || {};
+    if (Array.isArray(accessClaims.amr)) {
+        candidates.push(...accessClaims.amr);
+    }
+    candidates.push(
+        accessClaims.provider,
+        accessClaims.connection,
+        accessClaims.registerSource,
+        accessClaims.source,
+        accessClaims.loginSource
+    );
+
+    for (const raw of candidates) {
+        const normalized = normalizeCreationChannel(raw);
+        if (['wechat', 'google', 'phone', 'email', 'username'].includes(normalized)) {
+            return normalized;
+        }
+    }
+
+    if (claims.phone_number || claims.phone || accessClaims.phone_number) return 'phone';
+    if (claims.email || accessClaims.email) return 'email';
+
+    return 'unknown';
+}
+
 // NetworkSettingsView 组件
 const NetworkSettingsView = ({ trans, onBack, toggleLanguage }) => {
     const [language, setLanguage] = useState(() => {
@@ -287,6 +342,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     const claims = parseJwt(idToken) || {};
                     const name = claims.name || claims.preferred_username || claims.nickname || claims.email || '';
                     const agentApiKey = extractAgentApiKeyFromClaims(claims);
+                    const creationChannel = inferCreationChannelFromClaims(claims, accessToken);
                     electronStore.set('user', {
                         id: claims.sub,
                         name,
@@ -303,7 +359,12 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     setDisplayName(name);
 
                     // 新增：登录成功后写库（静默登录）
-                    addUser({ id: claims.sub, name, avatar: claims.picture || claims.avatar || claims.photo || null });
+                    addUser({
+                        id: claims.sub,
+                        name,
+                        avatar: claims.picture || claims.avatar || claims.photo || null,
+                        creation_channel: creationChannel
+                    });
 
                     if (onLogin) onLogin(idToken);
                     return; // 已静默登录成功，无需弹 Guard
@@ -346,6 +407,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                 const claims = parseJwt(id_token) || {};
                 const name = claims.name || claims.preferred_username || claims.nickname || claims.email || '';
                 const agentApiKey = extractAgentApiKeyFromClaims(claims);
+                const creationChannel = inferCreationChannelFromClaims(claims, access_token);
                 electronStore.set('user', {
                     id: claims.sub,
                     name: name,
@@ -363,7 +425,12 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                 setDisplayName(name);
 
                 // 新增：登录成功后写库（静默登录）
-                addUser({ id: claims.sub, name, avatar: claims.picture || claims.avatar || claims.photo || null });
+                addUser({
+                    id: claims.sub,
+                    name,
+                    avatar: claims.picture || claims.avatar || claims.photo || null,
+                    creation_channel: creationChannel
+                });
 
                 if (onLogin) {
                     onLogin(id_token);
