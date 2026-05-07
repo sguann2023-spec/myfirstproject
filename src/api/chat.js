@@ -8,6 +8,75 @@ const TOPIC_SUMMARY_PROMPT = '总结给出的会话，将其总结为语言为�
 const SUMMARY_TASK_MAX_POLL_COUNT = 30;
 const SUMMARY_TASK_POLL_INTERVAL_MS = 1000;
 
+const pickString = (...values) => {
+  for (const value of values) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return '';
+};
+
+const resolveLocale = () => {
+  const navigatorLocale = typeof navigator !== 'undefined'
+    ? pickString(navigator.language, Array.isArray(navigator.languages) ? navigator.languages[0] : '')
+    : '';
+  const intlLocale = typeof Intl !== 'undefined' && Intl?.DateTimeFormat
+    ? pickString(Intl.DateTimeFormat().resolvedOptions().locale)
+    : '';
+  return pickString(navigatorLocale, intlLocale, 'zh-CN');
+};
+
+const resolveVersionCode = () => {
+  if (typeof globalThis === 'undefined') return 'unknown';
+  const appVersion = pickString(
+    globalThis.__APP_VERSION__,
+    globalThis.APP_VERSION,
+    globalThis.__VERSION__,
+    globalThis.process?.env?.APP_VERSION,
+    globalThis.process?.env?.npm_package_version
+  );
+  return appVersion || 'unknown';
+};
+
+const resolveClientType = () => {
+  const platform = pickString(
+    typeof navigator !== 'undefined' ? navigator.userAgentData?.platform : '',
+    typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  ).toLowerCase();
+
+  if (platform.includes('win')) return 'windows';
+  if (platform.includes('mac') || platform.includes('darwin')) return 'mac';
+  if (platform.includes('linux') || platform.includes('x11')) return 'linux';
+  return 'pc';
+};
+
+const getClientRequestMeta = () => {
+  const locale = resolveLocale();
+  const versionCode = resolveVersionCode();
+  return {
+    client_type: resolveClientType(),
+    version_code: versionCode,
+    locale,
+    i18n: { locale }
+  };
+};
+
+const appendClientMetaToUrl = (url, meta) => {
+  const endpoint = new URL(url);
+  endpoint.searchParams.set('client_type', meta.client_type);
+  endpoint.searchParams.set('version_code', meta.version_code);
+  endpoint.searchParams.set('locale', meta.locale);
+  endpoint.searchParams.set('i18n_locale', meta.i18n?.locale || meta.locale);
+  return endpoint.toString();
+};
+
+const buildClientMetaHeaders = (meta) => ({
+  'X-Client-Type': meta.client_type,
+  'X-Version-Code': meta.version_code,
+  'X-I18n-Locale': meta.i18n?.locale || meta.locale
+});
+
 const normalizeModelItem = (item) => {
   if (typeof item === 'string') return item.trim();
   if (!item || typeof item !== 'object') return '';
@@ -144,9 +213,11 @@ const extractSummaryContent = (payload) => {
 };
 
 export async function getChatModelList() {
-  const payload = await http.getJson(`${BASE_URL}${CHAT_MODEL_LIST_PATH}`, {
+  const clientMeta = getClientRequestMeta();
+  const payload = await http.getJson(appendClientMetaToUrl(`${BASE_URL}${CHAT_MODEL_LIST_PATH}`, clientMeta), {
     headers: {
-      Accept: '*/*'
+      Accept: '*/*',
+      ...buildClientMetaHeaders(clientMeta)
     }
   });
   const models = parseModelList(payload);
@@ -189,16 +260,19 @@ export async function fetchMessagesSummary({
 
   const conversation = JSON.stringify(contextMessages);
   const userInput = `${TOPIC_SUMMARY_PROMPT}\n\n会话内容（JSON）:\n${conversation}`;
+  const clientMeta = getClientRequestMeta();
 
   try {
     const submitPayload = await http.postJson(`${BASE_URL}${CHAT_SUBMIT_TASK_PATH}`, {
       model,
       system_prompt: "你是一个擅长总结的文案助手",
       user_input: userInput,
-      stream: false
+      stream: false,
+      ...clientMeta
     }, {
       headers: {
-        Accept: '*/*'
+        Accept: '*/*',
+        ...buildClientMetaHeaders(clientMeta)
       },
       signal
     });
@@ -225,10 +299,14 @@ export async function fetchMessagesSummary({
         await sleep(SUMMARY_TASK_POLL_INTERVAL_MS, signal);
       }
       const statusPayload = await http.getJson(
-        `${BASE_URL}${CHAT_TASK_STATUS_PATH}?task_id=${encodeURIComponent(taskId)}`,
+        appendClientMetaToUrl(
+          `${BASE_URL}${CHAT_TASK_STATUS_PATH}?task_id=${encodeURIComponent(taskId)}`,
+          clientMeta
+        ),
         {
           headers: {
-            Accept: '*/*'
+            Accept: '*/*',
+            ...buildClientMetaHeaders(clientMeta)
           },
           signal
         }
