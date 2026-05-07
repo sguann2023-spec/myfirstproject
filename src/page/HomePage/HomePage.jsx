@@ -863,7 +863,7 @@ const HomePage = () => {
           chatIdByAgentSessionIdRef.current.delete(agentSessionId);
           chatAgentSessionIdByChatIdRef.current.delete(chatId);
         }
-        const normalizedError = normalizeChatError(new Error(payload?.error?.message || 'agent request failed'));
+        const normalizedError = normalizeChatError(payload?.error || new Error(payload?.error?.message || 'agent request failed'));
         const errorDisplayContent = Array.isArray(pending.flowSegments) && pending.flowSegments.length > 0
           ? buildAssistantDisplayContentFromFlow({
             segments: pending.flowSegments,

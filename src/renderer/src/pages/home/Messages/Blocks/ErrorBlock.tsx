@@ -13,9 +13,18 @@ import { Button } from 'antd'
 import { AlertTriangle, ChevronRight, X } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
 
 const HTTP_ERROR_CODES = [400, 401, 403, 404, 429, 500, 502, 503, 504]
+
+const safeNavigate = (target: string): void => {
+  const navigateFn = (window as Window & { navigate?: (path: string) => void }).navigate
+  if (typeof navigateFn === 'function') {
+    navigateFn(target)
+    return
+  }
+  const normalized = target.startsWith('/') ? target : `/${target}`
+  window.location.hash = normalized
+}
 
 // Module-level cache for AI classification to avoid duplicate API calls
 const aiClassifyCache = new Map<string, Promise<string>>()
@@ -42,16 +51,18 @@ const ErrorMessage: React.FC<{ block: ErrorMessageBlock }> = ({ block }) => {
   if (i18n.exists(i18nKey)) {
     const providerId = block.error && 'providerId' in block.error ? block.error?.providerId : undefined
     if (providerId && typeof providerId === 'string') {
+      const provider = getProviderById(providerId)
       return (
         <Trans
           i18nKey={i18nKey}
           values={{ provider: getProviderLabel(providerId) }}
           components={{
             provider: (
-              <Link
+              <button
+                type="button"
                 style={{ color: 'var(--color-link)' }}
-                to={`/settings/provider`}
-                state={{ provider: getProviderById(providerId) }}
+                className="cursor-pointer border-none bg-transparent p-0"
+                onClick={() => safeNavigate(`/settings/provider${provider ? `?id=${provider.id}` : ''}`)}
               />
             )
           }}
@@ -79,7 +90,6 @@ const MessageErrorInfo: React.FC<{ block: ErrorMessageBlock; message: Message }>
   const dispatch = useAppDispatch()
   const { setTimeoutTimer } = useTimer()
   const { t, i18n } = useTranslation()
-  const navigate = useNavigate()
   const [aiSummary, setAiSummary] = useState<string>('')
 
   const providerId = message.model?.provider ?? (block.error?.providerId as string | undefined)
@@ -94,13 +104,13 @@ const MessageErrorInfo: React.FC<{ block: ErrorMessageBlock; message: Message }>
     const cached = aiClassifyCache.get(cacheKey)
     const promise =
       cached ??
-      classifyErrorByAI(errorForAI, i18n.language).then((summary) => {
+      classifyErrorByAI(errorForAI, i18n.language).then((summary: string) => {
         if (!summary) aiClassifyCache.delete(cacheKey)
         return summary
       })
     if (!cached) aiClassifyCache.set(cacheKey, promise)
     promise
-      .then((summary) => {
+      .then((summary: string) => {
         if (!cancelled && summary) setAiSummary(summary)
       })
       .catch(() => {})
@@ -138,7 +148,7 @@ const MessageErrorInfo: React.FC<{ block: ErrorMessageBlock; message: Message }>
   const onNavigate = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (classification.navTarget) {
-      navigate(classification.navTarget)
+      safeNavigate(classification.navTarget)
     }
   }
 
@@ -151,14 +161,14 @@ const MessageErrorInfo: React.FC<{ block: ErrorMessageBlock; message: Message }>
       }}
       onClick={showErrorDetail}>
       {/* Close button */}
-      <button
+      {/* <button
         type="button"
         className="absolute top-2 right-2 flex h-5.5 w-5.5 cursor-pointer items-center justify-center rounded border-none bg-transparent opacity-0 transition-all duration-150 hover:bg-[color-mix(in_srgb,var(--color-error)_12%,transparent)] hover:text-(--color-error) group-hover:opacity-100"
         onClick={onRemoveBlock}
         aria-label="close"
         title={t('common.close')}>
         <X size={14} />
-      </button>
+      </button> */}
 
       {/* Header: icon + title */}
       <div className="mb-1.5 flex items-center gap-2">
@@ -189,12 +199,12 @@ const MessageErrorInfo: React.FC<{ block: ErrorMessageBlock; message: Message }>
             {t('error.diagnosis.go_to_settings')}
           </Button>
         )}
-        <div
+        {/* <div
           className="ml-auto inline-flex items-center gap-0.5 text-xs transition-colors duration-150 group-hover:text-(--color-error)"
           style={{ color: 'var(--color-text-3)' }}>
           {t('common.detail')}
           <ChevronRight size={14} />
-        </div>
+        </div> */}
       </div>
     </div>
   )

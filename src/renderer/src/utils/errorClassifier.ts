@@ -3,6 +3,7 @@ import type { SerializedError } from '@renderer/types/error'
 export interface ErrorClassification {
   category:
     | 'auth'
+    | 'aborted'
     | 'model'
     | 'quota'
     | 'context_length'
@@ -30,7 +31,23 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
   const status = (error as Record<string, unknown>).statusCode ?? (error as Record<string, unknown>).status
   const numStatus = typeof status === 'number' ? status : typeof status === 'string' ? parseInt(status, 10) : undefined
   const msg = ((error.message as string) || '').toLowerCase()
+  const code = String((error as Record<string, unknown>).code ?? '').toLowerCase()
   const providerSuffix = providerId ? `?id=${providerId}` : ''
+
+  // User/system aborted requests
+  if (
+    code === 'aborted' ||
+    code === 'aborterror' ||
+    code === 'err_canceled' ||
+    code === 'cancelled' ||
+    msg.includes('request was aborted') ||
+    msg.includes('request aborted') ||
+    msg.includes('aborted by user') ||
+    msg.includes('signal is aborted') ||
+    msg.includes('operation was aborted')
+  ) {
+    return { category: 'aborted', i18nKey: 'error.diagnosis.aborted', navTarget: null }
+  }
 
   // Auth errors (401/403)
   if (

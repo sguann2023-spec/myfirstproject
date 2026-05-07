@@ -1765,6 +1765,7 @@
       "ai_done": "Diagnosed",
       "ai_loading": "Diagnosing",
       "ai_result": "AI Diagnosis Result",
+      "aborted": "Request was aborted",
       "auth": "API Key is invalid, please check and reconfigure",
       "content": "Content blocked by safety system, please modify and retry",
       "context_length": "Conversation too long, please clear history or start a new chat",

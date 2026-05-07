@@ -10,10 +10,15 @@ const parseHttpStatus = (errorMessage = '') => {
 export const isAbortError = (error) => {
   if (!error) return false;
   if (error?.name === 'AbortError') return true;
+  const code = String(error?.code || '').toLowerCase();
+  if (code === 'aborted' || code === 'aborterror' || code === 'err_canceled' || code === 'cancelled') return true;
   const message = toMessage(error).toLowerCase();
   if (!message) return false;
   return (
     message.includes('request was aborted')
+    || message.includes('request aborted by user')
+    || message.includes('request aborted')
+    || message.includes('aborted by user')
     || message.includes('aborterror')
     || message.includes('signal is aborted')
     || message.includes('operation was aborted')

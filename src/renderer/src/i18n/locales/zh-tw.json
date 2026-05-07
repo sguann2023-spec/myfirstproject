@@ -1765,6 +1765,7 @@
       "ai_done": "已診斷",
       "ai_loading": "正在診斷",
       "ai_result": "AI 診斷結果",
+      "aborted": "本次請求已中止",
       "auth": "API Key 無效，請檢查並重新配置",
       "content": "訊息內容被安全系統攔截，請修改後重試",
       "context_length": "對話內容過長，請清除歷史記錄或開啟新對話",
