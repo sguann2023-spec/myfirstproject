@@ -28,7 +28,8 @@ const retryTimers = new Map<string, NodeJS.Timeout>()
  */
 export async function bootstrapBuiltinAgents(): Promise<void> {
   try {
-    await installBuiltinSkills()
+    // Startup only installs/updates global builtin skills. Agent workspace distribution is deferred.
+    await installBuiltinSkills({ distributeToAgents: false })
   } catch (error) {
     logger.error('Failed to install built-in skills', error as Error)
   }

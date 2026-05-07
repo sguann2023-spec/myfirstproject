@@ -1,27 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useCallback, useState, useEffect } from 'react';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
-import { Provider } from 'react-redux';
-import { PersistGate } from 'redux-persist/integration/react';
 import '@renderer/i18n';
 import '@renderer/assets/styles/tailwind.css';
 import '@renderer/assets/styles/index.css';
 import '@renderer/assets/styles/CommandListPopover.css';
 import '@renderer/assets/styles/selection-toolbar.css';
-import store, { persistor } from '@renderer/store';
-import { ThemeProvider } from '@renderer/context/ThemeProvider';
-import { CodeStyleProvider } from '@renderer/context/CodeStyleProvider';
 import './App.css';
 import LoginPage from './page/LoginPage/LoginPage.jsx';
-import HomePage from './page/HomePage/HomePage.jsx';
 import { getArtistEffectDownloadUrl, searchDraft } from './api/capcut'; // 新增：导入解析 API和按ID搜索草稿
 import logger from './shared/logger.js';
 import { DownloadController } from './shared/DownloadController';
 
 const toLegacyLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
 const toModernLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US');
+const HomePageShell = React.lazy(() => import('./page/HomePage/HomePageShell.jsx'));
+let homeRuntimeInitPromise = null;
 
 function App() {
   const { t, i18n } = useTranslation('legacy');
@@ -31,6 +27,15 @@ function App() {
   const [language, setLanguage] = useState(initialLegacyLanguage);
   const [locale, setLocale] = useState(initialLegacyLanguage === 'zh' ? zhCN : enUS);
   const [currentPage, setCurrentPage] = useState('login');
+  const [isHomeRuntimeReady, setIsHomeRuntimeReady] = useState(false);
+
+  const prepareHomeRuntime = useCallback(async () => {
+    if (!homeRuntimeInitPromise) {
+      homeRuntimeInitPromise = import('./page/HomePage/HomePageShell.jsx');
+    }
+    await homeRuntimeInitPromise;
+    setIsHomeRuntimeReady(true);
+  }, []);
 
   const toggleLanguage = (lang) => {
     const modernLanguage = toModernLanguage(lang);
@@ -40,12 +45,13 @@ function App() {
     i18n.changeLanguage(modernLanguage);
   };
 
-  const handleLogin = async (id_token) => {
+  const handleLogin = useCallback(async (id_token) => {
     logger.debug('login success');
     logger.debug('id_token:', id_token);
     try {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('login-success');
+      await prepareHomeRuntime();
 
       // 仅已完成引导/已配置草稿目录时直接进首页
       const settings = await ipcRenderer.invoke('get-draft-folder');
@@ -56,7 +62,7 @@ function App() {
     } catch (e) {
       logger.warn('ipcRenderer not available:', e);
     }
-  };
+  }, [prepareHomeRuntime]);
 
   useEffect(() => {
     // 在 App 层统一处理主进程的解析请求，避免页面卸载导致监听器丢失
@@ -140,19 +146,18 @@ function App() {
             : { width: 320, height: 450, margin: '0 auto' }}
       >
         {currentPage === 'home' ? (
-          <Provider store={store}>
-            <PersistGate loading={null} persistor={persistor}>
-              <ThemeProvider>
-                <CodeStyleProvider>
-                  <HomePage />
-                </CodeStyleProvider>
-              </ThemeProvider>
-            </PersistGate>
-          </Provider>
+          <Suspense fallback={<div style={{ padding: 12, color: '#666', fontSize: 12 }}>Loading home runtime...</div>}>
+            {isHomeRuntimeReady ? (
+              <HomePageShell />
+            ) : (
+              <div style={{ padding: 12, color: '#666', fontSize: 12 }}>Preparing home runtime...</div>
+            )}
+          </Suspense>
         ) : (
           <LoginPage
             initialApiKey={apiKey}
             onLogin={handleLogin}
+            onPrepareHomeRuntime={prepareHomeRuntime}
             trans={t}
             language={language}
             toggleLanguage={toggleLanguage}

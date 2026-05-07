@@ -11,7 +11,6 @@ import { agentsRoutes } from './routes/agents'
 import { channelsRouter } from './routes/channels'
 import { chatRoutes } from './routes/chat'
 import { clawMcpRoutes } from './routes/claw-mcp'
-import { knowledgeRoutes } from './routes/knowledge'
 import { mcpRoutes } from './routes/mcp'
 import { messagesProviderRoutes, messagesRoutes } from './routes/messages'
 import { modelsRoutes } from './routes/models'
@@ -137,9 +136,7 @@ app.get('/', (_req, res) => {
       agents: 'GET /v1/agents',
       channels: 'GET /v1/channels',
       agent_sessions: 'GET /v1/agents/:agentId/sessions',
-      session_messages: 'GET /v1/agents/:agentId/sessions/:sessionId/messages',
-      knowledge_bases: 'GET /v1/knowledge-bases',
-      knowledge_search: 'POST /v1/knowledge-bases/search'
+      session_messages: 'GET /v1/agents/:agentId/sessions/:sessionId/messages'
     }
   })
 })
@@ -162,7 +159,6 @@ apiRouter.use('/agents', agentsRoutes)
 apiRouter.use('/channels', channelsRouter)
 apiRouter.use('/tasks', tasksRouter)
 apiRouter.use('/claw', clawMcpRoutes)
-apiRouter.use('/knowledge-bases', knowledgeRoutes)
 app.use('/v1', apiRouter)
 
 // Error handling (must be last)

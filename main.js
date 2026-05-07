@@ -189,6 +189,10 @@ process.on('uncaughtException', (error) => {
 
 // 初始化 i18next
 let i18n;
+let i18nInitPromise = null;
+let updaterInitialized = false;
+let codeToolsInitPromise = null;
+let extendedIpcRegisterPromise = null;
 
 let authWindow = null;
 
@@ -229,9 +233,65 @@ function initI18n() {
     return i18n;
 }
 
+function ensureI18nInitialized() {
+  if (!i18nInitPromise) {
+    i18nInitPromise = Promise.resolve(initI18n()).catch((error) => {
+      i18nInitPromise = null;
+      throw error;
+    });
+  }
+  return i18nInitPromise;
+}
+
+function ensureUpdaterInitialized() {
+  if (updaterInitialized) return;
+  setupUpdater();
+  updaterInitialized = true;
+}
+
+async function ensureCodeToolsInitialized() {
+  if (!codeToolsInitPromise) {
+    codeToolsInitPromise = (async () => {
+      try {
+        const mod = await loadTsModule('./src/main/services/CodeToolsService.ts');
+        const codeToolsService = mod?.codeToolsService;
+        if (codeToolsService && typeof codeToolsService.initialize === 'function') {
+          await codeToolsService.initialize();
+        }
+      } catch (error) {
+        logger.warn('[Main] CodeToolsService initialize failed', {
+          error: error?.message || String(error),
+        });
+      }
+    })();
+  }
+  return codeToolsInitPromise;
+}
+
+async function ensureExtendedIpcRegistered() {
+  if (!extendedIpcRegisterPromise) {
+    extendedIpcRegisterPromise = (async () => {
+      const { registerIpc } = await loadTsModule('./src/main/ipc.ts');
+      if (typeof registerIpc !== 'function') {
+        throw new Error('registerIpc export missing');
+      }
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        throw new Error('mainWindow unavailable');
+      }
+      await registerIpc(mainWindow, app);
+      logger.info('[Main] extended registerIpc wired from src/main/ipc.ts');
+    })().catch((error) => {
+      extendedIpcRegisterPromise = null;
+      throw error;
+    });
+  }
+
+  return extendedIpcRegisterPromise;
+}
+
 // 在应用启动时初始化 i18n，并在启动前尝试切换到已缓存的新版本
 app.whenReady().then(async () => {
-  initI18n();
+  await ensureI18nInitialized();
   try {
     const staged = electronStore.get('stagedUpdate');
     const curVer = app.getVersion();
@@ -258,21 +318,7 @@ app.whenReady().then(async () => {
   } catch (e) {
     logger.error('[updater] staged check failed', e.message);
   }
-  await initializeAgentServices();
   createWindow();
-  try {
-    const { registerIpc } = await loadTsModule('./src/main/ipc.ts');
-    if (typeof registerIpc === 'function' && mainWindow && !mainWindow.isDestroyed()) {
-      await registerIpc(mainWindow, app);
-      logger.info('[Main] registerIpc wired from src/main/ipc.ts');
-    } else {
-      logger.warn('[Main] registerIpc skipped: export missing or mainWindow unavailable');
-    }
-  } catch (error) {
-    logger.warn('[Main] registerIpc failed', {
-      error: error?.message || String(error)
-    });
-  }
 });
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -304,73 +350,22 @@ const versionCode = generateVersionCode(appVersion);
 logger.info(`App Version: ${appVersion}, Version Code: ${versionCode}`);
 
 try {
-  ipcMain.handle('skill:list', async (_event, agentId) => {
-    const skillService = await getSkillService();
-    if (!skillService) {
-      return { success: true, data: [] };
-    }
-    try {
-      const data = await skillService.list(agentId);
-      return { success: true, data };
-    } catch (error) {
-      logger.error('[Main] Failed to list skills', { error });
-      return { success: false, error };
-    }
+  ipcMain.handle('app:register-extended-ipc', async () => {
+    await ensureExtendedIpcRegistered();
+    return { success: true };
   });
 
-  ipcMain.handle('skill:toggle', async (_event, options) => {
-    const skillService = await getSkillService();
-    if (!skillService) {
-      return { success: false, error: 'skillService unavailable' };
-    }
-    try {
-      if (
-        !options ||
-        typeof options.skillId !== 'string' ||
-        !options.skillId ||
-        typeof options.agentId !== 'string' ||
-        !options.agentId ||
-        typeof options.isEnabled !== 'boolean'
-      ) {
-        return { success: false, error: 'Invalid toggle options' };
-      }
-      const data = await skillService.toggle(options);
-      return { success: true, data };
-    } catch (error) {
-      logger.error('[Main] Failed to toggle skill', { options, error });
-      return { success: false, error };
-    }
+  ipcMain.handle('app:initialize-login-services', async () => {
+    await ensureI18nInitialized();
+    ensureUpdaterInitialized();
+    await ensureCodeToolsInitialized();
+    return { success: true };
   });
 
-  ipcMain.handle('skill:install-from-directory', async (_event, options) => {
-    const skillService = await getSkillService();
-    if (!skillService) {
-      return { success: false, error: 'skillService unavailable' };
-    }
-    try {
-      const data = await skillService.installFromDirectory(options);
-      return { success: true, data };
-    } catch (error) {
-      logger.error('[Main] Failed to install skill from directory', { options, error });
-      return { success: false, error };
-    }
+  ipcMain.handle('app:initialize-agent-services', async () => {
+    await initializeAgentServices();
+    return { success: true };
   });
-
-  ipcMain.handle('skill:uninstall', async (_event, skillId) => {
-    const skillService = await getSkillService();
-    if (!skillService) {
-      return { success: false, error: 'skillService unavailable' };
-    }
-    try {
-      await skillService.uninstall(skillId);
-      return { success: true, data: undefined };
-    } catch (error) {
-      logger.error('[Main] Failed to uninstall skill', { skillId, error });
-      return { success: false, error };
-    }
-  });
-
-  logger.info('[Main] skill IPC handlers registered');
 } catch (error) {
   logger.warn('[Main] skill IPC handlers registration failed', {
     error: error?.message || String(error),
@@ -565,8 +560,8 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     frame: false, // 移除系统边框
-    // 修改：Windows 关闭透明，避免最大化失效；macOS 可保持透明
-    transparent: isWindows ? false : true,
+    // 登录窗口统一关闭透明，避免首屏渲染前出现黑屏/空白体感
+    transparent: false,
     titleBarStyle: 'hidden',
     // 修改：Windows 关闭系统覆盖层，改用自定义控件
     titleBarOverlay: isWindows ? false : true,
@@ -623,7 +618,6 @@ function createWindow() {
 
 // 注册自定义协议
 app.whenReady().then(() => {
-  setupUpdater();
   protocol.registerFileProtocol('vectcut', (request, callback) => {
     const url = request.url.substr('vectcut://'.length);
     try {
@@ -930,22 +924,6 @@ const registerIpcHandle = (channel, handler) => {
 };
 
 const getLegacyFileStorageDir = () => path.join(app.getPath('userData'), 'files');
-
-registerIpcHandle('file:read', async (_event, id) => {
-  const filePath = path.join(getLegacyFileStorageDir(), String(id || ''));
-  return fs.promises.readFile(filePath, 'utf8');
-});
-
-registerIpcHandle('file:readExternal', async (_event, filePath) => {
-  return fs.promises.readFile(String(filePath || ''), 'utf8');
-});
-
-registerIpcHandle('file:writeWithId', async (_event, id, content) => {
-  const storageDir = getLegacyFileStorageDir();
-  const filePath = path.join(storageDir, String(id || ''));
-  await fs.promises.mkdir(storageDir, { recursive: true });
-  await fs.promises.writeFile(filePath, String(content ?? ''), 'utf8');
-});
 
 // 1. 处理打开文件夹的请求 (保持不变)
 ipcMain.on('open-download-directory', (event, directoryPath) => {

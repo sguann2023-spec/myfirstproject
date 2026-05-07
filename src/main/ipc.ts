@@ -2,7 +2,6 @@ import fs from 'node:fs'
 import { arch } from 'node:os'
 import path from 'node:path'
 
-import type { TokenUsageData } from '@cherrystudio/analytics-client'
 import { loggerService } from '@logger'
 import { isLinux, isMac, isPortable, isWin } from '@main/constant'
 import { generateSignature } from '@main/integration/cherryai'
@@ -40,7 +39,6 @@ import fontList from 'font-list'
 
 import { agentMessageRepository } from './services/agents/database'
 import { skillService } from './services/agents/skills/SkillService'
-import { analyticsService } from './services/AnalyticsService'
 import { apiServerService } from './services/ApiServerService'
 import appService from './services/AppService'
 import AppUpdater from './services/AppUpdater'
@@ -54,11 +52,9 @@ import { ExportService } from './services/ExportService'
 import { externalAppsService } from './services/ExternalAppsService'
 import { fileStorage as fileManager } from './services/FileStorage'
 import FileService from './services/FileSystemService'
-import KnowledgeService from './services/KnowledgeService'
 import { lanTransferClientService } from './services/lanTransfer'
 import { localTransferService } from './services/LocalTransferService'
 import mcpService from './services/MCPService'
-import MemoryService from './services/memory/MemoryService'
 import { openTraceWindow, setTraceWindowTitle } from './services/NodeTraceService'
 import NotificationService from './services/NotificationService'
 import * as NutstoreService from './services/NutstoreService'
@@ -106,6 +102,7 @@ import {
 import { updateAppDataConfig } from './utils/init'
 import { getCpuName, getDeviceType, getHostname } from './utils/system'
 import { compress, decompress } from './utils/zip'
+import { installBuiltinSkills } from './utils/builtinSkills'
 
 const logger = loggerService.withContext('IPC')
 
@@ -113,7 +110,6 @@ const backupManager = new BackupManager()
 const exportService = new ExportService()
 const obsidianVaultService = new ObsidianVaultService()
 const vertexAIService = VertexAIService.getInstance()
-const memoryService = MemoryService.getInstance()
 const dxtService = new DxtService()
 
 export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
@@ -323,6 +319,11 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     const windows = BrowserWindow.getAllWindows()
     handleZoomFactor(windows, delta, reset)
     return configManager.getZoomFactor()
+  })
+
+  ipcMain.handle(IpcChannel.App_BootstrapBuiltinSkills, async () => {
+    await installBuiltinSkills({ distributeToAgents: true })
+    return { success: true }
   })
 
   // clear cache
@@ -688,28 +689,18 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     }
   })
 
-  ipcMain.handle(IpcChannel.KnowledgeBase_Create, KnowledgeService.create.bind(KnowledgeService))
-  ipcMain.handle(IpcChannel.KnowledgeBase_Reset, KnowledgeService.reset.bind(KnowledgeService))
-  ipcMain.handle(IpcChannel.KnowledgeBase_Delete, KnowledgeService.delete.bind(KnowledgeService))
-  ipcMain.handle(IpcChannel.KnowledgeBase_Add, KnowledgeService.add.bind(KnowledgeService))
-  ipcMain.handle(IpcChannel.KnowledgeBase_Remove, KnowledgeService.remove.bind(KnowledgeService))
-  ipcMain.handle(IpcChannel.KnowledgeBase_Search, KnowledgeService.search.bind(KnowledgeService))
-  ipcMain.handle(IpcChannel.KnowledgeBase_Rerank, KnowledgeService.rerank.bind(KnowledgeService))
-
-  // memory
-  ipcMain.handle(IpcChannel.Memory_Add, (_, messages, config) => memoryService.add(messages, config))
-  ipcMain.handle(IpcChannel.Memory_Search, (_, query, config) => memoryService.search(query, config))
-  ipcMain.handle(IpcChannel.Memory_List, (_, config) => memoryService.list(config))
-  ipcMain.handle(IpcChannel.Memory_Delete, (_, id) => memoryService.delete(id))
-  ipcMain.handle(IpcChannel.Memory_Update, (_, id, memory, metadata) => memoryService.update(id, memory, metadata))
-  ipcMain.handle(IpcChannel.Memory_Get, (_, memoryId) => memoryService.get(memoryId))
-  ipcMain.handle(IpcChannel.Memory_SetConfig, (_, config) => memoryService.setConfig(config))
-  ipcMain.handle(IpcChannel.Memory_DeleteUser, (_, userId) => memoryService.deleteUser(userId))
-  ipcMain.handle(IpcChannel.Memory_DeleteAllMemoriesForUser, (_, userId) =>
-    memoryService.deleteAllMemoriesForUser(userId)
-  )
-  ipcMain.handle(IpcChannel.Memory_GetUsersList, () => memoryService.getUsersList())
-  ipcMain.handle(IpcChannel.Memory_MigrateMemoryDb, () => memoryService.migrateMemoryDb())
+  // memory (service removed, keep no-op handlers for compatibility)
+  ipcMain.handle(IpcChannel.Memory_Add, async () => ({ memories: [], count: 0, error: 'Memory service removed' }))
+  ipcMain.handle(IpcChannel.Memory_Search, async () => ({ memories: [], count: 0, error: 'Memory service removed' }))
+  ipcMain.handle(IpcChannel.Memory_List, async () => ({ memories: [], count: 0, error: 'Memory service removed' }))
+  ipcMain.handle(IpcChannel.Memory_Delete, async () => undefined)
+  ipcMain.handle(IpcChannel.Memory_Update, async () => undefined)
+  ipcMain.handle(IpcChannel.Memory_Get, async () => [])
+  ipcMain.handle(IpcChannel.Memory_SetConfig, async () => undefined)
+  ipcMain.handle(IpcChannel.Memory_DeleteUser, async () => undefined)
+  ipcMain.handle(IpcChannel.Memory_DeleteAllMemoriesForUser, async () => undefined)
+  ipcMain.handle(IpcChannel.Memory_GetUsersList, async () => [])
+  ipcMain.handle(IpcChannel.Memory_MigrateMemoryDb, async () => undefined)
 
   // window
   ipcMain.handle(IpcChannel.Windows_SetMinimumSize, (_, width: number, height: number) => {
@@ -1195,8 +1186,4 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     }
   })
 
-  // Analytics
-  ipcMain.handle(IpcChannel.Analytics_TrackTokenUsage, (_, data: TokenUsageData) =>
-    analyticsService.trackTokenUsage(data)
-  )
 }

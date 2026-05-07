@@ -289,6 +289,12 @@ export class SkillService extends BaseService {
     const linkPath = this.getSkillLinkPath(folderName, workspace)
 
     try {
+      // Idempotent fast-path: if copied skill already exists and version is unchanged, skip rm+cp.
+      if ((await directoryExists(linkPath)) && (await this.isSkillCopyUpToDate(target, linkPath))) {
+        logger.info('Skill copy skipped (up-to-date)', { folderName, target, linkPath })
+        return
+      }
+
       await fs.promises.mkdir(path.dirname(linkPath), { recursive: true })
       await fs.promises.rm(linkPath, { recursive: true, force: true })
       await fs.promises.cp(target, linkPath, { recursive: true })
@@ -300,6 +306,22 @@ export class SkillService extends BaseService {
         error: error instanceof Error ? error.message : String(error)
       })
       throw error
+    }
+  }
+
+  private async isSkillCopyUpToDate(sourcePath: string, destPath: string): Promise<boolean> {
+    try {
+      const versionFile = '.version'
+      const [sourceVersion, destVersion] = await Promise.all([
+        fs.promises.readFile(path.join(sourcePath, versionFile), 'utf-8'),
+        fs.promises.readFile(path.join(destPath, versionFile), 'utf-8')
+      ])
+
+      const source = sourceVersion.trim()
+      const dest = destVersion.trim()
+      return Boolean(source) && source === dest
+    } catch {
+      return false
     }
   }
 

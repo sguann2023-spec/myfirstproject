@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Typography, Input, message, Dropdown, Menu, Tooltip, Modal, Select } from 'antd';
+import { Button, Typography, Input, message, Dropdown, Menu, Tooltip, Modal, Select, Spin } from 'antd';
 import { GlobalOutlined, MinusOutlined, FullscreenOutlined, CloseOutlined, PlusOutlined, DeleteOutlined, SettingOutlined, DownOutlined } from '@ant-design/icons';
 import { GuardProvider, useGuard } from '@authing/guard-react';
 import * as Authing from '@authing/guard';
@@ -18,6 +18,8 @@ import { addUser } from '../../api/user';
 import logger from '../../shared/logger';
 
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+let loginPreInitPromise = null;
+let loginPreInitCachedError = '';
 
 // --- Authing 配置常量 ---
 const AUTHING_CONFIG = {
@@ -187,10 +189,12 @@ const exchangeToken = async (code, trans) => {
  * @param {string} props.language - 当前语言
  * @param {function} props.toggleLanguage - 切换语言函数
  */
-const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
+const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLanguage }) => {
     const i18n = trans || ((key) => key.replace(/_/g, ' '));
 
     const [viewState, setViewState] = useState('login');
+    const [isLoginPreInitLoading, setIsLoginPreInitLoading] = useState(true);
+    const [loginPreInitError, setLoginPreInitError] = useState('');
     // 展示用的用户名（初始从持久化里读一次）
     const [displayName, setDisplayName] = useState(() => electronStore.get('user')?.name || '');
     // 展示的用户头像
@@ -208,6 +212,52 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
     const handleBackToLogin = () => {
         setViewState('login');
     };
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const runLoginPreInit = async () => {
+            setIsLoginPreInitLoading(true);
+            setLoginPreInitError(loginPreInitCachedError);
+            // await new Promise((resolve) => setTimeout(resolve, 10000));
+
+            if (!loginPreInitPromise) {
+                loginPreInitPromise = (async () => {
+                    try {
+                        await ipcRenderer.invoke('app:initialize-login-services');
+                        await ipcRenderer.invoke('app:initialize-agent-services');
+                        await ipcRenderer.invoke('app:register-extended-ipc');
+                        await ipcRenderer.invoke('app:bootstrap-builtin-skills');
+                        if (typeof onPrepareHomeRuntime === 'function') {
+                            await onPrepareHomeRuntime();
+                        }
+                        loginPreInitCachedError = '';
+                    } catch (error) {
+                        logger.error('login pre-init failed:', error);
+                        loginPreInitCachedError = error?.message || 'login pre-init failed';
+                    }
+                })();
+            }
+
+            await loginPreInitPromise;
+
+            if (!isMounted) return;
+
+            if (loginPreInitCachedError) {
+                setLoginPreInitError(loginPreInitCachedError);
+                message.warning('Login pre-initialization failed, login is still available.');
+            } else {
+                setLoginPreInitError('');
+            }
+            setIsLoginPreInitLoading(false);
+        };
+
+        runLoginPreInit();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [onPrepareHomeRuntime]);
     
     // --- Authing 登录逻辑 ---
     // 打开 Authing Guard 的封装
@@ -224,6 +274,10 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
 
     // 登录：优先尝试用 refresh_token 静默获取有效令牌，失败再打开 Guard
     const handleLogin = async () => {
+        if (isLoginPreInitLoading) {
+            message.info('App is still initializing, please wait...');
+            return;
+        }
         try {
             // 如果已经有 refresh_token，优先静默刷新/校验
             const accessToken = await tokenStore.ensureValidAccessToken();
@@ -334,6 +388,10 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
 
     // 强制打开 Authing 登录页（忽略现有会话）
     const forceOpenGuardLogin = () => {
+        if (isLoginPreInitLoading) {
+            message.info('App is still initializing, please wait...');
+            return;
+        }
         electronStore.delete('user');
         setDisplayName('');
         setAvatarUrl('');
@@ -388,20 +446,34 @@ const LoginPage = ({ onLogin, trans, language, toggleLanguage }) => {
                     </Text>
                 </div>
 
-                {/* 登录按钮：点击后触发 Guard 窗口 */}
-                <Button
-                    id="login-button"
-                    className="login-button"
-                    onClick={handleLogin} // <-- 绑定 Guard 登录流程
-                >
-                    {i18n('login_button')}
-                </Button>
+                {isLoginPreInitLoading ? (
+                    <div style={{ marginTop: 90, textAlign: 'center' }}>
+                        <Spin size="medium" />
+                    </div>
+                ) : (
+                    <>
+                        {/* 登录按钮：点击后触发 Guard 窗口 */}
+                        <Button
+                            id="login-button"
+                            className="login-button"
+                            onClick={handleLogin} // <-- 绑定 Guard 登录流程
+                        >
+                            {i18n('login_button')}
+                        </Button>
 
-                <Text 
-                    className="switch-account" 
-                    onClick={forceOpenGuardLogin}>
-                        {i18n('switch_account')}
-                </Text>
+                        <Text
+                            className="switch-account"
+                            onClick={forceOpenGuardLogin}>
+                                {i18n('switch_account')}
+                        </Text>
+                    </>
+                )}
+
+                {loginPreInitError ? (
+                    <Text style={{ display: 'block', marginTop: 8, color: '#FF4D4F' }}>
+                        {loginPreInitError}
+                    </Text>
+                ) : null}
             </>
         );
     };

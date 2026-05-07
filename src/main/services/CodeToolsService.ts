@@ -48,6 +48,8 @@ class CodeToolsService {
   private readonly TERMINALS_CACHE_DURATION = 1000 * 60 * 5 // 5 minutes cache for terminals
   private openCodeCleanupTimers: Map<string, NodeJS.Timeout> = new Map() // Track cleanup timers by directory for debounce
   private openCodeConfigBackups: Map<string, string | null> = new Map() // Store raw backup content of opencode.json
+  private preloadPromise: Promise<void> | null = null
+  private terminalsPreloaded = false
 
   constructor() {
     this.getBunPath = this.getBunPath.bind(this)
@@ -58,9 +60,29 @@ class CodeToolsService {
     this.updatePackage = this.updatePackage.bind(this)
     this.run = this.run.bind(this)
 
-    if (isMac || isWin) {
-      void this.preloadTerminals()
+  }
+
+  /**
+   * Explicit startup initialization for terminal preloading.
+   * Kept idempotent so renderer can safely invoke multiple times.
+   */
+  public async initialize(): Promise<void> {
+    if (!(isMac || isWin)) {
+      return
     }
+    if (this.terminalsPreloaded) {
+      return
+    }
+    if (!this.preloadPromise) {
+      this.preloadPromise = this.preloadTerminals()
+        .then(() => {
+          this.terminalsPreloaded = true
+        })
+        .finally(() => {
+          this.preloadPromise = null
+        })
+    }
+    await this.preloadPromise
   }
 
   /**

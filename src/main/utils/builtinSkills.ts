@@ -26,10 +26,11 @@ const VERSION_FILE = '.version'
  * ships a newer version.
  */
 // TODO: v2-backup
-export async function installBuiltinSkills(): Promise<void> {
+export async function installBuiltinSkills(options?: { distributeToAgents?: boolean }): Promise<void> {
   const resourceSkillsPath = toAsarUnpackedPath(path.join(app.getAppPath(), 'resources', 'skills'))
   const globalSkillsPath = getDataPath('Skills')
   const appVersion = app.getVersion()
+  const distributeToAgents = options?.distributeToAgents ?? true
 
   try {
     await fs.access(resourceSkillsPath)
@@ -56,8 +57,10 @@ export async function installBuiltinSkills(): Promise<void> {
       installed++
     }
 
-    // Always make sure existing agents have the skill available in workspace.
-    await skillService.enableForAllAgents(entry.name, entry.name)
+    // Distribute to agent workspaces on demand (e.g. post-login), not necessarily at startup.
+    if (distributeToAgents) {
+      await skillService.enableForAllAgents(entry.name, entry.name)
+    }
   }
 
   if (installed > 0) {
