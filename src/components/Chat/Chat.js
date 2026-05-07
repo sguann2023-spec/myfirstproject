@@ -108,7 +108,10 @@ const Chat = ({
         onRetryAssistantMessage={onRetryAssistantMessage}
         onDeleteAssistantMessage={onDeleteAssistantMessage}
         messageEndRef={messageEndRef}
-        onQuickPrompt={setInput}
+        onQuickPrompt={(prompt) => {
+          setInput(prompt);
+          inputRef.current?.focus();
+        }}
         quickPrompts={QUICK_PROMPTS}
         emptyWelcomeText={EMPTY_WELCOME_TEXT}
         formatMessageTime={formatMessageTime}
