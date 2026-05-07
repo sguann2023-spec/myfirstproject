@@ -40,6 +40,11 @@ interface CodeViewerProps {
    * Only works when expanded is false.
    */
   maxHeight?: string | number
+  /**
+   * Minimum height of the scroll container.
+   * Only works when expanded is false.
+   */
+  minHeight?: string | number
   /** Viewer options. */
   options?: {
     /**
@@ -78,6 +83,7 @@ const CodeViewer = ({
   value,
   language,
   height,
+  minHeight,
   maxHeight,
   onHeightChange,
   options,
@@ -428,7 +434,7 @@ const CodeViewer = ({
   }, [rawLines.length, onHeightChange])
 
   return (
-    <div ref={shikiThemeRef} style={expanded ? undefined : { height }}>
+    <div ref={shikiThemeRef} style={expanded ? undefined : { height, minHeight }}>
       <ScrollContainer
         ref={scrollerRef}
         className="shiki-scroller"
@@ -441,6 +447,7 @@ const CodeViewer = ({
             '--gutter-width': `${gutterDigits}ch`,
             fontSize,
             height: expanded ? undefined : height,
+            minHeight: expanded ? undefined : minHeight,
             maxHeight: expanded ? undefined : maxHeight,
             overflowY: expanded ? 'hidden' : 'auto'
           } as React.CSSProperties

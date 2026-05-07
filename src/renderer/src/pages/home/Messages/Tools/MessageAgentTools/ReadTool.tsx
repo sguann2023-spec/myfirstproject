@@ -91,6 +91,7 @@ export function ReadTool({
           language={language}
           expanded={false}
           wrapped={false}
+          minHeight={100}
           maxHeight={240}
           options={{ lineNumbers: true }}
         />
