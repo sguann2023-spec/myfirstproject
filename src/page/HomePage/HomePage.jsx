@@ -18,20 +18,8 @@ import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
 import { tokenStore } from '../../auth';
 import { normalizeChatError } from '../../shared/chatError';
-import {
-  appendFlowSegment,
-  appendToolFlowSegment,
-  buildAssistantDisplayContent,
-  buildAssistantDisplayContentFromFlow,
-  buildStreamAssistantBlocks,
-  getFlowCombinedContent,
-  getPersistedAssistantMainText,
-  hasThinkTag,
-  mergeStreamingAccumulated,
-  normalizePersistedAssistantBlocks,
-  serializeStructuredValue,
-  summarizeBlockTypes
-} from '../../components/Chat/MessagePane/MessageContent/messageFlow';
+import appStore from '../../renderer/src/store';
+import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
@@ -194,6 +182,57 @@ const sortChatSessions = (sessions) => {
   return [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
 
+const buildAssistantDisplayContentFromBlocks = (blocks = []) => {
+  const pieces = [];
+  (Array.isArray(blocks) ? blocks : []).forEach((block) => {
+    const type = String(block?.type || '').toLowerCase();
+    const content = String(block?.content || '').trim();
+    if (!content && type !== 'tool') return;
+    if (type === 'thinking') {
+      pieces.push(`<think>\n${content}\n</think>`);
+      return;
+    }
+    if (type === 'main_text' || type === 'code') {
+      pieces.push(content);
+      return;
+    }
+    if (type === 'tool') {
+      const raw = block?.metadata?.rawMcpToolResponse || {};
+      const payload = {
+        name: String(raw?.tool?.name || block?.toolName || 'tool'),
+        args: (() => {
+          try { return typeof raw?.arguments === 'string' ? raw.arguments : JSON.stringify(raw?.arguments ?? '', null, 2); } catch { return ''; }
+        })(),
+        result: (() => {
+          try { return typeof raw?.response === 'string' ? raw.response : JSON.stringify(raw?.response ?? '', null, 2); } catch { return ''; }
+        })(),
+        status: String(raw?.status || block?.status || 'done')
+      };
+      pieces.push(`\`\`\`tool\n${JSON.stringify(payload, null, 2)}\n\`\`\``);
+    }
+  });
+  return pieces.join('\n\n').trim();
+};
+
+const getAssistantSnapshotFromStore = (assistantMessageId) => {
+  const state = appStore.getState();
+  const message = state?.messages?.entities?.[assistantMessageId];
+  if (!message) return null;
+  const blockIds = Array.isArray(message?.blocks) ? message.blocks : [];
+  const blocks = blockIds
+    .map((id) => state?.messageBlocks?.entities?.[id])
+    .filter(Boolean)
+    .map((block) => ({
+      ...block,
+      type: String(block?.type || ''),
+      status: String(block?.status || '')
+    }));
+  return {
+    blocks,
+    content: buildAssistantDisplayContentFromBlocks(blocks)
+  };
+};
+
 const HomePage = () => {
   const user = electronStore.get('user') || {};
   const avatarSrc = user?.avatar || LogoIcon;
@@ -221,8 +260,6 @@ const HomePage = () => {
   const chatAgentSessionIdByChatIdRef = useRef(new Map());
   const chatIdByAgentSessionIdRef = useRef(new Map());
   const chatPendingByAgentSessionIdRef = useRef(new Map());
-  const chatToolEventSeqBySessionRef = useRef(new Map());
-  const chatToolLastSignatureBySessionRef = useRef(new Map());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
@@ -608,21 +645,13 @@ const HomePage = () => {
         }
         return;
       }
-      const { chatId, assistantMessageId } = pending;
-      const toOrderedTools = (pendingState) => {
-        const list = Object.values(pendingState?.toolMap || {});
-        return list.sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0));
-      };
-
-      const applyContent = (content, error = null) => {
+      const { chatId, assistantMessageId, streamController, storeAssistantMessageId } = pending;
+      const applySnapshot = (error = null) => {
+        const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+        if (!snapshot) return;
         setChatSessions((prev) => {
           const updated = prev.map((item) => {
             if (item.id !== chatId) return item;
-            const pendingState = chatPendingByAgentSessionIdRef.current.get(agentSessionId) || pending;
-            const streamBlocks = buildStreamAssistantBlocks({
-              assistantMessageId,
-              pendingState
-            });
             return {
               ...item,
               updatedAt: Date.now(),
@@ -630,8 +659,8 @@ const HomePage = () => {
                 message.id === assistantMessageId
                   ? {
                     ...message,
-                    content,
-                    blocks: streamBlocks,
+                    content: snapshot.content || '',
+                    blocks: snapshot.blocks || [],
                     error,
                     updatedAt: Date.now()
                   }
@@ -644,206 +673,8 @@ const HomePage = () => {
       };
 
       if (payload.type === 'chunk') {
-        const chunk = payload.chunk || {};
-        if (chunk.type === 'text-delta' || chunk.type === 'text-end') {
-          const nextFlowSegments = appendFlowSegment(
-            pending.flowSegments,
-            'text',
-            chunk.accumulated,
-            chunk.text
-          );
-          const textAccumulated = getFlowCombinedContent(nextFlowSegments, 'text')
-            || mergeStreamingAccumulated(pending.accumulated, chunk.accumulated, chunk.text);
-          const reasoningAccumulated = getFlowCombinedContent(nextFlowSegments, 'thinking')
-            || String(pending.reasoning || '');
-          const tools = toOrderedTools(pending);
-          const accumulated = buildAssistantDisplayContentFromFlow({ segments: nextFlowSegments, tools })
-            || buildAssistantDisplayContent({ text: textAccumulated, reasoning: reasoningAccumulated, tools });
-          chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
-            ...pending,
-            accumulated: textAccumulated,
-            reasoning: reasoningAccumulated,
-            flowSegments: nextFlowSegments
-          });
-          applyContent(accumulated, null);
-        }
-        if (chunk.type === 'reasoning-delta') {
-          const nextFlowSegments = appendFlowSegment(
-            pending.flowSegments,
-            'thinking',
-            chunk.accumulated,
-            chunk.text
-          );
-          const textAccumulated = getFlowCombinedContent(nextFlowSegments, 'text') || String(pending.accumulated || '');
-          const reasoning = getFlowCombinedContent(nextFlowSegments, 'thinking') || String(pending.reasoning || '');
-          const tools = toOrderedTools(pending);
-          const accumulated = buildAssistantDisplayContentFromFlow({ segments: nextFlowSegments, tools })
-            || buildAssistantDisplayContent({ text: textAccumulated, reasoning, tools });
-          chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
-            ...pending,
-            accumulated: textAccumulated,
-            reasoning,
-            flowSegments: nextFlowSegments
-          });
-          applyContent(accumulated, null);
-        }
-        if (
-          chunk.type === 'tool-call'
-          || chunk.type === 'tool-result'
-          || chunk.type === 'tool-error'
-          || chunk.type === 'tool-input-start'
-          || chunk.type === 'tool-input-delta'
-          || chunk.type === 'tool-input-end'
-        ) {
-          const rawToolCallId = String(chunk.toolCallId || chunk.id || '').trim();
-          const isToolInputEvent =
-            chunk.type === 'tool-input-start'
-            || chunk.type === 'tool-input-delta'
-            || chunk.type === 'tool-input-end';
-
-          if (!rawToolCallId) {
-            if (isToolInputEvent) {
-              logger.warn('[HomePage][ToolStream] skip tool input event without toolCallId', {
-                chunkType: chunk.type,
-                toolName: String(chunk.toolName || '')
-              });
-              return;
-            }
-            logger.warn('[HomePage][ToolStream] skip tool event without toolCallId', {
-              chunkType: chunk.type,
-              toolName: String(chunk.toolName || '')
-            });
-            return;
-          }
-
-          const toolCallId = rawToolCallId;
-          const shouldBumpToolOrder = !pending?.toolMap?.[toolCallId];
-          const prevTool = pending?.toolMap?.[toolCallId] || {
-            id: toolCallId,
-            name: 'tool',
-            args: '',
-            result: '',
-            status: 'pending',
-            order: Number(pending?.toolOrder || 0),
-            textOffset: undefined,
-            responseOrder: undefined
-          };
-          const nextTool = { ...prevTool };
-          nextTool.name = String(chunk.toolName || nextTool.name || 'tool');
-          const prevStatus = String(prevTool?.status || 'pending');
-
-          if (chunk.type === 'tool-call') {
-            nextTool.args = serializeStructuredValue(chunk.input);
-            nextTool.status = 'running';
-          }
-          if (chunk.type === 'tool-input-start') {
-            nextTool.status = 'running';
-          }
-          if (chunk.type === 'tool-input-delta') {
-            nextTool.args = `${String(nextTool.args || '')}${String(chunk.delta || '')}`;
-            nextTool.status = 'running';
-          }
-          if (chunk.type === 'tool-input-end') {
-            nextTool.status = 'running';
-          }
-          if (chunk.type === 'tool-result') {
-            nextTool.args = nextTool.args || serializeStructuredValue(chunk.input);
-            nextTool.result = serializeStructuredValue(chunk.output);
-            nextTool.status = 'done';
-            if (!Number.isFinite(Number(nextTool.textOffset))) {
-              nextTool.textOffset = Number(pending?.accumulated?.length || 0);
-            }
-            if (!Number.isFinite(Number(nextTool.responseOrder))) {
-              nextTool.responseOrder = Number(pending?.toolResponseOrder || 0) + 1;
-            }
-          }
-          if (chunk.type === 'tool-error') {
-            nextTool.args = nextTool.args || serializeStructuredValue(chunk.input);
-            nextTool.result = serializeStructuredValue(chunk.error);
-            nextTool.status = 'error';
-            if (!Number.isFinite(Number(nextTool.textOffset))) {
-              nextTool.textOffset = Number(pending?.accumulated?.length || 0);
-            }
-            if (!Number.isFinite(Number(nextTool.responseOrder))) {
-              nextTool.responseOrder = Number(pending?.toolResponseOrder || 0) + 1;
-            }
-          }
-
-          const nextToolMap = {
-            ...(pending?.toolMap || {}),
-            [toolCallId]: nextTool
-          };
-          const nextFlowSegments = appendToolFlowSegment(pending?.flowSegments, toolCallId);
-          const shouldBumpToolResponseOrder =
-            (chunk.type === 'tool-result' || chunk.type === 'tool-error')
-            && !Number.isFinite(Number(prevTool?.responseOrder));
-          const nextPending = {
-            ...pending,
-            flowSegments: nextFlowSegments,
-            toolMap: nextToolMap,
-            toolOrder: shouldBumpToolOrder ? Number(pending?.toolOrder || 0) + 1 : Number(pending?.toolOrder || 0),
-            toolResponseOrder: shouldBumpToolResponseOrder
-              ? Number(pending?.toolResponseOrder || 0) + 1
-              : Number(pending?.toolResponseOrder || 0)
-          };
-
-          const eventSignature = [
-            String(chunk.type || ''),
-            String(nextTool.name || ''),
-            String(prevStatus || ''),
-            String(nextTool.status || ''),
-            String(toolCallId || '')
-          ].join('|');
-          const lastSignatureMap = chatToolLastSignatureBySessionRef.current;
-          const previousSignature = lastSignatureMap.get(agentSessionId);
-          const shouldLogEvent =
-            chunk.type !== 'tool-input-delta'
-            && eventSignature !== previousSignature;
-          if (shouldLogEvent) {
-            const seqMap = chatToolEventSeqBySessionRef.current;
-            const nextSeq = Number(seqMap.get(agentSessionId) || 0) + 1;
-            seqMap.set(agentSessionId, nextSeq);
-            lastSignatureMap.set(agentSessionId, eventSignature);
-            logger.info('[HomePage][ToolStream] event', {
-              sessionId: agentSessionId,
-              seq: nextSeq,
-              chunkType: chunk.type,
-              toolCallId,
-              toolName: nextTool.name,
-              statusTransition: `${prevStatus}->${nextTool.status}`,
-              isNewToolCall: shouldBumpToolOrder
-            });
-          }
-          if (chunk.type === 'tool-error') {
-            logger.error('[HomePage][ToolStream] tool-error detail', {
-              sessionId: agentSessionId,
-              toolCallId,
-              toolName: nextTool.name,
-              error: (() => {
-                if (typeof chunk.error === 'string') return chunk.error;
-                if (chunk.error === undefined || chunk.error === null) return '';
-                try {
-                  return JSON.stringify(chunk.error);
-                } catch {
-                  return String(chunk.error);
-                }
-              })()
-            });
-          }
-
-          chatPendingByAgentSessionIdRef.current.set(agentSessionId, nextPending);
-          const streamDisplayContent = Array.isArray(nextPending.flowSegments) && nextPending.flowSegments.length > 0
-            ? buildAssistantDisplayContentFromFlow({
-              segments: nextPending.flowSegments,
-              tools: toOrderedTools(nextPending)
-            })
-            : buildAssistantDisplayContent({
-              text: nextPending.accumulated || '',
-              reasoning: nextPending.reasoning || '',
-              tools: toOrderedTools(nextPending)
-            });
-          applyContent(streamDisplayContent, null);
-        }
+        streamController?.pushChunk(payload.chunk || {});
+        applySnapshot(null);
         return;
       }
 
@@ -855,137 +686,26 @@ const HomePage = () => {
           chatAgentSessionIdByChatIdRef.current.delete(chatId);
         }
         const normalizedError = normalizeChatError(payload?.error || new Error(payload?.error?.message || 'agent request failed'));
-        const errorDisplayContent = Array.isArray(pending.flowSegments) && pending.flowSegments.length > 0
-          ? buildAssistantDisplayContentFromFlow({
-            segments: pending.flowSegments,
-            tools: toOrderedTools(pending)
-          })
-          : buildAssistantDisplayContent({
-            text: pending.accumulated || '',
-            reasoning: pending.reasoning || '',
-            tools: toOrderedTools(pending)
-          });
-        applyContent(errorDisplayContent, normalizedError);
+        streamController?.error(new Error(errorMessage || 'agent request failed'));
+        applySnapshot(normalizedError);
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
         setChatSending(false);
         return;
       }
 
       if (payload.type === 'cancelled') {
+        streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
-        chatToolEventSeqBySessionRef.current.delete(agentSessionId);
-        chatToolLastSignatureBySessionRef.current.delete(agentSessionId);
         setChatSending(false);
         return;
       }
 
       if (payload.type === 'complete') {
-        logger.info('[HomePage] cherryChatStream complete handling', {
-          sessionId: agentSessionId,
-          chatId,
-          assistantMessageId,
-          accumulatedLength: String(pending?.accumulated || '').length,
-          reasoningLength: String(pending?.reasoning || '').length,
-          toolCount: pending?.toolMap ? Object.keys(pending.toolMap).length : 0
-        });
-        const completedTools = toOrderedTools(pending).map((tool) => ({
-          order: Number(tool?.order || 0),
-          toolCallId: String(tool?.id || ''),
-          toolName: String(tool?.name || ''),
-          status: String(tool?.status || '')
-        }));
-        logger.info('[HomePage][ToolStream] complete summary', {
-          sessionId: agentSessionId,
-          toolEventCount: Number(chatToolEventSeqBySessionRef.current.get(agentSessionId) || 0),
-          completedTools
-        });
-        void (async () => {
-          try {
-            const listResult = await window.electronAPI.cherryChatStream.listMessages(agentSessionId);
-            const persistedMessages = Array.isArray(listResult?.messages) ? listResult.messages : [];
-            const latestAssistantMessage = [...persistedMessages]
-              .reverse()
-              .find((item) => String(item?.role || '').toLowerCase() === 'assistant');
-            const persistedBlocks = normalizePersistedAssistantBlocks(latestAssistantMessage);
-            const persistedMainText = getPersistedAssistantMainText(persistedBlocks);
-            const persistedToolBlocks = persistedBlocks.filter((block) => String(block?.type || '').toLowerCase() === 'tool');
-            const persistedSkillToolBlocks = persistedToolBlocks.filter((block) => {
-              const name = String(block?.metadata?.rawMcpToolResponse?.tool?.name || '').toLowerCase();
-              return name === 'skill' || name === 'find-skills';
-            });
-            logger.info('[HomePage] cherryChatStream complete listMessages merged', {
-              sessionId: agentSessionId,
-              listOk: Boolean(listResult?.ok),
-              persistedMessageCount: persistedMessages.length,
-              persistedBlockCount: persistedBlocks.length,
-              persistedToolBlockCount: persistedToolBlocks.length,
-              persistedSkillToolBlockCount: persistedSkillToolBlocks.length,
-              persistedBlockTypes: summarizeBlockTypes(persistedBlocks)
-            });
-            setChatSessions((prev) => {
-              const updated = prev.map((item) => {
-                if (item.id !== chatId) return item;
-                return {
-                  ...item,
-                  updatedAt: Date.now(),
-                  messages: item.messages.map((message) => (
-                    message.id === assistantMessageId
-                      ? (() => {
-                        const keepStreamBlocks =
-                          (!Array.isArray(persistedBlocks) || persistedBlocks.length === 0)
-                          || persistedToolBlocks.length === 0;
-                        const mergedBlocks = keepStreamBlocks
-                          ? buildStreamAssistantBlocks({ assistantMessageId, pendingState: pending || {} })
-                          : persistedBlocks;
-                        const latestPending = chatPendingByAgentSessionIdRef.current.get(agentSessionId) || pending || {};
-                        const mergedDisplayContent =
-                          (Array.isArray(latestPending?.flowSegments) && latestPending.flowSegments.length > 0)
-                            ? buildAssistantDisplayContentFromFlow({
-                              segments: latestPending.flowSegments,
-                              tools: toOrderedTools(latestPending)
-                            })
-                            : buildAssistantDisplayContent({
-                              text: persistedMainText || latestPending?.accumulated || message.content || '',
-                              reasoning: latestPending?.reasoning || '',
-                              tools: toOrderedTools(latestPending)
-                            });
-                        logger.info('[HomePage][ReasoningRenderProbe] complete merge snapshot', {
-                          sessionId: agentSessionId,
-                          assistantMessageId,
-                          pendingReasoningLength: String(latestPending?.reasoning || '').length,
-                          mergedContentLength: String(mergedDisplayContent || '').length,
-                          mergedContentHasThinkTag: hasThinkTag(mergedDisplayContent),
-                          mergedBlockCount: Array.isArray(mergedBlocks) ? mergedBlocks.length : 0,
-                          mergedBlockTypes: summarizeBlockTypes(mergedBlocks),
-                          mergedHasThinkingBlock: (Array.isArray(mergedBlocks) ? mergedBlocks : [])
-                            .some((b) => String(b?.type || '').toLowerCase() === 'thinking')
-                        });
-                        return {
-                          ...message,
-                          content: mergedDisplayContent,
-                          blocks: mergedBlocks,
-                          updatedAt: Date.now()
-                        };
-                      })()
-                      : message
-                  ))
-                };
-              });
-              return sortChatSessions(updated);
-            });
-          } catch (error) {
-            logger.warn('[HomePage] cherryChatStream listMessages on complete failed', {
-              sessionId: agentSessionId,
-              error: error?.message || String(error)
-            });
-          } finally {
-            chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
-            chatToolEventSeqBySessionRef.current.delete(agentSessionId);
-            chatToolLastSignatureBySessionRef.current.delete(agentSessionId);
-            setChatSending(false);
-            void triggerAutoRenameSessionTitle(chatId);
-          }
-        })();
+        streamController?.complete();
+        applySnapshot(null);
+        chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        setChatSending(false);
+        void triggerAutoRenameSessionTitle(chatId);
       }
     });
     return () => {
@@ -1134,15 +854,18 @@ const HomePage = () => {
         sessionId: agentSessionId,
         assistantMessageId
       });
+      const streamController = setupChannelStream(
+        appStore.dispatch,
+        appStore.getState,
+        `home-chat-${targetSessionId}`,
+        'vectcut_claw_default',
+        chatModel
+      );
       chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
         chatId: targetSessionId,
         assistantMessageId,
-        accumulated: '',
-        reasoning: '',
-        flowSegments: [],
-        toolMap: {},
-        toolOrder: 0,
-        toolResponseOrder: 0
+        storeAssistantMessageId: streamController.assistantMessageId,
+        streamController
       });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
@@ -1169,6 +892,11 @@ const HomePage = () => {
     } catch (error) {
       const normalizedError = normalizeChatError(error);
       logger.error('Chat send failed', normalizedError?.detail || error?.message || String(error));
+      const pendingEntries = [...chatPendingByAgentSessionIdRef.current.entries()];
+      const pendingEntry = pendingEntries.find(([, item]) => item.chatId === targetSessionId && item.assistantMessageId === assistantMessageId);
+      if (pendingEntry?.[0]) {
+        chatPendingByAgentSessionIdRef.current.delete(pendingEntry[0]);
+      }
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
           if (item.id !== targetSessionId) return item;
@@ -1258,15 +986,18 @@ const HomePage = () => {
     setChatSending(true);
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
+      const streamController = setupChannelStream(
+        appStore.dispatch,
+        appStore.getState,
+        `home-chat-${activeChatId}`,
+        'vectcut_claw_default',
+        chatModel
+      );
       chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
         chatId: activeChatId,
         assistantMessageId: messageId,
-        accumulated: '',
-        reasoning: '',
-        flowSegments: [],
-        toolMap: {},
-        toolOrder: 0,
-        toolResponseOrder: 0
+        storeAssistantMessageId: streamController.assistantMessageId,
+        streamController
       });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,

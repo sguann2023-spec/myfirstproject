@@ -217,7 +217,6 @@ function handleAssistantMessage(
   }
 
   const textBlocks: string[] = []
-  const reasoningBlocks: string[] = []
 
   for (const block of content) {
     switch (block.type) {
@@ -231,45 +230,10 @@ function handleAssistantMessage(
       case 'tool_use':
         handleAssistantToolUse(block as ToolUseContent, providerMetadata, state, chunks)
         break
-      case 'thinking':
-      case 'redacted_thinking': {
-        const reasoningText = String((block as any).thinking ?? (block as any).text ?? '')
-        if (reasoningText) {
-          reasoningBlocks.push(reasoningText)
-        }
-        break
-      }
       default:
         logger.warn('Unhandled assistant content block', { type: (block as any).type })
         break
     }
-  }
-
-  if (reasoningBlocks.length > 0 && !isStreamingActive) {
-    const reasoningId = message.uuid?.toString() || generateMessageId()
-    const reasoningText = reasoningBlocks.join('')
-    state.beginStep()
-    chunks.push({
-      type: 'start-step',
-      request: { body: '' },
-      warnings: []
-    })
-    chunks.push({
-      type: 'reasoning-start',
-      id: reasoningId,
-      providerMetadata
-    })
-    chunks.push({
-      type: 'reasoning-delta',
-      id: reasoningId,
-      text: reasoningText,
-      providerMetadata
-    })
-    chunks.push({
-      type: 'reasoning-end',
-      id: reasoningId,
-      providerMetadata
-    })
   }
 
   if (textBlocks.length === 0) {
@@ -691,18 +655,16 @@ function handleContentBlockDelta(
       })
       break
     }
-    case 'thinking_delta':
-    case 'reasoning_delta': {
-      const reasoningText = String(delta.thinking ?? delta.reasoning ?? delta.text ?? '')
-      const block = state.appendReasoningDelta(index, reasoningText)
+    case 'thinking_delta': {
+      const block = state.appendReasoningDelta(index, delta.thinking)
       if (!block) {
-        logger.warn('Received thinking/reasoning delta for unknown block', { index })
+        logger.warn('Received thinking_delta for unknown block', { index })
         return
       }
       chunks.push({
         type: 'reasoning-delta',
         id: block.id,
-        text: block.text,
+        text: delta.thinking,
         providerMetadata
       })
       break
