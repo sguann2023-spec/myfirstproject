@@ -8,7 +8,7 @@ import { electronStore } from '../../../shared/electronStore';
 import logger from '../../../shared/logger';
 
 
-const GuiderSetting2 = () => {
+const GuiderSetting2 = ({ onSettingsChange }) => {
   const [draftFolder, setDraftFolder] = useState('');
   const [presetFolder, setPresetFolder] = useState('');
 
@@ -37,6 +37,12 @@ const GuiderSetting2 = () => {
       .then(({ draftFolder: value }) => setDraftFolder(value || draftFallback))
       .catch(() => setDraftFolder(draftFallback));
   }, []);
+
+  useEffect(() => {
+    // Notify parent whether both settings are completed, so it can enable/disable "开始使用".
+    if (typeof onSettingsChange !== 'function') return;
+    onSettingsChange(Boolean(draftFolder?.trim() && presetFolder?.trim()));
+  }, [draftFolder, presetFolder, onSettingsChange]);
 
   const handleChangeDraftFolder = async () => {
     logger.info('[GuiderSetting2] handleChangeDraftFolder:start');

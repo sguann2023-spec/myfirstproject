@@ -1,16 +1,24 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './GuiderPage.css';
 import ArrowBackIcon from '../../../public/arrow_back.svg';
-import { Button } from 'antd';
+import { Button, message } from 'antd';
 import GuiderSetting1 from '../../components/GuiderSettings/GuiderSetting1/GuiderSetting1';
 import GuiderSetting2 from '../../components/GuiderSettings/GuiderSetting2/GuiderSetting2';
 import logger from '../../shared/logger';
+import { electronStore } from '../../shared/electronStore';
 
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
 const GuiderPage = () => {
   logger.debug('GuiderPage');
   const [step, setStep] = useState(1);
+  const [isSetting2Complete, setIsSetting2Complete] = useState(false);
+
+  useEffect(() => {
+    const draftFolder = electronStore?.get('draftFolder', '') || '';
+    const presetFolder = electronStore?.get('presetFolder', '') || '';
+    setIsSetting2Complete(Boolean(draftFolder.trim() && presetFolder.trim()));
+  }, []);
 
   const handleBack = () => {
     if (step > 1) {
@@ -26,6 +34,10 @@ const GuiderPage = () => {
   };
 
   const handleStart = () => {
+    if (!isSetting2Complete) {
+      message.warning('请先完成草稿位置和预设位置设置');
+      return;
+    }
     try {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('guider-finished');
@@ -47,13 +59,13 @@ const GuiderPage = () => {
       </div>
 
       <div className="guider-content">
-        {step === 1 ? <GuiderSetting1 /> : <GuiderSetting2 />}
+        {step === 1 ? <GuiderSetting1 /> : <GuiderSetting2 onSettingsChange={setIsSetting2Complete} />}
         {step === 1 ? (
           <Button type="primary" className="guider-start-btn" onClick={() => setStep(2)}>
             下一步
           </Button>
         ) : (
-          <Button type="primary" className="guider-start-btn" onClick={handleStart}>
+          <Button type="primary" className="guider-start-btn" onClick={handleStart} disabled={!isSetting2Complete}>
             开始使用
           </Button>
         )}

@@ -160,6 +160,18 @@
   background: #0088EE !important;
 }
 
+.guider-start-btn.ant-btn:disabled,
+.guider-start-btn.ant-btn.ant-btn-disabled,
+.guider-start-btn.ant-btn:disabled:hover,
+.guider-start-btn.ant-btn.ant-btn-disabled:hover,
+.guider-start-btn.ant-btn:disabled:focus,
+.guider-start-btn.ant-btn.ant-btn-disabled:focus {
+  background: #d9d9d9 !important;
+  border-color: #d9d9d9 !important;
+  color: #ffffff !important;
+  cursor: not-allowed !important;
+}
+
 .guider-footer-tip {
   margin: 14px 0 0;
   text-align: center;
