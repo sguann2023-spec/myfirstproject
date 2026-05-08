@@ -95,6 +95,7 @@ const PresetList = ({ onSelect }) => {
     tags: d?.tags || '',
     url: d?.url || '',
     materials_url: d?.materials_url || '',
+    materials_json: d?.materials_json ?? null,
     create_time: d?.create_time,
     expire_tag: d?.expire_tag || '',
     is_shared: d?.is_shared,

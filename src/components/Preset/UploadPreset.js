@@ -203,13 +203,6 @@ const scanAndSaveMaterials = (draftFolder, outputFile) => {
   return saveMaterialsToJson(list, outputFile);
 };
 
-const uploadMaterialJsonToOss = async (jsonFilePath, userId, presetId, akid, aks, token, type, region, bucket, endpoint) => {
-  const fs = req('fs');
-  if (!jsonFilePath || !fs.existsSync(jsonFilePath)) return null;
-  const objectName = `preset/${userId}/${presetId}/materials.json`;
-  return uploadFileToOSS(jsonFilePath, objectName, akid, aks, token, 'application/json', type, region, bucket, endpoint);
-};
-
 const randomHex = () => {
   const c = req('crypto');
   return c.randomUUID ? c.randomUUID().replace(/-/g, '') : c.randomBytes(16).toString('hex');
@@ -341,9 +334,21 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
   if (!zipUrl) throw new Error('上传zip文件失败');
   logger.info('[UploadPreset] zip:uploaded', { traceId, presetId, zipObjectName, zipUrl });
 
-  let materialJsonOssUrl = null;
-  if (materialJsonToUpload) {
-    materialJsonOssUrl = await uploadMaterialJsonToOss(materialJsonToUpload, userId, presetId, akid, aks, securityToken, type, region, bucket, endpoint);
+  let materialsJsonPayload = null;
+  try {
+    if (materialJsonToUpload && fs.existsSync(materialJsonToUpload)) {
+      const parsed = JSON.parse(fs.readFileSync(materialJsonToUpload, 'utf-8'));
+      if (Array.isArray(parsed) || (parsed && typeof parsed === 'object')) {
+        materialsJsonPayload = parsed;
+      }
+    }
+  } catch (e) {
+    logger.warn('[UploadPreset] materials_json:parse_failed', {
+      traceId,
+      presetId,
+      materialJsonToUpload,
+      message: e?.message || '',
+    });
   }
 
   let imageUrl = null;
@@ -368,12 +373,19 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
   const updatePayload = {
     name: presetName,
     url: zipUrl,
-    materials_url: materialJsonOssUrl || '',
+    materials_json: materialsJsonPayload || [],
     image_url: imageUrl || '',
     description: description || `${folderName} 预设`,
     tags,
   };
-  logger.info('[UploadPreset] updatePayload', { presetId, presetName, zipUrl, materialJsonOssUrl, imageUrl, tags });
+  logger.info('[UploadPreset] updatePayload', {
+    presetId,
+    presetName,
+    zipUrl,
+    materialsJsonCount: Array.isArray(materialsJsonPayload) ? materialsJsonPayload.length : 0,
+    imageUrl,
+    tags,
+  });
   const updateSuccess = await updatePreset({ preset_id: presetId, ...updatePayload });
 
   if (updateSuccess) {
@@ -384,6 +396,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
       name: presetName,
       url: zipUrl,
       materials: materialsSummary,
+      materials_json: materialsJsonPayload || [],
       image_url: imageUrl,
       description: description || `${folderName} 预设`,
       tag: tags,

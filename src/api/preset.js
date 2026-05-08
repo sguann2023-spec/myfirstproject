@@ -10,7 +10,7 @@ const BASE_URL = 'https://open.vectcut.com/cut_jianying/preset';
 //       "description": "koubo35 预设",
 //       "image_url": "https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/preset/6921810bab8bfad6516eccd1/7060825b-b2f4-4aa4-ba3c-135bced3408f/7060825b-b2f4-4aa4-ba3c-135bced3408f.jpeg",
 //       "is_shared": 0,
-//       "materials_url": "https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/preset/6921810bab8bfad6516eccd1/7060825b-b2f4-4aa4-ba3c-135bced3408f/materials.json",
+//       "materials_json": [],
 //       "name": "koubo35",
 //       "preset_id": "7060825b-b2f4-4aa4-ba3c-135bced3408f",
 //       "tags": null,
@@ -23,7 +23,7 @@ const BASE_URL = 'https://open.vectcut.com/cut_jianying/preset';
 //       "description": "koubo34 预设",
 //       "image_url": "https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/preset/6921810bab8bfad6516eccd1/cab0c012-e5eb-47a1-aa48-1e0725a15284/cab0c012-e5eb-47a1-aa48-1e0725a15284.jpeg",
 //       "is_shared": 1,
-//       "materials_url": "https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/preset/6921810bab8bfad6516eccd1/cab0c012-e5eb-47a1-aa48-1e0725a15284/materials.json",
+//       "materials_json": [],
 //       "name": "koubo34",
 //       "preset_id": "cab0c012-e5eb-47a1-aa48-1e0725a15284",
 //       "tags": null,
@@ -154,10 +154,12 @@ export async function createPreset({ group_id } = {}) {
 //   "success": true
 // }
 export async function updatePreset(payload = {}) {
+  const bodyPayload = { ...(payload || {}) };
+  if ('materials_url' in bodyPayload) delete bodyPayload.materials_url;
   return http.json(`${BASE_URL}/update_preset`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
   });
 }
 

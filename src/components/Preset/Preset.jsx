@@ -8,7 +8,7 @@ import { presetGroups, updatePreset, deletePreset } from '../../api/preset';
 import { addPreset } from '../../api/capcut';
 import ShareDialog from '../ShareDialog/ShareDialog';
 import logger from '../../shared/logger';
-import { uploadPresetCover, uploadPresetMaterialsJson } from '../../api/sts';
+import { uploadPresetCover } from '../../api/sts';
 import UploadPresetIcon from '../../../public/upload_preset.svg';
 import DownloadPresetIcon from '../../../public/download_preset.svg';
 import SharePresetIcon from '../../../public/share_preset.svg';
@@ -32,6 +32,16 @@ const Preset = ({ preset }) => {
     return `${datePart} ${timePart}`;
   };
   const { token } = theme.useToken();
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const showToast = (type, content, options = {}) => {
+    const base = {
+      type,
+      content,
+      duration: 2,
+      style: { zIndex: 99999, marginTop: '36px' },
+    };
+    return messageApi.open({ ...base, ...options, style: { ...base.style, ...(options?.style || {}) } });
+  };
   const [editableName, setEditableName] = useState(preset?.name || preset?.id || '未命名预设');
   const [editableCover, setEditableCover] = useState(preset?.image_url || '');
   const [editableDesc, setEditableDesc] = useState(preset?.description || '');
@@ -137,7 +147,6 @@ const Preset = ({ preset }) => {
       preset_id: String(basePreset.preset_id),
       name: finalName,
       url: basePreset?.url || '',
-      materials_url: basePreset?.materials_url || '',
       image_url: imageUrl || '',
       description: String(description || ''),
       tags: normalizeTags(tagList).join(','),
@@ -151,7 +160,7 @@ const Preset = ({ preset }) => {
   const buildCloudPatchPayload = (prevState, nextState) => {
     if (!nextState?.preset_id) return null;
     const patch = { preset_id: String(nextState.preset_id) };
-    const keys = ['name', 'url', 'materials_url', 'image_url', 'description', 'tags', 'group_id'];
+    const keys = ['name', 'url', 'image_url', 'description', 'tags', 'group_id'];
     keys.forEach((k) => {
       const prevVal = prevState ? String(prevState?.[k] ?? '') : null;
       const nextVal = String(nextState?.[k] ?? '');
@@ -166,8 +175,9 @@ const Preset = ({ preset }) => {
       const presetId = String(payload?.preset_id || '');
       if (!presetId) return;
       logger.debug('[syncCloudPresetCache] start', { presetId, payload, prevGroupIdHint, hasPrevGroupIdHint });
-      const nextGroupId = String(payload?.group_id || '');
-      const nextGroupKey = normalizeGroupKey(nextGroupId);
+      const hasGroupField = Object.prototype.hasOwnProperty.call(payload || {}, 'group_id');
+      const nextGroupId = hasGroupField ? String(payload?.group_id || '') : null;
+      const nextGroupKey = hasGroupField ? normalizeGroupKey(nextGroupId) : null;
       const nextCache = { ...baseCache };
       let found = false;
       let prevGroupId = hasPrevGroupIdHint ? String(prevGroupIdHint ?? '') : '';
@@ -184,13 +194,14 @@ const Preset = ({ preset }) => {
           ...oldItem,
           id: oldItem?.id || presetId,
           preset_id: presetId,
-          group_id: nextGroupId,
+          group_id: hasGroupField ? nextGroupId : (oldItem?.group_id || (key === '__UNGROUPED__' ? '' : key)),
           name: payload?.name || oldItem?.name || '',
           image_url: payload?.image_url || oldItem?.image_url || '',
           description: payload?.description || '',
           tags: payload?.tags || oldItem?.tags,
+          materials_json: payload?.materials_json ?? oldItem?.materials_json,
         };
-        if (key === nextGroupKey) {
+        if (!hasGroupField || key === nextGroupKey) {
           const replaced = [...arr];
           replaced[idx] = updated;
           nextCache[key] = replaced;
@@ -201,12 +212,16 @@ const Preset = ({ preset }) => {
         nextCache[nextGroupKey] = [updated, ...target.filter((item) => String(item?.preset_id || item?.id || '') !== presetId)];
       });
       if (!found) {
-        logger.debug('[syncCloudPresetCache] preset_not_found_in_cache', { presetId, nextGroupKey, cacheKeys: Object.keys(nextCache) });
-        const target = Array.isArray(nextCache[nextGroupKey]) ? nextCache[nextGroupKey] : [];
-        nextCache[nextGroupKey] = [{
+        const fallbackGroupId = hasGroupField
+          ? String(nextGroupId || '')
+          : String((prevGroupIdHint ?? preset?.group_id) || '');
+        const fallbackGroupKey = normalizeGroupKey(fallbackGroupId);
+        logger.debug('[syncCloudPresetCache] preset_not_found_in_cache', { presetId, fallbackGroupKey, cacheKeys: Object.keys(nextCache), hasGroupField });
+        const target = Array.isArray(nextCache[fallbackGroupKey]) ? nextCache[fallbackGroupKey] : [];
+        nextCache[fallbackGroupKey] = [{
           id: presetId,
           preset_id: presetId,
-          group_id: nextGroupId,
+          group_id: fallbackGroupId,
           name: payload?.name || preset?.name || '',
           image_url: payload?.image_url || '',
           description: payload?.description || '',
@@ -219,7 +234,15 @@ const Preset = ({ preset }) => {
         }
       }
       electronStore.set(GROUP_PRESETS_CACHE_KEY, nextCache);
-      logger.debug('[syncCloudPresetCache] group_detect', { presetId, prevGroupId, nextGroupId, prevGroupIdHint: String(prevGroupIdHint ?? ''), hasPrevGroupIdHint });
+      logger.debug('[syncCloudPresetCache] group_detect', {
+        presetId,
+        prevGroupId,
+        nextGroupId: hasGroupField ? nextGroupId : prevGroupId,
+        prevGroupIdHint: String(prevGroupIdHint ?? ''),
+        hasPrevGroupIdHint,
+        hasGroupField,
+      });
+      if (!hasGroupField) return;
       if (prevGroupId === nextGroupId) {
         logger.debug('[syncCloudPresetCache] same_group_skip_count_update', { presetId, groupId: nextGroupId });
         return;
@@ -269,7 +292,7 @@ const Preset = ({ preset }) => {
         description: result?.description || editableDesc || '',
         tags: Array.isArray(tags) ? tags.join(',') : String(tags || ''),
         url: result?.url || '',
-        materials_url: result?.materials_url || '',
+        materials_json: result?.materials_json || [],
         expire_tag: '',
       }, ...target];
       electronStore.set(GROUP_PRESETS_CACHE_KEY, nextCache);
@@ -378,7 +401,7 @@ const Preset = ({ preset }) => {
         const res = await updatePreset(patchPayload);
         if (cancelled) return;
         if (!res?.success) {
-          message.error(res?.message || '云端预设更新失败');
+          showToast('error', res?.message || '云端预设更新失败');
           return;
         }
         cloudUpdateSnapshotRef.current = nextSnapshot;
@@ -389,7 +412,7 @@ const Preset = ({ preset }) => {
       } catch (e) {
         if (cancelled) return;
         cloudUpdateSnapshotRef.current = prevSnapshot;
-        message.error(e?.message || '云端预设更新失败');
+        showToast('error', e?.message || '云端预设更新失败');
       }
     };
     syncCloudPreset();
@@ -448,6 +471,36 @@ const Preset = ({ preset }) => {
   const [isDownloadingPreset, setIsDownloadingPreset] = useState(false);
   const [isDeletingPreset, setIsDeletingPreset] = useState(false);
   const [shareDialogVisible, setShareDialogVisible] = useState(false);
+  const normalizeCloudMaterialsList = (value) => {
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== 'object') return [];
+    const typeKeys = ['image', 'video', 'audio', 'text'];
+    if (!typeKeys.some((k) => Array.isArray(value?.[k]))) return [];
+    return typeKeys.flatMap((type) =>
+      (Array.isArray(value?.[type]) ? value[type] : []).map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        content: item?.content,
+        type,
+      })));
+  };
+  const parsePresetMaterialsJson = (rawValue) => {
+    if (rawValue === null || rawValue === undefined || rawValue === '') return { hasMaterialsJson: false, list: [] };
+    if (Array.isArray(rawValue) || (rawValue && typeof rawValue === 'object')) {
+      return { hasMaterialsJson: true, list: normalizeCloudMaterialsList(rawValue) };
+    }
+    if (typeof rawValue === 'string') {
+      const text = rawValue.trim();
+      if (!text) return { hasMaterialsJson: false, list: [] };
+      try {
+        const parsed = JSON.parse(text);
+        return { hasMaterialsJson: true, list: normalizeCloudMaterialsList(parsed) };
+      } catch {
+        return { hasMaterialsJson: false, list: [] };
+      }
+    }
+    return { hasMaterialsJson: false, list: [] };
+  };
   const resolvePresetPlaceholderPath = (localPath, localFolder, pathMod, fs) => {
     try {
       if (!localPath) return localPath;
@@ -531,20 +584,37 @@ const Preset = ({ preset }) => {
     let cancelled = false;
     const loadCloudMaterials = async () => {
       try {
+        const { hasMaterialsJson, list: materialsFromJson } = parsePresetMaterialsJson(preset?.materials_json);
         const materialsUrl = normalizeRemoteUrl(preset?.materials_url || '');
-        const fetchUrl = withNoCacheQuery(materialsUrl);
-        logger.debug('[cloudMaterials] load:start', { presetId: String(preset?.preset_id || ''), materialsUrl, fetchUrl });
-        if (!materialsUrl) {
-          logger.debug('[cloudMaterials] load:skip_no_url', { presetId: String(preset?.preset_id || '') });
+        const presetId = String(preset?.preset_id || '');
+        logger.debug('[cloudMaterials] load:start', {
+          presetId,
+          hasMaterialsJson,
+          materialsJsonCount: materialsFromJson.length,
+          materialsUrl,
+        });
+        let arr = [];
+        let source = 'materials_json';
+        if (hasMaterialsJson) {
+          arr = materialsFromJson;
+        } else if (materialsUrl) {
+          const fetchUrl = withNoCacheQuery(materialsUrl);
+          source = 'materials_url_fallback';
+          const res = await fetch(fetchUrl, { cache: 'no-store' });
+          logger.debug('[cloudMaterials] load:fetched_legacy_url', {
+            presetId,
+            status: res?.status,
+            ok: !!res?.ok,
+            fetchUrl,
+          });
+          if (!res.ok) throw new Error('LOAD_MATERIALS_FAILED');
+          const data = await res.json();
+          arr = Array.isArray(data) ? data : [];
+        } else {
+          logger.debug('[cloudMaterials] load:empty', { presetId });
           if (!cancelled) setMaterials(emptyMaterials);
           return;
         }
-        const res = await fetch(fetchUrl, { cache: 'no-store' });
-        logger.debug('[cloudMaterials] load:fetched', { presetId: String(preset?.preset_id || ''), status: res?.status, ok: !!res?.ok, fetchUrl });
-        if (!res.ok) throw new Error('LOAD_MATERIALS_FAILED');
-        const data = await res.json();
-        const arr = Array.isArray(data) ? data : [];
-        const presetId = String(preset?.preset_id || '');
         const out = { image: [], video: [], audio: [], text: [] };
         const counters = { audio: 1, video: 1, text: 1, image: 1 };
         const baseDir = materialsUrl.replace(/\/materials\.json(?:\?.*)?$/i, '/');
@@ -569,6 +639,7 @@ const Preset = ({ preset }) => {
           const total = out.image.length + out.video.length + out.audio.length + out.text.length;
           logger.debug('[cloudMaterials] load:parsed', {
             presetId,
+            source,
             sourceCount: arr.length,
             parsedCount: total,
             image: out.image.length,
@@ -582,7 +653,7 @@ const Preset = ({ preset }) => {
             const uiSnapshot = buildUiMaterialNameSnapshot(out);
             setMaterialsCacheByPreset(presetId, {
               preset_id: presetId,
-              materials_url: normalizeRemoteUrl(materialsUrl),
+              source,
               base_list: arr,
               base_snapshot: baseSnapshot,
               ui_snapshot: uiSnapshot,
@@ -592,6 +663,7 @@ const Preset = ({ preset }) => {
       } catch (e) {
         logger.debug('[cloudMaterials] load:error', {
           presetId: String(preset?.preset_id || ''),
+          hasMaterialsJson: preset?.materials_json !== null && preset?.materials_json !== undefined && preset?.materials_json !== '',
           materialsUrl: String(preset?.materials_url || ''),
           message: e?.message || '',
           stack: e?.stack || '',
@@ -655,7 +727,7 @@ const Preset = ({ preset }) => {
       setMaterials(emptyMaterials);
     }
     return () => { cancelled = true; };
-  }, [preset?.preset_id, preset?.materials_url, preset?.id, preset?.name]);
+  }, [preset?.preset_id, preset?.materials_json, preset?.materials_url, preset?.id, preset?.name]);
 
   useEffect(() => {
     const presetId = String(preset?.preset_id || '');
@@ -688,7 +760,7 @@ const Preset = ({ preset }) => {
       changed,
       baseCount: Array.isArray(cache?.base_list) ? cache.base_list.length : 0,
       nextCount: Array.isArray(nextList) ? nextList.length : 0,
-      materialsUrl: cache?.materials_url || preset?.materials_url || '',
+      source: cache?.source || '',
     });
     if (!changed) return;
     const syncSignature = `${presetId}:${uiSnapshot}`;
@@ -701,22 +773,26 @@ const Preset = ({ preset }) => {
     const syncCloudMaterials = async () => {
       try {
         isSyncingCloudMaterialsRef.current = true;
-        logger.debug('[cloudMaterials] sync:start', { presetId, userId: String(preset?.user_id || ''), materialsUrl: cache?.materials_url || preset?.materials_url || '' });
-        const currentMaterialsUrl = normalizeRemoteUrl(cache?.materials_url || preset?.materials_url || '');
-        const uploadRes = await uploadPresetMaterialsJson(nextList, {
-          materialsUrl: currentMaterialsUrl,
-          userId: String(preset?.user_id || ''),
+        logger.debug('[cloudMaterials] sync:start', {
           presetId,
+          source: cache?.source || '',
+          nextCount: nextList.length,
         });
-        const materialsUrl = normalizeRemoteUrl(String(uploadRes?.publicUrl || currentMaterialsUrl || '').split('?')[0]);
-        logger.debug('[cloudMaterials] sync:uploaded', { presetId, objectKey: uploadRes?.objectKey || '', materialsUrl });
-        const res = await updatePreset({ preset_id: presetId, materials_url: materialsUrl });
+        const res = await updatePreset({ preset_id: presetId, materials_json: nextList });
         logger.debug('[cloudMaterials] sync:updatePreset_result', { presetId, success: !!res?.success, message: res?.message || '' });
         if (cancelled) return;
         if (!res?.success) throw new Error(res?.message || '云端素材更新失败');
+        setMaterialsCacheByPreset(presetId, {
+          ...cache,
+          source: 'materials_json',
+          base_list: nextList,
+          base_snapshot: baseSnapshot,
+          ui_snapshot: uiSnapshot,
+        });
+        syncCloudPresetCache({ preset_id: presetId, materials_json: nextList });
       } catch (e) {
         logger.debug('[cloudMaterials] sync:error', { presetId, message: e?.message || '', stack: e?.stack || '' });
-        if (!cancelled) message.error(e?.message || '云端素材更新失败');
+        if (!cancelled) showToast('error', e?.message || '云端素材更新失败');
       } finally {
         isSyncingCloudMaterialsRef.current = false;
       }
@@ -735,12 +811,12 @@ const Preset = ({ preset }) => {
   const handleCoverBeforeUpload = (file) => {
     const isImage = String(file?.type || '').startsWith('image/');
     if (!isImage) {
-      message.error('只能选择图片文件');
+      showToast('error', '只能选择图片文件');
       return Upload.LIST_IGNORE;
     }
     const isLt2M = (file?.size || 0) / 1024 / 1024 <= 2;
     if (!isLt2M) {
-      message.error('封面图不能超过2MB');
+      showToast('error', '封面图不能超过2MB');
       return Upload.LIST_IGNORE;
     }
     return false;
@@ -815,10 +891,10 @@ const Preset = ({ preset }) => {
         prevGroupIdHint: String(prevState?.group_id ?? ''),
         hasPrevGroupIdHint: !!prevState,
       });
-      message.success('封面已更新');
+      showToast('success', '封面已更新');
     } catch (e) {
       setCoverFileList(previousCover ? [{ uid: '-1', name: 'cover', status: 'done', url: previousCover }] : []);
-      message.error(e?.message || '封面上传失败');
+      showToast('error', e?.message || '封面上传失败');
     }
   };
   const getLocalPresetFolder = () => {
@@ -849,7 +925,7 @@ const Preset = ({ preset }) => {
     if (!localFolder) {
       uploadInFlightRef.current = false;
       logger.warn('[Preset] handleUpload:no_local_folder', { presetName: preset?.name || preset?.id || '' });
-      message.error('未找到本地预设目录，无法上传');
+      showToast('error', '未找到本地预设目录，无法上传');
       return;
     }
     const materialJson = ['image', 'video', 'audio', 'text'].flatMap((type) =>
@@ -879,14 +955,14 @@ const Preset = ({ preset }) => {
         hasUrl: !!result?.url,
       });
       if (result?.success) {
+        showToast('success', `上传成功：${result.preset_id}`);
         syncUploadedPresetCache(result);
-        message.success(`上传成功：${result.preset_id}`);
       } else {
-        message.error('上传失败，请稍后重试');
+        showToast('error', '上传失败，请稍后重试');
       }
     } catch (e) {
       logger.error('[Preset] handleUpload:error', { message: e?.message || '', stack: e?.stack || '' });
-      message.error(e?.message || '上传失败，请稍后重试');
+      showToast('error', e?.message || '上传失败，请稍后重试');
     } finally {
       logger.info('[Preset] handleUpload:finish', { presetName: editableName, localFolder });
       setIsUploading(false);
@@ -906,9 +982,9 @@ const Preset = ({ preset }) => {
         cover: editableCover || preset?.image_url || '',
         createdAt: Date.now(),
       });
-      message.success('已加入下载队列');
+      showToast('success', '已加入下载队列');
     } catch (e) {
-      message.error(e?.message || '下载失败，请稍后重试');
+      showToast('error', e?.message || '下载失败，请稍后重试');
     } finally {
       setIsDownloadingPreset(false);
     }
@@ -925,15 +1001,17 @@ const Preset = ({ preset }) => {
       const res = await deletePreset({ preset_id: presetId });
       if (!res?.success) throw new Error(res?.message || '删除失败');
       syncDeletedPresetCache(presetId);
-      message.success('删除成功');
+      showToast('success', '删除成功');
     } catch (e) {
-      message.error(e?.message || '删除失败，请稍后重试');
+      showToast('error', e?.message || '删除失败，请稍后重试');
     } finally {
       setIsDeletingPreset(false);
     }
   };
   return (
-    <div className="preset-container">
+    <>
+        {messageContextHolder}
+        <div className="preset-container">
             <div className="preset-body">
                 {preset ? (
                     <>
@@ -1134,6 +1212,7 @@ const Preset = ({ preset }) => {
                 presetCover={editableCover || preset?.image_url || ''}
             />
         </div>
+    </>
     );
 };
 
