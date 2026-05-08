@@ -149,12 +149,10 @@ function App() {
             : { width: 320, height: 450, margin: '0 auto' }}
       >
         {currentPage === 'home' ? (
-          <Suspense fallback={<div style={{ padding: 12, color: '#666', fontSize: 12 }}>Loading home runtime...</div>}>
+          <Suspense >
             {isHomeRuntimeReady ? (
               <HomePageShell />
-            ) : (
-              <div style={{ padding: 12, color: '#666', fontSize: 12 }}>Preparing home runtime...</div>
-            )}
+            ) : null}
           </Suspense>
         ) : currentPage === 'guider' ? (
           <GuiderPage />
