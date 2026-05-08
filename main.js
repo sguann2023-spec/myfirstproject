@@ -17,6 +17,19 @@ const logger = require('./src/shared/logger');
 global.__ELECTRON_STORE__ = global.__ELECTRON_STORE__ || new Store({ name: 'vectcut', watch: true });
 const electronStore = global.__ELECTRON_STORE__;
 
+// Authing hosted page usually follows Chromium/browser locale.
+// Set Chromium lang at startup from persisted app language.
+try {
+  const savedLanguage = String(electronStore.get('language') || '').toLowerCase();
+  const chromiumLang = !savedLanguage
+    ? 'zh-CN'
+    : (savedLanguage.startsWith('zh') ? 'zh-CN' : 'en-US');
+  app.commandLine.appendSwitch('lang', chromiumLang);
+  logger.info('[Main] Chromium lang switch set:', chromiumLang);
+} catch (e) {
+  logger.warn('[Main] Failed to set Chromium lang switch:', e);
+}
+
 try {
   process.env.TS_NODE_PROJECT = process.env.TS_NODE_PROJECT || path.join(__dirname, 'tsconfig.json');
   process.env.TS_NODE_TRANSPILE_ONLY = process.env.TS_NODE_TRANSPILE_ONLY || '1';
