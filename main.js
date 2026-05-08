@@ -359,6 +359,9 @@ try {
     await ensureI18nInitialized();
     ensureUpdaterInitialized();
     await ensureCodeToolsInitialized();
+    // Preload ReduxService so `redux-store-ready` handler is registered
+    // before renderer pre-init invokes this channel.
+    await loadTsModule('./src/main/services/ReduxService.ts');
     return { success: true };
   });
 

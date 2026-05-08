@@ -18,6 +18,7 @@ import { addUser } from '../../api/user';
 import logger from '../../shared/logger';
 
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+const REDUX_STORE_READY_CHANNEL = 'redux-store-ready';
 let loginPreInitPromise = null;
 let loginPreInitCachedError = '';
 
@@ -278,14 +279,51 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
 
             if (!loginPreInitPromise) {
                 loginPreInitPromise = (async () => {
+                    const ensureReduxStoreReady = async () => {
+                        try {
+                            if (!window.store || typeof window.store.getState !== 'function' || typeof window.store.dispatch !== 'function') {
+                                window.store = {
+                                    getState: () => ({ llm: { providers: [] } }),
+                                    dispatch: () => undefined
+                                };
+                                logger.info('[LoginPage] Injected fallback window.store before redux-store-ready notify');
+                            }
+                            logger.info('[LoginPage] Notifying redux-store-ready from login pre-init...');
+                            const result = await ipcRenderer.invoke(REDUX_STORE_READY_CHANNEL);
+                            logger.info('[LoginPage] redux-store-ready notify acknowledged', { result });
+                        } catch (error) {
+                            logger.warn('[LoginPage] Failed to notify redux store ready from login pre-init', error);
+                        }
+                    };
+
+                    const initializeAgentServicesWithRetry = async () => {
+                        const maxAttempts = 3;
+                        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                            try {
+                                await ipcRenderer.invoke('app:initialize-agent-services');
+                                return;
+                            } catch (error) {
+                                const messageText = String(error?.message || '');
+                                const isStoreNotReady = messageText.includes('Timeout waiting for Redux store to be ready');
+                                if (!isStoreNotReady || attempt === maxAttempts) {
+                                    throw error;
+                                }
+                                const delayMs = attempt * 1500;
+                                logger.warn(`[LoginPage] Agent services init retry ${attempt}/${maxAttempts} after ${delayMs}ms`, error);
+                                await new Promise((resolve) => setTimeout(resolve, delayMs));
+                            }
+                        }
+                    };
+
                     try {
                         await ipcRenderer.invoke('app:initialize-login-services');
-                        await ipcRenderer.invoke('app:initialize-agent-services');
                         await ipcRenderer.invoke('app:register-extended-ipc');
-                        await ipcRenderer.invoke('app:bootstrap-builtin-skills');
+                        await ensureReduxStoreReady();
                         if (typeof onPrepareHomeRuntime === 'function') {
                             await onPrepareHomeRuntime();
                         }
+                        await initializeAgentServicesWithRetry();
+                        await ipcRenderer.invoke('app:bootstrap-builtin-skills');
                         loginPreInitCachedError = '';
                     } catch (error) {
                         logger.error('login pre-init failed:', error);

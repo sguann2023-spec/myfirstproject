@@ -38,7 +38,6 @@ const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
 const CHAT_MODEL_KEY = 'capcut-helper-chat-model-v1';
 const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
-const REDUX_STORE_READY_CHANNEL = 'redux-store-ready';
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
 
 const resolveProviderIdByModel = (modelId = '') => {
@@ -227,7 +226,6 @@ const HomePage = () => {
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
-  const reduxReadyNotifiedRef = useRef(false);
   const canUseAgentRuntime = Boolean(
     window?.electronAPI?.cherryChatStream
     && typeof window.electronAPI.cherryChatStream.createSession === 'function'
@@ -315,13 +313,6 @@ const HomePage = () => {
       dispatch: () => undefined
     };
 
-    if (!reduxReadyNotifiedRef.current && window?.ipc?.invoke) {
-      reduxReadyNotifiedRef.current = true;
-      void window.ipc.invoke(REDUX_STORE_READY_CHANNEL).catch((error) => {
-        reduxReadyNotifiedRef.current = false;
-        logger.warn('[HomePage] Failed to notify redux store ready', error);
-      });
-    }
   }, [chatModelOptions]);
 
   useEffect(() => {

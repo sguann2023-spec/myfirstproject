@@ -32,8 +32,10 @@ export class ReduxService {
 
   constructor() {
     ipcMain.handle(IpcChannel.ReduxStoreReady, () => {
+      logger.info('Received redux-store-ready IPC signal')
       this.isReady = true
       this.resolveReady()
+      return { ok: true }
     })
   }
 
