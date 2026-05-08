@@ -338,7 +338,6 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
 
             if (loginPreInitCachedError) {
                 setLoginPreInitError(loginPreInitCachedError);
-                message.warning('Login pre-initialization failed, login is still available.');
             } else {
                 setLoginPreInitError('');
             }
@@ -368,7 +367,6 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
     // 登录：优先尝试用 refresh_token 静默获取有效令牌，失败再打开 Guard
     const handleLogin = async () => {
         if (isLoginPreInitLoading) {
-            message.info('App is still initializing, please wait...');
             return;
         }
         try {
@@ -494,7 +492,6 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
     // 强制打开 Authing 登录页（忽略现有会话）
     const forceOpenGuardLogin = () => {
         if (isLoginPreInitLoading) {
-            message.info('App is still initializing, please wait...');
             return;
         }
         electronStore.delete('user');

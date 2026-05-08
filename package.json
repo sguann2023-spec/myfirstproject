@@ -7,7 +7,7 @@
     "start": "NODE_ENV=development electron .",
     "debug": "electron --inspect=9229 .",
     "build": "webpack --mode production && electron-builder --mac --win",
-    "build:mac": "webpack --mode production && electron-builder --mac",
+    "build:mac": "webpack --mode production && electron-builder --mac zip --universal && node scripts/build-mac-dmg.mjs",
     "build:win": "webpack --mode production && electron-builder --win",
     "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy webpack --mode production && electron-builder --win --x64",
     "dev": "webpack --watch",

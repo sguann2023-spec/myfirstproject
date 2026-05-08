@@ -76,19 +76,25 @@ jobs:
       contents: write 
     strategy:
       matrix:
-        node-version: [24.x]
+        node-version: [22.x]
 
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          run_install: false
+
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'yarn'
+          cache: 'pnpm'
       
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Import macOS signing certificate
         uses: apple-actions/import-codesign-certs@v3
@@ -103,9 +109,10 @@ jobs:
           security find-identity -v -p codesigning
       
       - name: Build Mac application
-        run: yarn build:mac --universal
+        run: pnpm run build:mac -- --universal
         shell: bash
         env:
+          NODE_OPTIONS: --max-old-space-size=8192
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -212,24 +219,31 @@ jobs:
       contents: write 
     strategy:
       matrix:
-        node-version: [24.x]
+        node-version: [22.x]
 
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          run_install: false
+
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'yarn'
+          cache: 'pnpm'
       
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
       
       - name: Build Windows application
-        run: yarn build:win
+        run: pnpm run build:win
         shell: bash
         env:
+          NODE_OPTIONS: --max-old-space-size=8192
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Download EVSign CLI
