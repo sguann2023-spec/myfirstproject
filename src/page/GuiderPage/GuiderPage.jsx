@@ -35,7 +35,9 @@ const GuiderPage = () => {
   };
 
   return (
-    <div className="guider-page" style={{ fontFamily: APP_FONT_FAMILY }}>
+    <div className="guider-page-root" style={{ fontFamily: APP_FONT_FAMILY }}>
+      <div className="guider-window-dragbar" />
+      <div className="guider-page">
       <div className="guider-topbar">
         <button className="guider-nav-btn" type="button" title="返回" onClick={handleBack}>
           <img src={ArrowBackIcon} alt="back" className="guider-nav-icon" />
@@ -56,6 +58,7 @@ const GuiderPage = () => {
           </Button>
         )}
         <p className="guider-footer-tip">您可以随时在设置中更改</p>
+      </div>
       </div>
     </div>
   );

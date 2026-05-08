@@ -1,4 +1,4 @@
-html, body, #root {
+.guider-page-root {
   width: 100%;
   height: 100%;
   margin: 0;
@@ -6,11 +6,12 @@ html, body, #root {
   box-sizing: border-box;
   background: #f7f7f7;
   overflow: hidden;
+  position: relative;
 }
 
-*,
-*::before,
-*::after {
+.guider-page-root *,
+.guider-page-root *::before,
+.guider-page-root *::after {
   box-sizing: inherit;
 }
 
@@ -25,9 +26,7 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* 顶部 42px 作为无控件拖拽条 */
-#root::before {
-  content: '';
+.guider-window-dragbar {
   position: fixed;
   top: 0;
   left: 0;

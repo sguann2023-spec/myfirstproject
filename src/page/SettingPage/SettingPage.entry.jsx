@@ -2,6 +2,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import '@ant-design/v5-patch-for-react-19';
 import { ConfigProvider } from 'antd';
 // 确保导入您需要的本地化文件
 import zhCN from 'antd/locale/zh_CN'; 

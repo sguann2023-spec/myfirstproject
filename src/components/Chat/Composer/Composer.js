@@ -33,7 +33,7 @@ const Composer = ({
 
   const renderModelOptionLabel = (text, icon) => (
     <span className="chat-panel__model-option">
-      <img className="chat-panel__model-option-icon" src={icon} alt="" />
+      {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
       <span>{text}</span>
     </span>
   );
@@ -43,7 +43,7 @@ const Composer = ({
       if (typeof item === 'string') {
         return {
           value: item,
-          label: renderModelOptionLabel(formatModelDisplayName(item), ''),
+          label: renderModelOptionLabel(formatModelDisplayName(item), null),
         };
       }
       const value = item?.value;

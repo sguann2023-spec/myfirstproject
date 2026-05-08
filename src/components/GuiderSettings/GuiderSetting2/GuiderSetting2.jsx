@@ -5,6 +5,8 @@ import DraftFolderImg from '../../../../public/draft_folder_setting.png';
 import PresetFolderImg from '../../../../public/preset_folder_setting.png';
 import InfoIcon from '../../../../public/info.png';
 import { electronStore } from '../../../shared/electronStore';
+import logger from '../../../shared/logger';
+
 
 const GuiderSetting2 = () => {
   const [draftFolder, setDraftFolder] = useState('');
@@ -37,8 +39,13 @@ const GuiderSetting2 = () => {
   }, []);
 
   const handleChangeDraftFolder = async () => {
+    logger.info('[GuiderSetting2] handleChangeDraftFolder:start');
     const selected = await ipcInvoke('select-draft-folder').catch(() => null);
-    if (!selected) return;
+    logger.info('[GuiderSetting2] handleChangeDraftFolder:selected', { selected: selected || '' });
+    if (!selected) {
+      logger.warn('[GuiderSetting2] handleChangeDraftFolder:no-selection');
+      return;
+    }
     ipcSend('save-settings', { draftFolder: selected });
     electronStore.set('draftFolder', selected);
     setDraftFolder(selected);
@@ -46,7 +53,9 @@ const GuiderSetting2 = () => {
       const fs = window.require ? window.require('fs') : null;
       const path = window.require ? window.require('path') : null;
       if (!fs || !path || !fs.existsSync(selected)) {
+        logger.warn('[GuiderSetting2] about-to-message:error no-draft-folder');
         message.error('未检测到任何草稿，建议您再次确认！');
+        logger.info('[GuiderSetting2] message:error invoked');
         return;
       }
       const hitFolders = fs.readdirSync(selected).filter((folderName) => {
@@ -62,14 +71,22 @@ const GuiderSetting2 = () => {
       if (hitFolders.length > 0) {
         const preview = hitFolders.slice(0, 3).join(',');
         const suffix = hitFolders.length > 3 ? '等等' : '';
+        logger.info('[GuiderSetting2] about-to-message:success', { hitCount: hitFolders.length, preview });
         message.success({
           content: <>已检测到有 <span style={{ color: '#8d8d8d' }}>{preview}</span> {suffix}草稿</>
         });
+        logger.info('[GuiderSetting2] message:success invoked');
       } else {
+        logger.warn('[GuiderSetting2] about-to-message:warning no-draft-hit');
         message.warning('未检测到任何草稿，建议您再次确认！如果草稿箱为空，可以忽略该提示');
+        logger.info('[GuiderSetting2] message:warning invoked');
       }
-    } catch {
+    } catch (error) {
+      logger.error('[GuiderSetting2] handleChangeDraftFolder:exception', {
+        message: error?.message || String(error),
+      });
       message.error('未检测到任何草稿，建议您再次确认！');
+      logger.info('[GuiderSetting2] message:error invoked(catch)');
     }
   };
 

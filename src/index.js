@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ConfigProvider } from 'antd'; // 引入 Ant Design 配置
+import '@ant-design/v5-patch-for-react-19';
+import { ConfigProvider, message } from 'antd'; // 引入 Ant Design 配置
 import App from './App';
 import SettingPage from './page/SettingPage/SettingPage.jsx'; // 引入设置页面组件
 import logger from './shared/logger';
@@ -13,6 +14,12 @@ const view = urlParams.get('view');
 const DEFAULT_THEME_MODE = 'light';
 document.body.setAttribute('theme-mode', DEFAULT_THEME_MODE);
 document.documentElement.setAttribute('theme-mode', DEFAULT_THEME_MODE);
+
+message.config({
+  top: 36,
+  maxCount: 3,
+  getContainer: () => document.body,
+});
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 

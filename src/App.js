@@ -10,6 +10,7 @@ import '@renderer/assets/styles/CommandListPopover.css';
 import '@renderer/assets/styles/selection-toolbar.css';
 import './App.css';
 import LoginPage from './page/LoginPage/LoginPage.jsx';
+import GuiderPage from './page/GuiderPage/GuiderPage.jsx';
 import { getArtistEffectDownloadUrl, searchDraft } from './api/capcut'; // 新增：导入解析 API和按ID搜索草稿
 import logger from './shared/logger.js';
 import { DownloadController } from './shared/DownloadController';
@@ -50,13 +51,15 @@ function App() {
     logger.debug('id_token:', id_token);
     try {
       const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('login-success');
       await prepareHomeRuntime();
 
       // 仅已完成引导/已配置草稿目录时直接进首页
       const settings = await ipcRenderer.invoke('get-draft-folder');
       if (settings?.draftFolder) {
         setCurrentPage('home');
+        ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
+      } else {
+        setCurrentPage('guider');
         ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
       }
     } catch (e) {
@@ -141,7 +144,7 @@ function App() {
     <ConfigProvider locale={locale}>
       <div
         className="app-container"
-        style={currentPage === 'home'
+        style={currentPage === 'home' || currentPage === 'guider'
             ? { width: '100%', height: '100%', margin: 0 }
             : { width: 320, height: 450, margin: '0 auto' }}
       >
@@ -153,6 +156,8 @@ function App() {
               <div style={{ padding: 12, color: '#666', fontSize: 12 }}>Preparing home runtime...</div>
             )}
           </Suspense>
+        ) : currentPage === 'guider' ? (
+          <GuiderPage />
         ) : (
           <LoginPage
             initialApiKey={apiKey}
