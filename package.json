@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.vectcut.app",
-    "productName": "VectCut",
+    "productName": "流光剪辑",
     "icon": "src/logo.png",
     "protocols": {
       "name": "vectcut",

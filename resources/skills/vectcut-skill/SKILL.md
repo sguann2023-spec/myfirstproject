@@ -20,6 +20,7 @@ dependency:
 - 需要“抓取抖音/快手/小红书/B站/TikTok/YouTube 链接后分析并剪辑”
 - 想要查看VectCut 流光剪辑的API都支持哪些功能，具体API怎么使用。
 - 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 云渲染导出”
+- 已有 `dfd_cat_` 草稿 ID，希望一键拉取到客户端（单个或批量）
 
 ## 统一前置规则（沿用）
 
@@ -67,6 +68,11 @@ dependency:
 - 配音需求：`speech-synthesis`
 - 包装完成后最终 `cloud-render`
 
+6. **草稿下载链路**
+- 用户提供一个或多个 `dfd_cat_` 草稿 ID 时，调用 `draft-downloader`
+- 先做去空、去重与 `dfd_cat_` 前缀校验，再触发 deeplink：`vectcut://open?draft_id=...`
+- 适合“下载草稿”“打开草稿到客户端”“批量拉取草稿”的需求
+
 ## 字幕与音频规则
 
 - 若需口播精剪，优先 `llm-asr`(nlp档位) + `asr-vad`，确保字幕时间轴与剪辑后内容一致
@@ -93,6 +99,7 @@ dependency:
 - [cut-koubo](rules/cut-koubo.md)
 - [cut-koubo-template](rules/cut-koubo-template.md)
 - [describe-video](rules/describe-video.md)
+- [draft-downloader](rules/draft-downloader.md)
 - [extract-audio](rules/extract-audio.md)
 - [generate-ai-image](rules/generate-ai-image.md)
 - [generate-ai-video](rules/generate-ai-video.md)
