@@ -1,8 +1,8 @@
 /* 下载队列控制器（单例） */
 import { electronStore } from './electronStore';
 import { queryScript } from '../api/capcut';
-import logger from './logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('DownloadController');
 let ipc;
 try { ipc = window.require('electron').ipcRenderer; } catch (e) { ipc = null; }
 const path = window.require ? window.require('path') : null;

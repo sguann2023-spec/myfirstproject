@@ -5,7 +5,7 @@ import type { TextStreamPart } from 'ai'
 export type SessionStreamChunk = {
   sessionId: string
   agentId: string
-  type: 'user-message' | 'chunk' | 'complete' | 'error'
+  type: 'started' | 'user-message' | 'chunk' | 'complete' | 'error'
   chunk?: TextStreamPart<Record<string, any>>
   userMessage?: {
     chatId: string

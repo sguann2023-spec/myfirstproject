@@ -48,6 +48,7 @@ import type {
 } from '@types'
 import type { OpenDialogOptions } from 'electron'
 import { contextBridge, ipcRenderer, shell, webUtils } from 'electron'
+import path from 'node:path'
 import type { CreateDirectoryOptions } from 'webdav'
 
 import type { ActionItem } from '../renderer/src/types/selectionTypes'
@@ -834,6 +835,99 @@ const api = {
   }
 }
 
+// Legacy global bridge parity with old `src/preload.js`.
+const ipcBridge = {
+  send: (channel: string, data?: any) => ipcRenderer.send(channel, data),
+  invoke: (channel: string, data?: any) => ipcRenderer.invoke(channel, data),
+  on: (channel: string, func: (...args: any[]) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, ...args: any[]) => func(...args)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.off(channel, listener)
+  }
+}
+
+const shellBridge = {
+  openFolder: (folderPath: string) => ipcRenderer.send('app:open-folder', folderPath)
+}
+
+// Legacy bridge used by old HomePage runtime (pre-vite migration path).
+// Keep this until renderer side fully migrates from `window.electronAPI` to `window.api`.
+const legacyElectronAPI = {
+  openDownloadDirectory: (directoryPath: string) => ipcRenderer.send('open-download-directory', directoryPath),
+  startFileMonitor: (monitorData: any) => ipcRenderer.send('start-file-monitor', monitorData),
+  onFileFound: (callback: (value: any) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: any) => callback(value)
+    ipcRenderer.on('file-found', listener)
+    return () => ipcRenderer.off('file-found', listener)
+  },
+  removeFileFoundListener: (listener: (...args: any[]) => void) => ipcRenderer.removeListener('file-found', listener),
+  checkFileExistence: (fileInfo: any) => ipcRenderer.invoke('check-file-existence', fileInfo),
+  path: {
+    join: (...args: string[]) => path.join(...args)
+  },
+  agentSessionStream: api.agentSessionStream,
+  agentSessionStreamV1: api.agentSessionStream,
+  agentSessionStreamV2: api.agentSessionStream,
+  cherryChatStream: {
+    createSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionCreate, payload),
+    getSession: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionGet, { sessionId }),
+    listSessions: (payload: any = {}) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionList, payload),
+    listMessages: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_MessageList, { sessionId }),
+    createMessage: ({ sessionId, content, ...extraPayload }: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_MessageCreate, {
+        sessionId,
+        content,
+        ...extraPayload
+      }),
+    subscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Subscribe, { sessionId }),
+    unsubscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Unsubscribe, { sessionId }),
+    abort: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Abort, { sessionId }),
+    onChunk: (callback: (payload: any) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload)
+      ipcRenderer.on(IpcChannel.CherryChatStream_Chunk, listener)
+      return () => ipcRenderer.off(IpcChannel.CherryChatStream_Chunk, listener)
+    },
+    onPermissionRequest: (callback: (payload: any) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload)
+      ipcRenderer.on(IpcChannel.AgentToolPermission_Request, listener)
+      return () => ipcRenderer.off(IpcChannel.AgentToolPermission_Request, listener)
+    },
+    onPermissionResult: (callback: (payload: any) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload)
+      ipcRenderer.on(IpcChannel.AgentToolPermission_Result, listener)
+      return () => ipcRenderer.off(IpcChannel.AgentToolPermission_Result, listener)
+    }
+  },
+  agentTools: {
+    respondToPermission: (payload: {
+      requestId: string
+      behavior: 'allow' | 'deny'
+      updatedInput?: Record<string, unknown>
+      message?: string
+      updatedPermissions?: PermissionUpdate[]
+    }) => ipcRenderer.invoke(IpcChannel.AgentToolPermission_Response, payload)
+  },
+  agentSkills: {
+    list: async ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) => {
+      const result = await ipcRenderer.invoke(IpcChannel.Skill_List, agentId)
+      const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
+      return { ok: Boolean((result as any)?.success), skills }
+    },
+    toggle: ({ agentId = 'vectcut_claw_default', skillId, isEnabled }: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.Skill_Toggle, { agentId, skillId, isEnabled }),
+    installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true }: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, { agentId, skillPath: directoryPath, isEnabled }),
+    uninstall: ({ skillId }: { skillId: string }) => ipcRenderer.invoke(IpcChannel.Skill_Uninstall, skillId),
+    rescan: async ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) => {
+      const result = await ipcRenderer.invoke(IpcChannel.Skill_List, agentId)
+      const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
+      return { ok: Boolean((result as any)?.success), skills }
+    },
+    run: ({ skillName, args = [], envVars = {} }: { skillName: string; args?: string[]; envVars?: Record<string, string> }) =>
+      ipcRenderer.invoke('agent:skills:run', { skillName, args, envVars })
+  }
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -841,12 +935,18 @@ if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('ipc', ipcBridge)
+    contextBridge.exposeInMainWorld('shellAPI', shellBridge)
+    contextBridge.exposeInMainWorld('electronAPI', legacyElectronAPI)
   } catch (error) {
     console.error('[Preload]Failed to expose APIs:', error as Error)
   }
 } else {
   window.electron = electronAPI
   window.api = api
+  ;(window as any).ipc = ipcBridge
+  ;(window as any).shellAPI = shellBridge
+  ;(window as any).electronAPI = legacyElectronAPI
 }
 
 export type WindowApiType = typeof api

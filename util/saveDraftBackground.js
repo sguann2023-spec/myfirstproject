@@ -6,7 +6,7 @@ const axios = require('axios');
 const downloader = require('./downloader');
 const { log } = require('console');
 const i18next = require('i18next');
-const logger = require('../src/shared/logger');
+const logger = require('./loggerBridge').withContext('SaveDraftBackground');
 const { parentPort } = require('worker_threads'); // 新增
 
 /**

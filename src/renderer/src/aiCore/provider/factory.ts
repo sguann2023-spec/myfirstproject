@@ -33,6 +33,10 @@ export function getAiSdkProviderId(provider: Provider): AppProviderId {
     return appProviderIds['xai-responses']
   }
 
+  if (provider.id === 'cherryai') {
+    return appProviderIds['openai-compatible']
+  }
+
   if (provider.id in appProviderIds) {
     return appProviderIds[provider.id]
   }

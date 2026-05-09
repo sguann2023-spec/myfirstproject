@@ -1,6 +1,6 @@
 import { createPreset as createPresetApi, updatePreset as updatePresetApi } from '../../api/preset';
-import logger from '../../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('UploadPreset');
 const OSS_CONFIG = {
   bucket_name: 'oss-hangzhou-mp4',
   endpoint: 'https://oss-cn-hangzhou.aliyuncs.com',

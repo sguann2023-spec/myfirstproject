@@ -19,7 +19,6 @@ import { agentService } from './services/agents'
 import { schedulerService } from './services/agents/services/SchedulerService'
 import { bootstrapBuiltinAgents } from './services/agents/services/builtin/BuiltinAgentBootstrap'
 import { channelManager } from './services/agents/services/channels'
-import { registerSessionStreamIpc } from './services/agents/services/channels/sessionStreamIpc'
 import { apiServerService } from './services/ApiServerService'
 import { appMenuService } from './services/AppMenuService'
 import { configManager } from './services/ConfigManager'
@@ -39,6 +38,7 @@ import selectionService, { initSelectionService } from './services/SelectionServ
 import { registerShortcuts } from './services/ShortcutService'
 import { TrayService } from './services/TrayService'
 import { versionService } from './services/VersionService'
+import { registerLegacyMainCompatIpc } from './services/LegacyMainCompatIpc'
 import { windowService } from './services/WindowService'
 import { initWebviewHotkeys } from './services/WebviewService'
 import { runAsyncFunction } from './utils'
@@ -49,6 +49,17 @@ const logger = loggerService.withContext('MainEntry')
 
 // Ensure userData root uses VectCut instead of legacy app names.
 app.setName('VectCut')
+
+// Keep legacy behavior: set Chromium locale before window creation so hosted auth pages
+// follow persisted app language.
+try {
+  const savedLanguage = String(configManager.getLanguage() || '').toLowerCase()
+  const chromiumLang = !savedLanguage ? 'zh-CN' : savedLanguage.startsWith('zh') ? 'zh-CN' : 'en-US'
+  app.commandLine.appendSwitch('lang', chromiumLang)
+  logger.info('Chromium lang switch set', { chromiumLang })
+} catch (error) {
+  logger.warn('Failed to set Chromium lang switch', error as Error)
+}
 
 // enable local crash reports
 crashReporter.start({
@@ -162,6 +173,9 @@ if (!app.requestSingleInstanceLock()) {
 
     const mainWindow = windowService.createMainWindow()
 
+    await registerIpc(mainWindow, app)
+    registerLegacyMainCompatIpc()
+
     new TrayService()
 
     // Setup macOS application menu
@@ -188,7 +202,6 @@ if (!app.requestSingleInstanceLock()) {
 
     registerShortcuts(mainWindow)
 
-    await registerIpc(mainWindow, app)
     localTransferService.startDiscovery({ resetList: true })
 
     replaceDevtoolsFont(mainWindow)
@@ -235,9 +248,6 @@ if (!app.requestSingleInstanceLock()) {
 
         // Restore VectcutClaw schedulers after services are ready
         await schedulerService.restoreSchedulers()
-
-        // Register IPC handlers for session stream before starting channels
-        registerSessionStreamIpc()
 
         // Start VectcutClaw channel adapters (Telegram, etc.)
         await channelManager.start()

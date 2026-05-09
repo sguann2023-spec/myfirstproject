@@ -4,16 +4,13 @@ import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
 import '@renderer/i18n';
-import '@renderer/assets/styles/tailwind.css';
-import '@renderer/assets/styles/index.css';
-import '@renderer/assets/styles/CommandListPopover.css';
-import '@renderer/assets/styles/selection-toolbar.css';
 import './App.css';
 import LoginPage from './page/LoginPage/LoginPage.jsx';
 import GuiderPage from './page/GuiderPage/GuiderPage.jsx';
 import { getArtistEffectDownloadUrl, searchDraft } from './api/capcut'; // 新增：导入解析 API和按ID搜索草稿
-import logger from './shared/logger.js';
-import { DownloadController } from './shared/DownloadController';
+import { loggerService } from '@logger';
+import { DownloadController } from './shared/DownloadController.js';
+const logger = loggerService.withContext('App');
 
 const toLegacyLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
 const toModernLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US');

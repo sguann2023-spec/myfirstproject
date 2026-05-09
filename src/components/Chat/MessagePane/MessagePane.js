@@ -2,8 +2,7 @@ import React from 'react';
 import './MessagePane.css';
 import VectcutClawImage from '../../../../public/vectcut_claw.png';
 import MessageGroup from './MessageGroup/MessageGroup';
-const { loggerService } = require('../../../shared/logger');
-
+import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessagePane');
 

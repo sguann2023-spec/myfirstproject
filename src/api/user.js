@@ -1,6 +1,6 @@
 import { http } from '../http';
-import logger from '../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('ApiUser');
 const BASE_URL = 'https://open.vectcut.com';
 
 export async function addUser({ id, name = '', avatar = '', creation_channel = 'client' }) {

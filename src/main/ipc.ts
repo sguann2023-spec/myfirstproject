@@ -4,7 +4,6 @@ import path from 'node:path'
 
 import { loggerService } from '@logger'
 import { isLinux, isMac, isPortable, isWin } from '@main/constant'
-import { generateSignature } from '@main/integration/cherryai'
 import anthropicService from '@main/services/AnthropicService'
 import { getIpCountry } from '@main/utils/ipService'
 import {
@@ -143,7 +142,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     configPath: getConfigDir(),
     appDataPath: app.getPath('userData'),
     resourcesPath: getResourcePath(),
-    logsPath: logger.getLogsDir(),
+    logsPath: loggerService.getLogsDir(),
     arch: arch(),
     isPortable: isWin && 'PORTABLE_EXECUTABLE_DIR' in process.env,
     installPath: path.dirname(app.getPath('exe'))
@@ -1038,7 +1037,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   }
 
   // CherryAI
-  ipcMain.handle(IpcChannel.Cherryai_GetSignature, (_, params) => generateSignature(params))
+  ipcMain.handle(IpcChannel.Cherryai_GetSignature, (_, params) => {})
 
   // Global Skills
   ipcMain.handle(IpcChannel.Skill_List, async (_, agentId?: string) => {

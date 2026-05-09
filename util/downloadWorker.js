@@ -4,7 +4,7 @@ const i18next = require('i18next');
 const Backend = require('i18next-fs-backend');
 const path = require('path');
 const fs = require('fs');
-const logger = require('../src/shared/logger');
+const logger = require('./loggerBridge').withContext('DownloadWorker');
 
 // 初始化i18next
 function initI18n() {

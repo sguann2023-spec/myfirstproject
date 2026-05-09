@@ -2,13 +2,23 @@ import { isLinux, isMac, isWin } from '@main/constant'
 import { locales } from '@main/utils/locales'
 import type { MenuItemConstructorOptions } from 'electron'
 import { app, Menu, nativeImage, nativeTheme, Tray } from 'electron'
+import fs from 'node:fs'
 import path from 'path'
 
 import { ConfigKeys, configManager } from './ConfigManager'
 import selectionService from './SelectionService'
 import { windowService } from './WindowService'
 
-const icon = path.resolve(__dirname, '../../../public/logo.png')
+function resolveTrayIconPath(): string {
+  const candidates = [
+    path.resolve(__dirname, '../../../public/logo.png'),
+    path.resolve(app.getAppPath(), 'public/logo.png'),
+    path.resolve(process.cwd(), 'public/logo.png')
+  ]
+  return candidates.find((item) => fs.existsSync(item)) || candidates[candidates.length - 1]
+}
+
+const icon = resolveTrayIconPath()
 const iconDark = icon
 const iconLight = icon
 

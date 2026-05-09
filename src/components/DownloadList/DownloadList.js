@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next';
 import './DownloadList.css'; // 引入外部 CSS 文件
 import RightArrowIcon from '../../../public/right_arrow.svg'
 import FileIcon from '../../../public/download_file_icon.svg'
-import logger from '../../shared/logger';
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('DownloadList');
 const { ipcRenderer, shell } = window.require('electron');
 const path = window.require('path'); // 如果需要路径操作，也可以直接引入
 

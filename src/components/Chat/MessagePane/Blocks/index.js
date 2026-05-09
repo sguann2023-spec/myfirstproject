@@ -7,8 +7,7 @@ import ErrorBlock from './ErrorBlock';
 import MainTextBlock from './MainTextBlock';
 import ThinkingBlock from './ThinkingBlock';
 import { MessageBlockType } from './types';
-const { loggerService } = require('../../../../shared/logger');
-
+import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatBlocks/renderer');
 

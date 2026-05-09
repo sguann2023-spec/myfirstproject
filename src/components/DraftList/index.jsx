@@ -5,7 +5,7 @@ import DraftIcon from '../../../public/draft_icon.svg';
 import SearchIcon from '../../../public/search_unfocus.svg';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
 import BannerCarousel from '../BannerCarousel/BannerCarousel'; // 新增导入
-import { DownloadController } from '../../shared/DownloadController';
+import { DownloadController } from '../../shared/DownloadController.js';
 
 const LIMIT = 20;
 

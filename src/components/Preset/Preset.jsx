@@ -7,13 +7,14 @@ import { uploadFolderZipToOSS } from './UploadPreset';
 import { presetGroups, updatePreset, deletePreset } from '../../api/preset';
 import { addPreset } from '../../api/capcut';
 import ShareDialog from '../ShareDialog/ShareDialog';
-import logger from '../../shared/logger';
+import { loggerService } from '@logger';
 import { uploadPresetCover } from '../../api/sts';
 import UploadPresetIcon from '../../../public/upload_preset.svg';
 import DownloadPresetIcon from '../../../public/download_preset.svg';
 import SharePresetIcon from '../../../public/share_preset.svg';
 import DeletePresetIcon from '../../../public/delete_preset.svg';
-import { DownloadController } from '../../shared/DownloadController';
+import { DownloadController } from '../../shared/DownloadController.js';
+const logger = loggerService.withContext('Preset');
 
 
 const Preset = ({ preset }) => {

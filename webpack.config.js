@@ -93,7 +93,7 @@ module.exports = (env, argv) => {
       alias: {
         '@renderer': path.resolve(__dirname, 'src/renderer/src'),
         '@shared': path.resolve(__dirname, 'src/packages/shared'),
-        '@logger': path.resolve(__dirname, 'src/shared/logger'),
+        '@logger': path.resolve(__dirname, 'src/renderer/src/services/LoggerService'),
         '@cherrystudio/ai-core/built-in/plugins': path.resolve(
           __dirname,
           'src/packages/aiCore/src/core/plugins/built-in/index.ts'

@@ -9,7 +9,8 @@ import DPane from '../../components/DPane/DPane';
 import DraftList from '../../components/DraftList';
 import DownloadDualList from '../../components/DownloadDualList/DownloadDualList';
 import DraftPreview from '../../components/DraftPreview/DraftPreview';
-import logger from '../../shared/logger';
+import { loggerService } from '@logger';
+import { DownloadController } from '../../shared/DownloadController.js';
 import DownloadList from '../../components/DownloadList/DownloadList';
 import DraftDownloadSuccessPreview from '../../components/DraftDownloadSuccessPreview/DraftDownloadSuccessPreview';
 import PresetList from '../../components/PresetList/PresetList';
@@ -20,6 +21,7 @@ import { tokenStore } from '../../auth';
 import { normalizeChatError } from '../../shared/chatError';
 import appStore from '../../renderer/src/store';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
+const logger = loggerService.withContext('HomePage');
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
@@ -249,6 +251,7 @@ const HomePage = () => {
   const [chatSessions, setChatSessions] = useState(() => [createEmptyChatSession()]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatSending, setChatSending] = useState(false);
+  const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
   const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
@@ -402,6 +405,43 @@ const HomePage = () => {
   }, [chatModel]);
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
+  const setChatSessionSending = (chatId, sending, reason = '') => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionSendingMap((prev) => {
+      const nextValue = Boolean(sending);
+      if (prev[id] === nextValue) return prev;
+      logger.info('[HomePage][SessionSending] update', {
+        chatId: id,
+        sending: nextValue,
+        reason,
+        prevValue: Boolean(prev[id]),
+        activeChatId,
+      });
+      return { ...prev, [id]: nextValue };
+    });
+  };
+  const removeChatSessionSending = (chatId) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionSendingMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+  const activeChatSending = Boolean(activeChatId) && Boolean(chatSessionSendingMap[activeChatId]);
+  const isChatSessionSending = (chatId) => Boolean(chatId) && Boolean(chatSessionSendingMap[chatId]);
+
+  useEffect(() => {
+    logger.info('[HomePage][SessionSending] snapshot', {
+      activeChatId,
+      activeChatSending,
+      chatSending,
+      sessionSendingMap: chatSessionSendingMap
+    });
+  }, [activeChatId, activeChatSending, chatSending, chatSessionSendingMap]);
 
   useEffect(() => {
     chatSessionsRef.current = chatSessions;
@@ -631,8 +671,12 @@ const HomePage = () => {
       if (!pending) {
         const payloadType = String(payload?.type || '');
         const chunkType = String(payload?.chunk?.type || '');
+        if (payloadType === 'started') {
+          const mappedChatId = chatIdByAgentSessionIdRef.current.get(agentSessionId);
+          if (mappedChatId) setChatSessionSending(mappedChatId, true, 'chunk.started.without-pending');
+        }
         const isToolRelated =
-          chunkType.startsWith('tool-') || payloadType === 'complete' || payloadType === 'error' || payloadType === 'cancelled';
+          chunkType.startsWith('tool-') || payloadType === 'started' || payloadType === 'complete' || payloadType === 'error' || payloadType === 'cancelled';
         if (isToolRelated) {
           logger.warn('[HomePage][StreamTrace] drop payload without pending state', {
             sessionId: agentSessionId,
@@ -646,6 +690,11 @@ const HomePage = () => {
         return;
       }
       const { chatId, assistantMessageId, streamController, storeAssistantMessageId } = pending;
+      if (payload.type === 'started') {
+        setChatSessionSending(chatId, true, 'chunk.started');
+        setChatSending(true);
+        return;
+      }
       const applySnapshot = (error = null) => {
         const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
         if (!snapshot) return;
@@ -689,6 +738,7 @@ const HomePage = () => {
         streamController?.error(new Error(errorMessage || 'agent request failed'));
         applySnapshot(normalizedError);
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        setChatSessionSending(chatId, false, 'chunk.error');
         setChatSending(false);
         return;
       }
@@ -696,6 +746,7 @@ const HomePage = () => {
       if (payload.type === 'cancelled') {
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSending(false);
         return;
       }
@@ -704,6 +755,7 @@ const HomePage = () => {
         streamController?.complete();
         applySnapshot(null);
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        setChatSessionSending(chatId, false, 'chunk.complete');
         setChatSending(false);
         void triggerAutoRenameSessionTitle(chatId);
       }
@@ -717,8 +769,13 @@ const HomePage = () => {
 
   const handleCreateChatSession = () => {
     const session = createEmptyChatSession();
+    logger.info('[HomePage][SessionSending] create session', {
+      sessionId: session.id,
+      fromActiveChatId: activeChatId
+    });
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
+    setChatSessionSending(session.id, false, 'create-session');
   };
 
   const handleDeleteChatSession = (sessionId) => {
@@ -729,6 +786,7 @@ const HomePage = () => {
     }
     setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
     setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
+    removeChatSessionSending(sessionId);
     setChatSessions((prev) => {
       const remaining = prev.filter((item) => item.id !== sessionId);
       if (remaining.length === 0) {
@@ -770,7 +828,7 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText) => {
     const text = String(inputText || '').trim();
-    if (!text || chatSending) return;
+    if (!text) return;
 
     let targetSessionId = activeChatId;
     if (!targetSessionId) {
@@ -778,6 +836,14 @@ const HomePage = () => {
       targetSessionId = created.id;
       setChatSessions((prev) => [created, ...prev]);
       setActiveChatId(created.id);
+    }
+    if (isChatSessionSending(targetSessionId)) {
+      logger.warn('[HomePage][SessionSending] blocked send by session sending', {
+        targetSessionId,
+        activeChatId,
+        sessionSendingMap: chatSessionSendingMap
+      });
+      return;
     }
 
     const userMessage = {
@@ -846,6 +912,7 @@ const HomePage = () => {
       return;
     }
 
+    setChatSessionSending(targetSessionId, true, 'send-start');
     setChatSending(true);
     try {
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
@@ -897,6 +964,7 @@ const HomePage = () => {
       if (pendingEntry?.[0]) {
         chatPendingByAgentSessionIdRef.current.delete(pendingEntry[0]);
       }
+      setChatSessionSending(targetSessionId, false, 'send-catch');
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
           if (item.id !== targetSessionId) return item;
@@ -926,6 +994,7 @@ const HomePage = () => {
       const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
       if (active && active[0]) {
         void window.electronAPI.cherryChatStream.abort(active[0]);
+        setChatSessionSending(active[1]?.chatId || activeChatId, false, 'manual-stop');
         setChatSending(false);
         return;
       }
@@ -957,7 +1026,7 @@ const HomePage = () => {
   };
 
   const handleRetryAssistantMessage = async (message) => {
-    if (chatSending || !activeChatId || !canUseAgentRuntime) return;
+    if (!activeChatId || !canUseAgentRuntime || isChatSessionSending(activeChatId)) return;
     const messageId = message?.id;
     if (!messageId) return;
     const session = chatSessions.find((item) => item.id === activeChatId);
@@ -983,6 +1052,7 @@ const HomePage = () => {
       return sortChatSessions(updated);
     });
 
+    setChatSessionSending(activeChatId, true, 'retry-start');
     setChatSending(true);
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
@@ -1022,13 +1092,13 @@ const HomePage = () => {
         });
         return sortChatSessions(updated);
       });
+      setChatSessionSending(activeChatId, false, 'retry-catch');
       setChatSending(false);
     }
   };
 
   // 订阅当前下载任务的文件列表，映射为 DownloadList 所需的 project
   useEffect(() => {
-    const { DownloadController } = require('../../shared/DownloadController');
     const unsubscribe = DownloadController.subscribeFileList(({ draft_id, fileList }) => {
       const active = Array.isArray(fileList) ? fileList.filter(f => f.status !== 'completed') : [];
       const totalDownloaded = active.reduce((sum, f) => sum + (Number(f.downloaded) || 0), 0);
@@ -1046,7 +1116,6 @@ const HomePage = () => {
 
   // 新增：订阅进度，当当前任务结束（current 为空）时清空右侧项目
   useEffect(() => {
-    const { DownloadController } = require('../../shared/DownloadController');
     const unsubscribe = DownloadController.subscribeProgress((snapshot) => {
       if (!snapshot?.current) {
         setDownloadProject(null);
@@ -1204,6 +1273,7 @@ const HomePage = () => {
                 onRetryAssistantMessage={handleRetryAssistantMessage}
                 onDeleteAssistantMessage={handleDeleteAssistantMessage}
                 sending={chatSending}
+                sessionSending={activeChatSending}
                 model={chatModel}
                 modelOptions={chatModelOptions}
                 modelListLoading={chatModelListLoading}

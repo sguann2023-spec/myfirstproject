@@ -5,9 +5,10 @@ import { electronStore } from '../../shared/electronStore';
 import { Radio } from 'antd';
 import ClearAllIcon from '../../../public/clear_all_download_records.png';
 import FolderIcon from '../../../public/folder.png';
-import { DownloadController } from '../../shared/DownloadController';
-import logger from '../../shared/logger';
+import { DownloadController } from '../../shared/DownloadController.js';
+import { loggerService } from '@logger';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
+const logger = loggerService.withContext('DownloadDualList');
 
 function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedCompletedKey }) {
   const [pending, setPending] = useState(() => {

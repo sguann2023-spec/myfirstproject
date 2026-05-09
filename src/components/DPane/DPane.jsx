@@ -10,8 +10,8 @@ import DownloadIcon from '../../../public/download_icon.png';
 import DownloadSelectedIcon from '../../../public/download_selected_icon.png';
 import PresetIcon from '../../../public/preset_icon.svg';
 import PresetSelectedIcon from '../../../public/preset_selected_icon.svg';
-import logger from '../../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('DPane');
 const DPane = ({ children, style, className = '', selected = 'chat', onSelect }) => {
   const isDraftSelected = selected === 'draft';
   const isChatSelected = selected === 'chat';

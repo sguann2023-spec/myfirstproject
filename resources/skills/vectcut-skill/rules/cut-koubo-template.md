@@ -49,6 +49,7 @@ description: "基于官方口播模板代理的一键稳定剪辑技能。相比
 
 - 同一轮任务内，`submit_agent_task` **最多只允许调用 1 次**
 - 一旦拿到 `task_id`，后续动作只能是 `task_status` 轮询，**禁止再次调用** `submit_agent_task`
+- `submit_agent_task` 返回仅含 `task_id`（例如 `{ "task_id": "924E4C927BEE000216155282E20BFF11" }`）属于**正确成功响应**，禁止误判为异常后重复提交
 - 若需要检查 HTTP 状态码、打印完整响应或补充日志，必须复用第一次提交的响应结果，**不得以“确认结果”为由重提**
 - 若首次提交失败（网络异常/4xx/5xx），应先返回失败原因；只有在用户明确要求“重试提交”时，才允许发起第二次提交
 - 在最终输出中必须显式回传“本次 submit 次数”和“首次 task_id”，便于审计是否重复提交
@@ -110,6 +111,16 @@ curl -X POST "https://open.vectcut.com/cut_jianying/agent/submit_agent_task" \
     }
   }'
 ```
+
+提交成功返回示例（最小正确结构）：
+
+```json
+{
+  "task_id": "924E4C927BEE000216155282E20BFF11"
+}
+```
+
+该返回是正常结果，不需要包含 `draft_id/draft_url`。拿到 `task_id` 后应直接执行 `task_status` 轮询。
 
 查询状态示例（完整域名）：
 

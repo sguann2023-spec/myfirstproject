@@ -15,8 +15,8 @@ const axios = require('axios');
 import { tokenStore } from '../../auth'; // 统一从 index 导入
 import { createDraft } from '../../api/capcut';
 import { addUser } from '../../api/user';
-import logger from '../../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('LoginPage');
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const REDUX_STORE_READY_CHANNEL = 'redux-store-ready';
 let loginPreInitPromise = null;

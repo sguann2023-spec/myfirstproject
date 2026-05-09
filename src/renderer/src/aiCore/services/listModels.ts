@@ -368,7 +368,11 @@ const fetchers: ModelFetcher[] = [
 
 // === Unsupported providers (skip before registry lookup) ===
 
-const UNSUPPORTED_PROVIDERS = new Set<string>([SystemProviderIds['aws-bedrock'], SystemProviderIds.anthropic])
+const UNSUPPORTED_PROVIDERS = new Set<string>([
+  SystemProviderIds['aws-bedrock'],
+  SystemProviderIds.anthropic,
+  'cherryai'
+])
 
 function isUnsupported(provider: Provider): boolean {
   return isAIGatewayProvider(provider) || UNSUPPORTED_PROVIDERS.has(provider.id) || provider.type === 'vertex-anthropic'
@@ -379,14 +383,18 @@ function isUnsupported(provider: Provider): boolean {
 export async function listModels(provider: Provider, abortSignal?: AbortSignal): Promise<Model[]> {
   try {
     if (isUnsupported(provider)) {
-      logger.warn('Provider does not support model listing via listModels', { providerId: provider.id })
+      if (provider.id !== 'cherryai') {
+        logger.warn('Provider does not support model listing via listModels', { providerId: provider.id })
+      }
       return []
     }
 
     const fetcher = fetchers.find((f) => f.match(provider))!
     return await fetcher.fetch(provider, abortSignal)
   } catch (error) {
-    logger.error('Error listing models:', error as Error, { providerId: provider.id })
+    if (provider.id !== 'cherryai') {
+      logger.error('Error listing models:', error as Error, { providerId: provider.id })
+    }
     return []
   }
 }

@@ -1,7 +1,6 @@
 import { MessageBlockStatus, MessageBlockType } from './types';
 import { buildErrorSignature } from '../../../../shared/chatError';
-const { loggerService } = require('../../../../shared/logger');
-
+import { loggerService } from '@logger';
 const TOOL_FENCE_RE = /```(tool|tools|function)\s*\n([\s\S]*?)```/gi;
 const THINK_TAG_RE = /<(?:think|thinking)(?:\s[^>]*)?>([\s\S]*?)<\/(?:think|thinking)>/gi;
 const THINK_ESCAPED_TAG_RE = /&lt;(?:think|thinking)(?:\s[^&]*?)?&gt;([\s\S]*?)&lt;\/(?:think|thinking)&gt;/gi;

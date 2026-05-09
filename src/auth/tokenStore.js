@@ -1,8 +1,8 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { getStorage, setStorage, removeStorage } from './storage';
 import { refreshTokensRequest } from './authClient';
-import logger from '../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('TokenStore');
 class TokenStore {
   idToken = null;
   accessToken = null;

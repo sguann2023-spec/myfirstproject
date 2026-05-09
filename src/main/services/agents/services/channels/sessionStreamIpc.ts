@@ -15,6 +15,7 @@ import { sessionStreamBus, type SessionStreamChunk } from './SessionStreamBus'
 
 const activeSubscriptions = new Map<string, () => void>()
 const activeAbortControllers = new Map<string, AbortController>()
+let sessionStreamIpcRegistered = false
 let sessionMessageServicePromise: Promise<import('../SessionMessageService').SessionMessageService | null> | null = null
 let channelMessageHandlerPromise: Promise<import('./ChannelMessageHandler').ChannelMessageHandler | null> | null = null
 let agentServicePromise: Promise<import('../AgentService').AgentService | null> | null = null
@@ -233,6 +234,11 @@ async function resolveSessionById(sessionId: string, preferredAgentId?: string) 
 }
 
 export function registerSessionStreamIpc(): void {
+  if (sessionStreamIpcRegistered) {
+    logger.info('[SessionStreamIpc] Skip duplicate IPC registration')
+    return
+  }
+
   const registerStreamSubscribeHandler = (subscribeChannel: string, chunkChannel: string) => {
     ipcMain.handle(subscribeChannel, (_event, { sessionId }: { sessionId: string }) => {
       const key = buildSubscriptionKey(subscribeChannel, sessionId)
@@ -365,6 +371,11 @@ export function registerSessionStreamIpc(): void {
 
       const abortController = new AbortController()
       activeAbortControllers.set(sessionId, abortController)
+      sessionStreamBus.publish(sessionId, {
+        sessionId,
+        agentId: session.agent_id,
+        type: 'started'
+      })
       const streamStartedAt = Date.now()
       const { stream, completion } = await sessionMessageService.createSessionMessage(
         session,
@@ -497,6 +508,9 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(CherryChannels.SessionList, handleSessionList)
   ipcMain.handle(CherryChannels.SessionMessageList, handleSessionMessageList)
   ipcMain.handle(CherryChannels.SessionMessageCreate, handleSessionMessageCreate)
+
+  sessionStreamIpcRegistered = true
+  logger.info('[SessionStreamIpc] IPC registration completed')
 }
 
 export function broadcastSessionChanged(agentId: string, sessionId: string, headless?: boolean): void {

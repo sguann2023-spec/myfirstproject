@@ -53,6 +53,7 @@ const Chat = ({
   onRetryAssistantMessage,
   onDeleteAssistantMessage,
   sending = false,
+  sessionSending = false,
   model,
   modelOptions = [],
   modelListLoading = false,
@@ -88,7 +89,7 @@ const Chat = ({
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || sending || modelListLoading) return;
+    if (!text || sessionSending || modelListLoading) return;
     onSendMessage && onSendMessage(text);
     setInput('');
   };
@@ -128,6 +129,7 @@ const Chat = ({
         handleSend={handleSend}
         handleStop={onStopSending}
         sending={sending}
+        sessionSending={sessionSending}
         model={model}
         modelOptions={modelOptions}
         modelListLoading={modelListLoading}

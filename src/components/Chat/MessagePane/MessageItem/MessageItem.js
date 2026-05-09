@@ -5,8 +5,7 @@ import './MessageItem.css';
 import MessageContent from '../MessageContent/MessageContent';
 import MessageHeader from '../MessageHeader/MessageHeader';
 import { buildErrorSignature } from '../../../../shared/chatError';
-const { loggerService } = require('../../../../shared/logger');
-
+import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessageItem');
 

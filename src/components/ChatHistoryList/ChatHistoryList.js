@@ -31,10 +31,16 @@ const ChatHistoryList = ({
   onDeleteSession,
   visible = true,
 }) => {
+  const sortedSessions = [...sessions].sort((a, b) => {
+    const timeA = new Date(a?.updatedAt).getTime() || 0;
+    const timeB = new Date(b?.updatedAt).getTime() || 0;
+    return timeB - timeA;
+  });
+
   return (
     <div className={`chat-history-list ${visible ? 'is-visible' : 'is-hidden'}`}>
       <div className="chat-history-list__header">
-        <div className="chat-history-list__title">助手会话</div>
+        <div className="chat-history-list__title">会话历史</div>
         <button
           type="button"
           className="chat-history-list__new-btn"
@@ -45,10 +51,10 @@ const ChatHistoryList = ({
       </div>
 
       <div className="chat-history-list__body">
-        {sessions.length === 0 ? (
+        {sortedSessions.length === 0 ? (
           <div className="chat-history-list__empty">暂无会话记录</div>
         ) : (
-          sessions.map((session) => {
+          sortedSessions.map((session) => {
             const isActive = session.id === activeSessionId;
             return (
               <div

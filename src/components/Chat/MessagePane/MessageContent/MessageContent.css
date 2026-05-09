@@ -2,6 +2,19 @@
   width: 100%;
 }
 
+/* Local typography baseline for scoped MessageBlockRenderer rendering.
+   We no longer mount tw-root-scope on html/body, so keep chat text sizing stable here. */
+.chat-message-content.tw-scope {
+  font-size: 14px;
+  line-height: 1.6;
+  font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+}
+
+.chat-message-content.tw-scope .markdown {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .chat-message-blocks {
   display: flex;
   flex-direction: column;

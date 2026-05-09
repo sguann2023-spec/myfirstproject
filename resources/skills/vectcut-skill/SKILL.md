@@ -24,7 +24,7 @@ dependency:
 
 ## 统一前置规则（沿用）
 
-1. 任何 VectCut 调用前，先检查 `VECTCUT_API_KEY`
+1. 任何 VectCut 调用前，先检查环境变量 `VECTCUT_API_KEY`（检查环境变量，不是本地配置文件）
 2. 缺失、为空或鉴权失败时，先调用 `vectcut-login`
 3. 输入是本地素材路径时，先调用 `sts-upload` 转公网 URL 再继续
 4. 关键节点后调用 `query-draft` 做草稿校验

@@ -1,7 +1,7 @@
 import { authFetch } from '../auth/authFetch';
 import { tokenStore } from '../auth'; // 统一从 index 导入
-import logger from '../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('HttpClient');
 let authFailureHandler = null;
 
 /**

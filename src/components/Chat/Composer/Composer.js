@@ -15,6 +15,7 @@ const Composer = ({
   handleSend,
   handleStop,
   sending = false,
+  sessionSending = false,
   model,
   modelOptions = [],
   modelListLoading = false,
@@ -107,25 +108,25 @@ const Composer = ({
               options={groupedModelOptions}
               loading={modelListLoading}
               onChange={(value) => onModelChange && onModelChange(value)}
-              disabled={sending || modelListLoading || availableModelOptions.length === 0}
+              disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}
               popupMatchSelectWidth={false}
               getPopupContainer={(trigger) => trigger.parentElement}
             />
             <button
               type="button"
-              className={`chat-panel__send-btn ${isSendDisabled && !sending ? 'disabled' : ''} ${sending ? 'stopping' : ''}`}
+              className={`chat-panel__send-btn ${isSendDisabled && !sessionSending ? 'disabled' : ''} ${sessionSending ? 'stopping' : ''}`}
               onClick={() => {
-                if (sending) {
+                if (sessionSending) {
                   handleStop && handleStop();
                   return;
                 }
                 if (!isSendDisabled) handleSend();
               }}
-              aria-label={sending ? '停止生成' : '发送消息'}
-              aria-disabled={sending ? false : isSendDisabled}
-              disabled={sending ? false : isSendDisabled}
+              aria-label={sessionSending ? '停止生成' : '发送消息'}
+              aria-disabled={sessionSending ? false : isSendDisabled}
+              disabled={sessionSending ? false : isSendDisabled}
             >
-              {sending ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
+              {sessionSending ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
             </button>
           </div>
         </div>

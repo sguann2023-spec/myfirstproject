@@ -1,7 +1,7 @@
 import React from 'react';
 import './DraftDownloadSuccessPreview.css';
 import DraftIcon from '../../../public/draft_selected_icon.svg';
-import { DownloadController } from '../../shared/DownloadController';
+import { DownloadController } from '../../shared/DownloadController.js';
 
 function DraftDownloadSuccessPreview({ draft }) {
   if (!draft) return null;

@@ -5,7 +5,7 @@ const https = require('https');
 const { promisify } = require('util');
 const AdmZip = require('adm-zip');
 const { log } = require('console');
-const logger = require('../src/shared/logger');
+const logger = require('./loggerBridge').withContext('Downloader');
 
 const TLS_CERT_ERROR_CODES = new Set([
     'CERT_HAS_EXPIRED',

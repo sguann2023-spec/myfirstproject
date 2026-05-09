@@ -6,8 +6,8 @@ import GeneralSettingIcon from '../../../public/settings_general.png';
 import { MailOutlined, SettingOutlined, KeyOutlined, ApiOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import GeneralSettings from '../../components/GeneralSettings/GeneralSettings';
 import AboutUs from '../../components/AboutUs/AboutUs';
-import logger from '../../shared/logger';
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('SettingPage');
 // 菜单项数据
 const settingMenuItems = [
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },

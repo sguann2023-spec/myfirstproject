@@ -2,11 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '@ant-design/v5-patch-for-react-19';
 import { ConfigProvider, message } from 'antd'; // 引入 Ant Design 配置
-import App from './App';
+import App from './App.jsx';
 import SettingPage from './page/SettingPage/SettingPage.jsx'; // 引入设置页面组件
-import logger from './shared/logger';
-
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('Index');
 // 1. 获取 URL 中的查询参数
 const urlParams = new URLSearchParams(window.location.search);
 const view = urlParams.get('view');

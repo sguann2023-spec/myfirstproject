@@ -194,3 +194,6 @@ if (typeof exportedLogger.withContext !== 'function' && typeof exportedLogger.wi
 if (!exportedLogger.loggerService) {
   exportedLogger.loggerService = exportedLogger;
 }
+if (!('default' in exportedLogger)) {
+  exportedLogger.default = exportedLogger;
+}

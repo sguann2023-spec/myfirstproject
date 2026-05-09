@@ -4,8 +4,9 @@ import ArrowBackIcon from '../../../public/arrow_back.svg';
 import { Button, message } from 'antd';
 import GuiderSetting1 from '../../components/GuiderSettings/GuiderSetting1/GuiderSetting1';
 import GuiderSetting2 from '../../components/GuiderSettings/GuiderSetting2/GuiderSetting2';
-import logger from '../../shared/logger';
+import { loggerService } from '@logger';
 import { electronStore } from '../../shared/electronStore';
+const logger = loggerService.withContext('GuiderPage');
 
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 

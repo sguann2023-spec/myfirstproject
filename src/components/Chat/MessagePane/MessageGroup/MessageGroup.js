@@ -1,8 +1,8 @@
 import React from 'react';
 import MessageItem from '../MessageItem/MessageItem';
 import { buildErrorSignature } from '../../../../shared/chatError';
+import { loggerService } from '@logger';
 import './MessageGroup.css';
-const { loggerService } = require('../../../../shared/logger');
 
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessageGroup');

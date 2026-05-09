@@ -17,6 +17,9 @@ import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('AppUpdater')
 
+const PROXY_PREFIX = 'https://gh-proxy.com/';
+const LEGACY_AUTO_UPDATER_FEED_URL = 'https://player.install-ai-guider.top/client/latest'
+
 function getCommonHeaders() {
   return {
     'User-Agent': generateUserAgent(),
@@ -241,42 +244,19 @@ export default class AppUpdater {
   }
 
   private async _setFeedUrl() {
-    const currentVersion = app.getVersion()
-    const testPlan = configManager.getTestPlan()
-    const requestedChannel = testPlan ? this._getTestChannel() : UpgradeChannel.LATEST
-
-    // Determine mirror based on IP country
-    const ipCountry = await getIpCountry()
-    const mirror = ipCountry.toLowerCase() === 'cn' ? UpdateMirror.GITCODE : UpdateMirror.GITHUB
-
-    logger.info(
-      `Setting feed URL for version ${currentVersion}, testPlan: ${testPlan}, requested channel: ${requestedChannel}, mirror: ${mirror} (IP country: ${ipCountry})`
-    )
-
-    // Try to fetch update config from remote
-    const config = await this._fetchUpdateConfig(mirror)
-
-    if (config) {
-      // Use new config-based system
-      const result = this._findCompatibleChannel(currentVersion, requestedChannel, config)
-
-      if (result) {
-        const { config: channelConfig, channel: actualChannel } = result
-        const feedUrl = channelConfig.feedUrls[mirror]
-        logger.info(
-          `Using config-based feed URL: ${feedUrl} for channel ${actualChannel} (requested: ${requestedChannel}, mirror: ${mirror})`
-        )
-        this._setChannel(actualChannel, feedUrl)
-        return
-      }
-    }
-
-    logger.info('Failed to fetch update config, falling back to default feed URL')
-    // Fallback: use default feed URL based on mirror
-    const defaultFeedUrl = mirror === UpdateMirror.GITCODE ? FeedUrl.PRODUCTION : FeedUrl.GITHUB_LATEST
-
-    logger.info(`Using fallback feed URL: ${defaultFeedUrl}`)
-    this._setChannel(UpgradeChannel.LATEST, defaultFeedUrl)
+    // Use legacy updater feed to keep compatibility with original main.js behavior.
+    this.autoUpdater.channel = UpgradeChannel.LATEST
+    this.autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: LEGACY_AUTO_UPDATER_FEED_URL,
+      channel: UpgradeChannel.LATEST
+    })
+    this.autoUpdater.allowDowngrade = false
+    this.autoUpdater.disableDifferentialDownload = true
+    logger.info('Using legacy auto updater feed URL', {
+      feedUrl: LEGACY_AUTO_UPDATER_FEED_URL,
+      channel: UpgradeChannel.LATEST
+    })
   }
 
   public cancelDownload() {

@@ -5,9 +5,8 @@ import DraftFolderImg from '../../../../public/draft_folder_setting.png';
 import PresetFolderImg from '../../../../public/preset_folder_setting.png';
 import InfoIcon from '../../../../public/info.png';
 import { electronStore } from '../../../shared/electronStore';
-import logger from '../../../shared/logger';
-
-
+import { loggerService } from '@logger';
+const logger = loggerService.withContext('GuiderSetting2');
 const GuiderSetting2 = ({ onSettingsChange }) => {
   const [draftFolder, setDraftFolder] = useState('');
   const [presetFolder, setPresetFolder] = useState('');

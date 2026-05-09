@@ -5,14 +5,12 @@ import { is } from '@electron-toolkit/utils'
 import { loggerService } from '@logger'
 import { isDev, isLinux, isMac, isWin } from '@main/constant'
 import { getFilesDir } from '@main/utils/file'
-import { getWindowsBackgroundMaterial } from '@main/utils/windowUtil'
-import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/config/constant'
 import { IpcChannel } from '@shared/IpcChannel'
 import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell } from 'electron'
 import windowStateKeeper from 'electron-window-state'
+import fs from 'node:fs'
 import path, { join } from 'path'
 
-import { titleBarOverlayDark, titleBarOverlayLight } from '../config'
 import { configManager } from './ConfigManager'
 import { contextMenu } from './ContextMenu'
 import { isSafeExternalUrl } from './security'
@@ -20,12 +18,22 @@ import { initSessionUserAgent } from './WebviewService'
 
 const DEFAULT_MINIWINDOW_WIDTH = 550
 const DEFAULT_MINIWINDOW_HEIGHT = 400
+const LEGACY_LOGIN_WIDTH = 320
+const LEGACY_LOGIN_HEIGHT = 450
 
 // const logger = loggerService.withContext('WindowService')
 const logger = loggerService.withContext('WindowService')
 
 // Create nativeImage for Linux window icon (required for Wayland)
-const iconPath = path.resolve(__dirname, '../../../public/logo.png')
+const resolveAppIconPath = () => {
+  const candidates = [
+    path.resolve(__dirname, '../../../public/logo.png'),
+    path.resolve(app.getAppPath(), 'public/logo.png'),
+    path.resolve(process.cwd(), 'public/logo.png')
+  ]
+  return candidates.find((item) => fs.existsSync(item)) || candidates[candidates.length - 1]
+}
+const iconPath = resolveAppIconPath()
 const linuxIcon = isLinux ? nativeImage.createFromPath(iconPath) : undefined
 
 export class WindowService {
@@ -52,53 +60,44 @@ export class WindowService {
       return this.mainWindow
     }
 
+    const initialWidth = LEGACY_LOGIN_WIDTH
+    const initialHeight = LEGACY_LOGIN_HEIGHT
     const mainWindowState = windowStateKeeper({
-      defaultWidth: MIN_WINDOW_WIDTH,
-      defaultHeight: MIN_WINDOW_HEIGHT,
+      defaultWidth: initialWidth,
+      defaultHeight: initialHeight,
       fullScreen: false,
       maximize: false
     })
-    const windowsBackgroundMaterial = getWindowsBackgroundMaterial()
-    let mainWindowBackgroundColor: string | undefined
-
-    if (!isMac && !windowsBackgroundMaterial) {
-      mainWindowBackgroundColor = nativeTheme.shouldUseDarkColors ? '#181818' : '#FFFFFF'
-    }
+    const appVersion = app.getVersion()
+    const versionCode = appVersion
 
     this.mainWindow = new BrowserWindow({
-      x: mainWindowState.x,
-      y: mainWindowState.y,
-      width: mainWindowState.width,
-      height: mainWindowState.height,
-      minWidth: MIN_WINDOW_WIDTH,
-      minHeight: MIN_WINDOW_HEIGHT,
+      width: initialWidth,
+      height: initialHeight,
+      center: true,
+      minWidth: initialWidth,
+      minHeight: initialHeight,
       show: false,
       autoHideMenuBar: true,
+      frame: false,
       transparent: false,
-      vibrancy: 'sidebar',
-      visualEffectState: 'active',
-      // For Windows and Linux, we use frameless window with custom controls
-      // For Mac, we keep the native title bar style
-      ...(isMac
-        ? {
-            titleBarStyle: 'hidden',
-            titleBarOverlay: nativeTheme.shouldUseDarkColors ? titleBarOverlayDark : titleBarOverlayLight,
-            trafficLightPosition: { x: 13, y: 13 }
-          }
-        : {
-            // On Linux, allow using system title bar if setting is enabled
-            frame: isLinux && configManager.getUseSystemTitleBar() ? true : false
-          }),
-      ...(windowsBackgroundMaterial ? { backgroundMaterial: windowsBackgroundMaterial } : {}),
-      ...(mainWindowBackgroundColor ? { backgroundColor: mainWindowBackgroundColor } : {}),
+      titleBarStyle: 'hidden',
+      titleBarOverlay: isWin ? false : true,
+      trafficLightPosition: { x: 12, y: 10 },
+      minimizable: true,
+      maximizable: true,
+      resizable: true,
       darkTheme: nativeTheme.shouldUseDarkColors,
       ...(isLinux ? { icon: linuxIcon } : {}),
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
+        nodeIntegration: true,
+        contextIsolation: false,
         sandbox: false,
         webSecurity: false,
         webviewTag: true,
         allowRunningInsecureContent: true,
+        additionalArguments: [`--app-version=${appVersion}`, `--version-code=${versionCode}`],
         zoomFactor: configManager.getZoomFactor(),
         backgroundThrottling: false
       }
@@ -121,7 +120,8 @@ export class WindowService {
   private setupMainWindow(mainWindow: BrowserWindow, mainWindowState: any) {
     mainWindowState.manage(mainWindow)
 
-    this.setupMaximize(mainWindow, mainWindowState.isMaximized)
+    // Keep legacy login behavior: startup always opens as a small non-maximized window.
+    this.setupMaximize(mainWindow, false)
     this.setupContextMenu(mainWindow)
     this.setupSpellCheck(mainWindow)
     this.setupWindowEvents(mainWindow)
