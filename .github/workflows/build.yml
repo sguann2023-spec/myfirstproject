@@ -88,6 +88,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Verify macOS code signing & notarization
+        timeout-minutes: 80
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
