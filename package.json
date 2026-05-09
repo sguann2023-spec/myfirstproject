@@ -58,7 +58,6 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "identity": "Keroro Software LLC (45UTGNZ6A4)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build-resources/entitlements.mac.plist",

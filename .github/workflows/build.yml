@@ -59,21 +59,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Import macOS signing certificate
-        uses: apple-actions/import-codesign-certs@v3
-        with:
-          p12-file-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
-
       - name: Prepare macOS signing environment
         shell: bash
         run: |
-          security list-keychains
-          security default-keychain
-          echo "CSC_NAME=Keroro Software LLC (45UTGNZ6A4)" >> "$GITHUB_ENV"
-          echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
-          security find-identity -v -p codesigning
-          security find-identity -v -p codesigning | grep -q "Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+          [ -n "${CSC_LINK:-}" ] || { echo "Missing CSC_LINK secret"; exit 1; }
+          [ -n "${CSC_KEY_PASSWORD:-}" ] || { echo "Missing CSC_KEY_PASSWORD secret"; exit 1; }
+          [ -n "${APPLE_ID:-}" ] || { echo "Missing APPLE_ID secret"; exit 1; }
+          [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || { echo "Missing APPLE_APP_SPECIFIC_PASSWORD secret"; exit 1; }
+          [ -n "${APPLE_TEAM_ID:-}" ] || { echo "Missing APPLE_TEAM_ID secret"; exit 1; }
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Build Mac application
         run: pnpm run build:mac:ci
@@ -81,6 +80,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
           DEBUG: electron-builder
+          CSC_FOR_PULL_REQUEST: true
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
