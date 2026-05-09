@@ -80,6 +80,7 @@ jobs:
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
+          DEBUG: electron-builder
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
