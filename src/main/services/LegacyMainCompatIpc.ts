@@ -158,6 +158,7 @@ function registerLegacyWindowChannels() {
       trafficLightPosition: { x: 12, y: 10 },
       titleBarOverlay: isWin ? false : true,
       webPreferences: {
+        preload: path.join(__dirname, '../preload/index.js'),
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: false,
@@ -218,12 +219,25 @@ function registerLegacyDownloadChannels() {
 
   safeOn('process-parameters', (event, params: any = {}) => {
     const draftId = String(params?.draft_id || '').trim()
+    logger.info('[DLTRACE][Main] process-parameters received', {
+      draftId,
+      draftName: String(params?.draft_name || ''),
+      hasScript: Boolean(params?.script),
+      scriptMaterialsKeys: Object.keys(params?.script?.materials || {}),
+      draftFolder: String(params?.draftFolder || params?.draft_folder || ''),
+      hasDraftFolderCamel: Boolean(params?.draftFolder),
+      hasDraftFolderSnake: Boolean(params?.draft_folder)
+    })
     if (!draftId) {
       event.reply('download-error', 'missing draft_id')
       return
     }
 
     const workerScriptPath = resolveWorkerScriptPath()
+    logger.info('[DLTRACE][Main] worker script resolved', {
+      draftId,
+      workerScriptPath
+    })
     if (!workerScriptPath) {
       event.reply('download-error', 'download worker script not found')
       return
@@ -233,6 +247,11 @@ function registerLegacyDownloadChannels() {
       workerData: {
         ...params
       }
+    })
+    logger.info('[DLTRACE][Main] worker started', {
+      draftId,
+      hasDraftFolderCamel: Boolean(params?.draftFolder),
+      hasDraftFolderSnake: Boolean(params?.draft_folder)
     })
 
     let lastFileList: unknown[] = []
@@ -267,6 +286,12 @@ function registerLegacyDownloadChannels() {
       }
 
       if (message?.type === 'progress') {
+        logger.debug('[DLTRACE][Main] worker progress', {
+          draftId,
+          progress: Number(message.progress || 0),
+          text: String(message.message || ''),
+          fileListCount: Array.isArray(message.fileList) ? message.fileList.length : -1
+        })
         if (Array.isArray(message.fileList)) lastFileList = message.fileList
         event.reply('download-progress', {
           progress: Number(message.progress || 0),
@@ -277,6 +302,10 @@ function registerLegacyDownloadChannels() {
       }
 
       if (message?.type === 'complete') {
+        logger.info('[DLTRACE][Main] worker complete', {
+          draftId,
+          message: String(message.message || 'download complete')
+        })
         event.reply('download-complete', {
           draft_id: draftId,
           message: message.message || 'download complete'
@@ -285,6 +314,12 @@ function registerLegacyDownloadChannels() {
       }
 
       if (message?.type === 'error') {
+        logger.error('[DLTRACE][Main] worker error', {
+          draftId,
+          error: String(message.error || 'download failed'),
+          message: String(message.message || ''),
+          fileListCount: Array.isArray(lastFileList) ? lastFileList.length : -1
+        })
         event.reply('download-error', {
           error: String(message.error || 'download failed'),
           fileList: lastFileList
@@ -296,6 +331,12 @@ function registerLegacyDownloadChannels() {
       logger.error('Download worker failed', error)
       const message = error instanceof Error ? error.message : String(error)
       event.reply('download-error', message || 'download worker error')
+    })
+    worker.on('exit', (code) => {
+      logger.info('[DLTRACE][Main] worker exit', {
+        draftId,
+        code
+      })
     })
   })
 

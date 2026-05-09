@@ -1,41 +1,38 @@
-import KeyvStorage from '@kangfenmao/keyv-storage'
 import { loggerService } from '@logger'
+const view = new URLSearchParams(window.location.search).get('view')
+const isSettingsView = view === 'settings'
 
-import { startAutoSync } from './services/BackupService'
-import { startNutstoreAutoSync } from './services/NutstoreService'
-import storeSyncService from './services/StoreSyncService'
-import { webTraceService } from './services/WebTraceService'
-import store from './store'
+loggerService.initWindowSource(isSettingsView ? 'settingsWindow' : 'mainWindow')
 
-loggerService.initWindowSource('mainWindow')
+async function initMainWindowServices() {
+  const [{ default: KeyvStorage }, { default: store }, backup, nutstore, { default: storeSyncService }, { webTraceService }] =
+    await Promise.all([
+      import('@kangfenmao/keyv-storage'),
+      import('./store'),
+      import('./services/BackupService'),
+      import('./services/NutstoreService'),
+      import('./services/StoreSyncService'),
+      import('./services/WebTraceService')
+    ])
 
-function initKeyv() {
   window.keyv = new KeyvStorage()
   void window.keyv.init()
-}
 
-function initAutoSync() {
   setTimeout(() => {
     const { webdavAutoSync, localBackupAutoSync, s3 } = store.getState().settings
     const { nutstoreAutoSync } = store.getState().nutstore
     if (webdavAutoSync || (s3 && s3.autoSync) || localBackupAutoSync) {
-      startAutoSync()
+      backup.startAutoSync()
     }
     if (nutstoreAutoSync) {
-      void startNutstoreAutoSync()
+      void nutstore.startNutstoreAutoSync()
     }
   }, 8000)
-}
 
-function initStoreSync() {
   storeSyncService.subscribe()
-}
-
-function initWebTrace() {
   webTraceService.init()
 }
 
-initKeyv()
-initAutoSync()
-initStoreSync()
-initWebTrace()
+if (!isSettingsView) {
+  void initMainWindowServices()
+}

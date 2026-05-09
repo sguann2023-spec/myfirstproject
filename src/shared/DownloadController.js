@@ -16,6 +16,23 @@ const state = {
 const listeners = new Set();
 const fileListListeners = new Set(); // 新增：fileList 专用订阅集合
 
+async function resolveRuntimeSettings() {
+  let draftFolder = electronStore.get('draftFolder') || undefined;
+  let isCapcut = electronStore.get('isCapcut') ?? true;
+
+  if (ipc?.invoke) {
+    try {
+      const settings = await ipc.invoke('get-draft-folder');
+      if (settings?.draftFolder) draftFolder = settings.draftFolder;
+      if (typeof settings?.isCapcut === 'boolean') isCapcut = settings.isCapcut;
+    } catch (e) {
+      logger.warn('[DLTRACE] get-draft-folder invoke failed', e);
+    }
+  }
+
+  return { draftFolder, isCapcut };
+}
+
 function notifyCount() {
   const queuedCount = state.queue.length + (state.current ? 1 : 0);
   logger.debug('notifyCount', queuedCount);
@@ -77,6 +94,13 @@ function enqueue({ draft_id, draft_name, cover, createdAt }) {
   // if (state.completed.some(i => i.draft_id === draft_id)) return;
 
   const jobId = nextJobId++;
+  logger.info('[DLTRACE] enqueue', {
+    jobId,
+    draft_id,
+    draft_name: draft_name || draft_id,
+    hasCover: Boolean(cover),
+    createdAt: createdAt || Date.now()
+  });
 
   state.queue.push({
     jobId,
@@ -94,7 +118,14 @@ function enqueue({ draft_id, draft_name, cover, createdAt }) {
 
 async function startNextIfIdle() {
   logger.debug('startNextIfIdle', state.current, state.queue);
-  if (state.current || !ipc) return;
+  if (state.current || !ipc) {
+    logger.debug('[DLTRACE] startNextIfIdle skipped', {
+      hasCurrent: Boolean(state.current),
+      hasIpc: Boolean(ipc),
+      queuedCount: state.queue.length
+    });
+    return;
+  }
 
   // 找到第一个排队项的索引
   const nextIndex = state.queue.findIndex(i => i.status === 'queued');
@@ -113,15 +144,32 @@ async function startNextIfIdle() {
   // );
   notifyAll();
 
-  const draftFolder = electronStore.get('draftFolder') || undefined;
-  const isCapcut = electronStore.get('isCapcut') ?? true;
+  const { draftFolder, isCapcut } = await resolveRuntimeSettings();
+  logger.info('[DLTRACE] startNextIfIdle begin', {
+    jobId: next.jobId,
+    draftId: next.draft_id,
+    draftName: next.draft_name,
+    draftFolder: draftFolder || '',
+    isCapcut
+  });
 
   logger.debug('start download worker, draft_id', next.draft_id);
 
   try {
     // 在前端请求脚本（带鉴权）
+    logger.info('[DLTRACE] queryScript request', {
+      draftId: next.draft_id,
+      force_update: true
+    });
     const resData = await queryScript({ draft_id: next.draft_id, force_update: true });
     const ok = resData && (resData.success === true || resData.code === 200);
+    logger.info('[DLTRACE] queryScript response', {
+      draftId: next.draft_id,
+      ok: Boolean(ok),
+      success: resData?.success,
+      code: resData?.code,
+      hasOutput: Boolean(resData?.output || resData?.data?.output || resData?.result?.output)
+    });
     if (!ok) {
       const msg = '查询草稿失败';
       throw new Error(msg);
@@ -141,14 +189,28 @@ async function startNextIfIdle() {
     notifyAll();
 
     logger.debug('send download worker, draft_id', next.draft_id);
-    ipc.send('process-parameters', {
+    const payload = {
       draft_id: next.draft_id,
       draft_name: next.draft_name,
-      draft_folder: draftFolder,
+      draftFolder,
       is_capcut: isCapcut,
       script, // 将脚本传给主进程
+    };
+    logger.info('[DLTRACE] send process-parameters', {
+      draftId: payload.draft_id,
+      draftName: payload.draft_name,
+      draftFolder: payload.draftFolder || '',
+      isCapcut: payload.is_capcut,
+      hasScript: Boolean(payload.script),
+      scriptMaterialsKeys: Object.keys(payload.script?.materials || {})
     });
+    ipc.send('process-parameters', payload);
   } catch (err) {
+    logger.error('[DLTRACE] startNextIfIdle failed', {
+      draftId: next?.draft_id || '',
+      message: err?.message || 'unknown error',
+      stack: err?.stack || ''
+    });
     const failedItem = { ...state.current, status: 'failed', message: err.message || '获取草稿信息失败' };
     state.completed = [failedItem, ...state.completed];
     state.queue = state.queue.filter(i => i.draft_id !== state.current.draft_id);
@@ -216,6 +278,12 @@ function attachIpcListenersOnce() {
 
   ipc.on('download-progress', (event, { progress, text, fileList }) => {
     if (!state.current) return;
+    logger.debug('[DLTRACE] download-progress', {
+      draftId: state.current?.draft_id || '',
+      progress,
+      text: text || '',
+      fileListCount: Array.isArray(fileList) ? fileList.length : -1
+    });
     const pct = typeof progress === 'number' ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
     const msg = text || '下载中…';
     // 若本次进度未携带 fileList，则保留之前的列表
@@ -229,6 +297,12 @@ function attachIpcListenersOnce() {
 
   ipc.on('download-complete', (event, data) => {
     logger.debug('download-complete', data);
+    logger.info('[DLTRACE] download-complete', {
+      draftId: data?.draft_id || '',
+      hasCurrent: Boolean(state.current),
+      currentDraftId: state.current?.draft_id || '',
+      fileListCount: Array.isArray(data?.fileList) ? data.fileList.length : -1
+    });
     const completedDraftId = data?.draft_id;
     if (!state.current) return;
     if (completedDraftId && completedDraftId !== state.current.draft_id) return;
@@ -258,6 +332,13 @@ function attachIpcListenersOnce() {
 
   ipc.on('download-error', (event, payload) => {
     if (!state.current) return;
+    logger.error('[DLTRACE] download-error', {
+      draftId: state.current?.draft_id || '',
+      payloadType: typeof payload,
+      error: typeof payload === 'string' ? payload : String(payload?.error || ''),
+      payloadFileListCount: Array.isArray(payload?.fileList) ? payload.fileList.length : -1,
+      currentFileListCount: Array.isArray(state.current?.fileList) ? state.current.fileList.length : -1
+    });
     const msg = typeof payload === 'string' ? payload : (payload?.error || '下载失败');
     const fileList = Array.isArray(state.current?.fileList) ? state.current.fileList : [];
     // 失败 flatList：保留完整对象
@@ -317,9 +398,9 @@ function removeCompletedItem(draft_id) {
   notifyAll();
 }
 
-function openItemFolder(draft_id) {
+async function openItemFolder(draft_id) {
   if (!ipc || !draft_id) return;
-  const draftFolder = electronStore.get('draftFolder') || '';
+  const { draftFolder } = await resolveRuntimeSettings();
   if (!draftFolder || !path) return;
   const dirPath = path.join(draftFolder, draft_id);
   ipc.send('open-download-directory', dirPath);

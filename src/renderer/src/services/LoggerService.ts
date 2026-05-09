@@ -10,7 +10,7 @@ const IS_WORKER = typeof window === 'undefined'
 const IS_DEV = IS_WORKER ? false : window.electron?.process?.env?.NODE_ENV === 'development'
 
 const DEFAULT_LEVEL = IS_DEV ? LEVEL.SILLY : LEVEL.INFO
-const MAIN_LOG_LEVEL = LEVEL.WARN
+const MAIN_LOG_LEVEL = LEVEL.DEBUG
 
 /**
  * IMPORTANT: How to use LoggerService
@@ -179,9 +179,13 @@ class LoggerService {
         data = data.slice(0, -1)
       }
 
-      // In renderer process, use window.api.logToMain to send log to main process
+      // In renderer process, best-effort send logs to main process.
+      // Some windows/pages do not expose electron preload APIs.
       if (!IS_WORKER) {
-        void window.electron.ipcRenderer.invoke(IpcChannel.App_LogToMain, source, level, message, data)
+        const ipcRenderer = window.electron?.ipcRenderer
+        if (ipcRenderer?.invoke) {
+          void ipcRenderer.invoke(IpcChannel.App_LogToMain, source, level, message, data)
+        }
       } else {
         //TODO support worker to send log to main process
       }

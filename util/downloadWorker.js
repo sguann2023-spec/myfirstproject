@@ -23,12 +23,37 @@ function initI18n() {
 }
 
 // 在开始下载前初始化i18next
-initI18n().then(() => runDownload());
+initI18n()
+  .then(() => {
+    logger.info('[DLTRACE][Worker] i18n ready, start runDownload');
+    return runDownload();
+  })
+  .catch((error) => {
+    logger.error('[DLTRACE][Worker] i18n init failed', {
+      message: error?.message || '',
+      stack: error?.stack || ''
+    });
+    parentPort.postMessage({
+      type: 'error',
+      message: error?.message || 'i18n init failed',
+      error: error?.message || 'i18n init failed'
+    });
+  });
 
 async function runDownload() {
   logger.info('runDownload')
   try {
     const { draft_id, draft_name, draftFolder, taskId, is_capcut, apiHost, script } = workerData;
+    logger.info('[DLTRACE][Worker] runDownload args', {
+      draft_id,
+      draft_name: draft_name || '',
+      draftFolder: draftFolder || '',
+      taskId: taskId || '',
+      is_capcut: Boolean(is_capcut),
+      hasApiHost: Boolean(apiHost),
+      hasScript: Boolean(script),
+      scriptMaterialsKeys: Object.keys(script?.materials || {})
+    });
     
     /**
      * 创建进度回调函数，将进度消息和文件列表发送回主线程
@@ -56,6 +81,12 @@ async function runDownload() {
       apiHost,
       script // 传入前端获取的脚本
     );
+    logger.info('[DLTRACE][Worker] saveDraftBackground result', {
+      draft_id,
+      success: Boolean(result?.success),
+      message: result?.message || '',
+      error: result?.error || ''
+    });
     
     if (result.success) {
       parentPort.postMessage({
@@ -70,6 +101,10 @@ async function runDownload() {
       });
     }
   } catch (error) {
+    logger.error('[DLTRACE][Worker] runDownload exception', {
+      message: error?.message || '',
+      stack: error?.stack || ''
+    });
     parentPort.postMessage({
       type: 'error',
       message: error?.message || '处理过程中发生错误',

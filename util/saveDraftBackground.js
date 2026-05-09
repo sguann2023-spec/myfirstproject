@@ -119,6 +119,25 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
   let script;
   // 如果draftName为空，就应该设置为draftId
   draftName = draftName || draftId;
+  logger.info('[DLTRACE][Worker] saveDraftBackground:start', {
+    draftId,
+    draftName,
+    draftFolder: draftFolder || '',
+    taskId: taskId || '',
+    is_capcut: Boolean(is_capcut),
+    hasApiHost: Boolean(apiHost),
+    hasScriptFromRenderer: Boolean(scriptFromRenderer)
+  });
+
+  if (!draftFolder || String(draftFolder).trim() === '') {
+    const errorMessage = 'draftFolder is empty';
+    logger.error('[DLTRACE][Worker] saveDraftBackground invalid args', {
+      draftId,
+      draftName,
+      draftFolder: String(draftFolder || '')
+    });
+    throw new Error(errorMessage);
+  }
 
   const draftPath = path.join(draftFolder, draftName);
   const downloadTasks = []; // 存储所有下载任务的完整列表
@@ -186,6 +205,10 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     // 使用渲染进程传来的脚本，避免在 worker 内触发前端逻辑
     if (!scriptFromRenderer) {
       const errMsg = '未提供草稿脚本，请在前端查询后再下载';
+      logger.error('[DLTRACE][Worker] scriptFromRenderer missing', {
+        draftId,
+        draftName
+      });
       throw new Error(errMsg);
     }
 
@@ -777,6 +800,13 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
   } catch (error) {
     // 更新任务状态 - 失败
     logger.error(`保存草稿 ${draftName} 任务 ${taskId} 失败: ${error?.message || ''}`);
+    logger.error('[DLTRACE][Worker] saveDraftBackground:catch', {
+      draftId,
+      draftName,
+      taskId: taskId || '',
+      message: error?.message || '',
+      stack: error?.stack || ''
+    });
     if (progressCallback) {
       progressCallback(-1, i18next.t('processing_failed', { error: error.message }));
     }

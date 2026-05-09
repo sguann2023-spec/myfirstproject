@@ -9,6 +9,7 @@ const logger = loggerService.withContext('Index');
 // 1. 获取 URL 中的查询参数
 const urlParams = new URLSearchParams(window.location.search);
 const view = urlParams.get('view');
+loggerService.initWindowSource(view === 'settings' ? 'settingsWindow' : 'mainWindow');
 
 const DEFAULT_THEME_MODE = 'light';
 document.body.setAttribute('theme-mode', DEFAULT_THEME_MODE);
