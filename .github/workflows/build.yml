@@ -96,8 +96,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          PROPAGATION_SLEEP_SECONDS=49
-          STAPLE_RETRY_SLEEP_SECONDS=49
+          PROPAGATION_SLEEP_SECONDS=50
+          STAPLE_RETRY_SLEEP_SECONDS=50
 
           SIGNING_IDENTITY="Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
 
