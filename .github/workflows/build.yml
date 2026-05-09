@@ -57,7 +57,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Import macOS signing certificate
         uses: apple-actions/import-codesign-certs@v3
