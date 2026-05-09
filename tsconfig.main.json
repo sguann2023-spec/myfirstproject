@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": ".",
+    "outDir": "dist-main",
+    "baseUrl": ".",
+    "paths": {
+      "@types": ["src/renderer/src/types/index.ts"],
+      "@types/*": ["src/renderer/src/types/*"],
+      "@main/*": ["src/main/*"],
+      "@shared": ["src/packages/shared/index.ts", "src/renderer/src/shared/index.ts"],
+      "@shared/*": ["src/packages/shared/*", "src/renderer/src/shared/*", "src/shared/*"],
+      "@logger": ["src/shared/logger"],
+      "@mcp-trace/*": ["src/packages/mcp-trace/*"]
+    },
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "allowJs": true
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/main/integration/**/*.js",
+    "src/packages/shared/**/*.ts",
+    "src/packages/mcp-trace/**/*.ts",
+    "src/shared/logger.js"
+  ],
+  "exclude": ["**/__tests__/**", "src/renderer/**", "dist/**", "build/**", "node_modules/**"]
+}

@@ -34,7 +34,6 @@ import {
 } from '@main/services/proxy/nodeProxy'
 import { toAsarUnpackedPath } from '@main/utils'
 import { autoDiscoverGitBash, getBinaryPath } from '@main/utils/process'
-import { rtkRewrite } from '@main/utils/rtk'
 import getLoginShellEnvironment from '@main/utils/shell-env'
 import {
   CHANNEL_SECURITY_PROMPT,
@@ -514,37 +513,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       return {}
     }
 
-    const rtkRewriteHook: HookCallback = async (input) => {
-      if (input.hook_event_name !== 'PreToolUse') {
-        return {}
-      }
-
-      // Only rewrite Bash tool commands
-      if (input.tool_name !== 'Bash' && input.tool_name !== 'builtin_Bash') {
-        return {}
-      }
-
-      const toolInput = input.tool_input as Record<string, unknown> | undefined
-      const command = toolInput?.command
-      if (typeof command !== 'string' || !command.trim()) {
-        return {}
-      }
-
-      const rewritten = await rtkRewrite(command)
-      if (!rewritten) {
-        return {}
-      }
-
-      logger.info('rtk rewrote Bash command', { original: command, rewritten })
-
-      return {
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          updatedInput: { ...toolInput, command: rewritten }
-        }
-      }
-    }
-
     // Soul Mode: read soul_enabled from agent-level configuration (not session)
     const agent = await agentService.getAgent(session.agent_id)
     const agentConfig = agent?.configuration
@@ -669,7 +637,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       hooks: {
         PreToolUse: [
           {
-            hooks: [rtkRewriteHook, preToolUseHook]
+            hooks: [preToolUseHook]
           }
         ],
         PostToolUse: [
