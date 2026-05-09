@@ -2,10 +2,8 @@ import { loggerService } from '@logger'
 import type { AppDispatch, RootState } from '@renderer/store'
 import { updateOneBlock } from '@renderer/store/messageBlock'
 import { newMessagesActions } from '@renderer/store/newMessage'
-import type { BaseTool, NormalToolResponse } from '@renderer/types'
 import type { MainTextMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
-import { createToolBlock } from '@renderer/utils/messageUtils/create'
 import type { ClaudeCodeRawValue } from '@shared/agents/claudecode/types'
 
 import type { BlockManager } from '../BlockManager'
@@ -26,7 +24,6 @@ interface CompactState {
   summaryBlockId: string | null
   isFirstBlockAfterCompact: boolean
   summaryText: string
-  initSlashCommandsRendered: boolean
 }
 
 export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
@@ -37,73 +34,7 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     compactBoundaryDetected: false,
     summaryBlockId: null,
     isFirstBlockAfterCompact: false,
-    summaryText: '',
-    initSlashCommandsRendered: false
-  }
-
-  const buildSkillProbeToolResponse = (slashCommands: string[]): NormalToolResponse => {
-    const toolCallId = `skill-probe-${assistantMsgId}`
-    const skillTool: BaseTool = {
-      id: AgentToolName.Skill,
-      name: AgentToolName.Skill,
-      description: 'Inspect available skills/slash commands before execution',
-      type: 'builtin'
-    }
-
-    return {
-      id: toolCallId,
-      tool: skillTool,
-      status: 'done',
-      toolCallId,
-      arguments: {
-        skill: 'find-skills',
-        args: 'source=claude_init.slash_commands'
-      },
-      response: slashCommands.map((cmd) => `/${cmd}`).join('\n')
-    }
-  }
-
-  const renderInitSlashCommandsAsSkillTool = async (rawValue: ClaudeCodeRawValue) => {
-    if (compactState.initSlashCommandsRendered || rawValue.type !== 'init') {
-      return
-    }
-
-    const slashCommands = Array.isArray((rawValue as { slash_commands?: unknown }).slash_commands)
-      ? ((rawValue as { slash_commands: unknown[] }).slash_commands.filter((cmd): cmd is string => typeof cmd === 'string'))
-      : []
-
-    if (slashCommands.length === 0) {
-      logger.info('Init slash commands empty, skip Skill tool block', {
-        assistantMsgId
-      })
-      compactState.initSlashCommandsRendered = true
-      return
-    }
-
-    const toolResponse = buildSkillProbeToolResponse(slashCommands)
-    const toolBlock = createToolBlock(assistantMsgId, toolResponse.id, {
-      toolName: AgentToolName.Skill,
-      status: MessageBlockStatus.SUCCESS,
-      content: toolResponse.response as string,
-      metadata: { rawMcpToolResponse: toolResponse }
-    })
-
-    const messageInState = getState().messages.entities[assistantMsgId]
-    logger.info('Attempting to render init Skill tool block', {
-      assistantMsgId,
-      slashCommandCount: slashCommands.length,
-      hasAssistantMessageInState: !!messageInState,
-      existingBlockRefCount: messageInState?.blocks?.length ?? 0
-    })
-
-    await blockManager.handleBlockTransition(toolBlock, MessageBlockType.TOOL)
-    const updatedMessage = getState().messages.entities[assistantMsgId]
-    logger.info('Rendered init Skill tool block', {
-      assistantMsgId,
-      createdToolBlockId: toolBlock.id,
-      updatedBlockRefCount: updatedMessage?.blocks?.length ?? 0
-    })
-    compactState.initSlashCommandsRendered = true
+    summaryText: ''
   }
 
   /**
@@ -128,8 +59,6 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     logger.debug('Raw data received', { content, metadata })
 
     const rawValue = content as ClaudeCodeRawValue
-
-    void renderInitSlashCommandsAsSkillTool(rawValue)
 
     // Check if this is a compact_boundary message
     if (rawValue.type === 'compact') {
@@ -226,7 +155,7 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
       const currentState = getState()
       const currentMessage = currentState.messages.entities[assistantMsgId]
       if (currentMessage && currentMessage.blocks) {
-        const updatedBlocks = currentMessage.blocks.filter((id: string) => id !== currentMainTextBlockId)
+        const updatedBlocks = currentMessage.blocks.filter((id) => id !== currentMainTextBlockId)
         dispatch(
           newMessagesActions.updateMessage({
             topicId,
@@ -260,8 +189,4 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     onRawData,
     handleTextComplete
   }
-}
-
-enum AgentToolName {
-  Skill = 'Skill'
 }
