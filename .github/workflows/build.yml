@@ -131,7 +131,11 @@ jobs:
             echo "No .app found inside dmg before notarization."
             exit 1
           fi
-          DMG_APP_BIN=$(find "$DMG_APP_PATH/Contents/MacOS" -type f | head -n 1)
+          DMG_APP_NAME=$(basename "$DMG_APP_PATH" .app)
+          DMG_APP_BIN="$DMG_APP_PATH/Contents/MacOS/$DMG_APP_NAME"
+          if [ ! -f "$DMG_APP_BIN" ]; then
+            DMG_APP_BIN=$(find "$DMG_APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
+          fi
           if [ -z "$DMG_APP_BIN" ]; then
             hdiutil detach "$MOUNT_POINT" >/dev/null || true
             rmdir "$MOUNT_POINT" || true
