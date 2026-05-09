@@ -120,6 +120,16 @@ jobs:
             find build -maxdepth 3 -print
             exit 1
           fi
+          MOUNT_POINT=""
+          cleanup_mount() {
+            if [ -n "${MOUNT_POINT:-}" ] && mount | grep -q "on ${MOUNT_POINT} "; then
+              hdiutil detach "$MOUNT_POINT" >/dev/null || true
+            fi
+            if [ -n "${MOUNT_POINT:-}" ]; then
+              rmdir "$MOUNT_POINT" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_mount EXIT
 
           echo "===== DMG codesign info (current) ====="
           codesign -dv --verbose=4 "$DMG_PATH" 2>&1 || true
@@ -162,6 +172,7 @@ jobs:
           spctl --assess --type execute --verbose=4 "$DMG_APP_PATH"
           hdiutil detach "$MOUNT_POINT" >/dev/null
           rmdir "$MOUNT_POINT"
+          MOUNT_POINT=""
 
           # 如果已 stapled 就跳过重新公证
           if xcrun stapler validate "$DMG_PATH" >/dev/null 2>&1; then
