@@ -68,6 +68,8 @@ jobs:
       - name: Prepare macOS signing environment
         shell: bash
         run: |
+          security list-keychains
+          security default-keychain
           echo "CSC_NAME=Keroro Software LLC (45UTGNZ6A4)" >> "$GITHUB_ENV"
           echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           security find-identity -v -p codesigning
