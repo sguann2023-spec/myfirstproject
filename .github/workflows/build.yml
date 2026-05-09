@@ -96,6 +96,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          PROPAGATION_SLEEP_SECONDS=30
+          STAPLE_RETRY_SLEEP_SECONDS=30
 
           SIGNING_IDENTITY="Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
 
@@ -199,7 +201,7 @@ jobs:
             fi
 
             echo "Waiting for notarization ticket propagation..."
-            sleep 30
+            sleep "$PROPAGATION_SLEEP_SECONDS"
 
             STAPLE_OK=0
             for attempt in 1 2 3 4 5; do
@@ -208,7 +210,7 @@ jobs:
                 STAPLE_OK=1
                 break
               fi
-              sleep 30
+              sleep "$STAPLE_RETRY_SLEEP_SECONDS"
             done
 
             if [ "$STAPLE_OK" -ne 1 ]; then
