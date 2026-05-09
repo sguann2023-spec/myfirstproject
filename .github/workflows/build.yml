@@ -74,7 +74,7 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
 
       - name: Build Mac application
-        run: pnpm run build:mac -- --universal --config.mac.forceCodeSigning=true
+        run: pnpm run build:mac:ci
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
