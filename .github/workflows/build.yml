@@ -75,7 +75,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Build Mac application
-        run: pnpm run build:mac:ci
+        run: |
+          rm -rf build
+          pnpm run build:mac:ci
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
@@ -96,33 +98,52 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           PROPAGATION_SLEEP_SECONDS=69
           STAPLE_RETRY_SLEEP_SECONDS=69
 
           SIGNING_IDENTITY="Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+          resolve_artifacts() {
+            APP_PATH=$(find build -maxdepth 2 -type d -name "*.app" | head -n 1)
+            if [ -z "$APP_PATH" ]; then
+              echo "No .app bundle found in build output."
+              find build -maxdepth 3 -print
+              exit 1
+            fi
+            DMG_PATH=$(find build -maxdepth 2 -type f -name "*.dmg" | head -n 1)
+            if [ -z "$DMG_PATH" ]; then
+              echo "No .dmg artifact found in build directory."
+              find build -maxdepth 3 -print
+              exit 1
+            fi
+          }
 
-          APP_PATH=$(find build/mac-universal -maxdepth 2 -type d -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app bundle found in build/mac-universal."
-            find build -maxdepth 3 -print
-            exit 1
-          fi
+          verify_app_signing_chain() {
+            local app_path="$1"
+            local framework_path="$app_path/Contents/Frameworks/Electron Framework.framework"
+            echo "===== .app codesign info ====="
+            APP_SIGN_INFO=$(codesign -dv --verbose=4 "$app_path" 2>&1)
+            echo "$APP_SIGN_INFO"
+            echo "$APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+            echo "$APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
+            if [ -d "$framework_path" ]; then
+              echo "===== Electron Framework sign info ====="
+              codesign -dv --verbose=4 "$framework_path" 2>&1 || true
+            fi
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
+          }
 
-          echo "===== .app codesign info ====="
-          APP_SIGN_INFO=$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)
-          echo "$APP_SIGN_INFO"
-          echo "$APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-          echo "$APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          spctl --assess --type execute --verbose=4 "$APP_PATH"
-
-          DMG_PATH=$(find build -maxdepth 2 -type f -name "*.dmg" | head -n 1)
-          if [ -z "$DMG_PATH" ]; then
-            echo "No .dmg artifact found in build directory."
-            find build -maxdepth 3 -print
-            exit 1
+          resolve_artifacts
+          if ! verify_app_signing_chain "$APP_PATH"; then
+            echo "App signing chain invalid, rebuilding mac artifacts once..."
+            rm -rf build
+            pnpm run build:mac:ci
+            resolve_artifacts
+            verify_app_signing_chain "$APP_PATH"
           fi
           MOUNT_POINT=""
           cleanup_mount() {
