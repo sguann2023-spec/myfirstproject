@@ -11,7 +11,7 @@
     "build:main": "tsc -p tsconfig.main.json --noEmitOnError false || true && tsc-alias -p tsconfig.main.json && node -e \"const fs=require('fs');const path=require('path');const src=path.join(process.cwd(),'src/main/integration/nutstore/sso/lib/index.mjs');const dst=path.join(process.cwd(),'dist-main/src/main/integration/nutstore/sso/lib/index.mjs');fs.mkdirSync(path.dirname(dst),{recursive:true});fs.copyFileSync(src,dst);\"",
     "build": "pnpm run build:vite && electron-builder --mac dmg zip --universal && electron-builder --win",
     "build:mac": "pnpm run build:vite && electron-builder --mac dmg zip --universal",
-    "build:mac:ci": "pnpm run build:vite && electron-builder --mac dmg zip --universal --publish never --config.mac.forceCodeSigning=true",
+    "build:mac:ci": "pnpm run build:vite && electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true",
     "build:mac:arm64": "pnpm run build:vite && electron-builder --mac dmg zip --arm64",
     "build:win": "pnpm run build:vite && electron-builder --win",
     "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy pnpm run build:vite && electron-builder --win --x64",
@@ -73,13 +73,15 @@
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "x64",
+            "arm64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "universal"
+            "x64",
+            "arm64"
           ]
         }
       ]
