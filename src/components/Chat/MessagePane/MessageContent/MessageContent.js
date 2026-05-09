@@ -201,7 +201,7 @@ const MessageContent = ({ message, isLoading = false }) => {
 
   return (
     <Provider store={toolStore}>
-      <div className="chat-message-content tw-scope">
+      <div className="chat-message-content tw-scope chat-tool-layout-fix">
         <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} />
       </div>
     </Provider>

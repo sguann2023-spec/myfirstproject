@@ -62,7 +62,7 @@ jobs:
       - name: Prepare macOS signing environment
         shell: bash
         run: |
-          echo "CSC_NAME=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)" >> "$GITHUB_ENV"
+          echo "CSC_NAME=Keroro Software LLC (45UTGNZ6A4)" >> "$GITHUB_ENV"
           echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           security find-identity -v -p codesigning
           security find-identity -v -p codesigning | grep -q "Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"

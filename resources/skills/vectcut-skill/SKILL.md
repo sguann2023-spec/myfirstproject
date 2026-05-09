@@ -26,10 +26,11 @@ dependency:
 
 1. 任何 VectCut 调用前，先检查环境变量 `VECTCUT_API_KEY`（检查环境变量，不是本地配置文件）
 2. 缺失、为空或鉴权失败时，先调用 `vectcut-login`
-3. 输入是本地素材路径时，先调用 `sts-upload` 转公网 URL 再继续
-4. 关键节点后调用 `query-draft` 做草稿校验
-5. 接口参数不确定或报错时，用 `vectcut-api-search` 查询最新文档再修正
-
+3. 需要“在已有草稿继续编辑”时，输入参数必须显式携带 `draft_id`，并在后续所有写入接口（如 `add_video/add_audio/execute_workflow`）中持续透传同一个 `draft_id`
+4. 未传 `draft_id` 时，服务端通常会新建草稿；禁止在同一任务中混用多个草稿（避免字幕、音频落到不同草稿）
+5. 输入是本地素材路径时，先调用 `sts-upload` 转公网 URL 再继续
+6. 关键节点后调用 `query-draft` 做草稿校验
+7. 接口参数不确定或报错时，用 `vectcut-api-search` 查询最新文档再修正
 ## 场景路由策略（聚合编排）
 
 1. **平台链接输入**
@@ -78,6 +79,7 @@ dependency:
 - 若需口播精剪，优先 `llm-asr`(nlp档位) + `asr-vad`，确保字幕时间轴与剪辑后内容一致
 - 需要字幕上屏时，优先 `add-subtitle-template` 统一模板化输出
 - BGM 全片铺设用 `add-bgm`，关键点提示音用 `add-effect_audio`
+- 涉及“字幕+人声/音频”组合写入时，必须绑定同一个 `draft_id` 执行；任一步返回新 `draft_id` 时，后续步骤必须切换并统一使用该 `draft_id`
 
 ## 输出要求
 

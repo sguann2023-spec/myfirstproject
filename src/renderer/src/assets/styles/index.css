@@ -190,6 +190,33 @@
   margin-left: 0;
 }
 
+/* Chat message pane: keep tool header title + status on a single line. */
+.tw-scope.chat-tool-layout-fix .ant-collapse .ant-collapse-item .ant-collapse-header .ant-collapse-header-text {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  text-align: left;
+}
+
+.tw-scope.chat-tool-layout-fix .ant-collapse .ant-collapse-item .ant-collapse-header .ant-collapse-header-text > div {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  width: 100%;
+  gap: 8px;
+}
+
+.tw-scope.chat-tool-layout-fix .ant-collapse .ant-collapse-item .ant-collapse-header .ant-collapse-header-text > div > :first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.tw-scope.chat-tool-layout-fix .ant-collapse .ant-collapse-item .ant-collapse-header .ant-collapse-header-text > div > :last-child {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .tw-scope .bubble:not(.multi-select-mode) code {
   color: var(--color-text);
 }
