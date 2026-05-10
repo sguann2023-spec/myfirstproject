@@ -93,9 +93,17 @@ const Composer = ({
       },
     ]
     : [];
-  const uploadedUrls = uploadedFileMeta.map((item) => item.url).filter(Boolean);
+  const buildMarkdownFileLink = (name, url) => {
+    const safeName = String(name || '附件')
+      .replace(/\\/g, '\\\\')
+      .replace(/\]/g, '\\]');
+    return `[${safeName}](${url})`;
+  };
+  const uploadedMarkdownLinks = uploadedFileMeta
+    .filter((item) => item?.url)
+    .map((item) => buildMarkdownFileLink(item.name, item.url));
   const hasUploadingFile = uploadFileList.some((item) => item?.status === 'uploading');
-  const canSend = String(input || '').trim().length > 0 || uploadedUrls.length > 0;
+  const canSend = String(input || '').trim().length > 0 || uploadedMarkdownLinks.length > 0;
   const isSendDisabled = !canSend || modelListLoading || hasUploadingFile;
 
   const handleBeforeUpload = (file, batchFileList = []) => {
@@ -135,7 +143,11 @@ const Composer = ({
       if (result?.publicUrl) {
         setUploadedFileMeta((prev) => {
           const next = prev.filter((item) => item.uid !== uid);
-          next.push({ uid, url: result.publicUrl });
+          next.push({
+            uid,
+            url: result.publicUrl,
+            name: targetFile?.name || file?.name || '附件',
+          });
           return next;
         });
       }
@@ -149,7 +161,7 @@ const Composer = ({
   const handleSendWithAttachments = () => {
     if (isSendDisabled) return;
     const text = String(input || '').trim();
-    const combined = [text, ...uploadedUrls].filter(Boolean).join('\n');
+    const combined = [text, ...uploadedMarkdownLinks].filter(Boolean).join('\n');
     if (!combined) return;
     handleSend && handleSend(combined);
     setUploadFileList([]);
