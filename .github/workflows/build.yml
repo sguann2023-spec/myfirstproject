@@ -267,9 +267,17 @@ jobs:
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ossutil cp -f build/*.zip "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
-          ossutil cp -f build/*.dmg "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
-          ossutil cp -f build/latest-mac.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          shopt -s nullglob
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          FILES=(build/*.zip build/*.dmg build/latest-mac.yml)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No mac artifacts found to upload."
+            exit 1
+          fi
+          for f in "${FILES[@]}"; do
+            echo "Uploading $f to $DEST"
+            ossutil cp -f "$f" "$DEST" -c /tmp/.ossutilconfig
+          done
 
   # 任务 2B: Windows 构建并上传到 OSS
   build-and-deploy-win-dev:
