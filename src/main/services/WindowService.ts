@@ -383,7 +383,7 @@ export class WindowService {
   }
 
   private setupWindowLifecycleEvents(mainWindow: BrowserWindow) {
-    mainWindow.on('close', (event) => {
+    mainWindow.on('close', (_event) => {
       // save data before when close window
       try {
         mainWindow.webContents.send(IpcChannel.App_SaveData)
@@ -391,12 +391,13 @@ export class WindowService {
         logger.error('Failed to save data:', error as Error)
       }
 
-      // 如果已经触发退出，直接退出
+      // 如果已经进入退出流程，避免重复触发 app.quit()
       if (app.isQuitting) {
-        return app.quit()
+        return
       }
 
       // 关闭窗口直接退出进程，不进入托盘
+      app.isQuitting = true
       return app.quit()
 
       // 托盘及关闭行为设置

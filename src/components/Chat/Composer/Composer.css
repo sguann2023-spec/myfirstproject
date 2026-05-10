@@ -1,14 +1,16 @@
 .chat-panel__composer {
   display: flex;
   gap: 8px;
-  height: 205px;
+  min-height: 205px;
+  height: auto;
   align-items: flex-end;
   border-top: 1px solid #ebebeb;
 }
 
 .chat-panel__editor {
   flex: 1;
-  height: 100%;
+  min-height: 205px;
+  height: auto;
   display: flex;
   flex-direction: column;
 }
@@ -28,6 +30,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.chat-panel__tool-left .ant-upload-wrapper,
+.chat-panel__tool-left .ant-upload-select,
+.chat-panel__tool-left .ant-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  height: 20px;
 }
 
 .chat-panel__tool-right {
@@ -190,10 +202,33 @@
 }
 
 .chat-panel__input-wrap {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 160px;
+  height: 160px;
+  min-height: 160px;
   margin-left: 16px;
   margin-right: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-panel__upload-list {
+  margin-bottom: 0px;
+}
+
+.chat-panel__upload-list--top {
+  margin: 10px 24px 0 24px;
+}
+
+.chat-panel__upload-list .ant-upload {
+  display: none;
+}
+
+.chat-panel__upload-list .ant-upload-list {
+  margin: 0;
+}
+
+.chat-panel__upload-list .ant-upload-list-item {
+  margin-top: 4px !important;
 }
 
 .chat-panel__send-btn {

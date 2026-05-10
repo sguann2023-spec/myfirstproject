@@ -15,6 +15,7 @@ dependency:
 
 - 口播自动成片、网感剪辑、去气口重排、口播包装
 - 混剪视频（多素材重组、节奏强化、字幕动画、转场特效）
+- 用户口语表达“混剪在一起 / 拼在一起 / 合成一条 / 随机拼接”这类意图
 - 电商广告（卖点强化、人物抠像、画中画、关键词强调、提示音）
 - 需要基于“预设片段”替换素材、组合复杂包装效果（如把 `text1` 改为指定文案）
 - 需要“抓取抖音/快手/小红书/B站/TikTok/YouTube 链接后分析并剪辑”
@@ -57,6 +58,8 @@ dependency:
 - `cloud-render` 导出
 
 4.1 **混剪配音成片（video-voiceover-remix 子链路）**
+- 触发词与同义表达：`混剪在一起`、`拼在一起`、`合成一条`、`随机拼接`、`多段视频组合`
+- 当用户只说“混剪在一起”且未给更细约束时，默认优先路由到 `video-voiceover-remix`，并在执行前简短告知将采用“混剪+解说+字幕+BGM”标准链路
 - 先按 `rules/video-voiceover-remix.md` 执行固定七步：`describe-video` -> `add_video(volume=-100)` -> 文案生成 -> `speech-synthesis + add_audio(volume=20)` -> `llm-asr(nlp) + add-subtitle-template` -> `add-bgm` -> `add-effect_audio`
 - 第 2 步重排优先调用内置脚本：`scripts/remix_and_add_videos.py`
 - 第 3 步文案字数按每秒 1.5 字估算

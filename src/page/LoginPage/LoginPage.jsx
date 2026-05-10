@@ -19,6 +19,7 @@ import { loggerService } from '@logger';
 const logger = loggerService.withContext('LoginPage');
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const REDUX_STORE_READY_CHANNEL = 'redux-store-ready';
+const APP_CHECK_FOR_UPDATE_CHANNEL = 'app:check-for-update';
 let loginPreInitPromise = null;
 let loginPreInitCachedError = '';
 
@@ -315,10 +316,25 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         }
                     };
 
+                    const triggerBackgroundUpdateCheck = () => {
+                        void ipcRenderer
+                            .invoke(APP_CHECK_FOR_UPDATE_CHANNEL)
+                            .then((result) => {
+                                logger.info('[LoginPage] Background check for update finished', {
+                                    hasUpdate: !!result?.updateInfo,
+                                    currentVersion: result?.currentVersion
+                                });
+                            })
+                            .catch((error) => {
+                                logger.warn('[LoginPage] Background check for update failed', error);
+                            });
+                    };
+
                     try {
                         await ipcRenderer.invoke('app:initialize-login-services');
                         await ipcRenderer.invoke('app:register-extended-ipc');
                         await ensureReduxStoreReady();
+                        triggerBackgroundUpdateCheck();
                         if (typeof onPrepareHomeRuntime === 'function') {
                             await onPrepareHomeRuntime();
                         }

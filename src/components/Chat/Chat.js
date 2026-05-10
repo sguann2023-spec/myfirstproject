@@ -30,7 +30,7 @@ const QUICK_PROMPTS = [
   },
   {
     label: '把这几条视频混剪在一起',
-    prompt: '请基于音频(<https://player.install-ai-guider.top/example/voice_match_source.mp3>)，将下面的这几条空镜素材混剪在一起(<https://player.install-ai-guider.top/example/broll_real_1.mp4>,<https://player.install-ai-guider.top/example/broll_real_2.mp4>,<https://player.install-ai-guider.top/example/broll_real_3.mp4>,<https://player.install-ai-guider.top/example/broll_real_4.mp4>,<https://player.install-ai-guider.top/example/broll_real_5.mp4>,<https://player.install-ai-guider.top/example/broll_real_6.mp4>,<https://player.install-ai-guider.top/example/broll_real_7.mp4>,<https://player.install-ai-guider.top/example/broll_real_8.mp4>,<https://player.install-ai-guider.top/example/broll_real_9.mp4>,<https://player.install-ai-guider.top/example/broll_real_10.mp4>)混剪在一起',
+    prompt: '将下面的这几条空镜素材混剪在一起(<https://player.install-ai-guider.top/example/broll_real_1.mp4>,<https://player.install-ai-guider.top/example/broll_real_2.mp4>,<https://player.install-ai-guider.top/example/broll_real_3.mp4>,<https://player.install-ai-guider.top/example/broll_real_4.mp4>,<https://player.install-ai-guider.top/example/broll_real_5.mp4>,<https://player.install-ai-guider.top/example/broll_real_6.mp4>,<https://player.install-ai-guider.top/example/broll_real_7.mp4>,<https://player.install-ai-guider.top/example/broll_real_8.mp4>,<https://player.install-ai-guider.top/example/broll_real_9.mp4>,<https://player.install-ai-guider.top/example/broll_real_10.mp4>)',
   }
 ];
 const formatModelDisplayName = (value) => (
@@ -87,8 +87,8 @@ const Chat = ({
     inputRef.current?.focus();
   }, []);
 
-  const handleSend = () => {
-    const text = input.trim();
+  const handleSend = (nextText) => {
+    const text = String(typeof nextText === 'string' ? nextText : input).trim();
     if (!text || sessionSending || modelListLoading) return;
     onSendMessage && onSendMessage(text);
     setInput('');
