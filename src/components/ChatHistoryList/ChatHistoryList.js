@@ -32,9 +32,20 @@ const ChatHistoryList = ({
   onDeleteSession,
   visible = true,
 }) => {
+  const getLastUserMessageTime = (session) => {
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role === 'user') {
+        return Number(message?.createdAt) || new Date(message?.createdAt).getTime() || 0;
+      }
+    }
+    return Number(session?.updatedAt) || new Date(session?.updatedAt).getTime() || 0;
+  };
+
   const sortedSessions = [...sessions].sort((a, b) => {
-    const timeA = new Date(a?.updatedAt).getTime() || 0;
-    const timeB = new Date(b?.updatedAt).getTime() || 0;
+    const timeA = getLastUserMessageTime(a);
+    const timeB = getLastUserMessageTime(b);
     return timeB - timeA;
   });
 
