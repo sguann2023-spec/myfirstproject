@@ -77,16 +77,22 @@ function App() {
     };
     ipcRenderer.on('resolve-artist-effect-url', handler);
 
-    // 新增：全局监听深链 protocol-url，直接入队下载并切到主页
-    const onProtocolUrl = async (event, url) => {
+    // 全局监听深链 protocol-data，直接入队下载并切到主页
+    const onProtocolData = async (event, payload) => {
       try {
-        const raw = typeof url === 'string' ? url : '';
+        const raw = typeof payload?.url === 'string' ? payload.url : '';
+        const payloadDraftId = payload?.params?.draft_id;
+        const draftIdsFromPayload = Array.isArray(payloadDraftId)
+          ? payloadDraftId
+          : (payloadDraftId ? [payloadDraftId] : []);
         const qs = raw.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').split('?')[1] || '';
         const params = new URLSearchParams(qs);
 
         const draftIds = Array.from(new Set(
-          params
-            .getAll('draft_id')
+          [
+            ...draftIdsFromPayload,
+            ...params.getAll('draft_id')
+          ]
             .flatMap(v => String(v || '').split(','))
             .map(v => v.trim())
             .filter(Boolean)
@@ -109,7 +115,7 @@ function App() {
         }
       } catch (_) {}
     };
-    ipcRenderer.on('protocol-url', onProtocolUrl);
+    ipcRenderer.on('protocol-data', onProtocolData);
 
     const onGuiderFinished = () => {
       setCurrentPage('home');
@@ -121,7 +127,7 @@ function App() {
 
     return () => {
       ipcRenderer.removeListener('resolve-artist-effect-url', handler);
-      ipcRenderer.removeListener('protocol-url', onProtocolUrl);
+      ipcRenderer.removeListener('protocol-data', onProtocolData);
       ipcRenderer.removeListener('guider-finished', onGuiderFinished);
     };
   }, []);
