@@ -161,9 +161,6 @@ importers:
       '@libsql/client':
         specifier: ^0.17.3
         version: 0.17.3
-      '@libsql/darwin-arm64':
-        specifier: 0.5.29
-        version: 0.5.29
       '@mistralai/mistralai':
         specifier: ^2.2.1
         version: 2.2.1
@@ -176,14 +173,8 @@ importers:
       '@napi-rs/canvas':
         specifier: ^0.1.80
         version: 0.1.100
-      '@napi-rs/canvas-darwin-arm64':
-        specifier: 0.1.100
-        version: 0.1.100
       '@napi-rs/system-ocr':
         specifier: ^1.0.2
-        version: 1.0.2
-      '@napi-rs/system-ocr-darwin-arm64':
-        specifier: 1.0.2
         version: 1.0.2
       '@notionhq/client':
         specifier: ^5.20.0
@@ -13354,7 +13345,8 @@ snapshots:
     dependencies:
       js-base64: 3.7.8
 
-  '@libsql/darwin-arm64@0.5.29': {}
+  '@libsql/darwin-arm64@0.5.29':
+    optional: true
 
   '@libsql/darwin-x64@0.5.29':
     optional: true
@@ -13493,7 +13485,8 @@ snapshots:
   '@napi-rs/canvas-android-arm64@0.1.80':
     optional: true
 
-  '@napi-rs/canvas-darwin-arm64@0.1.100': {}
+  '@napi-rs/canvas-darwin-arm64@0.1.100':
+    optional: true
 
   '@napi-rs/canvas-darwin-arm64@0.1.80':
     optional: true
@@ -13576,7 +13569,8 @@ snapshots:
       '@napi-rs/canvas-linux-x64-musl': 0.1.80
       '@napi-rs/canvas-win32-x64-msvc': 0.1.80
 
-  '@napi-rs/system-ocr-darwin-arm64@1.0.2': {}
+  '@napi-rs/system-ocr-darwin-arm64@1.0.2':
+    optional: true
 
   '@napi-rs/system-ocr-darwin-x64@1.0.2':
     optional: true
