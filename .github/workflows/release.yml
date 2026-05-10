@@ -321,7 +321,20 @@ jobs:
           MAC_DMG=$(ls build/*.dmg | head -n 1)
           cp "$MAC_ZIP" build/VectCut-latest-universal.zip
           cp "$MAC_DMG" build/VectCut-latest-universal.dmg
-          node -e "const fs=require('fs');const p='build/latest-mac.yml';let s=fs.readFileSync(p,'utf8');s=s.replace(/[\w.-]+\.zip/g,'VectCut-latest-universal.zip').replace(/[\w.-]+\.dmg/g,'VectCut-latest-universal.dmg');fs.writeFileSync(p,s);"
+          VERSION=$(node -p "require('./package.json').version")
+          ZIP_SIZE=$(stat -f%z build/VectCut-latest-universal.zip)
+          ZIP_SHA512=$(shasum -a 512 build/VectCut-latest-universal.zip | awk '{print $1}' | xxd -r -p | base64)
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          cat > build/latest-mac.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: VectCut-latest-universal.zip
+              sha512: ${ZIP_SHA512}
+              size: ${ZIP_SIZE}
+          path: VectCut-latest-universal.zip
+          sha512: ${ZIP_SHA512}
+          releaseDate: '${RELEASE_DATE}'
+          EOF
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           ossutil cp -f build/VectCut-latest-universal.zip "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-latest-universal.zip" -c /tmp/.ossutilconfig
           ossutil cp -f build/VectCut-latest-universal.dmg "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-latest-universal.dmg" -c /tmp/.ossutilconfig
