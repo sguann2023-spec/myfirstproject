@@ -156,11 +156,10 @@
     @apply border-border outline-ring/50;
   }
 
-  .tw-scope.chat-tool-layout-fix .ant-collapse .ant-collapse-item .ant-collapse-header .ant-collapse-header-text {
+  .tw-scope.chat-tool-layout-fix .ant-collapse:not(.ant-collapse-ghost) .ant-collapse-header .ant-collapse-header-text {
     min-width: 0;
     flex: 1;
     margin: 0;
-    text-align: left;
   }
 
   .tw-scope {
