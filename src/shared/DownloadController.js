@@ -119,11 +119,6 @@ function enqueue({ draft_id, draft_name, cover, createdAt }) {
 async function startNextIfIdle() {
   logger.debug('startNextIfIdle', state.current, state.queue);
   if (state.current || !ipc) {
-    logger.debug('[DLTRACE] startNextIfIdle skipped', {
-      hasCurrent: Boolean(state.current),
-      hasIpc: Boolean(ipc),
-      queuedCount: state.queue.length
-    });
     return;
   }
 
@@ -278,12 +273,6 @@ function attachIpcListenersOnce() {
 
   ipc.on('download-progress', (event, { progress, text, fileList }) => {
     if (!state.current) return;
-    logger.debug('[DLTRACE] download-progress', {
-      draftId: state.current?.draft_id || '',
-      progress,
-      text: text || '',
-      fileListCount: Array.isArray(fileList) ? fileList.length : -1
-    });
     const pct = typeof progress === 'number' ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
     const msg = text || '下载中…';
     // 若本次进度未携带 fileList，则保留之前的列表
