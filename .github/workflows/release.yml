@@ -70,6 +70,7 @@ jobs:
   # 注意：Job 名称改为 build-and-upload-mac 以示区别
   build-and-upload-mac:
     runs-on: macos-latest
+    timeout-minutes: 120
     if: startsWith(github.ref, 'refs/tags/')
     needs: create-release-draft # 依赖 Release 草稿存在
     permissions:
@@ -105,56 +106,100 @@ jobs:
       - name: Prepare macOS signing environment
         shell: bash
         run: |
-          echo "CSC_NAME=Keroro Software LLC (45UTGNZ6A4)" >> "$GITHUB_ENV"
-          security find-identity -v -p codesigning
+          [ -n "${APPLE_ID:-}" ] || { echo "Missing APPLE_ID secret"; exit 1; }
+          [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || { echo "Missing APPLE_APP_SPECIFIC_PASSWORD secret"; exit 1; }
+          [ -n "${APPLE_TEAM_ID:-}" ] || { echo "Missing APPLE_TEAM_ID secret"; exit 1; }
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       
       - name: Build Mac application
-        run: pnpm run build:mac -- --universal
+        run: |
+          rm -rf build
+          pnpm run build:mac:ci
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
+          DEBUG: electron-builder
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Verify macOS code signing
+      - name: Verify macOS code signing & notarization
+        timeout-minutes: 80
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          SIGNING_IDENTITY="Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-          APP_PATH=$(find build -type d -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app bundle found in build directory."
-            find build -maxdepth 3 -print
-            exit 1
-          fi
-          APP_SIGN_INFO=$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)
-          echo "$APP_SIGN_INFO"
-          echo "$APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-          echo "$APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          spctl --assess --type execute --verbose=4 "$APP_PATH"
-          DMG_PATH=$(find build -maxdepth 2 -type f -name "*.dmg" | head -n 1)
-          if [ -z "$DMG_PATH" ]; then
-            echo "No .dmg artifact found in build directory."
-            find build -maxdepth 3 -print
-            exit 1
-          fi
-          codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$DMG_PATH"
-          DMG_SIGN_INFO=$(codesign -dv --verbose=4 "$DMG_PATH" 2>&1)
-          echo "$DMG_SIGN_INFO"
-          echo "$DMG_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-          echo "$DMG_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
+          set -euo pipefail
+          PROPAGATION_SLEEP_SECONDS=69
+          STAPLE_RETRY_SLEEP_SECONDS=69
 
-          xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "$DMG_PATH"
-          xcrun stapler validate "$DMG_PATH"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+          SIGNING_IDENTITY="Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+          resolve_artifacts() {
+            APP_PATH=$(find build -maxdepth 2 -type d -name "*.app" | head -n 1)
+            if [ -z "$APP_PATH" ]; then
+              echo "No .app bundle found in build output."
+              find build -maxdepth 3 -print
+              exit 1
+            fi
+            DMG_PATH=$(find build -maxdepth 2 -type f -name "*.dmg" | head -n 1)
+            if [ -z "$DMG_PATH" ]; then
+              echo "No .dmg artifact found in build directory."
+              find build -maxdepth 3 -print
+              exit 1
+            fi
+          }
+
+          verify_app_signing_chain() {
+            local app_path="$1"
+            local framework_path="$app_path/Contents/Frameworks/Electron Framework.framework"
+            echo "===== .app codesign info ====="
+            APP_SIGN_INFO=$(codesign -dv --verbose=4 "$app_path" 2>&1)
+            echo "$APP_SIGN_INFO"
+            echo "$APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+            echo "$APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
+            if [ -d "$framework_path" ]; then
+              echo "===== Electron Framework sign info ====="
+              codesign -dv --verbose=4 "$framework_path" 2>&1 || true
+            fi
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
+          }
+
+          resolve_artifacts
+          if ! verify_app_signing_chain "$APP_PATH"; then
+            echo "App signing chain invalid, rebuilding mac artifacts once..."
+            rm -rf build
+            pnpm run build:mac:ci
+            resolve_artifacts
+            verify_app_signing_chain "$APP_PATH"
+          fi
+
+          MOUNT_POINT=""
+          cleanup_mount() {
+            if [ -n "${MOUNT_POINT:-}" ] && mount | grep -q "on ${MOUNT_POINT} "; then
+              hdiutil detach "$MOUNT_POINT" >/dev/null || true
+            fi
+            if [ -n "${MOUNT_POINT:-}" ]; then
+              rmdir "$MOUNT_POINT" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_mount EXIT
+
+          echo "===== DMG codesign info (current) ====="
+          codesign -dv --verbose=4 "$DMG_PATH" 2>&1 || true
+
+          if ! codesign -dv "$DMG_PATH" 2>&1 | grep -q "Authority=Developer ID Application"; then
+            echo "DMG not signed yet, signing now (no hardened runtime for DMG)..."
+            codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+            codesign -dv --verbose=4 "$DMG_PATH"
+          fi
 
           MOUNT_POINT=$(mktemp -d)
           hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
@@ -162,13 +207,86 @@ jobs:
           if [ -z "$DMG_APP_PATH" ]; then
             hdiutil detach "$MOUNT_POINT" >/dev/null || true
             rmdir "$MOUNT_POINT" || true
-            echo "No .app found inside dmg."
+            echo "No .app found inside dmg before notarization."
             exit 1
           fi
+          DMG_APP_NAME=$(basename "$DMG_APP_PATH" .app)
+          DMG_APP_BIN="$DMG_APP_PATH/Contents/MacOS/$DMG_APP_NAME"
+          if [ ! -f "$DMG_APP_BIN" ]; then
+            DMG_APP_BIN=$(find "$DMG_APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
+          fi
+          if [ -z "$DMG_APP_BIN" ]; then
+            hdiutil detach "$MOUNT_POINT" >/dev/null || true
+            rmdir "$MOUNT_POINT" || true
+            echo "No main executable found inside dmg app."
+            exit 1
+          fi
+          echo "===== DMG internal app sign info ====="
+          DMG_APP_SIGN_INFO=$(codesign -dv --verbose=4 "$DMG_APP_BIN" 2>&1)
+          echo "$DMG_APP_SIGN_INFO"
+          echo "$DMG_APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+          echo "$DMG_APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
+          codesign --verify --strict --verbose=4 "$DMG_APP_BIN"
           codesign --verify --deep --strict --verbose=2 "$DMG_APP_PATH"
           spctl --assess --type execute --verbose=4 "$DMG_APP_PATH"
           hdiutil detach "$MOUNT_POINT" >/dev/null
           rmdir "$MOUNT_POINT"
+          MOUNT_POINT=""
+
+          if xcrun stapler validate "$DMG_PATH" >/dev/null 2>&1; then
+            echo "DMG already stapled, skip notarization."
+          else
+            echo "Submitting DMG to Apple notary service..."
+            NOTARY_JSON=$(xcrun notarytool submit "$DMG_PATH" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait --output-format json)
+            echo "$NOTARY_JSON"
+
+            SUB_ID=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+            SUB_STATUS=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))")
+
+            if [ "$SUB_STATUS" != "Accepted" ]; then
+              echo "Notarization status: $SUB_STATUS, fetching log for $SUB_ID ..."
+              xcrun notarytool log "$SUB_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" || true
+              exit 1
+            fi
+
+            echo "Waiting for notarization ticket propagation..."
+            sleep "$PROPAGATION_SLEEP_SECONDS"
+
+            STAPLE_OK=0
+            for attempt in 1 2 3 4 5; do
+              echo "Staple attempt $attempt..."
+              if xcrun stapler staple "$DMG_PATH" && xcrun stapler validate "$DMG_PATH"; then
+                STAPLE_OK=1
+                break
+              fi
+              sleep "$STAPLE_RETRY_SLEEP_SECONDS"
+            done
+
+            if [ "$STAPLE_OK" -ne 1 ]; then
+              echo "The staple and validate action failed after retries."
+              exit 65
+            fi
+          fi
+
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+
+      - name: Upload mac signing diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-signing-diagnostics-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            build/builder-debug.yml
+            build/builder-effective-config.yaml
+            build/latest-mac.yml
 
       # 关键步骤 1: 上传 macOS 资产 (只附加文件到已有的 Release 草稿)
       - name: Upload macOS Assets
