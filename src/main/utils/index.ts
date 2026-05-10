@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
-export function getResourcePath() {
+export function getResourcePath() { 
   if (app.isPackaged) {
     // electron-builder extraResources are copied under:
     // <App>.app/Contents/Resources/resources
