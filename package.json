@@ -378,6 +378,9 @@
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
   },
+  "optionalDependencies": {
+    "@napi-rs/system-ocr-win32-x64-msvc": "1.0.2"
+  },
   "devDependencies": {
     "@babel/core": "^7.23.5",
     "@babel/preset-env": "^7.23.5",

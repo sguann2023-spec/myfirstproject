@@ -828,6 +828,10 @@ importers:
       webpack-obfuscator:
         specifier: ^3.5.1
         version: 3.6.1(javascript-obfuscator@4.2.2)(webpack@5.106.2)
+    optionalDependencies:
+      '@napi-rs/system-ocr-win32-x64-msvc':
+        specifier: 1.0.2
+        version: 1.0.2
 
 packages:
 
