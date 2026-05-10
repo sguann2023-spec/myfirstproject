@@ -26,7 +26,7 @@ const QUICK_PROMPTS = [
   },
   {
     label: '给我添加一下网感字幕',
-    prompt: '请基于这个视频(<https://player.install-ai-guider.top/example/koubo_test3.mp4>)添加网感字幕',
+    prompt: '请基于这个视频(<https://player.install-ai-guider.top/example/koubo_test5.mp4>)添加网感字幕',
   },
   {
     label: '把这几条视频混剪在一起',
