@@ -5,6 +5,11 @@ import path from 'node:path'
 import { app } from 'electron'
 
 export function getResourcePath() {
+  if (app.isPackaged) {
+    // electron-builder extraResources are copied under:
+    // <App>.app/Contents/Resources/resources
+    return path.join(process.resourcesPath, 'resources')
+  }
   return path.join(app.getAppPath(), 'resources')
 }
 
