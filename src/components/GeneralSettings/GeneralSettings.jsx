@@ -8,11 +8,14 @@ import PresetFolderImg from '../../../public/preset_folder_setting.png';
 import InfoIcon from '../../../public/info.png';
 import { electronStore } from '../../shared/electronStore';
 
+const isWindows = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
+// const isWindows = true
 const GeneralSettings = () => {
   const [interfaceMode, setInterfaceMode] = useState('jianying'); // 'jianying' | 'capcut'
 
   const [draftFolder, setDraftFolder] = useState('');
   const [presetFolder, setPresetFolder] = useState('');
+  const [gitBashPathInfo, setGitBashPathInfo] = useState({ path: null, source: null });
 
   // 统一的 IPC 调用封装：优先使用 preload 暴露的 window.ipc，降级到 ipcRenderer
   const ipcInvoke = (channel, data) => {
@@ -38,6 +41,21 @@ const GeneralSettings = () => {
     ipcInvoke('get-draft-folder')
       .then(({ draftFolder }) => setDraftFolder(draftFolder || draftFallback))
       .catch(() => setDraftFolder(draftFallback));
+  }, []);
+
+  useEffect(() => {
+    if (!isWindows) return;
+    const loadGitBashPath = async () => {
+      try {
+        const info = window.api?.system?.getGitBashPathInfo
+          ? await window.api.system.getGitBashPathInfo()
+          : await ipcInvoke('system:getGitBashPathInfo');
+        setGitBashPathInfo(info || { path: null, source: null });
+      } catch {
+        setGitBashPathInfo({ path: null, source: null });
+      }
+    };
+    void loadGitBashPath();
   }, []);
 
   const handleChangeDraftFolder = async () => {
@@ -84,6 +102,40 @@ const GeneralSettings = () => {
       ipcSend('save-settings', { presetFolder: selected });
       electronStore.set('presetFolder', selected);
       setPresetFolder(selected);
+    }
+  };
+
+  const handlePickGitBash = async () => {
+    try {
+      const selected = window.api?.file?.select
+        ? await window.api.file.select({
+            title: '选择 Git Bash 可执行文件',
+            filters: [{ name: 'Executable', extensions: ['exe'] }],
+            properties: ['openFile']
+          })
+        : await ipcInvoke('file:select', {
+            title: '选择 Git Bash 可执行文件',
+            filters: [{ name: 'Executable', extensions: ['exe'] }],
+            properties: ['openFile']
+          });
+
+      if (!selected || selected.length === 0) return;
+      const pickedPath = selected[0].path;
+      const ok = window.api?.system?.setGitBashPath
+        ? await window.api.system.setGitBashPath(pickedPath)
+        : await ipcInvoke('system:setGitBashPath', pickedPath);
+
+      if (!ok) {
+        message.error('请选择有效的 Git Bash 可执行文件（bash.exe）');
+        return;
+      }
+
+      const info = window.api?.system?.getGitBashPathInfo
+        ? await window.api.system.getGitBashPathInfo()
+        : await ipcInvoke('system:getGitBashPathInfo');
+      setGitBashPathInfo(info || { path: null, source: null });
+    } catch {
+      message.error('设置 Git Bash 路径失败');
     }
   };
 
@@ -180,6 +232,49 @@ const GeneralSettings = () => {
           </button>
         </div>
       </div>
+
+      {isWindows && (
+        <div className="gs-section">
+          <div className="gs-section-title">Git Bash</div>
+          <div className="gs-save-row">
+            <div className="gs-save-desc">
+              <div className="gs-save-text">
+                Git Bash 路径<span className="gs-required">*</span>
+                <span className="gs-hint-wrapper">
+                  <img src={InfoIcon} alt="提示" className="gs-hint-icon" />
+                  <div className="gs-hint-popover">
+                    <div className="gs-hint-desc">
+                      如未安装，请先从
+                      {' '}
+                      <a href="https://git-scm.com/downloads/win" target="_blank" rel="noreferrer">
+                        git-scm.com/downloads/win
+                      </a>
+                      {' '}
+                      下载并安装 Git for Windows。
+                      <br />
+                      点击“设置 Git Bash 路径”后，请选择 <code>bash.exe</code>（不是 <code>git.exe</code>）。
+                      <br />
+                      常见路径：
+                      <br />
+                      C:\Program Files\Git\bin\bash.exe
+                      <br />
+                      C:\Program Files (x86)\Git\bin\bash.exe
+                      <br />
+                      %LOCALAPPDATA%\Programs\Git\bin\bash.exe
+                    </div>
+                  </div>
+                </span>
+              </div>
+              <div className={`gs-save-path ${!gitBashPathInfo?.path?.trim() ? 'empty' : ''}`}>
+                {gitBashPathInfo?.path || '未设置'}
+              </div>
+            </div>
+            <button type="button" className="gs-save-button" onClick={handlePickGitBash}>
+              设置 Git Bash 路径
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
