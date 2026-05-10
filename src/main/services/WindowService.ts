@@ -190,12 +190,16 @@ export class WindowService {
       mainWindow.webContents.setZoomFactor(configManager.getZoomFactor())
 
       // show window only when laucn to tray not set
-      const isLaunchToTray = configManager.getLaunchToTray()
-      if (!isLaunchToTray) {
-        //[mac]hacky-fix: miniWindow set visibleOnFullScreen:true will cause dock icon disappeared
-        void app.dock?.show()
-        mainWindow.show()
-      }
+      // const isLaunchToTray = configManager.getLaunchToTray()
+      // if (!isLaunchToTray) {
+      //   //[mac]hacky-fix: miniWindow set visibleOnFullScreen:true will cause dock icon disappeared
+      //   void app.dock?.show()
+      //   mainWindow.show()
+      // }
+
+      //[mac]hacky-fix: miniWindow set visibleOnFullScreen:true will cause dock icon disappeared
+      void app.dock?.show()
+      mainWindow.show()
     })
 
     // 处理全屏相关事件
@@ -392,18 +396,21 @@ export class WindowService {
         return app.quit()
       }
 
+      // 关闭窗口直接退出进程，不进入托盘
+      return app.quit()
+
       // 托盘及关闭行为设置
-      const isShowTray = configManager.getTray()
-      const isTrayOnClose = configManager.getTrayOnClose()
+      // const isShowTray = configManager.getTray()
+      // const isTrayOnClose = configManager.getTrayOnClose()
 
       // 没有开启托盘，或者开启了托盘，但设置了直接关闭，应执行直接退出
-      if (!isShowTray || (isShowTray && !isTrayOnClose)) {
-        // 如果是Windows或Linux，直接退出
-        // mac按照系统默认行为，不退出
-        if (isWin || isLinux) {
-          return app.quit()
-        }
-      }
+      // if (!isShowTray || (isShowTray && !isTrayOnClose)) {
+      //   // 如果是Windows或Linux，直接退出
+      //   // mac按照系统默认行为，不退出
+      //   if (isWin || isLinux) {
+      //     return app.quit()
+      //   }
+      // }
 
       /**
        * 上述逻辑以下:
@@ -411,22 +418,22 @@ export class WindowService {
        * mac: 任何情况都会到这里，因此需要单独处理mac
        */
 
-      if (!mainWindow.isFullScreen()) {
-        event.preventDefault()
-      }
+      // if (!mainWindow.isFullScreen()) {
+      //   event.preventDefault()
+      // }
 
-      mainWindow.hide()
+      // mainWindow.hide()
 
       //for mac users, should hide dock icon if close to tray
-      if (isMac && isTrayOnClose) {
-        app.dock?.hide()
+      // if (isMac && isTrayOnClose) {
+      //   app.dock?.hide()
 
-        mainWindow.once('show', () => {
-          //restore the window can hide by cmd+h when the window is shown again
-          // https://github.com/electron/electron/pull/47970
-          void app.dock?.show()
-        })
-      }
+      //   mainWindow.once('show', () => {
+      //     //restore the window can hide by cmd+h when the window is shown again
+      //     // https://github.com/electron/electron/pull/47970
+      //     void app.dock?.show()
+      //   })
+      // }
     })
 
     mainWindow.on('closed', () => {
