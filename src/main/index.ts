@@ -13,6 +13,8 @@ import installExtension, { REACT_DEVELOPER_TOOLS, REDUX_DEVTOOLS } from 'electro
 import { isDev, isLinux, isWin } from './constant'
 
 import process from 'node:process'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { registerIpc } from './ipc'
 import { agentService } from './services/agents'
@@ -42,6 +44,7 @@ import { registerLegacyMainCompatIpc } from './services/LegacyMainCompatIpc'
 import { windowService } from './services/WindowService'
 import { initWebviewHotkeys } from './services/WebviewService'
 import { runAsyncFunction } from './utils'
+import { getResourcePath } from './utils'
 import { isOvmsSupported } from './services/OvmsManager'
 import { extractRtkBinaries } from './utils/rtk'
 
@@ -153,6 +156,17 @@ if (!app.requestSingleInstanceLock()) {
   // Some APIs can only be used after this event occurs.
 
   void app.whenReady().then(async () => {
+    const resourcePath = getResourcePath()
+    logger.info('Resource path resolved', {
+      isPackaged: app.isPackaged,
+      appPath: app.getAppPath(),
+      processResourcesPath: process.resourcesPath,
+      resourcePath,
+      resourcePathExists: fs.existsSync(resourcePath),
+      builtinSkillsExists: fs.existsSync(path.join(resourcePath, 'skills')),
+      migrationDirExists: fs.existsSync(path.join(resourcePath, 'database', 'drizzle'))
+    })
+
     // Record current version for tracking
     // A preparation for v2 data refactoring
     versionService.recordCurrentVersion()
