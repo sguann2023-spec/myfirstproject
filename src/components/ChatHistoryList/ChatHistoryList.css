@@ -59,6 +59,10 @@
   overflow: auto;
 }
 
+.chat-history-list__body::-webkit-scrollbar-thumb {
+  background: #E1E1E1;
+}
+
 .chat-history-list__item {
   position: relative;
   padding: 10px;
