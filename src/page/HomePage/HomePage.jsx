@@ -1,5 +1,5 @@
 // HomePage 组件
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import LogoIcon from '../../../public/logo-circle.png';
@@ -252,6 +252,7 @@ const HomePage = () => {
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatSending, setChatSending] = useState(false);
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
+  const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
   const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
@@ -431,17 +432,53 @@ const HomePage = () => {
       return next;
     });
   };
+  const setChatSessionFulfilled = (chatId, fulfilled, reason = '') => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionFulfilledMap((prev) => {
+      const nextValue = Boolean(fulfilled);
+      if (prev[id] === nextValue) return prev;
+      logger.info('[HomePage][SessionFulfilled] update', {
+        chatId: id,
+        fulfilled: nextValue,
+        reason,
+        prevValue: Boolean(prev[id]),
+        activeChatId
+      });
+      return { ...prev, [id]: nextValue };
+    });
+  };
+  const removeChatSessionFulfilled = (chatId) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionFulfilledMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
   const activeChatSending = Boolean(activeChatId) && Boolean(chatSessionSendingMap[activeChatId]);
   const isChatSessionSending = (chatId) => Boolean(chatId) && Boolean(chatSessionSendingMap[chatId]);
+  const chatSessionsWithStatus = useMemo(
+    () =>
+      chatSessions.map((session) => ({
+        ...session,
+        isPending: Boolean(chatSessionSendingMap[session.id]),
+        isFulfilled: Boolean(chatSessionFulfilledMap[session.id]),
+      })),
+    [chatSessions, chatSessionSendingMap, chatSessionFulfilledMap]
+  );
 
   useEffect(() => {
     logger.info('[HomePage][SessionSending] snapshot', {
       activeChatId,
       activeChatSending,
       chatSending,
-      sessionSendingMap: chatSessionSendingMap
+      sessionSendingMap: chatSessionSendingMap,
+      sessionFulfilledMap: chatSessionFulfilledMap
     });
-  }, [activeChatId, activeChatSending, chatSending, chatSessionSendingMap]);
+  }, [activeChatId, activeChatSending, chatSending, chatSessionSendingMap, chatSessionFulfilledMap]);
 
   useEffect(() => {
     chatSessionsRef.current = chatSessions;
@@ -739,6 +776,7 @@ const HomePage = () => {
         applySnapshot(normalizedError);
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
         setChatSessionSending(chatId, false, 'chunk.error');
+        setChatSessionFulfilled(chatId, false, 'chunk.error');
         setChatSending(false);
         return;
       }
@@ -747,6 +785,7 @@ const HomePage = () => {
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
         setChatSessionSending(chatId, false, 'chunk.cancelled');
+        setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
         setChatSending(false);
         return;
       }
@@ -756,6 +795,7 @@ const HomePage = () => {
         applySnapshot(null);
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
         setChatSessionSending(chatId, false, 'chunk.complete');
+        setChatSessionFulfilled(chatId, true, 'chunk.complete');
         setChatSending(false);
         void triggerAutoRenameSessionTitle(chatId);
       }
@@ -776,6 +816,12 @@ const HomePage = () => {
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'create-session');
+    setChatSessionFulfilled(session.id, false, 'create-session');
+  };
+
+  const handleSelectChatSession = (sessionId) => {
+    setActiveChatId(sessionId);
+    setChatSessionFulfilled(sessionId, false, 'select-session');
   };
 
   const handleDeleteChatSession = (sessionId) => {
@@ -787,6 +833,7 @@ const HomePage = () => {
     setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
     setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
     removeChatSessionSending(sessionId);
+    removeChatSessionFulfilled(sessionId);
     setChatSessions((prev) => {
       const remaining = prev.filter((item) => item.id !== sessionId);
       if (remaining.length === 0) {
@@ -913,6 +960,7 @@ const HomePage = () => {
     }
 
     setChatSessionSending(targetSessionId, true, 'send-start');
+    setChatSessionFulfilled(targetSessionId, false, 'send-start');
     setChatSending(true);
     try {
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
@@ -1053,6 +1101,7 @@ const HomePage = () => {
     });
 
     setChatSessionSending(activeChatId, true, 'retry-start');
+    setChatSessionFulfilled(activeChatId, false, 'retry-start');
     setChatSending(true);
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
@@ -1238,10 +1287,10 @@ const HomePage = () => {
             )}
             {selectedPane === 'chat' && (
               <ChatHistoryList
-                sessions={chatSessions}
+                sessions={chatSessionsWithStatus}
                 activeSessionId={activeChatId}
                 onCreateSession={handleCreateChatSession}
-                onSelectSession={setActiveChatId}
+                onSelectSession={handleSelectChatSession}
                 onDeleteSession={handleDeleteChatSession}
                 visible={chatHistoryVisible}
               />

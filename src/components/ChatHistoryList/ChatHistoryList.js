@@ -1,4 +1,5 @@
 import React from 'react';
+import { Plus, X } from 'lucide-react';
 import './ChatHistoryList.css';
 
 const formatSessionTime = (value) => {
@@ -44,9 +45,10 @@ const ChatHistoryList = ({
         <button
           type="button"
           className="chat-history-list__new-btn"
+          aria-label="新建会话"
           onClick={() => onCreateSession && onCreateSession()}
         >
-          新建
+          <Plus size={14} strokeWidth={2} />
         </button>
       </div>
 
@@ -63,22 +65,30 @@ const ChatHistoryList = ({
                 onClick={() => onSelectSession && onSelectSession(session.id)}
               >
                 <div className="chat-history-list__item-top">
+                  <span className="chat-history-list__status-slot">
+                    {session.isPending && !isActive && (
+                      <span className="chat-history-list__status-dot is-pending" aria-label="生成中" />
+                    )}
+                    {session.isFulfilled && !session.isPending && !isActive && (
+                      <span className="chat-history-list__status-dot is-fulfilled" aria-label="已完成" />
+                    )}
+                  </span>
                   <div className="chat-history-list__item-title">
                     {session.title || '新对话'}
                   </div>
-                  <div className="chat-history-list__item-time">{formatSessionTime(session.updatedAt)}</div>
+                  
+                  <button
+                    type="button"
+                    className="chat-history-list__delete-btn"
+                    aria-label="删除会话"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteSession && onDeleteSession(session.id);
+                    }}
+                  >
+                    <X size={14} strokeWidth={1.8} />
+                  </button>
                 </div>
-                <div className="chat-history-list__item-preview">{getPreviewText(session)}</div>
-                <button
-                  type="button"
-                  className="chat-history-list__delete-btn"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDeleteSession && onDeleteSession(session.id);
-                  }}
-                >
-                  删除
-                </button>
               </div>
             );
           })
