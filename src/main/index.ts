@@ -36,7 +36,7 @@ import {
 } from './services/ProtocolClient'
 import selectionService, { initSelectionService } from './services/SelectionService'
 import { registerShortcuts } from './services/ShortcutService'
-import { TrayService } from './services/TrayService'
+// import { TrayService } from './services/TrayService'
 import { versionService } from './services/VersionService'
 import { registerLegacyMainCompatIpc } from './services/LegacyMainCompatIpc'
 import { windowService } from './services/WindowService'
@@ -176,7 +176,8 @@ if (!app.requestSingleInstanceLock()) {
     await registerIpc(mainWindow, app)
     registerLegacyMainCompatIpc()
 
-    new TrayService()
+    // 禁用系统托盘图标创建（保留原逻辑，按需可恢复）
+    // new TrayService()
 
     // Setup macOS application menu
     appMenuService?.setupApplicationMenu()
