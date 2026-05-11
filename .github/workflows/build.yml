@@ -280,7 +280,7 @@ jobs:
         run: |
           rm -rf build
           pnpm run build:vite
-          pnpm exec electron-builder --mac dmg zip --universal --publish never --config.mac.forceCodeSigning=true
+          pnpm exec electron-builder --mac dir --universal --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
@@ -310,7 +310,33 @@ jobs:
             security find-identity -v -p codesigning || true
             exit 1
           fi
-          echo "Using codesign identity for DMG container: ${DEVELOPER_ID_APP_IDENTITY}"
+          echo "Using codesign identity: ${DEVELOPER_ID_APP_IDENTITY}"
+
+          APP_PATH=$(find build -type d -name "*.app" | head -n 1)
+          if [ -z "${APP_PATH:-}" ]; then
+            echo "No .app bundle found from universal dir build."
+            find build -maxdepth 4 -print
+            exit 1
+          fi
+          echo "Universal app bundle: $APP_PATH"
+          APP_BIN=$(find "$APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
+          if [ -n "${APP_BIN:-}" ]; then
+            echo "Universal binary arch info:"
+            lipo -archs "$APP_BIN" || true
+          fi
+
+          echo "Re-signing universal app bundle before packaging..."
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$DEVELOPER_ID_APP_IDENTITY" \
+            --entitlements build-resources/entitlements.mac.plist \
+            "$APP_PATH"
+
+          echo "Packaging pre-signed universal app into dmg/zip..."
+          rm -f build/*-universal.dmg build/*-universal.zip
+          pnpm exec electron-builder --mac dmg zip --publish never \
+            --prepackaged "$APP_PATH" \
+            --config.mac.artifactName='VectCut-${version}-universal.${ext}'
+
           shopt -s nullglob
           DMGS=(build/*-universal.dmg)
           if [ "${#DMGS[@]}" -eq 0 ]; then
