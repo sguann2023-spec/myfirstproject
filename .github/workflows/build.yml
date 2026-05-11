@@ -76,10 +76,11 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Build Mac application
+      - name: Build Mac application (Universal + Signed)
         run: |
           rm -rf build
-          pnpm run build:mac:ci
+          pnpm run build:vite
+          electron-builder --mac dmg zip --universal --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
@@ -138,7 +139,8 @@ jobs:
           if ! verify_app_signing_chain "$APP_PATH"; then
             echo "App signing chain invalid, rebuilding mac artifacts once..."
             rm -rf build
-            pnpm run build:mac:ci
+            pnpm run build:vite
+            electron-builder --mac dmg zip --universal --publish never --config.mac.forceCodeSigning=true
             resolve_artifacts
             verify_app_signing_chain "$APP_PATH"
           fi
