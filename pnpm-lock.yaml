@@ -829,9 +829,60 @@ importers:
         specifier: ^3.5.1
         version: 3.6.1(javascript-obfuscator@4.2.2)(webpack@5.106.2)
     optionalDependencies:
+      '@img/sharp-darwin-arm64':
+        specifier: 0.34.5
+        version: 0.34.5
+      '@img/sharp-darwin-x64':
+        specifier: 0.34.5
+        version: 0.34.5
+      '@img/sharp-libvips-darwin-arm64':
+        specifier: 1.2.4
+        version: 1.2.4
+      '@img/sharp-libvips-darwin-x64':
+        specifier: 1.2.4
+        version: 1.2.4
+      '@img/sharp-win32-arm64':
+        specifier: 0.34.5
+        version: 0.34.5
+      '@img/sharp-win32-x64':
+        specifier: 0.34.5
+        version: 0.34.5
+      '@libsql/darwin-arm64':
+        specifier: 0.5.29
+        version: 0.5.29
+      '@libsql/darwin-x64':
+        specifier: 0.5.29
+        version: 0.5.29
+      '@libsql/win32-x64-msvc':
+        specifier: 0.5.29
+        version: 0.5.29
+      '@napi-rs/canvas-darwin-arm64':
+        specifier: 0.1.100
+        version: 0.1.100
+      '@napi-rs/canvas-darwin-x64':
+        specifier: 0.1.100
+        version: 0.1.100
+      '@napi-rs/canvas-win32-arm64-msvc':
+        specifier: 0.1.100
+        version: 0.1.100
+      '@napi-rs/canvas-win32-x64-msvc':
+        specifier: 0.1.100
+        version: 0.1.100
+      '@napi-rs/system-ocr-darwin-arm64':
+        specifier: 1.0.2
+        version: 1.0.2
+      '@napi-rs/system-ocr-darwin-x64':
+        specifier: 1.0.2
+        version: 1.0.2
+      '@napi-rs/system-ocr-win32-arm64-msvc':
+        specifier: 1.0.2
+        version: 1.0.2
       '@napi-rs/system-ocr-win32-x64-msvc':
         specifier: 1.0.2
         version: 1.0.2
+      '@strongtz/win32-arm64-msvc':
+        specifier: 0.4.7
+        version: 0.4.7
 
 packages:
 
@@ -3812,6 +3863,11 @@ packages:
 
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
+
+  '@strongtz/win32-arm64-msvc@0.4.7':
+    resolution: {integrity: sha512-LMU0CVfKGxKzIUawkDw6pwCNFb64DSwqEQhVAfEdLGMZcvVIdJghWB9yMW+72DHzALpwHscIssAJGhYAT4AbfA==}
+    cpu: [arm64]
+    os: [win32]
 
   '@svta/cml-608@1.0.1':
     resolution: {integrity: sha512-Y/Ier9VPUSOBnf0bJqdDyTlPrt4dDB+jk5mYHa1bnD2kcRl8qn7KkW3PRuj4w1aVN+BS2eHmsLxodt7P2hylUg==}
@@ -14403,6 +14459,9 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@standard-schema/utils@0.3.0': {}
+
+  '@strongtz/win32-arm64-msvc@0.4.7':
+    optional: true
 
   '@svta/cml-608@1.0.1': {}
 

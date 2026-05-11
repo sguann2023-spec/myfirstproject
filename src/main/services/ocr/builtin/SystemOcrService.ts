@@ -1,12 +1,21 @@
 import { isLinux, isWin } from '@main/constant'
 import { loadOcrImage } from '@main/utils/ocr'
-import { OcrAccuracy, recognize } from '@napi-rs/system-ocr'
 import type { ImageFileMetadata, OcrResult, OcrSystemConfig, SupportedOcrFile } from '@types'
 import { isImageFileMetadata } from '@types'
 
 import { OcrBaseService } from './OcrBaseService'
 
 // const logger = loggerService.withContext('SystemOcrService')
+type SystemOcrModule = typeof import('@napi-rs/system-ocr')
+let systemOcrModulePromise: Promise<SystemOcrModule> | null = null
+
+const loadSystemOcrModule = async (): Promise<SystemOcrModule> => {
+  if (!systemOcrModulePromise) {
+    systemOcrModulePromise = import('@napi-rs/system-ocr')
+  }
+  return systemOcrModulePromise
+}
+
 export class SystemOcrService extends OcrBaseService {
   constructor() {
     super()
@@ -18,7 +27,14 @@ export class SystemOcrService extends OcrBaseService {
     }
     const buffer = await loadOcrImage(file)
     const langs = isWin ? options?.langs : undefined
-    const result = await recognize(buffer, OcrAccuracy.Accurate, langs)
+    let ocrModule: SystemOcrModule
+    try {
+      ocrModule = await loadSystemOcrModule()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`System OCR native binding is unavailable: ${detail}`)
+    }
+    const result = await ocrModule.recognize(buffer, ocrModule.OcrAccuracy.Accurate, langs)
     return { text: result.text }
   }
 

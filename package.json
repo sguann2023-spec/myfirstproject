@@ -379,7 +379,24 @@
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
-    "@napi-rs/system-ocr-win32-x64-msvc": "1.0.2"
+    "@img/sharp-darwin-arm64": "0.34.5",
+    "@img/sharp-darwin-x64": "0.34.5",
+    "@img/sharp-libvips-darwin-arm64": "1.2.4",
+    "@img/sharp-libvips-darwin-x64": "1.2.4",
+    "@img/sharp-win32-arm64": "0.34.5",
+    "@img/sharp-win32-x64": "0.34.5",
+    "@libsql/darwin-arm64": "0.5.29",
+    "@libsql/darwin-x64": "0.5.29",
+    "@libsql/win32-x64-msvc": "0.5.29",
+    "@napi-rs/canvas-darwin-arm64": "0.1.100",
+    "@napi-rs/canvas-darwin-x64": "0.1.100",
+    "@napi-rs/canvas-win32-arm64-msvc": "0.1.100",
+    "@napi-rs/canvas-win32-x64-msvc": "0.1.100",
+    "@napi-rs/system-ocr-darwin-arm64": "1.0.2",
+    "@napi-rs/system-ocr-darwin-x64": "1.0.2",
+    "@napi-rs/system-ocr-win32-arm64-msvc": "1.0.2",
+    "@napi-rs/system-ocr-win32-x64-msvc": "1.0.2",
+    "@strongtz/win32-arm64-msvc": "0.4.7"
   },
   "devDependencies": {
     "@babel/core": "^7.23.5",
@@ -418,6 +435,16 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron"
-    ]
+    ],
+    "supportedArchitectures": {
+      "os": [
+        "darwin",
+        "win32"
+      ],
+      "cpu": [
+        "x64",
+        "arm64"
+      ]
+    }
   }
 }
