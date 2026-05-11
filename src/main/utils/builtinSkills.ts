@@ -5,7 +5,7 @@ import { loggerService } from '@logger'
 import { app } from 'electron'
 
 import { skillService } from '../services/agents/skills/SkillService'
-import { getDataPath, toAsarUnpackedPath } from '.'
+import { getDataPath, getResourcePath } from '.'
 
 const logger = loggerService.withContext('builtinSkills')
 
@@ -27,7 +27,7 @@ const VERSION_FILE = '.version'
  */
 // TODO: v2-backup
 export async function installBuiltinSkills(options?: { distributeToAgents?: boolean }): Promise<void> {
-  const resourceSkillsPath = toAsarUnpackedPath(path.join(app.getAppPath(), 'resources', 'skills'))
+  const resourceSkillsPath = path.join(getResourcePath(), 'skills')
   const globalSkillsPath = getDataPath('Skills')
   const appVersion = app.getVersion()
   const distributeToAgents = options?.distributeToAgents ?? true
