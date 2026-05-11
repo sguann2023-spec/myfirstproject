@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { message } from 'antd';
 import './GuiderSetting3.css';
 import { loggerService } from '@logger';
@@ -6,8 +6,6 @@ const logger = loggerService.withContext('GuiderSetting3');
 const isWindows = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
 const GuiderSetting3 = ({ onSettingsChange }) => {
   const [gitBashPathInfo, setGitBashPathInfo] = useState({ path: null, source: null });
-  const [isDetecting, setIsDetecting] = useState(false);
-  const [hasAttemptedDetection, setHasAttemptedDetection] = useState(false);
 
   const ipcInvoke = (channel, data) => {
     if (window.ipc?.invoke) return window.ipc.invoke(channel, data);
@@ -37,33 +35,9 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
     return await ipcInvoke('system:setGitBashPath', newPath);
   };
 
-  const refreshGitBashPathInfo = async (forceAutoDiscover = false) => {
-    if (!isWindows) return { path: null, source: null };
-
-    setIsDetecting(true);
-    try {
-      if (forceAutoDiscover) {
-        // Clear existing path and trigger main-process auto-discovery.
-        await setGitBashPath(null);
-      }
-      const info = await getGitBashPathInfo();
-      const normalized = info || { path: null, source: null };
-      setGitBashPathInfo(normalized);
-      return normalized;
-    } catch (error) {
-      logger.warn('[GuiderSetting3] refreshGitBashPathInfo failed', { error: error?.message || String(error) });
-      const empty = { path: null, source: null };
-      setGitBashPathInfo(empty);
-      return empty;
-    } finally {
-      setHasAttemptedDetection(true);
-      setIsDetecting(false);
-    }
-  };
-
   useEffect(() => {
     if (!isWindows) return;
-    refreshGitBashPathInfo();
+    getGitBashPathInfo().then((info) => setGitBashPathInfo(info || { path: null, source: null }));
   }, []);
 
   useEffect(() => {
@@ -98,24 +72,9 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
       }
       const pathInfo = await getGitBashPathInfo();
       setGitBashPathInfo(pathInfo || { path: null, source: null });
-      setHasAttemptedDetection(true);
     } catch (error) {
       logger.error('[GuiderSetting3] handlePickGitBash failed', { error: error?.message || String(error) });
       message.error('设置 Git Bash 路径失败');
-    }
-  };
-
-  const handleAutoDiscoverGitBash = async () => {
-    try {
-      const pathInfo = await refreshGitBashPathInfo(true);
-      if (pathInfo?.path) {
-        message.success('已自动检测到 Git Bash');
-      } else {
-        message.warning('未自动检测到 Git Bash，请先安装 Git for Windows 后重试');
-      }
-    } catch (error) {
-      logger.error('[GuiderSetting3] handleAutoDiscoverGitBash failed', { error: error?.message || String(error) });
-      message.error('自动发现 Git Bash 失败');
     }
   };
 
@@ -123,24 +82,16 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
     <div className="gs3-settings">
       <div className="gs3-section">
         <div className="gs3-section-title">Git Bash</div>
-        {!isWindows ? (
-          <div className="gs3-section-subtitle">当前系统非 Windows，无需设置 Git Bash，可直接开始使用。</div>
-        ) : gitBashPathInfo?.path ? (
-          <div className="gs3-section-subtitle">已检测到 Git Bash，可继续使用智能体工具。</div>
-        ) : (
-          hasAttemptedDetection && (
-            <div className="gs3-section-subtitle">
-              未检测到 Git Bash。请先安装 Git for Windows，然后点击“自动发现”或“选择 Git Bash”。
-              <a
-                className="gs3-gitbash-link"
-                href="https://git-scm.com/downloads/win"
-                target="_blank"
-                rel="noreferrer">
-                git-scm.com/downloads/win
-              </a>
-            </div>
-          )
-        )}
+        <div className="gs3-section-subtitle">
+          在 Windows 上运行智能体需要 Git Bash。没有它智能体无法运行。请从以下地址安装 Git for Windows
+          <a
+            className="gs3-gitbash-link"
+            href="https://git-scm.com/downloads/win"
+            target="_blank"
+            rel="noreferrer">
+            git-scm.com/downloads/win
+          </a>
+        </div>
         <div className="gs3-instruction-card">
           <div className="gs3-instruction-title">选择哪个文件？</div>
           <div className="gs3-instruction-text">
@@ -155,23 +106,20 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
         <div className="gs3-save-row">
           <div className="gs3-save-desc">
             <div className={`gs3-save-path ${!gitBashPathInfo?.path?.trim() ? 'empty' : ''}`}>
-              {isDetecting ? '正在自动检测...' : gitBashPathInfo?.path || '未设置'}
+              {gitBashPathInfo?.path || '未设置'}
             </div>
             {gitBashPathInfo?.path && gitBashPathInfo?.source === 'auto' ? (
               <div className="gs3-source-hint">已自动检测</div>
             ) : null}
           </div>
-          <div className="gs3-actions">
-            <button type="button" className="gs3-save-button" onClick={handleAutoDiscoverGitBash} disabled={isDetecting}>
-              自动发现
-            </button>
-            <button type="button" className="gs3-save-button" onClick={handlePickGitBash} disabled={isDetecting}>
-              选择 Git Bash
-            </button>
-          </div>
+          <button type="button" className="gs3-save-button" onClick={handlePickGitBash}>
+            选择 Git Bash
+          </button>
         </div>
 
-        {!isWindows && <div className="gs3-non-win-tip">当前系统非 Windows，无需设置 Git Bash，可直接开始使用。</div>}
+        {!isWindows && (
+          <div className="gs3-non-win-tip">当前系统非 Windows，无需设置 Git Bash，可直接开始使用。</div>
+        )}
       </div>
     </div>
   );

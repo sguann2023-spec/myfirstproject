@@ -103,6 +103,8 @@ jobs:
           set -euo pipefail
           PROPAGATION_SLEEP_SECONDS=69
           STAPLE_RETRY_SLEEP_SECONDS=69
+          NOTARY_SUBMIT_MAX_ATTEMPTS=50
+          NOTARY_SUBMIT_RETRY_SLEEP_SECONDS=45
           MOUNT_POINT=""
           cleanup_mount() {
             if [ -n "${MOUNT_POINT:-}" ] && mount | grep -q "on ${MOUNT_POINT} "; then
@@ -161,22 +163,52 @@ jobs:
               echo "DMG already stapled, skip notarization: $DMG_PATH"
             else
               echo "Submitting DMG to Apple notary service: $DMG_PATH"
-              NOTARY_JSON=$(xcrun notarytool submit "$DMG_PATH" \
-                --apple-id "$APPLE_ID" \
-                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                --team-id "$APPLE_TEAM_ID" \
-                --wait --output-format json)
-              echo "$NOTARY_JSON"
+              SUBMISSION_ACCEPTED=0
+              SUB_ID=""
+              SUB_STATUS=""
 
-              SUB_ID=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
-              SUB_STATUS=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))")
-
-              if [ "$SUB_STATUS" != "Accepted" ]; then
-                echo "Notarization status: $SUB_STATUS, fetching log for $SUB_ID ..."
-                xcrun notarytool log "$SUB_ID" \
+              for attempt in $(seq 1 "$NOTARY_SUBMIT_MAX_ATTEMPTS"); do
+                echo "Notary submit attempt $attempt/$NOTARY_SUBMIT_MAX_ATTEMPTS for $DMG_PATH"
+                if NOTARY_JSON=$(xcrun notarytool submit "$DMG_PATH" \
                   --apple-id "$APPLE_ID" \
                   --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                  --team-id "$APPLE_TEAM_ID" || true
+                  --team-id "$APPLE_TEAM_ID" \
+                  --wait --output-format json 2>&1); then
+                  echo "$NOTARY_JSON"
+
+                  SUB_ID=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+                  SUB_STATUS=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))")
+
+                  if [ "$SUB_STATUS" = "Accepted" ]; then
+                    SUBMISSION_ACCEPTED=1
+                    break
+                  fi
+
+                  echo "Notarization status: $SUB_STATUS (submission id: ${SUB_ID:-N/A})"
+                  if [ -n "$SUB_ID" ]; then
+                    xcrun notarytool log "$SUB_ID" \
+                      --apple-id "$APPLE_ID" \
+                      --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                      --team-id "$APPLE_TEAM_ID" || true
+                  fi
+                else
+                  echo "$NOTARY_JSON"
+                  if echo "$NOTARY_JSON" | grep -qiE "The operation was canceled|timed out|timeout|temporarily unavailable|network|connection"; then
+                    echo "Transient notary submit failure detected, will retry."
+                  else
+                    echo "Non-retryable notary submit error."
+                    exit 1
+                  fi
+                fi
+
+                if [ "$attempt" -lt "$NOTARY_SUBMIT_MAX_ATTEMPTS" ]; then
+                  echo "Waiting ${NOTARY_SUBMIT_RETRY_SLEEP_SECONDS}s before retry..."
+                  sleep "$NOTARY_SUBMIT_RETRY_SLEEP_SECONDS"
+                fi
+              done
+
+              if [ "$SUBMISSION_ACCEPTED" -ne 1 ]; then
+                echo "Notarization submit failed after $NOTARY_SUBMIT_MAX_ATTEMPTS attempts for $DMG_PATH."
                 exit 1
               fi
 
