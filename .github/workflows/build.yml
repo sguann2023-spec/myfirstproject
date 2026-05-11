@@ -76,10 +76,11 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Build Mac application (Universal + Signed)
+      - name: Build Mac applications (x64 + arm64 + universal)
         run: |
           rm -rf build
           pnpm run build:vite
+          electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
           electron-builder --mac dmg zip --universal --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
@@ -102,48 +103,6 @@ jobs:
           set -euo pipefail
           PROPAGATION_SLEEP_SECONDS=69
           STAPLE_RETRY_SLEEP_SECONDS=69
-
-          SIGNING_IDENTITY="Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-          resolve_artifacts() {
-            APP_PATH=$(find build -maxdepth 2 -type d -name "*.app" | head -n 1)
-            if [ -z "$APP_PATH" ]; then
-              echo "No .app bundle found in build output."
-              find build -maxdepth 3 -print
-              exit 1
-            fi
-            DMG_PATH=$(find build -maxdepth 2 -type f -name "*.dmg" | head -n 1)
-            if [ -z "$DMG_PATH" ]; then
-              echo "No .dmg artifact found in build directory."
-              find build -maxdepth 3 -print
-              exit 1
-            fi
-          }
-
-          verify_app_signing_chain() {
-            local app_path="$1"
-            local framework_path="$app_path/Contents/Frameworks/Electron Framework.framework"
-            echo "===== .app codesign info ====="
-            APP_SIGN_INFO=$(codesign -dv --verbose=4 "$app_path" 2>&1)
-            echo "$APP_SIGN_INFO"
-            echo "$APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-            echo "$APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
-            if [ -d "$framework_path" ]; then
-              echo "===== Electron Framework sign info ====="
-              codesign -dv --verbose=4 "$framework_path" 2>&1 || true
-            fi
-            codesign --verify --deep --strict --verbose=2 "$app_path"
-            spctl --assess --type execute --verbose=4 "$app_path"
-          }
-
-          resolve_artifacts
-          if ! verify_app_signing_chain "$APP_PATH"; then
-            echo "App signing chain invalid, rebuilding mac artifacts once..."
-            rm -rf build
-            pnpm run build:vite
-            electron-builder --mac dmg zip --universal --publish never --config.mac.forceCodeSigning=true
-            resolve_artifacts
-            verify_app_signing_chain "$APP_PATH"
-          fi
           MOUNT_POINT=""
           cleanup_mount() {
             if [ -n "${MOUNT_POINT:-}" ] && mount | grep -q "on ${MOUNT_POINT} "; then
@@ -154,94 +113,94 @@ jobs:
             fi
           }
           trap cleanup_mount EXIT
-
-          echo "===== DMG codesign info (current) ====="
-          codesign -dv --verbose=4 "$DMG_PATH" 2>&1 || true
-
-          # 如果 electron-builder 没给 DMG 签名，这里补签（注意：DMG 不加 --options runtime）
-          if ! codesign -dv "$DMG_PATH" 2>&1 | grep -q "Authority=Developer ID Application"; then
-            echo "DMG not signed yet, signing now (no hardened runtime for DMG)..."
-            codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
-            codesign -dv --verbose=4 "$DMG_PATH"
-          fi
-
-          # 在提交 notarization 前，强制校验 DMG 内 app 和主二进制签名
-          MOUNT_POINT=$(mktemp -d)
-          hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
-          DMG_APP_PATH=$(find "$MOUNT_POINT" -maxdepth 2 -type d -name "*.app" | head -n 1)
-          if [ -z "$DMG_APP_PATH" ]; then
-            hdiutil detach "$MOUNT_POINT" >/dev/null || true
-            rmdir "$MOUNT_POINT" || true
-            echo "No .app found inside dmg before notarization."
+          shopt -s nullglob
+          DMGS=(build/*.dmg)
+          if [ "${#DMGS[@]}" -eq 0 ]; then
+            echo "No .dmg artifacts found in build directory."
+            find build -maxdepth 3 -print
             exit 1
           fi
-          DMG_APP_NAME=$(basename "$DMG_APP_PATH" .app)
-          DMG_APP_BIN="$DMG_APP_PATH/Contents/MacOS/$DMG_APP_NAME"
-          if [ ! -f "$DMG_APP_BIN" ]; then
-            DMG_APP_BIN=$(find "$DMG_APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
-          fi
-          if [ -z "$DMG_APP_BIN" ]; then
-            hdiutil detach "$MOUNT_POINT" >/dev/null || true
-            rmdir "$MOUNT_POINT" || true
-            echo "No main executable found inside dmg app."
-            exit 1
-          fi
-          echo "===== DMG internal app sign info ====="
-          DMG_APP_SIGN_INFO=$(codesign -dv --verbose=4 "$DMG_APP_BIN" 2>&1)
-          echo "$DMG_APP_SIGN_INFO"
-          echo "$DMG_APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
-          echo "$DMG_APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
-          codesign --verify --strict --verbose=4 "$DMG_APP_BIN"
-          codesign --verify --deep --strict --verbose=2 "$DMG_APP_PATH"
-          spctl --assess --type execute --verbose=4 "$DMG_APP_PATH"
-          hdiutil detach "$MOUNT_POINT" >/dev/null
-          rmdir "$MOUNT_POINT"
-          MOUNT_POINT=""
 
-          # 如果已 stapled 就跳过重新公证
-          if xcrun stapler validate "$DMG_PATH" >/dev/null 2>&1; then
-            echo "DMG already stapled, skip notarization."
-          else
-            echo "Submitting DMG to Apple notary service..."
-            NOTARY_JSON=$(xcrun notarytool submit "$DMG_PATH" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait --output-format json)
-            echo "$NOTARY_JSON"
+          for DMG_PATH in "${DMGS[@]}"; do
+            echo "===== Verifying DMG: $DMG_PATH ====="
+            codesign -dv --verbose=4 "$DMG_PATH" 2>&1 || true
 
-            SUB_ID=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
-            SUB_STATUS=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))")
-
-            if [ "$SUB_STATUS" != "Accepted" ]; then
-              echo "Notarization status: $SUB_STATUS, fetching log for $SUB_ID ..."
-              xcrun notarytool log "$SUB_ID" \
-                --apple-id "$APPLE_ID" \
-                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                --team-id "$APPLE_TEAM_ID" || true
+            MOUNT_POINT=$(mktemp -d)
+            hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
+            DMG_APP_PATH=$(find "$MOUNT_POINT" -maxdepth 2 -type d -name "*.app" | head -n 1)
+            if [ -z "$DMG_APP_PATH" ]; then
+              hdiutil detach "$MOUNT_POINT" >/dev/null || true
+              rmdir "$MOUNT_POINT" || true
+              echo "No .app found inside dmg before notarization: $DMG_PATH"
               exit 1
             fi
-
-            echo "Waiting for notarization ticket propagation..."
-            sleep "$PROPAGATION_SLEEP_SECONDS"
-
-            STAPLE_OK=0
-            for attempt in 1 2 3 4 5; do
-              echo "Staple attempt $attempt..."
-              if xcrun stapler staple "$DMG_PATH" && xcrun stapler validate "$DMG_PATH"; then
-                STAPLE_OK=1
-                break
-              fi
-              sleep "$STAPLE_RETRY_SLEEP_SECONDS"
-            done
-
-            if [ "$STAPLE_OK" -ne 1 ]; then
-              echo "The staple and validate action failed after retries."
-              exit 65
+            DMG_APP_NAME=$(basename "$DMG_APP_PATH" .app)
+            DMG_APP_BIN="$DMG_APP_PATH/Contents/MacOS/$DMG_APP_NAME"
+            if [ ! -f "$DMG_APP_BIN" ]; then
+              DMG_APP_BIN=$(find "$DMG_APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
             fi
-          fi
+            if [ -z "$DMG_APP_BIN" ]; then
+              hdiutil detach "$MOUNT_POINT" >/dev/null || true
+              rmdir "$MOUNT_POINT" || true
+              echo "No main executable found inside dmg app: $DMG_PATH"
+              exit 1
+            fi
+            echo "===== DMG internal app sign info ====="
+            DMG_APP_SIGN_INFO=$(codesign -dv --verbose=4 "$DMG_APP_BIN" 2>&1)
+            echo "$DMG_APP_SIGN_INFO"
+            echo "$DMG_APP_SIGN_INFO" | grep -q "Authority=Developer ID Application: Keroro Software LLC (45UTGNZ6A4)"
+            echo "$DMG_APP_SIGN_INFO" | grep -q "TeamIdentifier=45UTGNZ6A4"
+            codesign --verify --strict --verbose=4 "$DMG_APP_BIN"
+            codesign --verify --deep --strict --verbose=2 "$DMG_APP_PATH"
+            spctl --assess --type execute --verbose=4 "$DMG_APP_PATH"
+            hdiutil detach "$MOUNT_POINT" >/dev/null
+            rmdir "$MOUNT_POINT"
+            MOUNT_POINT=""
 
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+            if xcrun stapler validate "$DMG_PATH" >/dev/null 2>&1; then
+              echo "DMG already stapled, skip notarization: $DMG_PATH"
+            else
+              echo "Submitting DMG to Apple notary service: $DMG_PATH"
+              NOTARY_JSON=$(xcrun notarytool submit "$DMG_PATH" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait --output-format json)
+              echo "$NOTARY_JSON"
+
+              SUB_ID=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+              SUB_STATUS=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))")
+
+              if [ "$SUB_STATUS" != "Accepted" ]; then
+                echo "Notarization status: $SUB_STATUS, fetching log for $SUB_ID ..."
+                xcrun notarytool log "$SUB_ID" \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" || true
+                exit 1
+              fi
+
+              echo "Waiting for notarization ticket propagation..."
+              sleep "$PROPAGATION_SLEEP_SECONDS"
+
+              STAPLE_OK=0
+              for attempt in 1 2 3 4 5; do
+                echo "Staple attempt $attempt for $DMG_PATH..."
+                if xcrun stapler staple "$DMG_PATH" && xcrun stapler validate "$DMG_PATH"; then
+                  STAPLE_OK=1
+                  break
+                fi
+                sleep "$STAPLE_RETRY_SLEEP_SECONDS"
+              done
+
+              if [ "$STAPLE_OK" -ne 1 ]; then
+                echo "The staple and validate action failed after retries for $DMG_PATH."
+                exit 65
+              fi
+            fi
+
+            spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+          done
 
       - name: Upload mac signing diagnostics
         if: failure()
