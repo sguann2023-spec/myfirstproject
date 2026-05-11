@@ -102,7 +102,7 @@ jobs:
           set -euo pipefail
           PROPAGATION_SLEEP_SECONDS=69
           STAPLE_RETRY_SLEEP_SECONDS=69
-          NOTARY_SUBMIT_MAX_ATTEMPTS=50
+          NOTARY_SUBMIT_MAX_ATTEMPTS=5
           NOTARY_SUBMIT_RETRY_SLEEP_SECONDS=45
           DEVELOPER_ID_APP_IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)
           if [ -z "${DEVELOPER_ID_APP_IDENTITY:-}" ]; then
@@ -194,6 +194,53 @@ jobs:
             fi
           done
 
+      - name: Generate latest-mac-x64.yml and latest-mac-arm64.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          VERSION=$(node -p "require('./package.json').version")
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+          X64_ZIPS=(build/*-x64.zip)
+          ARM64_ZIPS=(build/*-arm64.zip)
+          if [ "${#X64_ZIPS[@]}" -eq 0 ] || [ "${#ARM64_ZIPS[@]}" -eq 0 ]; then
+            echo "Missing x64/arm64 zip artifacts for latest metadata generation."
+            ls -lah build || true
+            exit 1
+          fi
+
+          X64_ZIP="${X64_ZIPS[0]}"
+          ARM64_ZIP="${ARM64_ZIPS[0]}"
+          X64_NAME=$(basename "$X64_ZIP")
+          ARM64_NAME=$(basename "$ARM64_ZIP")
+          X64_SHA512=$(openssl dgst -sha512 -binary "$X64_ZIP" | openssl base64 -A)
+          ARM64_SHA512=$(openssl dgst -sha512 -binary "$ARM64_ZIP" | openssl base64 -A)
+          X64_SIZE=$(stat -f%z "$X64_ZIP")
+          ARM64_SIZE=$(stat -f%z "$ARM64_ZIP")
+
+          cat > build/latest-mac-x64.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: ${X64_NAME}
+              sha512: ${X64_SHA512}
+              size: ${X64_SIZE}
+          path: ${X64_NAME}
+          sha512: ${X64_SHA512}
+          releaseDate: '${RELEASE_DATE}'
+          EOF
+
+          cat > build/latest-mac-arm64.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: ${ARM64_NAME}
+              sha512: ${ARM64_SHA512}
+              size: ${ARM64_SIZE}
+          path: ${ARM64_NAME}
+          sha512: ${ARM64_SHA512}
+          releaseDate: '${RELEASE_DATE}'
+          EOF
+
       - name: Upload mac signing diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -203,7 +250,8 @@ jobs:
           path: |
             build/builder-debug.yml
             build/builder-effective-config.yaml
-            build/latest-mac.yml
+            build/latest-mac-x64.yml
+            build/latest-mac-arm64.yml
 
       - name: Install ossutil
         run: |
@@ -222,7 +270,7 @@ jobs:
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           shopt -s nullglob
           DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
-          FILES=(build/*-x64.zip build/*-arm64.zip build/*-x64.dmg build/*-arm64.dmg)
+          FILES=(build/*-x64.zip build/*-arm64.zip build/*-x64.dmg build/*-arm64.dmg build/latest-mac-x64.yml build/latest-mac-arm64.yml)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No mac artifacts found to upload."
             exit 1
@@ -234,6 +282,7 @@ jobs:
 
   # 任务 2B: macOS universal 构建并上传到 OSS
   build-and-deploy-mac-universal-dev:
+    if: false
     runs-on: macos-latest
     timeout-minutes: 120
     needs: vars
@@ -302,7 +351,7 @@ jobs:
           set -euo pipefail
           PROPAGATION_SLEEP_SECONDS=69
           STAPLE_RETRY_SLEEP_SECONDS=69
-          NOTARY_SUBMIT_MAX_ATTEMPTS=50
+          NOTARY_SUBMIT_MAX_ATTEMPTS=5
           NOTARY_SUBMIT_RETRY_SLEEP_SECONDS=45
           DEVELOPER_ID_APP_IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)
           if [ -z "${DEVELOPER_ID_APP_IDENTITY:-}" ]; then
