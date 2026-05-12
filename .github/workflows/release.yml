@@ -8,28 +8,12 @@ on:
       - 'v*'
 
 jobs:
-  # 任务1：创建 Tag (保持不变)
-  create-tag:
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-      
-      - name: Get version from package.json
-        id: package-version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-      
 
   # 任务 2A: macOS 构建并上传 macOS 资产到 OSS
   # 注意：保留 Job 名称以避免影响外部状态检查配置
   build-and-upload-mac:
     runs-on: macos-latest
     timeout-minutes: 120
-    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
         node-version: [22.x]
@@ -276,7 +260,6 @@ jobs:
   # 注意：保留 Job 名称以避免影响外部状态检查配置
   build-and-upload-win:
     runs-on: windows-latest
-    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
         node-version: [22.x]
