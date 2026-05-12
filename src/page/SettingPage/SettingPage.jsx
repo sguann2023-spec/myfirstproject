@@ -1,13 +1,14 @@
 // SettingPage.jsx
-import React, { useState } from 'react';
+import { useState } from 'react';
 import './SettingPage.css';
 
 import GeneralSettingIcon from '../../../public/settings_general.png';
-import { MailOutlined, SettingOutlined, KeyOutlined, ApiOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import GeneralSettings from '../../components/GeneralSettings/GeneralSettings';
 import AboutUs from '../../components/AboutUs/AboutUs';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('SettingPage');
+
 // 菜单项数据
 const settingMenuItems = [
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
@@ -17,7 +18,17 @@ const settingMenuItems = [
 const SettingPage = () => {
   // 默认选中 'general'
   const [selectedKey, setSelectedKey] = useState('general');
+  const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
   logger.debug('settingPage');
+
+  const handleWinCtrl = (action) => {
+    try {
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('window-controls', action);
+    } catch (e) {
+      // ignore
+    }
+  };
 
   // 动态获取当前选中的组件
   const SelectedComponent = settingMenuItems.find(item => item.key === selectedKey)?.component || GeneralSettings;
@@ -34,6 +45,25 @@ const SettingPage = () => {
           
           {/* 2. 右侧拖动区域：占据剩余空间，背景色相同 */}
           <div className="top-right-drag-area">
+            {isWindows && (
+              <div className="setting-titlebar-controls">
+                <button
+                  className="traffic-btn minimize"
+                  onClick={() => handleWinCtrl('minimize')}
+                  title="最小化"
+                />
+                <button
+                  className="traffic-btn maximize"
+                  onClick={() => handleWinCtrl('maximize')}
+                  title="最大化/还原"
+                />
+                <button
+                  className="traffic-btn close"
+                  onClick={() => handleWinCtrl('close')}
+                  title="关闭"
+                />
+              </div>
+            )}
           </div>
       </div>
 
