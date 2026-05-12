@@ -1,60 +1,42 @@
-name: Release
+name: Dev Build and Deploy to OSS
 
 on:
   push:
     branches:
-      - main
-    tags:
-      - 'v*'
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dev-build-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
-  # 任务1：创建 Tag (保持不变)
-  create-tag:
+  vars:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
+    outputs:
+      oss_version_path: ${{ steps.set_path.outputs.oss_version_path }}
+      oss_latest_path: versioncode
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-      
-      - name: Get version from package.json
-        id: package-version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-      
-      - name: Create Tag
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GH_TOKEN }}
-          script: |
-            const version = '${{ steps.package-version.outputs.version }}'
-            const tagName = `v${version}`
-            
-            try {
-              await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tagName}`
-              })
-              console.log(`Tag ${tagName} already exists.`)
-            } catch (error) {
-              const sha = context.sha
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tagName}`,
-                sha: sha
-              })
-              console.log(`Created tag ${tagName} at ${sha}`)
-            }
 
-  # 任务 2A: macOS 构建并上传 macOS 资产到 OSS
-  # 注意：保留 Job 名称以避免影响外部状态检查配置
-  build-and-upload-mac:
+      - name: Set OSS Target Path
+        id: set_path
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TIMESTAMP=$(date +%Y-%m-%d_%H_%M_%S)
+          echo "oss_version_path=${VERSION}_${TIMESTAMP}/" >> $GITHUB_OUTPUT
+        shell: bash
+        working-directory: ${{ github.workspace }}
+
+  # 任务 2A: macOS x64/arm64 构建并上传到 OSS
+  build-and-deploy-mac-arch-dev:
     runs-on: macos-latest
     timeout-minutes: 120
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: vars
     strategy:
       matrix:
         node-version: [22.x]
@@ -73,7 +55,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
-      
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
@@ -93,7 +75,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      
+
       - name: Build Mac applications (x64 + arm64)
         run: |
           rm -rf build
@@ -278,7 +260,7 @@ jobs:
           sudo mv ossutil /usr/local/bin/ossutil
           ossutil --version
 
-      - name: Deploy macOS Assets to OSS (Latest Path)
+      - name: Deploy Mac Assets to OSS
         env:
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
@@ -287,21 +269,23 @@ jobs:
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           shopt -s nullglob
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
           FILES=(build/*-x64.zip build/*-arm64.zip build/*-x64.dmg build/*-arm64.dmg build/latest-mac.yml build/latest-mac-arm64.yml)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No mac artifacts found to upload."
             exit 1
           fi
           for f in "${FILES[@]}"; do
-            echo "Uploading $f to latest path"
-            ossutil cp -f "$f" "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+            echo "Uploading $f to $DEST"
+            ossutil cp -f "$f" "$DEST" -c /tmp/.ossutilconfig
           done
 
-  # 任务 2B: Windows 构建并上传 Windows 资产到 OSS
-  # 注意：保留 Job 名称以避免影响外部状态检查配置
-  build-and-upload-win:
-    runs-on: windows-latest
-    if: startsWith(github.ref, 'refs/tags/')
+  # 任务 2B: macOS universal 构建并上传到 OSS
+  build-and-deploy-mac-universal-dev:
+    if: false
+    runs-on: macos-latest
+    timeout-minutes: 120
+    needs: vars
     strategy:
       matrix:
         node-version: [22.x]
@@ -320,7 +304,232 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
-      
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Import macOS signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+      - name: Prepare macOS signing environment
+        shell: bash
+        run: |
+          [ -n "${APPLE_ID:-}" ] || { echo "Missing APPLE_ID secret"; exit 1; }
+          [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || { echo "Missing APPLE_APP_SPECIFIC_PASSWORD secret"; exit 1; }
+          [ -n "${APPLE_TEAM_ID:-}" ] || { echo "Missing APPLE_TEAM_ID secret"; exit 1; }
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Build Mac application (universal)
+        run: |
+          rm -rf build
+          pnpm run build:vite
+          pnpm exec electron-builder --mac dir --universal --publish never --config.mac.forceCodeSigning=true
+        shell: bash
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          DEBUG: electron-builder
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Sign and notarize macOS artifacts
+        timeout-minutes: 80
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          PROPAGATION_SLEEP_SECONDS=69
+          STAPLE_RETRY_SLEEP_SECONDS=69
+          NOTARY_SUBMIT_MAX_ATTEMPTS=5
+          NOTARY_SUBMIT_RETRY_SLEEP_SECONDS=45
+          DEVELOPER_ID_APP_IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)
+          if [ -z "${DEVELOPER_ID_APP_IDENTITY:-}" ]; then
+            echo "No Developer ID Application identity found in keychain."
+            security find-identity -v -p codesigning || true
+            exit 1
+          fi
+          echo "Using codesign identity: ${DEVELOPER_ID_APP_IDENTITY}"
+
+          APP_PATH=$(find build -type d -name "*.app" | head -n 1)
+          if [ -z "${APP_PATH:-}" ]; then
+            echo "No .app bundle found from universal dir build."
+            find build -maxdepth 4 -print
+            exit 1
+          fi
+          echo "Universal app bundle: $APP_PATH"
+          APP_BIN=$(find "$APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
+          if [ -n "${APP_BIN:-}" ]; then
+            echo "Universal binary arch info:"
+            lipo -archs "$APP_BIN" || true
+          fi
+
+          echo "Re-signing universal app bundle before packaging..."
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$DEVELOPER_ID_APP_IDENTITY" \
+            --entitlements build-resources/entitlements.mac.plist \
+            "$APP_PATH"
+
+          echo "Packaging pre-signed universal app into dmg/zip..."
+          rm -f build/*-universal.dmg build/*-universal.zip
+          pnpm exec electron-builder --mac dmg zip --publish never \
+            --prepackaged "$APP_PATH" \
+            --config.mac.artifactName='VectCut-${version}-universal.${ext}'
+
+          shopt -s nullglob
+          DMGS=(build/*-universal.dmg)
+          if [ "${#DMGS[@]}" -eq 0 ]; then
+            echo "No universal .dmg artifacts found in build directory."
+            find build -maxdepth 3 -print
+            exit 1
+          fi
+
+          for DMG_PATH in "${DMGS[@]}"; do
+            echo "===== Processing DMG: $DMG_PATH ====="
+            echo "Signing DMG container before notarization: $DMG_PATH"
+            codesign --force --sign "$DEVELOPER_ID_APP_IDENTITY" --timestamp --verbose "$DMG_PATH"
+            echo "===== DMG container sign info ====="
+            codesign -dv --verbose=4 "$DMG_PATH" 2>&1
+            echo "Submitting DMG to Apple notary service: $DMG_PATH"
+            SUBMISSION_ACCEPTED=0
+            SUB_ID=""
+            SUB_STATUS=""
+
+            for attempt in $(seq 1 "$NOTARY_SUBMIT_MAX_ATTEMPTS"); do
+              echo "Notary submit attempt $attempt/$NOTARY_SUBMIT_MAX_ATTEMPTS for $DMG_PATH"
+              if NOTARY_JSON=$(xcrun notarytool submit "$DMG_PATH" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait --output-format json 2>&1); then
+                echo "$NOTARY_JSON"
+
+                SUB_ID=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+                SUB_STATUS=$(echo "$NOTARY_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('status',''))")
+
+                if [ "$SUB_STATUS" = "Accepted" ]; then
+                  SUBMISSION_ACCEPTED=1
+                  break
+                fi
+
+                echo "Notarization status: $SUB_STATUS (submission id: ${SUB_ID:-N/A})"
+                if [ -n "$SUB_ID" ]; then
+                  xcrun notarytool log "$SUB_ID" \
+                    --apple-id "$APPLE_ID" \
+                    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                    --team-id "$APPLE_TEAM_ID" || true
+                fi
+              else
+                echo "$NOTARY_JSON"
+                if echo "$NOTARY_JSON" | grep -qiE "The operation was canceled|timed out|timeout|temporarily unavailable|network|connection"; then
+                  echo "Transient notary submit failure detected, will retry."
+                else
+                  echo "Non-retryable notary submit error."
+                  exit 1
+                fi
+              fi
+
+              if [ "$attempt" -lt "$NOTARY_SUBMIT_MAX_ATTEMPTS" ]; then
+                echo "Waiting ${NOTARY_SUBMIT_RETRY_SLEEP_SECONDS}s before retry..."
+                sleep "$NOTARY_SUBMIT_RETRY_SLEEP_SECONDS"
+              fi
+            done
+
+            if [ "$SUBMISSION_ACCEPTED" -ne 1 ]; then
+              echo "Notarization submit failed after $NOTARY_SUBMIT_MAX_ATTEMPTS attempts for $DMG_PATH."
+              exit 1
+            fi
+
+            echo "Waiting for notarization ticket propagation..."
+            sleep "$PROPAGATION_SLEEP_SECONDS"
+
+            STAPLE_OK=0
+            for attempt in 1 2 3 4 5; do
+              echo "Staple attempt $attempt for $DMG_PATH..."
+              if xcrun stapler staple "$DMG_PATH"; then
+                STAPLE_OK=1
+                break
+              fi
+              sleep "$STAPLE_RETRY_SLEEP_SECONDS"
+            done
+
+            if [ "$STAPLE_OK" -ne 1 ]; then
+              echo "The staple action failed after retries for $DMG_PATH."
+              exit 65
+            fi
+          done
+
+      - name: Upload mac signing diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-signing-diagnostics-universal-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            build/builder-debug.yml
+            build/builder-effective-config.yaml
+            build/latest-mac.yml
+
+      - name: Install ossutil
+        run: |
+          curl -fsSL https://gosspublic.alicdn.com/ossutil/1.7.16/ossutilmac64 -o ossutil
+          chmod +x ossutil
+          sudo mv ossutil /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Deploy Mac Universal Assets to OSS
+        env:
+          MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
+          MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+          MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
+        run: |
+          ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          shopt -s nullglob
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          FILES=(build/*-universal.zip build/*-universal.dmg)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No universal artifacts found to upload."
+            exit 1
+          fi
+          for f in "${FILES[@]}"; do
+            echo "Uploading $f to $DEST"
+            ossutil cp -f "$f" "$DEST" -c /tmp/.ossutilconfig
+          done
+
+  # 任务 2C: Windows 构建并上传到 OSS
+  build-and-deploy-win-dev:
+    runs-on: windows-latest
+    needs: vars
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -338,7 +547,7 @@ jobs:
             echo "No native bindings found in node_modules; aborting Windows package build."
             exit 1
           fi
-      
+
       - name: Build Windows application
         run: pnpm run build:win
         shell: bash
@@ -375,7 +584,7 @@ jobs:
           chmod +x ossutil64.exe
           ./ossutil64.exe --version
 
-      - name: Deploy Windows Assets to OSS (Latest Path)
+      - name: Deploy Windows Assets to OSS
         shell: bash
         env:
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
@@ -383,9 +592,6 @@ jobs:
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
-          WIN_EXE=$(ls build/*.exe | head -n 1)
-          cp "$WIN_EXE" build/VectCut-Setup-latest-x64.exe
-          node -e "const fs=require('fs');const p='build/latest.yml';let s=fs.readFileSync(p,'utf8');s=s.replace(/[\w.-]+\.exe/g,'VectCut-Setup-latest-x64.exe');fs.writeFileSync(p,s);"
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/VectCut-Setup-latest-x64.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-Setup-latest-x64.exe" -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/latest.yml" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
