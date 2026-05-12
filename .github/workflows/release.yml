@@ -171,7 +171,7 @@ jobs:
             fi
           done
 
-      - name: Generate latest-mac.yml and latest-mac-arm64.yml
+      - name: Prepare latest macOS artifacts and metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -189,20 +189,33 @@ jobs:
 
           X64_ZIP="${X64_ZIPS[0]}"
           ARM64_ZIP="${ARM64_ZIPS[0]}"
-          X64_NAME=$(basename "$X64_ZIP")
-          ARM64_NAME=$(basename "$ARM64_ZIP")
-          X64_SHA512=$(openssl dgst -sha512 -binary "$X64_ZIP" | openssl base64 -A)
-          ARM64_SHA512=$(openssl dgst -sha512 -binary "$ARM64_ZIP" | openssl base64 -A)
-          X64_SIZE=$(stat -f%z "$X64_ZIP")
-          ARM64_SIZE=$(stat -f%z "$ARM64_ZIP")
+          X64_DMGS=(build/*-x64.dmg)
+          ARM64_DMGS=(build/*-arm64.dmg)
+          if [ "${#X64_DMGS[@]}" -eq 0 ] || [ "${#ARM64_DMGS[@]}" -eq 0 ]; then
+            echo "Missing x64/arm64 dmg artifacts for latest filename generation."
+            ls -lah build || true
+            exit 1
+          fi
+
+          X64_DMG="${X64_DMGS[0]}"
+          ARM64_DMG="${ARM64_DMGS[0]}"
+          cp "$X64_ZIP" build/VectCut-latest-x64.zip
+          cp "$ARM64_ZIP" build/VectCut-latest-arm64.zip
+          cp "$X64_DMG" build/VectCut-latest-x64.dmg
+          cp "$ARM64_DMG" build/VectCut-latest-arm64.dmg
+
+          X64_SHA512=$(openssl dgst -sha512 -binary build/VectCut-latest-x64.zip | openssl base64 -A)
+          ARM64_SHA512=$(openssl dgst -sha512 -binary build/VectCut-latest-arm64.zip | openssl base64 -A)
+          X64_SIZE=$(stat -f%z build/VectCut-latest-x64.zip)
+          ARM64_SIZE=$(stat -f%z build/VectCut-latest-arm64.zip)
 
           cat > build/latest-mac.yml <<EOF
           version: ${VERSION}
           files:
-            - url: ${X64_NAME}
+            - url: VectCut-latest-x64.zip
               sha512: ${X64_SHA512}
               size: ${X64_SIZE}
-          path: ${X64_NAME}
+          path: VectCut-latest-x64.zip
           sha512: ${X64_SHA512}
           releaseDate: '${RELEASE_DATE}'
           EOF
@@ -210,10 +223,10 @@ jobs:
           cat > build/latest-mac-arm64.yml <<EOF
           version: ${VERSION}
           files:
-            - url: ${ARM64_NAME}
+            - url: VectCut-latest-arm64.zip
               sha512: ${ARM64_SHA512}
               size: ${ARM64_SIZE}
-          path: ${ARM64_NAME}
+          path: VectCut-latest-arm64.zip
           sha512: ${ARM64_SHA512}
           releaseDate: '${RELEASE_DATE}'
           EOF
@@ -245,13 +258,16 @@ jobs:
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          shopt -s nullglob
-          FILES=(build/*-x64.zip build/*-arm64.zip build/*-x64.dmg build/*-arm64.dmg build/latest-mac.yml build/latest-mac-arm64.yml)
-          if [ "${#FILES[@]}" -eq 0 ]; then
-            echo "No mac artifacts found to upload."
-            exit 1
-          fi
+          FILES=(
+            build/VectCut-latest-x64.zip
+            build/VectCut-latest-arm64.zip
+            build/VectCut-latest-x64.dmg
+            build/VectCut-latest-arm64.dmg
+            build/latest-mac.yml
+            build/latest-mac-arm64.yml
+          )
           for f in "${FILES[@]}"; do
+            [ -f "$f" ] || { echo "Missing mac artifact: $f"; exit 1; }
             echo "Uploading $f to latest path"
             ossutil cp -f "$f" "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
           done
