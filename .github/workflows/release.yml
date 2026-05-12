@@ -23,31 +23,6 @@ jobs:
         id: package-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       
-      - name: Create Tag
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GH_TOKEN }}
-          script: |
-            const version = '${{ steps.package-version.outputs.version }}'
-            const tagName = `v${version}`
-            
-            try {
-              await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tagName}`
-              })
-              console.log(`Tag ${tagName} already exists.`)
-            } catch (error) {
-              const sha = context.sha
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tagName}`,
-                sha: sha
-              })
-              console.log(`Created tag ${tagName} at ${sha}`)
-            }
 
   # 任务 2A: macOS 构建并上传 macOS 资产到 OSS
   # 注意：保留 Job 名称以避免影响外部状态检查配置
