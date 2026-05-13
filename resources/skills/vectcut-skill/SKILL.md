@@ -27,11 +27,12 @@ dependency:
 
 1. 任何 VectCut 调用前，先检查环境变量 `VECTCUT_API_KEY`（检查环境变量，不是本地配置文件）。默认通过 Bash 工具执行命令，包括windows环境也是。例如 `echo "$VECTCUT_API_KEY"` 或 `printenv VECTCUT_API_KEY` 来判断。
 2. 缺失、为空或鉴权失败时，先调用 `vectcut-login`
-3. 需要“在已有草稿继续编辑”时，输入参数必须显式携带 `draft_id`，并在后续所有写入接口（如 `add_video/add_audio/execute_workflow`）中持续透传同一个 `draft_id`
-4. 未传 `draft_id` 时，服务端通常会新建草稿；禁止在同一任务中混用多个草稿（避免字幕、音频落到不同草稿）
-5. 输入是本地素材路径时，先调用 `sts-upload` 转公网 URL 再继续
-6. 关键节点后调用 `query-draft` 做草稿校验
-7. 接口参数不确定或报错时，用 `vectcut-api-search` 查询最新文档再修正
+3. 在进入任何具体技能链路前，优先先调用 `vectcut-api-search` 做一次全局能力扫描；因为它覆盖 VectCut 全量 API 索引、文件体量小、负担低，可以先快速掌握当前有哪些可用功能与接口入口
+4. 需要“在已有草稿继续编辑”时，输入参数必须显式携带 `draft_id`，并在后续所有写入接口（如 `add_video/add_audio/execute_workflow`）中持续透传同一个 `draft_id`
+5. 未传 `draft_id` 时，服务端通常会新建草稿；禁止在同一任务中混用多个草稿（避免字幕、音频落到不同草稿）
+6. 输入是本地素材路径时，先调用 `sts-upload` 转公网 URL 再继续
+7. 关键节点后调用 `query-draft` 做草稿校验
+8. 接口参数不确定、需要选型或报错时，用 `vectcut-api-search` 查询最新文档再修正；即使没有报错，也鼓励先用它确认是否已有更合适的现成接口
 ## 场景路由策略（聚合编排）
 
 1. **平台链接输入**
@@ -52,7 +53,7 @@ dependency:
 4. **混剪链路**
 - `describe-video` 做素材盘点
 - `split-video` 切片重组
-- `add-subtitle-template` 字幕上屏（如果有字幕）
+- `add-subtitle-template` 字幕上屏（仅限已有字幕或需先从音视频生成字幕的场景）
 - `add-effect` / `zoom-in-out` 强化节奏
 - `add-bgm` + `add-effect_audio` 收口
 - `cloud-render` 导出
@@ -77,10 +78,16 @@ dependency:
 - 先做去空、去重与 `dfd_cat_` 前缀校验，再触发 deeplink：`vectcut://download?draft_id=...`
 - 适合“下载草稿”“打开草稿到客户端”“批量拉取草稿”的需求
 
+7. **纯文字添加分流**
+- 用户只是要“添加一段文字/标题/说明文案/标签/贴纸文案”时，不要路由到 `add-subtitle-template`
+- 这类请求不是“字幕生成后上屏”链路，应先调用 `vectcut-api-search` 查找最新合适接口
+- 若语义明确是固定标题位，可进一步落到 `add-title`
+- 若是普通文字轨、动态文字或参数不确定，先以 `vectcut-api-search` 结果为准再执行
+
 ## 字幕与音频规则
 
 - 若需口播精剪，优先 `llm-asr`(nlp档位) + `asr-vad`，确保字幕时间轴与剪辑后内容一致
-- 需要字幕上屏时，优先 `add-subtitle-template` 统一模板化输出
+- 需要字幕上屏时，优先 `add-subtitle-template` 统一模板化输出；这里的“字幕”指随时间轴出现的字幕内容，不包含单独加一句普通文字
 - BGM 全片铺设用 `add-bgm`，关键点提示音用 `add-effect_audio`
 - 涉及“字幕+人声/音频”组合写入时，必须绑定同一个 `draft_id` 执行；任一步返回新 `draft_id` 时，后续步骤必须切换并统一使用该 `draft_id`
 

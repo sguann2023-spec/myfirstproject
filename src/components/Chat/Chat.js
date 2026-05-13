@@ -48,6 +48,7 @@ const formatModelDisplayName = (value) => (
 const Chat = ({
   session,
   agentId: agentIdProp,
+  runtimeSessionId,
   onSendMessage,
   onStopSending,
   onCopyAssistantMessage,
@@ -99,6 +100,7 @@ const Chat = ({
   return (
     <ChatShell
       agentId={agentId}
+      runtimeSessionId={runtimeSessionId}
       historyVisible={historyVisible}
       onToggleHistory={onToggleHistory}
       sessionTitle={sessionTitle}

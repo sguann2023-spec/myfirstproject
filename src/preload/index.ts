@@ -925,6 +925,11 @@ const legacyElectronAPI = {
     installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true }: any = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, { agentId, skillPath: directoryPath, isEnabled }),
     uninstall: ({ skillId }: { skillId: string }) => ipcRenderer.invoke(IpcChannel.Skill_Uninstall, skillId),
+    listLocal: async ({ workdir }: { workdir: string }) => {
+      const result = await ipcRenderer.invoke(IpcChannel.Skill_ListLocal, workdir)
+      const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
+      return { ok: Boolean((result as any)?.success), skills }
+    },
     rescan: async ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) => {
       const result = await ipcRenderer.invoke(IpcChannel.Skill_List, agentId)
       const skills = Array.isArray((result as any)?.data) ? (result as any).data : []

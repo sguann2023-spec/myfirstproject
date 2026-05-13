@@ -5,6 +5,7 @@ import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 
 const ChatShell = ({
   agentId,
+  runtimeSessionId,
   historyVisible = true,
   onToggleHistory,
   sessionTitle = '新对话',
@@ -37,13 +38,17 @@ const ChatShell = ({
     let cancelled = false;
     const loadSkills = async () => {
       const api = window?.electronAPI?.agentSkills;
+      const cherryChatStream = window?.electronAPI?.cherryChatStream;
       console.info('[ChatShell] loadSkills start', {
         agentId,
+        runtimeSessionId,
         hasElectronAPI: Boolean(window?.electronAPI),
         hasAgentSkills: Boolean(api),
-        hasListActive: Boolean(api && typeof api.listActive === 'function')
+        hasListActive: Boolean(api && typeof api.listActive === 'function'),
+        hasListLocal: Boolean(api && typeof api.listLocal === 'function'),
+        hasCherryChatStream: Boolean(cherryChatStream && typeof cherryChatStream.getSession === 'function')
       });
-      if (!agentId) {
+      if (!runtimeSessionId && !agentId) {
         if (!cancelled) {
           setSkills([]);
           setSkillsError('');
@@ -63,7 +68,22 @@ const ChatShell = ({
       setSkillsLoading(true);
       setSkillsError('');
       try {
-        const result = await api.listActive({ agentId });
+        let result = null;
+        if (
+          runtimeSessionId &&
+          cherryChatStream &&
+          typeof cherryChatStream.getSession === 'function' &&
+          typeof api.listLocal === 'function'
+        ) {
+          const sessionResult = await cherryChatStream.getSession(runtimeSessionId);
+          const workdir = sessionResult?.ok ? sessionResult?.session?.accessible_paths?.[0] : '';
+          if (workdir) {
+            result = await api.listLocal({ workdir });
+          }
+        }
+        if (!result) {
+          result = await api.listActive({ agentId });
+        }
         console.info('[ChatShell] loadSkills result', result);
         if (cancelled) return;
         if (!result?.ok) {
@@ -88,7 +108,7 @@ const ChatShell = ({
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, runtimeSessionId]);
 
   const commitTitleEdit = () => {
     const nextTitle = String(titleDraft || '').trim() || '新对话';
