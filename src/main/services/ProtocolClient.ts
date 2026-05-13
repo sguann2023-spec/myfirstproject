@@ -4,7 +4,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { loggerService } from '@logger'
-import { app } from 'electron'
+import { app, ipcMain } from 'electron'
 
 import { handleProvidersProtocolUrl } from './urlschema/handle-providers'
 import { handleMcpProtocolUrl } from './urlschema/mcp-install'
@@ -13,6 +13,18 @@ import { windowService } from './WindowService'
 const logger = loggerService.withContext('ProtocolClient')
 
 export const CHERRY_STUDIO_PROTOCOL = 'vectcut'
+const DOWNLOAD_PROTOCOL_ROUTE = 'download'
+const PROTOCOL_RENDERER_READY_CHANNEL = 'protocol-renderer-ready'
+
+type ProtocolPayload = {
+  url: string
+  route: string
+  params: Record<string, string>
+}
+
+const pendingProtocolPayloads: ProtocolPayload[] = []
+let isProtocolRendererReady = false
+let isProtocolIpcRegistered = false
 
 export function registerProtocolClient(app: Electron.App) {
   if (process.defaultApp) {
@@ -22,38 +34,98 @@ export function registerProtocolClient(app: Electron.App) {
   }
 
   app.setAsDefaultProtocolClient(CHERRY_STUDIO_PROTOCOL)
+  ensureProtocolIpcRegistered()
+}
+
+function ensureProtocolIpcRegistered() {
+  if (isProtocolIpcRegistered) return
+  isProtocolIpcRegistered = true
+
+  ipcMain.on(PROTOCOL_RENDERER_READY_CHANNEL, () => {
+    isProtocolRendererReady = true
+    flushPendingProtocolPayloads()
+  })
+
+  app.on('browser-window-created', (_event, window) => {
+    if (window === windowService.getMainWindow()) {
+      isProtocolRendererReady = false
+    }
+  })
+}
+
+function parseProtocolPayload(url: string): ProtocolPayload | null {
+  if (!url) return null
+
+  try {
+    const urlObj = new URL(url)
+    if (urlObj.protocol.replace(':', '').toLowerCase() !== CHERRY_STUDIO_PROTOCOL) {
+      return null
+    }
+
+    const params = new URLSearchParams(urlObj.search)
+    return {
+      url,
+      route: urlObj.hostname.toLowerCase(),
+      params: Object.fromEntries(params.entries())
+    }
+  } catch (error) {
+    logger.warn('Ignored invalid protocol url', { url, error: error instanceof Error ? error.message : String(error) })
+    return null
+  }
+}
+
+function dispatchProtocolPayload(payload: ProtocolPayload): boolean {
+  const mainWindow = windowService.getMainWindow()
+  if (!isProtocolRendererReady || !mainWindow || mainWindow.isDestroyed()) {
+    return false
+  }
+
+  mainWindow.webContents.send('protocol-data', payload)
+  return true
+}
+
+function flushPendingProtocolPayloads() {
+  while (pendingProtocolPayloads.length > 0) {
+    const payload = pendingProtocolPayloads[0]
+    if (!dispatchProtocolPayload(payload)) {
+      return
+    }
+    pendingProtocolPayloads.shift()
+  }
 }
 
 export function handleProtocolUrl(url: string) {
-  if (!url) return
+  const payload = parseProtocolPayload(url)
+  if (!payload) return
+
   // Process the URL that was used to open the app
-  // The url will be in the format: vectcut://data?param1=value1&param2=value2
+  // The url will be in the format: vectcut://download?param1=value1&param2=value2
+  const urlObj = new URL(payload.url)
 
-  // Parse the URL and extract parameters
-  const urlObj = new URL(url)
-  if (urlObj.protocol.replace(':', '').toLowerCase() !== CHERRY_STUDIO_PROTOCOL) {
-    return
-  }
-  const params = new URLSearchParams(urlObj.search)
-
-  switch (urlObj.hostname.toLowerCase()) {
+  switch (payload.route) {
     case 'mcp':
       handleMcpProtocolUrl(urlObj)
       return
     case 'providers':
       void handleProvidersProtocolUrl(urlObj)
       return
+    case DOWNLOAD_PROTOCOL_ROUTE:
+      windowService.showMainWindow()
+      break
+    default:
+      logger.warn('Ignored unsupported protocol route', { route: payload.route, url: payload.url })
+      return
   }
 
-  // You can send the data to your renderer process
-  const mainWindow = windowService.getMainWindow()
-
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('protocol-data', {
-      url,
-      params: Object.fromEntries(params.entries())
-    })
+  if (dispatchProtocolPayload(payload)) {
+    return
   }
+
+  pendingProtocolPayloads.push(payload)
+  logger.info('Queued download protocol payload until renderer is ready', {
+    route: payload.route,
+    draftId: payload.params.draft_id || ''
+  })
 }
 
 const execAsync = promisify(exec)

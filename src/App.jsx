@@ -67,7 +67,7 @@ function App() {
   useEffect(() => {
     // 在 App 层统一处理主进程的解析请求，避免页面卸载导致监听器丢失
     const { ipcRenderer } = window.require('electron');
-    const handler = async (event, { effectId, reqId }) => {
+    const handler = async (_event, { effectId, reqId }) => {
       try {
         const url = await getArtistEffectDownloadUrl({ effectId });
         ipcRenderer.send('resolve-artist-effect-url-response', { reqId, url });
@@ -78,9 +78,18 @@ function App() {
     ipcRenderer.on('resolve-artist-effect-url', handler);
 
     // 全局监听深链 protocol-data，直接入队下载并切到主页
-    const onProtocolData = async (event, payload) => {
+    const onProtocolData = async (_event, payload) => {
       try {
         const raw = typeof payload?.url === 'string' ? payload.url : '';
+        const route = String(
+          payload?.route
+          || raw.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').split('?')[0]
+          || ''
+        ).trim().toLowerCase();
+        if (route !== 'download') {
+          return;
+        }
+
         const payloadDraftId = payload?.params?.draft_id;
         const draftIdsFromPayload = Array.isArray(payloadDraftId)
           ? payloadDraftId
@@ -99,6 +108,8 @@ function App() {
         ));
 
         if (draftIds.length > 0) {
+          await prepareHomeRuntime();
+
           for (const draftId of draftIds) {
             try {
               const res = await searchDraft({ draft_id: draftId });
@@ -112,10 +123,12 @@ function App() {
             }
           }
           setCurrentPage('home');
+          ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
         }
       } catch (_) {}
     };
     ipcRenderer.on('protocol-data', onProtocolData);
+    ipcRenderer.send('protocol-renderer-ready');
 
     const onGuiderFinished = () => {
       setCurrentPage('home');
@@ -130,7 +143,7 @@ function App() {
       ipcRenderer.removeListener('protocol-data', onProtocolData);
       ipcRenderer.removeListener('guider-finished', onGuiderFinished);
     };
-  }, []);
+  }, [prepareHomeRuntime]);
 
   const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
 

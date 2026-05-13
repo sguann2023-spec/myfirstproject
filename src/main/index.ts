@@ -282,7 +282,17 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   const handleOpenUrl = (args: string[]) => {
-    const url = args.find((arg) => arg.startsWith(CHERRY_STUDIO_PROTOCOL + '://'))
+    const url = args.find((arg) => {
+      if (!arg.startsWith(CHERRY_STUDIO_PROTOCOL + '://')) {
+        return false
+      }
+
+      try {
+        return new URL(arg).hostname.toLowerCase() === 'download'
+      } catch {
+        return false
+      }
+    })
     if (url) handleProtocolUrl(url)
   }
 

@@ -74,7 +74,7 @@ dependency:
 
 6. **草稿下载链路**
 - 用户提供一个或多个 `dfd_cat_` 草稿 ID 时，调用 `draft-downloader`
-- 先做去空、去重与 `dfd_cat_` 前缀校验，再触发 deeplink：`vectcut://open?draft_id=...`
+- 先做去空、去重与 `dfd_cat_` 前缀校验，再触发 deeplink：`vectcut://download?draft_id=...`
 - 适合“下载草稿”“打开草稿到客户端”“批量拉取草稿”的需求
 
 ## 字幕与音频规则
