@@ -137,7 +137,32 @@ export class SkillService extends BaseService {
 
   async reconcileAgentSkills(_agentId: string, workspace: string): Promise<void> {
     if (!workspace) return
-    await fs.promises.mkdir(path.join(workspace, '.claude', 'skills'), { recursive: true })
+    const skillsDir = path.join(workspace, '.claude', 'skills')
+    await fs.promises.mkdir(skillsDir, { recursive: true })
+
+    let entries: fs.Dirent[] = []
+    try {
+      entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const folderName = this.sanitizeFolderName(entry.name)
+      const sourcePath = this.getSkillStoragePath(folderName)
+      if (!(await directoryExists(sourcePath))) continue
+
+      try {
+        await this.linkSkill(folderName, workspace)
+      } catch (error) {
+        logger.warn('Failed to reconcile workspace skill copy', {
+          folderName,
+          workspace,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
   }
 
   async readFile(skillId: string, filename: string): Promise<string | null> {

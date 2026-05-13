@@ -33,7 +33,7 @@ import {
   getProxyProtocol
 } from '@main/services/proxy/nodeProxy'
 import { toAsarUnpackedPath } from '@main/utils'
-import { autoDiscoverGitBash, getBinaryPath } from '@main/utils/process'
+import { autoDiscoverGitBash, findBundledPython, getBinaryPath, prependPathEntry } from '@main/utils/process'
 import getLoginShellEnvironment from '@main/utils/shell-env'
 import {
   CHANNEL_SECURITY_PROMPT,
@@ -206,6 +206,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     // Auto-discover Git Bash path on Windows (already logs internally)
     const customGitBashPath = isWin ? autoDiscoverGitBash() : null
+    const bundledPythonPath = isWin ? findBundledPython() : null
     const bunPath = await getBinaryPath('bun')
 
     // Claude Agent SDK builds the final endpoint as `${ANTHROPIC_BASE_URL}/v1/messages`.
@@ -221,7 +222,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     }
     const anthropicBaseUrl = resolveAnthropicBaseUrl()
 
-    const env = {
+    const env: Record<string, string> = {
       ...loginShellEnv,
       ...getProxyEnvironment(process.env),
       // prevent claude agent sdk using bedrock api
@@ -251,6 +252,11 @@ class ClaudeCodeService implements AgentServiceInterface {
       ...(customGitBashPath ? { CLAUDE_CODE_GIT_BASH_PATH: customGitBashPath } : {})
     }
 
+    if (bundledPythonPath) {
+      prependPathEntry(env, path.dirname(bundledPythonPath))
+      env.CHERRY_STUDIO_PYTHON_PATH = bundledPythonPath
+    }
+
     // Merge user-defined environment variables from session configuration
     const userEnvVars = session.configuration?.env_vars
     if (userEnvVars && typeof userEnvVars === 'object') {
@@ -267,6 +273,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         'CLAUDE_CONFIG_DIR',
         'CLAUDE_CODE_USE_BEDROCK',
         'CLAUDE_CODE_GIT_BASH_PATH',
+        'CHERRY_STUDIO_PYTHON_PATH',
         'CHERRY_STUDIO_NODE_PROXY_RULES',
         'CHERRY_STUDIO_NODE_PROXY_BYPASS_RULES',
         'NODE_OPTIONS',

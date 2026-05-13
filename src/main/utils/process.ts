@@ -534,6 +534,40 @@ export async function checkGitAvailable(): Promise<{ available: boolean; path: s
   return { available: gitPath !== null, path: gitPath }
 }
 
+export function prependPathEntry(env: Record<string, string>, entry: string): Record<string, string> {
+  const pathSeparator = isWin ? ';' : ':'
+  const pathKeys = Object.keys(env).filter((key) => key.toLowerCase() === 'path')
+  const canonicalPathKey = pathKeys[0] || (isWin ? 'Path' : 'PATH')
+  const currentPath = env[canonicalPathKey] || env.PATH || ''
+  const segments = currentPath
+    .split(pathSeparator)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+
+  const normalize = (segment: string) => {
+    const normalized = path.normalize(segment)
+    return isWin ? normalized.toLowerCase() : normalized
+  }
+
+  const normalizedEntry = normalize(entry)
+  const dedupedSegments = [entry, ...segments.filter((segment) => normalize(segment) !== normalizedEntry)]
+  const updatedPath = dedupedSegments.join(pathSeparator)
+
+  if (pathKeys.length > 0) {
+    pathKeys.forEach((key) => {
+      env[key] = updatedPath
+    })
+  } else {
+    env[canonicalPathKey] = updatedPath
+  }
+
+  if (!isWin) {
+    env.PATH = updatedPath
+  }
+
+  return env
+}
+
 export function findBundledGitBash(): string | null {
   if (!isWin) {
     return null
@@ -554,6 +588,33 @@ export function findBundledGitBash(): string | null {
   }
 
   logger.debug('Bundled PortableGit bash.exe not found', {
+    arch,
+    checkedPaths: candidates.map((candidate) => path.resolve(candidate))
+  })
+
+  return null
+}
+
+export function findBundledPython(): string | null {
+  if (!isWin) {
+    return null
+  }
+
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  const candidates = [
+    path.join(getResourcePath(), 'python', arch, 'python', 'python.exe'),
+    path.join(getResourcePath(), 'python', 'python', 'python.exe')
+  ]
+
+  for (const candidate of candidates) {
+    const resolvedCandidate = path.resolve(candidate)
+    if (fs.existsSync(resolvedCandidate)) {
+      logger.info('Using bundled Python runtime', { path: resolvedCandidate, arch })
+      return resolvedCandidate
+    }
+  }
+
+  logger.debug('Bundled Python runtime not found', {
     arch,
     checkedPaths: candidates.map((candidate) => path.resolve(candidate))
   })

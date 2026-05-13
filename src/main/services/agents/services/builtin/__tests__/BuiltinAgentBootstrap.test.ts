@@ -20,6 +20,17 @@ vi.mock('@main/utils/builtinSkills', () => ({
   installBuiltinSkills: mockInstallBuiltinSkills
 }))
 
+vi.mock('@logger', () => ({
+  loggerService: {
+    withContext: vi.fn(() => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn()
+    }))
+  }
+}))
+
 vi.mock('../../AgentService', () => ({
   agentService: {
     initDefaultCherryClawAgent: mockInitDefaultCherryClawAgent,
