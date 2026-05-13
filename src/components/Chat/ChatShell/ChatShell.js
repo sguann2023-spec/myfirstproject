@@ -4,6 +4,7 @@ import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 
 const ChatShell = ({
+  agentId,
   historyVisible = true,
   onToggleHistory,
   sessionTitle = '新对话',
@@ -37,11 +38,20 @@ const ChatShell = ({
     const loadSkills = async () => {
       const api = window?.electronAPI?.agentSkills;
       console.info('[ChatShell] loadSkills start', {
+        agentId,
         hasElectronAPI: Boolean(window?.electronAPI),
         hasAgentSkills: Boolean(api),
-        hasList: Boolean(api && typeof api.list === 'function')
+        hasListActive: Boolean(api && typeof api.listActive === 'function')
       });
-      if (!api || typeof api.list !== 'function') {
+      if (!agentId) {
+        if (!cancelled) {
+          setSkills([]);
+          setSkillsError('');
+          setSkillsLoading(false);
+        }
+        return;
+      }
+      if (!api || typeof api.listActive !== 'function') {
         if (!cancelled) {
           setSkills([]);
           setSkillsError('技能服务不可用');
@@ -53,7 +63,7 @@ const ChatShell = ({
       setSkillsLoading(true);
       setSkillsError('');
       try {
-        const result = await api.list();
+        const result = await api.listActive({ agentId });
         console.info('[ChatShell] loadSkills result', result);
         if (cancelled) return;
         if (!result?.ok) {
@@ -78,7 +88,7 @@ const ChatShell = ({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [agentId]);
 
   const commitTitleEdit = () => {
     const nextTitle = String(titleDraft || '').trim() || '新对话';

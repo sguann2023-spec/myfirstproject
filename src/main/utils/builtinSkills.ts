@@ -66,9 +66,17 @@ export async function installBuiltinSkills(options?: {
   const distributeToAgents = options?.distributeToAgents ?? true
   const waitForRemoteSync = options?.waitForRemoteSync ?? false
 
+  logger.info('Starting builtin skill sync', {
+    resourceSkillsPath,
+    globalSkillsPath,
+    distributeToAgents,
+    waitForRemoteSync
+  })
+
   try {
     await fs.access(resourceSkillsPath)
   } catch {
+    logger.warn('Builtin skill resources path does not exist, skipping sync', { resourceSkillsPath })
     return
   }
 
@@ -84,6 +92,10 @@ export async function installBuiltinSkills(options?: {
   let installed = 0
   for (const entry of dirs) {
     if (syncState.skills[entry.name]?.deleted) {
+      logger.info('Skipping bundled builtin skill because it is tombstoned', {
+        skillName: entry.name,
+        tombstoneVersion: syncState.skills[entry.name]?.tombstoneVersion
+      })
       continue
     }
 
@@ -92,6 +104,11 @@ export async function installBuiltinSkills(options?: {
     const installedVersion = await readInstalledVersion(destPath)
 
     if (!installedVersion) {
+      logger.info('Installing bundled builtin skill because it is missing from global storage', {
+        skillName: entry.name,
+        desiredVersion,
+        destPath
+      })
       await fs.mkdir(destPath, { recursive: true })
       await fs.cp(path.join(resourceSkillsPath, entry.name), destPath, { recursive: true })
       await fs.writeFile(path.join(destPath, VERSION_FILE), desiredVersion, 'utf-8')
@@ -101,6 +118,12 @@ export async function installBuiltinSkills(options?: {
         deleted: false
       }
       installed++
+    } else {
+      logger.debug('Skipping bundled builtin skill because a global version is already installed', {
+        skillName: entry.name,
+        installedVersion,
+        bundledVersion: desiredVersion
+      })
     }
 
     // Distribute to agent workspaces on demand (e.g. post-login), not necessarily at startup.
@@ -154,34 +177,68 @@ async function syncBuiltinSkillsFromRemote(options: {
   localManifest: BuiltinSkillManifest
   distributeToAgents: boolean
 }): Promise<void> {
+  logger.info('Starting remote builtin skill sync', {
+    manifestUrl: REMOTE_MANIFEST_URL,
+    distributeToAgents: options.distributeToAgents
+  })
   const remoteManifest = await fetchRemoteBuiltinSkillsManifest()
   if (!remoteManifest) return
 
   const syncState = await loadBuiltinSkillSyncState()
+  let updatedCount = 0
+  let deletedCount = 0
+  let skippedCount = 0
   for (const [skillName, entry] of Object.entries(remoteManifest.skills)) {
     if (entry.deleted) {
       await applyRemoteDeletion(skillName, entry, syncState)
+      deletedCount++
       continue
     }
 
-    if (!entry.version || !entry.downloadUrl) continue
+    if (!entry.version || !entry.downloadUrl) {
+      logger.warn('Skipping remote builtin skill because manifest entry is incomplete', {
+        skillName,
+        hasVersion: Boolean(entry.version),
+        hasDownloadUrl: Boolean(entry.downloadUrl)
+      })
+      skippedCount++
+      continue
+    }
 
     if (!isMinAppVersionSatisfied(entry.minAppVersion)) {
+      logger.info('Skipping remote builtin skill because minAppVersion is not satisfied', {
+        skillName,
+        currentAppVersion: app.getVersion(),
+        minAppVersion: entry.minAppVersion
+      })
+      skippedCount++
       continue
     }
 
     const destPath = path.join(getDataPath('Skills'), skillName)
     const installedVersion = await readInstalledVersion(destPath)
     if (installedVersion && compareVersions(installedVersion, entry.version) >= 0) {
+      logger.debug('Skipping remote builtin skill because installed version is already up to date', {
+        skillName,
+        installedVersion,
+        remoteVersion: entry.version
+      })
       syncState.skills[skillName] = {
         version: installedVersion,
         source: syncState.skills[skillName]?.source ?? inferSkillSource(options.localManifest, skillName),
         deleted: false
       }
+      skippedCount++
       continue
     }
 
     try {
+      logger.info('Remote builtin skill update available', {
+        skillName,
+        installedVersion: installedVersion ?? null,
+        remoteVersion: entry.version,
+        downloadUrl: entry.downloadUrl
+      })
       const folderName = await downloadAndInstallBuiltinSkill(skillName, entry)
       const isNewSkill = !installedVersion
       syncState.skills[folderName] = {
@@ -189,15 +246,34 @@ async function syncBuiltinSkillsFromRemote(options: {
         source: 'remote',
         deleted: false
       }
+      updatedCount++
+
+      logger.info('Remote builtin skill installed successfully', {
+        skillName,
+        folderName,
+        installedVersion: entry.version,
+        isNewSkill
+      })
 
       if (isNewSkill && (entry.autoEnableExistingAgents ?? true)) {
+        logger.info('Auto-enabling remotely added builtin skill for existing agents', {
+          skillName: folderName,
+          version: entry.version
+        })
         await skillService.enableForAllAgents(folderName, folderName)
       } else if (options.distributeToAgents) {
+        logger.info('Distributing remotely updated builtin skill to existing agents', {
+          skillName: folderName,
+          version: entry.version
+        })
         await skillService.enableForAllAgents(folderName, folderName)
       }
     } catch (error) {
-      logger.warn('Failed to update builtin skill from remote manifest', {
+      logger.error('Failed to update builtin skill from remote manifest', {
         skillName,
+        installedVersion: installedVersion ?? null,
+        remoteVersion: entry.version,
+        downloadUrl: entry.downloadUrl,
         error: error instanceof Error ? error.message : String(error)
       })
     }
@@ -205,6 +281,12 @@ async function syncBuiltinSkillsFromRemote(options: {
 
   syncState.updatedAt = remoteManifest.updatedAt ?? new Date().toISOString()
   await saveBuiltinSkillSyncState(syncState)
+  logger.info('Completed remote builtin skill sync', {
+    updatedAt: syncState.updatedAt,
+    updatedCount,
+    deletedCount,
+    skippedCount
+  })
 }
 
 async function fetchRemoteBuiltinSkillsManifest(): Promise<BuiltinSkillManifest | null> {
@@ -221,6 +303,12 @@ async function fetchRemoteBuiltinSkillsManifest(): Promise<BuiltinSkillManifest 
     }
 
     const parsed = (await response.json()) as Partial<BuiltinSkillManifest>
+    const skillCount = parsed.skills && typeof parsed.skills === 'object' ? Object.keys(parsed.skills).length : 0
+    logger.info('Fetched remote builtin skills manifest successfully', {
+      url: REMOTE_MANIFEST_URL,
+      updatedAt: parsed.updatedAt ?? null,
+      skillCount
+    })
     return {
       updatedAt: parsed.updatedAt,
       skills: parsed.skills && typeof parsed.skills === 'object' ? parsed.skills : {}
@@ -241,6 +329,11 @@ async function downloadAndInstallBuiltinSkill(skillName: string, entry: BuiltinS
     throw new Error(`Remote manifest entry for ${skillName} is incomplete`)
   }
 
+  logger.info('Downloading remote builtin skill zip', {
+    skillName,
+    version,
+    downloadUrl
+  })
   const response = await net.fetch(downloadUrl)
   if (!response.ok) {
     throw new Error(`Download failed: HTTP ${response.status}`)
@@ -252,11 +345,23 @@ async function downloadAndInstallBuiltinSkill(skillName: string, entry: BuiltinS
   await fs.mkdir(downloadDir, { recursive: true })
   try {
     const buffer = Buffer.from(await response.arrayBuffer())
+    logger.info('Downloaded remote builtin skill zip successfully', {
+      skillName,
+      version,
+      bytes: buffer.byteLength,
+      zipPath
+    })
     await fs.writeFile(zipPath, buffer)
 
     const installed = await skillService.installFromZip({ zipFilePath: zipPath })
     const installedPath = path.join(getDataPath('Skills'), installed.folderName)
     await fs.writeFile(path.join(installedPath, VERSION_FILE), version, 'utf-8')
+    logger.info('Persisted remote builtin skill version marker', {
+      skillName,
+      folderName: installed.folderName,
+      version,
+      installedPath
+    })
 
     return installed.folderName
   } finally {
@@ -271,18 +376,33 @@ async function applyRemoteDeletion(
 ): Promise<void> {
   const minAppVersion = entry.minAppVersion
   if (minAppVersion && !isMinAppVersionSatisfied(minAppVersion)) {
+    logger.info('Skipping remote builtin skill deletion because minAppVersion is not satisfied', {
+      skillName,
+      currentAppVersion: app.getVersion(),
+      minAppVersion
+    })
     return
   }
 
   const tombstoneVersion = entry.tombstoneVersion ?? entry.version ?? new Date().toISOString()
   const previousTombstone = syncState.skills[skillName]?.tombstoneVersion
   if (previousTombstone && compareVersions(previousTombstone, tombstoneVersion) >= 0) {
+    logger.debug('Skipping remote builtin skill deletion because tombstone is already applied', {
+      skillName,
+      previousTombstone,
+      tombstoneVersion
+    })
     return
   }
 
+  logger.info('Applying remote builtin skill deletion', {
+    skillName,
+    tombstoneVersion
+  })
   await skillService.uninstallByFolderName(skillName).catch((error) => {
-    logger.warn('Failed to uninstall builtin skill marked deleted in remote manifest', {
+    logger.error('Failed to uninstall builtin skill marked deleted in remote manifest', {
       skillName,
+      tombstoneVersion,
       error: error instanceof Error ? error.message : String(error)
     })
   })
@@ -293,6 +413,10 @@ async function applyRemoteDeletion(
     tombstoneVersion,
     source: 'remote'
   }
+  logger.info('Applied remote builtin skill deletion successfully', {
+    skillName,
+    tombstoneVersion
+  })
 }
 
 async function readInstalledVersion(destPath: string): Promise<string | null> {

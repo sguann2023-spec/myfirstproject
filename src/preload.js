@@ -20,6 +20,7 @@ const AGENT_CHANNELS = Object.freeze({
     SkillInstallFromDirectory: 'skill:install-from-directory',
     SkillUninstall: 'skill:uninstall',
     SkillRescan: 'skill:list',
+    SkillListActive: 'skill:list-active',
     SkillRun: 'agent:skills:run'
 });
 
@@ -137,6 +138,11 @@ const electronBridge = {
     agentSkills: {
         list: async ({ agentId = 'vectcut_claw_default' } = {}) => {
             const result = await ipcRenderer.invoke(AGENT_CHANNELS.SkillList, agentId);
+            const skills = Array.isArray(result?.data) ? result.data : [];
+            return { ok: Boolean(result?.success), skills };
+        },
+        listActive: async ({ agentId = 'vectcut_claw_default' } = {}) => {
+            const result = await ipcRenderer.invoke(AGENT_CHANNELS.SkillListActive, agentId);
             const skills = Array.isArray(result?.data) ? result.data : [];
             return { ok: Boolean(result?.success), skills };
         },

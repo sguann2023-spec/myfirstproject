@@ -767,6 +767,8 @@ const api = {
   skill: {
     list: (agentId?: string): Promise<SkillResult<InstalledSkill[]>> =>
       ipcRenderer.invoke(IpcChannel.Skill_List, agentId),
+    listActive: (agentId: string): Promise<SkillResult<InstalledSkill[]>> =>
+      ipcRenderer.invoke(IpcChannel.Skill_ListActive, agentId),
     install: (options: SkillInstallOptions): Promise<SkillResult<InstalledSkill>> =>
       ipcRenderer.invoke(IpcChannel.Skill_Install, options),
     uninstall: (skillId: string): Promise<SkillResult<void>> => ipcRenderer.invoke(IpcChannel.Skill_Uninstall, skillId),
@@ -910,6 +912,11 @@ const legacyElectronAPI = {
   agentSkills: {
     list: async ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) => {
       const result = await ipcRenderer.invoke(IpcChannel.Skill_List, agentId)
+      const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
+      return { ok: Boolean((result as any)?.success), skills }
+    },
+    listActive: async ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) => {
+      const result = await ipcRenderer.invoke(IpcChannel.Skill_ListActive, agentId)
       const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
       return { ok: Boolean((result as any)?.success), skills }
     },

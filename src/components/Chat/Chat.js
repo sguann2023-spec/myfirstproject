@@ -47,6 +47,7 @@ const formatModelDisplayName = (value) => (
 
 const Chat = ({
   session,
+  agentId: agentIdProp,
   onSendMessage,
   onStopSending,
   onCopyAssistantMessage,
@@ -71,6 +72,7 @@ const Chat = ({
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
   const prevMessageCountRef = React.useRef(0);
+  const agentId = agentIdProp || session?.agentId || session?.agent_id;
 
   const messages = normalizeMessages(session);
 
@@ -96,6 +98,7 @@ const Chat = ({
 
   return (
     <ChatShell
+      agentId={agentId}
       historyVisible={historyVisible}
       onToggleHistory={onToggleHistory}
       sessionTitle={sessionTitle}

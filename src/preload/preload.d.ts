@@ -52,6 +52,7 @@ declare global {
       agentSessionStreamV2: WindowApiType['agentSessionStream']
       agentSkills: {
         list: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
+        listActive: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         toggle: (payload: { agentId?: string; skillId: string; isEnabled: boolean }) => Promise<any>
         installFromDirectory: (payload: { agentId?: string; directoryPath: string; isEnabled?: boolean }) => Promise<any>
         uninstall: (payload: { skillId: string }) => Promise<any>

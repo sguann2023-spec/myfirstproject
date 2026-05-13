@@ -78,6 +78,17 @@ export class SkillService extends BaseService {
     return skills.map((s) => ({ ...s, isEnabled: enabledFolders.has(s.folderName) }))
   }
 
+  async listActive(agentId: string): Promise<InstalledSkill[]> {
+    const workspace = await this.getAgentWorkspace(agentId)
+    if (!workspace) return []
+
+    await this.reconcileAgentSkills(agentId, workspace)
+    return this.listInstalledSkillsInDirectory(path.join(workspace, '.claude', 'skills'), {
+      source: 'agent',
+      isEnabled: true
+    })
+  }
+
   async toggle(options: SkillToggleOptions): Promise<InstalledSkill | null> {
     const folderName = this.sanitizeFolderName(options.skillId)
     const workspace = await this.getAgentWorkspace(options.agentId)
@@ -286,7 +297,7 @@ export class SkillService extends BaseService {
     try {
       const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue
         try {
           const skillPath = path.join(skillsDir, entry.name)
           const metadata = await parseSkillMetadata(skillPath, entry.name, 'skills')
@@ -642,17 +653,23 @@ export class SkillService extends BaseService {
   // ===========================================================================
 
   private async listGlobalSkills(): Promise<InstalledSkill[]> {
-    const root = getDataPath('Skills')
+    return this.listInstalledSkillsInDirectory(getDataPath('Skills'), { source: 'local', isEnabled: false })
+  }
+
+  private async listInstalledSkillsInDirectory(
+    root: string,
+    options: { source: string; isEnabled: boolean }
+  ): Promise<InstalledSkill[]> {
     await fs.promises.mkdir(root, { recursive: true })
     const entries = await fs.promises.readdir(root, { withFileTypes: true })
-    const dirs = entries.filter((e) => e.isDirectory())
+    const dirs = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
 
     const results = await Promise.all(
       dirs.map(async (entry) => {
         const folderName = this.sanitizeFolderName(entry.name)
-        const skillPath = this.getSkillStoragePath(folderName)
-        const stat = await fs.promises.stat(skillPath)
+        const skillPath = path.join(root, entry.name)
         try {
+          const stat = await fs.promises.stat(skillPath)
           const metadata = await parseSkillMetadata(skillPath, folderName, 'skills')
           const contentHash = await this.installer.computeContentHash(skillPath).catch(() => '')
           return {
@@ -660,17 +677,22 @@ export class SkillService extends BaseService {
             name: metadata.name,
             description: metadata.description ?? null,
             folderName,
-            source: 'local',
+            source: options.source,
             sourceUrl: null,
             namespace: null,
             author: metadata.author ?? null,
             tags: metadata.tags ?? [],
             contentHash,
-            isEnabled: false,
+            isEnabled: options.isEnabled,
             createdAt: Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : Date.now(),
             updatedAt: Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs) : Date.now()
           } as InstalledSkill
-        } catch {
+        } catch (error) {
+          logger.warn('Skipping invalid skill directory while listing skills', {
+            root,
+            folderName: entry.name,
+            error: error instanceof Error ? error.message : String(error)
+          })
           return null
         }
       })

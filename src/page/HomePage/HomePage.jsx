@@ -1316,6 +1316,7 @@ const HomePage = () => {
             {selectedPane === 'chat' ? (
               <Chat
                 session={activeChatSession}
+                agentId="vectcut_claw_default"
                 onSendMessage={handleSendChatMessage}
                 onStopSending={handleStopChatMessage}
                 onCopyAssistantMessage={handleCopyAssistantMessage}

@@ -12,8 +12,15 @@
       "minAppVersion": "1.5.0"
     },
     "vectcut-skill": {
-      "version": "1.5.9",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_5_9/vectcut-skill.zip",
+      "version": "1.5.10",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_5_10/vectcut-skill.zip",
+      "minAppVersion": "1.5.0"
+    },
+    "speech-synthesis": {
+      "version": "1.0.0",
+      "deleted": true,
+      "tombstoneVersion": "1.0.0",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/speech-synthesis/1_0_0/speech-synthesis.zip",
       "minAppVersion": "1.5.0"
     }
   }

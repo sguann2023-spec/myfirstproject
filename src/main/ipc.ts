@@ -1050,6 +1050,16 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     }
   })
 
+  ipcMain.handle(IpcChannel.Skill_ListActive, async (_, agentId: string) => {
+    try {
+      const data = await skillService.listActive(agentId)
+      return { success: true, data }
+    } catch (error) {
+      logger.error('Failed to list active agent skills', { agentId, error })
+      return { success: false, error }
+    }
+  })
+
   ipcMain.handle(IpcChannel.Skill_Install, async (_, options) => {
     try {
       const data = await skillService.install(options)
