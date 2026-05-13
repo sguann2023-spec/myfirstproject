@@ -25,7 +25,7 @@ dependency:
 
 ## 统一前置规则（沿用）
 
-1. 任何 VectCut 调用前，先检查环境变量 `VECTCUT_API_KEY`（检查环境变量，不是本地配置文件）。默认通过 Bash 工具执行命令，例如 `printenv VECTCUT_API_KEY` 或 `echo "$VECTCUT_API_KEY"`；
+1. 任何 VectCut 调用前，先检查环境变量 `VECTCUT_API_KEY`（检查环境变量，不是本地配置文件）。默认通过 Bash 工具执行命令，包括windows环境也是。例如 `echo "$VECTCUT_API_KEY"` 或 `printenv VECTCUT_API_KEY` 来判断。
 2. 缺失、为空或鉴权失败时，先调用 `vectcut-login`
 3. 需要“在已有草稿继续编辑”时，输入参数必须显式携带 `draft_id`，并在后续所有写入接口（如 `add_video/add_audio/execute_workflow`）中持续透传同一个 `draft_id`
 4. 未传 `draft_id` 时，服务端通常会新建草稿；禁止在同一任务中混用多个草稿（避免字幕、音频落到不同草稿）

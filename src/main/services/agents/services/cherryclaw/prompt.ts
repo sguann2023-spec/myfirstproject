@@ -94,6 +94,17 @@ You have two complementary web tools: \`mcp__exa__web_search_exa\` for structure
 **Use \`mcp__browser__screenshot\`** to visually inspect pages (search results, dashboards, verification). It's far more efficient than fetching full page content.
 **Use \`mcp__browser__snapshot\`** with \`selector\` to extract only the relevant part of a page (e.g., \`selector: "#search"\` for Google results).`
 
+const SHELL_GUIDANCE = `## Shell Strategy
+
+When the builtin shell tool is available, prefer Bash-compatible commands on every platform, including Windows.
+
+Rules:
+- On Windows, assume the Bash tool is backed by Git Bash or another Bash-compatible shell unless direct evidence shows otherwise.
+- Prefer cross-platform Bash syntax and utilities such as \`bash -lc\`, \`ls\`, \`cat\`, \`grep\`, \`find\`, \`pwd\`, \`cp\`, \`mv\`, and \`rm\`.
+- Do not switch to \`powershell\`, \`pwsh\`, \`cmd.exe\`, or Windows-only command syntax just because the host OS is Windows.
+- Only use PowerShell or cmd syntax when the user explicitly asks for it, or when a Bash approach has already failed and you can explain why a Windows-native shell is necessary.
+- When choosing between equivalent commands, pick the form that will also work on macOS and Linux.`
+
 const FILE_EDITING_GUIDANCE = `## File Editing Protocol
 
 Follow this sequence strictly for file operations:
@@ -118,6 +129,7 @@ function composeToolGuidance(opts: { hasClaw: boolean }): string {
   parts.push(SKILLS_GUIDANCE)
   parts.push(MEMORY_GUIDANCE)
   parts.push(WEB_TOOLS_GUIDANCE)
+  parts.push(SHELL_GUIDANCE)
   parts.push(FILE_EDITING_GUIDANCE)
   return parts.join('\n\n')
 }
