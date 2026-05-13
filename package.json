@@ -56,7 +56,8 @@
         "filter": [
           "**/*",
           "!gitbash/**/*.7z.exe",
-          "!python/**/*.zip"
+          "!python/x64/python-3.14.5-embed-amd64.zip",
+          "!python/arm64/python-3.14.5-embed-arm64.zip"
         ]
       }
     ],

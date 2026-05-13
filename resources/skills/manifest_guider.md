@@ -60,13 +60,20 @@
 https://player.install-ai-guider.top/skills/manifest.json
 ```
 
-每个 skill 的 zip 下载地址也通常放在同一个 OSS 域名下，例如：
+每个 skill 的 zip 下载地址也通常放在同一个 OSS 域名下，**强烈建议使用带版本目录的不可变地址**，例如：
 
 ```text
-https://player.install-ai-guider.top/skills/vectcut-skill.zip
-https://player.install-ai-guider.top/skills/find-skills.zip
-https://player.install-ai-guider.top/skills/skill-creator.zip
+https://player.install-ai-guider.top/skills/vectcut-skill/1_5_9/vectcut-skill.zip
+https://player.install-ai-guider.top/skills/find-skills/1_0_0/find-skills.zip
+https://player.install-ai-guider.top/skills/skill-creator/1_0_0/skill-creator.zip
 ```
+
+推荐规则：
+
+- 一个版本对应一个固定 zip 地址
+- 不要让新包覆盖旧版本 zip
+- 版本号中的 `.` 可统一替换成 `_`，例如 `1.5.9 -> 1_5_9`
+- 这样可以保留历史版本，方便回滚和排查问题
 
 ---
 
@@ -80,7 +87,7 @@ https://player.install-ai-guider.top/skills/skill-creator.zip
   "skills": {
     "vectcut-skill": {
       "version": "1.2.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill.zip",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_2_0/vectcut-skill.zip",
       "minAppVersion": "1.5.0"
     }
   }
@@ -110,7 +117,7 @@ https://player.install-ai-guider.top/skills/skill-creator.zip
 ```json
 {
   "version": "1.2.0",
-  "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill.zip",
+  "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_2_0/vectcut-skill.zip",
   "minAppVersion": "1.5.0",
   "autoEnableExistingAgents": true
 }
@@ -319,7 +326,7 @@ manifest 示例：
 建议流程：
 
 1. 先打包 zip
-2. 上传 OSS
+2. 上传到带版本目录的 OSS 路径，例如 `skills/vectcut-skill/1_5_9/vectcut-skill.zip`
 3. 确认 zip 地址可访问
 4. 再更新远程 `manifest.json`
 

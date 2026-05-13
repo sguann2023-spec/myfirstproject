@@ -3,18 +3,18 @@
   "skills": {
     "find-skills": {
       "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/find-skills.zip",
-      "minAppVersion": "0.0.0"
+      "downloadUrl": "https://player.install-ai-guider.top/skills/find-skills/1_0_0/find-skills.zip",
+      "minAppVersion": "1.5.0"
     },
     "skill-creator": {
       "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator.zip",
-      "minAppVersion": "0.0.0"
+      "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator/1_0_0/skill-creator.zip",
+      "minAppVersion": "1.5.0"
     },
     "vectcut-skill": {
-      "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill.zip",
-      "minAppVersion": "0.0.0"
+      "version": "1.5.9",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_5_9/vectcut-skill.zip",
+      "minAppVersion": "1.5.0"
     }
   }
 }
