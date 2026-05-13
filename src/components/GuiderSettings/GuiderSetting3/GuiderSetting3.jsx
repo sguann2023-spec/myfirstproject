@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { message } from 'antd';
 import './GuiderSetting3.css';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('GuiderSetting3');
 const isWindows = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
+
+const isBundledGitBashPath = (value) => /[\\/]gitbash[\\/].*[\\/]portablegit[\\/].*[\\/]bash\.exe$/i.test(String(value || ''));
+
 const GuiderSetting3 = ({ onSettingsChange }) => {
   const [gitBashPathInfo, setGitBashPathInfo] = useState({ path: null, source: null });
 
@@ -37,7 +40,25 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
 
   useEffect(() => {
     if (!isWindows) return;
-    getGitBashPathInfo().then((info) => setGitBashPathInfo(info || { path: null, source: null }));
+    let cancelled = false;
+    getGitBashPathInfo().then((info) => {
+      if (cancelled) return;
+      const normalizedInfo = info || { path: null, source: null };
+      setGitBashPathInfo(normalizedInfo);
+
+      if (normalizedInfo?.path) {
+        logger.info('[GuiderSetting3] Git Bash detected', {
+          path: normalizedInfo.path,
+          source: normalizedInfo.source,
+          bundled: isBundledGitBashPath(normalizedInfo.path)
+        });
+      } else {
+        logger.warn('[GuiderSetting3] Git Bash not detected');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -71,19 +92,27 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
         return;
       }
       const pathInfo = await getGitBashPathInfo();
-      setGitBashPathInfo(pathInfo || { path: null, source: null });
+      const normalizedInfo = pathInfo || { path: null, source: null };
+      setGitBashPathInfo(normalizedInfo);
+      logger.info('[GuiderSetting3] Git Bash path updated', {
+        path: normalizedInfo.path,
+        source: normalizedInfo.source,
+        bundled: isBundledGitBashPath(normalizedInfo.path)
+      });
     } catch (error) {
       logger.error('[GuiderSetting3] handlePickGitBash failed', { error: error?.message || String(error) });
       message.error('设置 Git Bash 路径失败');
     }
   };
 
+  const usesBundledGitBash = isBundledGitBashPath(gitBashPathInfo?.path);
+
   return (
     <div className="gs3-settings">
       <div className="gs3-section">
         <div className="gs3-section-title">Git Bash</div>
         <div className="gs3-section-subtitle">
-          在 Windows 上运行智能体需要 Git Bash。没有它智能体无法运行。请从以下地址安装 Git for Windows
+          在 Windows 上运行智能体需要 bash.exe。现在会优先检查应用内置的 PortableGit；如果未命中，再使用系统中的 Git Bash。若两者都不可用，再从以下地址安装 Git for Windows
           <a
             className="gs3-gitbash-link"
             href="https://git-scm.com/downloads/win"
@@ -93,9 +122,14 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
           </a>
         </div>
         <div className="gs3-instruction-card">
-          <div className="gs3-instruction-title">选择哪个文件？</div>
+          <div className="gs3-instruction-title">{usesBundledGitBash ? '内置运行环境已就绪' : '选择哪个文件？'}</div>
+          {usesBundledGitBash ? (
+            <div className="gs3-instruction-text">已成功访问内置 PortableGit 中的 <code>bash.exe</code>，可直接继续使用。</div>
+          ) : null}
           <div className="gs3-instruction-text">
-            点击“选择 Git Bash”后，请在安装目录中选择 <code>bash.exe</code>（不是 <code>git.exe</code>）。
+            {!usesBundledGitBash
+              ? <>点击“选择 Git Bash”后，请在安装目录中选择 <code>bash.exe</code>（不是 <code>git.exe</code>）。</>
+              : <>如需覆盖内置运行环境，也可以手动选择系统中已有的 <code>bash.exe</code>。</>}
           </div>
           <div className="gs3-instruction-text">常见路径示例：</div>
           <div className="gs3-path-example">C:\Program Files\Git\bin\bash.exe</div>
@@ -108,12 +142,14 @@ const GuiderSetting3 = ({ onSettingsChange }) => {
             <div className={`gs3-save-path ${!gitBashPathInfo?.path?.trim() ? 'empty' : ''}`}>
               {gitBashPathInfo?.path || '未设置'}
             </div>
-            {gitBashPathInfo?.path && gitBashPathInfo?.source === 'auto' ? (
-              <div className="gs3-source-hint">已自动检测</div>
+            {usesBundledGitBash ? (
+              <div className="gs3-source-hint">已成功访问内置 bash.exe</div>
+            ) : gitBashPathInfo?.path && gitBashPathInfo?.source === 'auto' ? (
+              <div className="gs3-source-hint">已自动检测到系统 Git Bash</div>
             ) : null}
           </div>
           <button type="button" className="gs3-save-button" onClick={handlePickGitBash}>
-            选择 Git Bash
+            {usesBundledGitBash ? '手动选择其他 Git Bash' : '选择 Git Bash'}
           </button>
         </div>
 

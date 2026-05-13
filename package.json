@@ -7,14 +7,15 @@
     "start": "electron-vite preview",
     "dev": "electron-vite",
     "debug:vite": "electron-vite -- --inspect --sourcemap --remote-debugging-port=9222",
+    "prepare:portable-git:win": "node ./util/prepare-portable-git.js",
     "build:vite": "electron-vite build",
     "build:main": "tsc -p tsconfig.main.json --noEmitOnError false || true && tsc-alias -p tsconfig.main.json && node -e \"const fs=require('fs');const path=require('path');const src=path.join(process.cwd(),'src/main/integration/nutstore/sso/lib/index.mjs');const dst=path.join(process.cwd(),'dist-main/src/main/integration/nutstore/sso/lib/index.mjs');fs.mkdirSync(path.dirname(dst),{recursive:true});fs.copyFileSync(src,dst);\"",
-    "build": "pnpm run build:vite && electron-builder --mac dmg zip --universal && electron-builder --win",
+    "build": "pnpm run build:vite && electron-builder --mac dmg zip --universal && pnpm run prepare:portable-git:win && electron-builder --win",
     "build:mac": "pnpm run build:vite && electron-builder --mac dmg zip --universal",
     "build:mac:ci": "pnpm run build:vite && electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true",
     "build:mac:arm64": "pnpm run build:vite && electron-builder --mac dmg zip --arm64",
-    "build:win": "pnpm run build:vite && electron-builder --win",
-    "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy pnpm run build:vite && electron-builder --win --x64",
+    "build:win": "pnpm run build:vite && pnpm run prepare:portable-git:win && electron-builder --win",
+    "build:win:x64": "ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder/ env -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy -u ALL_PROXY -u all_proxy pnpm run build:vite && pnpm run prepare:portable-git:win && electron-builder --win --x64",
     "dev-start": "pnpm run dev",
     "test": "echo \"No tests specified\" && exit 0",
     "preinstall": "node -e \"const ua=process.env.npm_config_user_agent||'';if(!ua.includes('pnpm')){console.error('Please use pnpm to install dependencies.');process.exit(1)}\"",
@@ -52,7 +53,8 @@
         "from": "./resources",
         "to": "resources",
         "filter": [
-          "**/*"
+          "**/*",
+          "!gitbash/**/*.7z.exe"
         ]
       }
     ],

@@ -534,6 +534,33 @@ export async function checkGitAvailable(): Promise<{ available: boolean; path: s
   return { available: gitPath !== null, path: gitPath }
 }
 
+export function findBundledGitBash(): string | null {
+  if (!isWin) {
+    return null
+  }
+
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  const candidates = [
+    path.join(getResourcePath(), 'gitbash', arch, 'PortableGit', 'bin', 'bash.exe'),
+    path.join(getResourcePath(), 'gitbash', 'PortableGit', 'bin', 'bash.exe')
+  ]
+
+  for (const candidate of candidates) {
+    const resolvedCandidate = path.resolve(candidate)
+    if (fs.existsSync(resolvedCandidate)) {
+      logger.info('Using bundled PortableGit bash.exe', { path: resolvedCandidate, arch })
+      return resolvedCandidate
+    }
+  }
+
+  logger.debug('Bundled PortableGit bash.exe not found', {
+    arch,
+    checkedPaths: candidates.map((candidate) => path.resolve(candidate))
+  })
+
+  return null
+}
+
 /**
  * Find Git Bash (bash.exe) on Windows
  * @param customPath - Optional custom path from config
@@ -545,7 +572,13 @@ export function findGitBash(customPath?: string | null): string | null {
     return null
   }
 
-  // 1. Check custom path from config first
+  // 1. Prefer bundled PortableGit when available
+  const bundledGitBash = findBundledGitBash()
+  if (bundledGitBash) {
+    return bundledGitBash
+  }
+
+  // 2. Check custom path from config first
   if (customPath) {
     const validated = validateGitBashPath(customPath)
     if (validated) {
@@ -555,7 +588,7 @@ export function findGitBash(customPath?: string | null): string | null {
     logger.warn('Custom Git Bash path provided but invalid', { path: customPath })
   }
 
-  // 2. Check environment variable override
+  // 3. Check environment variable override
   const envOverride = process.env.CLAUDE_CODE_GIT_BASH_PATH
   if (envOverride) {
     const validated = validateGitBashPath(envOverride)
@@ -566,7 +599,7 @@ export function findGitBash(customPath?: string | null): string | null {
     logger.warn('CLAUDE_CODE_GIT_BASH_PATH provided but path is invalid', { path: envOverride })
   }
 
-  // 3. Find git.exe via findExecutable (checks PATH + common Git install paths)
+  // 4. Find git.exe via findExecutable (checks PATH + common Git install paths)
   const gitPath = findExecutable('git')
   if (gitPath) {
     // Derive bash.exe from git.exe location
@@ -591,7 +624,7 @@ export function findGitBash(customPath?: string | null): string | null {
     })
   }
 
-  // 4. Fallback: check common Git installation paths directly
+  // 5. Fallback: check common Git installation paths directly
   for (const root of getCommonGitRoots()) {
     const fullPath = path.join(root, 'bin', 'bash.exe')
     if (fs.existsSync(fullPath)) {
@@ -651,7 +684,15 @@ export function autoDiscoverGitBash(): string | null {
     logger.warn('CLAUDE_CODE_GIT_BASH_PATH provided but path is invalid', { path: envOverride })
   }
 
-  // 2. Check if a path is already configured
+  // 2. Prefer bundled PortableGit when available
+  const bundledGitBash = findBundledGitBash()
+  if (bundledGitBash) {
+    configManager.set(ConfigKeys.GitBashPath, bundledGitBash)
+    configManager.set(ConfigKeys.GitBashPathSource, 'auto')
+    return bundledGitBash
+  }
+
+  // 3. Check if a path is already configured
   const existingPath = configManager.get<string | undefined>(ConfigKeys.GitBashPath)
   const existingSource = configManager.get<GitBashPathSource | undefined>(ConfigKeys.GitBashPathSource)
 
@@ -667,7 +708,7 @@ export function autoDiscoverGitBash(): string | null {
     })
   }
 
-  // 3. Try to find Git Bash via auto-discovery
+  // 4. Try to find Git Bash via auto-discovery
   const discoveredPath = findGitBash()
   if (discoveredPath) {
     // Persist the discovered path with 'auto' source
@@ -686,6 +727,13 @@ export function autoDiscoverGitBash(): string | null {
 export function getGitBashPathInfo(): GitBashPathInfo {
   if (!isWin) {
     return { path: null, source: null }
+  }
+
+  const bundledGitBash = findBundledGitBash()
+  if (bundledGitBash) {
+    configManager.set(ConfigKeys.GitBashPath, bundledGitBash)
+    configManager.set(ConfigKeys.GitBashPathSource, 'auto')
+    return { path: bundledGitBash, source: 'auto' }
   }
 
   let path = configManager.get<string | null>(ConfigKeys.GitBashPath) ?? null
