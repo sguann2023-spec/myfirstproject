@@ -259,6 +259,7 @@ const HomePage = () => {
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
   const [chatHistoryVisible, setChatHistoryVisible] = useState(false);
   const [chatHistoryAnimated, setChatHistoryAnimated] = useState(false);
+  const [chatDraftInput, setChatDraftInput] = useState('');
   const chatHistoryAnimTimerRef = useRef(null);
   const chatSessionsRef = useRef([]);
   const chatTitleGeneratingSessionIdsRef = useRef(new Set());
@@ -1192,7 +1193,7 @@ const HomePage = () => {
     return {
       draftName: item.draft_name || item.draft_id || '',
       overallProgress,
-      overallStatusText: isSuccess ? '下载完成' : '下载失败',
+      overallStatusText: isSuccess ? '下载完成' : (item.message || '下载失败'),
       downloadFiles: list,
     };
   };
@@ -1322,6 +1323,8 @@ const HomePage = () => {
                 session={activeChatSession}
                 agentId="vectcut_claw_default"
                 runtimeSessionId={activeChatSession?.runtimeSessionId || ''}
+                input={chatDraftInput}
+                setInput={setChatDraftInput}
                 onSendMessage={handleSendChatMessage}
                 onStopSending={handleStopChatMessage}
                 onCopyAssistantMessage={handleCopyAssistantMessage}

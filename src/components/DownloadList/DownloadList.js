@@ -222,7 +222,7 @@ const DownloadList = ({
                                     <Text className="header-path-dot">·</Text>
                                 </>
                             )}
-                            <Text className="header-path-text">已下载 {overallProgress}%</Text>
+                            <Text className="header-path-text">{overallStatusText || `已下载 ${overallProgress}%`}</Text>
                         </Space>
                     </Col>
                 </Row>

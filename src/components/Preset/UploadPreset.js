@@ -152,6 +152,55 @@ const resolvePresetPlaceholderPath = (localPath, localFolder) => {
   }
 };
 
+const normalizeMaterialPathKey = (value) => String(value || '').trim().replace(/\\/g, '/');
+
+const buildMaterialContentCandidates = (content, localFolder) => {
+  const path = req('path');
+  const candidates = [];
+  const push = (value) => {
+    const normalized = normalizeMaterialPathKey(value);
+    if (!normalized || candidates.includes(normalized)) return;
+    candidates.push(normalized);
+  };
+  const raw = String(content || '').trim();
+  if (!raw) return candidates;
+  push(raw);
+  if (/^file:/i.test(raw)) {
+    try {
+      push(decodeURI(new URL(raw).pathname || ''));
+    } catch {}
+  }
+  const resolved = resolvePresetPlaceholderPath(raw, localFolder);
+  push(resolved);
+  if (resolved) push(path.basename(String(resolved)));
+  if (raw) push(path.basename(raw));
+  return candidates;
+};
+
+const setUploadedMaterialRemoteUrl = (materialUrlMap, content, remoteUrl, localFolder) => {
+  if (!remoteUrl) return;
+  buildMaterialContentCandidates(content, localFolder).forEach((candidate) => {
+    materialUrlMap.set(candidate, remoteUrl);
+  });
+};
+
+const rewriteMaterialsJsonWithRemoteUrls = (materialsJsonPayload, materialUrlMap, localFolder) => {
+  if (!Array.isArray(materialsJsonPayload) || !materialUrlMap?.size) return materialsJsonPayload;
+  let rewrittenCount = 0;
+  const nextPayload = materialsJsonPayload.map((item) => {
+    let finalType = String(item?.type || '').toLowerCase();
+    if (finalType === 'photo') finalType = 'image';
+    if (!['image', 'video', 'audio'].includes(finalType)) return item;
+    const remoteUrl = buildMaterialContentCandidates(item?.content, localFolder)
+      .map((candidate) => materialUrlMap.get(candidate))
+      .find(Boolean);
+    if (!remoteUrl || remoteUrl === item?.content) return item;
+    rewrittenCount += 1;
+    return { ...item, content: remoteUrl };
+  });
+  return { payload: nextPayload, rewrittenCount };
+};
+
 const scanDraftMaterials = (draftFolder) => {
   const fs = req('fs');
   const path = req('path');
@@ -269,6 +318,7 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
   if (fs.existsSync(tempProcessingFolder)) fse.removeSync(tempProcessingFolder);
   fse.copySync(localFolder, tempProcessingFolder);
   logger.info('[UploadPreset] workspace:prepared', { traceId, presetId, tmpDir, tempProcessingFolder });
+  const uploadedMaterialUrlMap = new Map();
 
   const draftContentPath = path.join(tempProcessingFolder, 'preset_draft', 'draft_content.json');
   if (fs.existsSync(draftContentPath)) {
@@ -295,6 +345,8 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
           audio.remote_url = remoteUrl;
           audio.material_name = `${randomHex()}${ext}`;
           audio.name = `${randomHex()}${ext}`;
+          setUploadedMaterialRemoteUrl(uploadedMaterialUrlMap, audio?.path, remoteUrl, localFolder);
+          setUploadedMaterialRemoteUrl(uploadedMaterialUrlMap, real, remoteUrl, localFolder);
           modified = true;
         }
       }
@@ -311,6 +363,8 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
           video.remote_url = remoteUrl;
           video.material_name = `${randomHex()}${ext}`;
           video.name = `${randomHex()}${ext}`;
+          setUploadedMaterialRemoteUrl(uploadedMaterialUrlMap, video?.path, remoteUrl, localFolder);
+          setUploadedMaterialRemoteUrl(uploadedMaterialUrlMap, real, remoteUrl, localFolder);
           modified = true;
         }
       }
@@ -348,6 +402,16 @@ export async function uploadFolderZipToOSS(localFolder, { description, name, tag
       presetId,
       materialJsonToUpload,
       message: e?.message || '',
+    });
+  }
+  if (Array.isArray(materialsJsonPayload)) {
+    const rewritten = rewriteMaterialsJsonWithRemoteUrls(materialsJsonPayload, uploadedMaterialUrlMap, localFolder);
+    materialsJsonPayload = rewritten?.payload || materialsJsonPayload;
+    logger.info('[UploadPreset] materials_json:rewritten_remote_urls', {
+      traceId,
+      presetId,
+      uploadedMaterialCount: uploadedMaterialUrlMap.size,
+      rewrittenCount: rewritten?.rewrittenCount || 0,
     });
   }
 

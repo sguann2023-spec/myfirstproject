@@ -84,6 +84,37 @@ function getProgressState() {
   };
 }
 
+function isGenericFailedMessage(message) {
+  return !message || /^(download failed|download worker error|unknown error|下载失败)$/i.test(String(message).trim());
+}
+
+function hasAnyTransferredData(fileList = []) {
+  return Array.isArray(fileList) && fileList.some(file => {
+    const downloaded = Number(file?.downloaded) || 0;
+    const progress = Number(file?.progress) || 0;
+    return downloaded > 0 || progress > 0 || file?.status === 'completed' || file?.status === 'success';
+  });
+}
+
+function buildFailedMessage(payload, currentItem) {
+  const rawMessage = String(
+    typeof payload === 'string' ? payload : (payload?.message || payload?.error || '')
+  ).trim();
+  const fileList = Array.isArray(payload?.fileList)
+    ? payload.fileList
+    : (Array.isArray(currentItem?.fileList) ? currentItem.fileList : []);
+  const progress = Number(currentItem?.progress) || 0;
+  const stuckAtZero = !hasAnyTransferredData(fileList) && (progress <= 0 || fileList.length === 0);
+
+  if (stuckAtZero) {
+    return isGenericFailedMessage(rawMessage)
+      ? '下载在 0% 停留过久后失败，请检查网络或稍后重试'
+      : `下载在 0% 卡住后失败：${rawMessage}`;
+  }
+
+  return isGenericFailedMessage(rawMessage) ? '下载失败，请稍后重试' : rawMessage;
+}
+
 let nextJobId = 1; // 唯一任务ID，用于区分同一 draft_id 的多次入队
 
 function enqueue({ draft_id, draft_name, cover, createdAt }) {
@@ -206,7 +237,11 @@ async function startNextIfIdle() {
       message: err?.message || 'unknown error',
       stack: err?.stack || ''
     });
-    const failedItem = { ...state.current, status: 'failed', message: err.message || '获取草稿信息失败' };
+    const failedItem = {
+      ...state.current,
+      status: 'failed',
+      message: buildFailedMessage({ error: err?.message }, state.current)
+    };
     state.completed = [failedItem, ...state.completed];
     state.queue = state.queue.filter(i => i.draft_id !== state.current.draft_id);
     state.current = null;
@@ -328,7 +363,7 @@ function attachIpcListenersOnce() {
       payloadFileListCount: Array.isArray(payload?.fileList) ? payload.fileList.length : -1,
       currentFileListCount: Array.isArray(state.current?.fileList) ? state.current.fileList.length : -1
     });
-    const msg = typeof payload === 'string' ? payload : (payload?.error || '下载失败');
+    const msg = buildFailedMessage(payload, state.current);
     const fileList = Array.isArray(state.current?.fileList) ? state.current.fileList : [];
     // 失败 flatList：保留完整对象
     const flatList = fileList.filter(f => f.status === 'failed');

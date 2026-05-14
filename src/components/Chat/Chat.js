@@ -49,6 +49,8 @@ const Chat = ({
   session,
   agentId: agentIdProp,
   runtimeSessionId,
+  input,
+  setInput,
   onSendMessage,
   onStopSending,
   onCopyAssistantMessage,
@@ -69,7 +71,6 @@ const Chat = ({
   userName = '',
   userAvatar = '',
 }) => {
-  const [input, setInput] = React.useState('');
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
   const prevMessageCountRef = React.useRef(0);
