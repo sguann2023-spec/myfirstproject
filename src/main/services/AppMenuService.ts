@@ -3,9 +3,12 @@ import { windowService } from '@main/services/WindowService'
 import { locales } from '@main/utils/locales'
 import { IpcChannel } from '@shared/IpcChannel'
 import type { MenuItemConstructorOptions } from 'electron'
-import { app, Menu, shell } from 'electron'
+import { Menu, shell } from 'electron'
 
 import { configManager } from './ConfigManager'
+
+const APP_DISPLAY_NAME = '流光剪辑'
+
 export class AppMenuService {
   private languageChangeCallback?: (newLanguage: string) => void
 
@@ -30,10 +33,10 @@ export class AppMenuService {
 
     const template: MenuItemConstructorOptions[] = [
       {
-        label: app.name,
+        label: APP_DISPLAY_NAME,
         submenu: [
           {
-            label: appMenu.about + ' ' + app.name,
+            label: appMenu.about + ' ' + APP_DISPLAY_NAME,
             click: () => {
               // Emit event to navigate to About page
               const mainWindow = windowService.getMainWindow()
@@ -46,11 +49,11 @@ export class AppMenuService {
           { type: 'separator' },
           { role: 'services', label: appMenu.services },
           { type: 'separator' },
-          { role: 'hide', label: `${appMenu.hide} ${app.name}` },
+          { role: 'hide', label: `${appMenu.hide} ${APP_DISPLAY_NAME}` },
           { role: 'hideOthers', label: appMenu.hideOthers },
           { role: 'unhide', label: appMenu.unhide },
           { type: 'separator' },
-          { role: 'quit', label: `${appMenu.quit} ${app.name}` }
+          { role: 'quit', label: `${appMenu.quit} ${APP_DISPLAY_NAME}` }
         ]
       },
       {
