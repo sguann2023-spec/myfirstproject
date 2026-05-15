@@ -91,6 +91,29 @@ const Chat = ({
     inputRef.current?.focus();
   }, []);
 
+  const insertSkillMention = React.useCallback((skill) => {
+    const mentionLabel = String(skill?.name || skill?.id || '').trim();
+    if (!mentionLabel) return;
+
+    const currentText = String(input || '');
+    const inputElement = inputRef.current;
+    const isInputFocused = inputElement && document.activeElement === inputElement;
+    const selectionStart = isInputFocused ? (inputElement.selectionStart ?? currentText.length) : currentText.length;
+    const selectionEnd = isInputFocused ? (inputElement.selectionEnd ?? selectionStart) : selectionStart;
+    const prefix = currentText.slice(0, selectionStart);
+    const suffix = currentText.slice(selectionEnd);
+    const needsLeadingSpace = prefix.length > 0 && !/\s$/.test(prefix);
+    const mentionText = `${needsLeadingSpace ? ' ' : ''}@${mentionLabel} `;
+    const nextText = `${prefix}${mentionText}${suffix}`;
+    const nextCursor = prefix.length + mentionText.length;
+
+    setInput(nextText);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [input, setInput]);
+
   const handleSend = (nextText) => {
     const text = String(typeof nextText === 'string' ? nextText : input).trim();
     if (!text || sessionSending || modelListLoading) return;
@@ -107,7 +130,8 @@ const Chat = ({
       sessionTitle={sessionTitle}
       sessionTitleRenaming={sessionTitleRenaming}
       sessionTitleNewlyRenamed={sessionTitleNewlyRenamed}
-      onRenameSessionTitle={onRenameSessionTitle}>
+      onRenameSessionTitle={onRenameSessionTitle}
+      onSelectSkill={insertSkillMention}>
       <MessagePane
         messages={messages}
         sending={sending}
@@ -129,6 +153,8 @@ const Chat = ({
         userAvatar={userAvatar}
       />
       <Composer
+        agentId={agentId}
+        runtimeSessionId={runtimeSessionId}
         inputRef={inputRef}
         input={input}
         setInput={setInput}

@@ -3,6 +3,10 @@
   color: #121212;
   line-height: 1.7;
   margin: 0px !important;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-markdown p {
@@ -11,6 +15,16 @@
 
 .chat-markdown p:last-child {
   margin-bottom: 0;
+}
+
+.chat-markdown p,
+.chat-markdown li,
+.chat-markdown blockquote,
+.chat-markdown th,
+.chat-markdown td,
+.chat-markdown a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-markdown ul,

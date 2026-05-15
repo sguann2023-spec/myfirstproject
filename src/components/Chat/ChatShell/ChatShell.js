@@ -12,6 +12,7 @@ const ChatShell = ({
   sessionTitleRenaming = false,
   sessionTitleNewlyRenamed = false,
   onRenameSessionTitle,
+  onSelectSkill,
   children
 }) => {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
@@ -125,6 +126,17 @@ const ChatShell = ({
     ? 'animation-shimmer'
     : (sessionTitleNewlyRenamed ? 'animation-reveal' : ''));
 
+  const renderSkillTooltip = (skill) => {
+    if (!skill?.description) return null;
+
+    return (
+      <div className="chat-panel__member-tooltip">
+        <div className="chat-panel__member-tooltip-name">{skill.name || skill.id}</div>
+        <div className="chat-panel__member-tooltip-desc">{skill.description}</div>
+      </div>
+    );
+  };
+
   return (
     <div className="chat-panel">
       <div className="chat-panel__navbar">
@@ -175,7 +187,7 @@ const ChatShell = ({
         <div className="chat-panel__members">
           <div className="chat-panel__members-title">
             技能成员
-            {!skillsLoading && <span className="chat-panel__members-count">({skills.length})</span>}
+            {!skillsLoading && <span className="chat-panel__members-count">{skills.length}</span>}
           </div>
           <div className="chat-panel__members-list">
             {skillsLoading && <div className="chat-panel__members-empty">加载中...</div>}
@@ -184,14 +196,18 @@ const ChatShell = ({
               <div className="chat-panel__members-empty">未发现技能</div>
             )}
             {!skillsLoading && !skillsError && skills.map((skill) => (
-              <div className="chat-panel__member-item" key={skill.id || skill.name}>
-                <div className="chat-panel__member-name">{skill.name || skill.id}</div>
-                {skill.description ? (
-                  <div className="chat-panel__member-desc" title={skill.description}>
-                    {skill.description}
-                  </div>
-                ) : null}
-              </div>
+              <Tooltip
+                key={skill.id || skill.name}
+                title={renderSkillTooltip(skill)}
+                placement="leftTop"
+                mouseEnterDelay={0.15}
+                classNames={{ root: 'chat-panel__member-tooltip-overlay' }}>
+                <div
+                  className="chat-panel__member-item"
+                  onClick={() => onSelectSkill && onSelectSkill(skill)}>
+                  <div className="chat-panel__member-name">{skill.name || skill.id}</div>
+                </div>
+              </Tooltip>
             ))}
           </div>
         </div>

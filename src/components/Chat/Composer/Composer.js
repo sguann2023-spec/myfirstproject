@@ -9,8 +9,14 @@ import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 const { shell } = window.require('electron');
 const MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
 const MAX_UPLOAD_COUNT = 5;
+const SKILL_MENTION_CLOSE_DELAY = 120;
+const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
+
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const Composer = ({
+  agentId,
+  runtimeSessionId,
   inputRef,
   input,
   setInput,
@@ -26,6 +32,203 @@ const Composer = ({
 }) => {
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
+  const [skillsLoading, setSkillsLoading] = React.useState(true);
+  const [skillsError, setSkillsError] = React.useState('');
+  const [skills, setSkills] = React.useState([]);
+  const [mentionState, setMentionState] = React.useState({
+    open: false,
+    query: '',
+    start: -1,
+    end: -1,
+    activeIndex: 0,
+  });
+  const mentionCloseTimerRef = React.useRef(null);
+  const inputHighlightRef = React.useRef(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadSkills = async () => {
+      const api = window?.electronAPI?.agentSkills;
+      const cherryChatStream = window?.electronAPI?.cherryChatStream;
+      if (!runtimeSessionId && !agentId) {
+        if (!cancelled) {
+          setSkills([]);
+          setSkillsError('');
+          setSkillsLoading(false);
+        }
+        return;
+      }
+      if (!api || typeof api.listActive !== 'function') {
+        if (!cancelled) {
+          setSkills([]);
+          setSkillsError('技能服务不可用');
+          setSkillsLoading(false);
+        }
+        return;
+      }
+
+      setSkillsLoading(true);
+      setSkillsError('');
+      try {
+        let result = null;
+        if (
+          runtimeSessionId &&
+          cherryChatStream &&
+          typeof cherryChatStream.getSession === 'function' &&
+          typeof api.listLocal === 'function'
+        ) {
+          const sessionResult = await cherryChatStream.getSession(runtimeSessionId);
+          const workdir = sessionResult?.ok ? sessionResult?.session?.accessible_paths?.[0] : '';
+          if (workdir) {
+            result = await api.listLocal({ workdir });
+          }
+        }
+        if (!result) {
+          result = await api.listActive({ agentId });
+        }
+        if (cancelled) return;
+        if (!result?.ok) {
+          setSkills([]);
+          setSkillsError(result?.error || '加载技能失败');
+          return;
+        }
+        setSkills(Array.isArray(result.skills) ? result.skills : []);
+      } catch (error) {
+        if (!cancelled) {
+          setSkills([]);
+          setSkillsError(error?.message || '加载技能失败');
+        }
+      } finally {
+        if (!cancelled) {
+          setSkillsLoading(false);
+        }
+      }
+    };
+    loadSkills();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, runtimeSessionId]);
+
+  React.useEffect(() => () => {
+    if (mentionCloseTimerRef.current) {
+      window.clearTimeout(mentionCloseTimerRef.current);
+    }
+  }, []);
+
+  const closeMentionPanel = React.useCallback(() => {
+    setMentionState((prev) => ({ ...prev, open: false, query: '', start: -1, end: -1, activeIndex: 0 }));
+  }, []);
+
+  const syncMentionState = React.useCallback((target) => {
+    const value = String(target?.value || '');
+    const cursor = target?.selectionStart ?? value.length;
+    const prefix = value.slice(0, cursor);
+    const mentionStart = prefix.lastIndexOf('@');
+
+    if (mentionStart < 0) {
+      closeMentionPanel();
+      return;
+    }
+
+    const query = prefix.slice(mentionStart + 1);
+    if (/[\s@]/.test(query)) {
+      closeMentionPanel();
+      return;
+    }
+
+    setMentionState((prev) => ({
+      open: true,
+      query,
+      start: mentionStart,
+      end: cursor,
+      activeIndex: prev.open && prev.query === query ? prev.activeIndex : 0,
+    }));
+  }, [closeMentionPanel]);
+
+  const filteredSkills = React.useMemo(() => {
+    const query = String(mentionState.query || '').trim().toLowerCase();
+    if (!query) return skills;
+    return skills.filter((skill) => String(skill?.name || '').toLowerCase().startsWith(query));
+  }, [mentionState.query, skills]);
+
+  const mentionHighlightRegex = React.useMemo(() => {
+    const escapedNames = skills
+      .map((skill) => String(skill?.name || '').trim())
+      .filter(Boolean)
+      .sort((left, right) => right.length - left.length)
+      .map((name) => escapeRegExp(name));
+
+    if (escapedNames.length === 0) return null;
+
+    return new RegExp(`@(?:${escapedNames.join('|')})(?=$|${MENTION_TOKEN_BOUNDARY})`, 'gi');
+  }, [skills]);
+
+  React.useEffect(() => {
+    if (!mentionState.open) return;
+    if (filteredSkills.length === 0) {
+      setMentionState((prev) => ({ ...prev, activeIndex: 0 }));
+      return;
+    }
+    if (mentionState.activeIndex > filteredSkills.length - 1) {
+      setMentionState((prev) => ({ ...prev, activeIndex: 0 }));
+    }
+  }, [filteredSkills.length, mentionState.activeIndex, mentionState.open]);
+
+  const insertSkillMention = React.useCallback((skill) => {
+    const mentionLabel = skill?.name || skill?.id;
+    if (!mentionLabel || mentionState.start < 0 || mentionState.end < mentionState.start) return;
+
+    const currentText = String(input || '');
+    const replacement = `@${mentionLabel} `;
+    const nextText = `${currentText.slice(0, mentionState.start)}${replacement}${currentText.slice(mentionState.end)}`;
+    const nextCursor = mentionState.start + replacement.length;
+    setInput(nextText);
+    closeMentionPanel();
+
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [closeMentionPanel, input, inputRef, mentionState.end, mentionState.start, setInput]);
+
+  const renderHighlightedInput = React.useCallback(() => {
+    const text = String(input || '');
+    if (!text) return null;
+    if (!mentionHighlightRegex) return text;
+
+    mentionHighlightRegex.lastIndex = 0;
+
+    const nodes = [];
+    let lastIndex = 0;
+    let match = mentionHighlightRegex.exec(text);
+
+    while (match) {
+      const matchText = match[0];
+      const matchIndex = match.index;
+
+      if (matchIndex > lastIndex) {
+        nodes.push(text.slice(lastIndex, matchIndex));
+      }
+
+      nodes.push(
+        <span
+          key={`${matchText}-${matchIndex}`}
+          className="chat-panel__input-mention-token">
+          {matchText}
+        </span>
+      );
+
+      lastIndex = matchIndex + matchText.length;
+      match = mentionHighlightRegex.exec(text);
+    }
+
+    if (lastIndex < text.length) {
+      nodes.push(text.slice(lastIndex));
+    }
+
+    return nodes;
+  }, [input, mentionHighlightRegex]);
 
   const handleOpenPricingDoc = (event) => {
     event.preventDefault();
@@ -163,6 +366,7 @@ const Composer = ({
     const text = String(input || '').trim();
     const combined = [text, ...uploadedMarkdownLinks].filter(Boolean).join('\n');
     if (!combined) return;
+    closeMentionPanel();
     handleSend && handleSend(combined);
     setUploadFileList([]);
     setUploadedFileMeta([]);
@@ -242,19 +446,110 @@ const Composer = ({
           </div>
         </div>
         <div className="chat-panel__input-wrap">
-          <textarea
-            ref={inputRef}
-            className="chat-panel__input"
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                handleSendWithAttachments();
-              }
-            }}
-          />
+          {mentionState.open && (skillsLoading || skillsError || filteredSkills.length > 0) ? (
+            <div className="chat-panel__skill-mention-panel">
+              <div className="chat-panel__skill-mention-list">
+                {skillsLoading ? <div className="chat-panel__skill-mention-empty">加载技能中...</div> : null}
+                {!skillsLoading && skillsError ? (
+                  <div className="chat-panel__skill-mention-empty">{skillsError}</div>
+                ) : null}
+                {!skillsLoading && !skillsError && filteredSkills.map((skill, index) => {
+                  const label = skill?.name || '';
+                  const isActive = index === mentionState.activeIndex;
+                  return (
+                    <button
+                      key={skill.id || skill.name}
+                      type="button"
+                      className={`chat-panel__skill-mention-item ${isActive ? 'active' : ''}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        insertSkillMention(skill);
+                      }}
+                    >
+                      <span className="chat-panel__skill-mention-name">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          <div className="chat-panel__input-editor">
+            <div
+              ref={inputHighlightRef}
+              aria-hidden="true"
+              className="chat-panel__input-highlights">
+              {renderHighlightedInput()}
+            </div>
+            <textarea
+              ref={inputRef}
+              className="chat-panel__input chat-panel__input--overlay"
+              placeholder="@技能成员，输入消息，Enter 发送，Shift+Enter 换行"
+              value={input}
+              onChange={(event) => {
+                setInput(event.target.value);
+                syncMentionState(event.target);
+              }}
+              onScroll={(event) => {
+                if (inputHighlightRef.current) {
+                  inputHighlightRef.current.scrollTop = event.target.scrollTop;
+                  inputHighlightRef.current.scrollLeft = event.target.scrollLeft;
+                }
+              }}
+              onClick={(event) => syncMentionState(event.target)}
+              onKeyUp={(event) => {
+                if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Enter') {
+                  syncMentionState(event.target);
+                }
+              }}
+              onBlur={() => {
+                mentionCloseTimerRef.current = window.setTimeout(() => {
+                  closeMentionPanel();
+                }, SKILL_MENTION_CLOSE_DELAY);
+              }}
+              onFocus={(event) => {
+                if (mentionCloseTimerRef.current) {
+                  window.clearTimeout(mentionCloseTimerRef.current);
+                }
+                syncMentionState(event.target);
+              }}
+              onKeyDown={(event) => {
+                if (mentionState.open) {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setMentionState((prev) => ({
+                      ...prev,
+                      activeIndex: filteredSkills.length > 0 ? (prev.activeIndex + 1) % filteredSkills.length : 0,
+                    }));
+                    return;
+                  }
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setMentionState((prev) => ({
+                      ...prev,
+                      activeIndex: filteredSkills.length > 0
+                        ? (prev.activeIndex - 1 + filteredSkills.length) % filteredSkills.length
+                        : 0,
+                    }));
+                    return;
+                  }
+                  if ((event.key === 'Enter' || event.key === 'Tab') && filteredSkills.length > 0) {
+                    event.preventDefault();
+                    insertSkillMention(filteredSkills[mentionState.activeIndex] || filteredSkills[0]);
+                    return;
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeMentionPanel();
+                    return;
+                  }
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSendWithAttachments();
+                }
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

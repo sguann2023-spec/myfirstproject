@@ -23,6 +23,7 @@
 .chat-panel__message-body.user {
   margin-left: 0;
   margin-right: 45px;
+  min-width: 0;
   background: #ccebff;
   border-radius: 8px;
   padding: 6px 10px;

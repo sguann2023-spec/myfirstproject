@@ -33,15 +33,14 @@
 
 .chat-panel__members-title {
   padding: 12px 10px 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #333;
-  border-bottom: 1px solid #f0f0f0;
+  font-size: 14px;
+  font-weight: 400;
+  color: #000;
 }
 
 .chat-panel__members-count {
   margin-left: 4px;
-  color: #999;
+  color: #000;
   font-weight: 400;
 }
 
@@ -49,7 +48,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px 8px 10px;
+  padding: 0px 2px 10px;
 }
 
 .chat-panel__members-empty {
@@ -58,27 +57,53 @@
 }
 
 .chat-panel__member-item {
-  border: 1px solid #ececec;
   border-radius: 8px;
-  background: #fff;
   padding: 8px;
-  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.chat-panel__member-item:hover {
+  background: #ebebeb;
 }
 
 .chat-panel__member-name {
-  color: #222;
-  font-size: 12px;
-  font-weight: 500;
+  color: #999;
+  font-size: 14px;
+  font-weight: 400;
   word-break: break-all;
+  pointer-events: none;
 }
 
-.chat-panel__member-desc {
-  margin-top: 4px;
-  color: #777;
+.chat-panel__member-tooltip-overlay .ant-tooltip-inner {
+  max-width: 280px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+.chat-panel__member-tooltip-overlay .ant-tooltip-arrow::before {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.chat-panel__member-tooltip {
+  color: #333;
+}
+
+.chat-panel__member-tooltip-name {
+  font-size: 18px;
+  font-weight: 400;
+  color: #000;
   line-height: 1.4;
-  max-height: 48px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.chat-panel__member-tooltip-desc {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-panel__navbar {
