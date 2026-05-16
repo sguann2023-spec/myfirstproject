@@ -13,7 +13,7 @@ const logger = loggerService.withContext('builtinSkills')
 const VERSION_FILE = '.version'
 const MANIFEST_FILE = 'manifest.json'
 const SYNC_STATE_FILE = '.builtin-sync-state.json'
-const REMOTE_MANIFEST_URL = 'https://player.install-ai-guider.top/skills/manifest100.json'
+const REMOTE_MANIFEST_URL = 'https://player.install-ai-guider.top/skills/manifest.json'
 
 interface BuiltinSkillManifestEntry {
   version?: string

@@ -236,6 +236,38 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
   };
 };
 
+const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
+  const nextBlockStatus = aborted ? 'success' : 'error';
+  return (Array.isArray(blocks) ? blocks : []).map((block) => {
+    if (!block || typeof block !== 'object') return block;
+
+    const nextBlock = { ...block };
+    const status = String(nextBlock?.status || '').toLowerCase();
+    const isStreamingLike = ['pending', 'processing', 'streaming', 'running', 'invoking'].includes(status);
+    if (isStreamingLike) {
+      nextBlock.status = nextBlockStatus;
+    }
+
+    const rawToolResponse = nextBlock?.metadata?.rawMcpToolResponse;
+    const rawToolStatus = String(rawToolResponse?.status || '').toLowerCase();
+    if (
+      rawToolResponse
+      && rawToolStatus
+      && !['done', 'error', 'cancelled'].includes(rawToolStatus)
+    ) {
+      nextBlock.metadata = {
+        ...nextBlock.metadata,
+        rawMcpToolResponse: {
+          ...rawToolResponse,
+          status: aborted ? 'cancelled' : 'error'
+        }
+      };
+    }
+
+    return nextBlock;
+  });
+};
+
 const HomePage = () => {
   const user = electronStore.get('user') || {};
   const avatarSrc = user?.avatar || LogoIcon;
@@ -266,6 +298,7 @@ const HomePage = () => {
   const chatAgentSessionIdByChatIdRef = useRef(new Map());
   const chatIdByAgentSessionIdRef = useRef(new Map());
   const chatPendingByAgentSessionIdRef = useRef(new Map());
+  const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
@@ -304,11 +337,21 @@ const HomePage = () => {
         const payload = await getChatModelList();
         if (cancelled) return;
 
-        const models = Array.isArray(payload?.models) && payload.models.length > 0
-          ? payload.models
-          : CHAT_MODELS;
         const iconMap = payload?.blackIconMap || {};
-        const nextOptions = models.map((name) => toModelOption(name, name, iconMap?.[name] || ''));
+        const modelItems = Array.isArray(payload?.modelItems) ? payload.modelItems : [];
+        const nextOptions = modelItems.length > 0
+          ? modelItems
+            .map((item) => {
+              const modelId = String(item?.model_id || item?.value || '').trim();
+              if (!modelId) return null;
+              const modelName = String(item?.name || item?.label || modelId).trim() || modelId;
+              return toModelOption(modelId, modelName, iconMap?.[modelId] || '');
+            })
+            .filter(Boolean)
+          : (
+            (Array.isArray(payload?.models) && payload.models.length > 0 ? payload.models : CHAT_MODELS)
+              .map((name) => toModelOption(name, name, iconMap?.[name] || ''))
+          );
         setChatModelOptions(nextOptions);
 
         setChatModel((prev) => {
@@ -560,61 +603,84 @@ const HomePage = () => {
 
   const ensureAgentSessionForChat = async (chatId) => {
     if (!chatId || !canUseAgentRuntime) return '';
-    const cached = chatAgentSessionIdByChatIdRef.current.get(chatId);
-    if (cached) return cached;
 
-    const vectcutApiKey = await getAgentApiKeyFromLoginState();
-    const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
-    const runtimeState = buildProvidersState(modelIds.length > 0 ? modelIds : CHAT_MODELS, vectcutApiKey);
-    window.store = {
-      getState: () => runtimeState,
-      dispatch: () => undefined
-    };
+    const existingEnsure = chatEnsuringAgentSessionByChatIdRef.current.get(chatId);
+    if (existingEnsure) return existingEnsure;
 
-    logger.info('[HomePage] createSession invoke', {
-      chatId,
-      agentId: 'vectcut_claw_default',
-      model: chatModel,
-      hasApiKey: Boolean(vectcutApiKey)
-    });
-    const created = await window.electronAPI.cherryChatStream.createSession({
-      agent_id: 'vectcut_claw_default',
-      model: chatModel,
-      configuration: {
-        permission_mode: 'bypassPermissions',
-        env_vars: {
-          VECTCUT_API_KEY: vectcutApiKey,
-          VECTCUT_ANTHROPIC_API_BASE_URL
-        }
+    const ensurePromise = (async () => {
+      const subscribeToSession = async (agentSessionId, reason) => {
+        logger.info('[HomePage][StreamTrace] subscribe start', {
+          chatId,
+          sessionId: agentSessionId,
+          reason
+        });
+        await window.electronAPI.cherryChatStream.subscribe(agentSessionId);
+        logger.info('[HomePage][StreamTrace] subscribe done', {
+          chatId,
+          sessionId: agentSessionId,
+          reason,
+          mappedChatSessionCount: chatAgentSessionIdByChatIdRef.current.size,
+          mappedAgentSessionCount: chatIdByAgentSessionIdRef.current.size
+        });
+        return agentSessionId;
+      };
+
+      const cached = chatAgentSessionIdByChatIdRef.current.get(chatId);
+      if (cached) {
+        return subscribeToSession(cached, 'reuse');
       }
-    });
-    logger.info('[HomePage] createSession result', {
-      chatId,
-      ok: Boolean(created?.ok),
-      sessionId: created?.session?.id || '',
-      error: created?.error || ''
-    });
-    if (!created?.ok || !created?.session?.id) {
-      throw new Error(created?.error || 'agent session create failed');
+
+      const vectcutApiKey = await getAgentApiKeyFromLoginState();
+      const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
+      const runtimeState = buildProvidersState(modelIds.length > 0 ? modelIds : CHAT_MODELS, vectcutApiKey);
+      window.store = {
+        getState: () => runtimeState,
+        dispatch: () => undefined
+      };
+
+      logger.info('[HomePage] createSession invoke', {
+        chatId,
+        agentId: 'vectcut_claw_default',
+        model: chatModel,
+        hasApiKey: Boolean(vectcutApiKey)
+      });
+      const created = await window.electronAPI.cherryChatStream.createSession({
+        agent_id: 'vectcut_claw_default',
+        model: chatModel,
+        configuration: {
+          permission_mode: 'bypassPermissions',
+          env_vars: {
+            VECTCUT_API_KEY: vectcutApiKey,
+            VECTCUT_ANTHROPIC_API_BASE_URL
+          }
+        }
+      });
+      logger.info('[HomePage] createSession result', {
+        chatId,
+        ok: Boolean(created?.ok),
+        sessionId: created?.session?.id || '',
+        error: created?.error || ''
+      });
+      if (!created?.ok || !created?.session?.id) {
+        throw new Error(created?.error || 'agent session create failed');
+      }
+
+      const agentSessionId = created.session.id;
+      chatAgentSessionIdByChatIdRef.current.set(chatId, agentSessionId);
+      chatIdByAgentSessionIdRef.current.set(agentSessionId, chatId);
+      setChatSessions((prev) =>
+        prev.map((item) => (item.id === chatId ? { ...item, runtimeSessionId: agentSessionId } : item))
+      );
+
+      return subscribeToSession(agentSessionId, 'create');
+    })();
+
+    chatEnsuringAgentSessionByChatIdRef.current.set(chatId, ensurePromise);
+    try {
+      return await ensurePromise;
+    } finally {
+      chatEnsuringAgentSessionByChatIdRef.current.delete(chatId);
     }
-    const agentSessionId = created.session.id;
-    chatAgentSessionIdByChatIdRef.current.set(chatId, agentSessionId);
-    chatIdByAgentSessionIdRef.current.set(agentSessionId, chatId);
-    setChatSessions((prev) =>
-      prev.map((item) => (item.id === chatId ? { ...item, runtimeSessionId: agentSessionId } : item))
-    );
-    logger.info('[HomePage][StreamTrace] subscribe start', {
-      chatId,
-      sessionId: agentSessionId
-    });
-    await window.electronAPI.cherryChatStream.subscribe(agentSessionId);
-    logger.info('[HomePage][StreamTrace] subscribe done', {
-      chatId,
-      sessionId: agentSessionId,
-      mappedChatSessionCount: chatAgentSessionIdByChatIdRef.current.size,
-      mappedAgentSessionCount: chatIdByAgentSessionIdRef.current.size
-    });
-    return agentSessionId;
   };
 
   useEffect(() => {
@@ -763,6 +829,37 @@ const HomePage = () => {
         });
       };
 
+      const finalizeAssistantMessage = ({ error = null, aborted = false } = {}) => {
+        const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+        setChatSessions((prev) => {
+          const updated = prev.map((item) => {
+            if (item.id !== chatId) return item;
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              messages: item.messages.map((message) => {
+                if (message.id !== assistantMessageId) return message;
+                const sourceBlocks = snapshot?.blocks || message.blocks || [];
+                const nextBlocks = finalizeStructuredBlocks(sourceBlocks, { aborted });
+                const nextContent =
+                  snapshot?.content
+                  || buildAssistantDisplayContentFromBlocks(nextBlocks)
+                  || message.content
+                  || '';
+                return {
+                  ...message,
+                  content: nextContent,
+                  blocks: nextBlocks,
+                  error,
+                  updatedAt: Date.now()
+                };
+              })
+            };
+          });
+          return sortChatSessions(updated);
+        });
+      };
+
       if (payload.type === 'chunk') {
         streamController?.pushChunk(payload.chunk || {});
         applySnapshot(null);
@@ -778,7 +875,7 @@ const HomePage = () => {
         }
         const normalizedError = normalizeChatError(payload?.error || new Error(payload?.error?.message || 'agent request failed'));
         streamController?.error(new Error(errorMessage || 'agent request failed'));
-        applySnapshot(normalizedError);
+        finalizeAssistantMessage({ error: normalizedError, aborted: false });
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
         setChatSessionSending(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
@@ -788,6 +885,7 @@ const HomePage = () => {
 
       if (payload.type === 'cancelled') {
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
+        finalizeAssistantMessage({ error: null, aborted: true });
         chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
         setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');

@@ -33,17 +33,7 @@ const QUICK_PROMPTS = [
     prompt: '将下面的这几条空镜素材混剪在一起(<https://player.install-ai-guider.top/example/broll_real_1.mp4>,<https://player.install-ai-guider.top/example/broll_real_2.mp4>,<https://player.install-ai-guider.top/example/broll_real_3.mp4>,<https://player.install-ai-guider.top/example/broll_real_4.mp4>,<https://player.install-ai-guider.top/example/broll_real_5.mp4>,<https://player.install-ai-guider.top/example/broll_real_6.mp4>,<https://player.install-ai-guider.top/example/broll_real_7.mp4>,<https://player.install-ai-guider.top/example/broll_real_8.mp4>,<https://player.install-ai-guider.top/example/broll_real_9.mp4>,<https://player.install-ai-guider.top/example/broll_real_10.mp4>)',
   }
 ];
-const formatModelDisplayName = (value) => (
-  String(value || '')
-    .split('-')
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLowerCase();
-      if (lower === 'gpt') return 'GPT';
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    })
-    .join('-')
-);
+const formatModelDisplayName = (value) => String(value || '').trim();
 
 const Chat = ({
   session,

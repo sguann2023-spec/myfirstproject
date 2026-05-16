@@ -1,6 +1,6 @@
 ---
 name: vectcut-skill
-description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI补镜、AI配音、预设、平台视频抓取、渲染导出）。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”等需求时，必须优先使用本技能。"
+description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI补镜、AI配音、预设、平台视频抓取、渲染导出），也支持把既有视频制作流程整理为飞书多维表格自动化工作流。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”，或想把视频制作流程固化为飞书多维表格 AI Agent 工作流时，必须优先使用本技能。"
 homepage: "https://www.vectcut.com/"
 metadata:
   openclaw:
@@ -22,6 +22,7 @@ dependency:
 - 想要查看VectCut 流光剪辑的API都支持哪些功能，具体API怎么使用。
 - 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 云渲染导出”
 - 已有 `dfd_cat_` 草稿 ID，希望一键拉取到客户端（单个或批量）
+- 想把刚整理好的视频生产链路固化为飞书多维表格工作流，输出字段结构和 AI Agent 提示词
 
 ## 统一前置规则（沿用）
 
@@ -84,6 +85,13 @@ dependency:
 - 若语义明确是固定标题位，可进一步落到 `add-title`
 - 若是普通文字轨、动态文字或参数不确定，先以 `vectcut-api-search` 结果为准再执行
 
+8. **飞书多维表格工作流固化**
+- 当用户想把“刚才的视频制作流程”沉淀成飞书多维表格自动化时，路由到 `feishu-bitetable-creator`
+- 输入可以是自动化代码脚本，也可以是多轮对话摘要
+- 输出必须同时包含：`多维表格字段结构` 与 `飞书多维表格 AI Agent 工作流提示词`
+- 在工作流提示词里，几乎每个执行步骤都要明确先用 `vectcut-api-search` 确认最新接口、入参和返回结构
+- 飞书多维表格 AI Agent 有 20 次循环上限，所有异步任务统一采用“提交后等待 3 分钟再查结果”的保守策略
+
 ## 字幕与音频规则
 
 - 若需口播精剪，优先 `llm-asr`(nlp档位) + `asr-vad`，确保字幕时间轴与剪辑后内容一致
@@ -113,6 +121,7 @@ dependency:
 - [describe-video](rules/describe-video.md)
 - [draft-downloader](rules/draft-downloader.md)
 - [extract-audio](rules/extract-audio.md)
+- [feishu-bitetable-creator](rules/feishu-bitetable-creator.md)
 - [generate-ai-image](rules/generate-ai-image.md)
 - [generate-ai-video](rules/generate-ai-video.md)
 - [generate-cover](rules/generate-cover.md)
