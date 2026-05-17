@@ -62,7 +62,7 @@ dependency:
 4.1 **混剪配音成片（video-voiceover-remix 子链路）**
 - 触发词与同义表达：`混剪在一起`、`拼在一起`、`合成一条`、`随机拼接`、`多段视频组合`
 - 当用户只说“混剪在一起”且未给更细约束时，默认优先路由到 `video-voiceover-remix`，并在执行前简短告知将采用“混剪+解说+字幕+BGM”标准链路
-- 先按 `rules/video-voiceover-remix.md` 执行固定七步：`describe-video` -> `add_video(volume=-100)` -> 文案生成 -> `speech-synthesis + add_audio(volume=20)` -> `llm-asr(nlp) + add-subtitle-template` -> `add-bgm` -> `add-effect_audio`
+- 先按 `rules/video-voiceover-remix.md` 执行固定七步：`describe-video` -> `add_video(volume=-100)` -> 基于 `describe-video` 结果生成文案 -> `speech-synthesis + add_audio(volume=20)` -> `llm-asr(nlp) + add-subtitle-template` -> `add-bgm` -> `add-effect_audio`
 - 第 2 步重排优先调用内置脚本：`scripts/remix_and_add_videos.py`
 - 第 3 步文案字数按每秒 5 字估算
 - 第 4 步默认音色：`voice_id=gv_8195cd8b03f74658a9d92c9b2a9e9cba`，并提示用户可到 VectCut 官网查看可用音色

@@ -11,7 +11,7 @@ description: 给一段或多段视频做“随机重排 + 网感解说配音 + �
 
 1. `describe-video`：先分析所有上传视频（素材盘点与内容理解）。
 2. `add_video`：随机重排片段写入 B-roll，且每段 `volume=-100`（静音）。
-3. 生成网感解说文案：有钩子、有话题性，并按草稿时长等比控制字数（每秒约 5 字）。
+3. 基于 `describe-video` 的分析结果生成网感解说文案：有钩子、有话题性，并按草稿时长等比控制字数（每秒约 5 字）。
 4. `speech-synthesis` + `add_audio`：生成配音并写回草稿，配音 `volume=20`，默认音色 `voice_id=gv_8195cd8b03f74658a9d92c9b2a9e9cba`。
 5. `llm-asr` + `add-subtitle-template`：先对第 4 步配音做 `nlp` 字幕识别，再上模板字幕。
 6. `add-bgm`：补背景音乐（铺满全片）。
@@ -42,7 +42,8 @@ python <skill-path>/scripts/remix_and_add_videos.py \
 
 ## 第 3 步：文案长度
 
-- 先用 `query-draft` 获取草稿时长 `draft_duration_seconds`。
+- 先结合第 1 步 `describe-video` 的素材分析结果，提炼可讲述的话题、画面亮点与节奏线索。
+- 再用 `query-draft` 获取草稿时长 `draft_duration_seconds`。
 - 推荐字数：`round(draft_duration_seconds * 5)`。
 - 结构建议：开头钩子 + 中段节奏叙事 + 结尾互动话题。
 
