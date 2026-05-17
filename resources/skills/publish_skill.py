@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""Package a builtin skill, upload it to OSS, then publish a new manifest.
+
+Usage:
+    python3 publish_skill.py vectcut-skill
+    python3 publish_skill.py vectcut-skill --version 1.5.15
+    python3 publish_skill.py vectcut-skill --version 1.5.15 --dry-run
+
+Workflow:
+1. Read the target skill version from `manifest.json`, or override it with `--version`
+2. Zip the skill directory with the skill folder kept as the archive root
+3. Upload the zip to `skills/<skill>/<version_with_underscores>/<skill>.zip`
+4. Rewrite `manifest.json` with a fresh `updatedAt` and computed `downloadUrl`
+5. Upload the manifest to `skills/manifest.json`
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import fnmatch
+import hashlib
+import hmac
+import json
+import mimetypes
+import os
+import shutil
+import sys
+import tempfile
+import zipfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import formatdate
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+
+EXCLUDE_DIRS = {"__pycache__", "node_modules"}
+EXCLUDE_GLOBS = {"*.pyc"}
+EXCLUDE_FILES = {".DS_Store"}
+ROOT_EXCLUDE_DIRS = {"evals"}
+
+
+@dataclass(frozen=True)
+class OssConfig:
+    bucket_name: str
+    access_key_id: str
+    access_key_secret: str
+    region: str
+    endpoint: str
+    public_endpoint: str
+
+
+def load_oss_config() -> OssConfig:
+    return OssConfig(
+        bucket_name=os.environ.get("MP4_OSS_BUCKET_NAME", "oss-hangzhou-mp4"),
+        access_key_id=os.environ.get("ACCESS_KEY_ID", "") or os.environ.get("MP4_OSS_ACCESS_KEY_ID", ""),
+        access_key_secret=os.environ.get("ACCESS_KEY_SECRET", "")
+        or os.environ.get("MP4_OSS_ACCESS_KEY_SECRET", ""),
+        region=os.environ.get("MP4_OSS_REGION", "cn-hangzhou"),
+        endpoint=os.environ.get("MP4_OSS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com"),
+        public_endpoint=os.environ.get("MP4_OSS_PUBLIC_ENDPOINT", "https://player.install-ai-guider.top"),
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    default_root = Path(__file__).resolve().parent
+    parser = argparse.ArgumentParser(description="Publish a builtin skill to OSS and update manifest.json")
+    parser.add_argument("skill_name", help="Skill directory name, for example: vectcut-skill")
+    parser.add_argument(
+        "--skills-root",
+        default=str(default_root),
+        help="Root directory containing skill folders and manifest.json",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Path to manifest.json, defaults to <skills-root>/manifest.json",
+    )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Publish version to write into manifest.json, for example: 1.5.15",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build files and print upload targets without uploading anything",
+    )
+    return parser.parse_args()
+
+
+def now_iso8601() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def version_to_path(version: str) -> str:
+    return version.replace(".", "_")
+
+
+def build_download_url(config: OssConfig, skill_name: str, version: str) -> str:
+    public_endpoint = config.public_endpoint.rstrip("/")
+    return f"{public_endpoint}/skills/{skill_name}/{version_to_path(version)}/{skill_name}.zip"
+
+
+def should_exclude(rel_path: Path) -> bool:
+    parts = rel_path.parts
+    if any(part in EXCLUDE_DIRS for part in parts):
+        return True
+    if len(parts) > 1 and parts[1] in ROOT_EXCLUDE_DIRS:
+        return True
+    name = rel_path.name
+    if name in EXCLUDE_FILES:
+        return True
+    return any(fnmatch.fnmatch(name, pattern) for pattern in EXCLUDE_GLOBS)
+
+
+def load_manifest(manifest_path: Path) -> dict[str, Any]:
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+    with manifest_path.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def ensure_skill_version(manifest: dict[str, Any], skill_name: str) -> str:
+    skills = manifest.get("skills")
+    if not isinstance(skills, dict):
+        raise ValueError("manifest.json is missing a valid 'skills' object")
+    skill_meta = skills.get(skill_name)
+    if not isinstance(skill_meta, dict):
+        raise KeyError(f"Skill '{skill_name}' not found in manifest.json")
+    version = skill_meta.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError(f"Skill '{skill_name}' is missing a valid version in manifest.json")
+    if skill_meta.get("deleted") is True:
+        raise ValueError(f"Skill '{skill_name}' is marked as deleted and cannot be published")
+    return version.strip()
+
+
+def resolve_publish_version(
+    manifest: dict[str, Any],
+    skill_name: str,
+    override_version: str | None,
+) -> str:
+    current_version = ensure_skill_version(manifest, skill_name)
+    if override_version is None:
+        return current_version
+
+    version = override_version.strip()
+    if not version:
+        raise ValueError("--version cannot be empty")
+    return version
+
+
+def make_zip_archive(skill_path: Path, output_dir: Path) -> Path:
+    if not skill_path.exists():
+        raise FileNotFoundError(f"Skill folder not found: {skill_path}")
+    if not skill_path.is_dir():
+        raise NotADirectoryError(f"Skill path is not a directory: {skill_path}")
+    if not (skill_path / "SKILL.md").exists():
+        raise FileNotFoundError(f"SKILL.md not found in: {skill_path}")
+
+    zip_path = output_dir / f"{skill_path.name}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for file_path in sorted(skill_path.rglob("*")):
+            if not file_path.is_file():
+                continue
+            archive_name = file_path.relative_to(skill_path.parent)
+            if should_exclude(archive_name):
+                continue
+            archive.write(file_path, archive_name)
+    return zip_path
+
+
+def write_manifest_file(manifest_data: dict[str, Any], manifest_path: Path) -> None:
+    manifest_path.write_text(
+        json.dumps(manifest_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def guess_content_type(file_path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(str(file_path))
+    return guessed or "application/octet-stream"
+
+
+def build_put_headers(
+    config: OssConfig,
+    object_name: str,
+    content_type: str,
+) -> dict[str, str]:
+    date = formatdate(usegmt=True)
+    canonical_resource = f"/{config.bucket_name}/{object_name}"
+    string_to_sign = f"PUT\n\n{content_type}\n{date}\n{canonical_resource}"
+    digest = hmac.new(
+        config.access_key_secret.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha1,
+    ).digest()
+    signature = base64.b64encode(digest).decode("utf-8")
+    return {
+        "Date": date,
+        "Content-Type": content_type,
+        "Authorization": f"OSS {config.access_key_id}:{signature}",
+    }
+
+
+def upload_file_to_oss(local_path: Path, object_name: str, config: OssConfig) -> str:
+    if not config.access_key_id or not config.access_key_secret:
+        raise RuntimeError(
+            "Missing OSS credentials. Set ACCESS_KEY_ID / ACCESS_KEY_SECRET or "
+            "MP4_OSS_ACCESS_KEY_ID / MP4_OSS_ACCESS_KEY_SECRET."
+        )
+
+    endpoint_host = config.endpoint.replace("https://", "").replace("http://", "").strip("/")
+    encoded_object_name = quote(object_name, safe="/-_.~")
+    url = f"https://{config.bucket_name}.{endpoint_host}/{encoded_object_name}"
+    content_type = guess_content_type(local_path)
+    headers = build_put_headers(config, object_name, content_type)
+
+    data = local_path.read_bytes()
+    request = Request(url, data=data, method="PUT", headers=headers)
+
+    try:
+        with urlopen(request, timeout=180) as response:
+            status_code = getattr(response, "status", response.getcode())
+            if status_code not in (200, 201):
+                raise RuntimeError(f"OSS upload failed: status={status_code}, url={url}")
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"OSS upload failed: status={error.code}, object={object_name}, body={body}"
+        ) from error
+    except URLError as error:
+        raise RuntimeError(f"OSS upload failed for {object_name}: {error}") from error
+
+    public_endpoint = config.public_endpoint.rstrip("/")
+    return f"{public_endpoint}/{object_name}"
+
+
+def prepare_manifest_for_publish(
+    manifest_data: dict[str, Any],
+    skill_name: str,
+    version: str,
+    download_url: str,
+) -> dict[str, Any]:
+    skills = manifest_data["skills"]
+    skill_meta = skills[skill_name]
+    skill_meta["version"] = version
+    skill_meta["downloadUrl"] = download_url
+    manifest_data["updatedAt"] = now_iso8601()
+    return manifest_data
+
+
+def publish_skill(
+    skill_name: str,
+    skills_root: Path,
+    manifest_path: Path,
+    version_override: str | None,
+    dry_run: bool,
+) -> None:
+    config = load_oss_config()
+    manifest_data = load_manifest(manifest_path)
+    version = resolve_publish_version(manifest_data, skill_name, version_override)
+    skill_path = skills_root / skill_name
+
+    zip_object_name = f"skills/{skill_name}/{version_to_path(version)}/{skill_name}.zip"
+    zip_download_url = build_download_url(config, skill_name, version)
+    manifest_object_name = "skills/manifest.json"
+
+    print(f"Skill: {skill_name}")
+    print(f"Version: {version}")
+    print(f"Skill path: {skill_path}")
+    print(f"Zip object: {zip_object_name}")
+
+    with tempfile.TemporaryDirectory(prefix=f"publish-{skill_name}-") as temp_dir:
+        temp_root = Path(temp_dir)
+        zip_path = make_zip_archive(skill_path, temp_root)
+        print(f"Created zip: {zip_path}")
+
+        updated_manifest = prepare_manifest_for_publish(
+            manifest_data,
+            skill_name,
+            version,
+            zip_download_url,
+        )
+        temp_manifest_path = temp_root / "manifest.json"
+        write_manifest_file(updated_manifest, temp_manifest_path)
+        print(f"Prepared manifest: {temp_manifest_path}")
+
+        if dry_run:
+            print("Dry run enabled, skipping upload.")
+            print(f"Would upload zip to: {zip_object_name}")
+            print(f"Would upload manifest to: {manifest_object_name}")
+            print(f"Would set downloadUrl to: {zip_download_url}")
+            return
+
+        uploaded_zip_url = upload_file_to_oss(zip_path, zip_object_name, config)
+        print(f"Uploaded zip: {uploaded_zip_url}")
+
+        shutil.copyfile(temp_manifest_path, manifest_path)
+        uploaded_manifest_url = upload_file_to_oss(manifest_path, manifest_object_name, config)
+        print(f"Uploaded manifest: {uploaded_manifest_url}")
+
+    print("Publish completed successfully.")
+
+
+def main() -> int:
+    args = parse_args()
+    skills_root = Path(args.skills_root).resolve()
+    manifest_path = Path(args.manifest).resolve() if args.manifest else skills_root / "manifest.json"
+
+    try:
+        publish_skill(
+            skill_name=args.skill_name,
+            skills_root=skills_root,
+            manifest_path=manifest_path,
+            version_override=args.version,
+            dry_run=args.dry_run,
+        )
+        return 0
+    except Exception as error:  # pragma: no cover - CLI error path
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
