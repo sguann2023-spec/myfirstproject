@@ -4,6 +4,7 @@ import { getDataPath } from '@main/utils'
 import { IpcChannel } from '@shared/IpcChannel'
 import { sql } from 'drizzle-orm'
 import { ipcMain } from 'electron'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -14,7 +15,7 @@ import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { sessionStreamBus, type SessionStreamChunk } from './SessionStreamBus'
 
 const activeSubscriptions = new Map<string, () => void>()
-const activeAbortControllers = new Map<string, AbortController>()
+const activeAbortControllers = new Map<string, { controller: AbortController; requestId: string }>()
 let sessionStreamIpcRegistered = false
 let sessionMessageServicePromise: Promise<import('../SessionMessageService').SessionMessageService | null> | null = null
 let channelMessageHandlerPromise: Promise<import('./ChannelMessageHandler').ChannelMessageHandler | null> | null = null
@@ -284,15 +285,16 @@ export function registerSessionStreamIpc(): void {
 
   const registerAbortHandler = (abortChannel: string) => {
     ipcMain.handle(abortChannel, async (_event, { sessionId }: { sessionId: string }) => {
-      const controller = activeAbortControllers.get(sessionId)
-      if (controller) {
-        controller.abort()
+      const activeRequest = activeAbortControllers.get(sessionId)
+      if (activeRequest) {
+        activeRequest.controller.abort()
         activeAbortControllers.delete(sessionId)
         sessionStreamBus.publish(sessionId, {
           sessionId,
           agentId: '',
+          requestId: activeRequest.requestId,
           type: 'error',
-          error: { message: 'Request aborted by user', code: 'ABORTED' } as any
+          error: { message: 'Request aborted by user', code: 'ABORTED' }
         })
         return { success: true }
       }
@@ -353,6 +355,7 @@ export function registerSessionStreamIpc(): void {
     try {
       const sessionId = String(payload?.sessionId || '').trim()
       const content = String(payload?.content || '').trim()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
       if (!sessionId) return { ok: false, error: 'sessionId is required' }
       if (!content) return { ok: false, error: 'content is required' }
 
@@ -370,10 +373,11 @@ export function registerSessionStreamIpc(): void {
       })
 
       const abortController = new AbortController()
-      activeAbortControllers.set(sessionId, abortController)
+      activeAbortControllers.set(sessionId, { controller: abortController, requestId })
       sessionStreamBus.publish(sessionId, {
         sessionId,
         agentId: session.agent_id,
+        requestId,
         type: 'started'
       })
       const streamStartedAt = Date.now()
@@ -397,6 +401,7 @@ export function registerSessionStreamIpc(): void {
             if (firstChunkLogged) return
             logger.warn('[SessionStreamIpc][TRACE] waiting too long for first chunk', {
               sessionId,
+              requestId,
               waitMs: Date.now() - streamStartedAt,
               hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
               subscriberCount: sessionStreamBus.subscriberCount(sessionId)
@@ -411,6 +416,7 @@ export function registerSessionStreamIpc(): void {
               clearTimeout(firstChunkWarnTimer)
               logger.info('[SessionStreamIpc][TRACE] first chunk received', {
                 sessionId,
+                requestId,
                 elapsedMs: Date.now() - streamStartedAt,
                 chunkType: (value as any)?.type || '',
                 hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
@@ -420,6 +426,7 @@ export function registerSessionStreamIpc(): void {
             sessionStreamBus.publish(sessionId, {
               sessionId,
               agentId: session.agent_id,
+              requestId,
               type: 'chunk',
               chunk: value
             })
@@ -427,6 +434,7 @@ export function registerSessionStreamIpc(): void {
           clearTimeout(firstChunkWarnTimer)
           logger.info('[SessionStreamIpc][TRACE] reader loop completed', {
             sessionId,
+            requestId,
             chunkCount,
             elapsedMs: Date.now() - streamStartedAt
           })
@@ -438,32 +446,43 @@ export function registerSessionStreamIpc(): void {
             : []
           logger.info('[SessionStreamIpc] Headless completion persisted', {
             sessionId,
+            requestId,
             userMessageId: completionResult?.userMessage?.id,
             assistantMessageId: completionResult?.assistantMessage?.id,
             persistedAssistantBlockCount: persistedAssistantBlocks.length
           })
           logger.info('[SessionStreamIpc] Publishing complete event to session stream bus', {
             sessionId,
+            requestId,
             hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
             subscriberCount: sessionStreamBus.subscriberCount(sessionId)
           })
           // Persist runs in main process for this IPC route, so force renderer
           // to reload from DB to pick up non-text blocks (e.g. tool blocks).
           broadcastSessionChanged(session.agent_id, sessionId, true)
-          sessionStreamBus.publish(sessionId, { sessionId, agentId: session.agent_id, type: 'complete' })
+          sessionStreamBus.publish(sessionId, {
+            sessionId,
+            agentId: session.agent_id,
+            requestId,
+            type: 'complete'
+          })
         } catch (error) {
           sessionStreamBus.publish(sessionId, {
             sessionId,
             agentId: session.agent_id,
+            requestId,
             type: 'error',
             error: { message: error instanceof Error ? error.message : String(error) }
           })
         } finally {
-          activeAbortControllers.delete(sessionId)
+          const activeRequest = activeAbortControllers.get(sessionId)
+          if (activeRequest?.requestId === requestId) {
+            activeAbortControllers.delete(sessionId)
+          }
         }
       })()
 
-      return { ok: true }
+      return { ok: true, requestId }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }

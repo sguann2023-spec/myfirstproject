@@ -5,7 +5,8 @@ import type { TextStreamPart } from 'ai'
 export type SessionStreamChunk = {
   sessionId: string
   agentId: string
-  type: 'started' | 'user-message' | 'chunk' | 'complete' | 'error'
+  requestId?: string
+  type: 'started' | 'user-message' | 'chunk' | 'complete' | 'error' | 'cancelled'
   chunk?: TextStreamPart<Record<string, any>>
   userMessage?: {
     chatId: string
@@ -14,7 +15,7 @@ export type SessionStreamChunk = {
     text: string
     images?: Array<{ data: string; media_type: string }>
   }
-  error?: { message: string }
+  error?: { message: string; code?: string }
 }
 
 class SessionStreamBus extends EventEmitter {

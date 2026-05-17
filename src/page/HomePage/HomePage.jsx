@@ -68,6 +68,10 @@ const isModelInOptions = (model, options = []) => {
 
 const createChatId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createRequestId = () =>
+  (typeof globalThis?.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
 const summarizeLogValue = (value) => {
   if (typeof value === 'string') {
@@ -297,7 +301,7 @@ const HomePage = () => {
   const chatTitleGeneratingSessionIdsRef = useRef(new Set());
   const chatAgentSessionIdByChatIdRef = useRef(new Map());
   const chatIdByAgentSessionIdRef = useRef(new Map());
-  const chatPendingByAgentSessionIdRef = useRef(new Map());
+  const chatPendingByRequestIdRef = useRef(new Map());
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -767,15 +771,17 @@ const HomePage = () => {
 
     const offChunk = window.electronAPI.cherryChatStream.onChunk((payload) => {
       const agentSessionId = payload?.sessionId;
+      const requestId = String(payload?.requestId || '').trim();
       if (!agentSessionId) {
         logger.warn('[HomePage][StreamTrace] drop payload without sessionId', {
+          requestId,
           payloadType: payload?.type || '',
           chunkType: payload?.chunk?.type || '',
           hasChunk: Boolean(payload?.chunk)
         });
         return;
       }
-      const pending = chatPendingByAgentSessionIdRef.current.get(agentSessionId);
+      const pending = requestId ? chatPendingByRequestIdRef.current.get(requestId) : undefined;
       if (!pending) {
         const payloadType = String(payload?.type || '');
         const chunkType = String(payload?.chunk?.type || '');
@@ -787,11 +793,12 @@ const HomePage = () => {
           chunkType.startsWith('tool-') || payloadType === 'started' || payloadType === 'complete' || payloadType === 'error' || payloadType === 'cancelled';
         if (isToolRelated) {
           logger.warn('[HomePage][StreamTrace] drop payload without pending state', {
+            requestId,
             sessionId: agentSessionId,
             payloadType,
             chunkType,
-            pendingMapSize: chatPendingByAgentSessionIdRef.current.size,
-            knownPendingSessionIds: summarizeMapKeys(chatPendingByAgentSessionIdRef.current),
+            pendingMapSize: chatPendingByRequestIdRef.current.size,
+            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current),
             knownChatSessionIds: summarizeMapKeys(chatAgentSessionIdByChatIdRef.current)
           });
         }
@@ -869,14 +876,14 @@ const HomePage = () => {
       if (payload.type === 'error') {
         const errorMessage = String(payload?.error?.message || '');
         if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
-          chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+          if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
           chatIdByAgentSessionIdRef.current.delete(agentSessionId);
           chatAgentSessionIdByChatIdRef.current.delete(chatId);
         }
         const normalizedError = normalizeChatError(payload?.error || new Error(payload?.error?.message || 'agent request failed'));
         streamController?.error(new Error(errorMessage || 'agent request failed'));
         finalizeAssistantMessage({ error: normalizedError, aborted: false });
-        chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
         setChatSessionSending(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
         setChatSending(false);
@@ -886,7 +893,7 @@ const HomePage = () => {
       if (payload.type === 'cancelled') {
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         finalizeAssistantMessage({ error: null, aborted: true });
-        chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
         setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
         setChatSending(false);
@@ -896,7 +903,7 @@ const HomePage = () => {
       if (payload.type === 'complete') {
         streamController?.complete();
         applySnapshot(null);
-        chatPendingByAgentSessionIdRef.current.delete(agentSessionId);
+        if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
         setChatSessionSending(chatId, false, 'chunk.complete');
         setChatSessionFulfilled(chatId, true, 'chunk.complete');
         setChatSending(false);
@@ -1065,11 +1072,13 @@ const HomePage = () => {
     setChatSessionSending(targetSessionId, true, 'send-start');
     setChatSessionFulfilled(targetSessionId, false, 'send-start');
     setChatSending(true);
+    const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
       logger.info('[HomePage][StreamTrace] register pending before createMessage', {
         chatId: targetSessionId,
         sessionId: agentSessionId,
+        requestId,
         assistantMessageId
       });
       const streamController = setupChannelStream(
@@ -1079,8 +1088,9 @@ const HomePage = () => {
         'vectcut_claw_default',
         chatModel
       );
-      chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
+      chatPendingByRequestIdRef.current.set(requestId, {
         chatId: targetSessionId,
+        agentSessionId,
         assistantMessageId,
         storeAssistantMessageId: streamController.assistantMessageId,
         streamController
@@ -1088,18 +1098,22 @@ const HomePage = () => {
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: text,
+        requestId,
         model: chatModel
       });
       logger.info('[HomePage][StreamTrace] createMessage roundtrip done', {
         chatId: targetSessionId,
         sessionId: agentSessionId,
+        requestId,
+        resultRequestId: result?.requestId || '',
         assistantMessageId,
-        pendingMapSize: chatPendingByAgentSessionIdRef.current.size,
-        knownPendingSessionIds: summarizeMapKeys(chatPendingByAgentSessionIdRef.current)
+        pendingMapSize: chatPendingByRequestIdRef.current.size,
+        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
       });
       logger.info('[HomePage] cherryChatStream createMessage result', {
         chatId: targetSessionId,
         sessionId: agentSessionId,
+        requestId,
         ok: Boolean(result?.ok),
         error: result?.error || '',
         model: chatModel
@@ -1110,11 +1124,7 @@ const HomePage = () => {
     } catch (error) {
       const normalizedError = normalizeChatError(error);
       logger.error('Chat send failed', normalizedError?.detail || error?.message || String(error));
-      const pendingEntries = [...chatPendingByAgentSessionIdRef.current.entries()];
-      const pendingEntry = pendingEntries.find(([, item]) => item.chatId === targetSessionId && item.assistantMessageId === assistantMessageId);
-      if (pendingEntry?.[0]) {
-        chatPendingByAgentSessionIdRef.current.delete(pendingEntry[0]);
-      }
+      chatPendingByRequestIdRef.current.delete(requestId);
       setChatSessionSending(targetSessionId, false, 'send-catch');
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
@@ -1141,10 +1151,10 @@ const HomePage = () => {
 
   const handleStopChatMessage = () => {
     if (canUseAgentRuntime) {
-      const pendingEntries = [...chatPendingByAgentSessionIdRef.current.entries()];
+      const pendingEntries = [...chatPendingByRequestIdRef.current.entries()];
       const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
-      if (active && active[0]) {
-        void window.electronAPI.cherryChatStream.abort(active[0]);
+      if (active && active[1]?.agentSessionId) {
+        void window.electronAPI.cherryChatStream.abort(active[1].agentSessionId);
         setChatSessionSending(active[1]?.chatId || activeChatId, false, 'manual-stop');
         setChatSending(false);
         return;
@@ -1206,6 +1216,7 @@ const HomePage = () => {
     setChatSessionSending(activeChatId, true, 'retry-start');
     setChatSessionFulfilled(activeChatId, false, 'retry-start');
     setChatSending(true);
+    const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
       const streamController = setupChannelStream(
@@ -1215,8 +1226,9 @@ const HomePage = () => {
         'vectcut_claw_default',
         chatModel
       );
-      chatPendingByAgentSessionIdRef.current.set(agentSessionId, {
+      chatPendingByRequestIdRef.current.set(requestId, {
         chatId: activeChatId,
+        agentSessionId,
         assistantMessageId: messageId,
         storeAssistantMessageId: streamController.assistantMessageId,
         streamController
@@ -1224,10 +1236,12 @@ const HomePage = () => {
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: String(prevUser.content || ''),
+        requestId,
         model: chatModel
       });
       if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
     } catch (error) {
+      chatPendingByRequestIdRef.current.delete(requestId);
       const normalizedError = normalizeChatError(error);
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
