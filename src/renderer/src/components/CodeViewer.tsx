@@ -11,6 +11,7 @@ import type { ThemedToken } from 'shiki/core'
 import styled from 'styled-components'
 
 const logger = loggerService.withContext('CodeViewer')
+const VIRTUALIZATION_LINE_THRESHOLD = 50
 
 interface SavedSelection {
   startLine: number
@@ -113,6 +114,10 @@ const CodeViewer = ({
   const lineNumbers = useMemo(() => options?.lineNumbers ?? _lineNumbers, [options?.lineNumbers, _lineNumbers])
 
   const rawLines = useMemo(() => (typeof value === 'string' ? value.trimEnd().split('\n') : []), [value])
+  const shouldVirtualize = useMemo(
+    () => !expanded && rawLines.length > VIRTUALIZATION_LINE_THRESHOLD,
+    [expanded, rawLines.length]
+  )
 
   // 计算行号数字位数
   const gutterDigits = useMemo(
@@ -283,8 +288,8 @@ const CodeViewer = ({
 
       const { startLine, startOffset, endLine, endOffset } = saved
 
-      // Always use custom copy in collapsed state to handle virtual scroll edge cases
-      const needsCustomCopy = !expanded
+      // Always use custom copy in virtualized collapsed state to handle virtual scroll edge cases
+      const needsCustomCopy = shouldVirtualize
 
       logger.debug('Copy event', {
         startLine,
@@ -338,7 +343,7 @@ const CodeViewer = ({
         }
       }
     },
-    [selectionBelongsToViewer, expanded, saveSelection, rawLines]
+    [selectionBelongsToViewer, saveSelection, rawLines, shouldVirtualize]
   )
 
   // Virtualizer 配置
@@ -356,7 +361,7 @@ const CodeViewer = ({
     overscan: 20
   })
 
-  const virtualItems = virtualizer.getVirtualItems()
+  const virtualItems = shouldVirtualize ? virtualizer.getVirtualItems() : []
 
   // 使用代码高亮 Hook
   const { tokenLines, highlightLines } = useCodeHighlight({
@@ -373,8 +378,10 @@ const CodeViewer = ({
     if (virtualItems.length > 0 && shikiThemeRef.current) {
       const lastIndex = virtualItems[virtualItems.length - 1].index
       void debouncedHighlightLines(lastIndex + 1)
+    } else if (!shouldVirtualize && rawLines.length > 0) {
+      void debouncedHighlightLines(rawLines.length)
     }
-  }, [virtualItems, debouncedHighlightLines])
+  }, [virtualItems, debouncedHighlightLines, rawLines.length, shouldVirtualize])
 
   // Monitor selection changes, clear stale selection state, and auto-expand in collapsed state
   const handleSelectionChange = useMemo(
@@ -452,33 +459,48 @@ const CodeViewer = ({
             overflowY: expanded ? 'hidden' : 'auto'
           } as React.CSSProperties
         }>
-        <div
-          className="shiki-list"
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            width: '100%',
-            position: 'relative'
-          }}>
+        {shouldVirtualize ? (
           <div
+            className="shiki-list"
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
+              height: `${virtualizer.getTotalSize()}px`,
               width: '100%',
-              transform: `translateY(${virtualItems[0]?.start ?? 0}px)`
+              position: 'relative'
             }}>
-            {virtualItems.map((virtualItem) => (
-              <div key={virtualItem.key} data-index={virtualItem.index} ref={virtualizer.measureElement}>
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItems[0]?.start ?? 0}px)`
+              }}>
+              {virtualItems.map((virtualItem) => (
+                <div key={virtualItem.key} data-index={virtualItem.index} ref={virtualizer.measureElement}>
+                  <VirtualizedRow
+                    rawLine={rawLines[virtualItem.index]}
+                    tokenLine={tokenLines[virtualItem.index]}
+                    showLineNumbers={lineNumbers}
+                    index={virtualItem.index}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="shiki-list">
+            {rawLines.map((rawLine, index) => (
+              <div key={`${callerId}-${index}`} data-index={index}>
                 <VirtualizedRow
-                  rawLine={rawLines[virtualItem.index]}
-                  tokenLine={tokenLines[virtualItem.index]}
+                  rawLine={rawLine}
+                  tokenLine={tokenLines[index]}
                   showLineNumbers={lineNumbers}
-                  index={virtualItem.index}
+                  index={index}
                 />
               </div>
             ))}
           </div>
-        </div>
+        )}
       </ScrollContainer>
     </div>
   )

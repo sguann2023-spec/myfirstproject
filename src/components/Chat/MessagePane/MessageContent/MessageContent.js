@@ -147,7 +147,7 @@ const createToolStore = (entities = {}) =>
             themeDark: 'auto'
           },
           codeImageTools: true,
-          codeCollapsible: true,
+          codeCollapsible: false,
           codeWrappable: false
         },
         messageBlocks: { entities },
