@@ -13,6 +13,7 @@ const SKILL_MENTION_CLOSE_DELAY = 120;
 const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
 
 const Composer = ({
   agentId,
@@ -360,11 +361,12 @@ const Composer = ({
       });
       onSuccess && onSuccess(result, targetFile);
       if (result?.publicUrl) {
+        const normalizedUrl = stripUrlSearch(result.publicUrl);
         setUploadedFileMeta((prev) => {
           const next = prev.filter((item) => item.uid !== uid);
           next.push({
             uid,
-            url: result.publicUrl,
+            url: normalizedUrl,
             name: targetFile?.name || file?.name || '附件',
           });
           return next;
