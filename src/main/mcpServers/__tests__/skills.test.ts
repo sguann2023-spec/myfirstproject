@@ -1,13 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { net } from 'electron'
+import SkillsServer from '../skills'
 
 // Mocks must be declared before importing SkillsServer
 const mockSkillInstall = vi.fn()
 const mockSkillUninstallByFolderName = vi.fn()
 const mockSkillList = vi.fn()
+const mockSkillListActive = vi.fn()
 const mockSkillToggle = vi.fn()
-const mockSkillInstallFromDirectory = vi.fn()
 const mockSkillGetSkillDirectory = vi.fn()
+const mockSkillGetAgentSkillDirectory = vi.fn()
+const mockSkillGetSkillFolderName = vi.fn()
 const mockSkillGetByFolderName = vi.fn()
+const mockSkillGetActiveSkillByFolderName = vi.fn()
+const mockSkillRemoveAgentLocalSkill = vi.fn()
 const mockNetFetch = vi.fn()
 const mockMkdir = vi.fn()
 const mockReaddir = vi.fn()
@@ -22,18 +28,19 @@ vi.mock('@main/services/agents/skills', () => ({
     install: mockSkillInstall,
     uninstallByFolderName: mockSkillUninstallByFolderName,
     list: mockSkillList,
+    listActive: mockSkillListActive,
     toggle: mockSkillToggle,
-    installFromDirectory: mockSkillInstallFromDirectory,
     getSkillDirectory: mockSkillGetSkillDirectory,
-    getByFolderName: mockSkillGetByFolderName
+    getAgentSkillDirectory: mockSkillGetAgentSkillDirectory,
+    getSkillFolderName: mockSkillGetSkillFolderName,
+    getByFolderName: mockSkillGetByFolderName,
+    getActiveSkillByFolderName: mockSkillGetActiveSkillByFolderName,
+    removeAgentLocalSkill: mockSkillRemoveAgentLocalSkill
   }
 }))
 
 // Override net.fetch with our local mock — electron is mocked globally in main.setup.ts
-const electron = await import('electron')
-vi.mocked(electron.net.fetch).mockImplementation(mockNetFetch)
-
-const { default: SkillsServer } = await import('../skills')
+vi.mocked(net.fetch).mockImplementation(mockNetFetch)
 type SkillsServerInstance = InstanceType<typeof SkillsServer>
 
 function createServer(agentId = 'agent_test') {
@@ -62,6 +69,11 @@ describe('SkillsServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSkillToggle.mockResolvedValue({ id: 'skill-1', isEnabled: true })
+    mockSkillList.mockResolvedValue([])
+    mockSkillListActive.mockResolvedValue([])
+    mockSkillGetSkillFolderName.mockImplementation((name: string) => name)
+    mockSkillGetByFolderName.mockResolvedValue(null)
+    mockSkillGetActiveSkillByFolderName.mockResolvedValue(null)
   })
 
   it('should expose only the skills tool', async () => {
@@ -174,6 +186,8 @@ describe('SkillsServer', () => {
 
   describe('remove action', () => {
     it('should remove an installed skill', async () => {
+      mockSkillGetActiveSkillByFolderName.mockResolvedValue(null)
+      mockSkillGetByFolderName.mockResolvedValue({ folderName: 'gh-create-pr' })
       mockSkillUninstallByFolderName.mockResolvedValue(undefined)
 
       const server = createServer('agent_1')
@@ -181,6 +195,19 @@ describe('SkillsServer', () => {
 
       expect(mockSkillUninstallByFolderName).toHaveBeenCalledWith('gh-create-pr')
       expect(result.content[0].text).toContain('removed')
+    })
+
+    it('should remove an agent-local skill without touching global registry', async () => {
+      mockSkillGetActiveSkillByFolderName.mockResolvedValue({ folderName: 'my-agent-skill' })
+      mockSkillGetByFolderName.mockResolvedValue(null)
+      mockSkillRemoveAgentLocalSkill.mockResolvedValue(undefined)
+
+      const server = createServer('agent_1')
+      const result = await callTool(server, { action: 'remove', name: 'my-agent-skill' })
+
+      expect(mockSkillRemoveAgentLocalSkill).toHaveBeenCalledWith('agent_1', 'my-agent-skill')
+      expect(mockSkillUninstallByFolderName).not.toHaveBeenCalled()
+      expect(result.content[0].text).toContain('Agent-local skill')
     })
 
     it('should error when name is missing', async () => {
@@ -195,10 +222,16 @@ describe('SkillsServer', () => {
   describe('list action', () => {
     it('should list installed skills with absolute on-disk paths', async () => {
       mockSkillList.mockResolvedValue([
-        { id: '1', name: 'gh-create-pr', description: 'Create PRs', folderName: 'gh-create-pr', isEnabled: true },
-        { id: '2', name: 'code-review', description: 'Review code', folderName: 'code-review', isEnabled: true }
+        { id: '1', name: 'gh-create-pr', description: 'Create PRs', folderName: 'gh-create-pr', isEnabled: true }
+      ])
+      mockSkillListActive.mockResolvedValue([
+        { id: '1', name: 'gh-create-pr', description: 'Create PRs', folderName: 'gh-create-pr', isEnabled: true, source: 'agent' },
+        { id: '2', name: 'code-review', description: 'Review code', folderName: 'code-review', isEnabled: true, source: 'agent' }
       ])
       mockSkillGetSkillDirectory.mockImplementation((folder: string) => `/global-skills/${folder}`)
+      mockSkillGetAgentSkillDirectory.mockImplementation(
+        async (_agentId: string, folder: string) => `/agents/agent_1/.claude/skills/${folder}`
+      )
 
       const server = createServer('agent_1')
       const result = await callTool(server, { action: 'list' })
@@ -213,17 +246,17 @@ describe('SkillsServer', () => {
       expect(parsed[0]).toMatchObject({
         name: 'gh-create-pr',
         folder: 'gh-create-pr',
-        path: '/global-skills/gh-create-pr',
+        path: '/agents/agent_1/.claude/skills/gh-create-pr',
         enabled: true
       })
       expect(parsed[1]).toMatchObject({
         name: 'code-review',
         folder: 'code-review',
-        path: '/global-skills/code-review',
+        path: '/agents/agent_1/.claude/skills/code-review',
         enabled: true
       })
-      expect(mockSkillGetSkillDirectory).toHaveBeenCalledWith('gh-create-pr')
-      expect(mockSkillGetSkillDirectory).toHaveBeenCalledWith('code-review')
+      expect(mockSkillGetAgentSkillDirectory).toHaveBeenCalledWith('agent_1', 'gh-create-pr')
+      expect(mockSkillGetAgentSkillDirectory).toHaveBeenCalledWith('agent_1', 'code-review')
     })
 
     it('should handle empty list', async () => {
@@ -238,22 +271,20 @@ describe('SkillsServer', () => {
 
   describe('init action', () => {
     it('should create the skill directory and return its path', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
-      mockSkillGetByFolderName.mockResolvedValue(null)
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
       mockMkdir.mockResolvedValue(undefined)
 
       const server = createServer('agent_1')
       const result = await callTool(server, { action: 'init', name: 'my-skill' })
 
-      expect(mockSkillGetSkillDirectory).toHaveBeenCalledWith('my-skill')
-      expect(mockMkdir).toHaveBeenCalledWith('/global-skills/my-skill', { recursive: true })
-      expect(result.content[0].text).toContain('/global-skills/my-skill')
+      expect(mockSkillGetAgentSkillDirectory).toHaveBeenCalledWith('agent_1', 'my-skill')
+      expect(mockMkdir).toHaveBeenCalledWith('/agents/agent_1/.claude/skills/my-skill', { recursive: true })
+      expect(result.content[0].text).toContain('/agents/agent_1/.claude/skills/my-skill')
       expect(result.content[0].text).toContain('register')
     })
 
     it('should reject when a skill with the same folder name already exists in DB', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
       mockSkillGetByFolderName.mockResolvedValue({
         id: 'existing-id',
         name: 'My Existing Skill',
@@ -271,8 +302,7 @@ describe('SkillsServer', () => {
     })
 
     it('should reject when directory exists and is non-empty but not tracked in DB', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
-      mockSkillGetByFolderName.mockResolvedValue(null)
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockResolvedValue(['SKILL.md', 'scripts'])
 
       const server = createServer()
@@ -284,8 +314,7 @@ describe('SkillsServer', () => {
     })
 
     it('should allow init when directory exists but is empty', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
-      mockSkillGetByFolderName.mockResolvedValue(null)
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockResolvedValue([])
       mockMkdir.mockResolvedValue(undefined)
 
@@ -297,8 +326,7 @@ describe('SkillsServer', () => {
     })
 
     it('should reject when readdir fails with non-ENOENT error (e.g. EACCES)', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
-      mockSkillGetByFolderName.mockResolvedValue(null)
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockRejectedValue(Object.assign(new Error('Permission denied'), { code: 'EACCES' }))
 
       const server = createServer()
@@ -319,32 +347,21 @@ describe('SkillsServer', () => {
   })
 
   describe('register action', () => {
-    it('should register an in-place skill and enable it', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
+    it('should register an agent-local skill in place', async () => {
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockResolvedValue(['SKILL.md', 'scripts'])
-      mockSkillInstallFromDirectory.mockResolvedValue({
-        id: 'skill-2',
-        name: 'My Skill',
-        description: 'Cool skill',
-        folderName: 'my-skill',
-        isEnabled: false
-      })
 
       const server = createServer('agent_1')
       const result = await callTool(server, { action: 'register', name: 'my-skill' })
 
-      expect(mockSkillInstallFromDirectory).toHaveBeenCalledWith({ directoryPath: '/global-skills/my-skill' })
-      expect(mockSkillToggle).toHaveBeenCalledWith({
-        skillId: 'skill-2',
-        agentId: 'agent_1',
-        isEnabled: true
-      })
-      expect(result.content[0].text).toContain('My Skill')
-      expect(result.content[0].text).toContain('registered and enabled for this agent')
+      expect(mockSkillGetAgentSkillDirectory).toHaveBeenCalledWith('agent_1', 'my-skill')
+      expect(mockSkillToggle).not.toHaveBeenCalled()
+      expect(result.content[0].text).toContain('registered for this agent')
+      expect(result.content[0].text).toContain('Scope: agent-local')
     })
 
     it('should error when SKILL.md is missing from directory', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockResolvedValue(['scripts', 'README.md'])
 
       const server = createServer()
@@ -352,11 +369,10 @@ describe('SkillsServer', () => {
 
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toContain('No SKILL.md found')
-      expect(mockSkillInstallFromDirectory).not.toHaveBeenCalled()
     })
 
     it('should error when directory does not exist', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
 
       const server = createServer()
@@ -365,11 +381,10 @@ describe('SkillsServer', () => {
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toContain('does not exist')
       expect(result.content[0].text).toContain('Did you call action="init" first')
-      expect(mockSkillInstallFromDirectory).not.toHaveBeenCalled()
     })
 
     it('should error with InternalError when readdir fails with EACCES', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
+      mockSkillGetAgentSkillDirectory.mockResolvedValue('/agents/agent_1/.claude/skills/my-skill')
       mockReaddir.mockRejectedValue(Object.assign(new Error('Permission denied'), { code: 'EACCES' }))
 
       const server = createServer()
@@ -378,26 +393,6 @@ describe('SkillsServer', () => {
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toContain('Cannot read skill directory')
       expect(result.content[0].text).not.toContain('Did you call action="init" first')
-      expect(mockSkillInstallFromDirectory).not.toHaveBeenCalled()
-    })
-
-    it('should warn when toggle fails after register', async () => {
-      mockSkillGetSkillDirectory.mockReturnValue('/global-skills/my-skill')
-      mockReaddir.mockResolvedValue(['SKILL.md'])
-      mockSkillInstallFromDirectory.mockResolvedValue({
-        id: 'skill-2',
-        name: 'My Skill',
-        description: 'Cool skill',
-        folderName: 'my-skill',
-        isEnabled: false
-      })
-      mockSkillToggle.mockResolvedValue(null)
-
-      const server = createServer()
-      const result = await callTool(server, { action: 'register', name: 'my-skill' })
-
-      expect(result.content[0].text).toContain('warning: failed to enable')
-      expect(result.content[0].text).toContain('Enabled: false')
     })
 
     it('should error when name is missing', async () => {

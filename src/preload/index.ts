@@ -930,6 +930,15 @@ const legacyElectronAPI = {
       const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
       return { ok: Boolean((result as any)?.success), skills }
     },
+    subscribeChanges: ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) =>
+      ipcRenderer.invoke(IpcChannel.Skill_SubscribeChanges, agentId),
+    unsubscribeChanges: ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) =>
+      ipcRenderer.invoke(IpcChannel.Skill_UnsubscribeChanges, agentId),
+    onChanged: (callback: (payload: any) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload)
+      ipcRenderer.on(IpcChannel.Skill_Changed, listener)
+      return () => ipcRenderer.off(IpcChannel.Skill_Changed, listener)
+    },
     rescan: async ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) => {
       const result = await ipcRenderer.invoke(IpcChannel.Skill_List, agentId)
       const skills = Array.isArray((result as any)?.data) ? (result as any).data : []

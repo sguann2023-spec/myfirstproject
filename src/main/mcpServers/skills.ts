@@ -47,7 +47,7 @@ function buildSkillIdentifier(skill: SkillSearchResult): string {
 const SKILLS_TOOL: Tool = {
   name: 'skills',
   description:
-    "Manage Claude skills. Use 'search' to find skills from the marketplace, 'install' to install a marketplace skill, 'remove' to uninstall, or 'list' to see installed skills. To author a brand-new skill, use 'init' to prepare a target directory, write SKILL.md and supporting files into that directory, then call 'register' to add it to the global skill list and enable it for the current session.",
+    "Manage Claude skills. Use 'search' to find skills from the marketplace, 'install' to install a marketplace skill, 'remove' to uninstall, or 'list' to see installed skills. To author a brand-new skill, use 'init' to prepare a target directory under the current agent's .claude/skills folder, write SKILL.md and supporting files into that directory, then call 'register' to validate and enable it for the current agent.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -221,6 +221,18 @@ class SkillsServer {
     const name = args.name
     if (!name) throw new McpError(ErrorCode.InvalidParams, "'name' is required for remove (skill folder name)")
 
+    const localSkill = await skillService.getActiveSkillByFolderName(this.agentId, name)
+    const globalSkill = await skillService.getByFolderName(name)
+
+    if (localSkill && !globalSkill) {
+      await skillService.removeAgentLocalSkill(this.agentId, name)
+
+      logger.info('Agent-local skill removed via tool', { agentId: this.agentId, name })
+      return {
+        content: [{ type: 'text' as const, text: `Agent-local skill "${name}" removed from this agent.` }]
+      }
+    }
+
     await skillService.uninstallByFolderName(name)
 
     logger.info('Skill removed via tool', { agentId: this.agentId, name })
@@ -230,7 +242,15 @@ class SkillsServer {
   }
 
   private async listSkills() {
-    const skills = await skillService.list(this.agentId)
+    const [globalSkills, activeSkills] = await Promise.all([
+      skillService.list(this.agentId),
+      skillService.listActive(this.agentId)
+    ])
+    const activeSkillMap = new Map(activeSkills.map((skill) => [skill.folderName, skill]))
+    const activeOnlySkills = activeSkills.filter(
+      (active) => !globalSkills.some((skill) => skill.folderName === active.folderName)
+    )
+    const skills = [...globalSkills, ...activeOnlySkills]
 
     if (skills.length === 0) {
       return { content: [{ type: 'text' as const, text: 'No skills installed.' }] }
@@ -238,15 +258,23 @@ class SkillsServer {
 
     // Include the absolute on-disk path so the model can patch a skill in
     // place via the native Read / Edit tools when it discovers the skill is
-    // outdated, incomplete, or wrong (the live symlink picks up file edits
-    // immediately, so no separate "patch" tool is needed).
-    const results = skills.map((s) => ({
-      name: s.name,
-      folder: s.folderName,
-      path: skillService.getSkillDirectory(s.folderName),
-      description: s.description ?? null,
-      enabled: s.isEnabled
-    }))
+    // outdated, incomplete, or wrong. Enabled skills should point at the
+    // current agent's live directory; disabled global skills still point at
+    // the shared global registry path.
+    const results = await Promise.all(
+      skills.map(async (s) => {
+        const activeSkill = activeSkillMap.get(s.folderName)
+        return {
+          name: s.name,
+          folder: s.folderName,
+          path: activeSkill
+            ? await skillService.getAgentSkillDirectory(this.agentId, s.folderName)
+            : skillService.getSkillDirectory(s.folderName),
+          description: s.description ?? null,
+          enabled: Boolean(activeSkill ?? s.isEnabled)
+        }
+      })
+    )
 
     logger.info('Skills list via tool', { agentId: this.agentId, count: results.length })
     return {
@@ -258,15 +286,25 @@ class SkillsServer {
     const name = args.name
     if (!name) throw new McpError(ErrorCode.InvalidParams, "'name' is required for init")
 
-    const skillDir = skillService.getSkillDirectory(name)
+    const folderName = skillService.getSkillFolderName(name)
+    const skillDir = await skillService.getAgentSkillDirectory(this.agentId, folderName)
 
-    // Check for collision with an existing skill in DB.
-    const existingSkill = await skillService.getByFolderName(name)
+    const existingGlobalSkill = await skillService.getByFolderName(folderName)
+    if (existingGlobalSkill) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `A global skill named "${existingGlobalSkill.name}" already exists with folder "${folderName}". ` +
+          `Choose a different name to avoid colliding with the shared skill registry.`
+      )
+    }
+
+    // Check for collision with an existing skill already enabled for this agent.
+    const existingSkill = await skillService.getActiveSkillByFolderName(this.agentId, folderName)
     if (existingSkill) {
       throw new McpError(
         ErrorCode.InvalidParams,
-        `A skill named "${existingSkill.name}" already exists with folder "${name}". ` +
-          `Choose a different name, or use action="remove" with name="${name}" first if you intend to replace it.`
+        `A skill named "${existingSkill.name}" already exists for this agent with folder "${folderName}". ` +
+          `Choose a different name, or use action="remove" with name="${folderName}" first if you intend to replace it.`
       )
     }
 
@@ -305,7 +343,7 @@ class SkillsServer {
             skillDir,
             ``,
             `Write SKILL.md and any supporting files (scripts/, references/, assets/) directly into this directory.`,
-            `When the skill is ready, call skills with action="register" and name="${name}" to register it in the global skill list and enable it for the current session.`,
+            `When the skill is ready, call skills with action="register" and name="${folderName}" to validate it and keep it available for the current agent.`,
             `You can re-edit files in place and call register again to refresh.`
           ].join('\n')
         }
@@ -317,9 +355,10 @@ class SkillsServer {
     const name = args.name
     if (!name) throw new McpError(ErrorCode.InvalidParams, "'name' is required for register")
 
-    const skillDir = skillService.getSkillDirectory(name)
+    const folderName = skillService.getSkillFolderName(name)
+    const skillDir = await skillService.getAgentSkillDirectory(this.agentId, folderName)
 
-    // Pre-flight: ensure SKILL.md exists before attempting install
+    // Pre-flight: ensure SKILL.md exists before confirming agent-level registration
     try {
       const entries = await readdir(skillDir)
       if (!entries.some((e) => e.toLowerCase() === 'skill.md')) {
@@ -343,29 +382,20 @@ class SkillsServer {
       )
     }
 
-    const installed = await skillService.installFromDirectory({ directoryPath: skillDir })
-    // Same per-agent scope as installSkill above — register only enables the
-    // skill for the current agent, not globally.
-    const enabled = await skillService.toggle({
-      skillId: installed.id,
-      agentId: this.agentId,
-      isEnabled: true
-    })
-
     logger.info('Skill registered via tool', {
       agentId: this.agentId,
-      name: installed.name,
-      folderName: installed.folderName
+      folderName,
+      skillDir
     })
     return {
       content: [
         {
           type: 'text' as const,
           text: [
-            `Skill "${installed.name}" registered${enabled?.isEnabled ? ' and enabled for this agent' : ' (warning: failed to enable)'}.`,
-            `  Folder: ${installed.folderName}`,
-            `  Description: ${installed.description ?? 'N/A'}`,
-            `  Enabled: ${enabled?.isEnabled ?? false}`
+            `Skill "${folderName}" registered for this agent.`,
+            `  Folder: ${folderName}`,
+            `  Path: ${skillDir}`,
+            `  Scope: agent-local`
           ].join('\n')
         }
       ]

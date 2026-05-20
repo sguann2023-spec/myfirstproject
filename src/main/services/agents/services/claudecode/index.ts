@@ -77,6 +77,19 @@ const DEFAULT_AUTO_ALLOW_TOOLS = new Set([
   'NotebookEdit',
   'Write'
 ])
+const REQUIRED_DISCOVERABLE_NATIVE_TOOLS = [
+  'NotebookRead',
+  'Task',
+  'TodoWrite',
+  'Read',
+  'Glob',
+  'Grep',
+  'Bash',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'Write'
+] as const
 const IMAGE_MAX_DIMENSION = 2000
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
 const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
@@ -140,15 +153,18 @@ class ClaudeCodeService implements AgentServiceInterface {
       return aiStream
     }
 
-    // Sync per-agent skill symlinks in this workspace with the `agent_skills`
-    // DB state before we spin up the SDK. This repairs drift from external
-    // edits (user deleted a symlink, workspace was moved, etc.) so Claude
-    // Code sees exactly the set of skills the agent should have enabled.
+    const skillWorkspace = session.accessible_paths[1] || cwd
+
+    // Sync the shared agent-level `.claude/skills` directory before we spin
+    // up the SDK. Session workspaces link their `.claude/skills` entry to the
+    // agent workspace, so reconciling the agent workspace keeps one shared
+    // skills directory aligned with the enabled-skill state.
     try {
-      await skillService.reconcileAgentSkills(session.agent_id, cwd)
+      await skillService.reconcileAgentSkills(session.agent_id, skillWorkspace)
     } catch (error) {
       logger.warn('Failed to reconcile agent skills before session start', {
         agentId: session.agent_id,
+        skillWorkspace,
         error: error instanceof Error ? error.message : String(error)
       })
     }
@@ -293,7 +309,11 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const errorChunks: string[] = []
 
-    const sessionAllowedTools = new Set<string>(session.allowed_tools ?? [])
+    const resolvedAllowedTools =
+      Array.isArray(session.allowed_tools) && session.allowed_tools.length > 0
+        ? Array.from(new Set([...session.allowed_tools, ...REQUIRED_DISCOVERABLE_NATIVE_TOOLS]))
+        : session.allowed_tools
+    const sessionAllowedTools = new Set<string>(resolvedAllowedTools ?? [])
     const autoAllowTools = new Set<string>([...DEFAULT_AUTO_ALLOW_TOOLS, ...sessionAllowedTools])
     const readFilesInSession = new Set<string>()
     const summarizeToolList = (tools?: string[]) => {
@@ -638,7 +658,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       includePartialMessages: true,
       permissionMode: session.configuration?.permission_mode,
       maxTurns: session.configuration?.max_turns,
-      allowedTools: session.allowed_tools,
+      allowedTools: resolvedAllowedTools,
       plugins,
       canUseTool,
       hooks: {
@@ -837,7 +857,7 @@ class ClaudeCodeService implements AgentServiceInterface {
           : Array.isArray(options.allowedTools) && options.allowedTools.length === 0
             ? 'empty-array'
             : 'non-empty-array',
-      sessionAllowedTools: summarizeToolList(session.allowed_tools),
+      sessionAllowedTools: summarizeToolList(resolvedAllowedTools),
       autoAllowTools: summarizeToolList(Array.from(autoAllowTools)),
       finalAllowedTools: summarizeToolList(options.allowedTools),
       mcpServerNames: Object.keys(options.mcpServers || {}),

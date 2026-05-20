@@ -5,22 +5,22 @@ description: Create new skills, modify and improve existing skills, and measure 
 
 ## Cherry Studio workflow (READ FIRST — overrides packaging / install steps below)
 
-You are running inside Cherry Studio. Skills live in a managed global registry,
-so you do **not** write files to `.claude/skills/` or to
-`~/Library/Application Support/.../Skills/` directly, and you should **ignore**
-any `package_skill.py` / `.skill` packaging steps mentioned later in this file
-(they apply to Claude Code / Claude.ai, not here).
+You are running inside Cherry Studio. New skills created through this workflow
+should live under the **current agent's** managed `.claude/skills/` directory,
+not in the global `~/Library/Application Support/.../Data/Skills/` registry.
+You should **ignore** any `package_skill.py` / `.skill` packaging steps
+mentioned later in this file (they apply to Claude Code / Claude.ai, not here).
 
 **The flow for creating a new skill is exactly two tool calls:**
 
 1. Call the `skills` tool with `action="init"` and `name="<skill-folder-name>"`.
-   It returns an absolute directory path. Write `SKILL.md` and any supporting
-   files (`scripts/`, `references/`, `assets/`) **directly into that directory**.
+   It returns an absolute directory path inside the current agent's
+   `.claude/skills/` directory. Write `SKILL.md` and any supporting files
+   (`scripts/`, `references/`, `assets/`) **directly into that directory**.
 2. When the skill is ready, call `skills` with `action="register"` and the same
-   `name`. The skill is registered into the global skill list and enabled for
-   the current session automatically. You can re-edit files in place and call
-   `register` again at any time to refresh — the live symlink picks up file
-   content changes immediately, so mid-iteration edits work without ceremony.
+   `name`. The skill is validated and kept available for the current agent.
+   You can re-edit files in place and call `register` again at any time to
+   refresh.
 
 Use the same `<skill-folder-name>` for both `init` and `register` calls. The
 `name:` field inside your `SKILL.md` frontmatter becomes the display name and

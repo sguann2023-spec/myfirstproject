@@ -54,6 +54,9 @@ declare global {
         list: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         listActive: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         listLocal: (payload: { workdir: string }) => Promise<{ ok: boolean; skills: any[] }>
+        subscribeChanges: (payload?: { agentId?: string }) => Promise<any>
+        unsubscribeChanges: (payload?: { agentId?: string }) => Promise<any>
+        onChanged: (callback: (payload: any) => void) => () => void
         toggle: (payload: { agentId?: string; skillId: string; isEnabled: boolean }) => Promise<any>
         installFromDirectory: (payload: { agentId?: string; directoryPath: string; isEnabled?: boolean }) => Promise<any>
         uninstall: (payload: { skillId: string }) => Promise<any>

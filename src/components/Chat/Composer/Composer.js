@@ -47,6 +47,7 @@ const Composer = ({
 
   React.useEffect(() => {
     let cancelled = false;
+    let removeSkillsChangedListener = null;
     const loadSkills = async () => {
       const api = window?.electronAPI?.agentSkills;
       const cherryChatStream = window?.electronAPI?.cherryChatStream;
@@ -78,7 +79,8 @@ const Composer = ({
           typeof api.listLocal === 'function'
         ) {
           const sessionResult = await cherryChatStream.getSession(runtimeSessionId);
-          const workdir = sessionResult?.ok ? sessionResult?.session?.accessible_paths?.[0] : '';
+          const accessiblePaths = sessionResult?.ok ? sessionResult?.session?.accessible_paths : [];
+          const workdir = accessiblePaths?.[1] || '';
           if (workdir) {
             result = await api.listLocal({ workdir });
           }
@@ -105,8 +107,22 @@ const Composer = ({
       }
     };
     loadSkills();
+    const api = window?.electronAPI?.agentSkills;
+    if (agentId && api && typeof api.onChanged === 'function') {
+      void api.subscribeChanges({ agentId }).catch(() => {});
+      removeSkillsChangedListener = api.onChanged((payload) => {
+        if (payload?.agentId && payload.agentId !== agentId) return;
+        void loadSkills();
+      });
+    }
     return () => {
       cancelled = true;
+      if (typeof removeSkillsChangedListener === 'function') {
+        removeSkillsChangedListener();
+      }
+      if (agentId && api && typeof api.unsubscribeChanges === 'function') {
+        void api.unsubscribeChanges({ agentId }).catch(() => {});
+      }
     };
   }, [agentId, runtimeSessionId]);
 

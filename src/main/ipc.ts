@@ -69,6 +69,7 @@ import { searchService } from './services/SearchService'
 import { isSafeExternalUrl } from './services/security'
 import { SelectionService } from './services/SelectionService'
 import { registerShortcuts, unregisterAllShortcuts } from './services/ShortcutService'
+import { loggerService as mainLoggerService } from './services/LoggerService'
 import {
   addEndMessage,
   addStreamMessage,
@@ -104,6 +105,86 @@ import { compress, decompress } from './utils/zip'
 import { installBuiltinSkills } from './utils/builtinSkills'
 
 const logger = loggerService.withContext('IPC')
+
+type SkillWatcherEntry = {
+  watcher: fs.FSWatcher
+  refCount: number
+  skillsRoot: string
+  notifyTimer?: NodeJS.Timeout
+}
+
+const SKILL_WATCH_DEBOUNCE_MS = 150
+const skillWatcherEntries = new Map<string, SkillWatcherEntry>()
+
+function broadcastSkillChanged(agentId: string, payload: { filename?: string; eventType?: string; skillsRoot?: string } = {}): void {
+  const currentMainWindow = windowService.getMainWindow()
+  if (!currentMainWindow || currentMainWindow.isDestroyed()) return
+  currentMainWindow.webContents.send(IpcChannel.Skill_Changed, { agentId, ...payload })
+}
+
+async function ensureSkillWatcher(agentId: string): Promise<string> {
+  const existing = skillWatcherEntries.get(agentId)
+  if (existing) {
+    existing.refCount += 1
+    return existing.skillsRoot
+  }
+
+  const skillsRoot = await skillService.getAgentSkillsRoot(agentId)
+  await fs.promises.mkdir(skillsRoot, { recursive: true })
+
+  const recursive = isMac || isWin
+  const watcher = fs.watch(
+    skillsRoot,
+    { recursive },
+    (eventType, filename) => {
+      const entry = skillWatcherEntries.get(agentId)
+      if (!entry) return
+
+      if (entry.notifyTimer) {
+        clearTimeout(entry.notifyTimer)
+      }
+
+      entry.notifyTimer = setTimeout(() => {
+        const normalizedFilename = filename == null ? undefined : String(filename)
+        broadcastSkillChanged(agentId, {
+          eventType,
+          filename: normalizedFilename,
+          skillsRoot: entry.skillsRoot
+        })
+      }, SKILL_WATCH_DEBOUNCE_MS)
+    }
+  )
+
+  watcher.on('error', (error) => {
+    logger.warn('Skill watcher error', {
+      agentId,
+      skillsRoot,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  })
+
+  skillWatcherEntries.set(agentId, {
+    watcher,
+    refCount: 1,
+    skillsRoot
+  })
+
+  return skillsRoot
+}
+
+function releaseSkillWatcher(agentId: string): void {
+  const entry = skillWatcherEntries.get(agentId)
+  if (!entry) return
+
+  entry.refCount -= 1
+  if (entry.refCount > 0) return
+
+  if (entry.notifyTimer) {
+    clearTimeout(entry.notifyTimer)
+  }
+  entry.watcher.close()
+  skillWatcherEntries.delete(agentId)
+}
 
 const backupManager = new BackupManager()
 const exportService = new ExportService()
@@ -142,7 +223,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     configPath: getConfigDir(),
     appDataPath: app.getPath('userData'),
     resourcesPath: getResourcePath(),
-    logsPath: loggerService.getLogsDir(),
+    logsPath: mainLoggerService.getLogsDir(),
     arch: arch(),
     isPortable: isWin && 'PORTABLE_EXECUTABLE_DIR' in process.env,
     installPath: path.dirname(app.getPath('exe'))
@@ -1056,6 +1137,26 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       return { success: true, data }
     } catch (error) {
       logger.error('Failed to list active agent skills', { agentId, error })
+      return { success: false, error }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Skill_SubscribeChanges, async (_, agentId: string) => {
+    try {
+      const skillsRoot = await ensureSkillWatcher(agentId)
+      return { success: true, data: { agentId, skillsRoot } }
+    } catch (error) {
+      logger.error('Failed to subscribe skill watcher', { agentId, error })
+      return { success: false, error }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Skill_UnsubscribeChanges, async (_, agentId: string) => {
+    try {
+      releaseSkillWatcher(agentId)
+      return { success: true }
+    } catch (error) {
+      logger.error('Failed to unsubscribe skill watcher', { agentId, error })
       return { success: false, error }
     }
   })

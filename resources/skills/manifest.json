@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-05-17T14:12:53Z",
+  "updatedAt": "2026-05-20T15:18:32Z",
   "skills": {
     "find-skills": {
       "version": "1.0.0",
@@ -7,8 +7,8 @@
       "minAppVersion": "1.5.0"
     },
     "skill-creator": {
-      "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator/1_0_0/skill-creator.zip",
+      "version": "1.0.1",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator/1_0_1/skill-creator.zip",
       "minAppVersion": "1.5.0"
     },
     "vectcut-skill": {

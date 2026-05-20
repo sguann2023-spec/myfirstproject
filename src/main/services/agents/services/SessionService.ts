@@ -143,11 +143,20 @@ export class SessionService extends BaseService {
     }
 
     // Session-isolated workspace:
-    // each conversation gets its own folder with copied skill folders under
-    // `<sessionWorkspace>/.claude/skills/<skillName>/...`.
-    const sessionWorkspace = await this.prepareSessionWorkspaceWithSkills(agentId, id)
+    // each conversation gets its own folder while sharing the agent-level
+    // `.claude/skills` directory instead of copying skills per session.
+    const agentWorkspace =
+      Array.isArray(agent.accessible_paths) && typeof agent.accessible_paths[0] === 'string'
+        ? agent.accessible_paths[0]
+        : undefined
+    const sessionWorkspace = await this.prepareSessionWorkspaceWithSkills(agentId, id, agentWorkspace)
     const baseAccessiblePaths = Array.isArray(sessionData.accessible_paths) ? sessionData.accessible_paths : []
-    sessionData.accessible_paths = [sessionWorkspace, ...baseAccessiblePaths.filter((p) => p !== sessionWorkspace)]
+    const additionalAccessiblePaths = baseAccessiblePaths.filter((p) => p !== sessionWorkspace && p !== agentWorkspace)
+    sessionData.accessible_paths = [
+      sessionWorkspace,
+      ...(agentWorkspace ? [agentWorkspace] : []),
+      ...additionalAccessiblePaths
+    ]
 
     await this.validateAgentModels(agent.type, {
       model: sessionData.model,
@@ -369,36 +378,56 @@ export class SessionService extends BaseService {
     return resolved === root || resolved.startsWith(root + path.sep)
   }
 
-  private async prepareSessionWorkspaceWithSkills(agentId: string, sessionId: string): Promise<string> {
+  private async prepareSessionWorkspaceWithSkills(
+    agentId: string,
+    sessionId: string,
+    agentWorkspace?: string
+  ): Promise<string> {
     const sessionWorkspace = path.join(this.getManagedSessionsRoot(), agentId, sessionId)
-    const targetSkillsRoot = path.join(sessionWorkspace, '.claude', 'skills')
-    const sourceSkillsRoot = path.resolve(getDataPath('Skills'))
+    const sessionClaudeDir = path.join(sessionWorkspace, '.claude')
+    const sessionSkillsRoot = path.join(sessionClaudeDir, 'skills')
+    const agentSkillsRoot = agentWorkspace
+      ? path.join(path.resolve(agentWorkspace), '.claude', 'skills')
+      : undefined
 
-    await fs.promises.mkdir(targetSkillsRoot, { recursive: true })
+    await fs.promises.mkdir(sessionClaudeDir, { recursive: true })
+
+    if (!agentSkillsRoot) {
+      logger.warn('Preparing session workspace without shared agent skills because agent workspace is missing', {
+        agentId,
+        sessionId,
+        workspace: sessionWorkspace
+      })
+      await fs.promises.mkdir(sessionSkillsRoot, { recursive: true })
+      return sessionWorkspace
+    }
 
     try {
-      const entries = await fs.promises.readdir(sourceSkillsRoot, { withFileTypes: true })
-      const skillDirs = entries.filter((entry) => entry.isDirectory())
+      await fs.promises.mkdir(agentSkillsRoot, { recursive: true })
+      await fs.promises.rm(sessionSkillsRoot, { recursive: true, force: true })
+      await fs.promises.symlink(
+        agentSkillsRoot,
+        sessionSkillsRoot,
+        process.platform === 'win32' ? 'junction' : 'dir'
+      )
 
-      for (const entry of skillDirs) {
-        const source = path.join(sourceSkillsRoot, entry.name)
-        const target = path.join(targetSkillsRoot, entry.name)
-        await fs.promises.cp(source, target, { recursive: true })
-      }
-
-      logger.info('Prepared session workspace with copied skills', {
+      logger.info('Prepared session workspace with shared agent skills', {
         agentId,
         sessionId,
         workspace: sessionWorkspace,
-        skillsCount: skillDirs.length
+        agentWorkspace,
+        agentSkillsRoot
       })
     } catch (error) {
-      logger.warn('Failed to copy skills into session workspace', {
+      logger.warn('Failed to link agent skills into session workspace', {
         agentId,
         sessionId,
         workspace: sessionWorkspace,
+        agentWorkspace,
+        agentSkillsRoot,
         error: error instanceof Error ? error.message : String(error)
       })
+      await fs.promises.mkdir(sessionSkillsRoot, { recursive: true })
     }
 
     return sessionWorkspace

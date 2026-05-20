@@ -434,6 +434,9 @@ export enum IpcChannel {
   Skill_ListFiles = 'skill:list-files',
   Skill_ListLocal = 'skill:list-local',
   Skill_ListActive = 'skill:list-active',
+  Skill_SubscribeChanges = 'skill:subscribe-changes',
+  Skill_UnsubscribeChanges = 'skill:unsubscribe-changes',
+  Skill_Changed = 'skill:changed',
 
   // Local Transfer
   LocalTransfer_ListServices = 'local-transfer:list',

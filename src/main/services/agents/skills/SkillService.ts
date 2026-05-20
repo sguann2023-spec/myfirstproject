@@ -222,6 +222,37 @@ export class SkillService extends BaseService {
     return this.getSkillStoragePath(this.sanitizeFolderName(name))
   }
 
+  getSkillFolderName(name: string): string {
+    return this.sanitizeFolderName(name)
+  }
+
+  async getAgentSkillDirectory(agentId: string, name: string): Promise<string> {
+    const root = await this.getAgentSkillsRoot(agentId)
+    return path.join(root, this.sanitizeFolderName(name))
+  }
+
+  async getAgentSkillsRoot(agentId: string): Promise<string> {
+    const workspace = await this.getAgentWorkspace(agentId)
+    if (!workspace) {
+      throw new Error(`Agent workspace not found for "${agentId}"`)
+    }
+    return path.join(workspace, '.claude', 'skills')
+  }
+
+  async getActiveSkillByFolderName(agentId: string, name: string): Promise<InstalledSkill | null> {
+    const folderName = this.sanitizeFolderName(name)
+    const skills = await this.listActive(agentId)
+    return skills.find((skill) => skill.folderName === folderName || skill.id === folderName) ?? null
+  }
+
+  async removeAgentLocalSkill(agentId: string, name: string): Promise<void> {
+    const workspace = await this.getAgentWorkspace(agentId)
+    if (!workspace) {
+      throw new Error(`Agent workspace not found for "${agentId}"`)
+    }
+    await this.unlinkSkill(this.sanitizeFolderName(name), workspace)
+  }
+
   async uninstall(skillId: string): Promise<void> {
     const folderName = this.sanitizeFolderName(skillId)
     const database = await this.getDatabase()
