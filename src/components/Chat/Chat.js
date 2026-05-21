@@ -54,6 +54,7 @@ const Chat = ({
   onModelChange,
   historyVisible = true,
   onToggleHistory,
+  onCreateSession,
   sessionTitle = '新对话',
   sessionTitleRenaming = false,
   sessionTitleNewlyRenamed = false,
@@ -117,6 +118,7 @@ const Chat = ({
       runtimeSessionId={runtimeSessionId}
       historyVisible={historyVisible}
       onToggleHistory={onToggleHistory}
+      onCreateSession={onCreateSession}
       sessionTitle={sessionTitle}
       sessionTitleRenaming={sessionTitleRenaming}
       sessionTitleNewlyRenamed={sessionTitleNewlyRenamed}

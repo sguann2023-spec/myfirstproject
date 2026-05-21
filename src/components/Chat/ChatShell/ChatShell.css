@@ -160,6 +160,24 @@
   box-shadow: 0 0 0 2px rgba(90, 149, 240, 0.18);
 }
 
+.chat-panel__navbar-spacer {
+  flex: 1;
+  min-width: 12px;
+}
+
+.chat-panel__navbar-icon-image {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.chat-panel__navbar-divider {
+  width: 1px;
+  height: 18px;
+  margin-left: 12px;
+  background: #d9d9d9;
+}
+
 @keyframes chat-animation-shimmer {
   0% {
     background-position: 200% 0;

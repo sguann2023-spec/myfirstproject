@@ -53,14 +53,14 @@ const ChatHistoryList = ({
     <div className={`chat-history-list ${visible ? 'is-visible' : 'is-hidden'}`}>
       <div className="chat-history-list__header">
         <div className="chat-history-list__title">会话历史</div>
-        <button
+        {/* <button
           type="button"
           className="chat-history-list__new-btn"
           aria-label="新建会话"
           onClick={() => onCreateSession && onCreateSession()}
         >
           <Plus size={14} strokeWidth={2} />
-        </button>
+        </button> */}
       </div>
 
       <div className="chat-history-list__body">

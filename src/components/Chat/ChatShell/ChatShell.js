@@ -2,6 +2,7 @@ import React from 'react';
 import { Tooltip } from 'antd';
 import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
+import NewChatIcon from '../../../../public/new_chat.svg';
 
 const ChatShell = ({
   agentId,
@@ -12,6 +13,7 @@ const ChatShell = ({
   sessionTitleRenaming = false,
   sessionTitleNewlyRenamed = false,
   onRenameSessionTitle,
+  onCreateSession,
   onSelectSkill,
   children
 }) => {
@@ -169,6 +171,19 @@ const ChatShell = ({
             <SidebarToggleIcon direction={historyVisible ? 'left' : 'right'} />
           </span>
         </Tooltip>
+        <Tooltip
+          title="新建对话"
+          placement="bottom"
+          mouseEnterDelay={0.5}
+          styles={{ body: { fontSize: 12 } }}>
+          <span
+            className="chat-panel__navbar-icon-wrap"
+            style={{ marginLeft: 6 }}
+            onClick={() => onCreateSession && onCreateSession()}>
+            <img className="chat-panel__navbar-icon-image" src={NewChatIcon} alt="新建对话" />
+          </span>
+        </Tooltip>
+        <span className="chat-panel__navbar-divider" aria-hidden="true" />
         {isEditingTitle ? (
           <input
             ref={titleInputRef}

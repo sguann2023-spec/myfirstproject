@@ -1480,6 +1480,7 @@ const HomePage = () => {
                 onModelChange={setChatModel}
                 historyVisible={chatHistoryVisible}
                 onToggleHistory={handleToggleChatHistory}
+                onCreateSession={handleCreateChatSession}
                 sessionTitle={activeChatSession?.title || DEFAULT_CHAT_TITLE}
                 sessionTitleRenaming={
                   Boolean(activeChatId) && chatTitleRenamingSessionIds.includes(activeChatId)
