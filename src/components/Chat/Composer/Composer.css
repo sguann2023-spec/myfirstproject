@@ -206,9 +206,11 @@
   font-size: 14px;
   line-height: 1.4;
   font-family: inherit;
+  box-sizing: border-box;
   white-space: pre-wrap;
   word-break: break-word;
-  overflow-wrap: anywhere;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .chat-panel__input-highlights {
