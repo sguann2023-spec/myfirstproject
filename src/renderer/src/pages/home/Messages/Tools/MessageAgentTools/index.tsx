@@ -28,6 +28,7 @@ import { ReadTool } from './ReadTool'
 import { SearchTool } from './SearchTool'
 import { SkillTool } from './SkillTool'
 import { TaskTool } from './TaskTool'
+import { TodoWriteTool } from './TodoWriteTool'
 import { ToolSearchTool } from './ToolSearchTool'
 import type { ToolInput, ToolOutput } from './types'
 import { AgentToolsType } from './types'
@@ -35,6 +36,11 @@ import { UnknownToolRenderer } from './UnknownToolRenderer'
 import { WebFetchTool } from './WebFetchTool'
 import { WebSearchTool } from './WebSearchTool'
 import { WriteTool } from './WriteTool'
+
+type ToolRenderer = (props: {
+  input?: any
+  output?: any
+}) => NonNullable<CollapseProps['items']>[number]
 
 // 创建工具渲染器映射
 export const toolRenderers = {
@@ -53,8 +59,9 @@ export const toolRenderers = {
   [AgentToolsType.NotebookEdit]: NotebookEditTool,
   [AgentToolsType.ExitPlanMode]: ExitPlanModeTool,
   [AgentToolsType.Skill]: SkillTool,
+  [AgentToolsType.TodoWrite]: TodoWriteTool,
   [AgentToolsType.ToolSearch]: ToolSearchTool
-}
+} satisfies Partial<Record<AgentToolsType, ToolRenderer>>
 
 const logger = loggerService.withContext('MessageAgentTools')
 
@@ -105,10 +112,10 @@ export function renderTool(
   input: ToolInput | Record<string, unknown> | string | undefined,
   output?: ToolOutput | unknown
 ): NonNullable<CollapseProps['items']>[number] {
-  const renderer = toolRenderers[toolName] as (props: {
-    input?: unknown
-    output?: unknown
-  }) => NonNullable<CollapseProps['items']>[number]
+  const renderer = toolRenderers[toolName as keyof typeof toolRenderers] as ToolRenderer | undefined
+  if (!renderer) {
+    return UnknownToolRenderer({ toolName, input, output })
+  }
   return renderer({ input, output })
 }
 
@@ -217,11 +224,6 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
         <AskUserQuestionCard toolResponse={toolResponse} />
       </StreamingContext>
     )
-  }
-
-  // TodoWrite tools are always shown in PinnedTodoPanel, never in message stream
-  if (tool?.name === AgentToolsType.TodoWrite) {
-    return null
   }
 
   const effectiveStatus = getEffectiveStatus(status, !!pendingPermission)

@@ -64,20 +64,7 @@ import { ClaudeStreamState, transformSDKMessageToStreamParts } from './transform
 const require_ = require
 const logger = loggerService.withContext('ClaudeCodeService')
 const promptBuilder = new PromptBuilder()
-const DEFAULT_AUTO_ALLOW_TOOLS = new Set([
-  'NotebookRead',
-  'Task',
-  'TodoWrite',
-  'Read',
-  'Glob',
-  'Grep',
-  'Bash',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-  'Write'
-])
-const REQUIRED_DISCOVERABLE_NATIVE_TOOLS = [
+const DEFAULT_ALLOWED_TOOLS = [
   'NotebookRead',
   'Task',
   'TodoWrite',
@@ -90,6 +77,7 @@ const REQUIRED_DISCOVERABLE_NATIVE_TOOLS = [
   'NotebookEdit',
   'Write'
 ] as const
+const DEFAULT_AUTO_ALLOW_TOOLS = new Set<string>(DEFAULT_ALLOWED_TOOLS)
 const IMAGE_MAX_DIMENSION = 2000
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
 const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
@@ -309,10 +297,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const errorChunks: string[] = []
 
-    const resolvedAllowedTools =
-      Array.isArray(session.allowed_tools) && session.allowed_tools.length > 0
-        ? Array.from(new Set([...session.allowed_tools, ...REQUIRED_DISCOVERABLE_NATIVE_TOOLS]))
-        : session.allowed_tools
+    const resolvedAllowedTools = Array.from(new Set([...(session.allowed_tools ?? []), ...DEFAULT_ALLOWED_TOOLS]))
     const sessionAllowedTools = new Set<string>(resolvedAllowedTools ?? [])
     const autoAllowTools = new Set<string>([...DEFAULT_AUTO_ALLOW_TOOLS, ...sessionAllowedTools])
     const readFilesInSession = new Set<string>()
@@ -322,6 +307,40 @@ class ClaudeCodeService implements AgentServiceInterface {
       return {
         count: unique.length,
         tools: unique.sort()
+      }
+    }
+    const summarizePromptSource = (
+      promptSource: Options['systemPrompt']
+    ): {
+      mode: 'assistant' | 'soul' | 'preset' | 'custom'
+      preset: string | null
+      length: number
+      appendLength: number | null
+    } => {
+      if (typeof promptSource === 'string') {
+        return {
+          mode: assistantSystemPrompt ? 'assistant' : soulSystemPrompt ? 'soul' : 'custom',
+          preset: null,
+          length: promptSource.length,
+          appendLength: null
+        }
+      }
+
+      if (promptSource && typeof promptSource === 'object' && 'type' in promptSource && promptSource.type === 'preset') {
+        const append = typeof promptSource.append === 'string' ? promptSource.append : ''
+        return {
+          mode: 'preset',
+          preset: promptSource.preset,
+          length: append.length,
+          appendLength: append.length
+        }
+      }
+
+      return {
+        mode: 'custom',
+        preset: null,
+        length: 0,
+        appendLength: null
       }
     }
     const normalizeToolName = (name: string) => (name.startsWith('builtin_') ? name.slice('builtin_'.length) : name)
@@ -682,6 +701,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       ...(thinkingOptions?.effort ? { effort: thinkingOptions.effort } : {}),
       ...(thinkingOptions?.thinking ? { thinking: thinkingOptions.thinking } : {})
     }
+    const promptSourceSummary = summarizePromptSource(options.systemPrompt)
 
     if (session.accessible_paths.length > 1) {
       options.additionalDirectories = session.accessible_paths.slice(1)
@@ -846,6 +866,65 @@ class ClaudeCodeService implements AgentServiceInterface {
         tool.trim().toLowerCase().startsWith('mcp__')
       ),
       mcpAutoAllowTools: Array.from(autoAllowTools).filter((tool) => tool.trim().toLowerCase().startsWith('mcp__'))
+    })
+
+    logger.info('Claude session visibility probe', {
+      sessionId: session.id,
+      agentId: session.agent_id,
+      modelId: modelInfo.modelId,
+      builtinRole: builtinRole ?? null,
+      isAssistant,
+      soulEnabled,
+      isChannelSession,
+      linkedChannelId: linkedChannel?.id ?? null,
+      permissionMode: session.configuration?.permission_mode ?? null,
+      maxTurns: session.configuration?.max_turns ?? null,
+      rawAllowedToolsState:
+        session.allowed_tools === undefined
+          ? 'undefined'
+          : Array.isArray(session.allowed_tools) && session.allowed_tools.length === 0
+            ? 'empty-array'
+            : 'non-empty-array',
+      rawAllowedTools: summarizeToolList(session.allowed_tools),
+      defaultAllowedTools: summarizeToolList(Array.from(DEFAULT_ALLOWED_TOOLS)),
+      resolvedAllowedToolsState:
+        resolvedAllowedTools === undefined
+          ? 'undefined'
+          : Array.isArray(resolvedAllowedTools) && resolvedAllowedTools.length === 0
+            ? 'empty-array'
+            : 'non-empty-array',
+      resolvedAllowedTools: summarizeToolList(resolvedAllowedTools),
+      finalAllowedToolsState:
+        options.allowedTools === undefined
+          ? 'undefined'
+          : Array.isArray(options.allowedTools) && options.allowedTools.length === 0
+            ? 'empty-array'
+            : 'non-empty-array',
+      finalAllowedTools: summarizeToolList(options.allowedTools),
+      todoProbe: {
+        rawHasTodoWrite: Array.isArray(session.allowed_tools) ? session.allowed_tools.includes('TodoWrite') : null,
+        resolvedHasTodoWrite: Array.isArray(resolvedAllowedTools) ? resolvedAllowedTools.includes('TodoWrite') : null,
+        finalCoversTodoWrite: allowsToolByPattern(options.allowedTools, 'TodoWrite'),
+        autoAllowHasTodoWrite: autoAllowTools.has('TodoWrite') || autoAllowTools.has('builtin_TodoWrite'),
+        disallowedHasTodoWrite: options.disallowedTools?.includes('TodoWrite') ?? false
+      },
+      taskProbe: {
+        rawHasTask: Array.isArray(session.allowed_tools) ? session.allowed_tools.includes('Task') : null,
+        resolvedHasTask: Array.isArray(resolvedAllowedTools) ? resolvedAllowedTools.includes('Task') : null,
+        finalCoversTask: allowsToolByPattern(options.allowedTools, 'Task'),
+        autoAllowHasTask: autoAllowTools.has('Task') || autoAllowTools.has('builtin_Task'),
+        disallowedHasTask: options.disallowedTools?.includes('Task') ?? false
+      },
+      promptSource: {
+        ...promptSourceSummary,
+        sessionInstructionsLength: session.instructions?.length ?? 0,
+        nonSoulToolGuidanceLength: nonSoulToolGuidance.length,
+        nonSoulFactsRecallLength: nonSoulFactsRecall?.length ?? 0,
+        soulSystemPromptLength: soulSystemPrompt?.length ?? 0,
+        assistantSystemPromptLength: assistantSystemPrompt?.length ?? 0,
+        channelSecurityEnabled: Boolean(channelSecurityBlock),
+        settingSources: options.settingSources ?? []
+      }
     })
 
     logger.info('AllowedTools probe', {

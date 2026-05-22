@@ -31,6 +31,7 @@ import { spanManagerService } from '@renderer/services/SpanManagerService'
 import { estimateTextTokens as estimateTxtTokens, estimateUserPromptUsage } from '@renderer/services/TokenService'
 import WebSearchService from '@renderer/services/WebSearchService'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
+import { selectMessagesForTopic } from '@renderer/store/newMessage'
 import { sendMessage as _sendMessage } from '@renderer/store/thunk/messageThunk'
 import {
   type Assistant,
@@ -41,6 +42,7 @@ import {
   TopicType
 } from '@renderer/types'
 import type { MessageInputBaseParams } from '@renderer/types/newMessage'
+import { buildAgentSessionTopicId } from '@renderer/utils/agentSession'
 import { delay } from '@renderer/utils'
 import { getSendMessageShortcutLabel } from '@renderer/utils/input'
 import { documentExts, imageExts, textExts } from '@shared/config/constant'
@@ -50,6 +52,7 @@ import React, { useCallback, useEffect, useEffectEvent, useMemo, useRef, useStat
 import { useTranslation } from 'react-i18next'
 
 import { InputbarCore } from './components/InputbarCore'
+import { PinnedTodoPanel } from './components/PinnedTodoPanel'
 import InputbarTools from './InputbarTools'
 import KnowledgeBaseInput from './KnowledgeBaseInput'
 import MentionModelsInput from './MentionModelsInput'
@@ -167,6 +170,7 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
   const { pauseMessages } = useMessageOperations(topic)
   const loading = useTopicLoading(topic)
   const dispatch = useAppDispatch()
+  const topicMessages = useAppSelector((state) => selectMessagesForTopic(state, topic.id))
   const isVisionAssistant = useMemo(() => isVisionModel(model), [model])
   const isGenerateImageAssistant = useMemo(() => isGenerateImageModel(model), [model])
   const { setTimeoutTimer } = useTimer()
@@ -494,6 +498,18 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
     </>
   )
 
+  const pinnedTodoTopicId = useMemo(() => {
+    for (let index = topicMessages.length - 1; index >= 0; index -= 1) {
+      const agentSessionId = topicMessages[index]?.agentSessionId?.trim()
+      if (agentSessionId) {
+        return buildAgentSessionTopicId(agentSessionId)
+      }
+    }
+    return topic.id
+  }, [topic.id, topicMessages])
+
+  const pinnedContent = <PinnedTodoPanel topicId={pinnedTodoTopicId} />
+
   return (
     <InputbarCore
       scope={scope}
@@ -512,6 +528,7 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
       leftToolbar={leftToolbar}
       rightToolbar={rightToolbar}
       topContent={topContent}
+      pinnedContent={pinnedContent}
     />
   )
 }

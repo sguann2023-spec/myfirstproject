@@ -34,10 +34,10 @@ export const SOUL_MODE_DISALLOWED_TOOLS = [
   'CronCreate',
   'CronDelete',
   'CronList',
-  'TodoWrite',
-  'AskUserQuestion',
-  'EnterPlanMode',
-  'ExitPlanMode',
-  'EnterWorktree',
-  'NotebookEdit'
+  // 'TodoWrite',
+  // 'AskUserQuestion',
+  // 'EnterPlanMode',
+  // 'ExitPlanMode',
+  // 'EnterWorktree',
+  // 'NotebookEdit'
 ] as const
