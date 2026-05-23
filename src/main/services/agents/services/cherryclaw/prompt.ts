@@ -105,6 +105,15 @@ Rules:
 - Only use PowerShell or cmd syntax when the user explicitly asks for it, or when a Bash approach has already failed and you can explain why a Windows-native shell is necessary.
 - When choosing between equivalent commands, pick the form that will also work on macOS and Linux.`
 
+const SYSTEM_GUIDANCE = `## System Actions
+
+Use host-level system tools for trusted desktop actions that must escape the shell sandbox.
+
+Rules:
+- For VectCut draft download/open flows, first generate the \`vectcut://download?...\` deeplink, then call \`mcp__system__open_deeplink\` to let the desktop host open it.
+- Do not use Bash to run \`start\`, \`cmd.exe /c start\`, \`powershell Start-Process\`, \`open\`, or \`xdg-open\` for these VectCut deeplinks when the host-level system tool is available.
+- Only pass trusted app deeplinks to \`mcp__system__open_deeplink\`.`
+
 const FILE_EDITING_GUIDANCE = `## File Editing Protocol
 
 Follow this sequence strictly for file operations:
@@ -129,6 +138,7 @@ function composeToolGuidance(opts: { hasClaw: boolean }): string {
   parts.push(SKILLS_GUIDANCE)
   parts.push(MEMORY_GUIDANCE)
   parts.push(WEB_TOOLS_GUIDANCE)
+  parts.push(SYSTEM_GUIDANCE)
   parts.push(SHELL_GUIDANCE)
   parts.push(FILE_EDITING_GUIDANCE)
   return parts.join('\n\n')

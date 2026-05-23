@@ -25,6 +25,7 @@ import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import SkillsServer from '@main/mcpServers/skills'
+import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
 import { configManager } from '@main/services/ConfigManager'
 import {
@@ -732,6 +733,18 @@ class ClaudeCodeService implements AgentServiceInterface {
     options.mcpServers.exa = {
       type: 'http',
       url: 'https://mcp.exa.ai/mcp'
+    }
+
+    // Inject a host-level system MCP for trusted desktop actions that should
+    // not be attempted via sandboxed Bash (for example, opening a vetted
+    // vectcut:// deeplink on the user's OS).
+    const systemServer = new SystemServer()
+    options.mcpServers.system = { type: 'sdk', name: 'system', instance: systemServer.mcpServer }
+    autoAllowTools.add('mcp__system__open_deeplink')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__system__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__system__*']
+      }
     }
 
     // Inject skills MCP for all agents — managing Claude skills (search / install
