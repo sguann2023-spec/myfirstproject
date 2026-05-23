@@ -49,6 +49,24 @@ When to act:
 - After completing a non-trivial task (5+ tool calls, an iterative fix, a workflow you'd want to repeat), offer to save the approach as a new skill via \`init\` + \`register\`.
 - If you find an installed skill is outdated, incomplete, or wrong, fix it in place. Get the skill's \`path\` from \`mcp__skills__skills\` action="list" (or use the path returned by \`init\` if you just created it), then use the native Read / Edit tools on the files in that directory. The live symlink picks up file changes immediately, so no separate "patch" call is needed. Don't wait for the user to ask — patch immediately when you notice the issue.`
 
+const WORKFLOW_GUIDANCE = `## Workflow Execution Strategy
+
+For tasks with 5+ sequential steps, external APIs, async jobs, or repeated parameterized actions, treat the work as a workflow rather than a single opaque task.
+
+Execution rules:
+- Classify the work as prompt-heavy, script-first, or hybrid. Default to script-first or hybrid when stable APIs or deterministic steps are involved.
+- Prefer scripts, tools, and direct API calls for deterministic execution. Reserve the LLM for planning, copy generation, parameter selection, branch decisions, and summarizing results.
+- Before starting a workflow, give the user a brief execution plan with the main stages.
+- After each meaningful step, report:
+  - current step number and name
+  - script, tool, or API used
+  - key result (\`draft_id\`, \`task_id\`, \`url\`, output path, etc.)
+  - next step
+- For async work expected to take more than 15 seconds, immediately surface the \`task_id\`, say that polling has started, and continue reporting status changes or elapsed wait time.
+- Never remain silent for a long time during multi-step execution. The goal is clear progress visibility, not verbose chatter.
+- If the task cannot yet run end-to-end reliably, first build or repair a minimal runnable skeleton before investing in extensive prompt polish or benchmark-heavy evaluation.
+- If the same tool-call sequence or argument assembly would likely be repeated, bundle it into a reusable script or skill instead of re-deriving it each time.`
+
 const MEMORY_GUIDANCE = `## Workspace Memory
 
 You have persistent memory in this agent's workspace via the \`mcp__agent-memory__memory\` tool: \`update\` rewrites \`memory/FACT.md\` (durable knowledge), \`append\` adds a timestamped entry to \`memory/JOURNAL.jsonl\` (one-off events), and \`search\` queries the journal.
@@ -136,6 +154,7 @@ function composeToolGuidance(opts: { hasClaw: boolean }): string {
   const parts: string[] = []
   if (opts.hasClaw) parts.push(CLAW_GUIDANCE)
   parts.push(SKILLS_GUIDANCE)
+  parts.push(WORKFLOW_GUIDANCE)
   parts.push(MEMORY_GUIDANCE)
   parts.push(WEB_TOOLS_GUIDANCE)
   parts.push(SYSTEM_GUIDANCE)

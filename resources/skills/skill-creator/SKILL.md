@@ -85,9 +85,34 @@ Start by understanding the user's intent. The current conversation might already
 3. What's the expected output format?
 4. Should we set up test cases to verify the skill works? Skills with objectively verifiable outputs (file transforms, data extraction, code generation, fixed workflow steps) benefit from test cases. Skills with subjective outputs (writing style, art) often don't need them. Suggest the appropriate default based on the skill type, but let the user decide.
 
+### Workflow-Type Classification
+
+Before drafting the skill, classify it into one of these types:
+
+1. **Prompt-heavy skill**
+   - Most value comes from reasoning, writing, transformation, or planning.
+   - Use `SKILL.md` instructions as the main implementation.
+
+2. **Script-first skill**
+   - Most steps map to stable APIs, CLI commands, or deterministic logic.
+   - Prefer implementing repetitive or structured steps in `scripts/`.
+   - Use `SKILL.md` mainly for orchestration, trigger conditions, and user-visible progress rules.
+
+3. **Hybrid skill**
+   - Use the LLM for planning, copy generation, parameter selection, and branch decisions.
+   - Use scripts for execution, polling, validation, retries, and structured outputs.
+
+If the task contains 5+ sequential steps, external APIs, asynchronous jobs, or repeated parameterized actions, default to `script-first` or `hybrid`, not prompt-only.
+
+For workflow-heavy skills, gather these answers before drafting:
+- Which steps are deterministic and should become scripts?
+- Which steps are asynchronous and need polling?
+- Which results must be surfaced to the user after every step?
+- Which decisions actually require the LLM rather than code?
+
 ### Interview and Research
 
-Proactively ask questions about edge cases, input/output formats, example files, success criteria, and dependencies. Wait to write test prompts until you've got this part ironed out.
+Proactively ask questions about edge cases, input/output formats, example files, success criteria, and dependencies. For workflow-heavy skills, also ask about step boundaries, retry strategy, progress expectations, and which intermediate IDs / URLs / artifacts matter to the user. Wait to write test prompts until you've got this part ironed out.
 
 Check available MCPs - if useful for research (searching docs, finding similar skills, looking up best practices), research in parallel via subagents if available, otherwise inline. Come prepared with context to reduce burden on the user.
 
@@ -99,6 +124,16 @@ Based on the user interview, fill in these components:
 - **description**: When to trigger, what it does. This is the primary triggering mechanism - include both what the skill does AND specific contexts for when to use it. All "when to use" info goes here, not in the body. Note: currently Claude has a tendency to "undertrigger" skills -- to not use them when they'd be useful. To combat this, please make the skill descriptions a little bit "pushy". So for instance, instead of "How to build a simple fast dashboard to display internal Anthropic data.", you might write "How to build a simple fast dashboard to display internal Anthropic data. Make sure to use this skill whenever the user mentions dashboards, data visualization, internal metrics, or wants to display any kind of company data, even if they don't explicitly ask for a 'dashboard.'"
 - **compatibility**: Required tools, dependencies (optional, rarely needed)
 - **the rest of the skill :)**
+
+Before writing the final `SKILL.md`, produce a brief design package whenever the skill is workflow-heavy:
+
+1. Workflow step list
+2. Script breakdown
+3. Script input / output table
+4. Progress reporting format
+5. Failure / retry strategy
+
+For many users, this design package is more useful than a polished prompt because it forces the deterministic parts of the workflow to be implemented once instead of repeatedly improvised by the model.
 
 ### Skill Writing Guide
 
@@ -114,6 +149,23 @@ skill-name/
     ├── references/ - Docs loaded into context as needed
     └── assets/     - Files used in output (templates, icons, fonts)
 ```
+
+For workflow-heavy skills, a good default layout is:
+```
+skill-name/
+├── SKILL.md
+├── scripts/
+│   ├── run_pipeline.py
+│   ├── step_01_*.py
+│   ├── step_02_*.py
+│   └── ...
+└── references/
+    ├── apis.md
+    ├── parameters.md
+    └── failure_modes.md
+```
+
+Use a single orchestrator script when the whole flow should be runnable end-to-end, but prefer step scripts as well when the user may want to rerun, debug, or reuse individual phases.
 
 #### Progressive Disclosure
 
@@ -166,6 +218,54 @@ Input: Added user authentication with JWT tokens
 Output: feat(auth): implement JWT-based authentication
 ```
 
+#### Script-First Rules
+
+When creating a skill, prefer Python scripts for:
+- Stable API calls
+- Polling long-running async tasks
+- Validation and retries
+- Structured JSON outputs
+- Repetitive parameter assembly
+- Timeline / asset / file transformations
+
+Reserve the LLM for:
+- Copywriting
+- Parameter selection
+- Branch decisions
+- Summarizing results for the user
+
+Do not keep deterministic API orchestration only in prompt instructions if it can be implemented once in `scripts/`.
+
+If you notice that multiple test runs would likely repeat the same tool calls or argument assembly, that is a strong signal to bundle a script immediately instead of describing the steps only in prose.
+
+#### Progress Visibility Requirements
+
+For any skill with long-running or multi-step execution:
+- Always output a brief execution plan before starting.
+- After each step, report:
+  - current step number and name
+  - script or API used
+  - key result (`draft_id`, `task_id`, `material_id`, `url`, etc.)
+  - next step
+- For any async task expected to take more than 15 seconds:
+  - report the `task_id` immediately
+  - state that polling has started
+  - continue reporting status changes or elapsed wait time
+- Never remain silent for long periods during execution.
+
+The goal is not verbose chatter. The goal is to prevent the user from feeling that a 10-20 minute workflow has stalled.
+
+#### Workflow Skeleton First
+
+For long workflow skills, prefer this build order:
+1. Define the stages and handoff data
+2. Decide which stages must be scripts
+3. Create a minimal runnable skeleton
+4. Smoke-test the skeleton on one realistic input
+5. Only then invest in a richer prompt, eval set, and benchmark loop
+
+If the skill cannot yet run end-to-end with clear progress, do not jump straight into benchmark-heavy work.
+
 ### Writing Style
 
 Try to explain to the model why things are important in lieu of heavy-handed musty MUSTs. Use theory of mind and try to make the skill general and not super-narrow to specific examples. Start by writing a draft and then look at it with fresh eyes and improve it.
@@ -173,6 +273,14 @@ Try to explain to the model why things are important in lieu of heavy-handed mus
 ### Test Cases
 
 After writing the skill draft, come up with 2-3 realistic test prompts — the kind of thing a real user would actually say. Share them with the user: [you don't have to use this exact language] "Here are a few test cases I'd like to try. Do these look right, or do you want to add more?" Then run them.
+
+For workflow-heavy skills, do a smoke test first:
+- Confirm the skill can execute its skeleton path
+- Confirm progress updates are visible
+- Confirm long-running steps report polling behavior
+- Confirm the user receives the intermediate identifiers / links they actually need
+
+If the smoke test exposes missing scripts or fuzzy handoffs between steps, fix that before investing in a full benchmark loop.
 
 Save test cases to `evals/evals.json`. Don't write assertions yet — just the prompts. You'll draft assertions in the next step while the runs are in progress.
 
