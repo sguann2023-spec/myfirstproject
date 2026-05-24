@@ -72,6 +72,9 @@ DELAY_PLUGIN_ICON = (
 ALIAS_REF_EXACT_RE = re.compile(r"^\$\{([A-Za-z0-9_-]+)(?:\.([A-Za-z0-9_.]+))?\}$")
 ALIAS_REF_IN_TEXT_RE = re.compile(r"\$\{([A-Za-z0-9_-]+)(?:\.([A-Za-z0-9_.]+))?\}")
 BLOCK_OUTPUT_RE = re.compile(r"\{\{\s*block_output_(\d+)\.([A-Za-z0-9_.]+)\s*\}\}")
+VECTCUT_API_KEY_PLACEHOLDER_RE = re.compile(
+    r"(?i)^(?:bearer\s+)?(?:<YOUR_VECTCUT_API_KEY>|\$\{VECTCUT_API_KEY\}|\$VECTCUT_API_KEY|%VECTCUT_API_KEY%|\$env:VECTCUT_API_KEY)$"
+)
 
 
 class NodeIdAllocator:
@@ -258,7 +261,21 @@ def generate_numeric_id() -> int:
 def resolve_vectcut_api_key() -> str:
     """Prefer local env var, otherwise keep a safe placeholder."""
     token = (os.environ.get("VECTCUT_API_KEY") or "").strip()
-    return token or "<YOUR_VECTCUT_API_KEY>"
+    if token:
+        return token
+
+    # Windows users sometimes set environment variables with different casing.
+    for key, value in os.environ.items():
+        if key.strip().upper() == "VECTCUT_API_KEY":
+            normalized = str(value or "").strip()
+            if normalized:
+                return normalized
+
+    return "<YOUR_VECTCUT_API_KEY>"
+
+
+def is_vectcut_api_key_placeholder(text: str) -> bool:
+    return bool(VECTCUT_API_KEY_PLACEHOLDER_RE.fullmatch((text or "").strip()))
 
 
 def contains_dynamic_ref(text: str) -> bool:
@@ -278,11 +295,14 @@ def sanitize_headers(headers: dict[str, Any]) -> dict[str, Any]:
             continue
 
         text = value
-        if header_name.lower() == "authorization" and not contains_dynamic_ref(text):
-            if text.lower().startswith("bearer "):
+        if header_name.lower() == "authorization":
+            if is_vectcut_api_key_placeholder(text):
                 text = f"Bearer {resolved_token}"
-            elif text:
-                text = resolved_token
+            elif not contains_dynamic_ref(text):
+                if text.lower().startswith("bearer "):
+                    text = f"Bearer {resolved_token}"
+                elif text:
+                    text = resolved_token
         sanitized[header_name] = text
     return sanitized
 
@@ -925,7 +945,7 @@ def build_delay_plugin_node(
                 {"name": "apiID", "input": {"type": "string", "value": "7498369465021743114"}},
                 {"name": "apiName", "input": {"type": "string", "value": "delay"}},
                 {"name": "pluginID", "input": {"type": "string", "value": "7494208090473250828"}},
-                {"name": "pluginName", "input": {"type": "string", "value": "AI代码制造机的工具箱"}},
+                {"name": "pluginName", "input": {"type": "string", "value": "流光剪辑的工具箱"}},
                 {"name": "pluginVersion", "input": {"type": "string", "value": ""}},
                 {"name": "tips", "input": {"type": "string", "value": ""}},
                 {"name": "outDocLink", "input": {"type": "string", "value": ""}},

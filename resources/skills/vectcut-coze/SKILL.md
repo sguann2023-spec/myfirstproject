@@ -105,6 +105,7 @@ description: "把一个或多个 VectCut RESTful API 请求转成 Coze 工作流
 
 - 优先读取本地环境变量 `VECTCUT_API_KEY` 并写入 `Authorization`。
 - 如果本地没有 `VECTCUT_API_KEY`，再回退成 `Bearer <YOUR_VECTCUT_API_KEY>` 占位符。
+- 对 `Authorization` 里的常见占位写法做跨平台兼容处理，例如 `Bearer ${VECTCUT_API_KEY}`、`Bearer %VECTCUT_API_KEY%`、`Bearer $env:VECTCUT_API_KEY` 都应解析为本地真实 API Key，而不是原样落盘。
 - 允许保留其他无敏感信息的 header。
 - 如果用户贴出了真实 token，落盘时仍然优先替换为本地 `VECTCUT_API_KEY`；不要把用户会话里的长 token 原样固化进交付文件。
 

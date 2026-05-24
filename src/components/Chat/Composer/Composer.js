@@ -347,6 +347,13 @@ const Composer = ({
     return true;
   };
 
+  const handleUploadListChange = React.useCallback((fileList) => {
+    const nextList = fileList.slice(-MAX_UPLOAD_COUNT);
+    const uidSet = new Set(nextList.map((item) => item.uid));
+    setUploadFileList(nextList);
+    setUploadedFileMeta((prev) => prev.filter((item) => uidSet.has(item.uid)));
+  }, []);
+
   const handleFileUpload = async ({ file, onProgress, onSuccess, onError }) => {
     const targetFile = file instanceof File ? file : file?.originFileObj;
     const uid = file?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -378,6 +385,67 @@ const Composer = ({
       message.error('文件上传失败');
     }
   };
+
+  const queueFilesForUpload = React.useCallback((files = []) => {
+    if (sessionSending) return;
+    const fileList = files
+      .filter((item) => item instanceof File)
+      .map((file, index) => {
+        const uid = file.uid || `paste_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
+        return {
+          requestFile: {
+            uid,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            originFileObj: file,
+          },
+          uploadItem: {
+            uid,
+            name: file.name || '附件',
+            type: file.type,
+            size: file.size,
+            originFileObj: file,
+            status: 'uploading',
+            percent: 0,
+          },
+        };
+      });
+    if (fileList.length === 0) return;
+
+    const batchFileList = fileList.map((item) => item.requestFile);
+    const acceptedFiles = fileList.filter((item) => handleBeforeUpload(item.requestFile, batchFileList) === true);
+    if (acceptedFiles.length === 0) return;
+
+    setUploadFileList((prev) => [...prev, ...acceptedFiles.map((item) => item.uploadItem)].slice(-MAX_UPLOAD_COUNT));
+
+    acceptedFiles.forEach(({ requestFile }) => {
+      handleFileUpload({
+        file: requestFile,
+        onProgress: ({ percent }) => {
+          setUploadFileList((prev) => prev.map((item) => (
+            item.uid === requestFile.uid
+              ? { ...item, status: 'uploading', percent: Number(percent || 0) }
+              : item
+          )));
+        },
+        onSuccess: () => {
+          setUploadFileList((prev) => prev.map((item) => (
+            item.uid === requestFile.uid
+              ? { ...item, status: 'done', percent: 100 }
+              : item
+          )));
+        },
+        onError: () => {
+          setUploadFileList((prev) => prev.map((item) => (
+            item.uid === requestFile.uid
+              ? { ...item, status: 'error' }
+              : item
+          )));
+        },
+      });
+    });
+  }, [handleBeforeUpload, handleFileUpload, sessionSending]);
 
   const handleSendWithAttachments = () => {
     if (isSendDisabled) return;
@@ -421,12 +489,7 @@ const Composer = ({
               customRequest={handleFileUpload}
               showUploadList={false}
               fileList={uploadFileList}
-              onChange={({ fileList }) => {
-                const nextList = fileList.slice(-MAX_UPLOAD_COUNT);
-                const uidSet = new Set(nextList.map((item) => item.uid));
-                setUploadFileList(nextList);
-                setUploadedFileMeta((prev) => prev.filter((item) => uidSet.has(item.uid)));
-              }}
+              onChange={({ fileList }) => handleUploadListChange(fileList)}
               disabled={sessionSending}
             >
               <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="文件工具" />
@@ -514,6 +577,18 @@ const Composer = ({
                 }
               }}
               onClick={(event) => syncMentionState(event.target)}
+              onPaste={(event) => {
+                const clipboardItems = Array.from(event.clipboardData?.items || []);
+                const files = clipboardItems
+                  .filter((item) => item.kind === 'file')
+                  .map((item) => item.getAsFile())
+                  .filter(Boolean);
+                const fallbackFiles = Array.from(event.clipboardData?.files || []).filter(Boolean);
+                const pastedFiles = files.length > 0 ? files : fallbackFiles;
+                if (pastedFiles.length === 0) return;
+                event.preventDefault();
+                queueFilesForUpload(pastedFiles);
+              }}
               onKeyUp={(event) => {
                 if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Enter') {
                   syncMentionState(event.target);

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-05-23T13:03:55Z",
+  "updatedAt": "2026-05-24T15:37:21Z",
   "skills": {
     "find-skills": {
       "version": "1.0.0",
@@ -17,8 +17,8 @@
       "minAppVersion": "1.5.0"
     },
     "vectcut-coze": {
-      "version": "1.0.3",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-coze/1_0_3/vectcut-coze.zip",
+      "version": "1.0.5",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-coze/1_0_5/vectcut-coze.zip",
       "minAppVersion": "1.5.0"
     },
     "speech-synthesis": {
