@@ -17,6 +17,18 @@
     padding-bottom: 16px;
 }
 
+.download-list-error-banner {
+    padding: 12px 12px 0;
+}
+
+.download-list-error-text {
+    display: block;
+    font-size: 12px;
+    line-height: 20px;
+    color: #ec3c3c !important;
+    word-break: break-word;
+}
+
 /* 顶部状态栏的路径文本样式 */
 .header-path-text {
     color: #626262;

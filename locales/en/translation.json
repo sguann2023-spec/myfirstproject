@@ -25,6 +25,7 @@
   "collecting_download_tasks": "Collecting download tasks...",
   "start_downloading": "Starting to download {{count}} files...",
   "downloaded_files": "Downloaded {{completed}}/{{total}} files...",
+  "updating_media_metadata": "Updating media metadata locally...",
   "saving_draft_info": "Saving draft information...",
   "finalizing": "Finalizing...",
   "download_failed": "Download failed!",

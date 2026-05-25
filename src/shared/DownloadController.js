@@ -1,6 +1,7 @@
 /* 下载队列控制器（单例） */
 import { electronStore } from './electronStore';
 import { queryScript } from '../api/capcut';
+import { mapDownloadErrorMessage } from './downloadErrorMessage';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('DownloadController');
 let ipc;
@@ -100,11 +101,16 @@ function buildFailedMessage(payload, currentItem) {
   const rawMessage = String(
     typeof payload === 'string' ? payload : (payload?.message || payload?.error || '')
   ).trim();
+  const mappedMessage = mapDownloadErrorMessage(rawMessage);
   const fileList = Array.isArray(payload?.fileList)
     ? payload.fileList
     : (Array.isArray(currentItem?.fileList) ? currentItem.fileList : []);
   const progress = Number(currentItem?.progress) || 0;
   const stuckAtZero = !hasAnyTransferredData(fileList) && (progress <= 0 || fileList.length === 0);
+
+  if (mappedMessage && mappedMessage !== rawMessage) {
+    return mappedMessage;
+  }
 
   if (stuckAtZero) {
     return isGenericFailedMessage(rawMessage)
@@ -185,9 +191,9 @@ async function startNextIfIdle() {
     // 在前端请求脚本（带鉴权）
     logger.info('[DLTRACE] queryScript request', {
       draftId: next.draft_id,
-      force_update: true
+      force_update: false
     });
-    const resData = await queryScript({ draft_id: next.draft_id, force_update: true });
+    const resData = await queryScript({ draft_id: next.draft_id, force_update: false });
     const ok = resData && (resData.success === true || resData.code === 200);
     logger.info('[DLTRACE] queryScript response', {
       draftId: next.draft_id,

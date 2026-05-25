@@ -29,7 +29,7 @@ export async function searchDraft({ draft_id }) {
 }
 
 // 新增：查询草稿脚本（固定 cut_jianying 路径，带 force_update）
-export async function queryScript({ draft_id, force_update = true }) {
+export async function queryScript({ draft_id, force_update = false }) {
   if (!draft_id) {
     throw new Error('draft_id is required');
   }

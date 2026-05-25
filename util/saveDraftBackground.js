@@ -9,6 +9,24 @@ const i18next = require('i18next');
 const logger = require('./loggerBridge').withContext('SaveDraftBackground');
 const { parentPort } = require('worker_threads'); // 新增
 
+function loadUpdateMediaMetadata() {
+  const candidates = [
+    path.resolve(process.cwd(), 'out/util/update_media_metadata.js'),
+    path.resolve(__dirname, '../out/util/update_media_metadata.js'),
+    path.resolve(__dirname, 'update_media_metadata.js')
+  ];
+
+  const target = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!target) {
+    throw new Error('update_media_metadata module not found');
+  }
+
+  logger.info(`[DLTRACE][Worker] load update_media_metadata from ${target}`);
+  return require(target);
+}
+
+const { updateMediaMetadata } = loadUpdateMediaMetadata();
+
 /**
  * 构建资源文件路径
  * @param {string} draftFolder - 草稿文件夹路径
@@ -45,13 +63,8 @@ async function copyFolderRecursive(source, destination) {
 }
 
 async function stabilizeLocalRemoteUrls(script, draftId) {
-  const os = require('os');
-  const cacheDir = path.join(os.tmpdir(), 'CapCutHelper', 'material-cache', String(draftId || Date.now()));
-  await fs.promises.mkdir(cacheDir, { recursive: true });
-
-  const seen = new Map();
   const visited = new WeakSet();
-  let replaced = 0;
+  let normalized = 0;
   let missingLocalFiles = 0;
 
   const isLocalLike = (v) => typeof v === 'string' &&
@@ -80,16 +93,10 @@ async function stabilizeLocalRemoteUrls(script, draftId) {
         const src = normalizeLocalPath(val);
         try {
           if (fs.existsSync(src) && fs.statSync(src).isFile()) {
-            let staged = seen.get(src);
-            if (!staged) {
-              const ext = path.extname(src);
-              const base = path.basename(src, ext) || 'material';
-              staged = path.join(cacheDir, `${base}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
-              await fs.promises.copyFile(src, staged);
-              seen.set(src, staged);
+            if (src !== val) {
+              node[key] = src;
+              normalized++;
             }
-            node[key] = staged;
-            replaced++;
           } else {
             missingLocalFiles++;
           }
@@ -102,7 +109,7 @@ async function stabilizeLocalRemoteUrls(script, draftId) {
   };
 
   await walk(script);
-  return { replaced, missingLocalFiles, cacheDir };
+  return { normalized, missingLocalFiles };
 }
 
 /**
@@ -219,8 +226,8 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     logger.info(`成功使用前端提供的脚本，草稿 ${draftName}。`);
 
     const stagedLocal = await stabilizeLocalRemoteUrls(script, draftId);
-    if (stagedLocal.replaced > 0) {
-      logger.info(`已稳定化本地临时素材路径: ${stagedLocal.replaced} 个，缓存目录: ${stagedLocal.cacheDir}`);
+    if (stagedLocal.normalized > 0) {
+      logger.info(`已规范化本地素材路径: ${stagedLocal.normalized} 个`);
     }
     if (stagedLocal.missingLocalFiles > 0) {
       logger.warn(`检测到失效本地临时素材路径: ${stagedLocal.missingLocalFiles} 个（可能由系统清理临时文件导致）`);
@@ -308,10 +315,64 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     // 3. 收集下载任务 (30%)
     let fileIdCounter = 1;
     const taskIndexByKey = new Map();
+    const isLocalLikePath = (value) => typeof value === 'string'
+      && (value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('file://'));
+    const isHttpLikeUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
+    const normalizeLocalPath = (value) => {
+      if (typeof value !== 'string' || !value) {
+        return '';
+      }
+      if (!value.startsWith('file://')) {
+        return value;
+      }
+      try {
+        const decoded = decodeURI(value);
+        if (process.platform === 'win32' && /^file:\/\/\/[a-zA-Z]:/.test(decoded)) {
+          return decoded.slice('file:///'.length);
+        }
+        return decoded.replace(/^file:\/\//, '');
+      } catch {
+        return value.replace(/^file:\/\//, '');
+      }
+    };
+    const shouldReferenceLocalSource = (remoteUrl) => isLocalLikePath(remoteUrl) && !isHttpLikeUrl(remoteUrl);
+    const resolveLocalSourcePath = (remoteUrl) => {
+      if (!shouldReferenceLocalSource(remoteUrl)) {
+        return '';
+      }
+      return normalizeLocalPath(remoteUrl);
+    };
+    const assignMaterialSourcePath = (material, localSourcePath) => {
+      if (!material || !localSourcePath) {
+        return;
+      }
+      material.path = localSourcePath;
+      material.replace_path = localSourcePath;
+    };
     
     const addTask = (type, material, remoteUrl, localPath, downloadOptions = {}) => {
         if (!remoteUrl) {
             logger.warn(`文件 ${material.material_name || material.name} 没有 remote_url，跳过下载。`);
+            return;
+        }
+
+        const localSourcePath = resolveLocalSourcePath(remoteUrl);
+        if (localSourcePath) {
+            assignMaterialSourcePath(material, localSourcePath);
+            const exists = fs.existsSync(localSourcePath);
+            logger.info(`[DLTRACE][Worker] 本地素材直接引用，跳过下载`, {
+              type,
+              materialName: material.material_name || material.name || '',
+              localSourcePath,
+              exists
+            });
+            if (!exists) {
+              logger.warn(`[DLTRACE][Worker] 本地素材路径当前不存在，但仍按本地引用写入草稿`, {
+                type,
+                materialName: material.material_name || material.name || '',
+                localSourcePath
+              });
+            }
             return;
         }
 
@@ -351,8 +412,9 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         const materialName = audio.name;
         const localPath = buildAssetPath(draftFolder, draftName, "audio", materialName);
         // 使用辅助函数构建路径
-        if (draftFolder && remoteUrl) {
+        if (draftFolder && remoteUrl && !shouldReferenceLocalSource(remoteUrl)) {
           audio.path = localPath;
+          audio.replace_path = localPath;
         }
         
         addTask('audio', audio, remoteUrl, localPath);
@@ -370,8 +432,9 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
           const localPath = buildAssetPath(draftFolder, draftName, "image", materialName);
           
           // 更新草稿路径
-          if (draftFolder && remoteUrl) {
+          if (draftFolder && remoteUrl && !shouldReferenceLocalSource(remoteUrl)) {
             video.path = localPath;
+            video.replace_path = localPath;
           }
           
           addTask('image', video, remoteUrl, localPath);
@@ -379,8 +442,9 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
           const localPath = buildAssetPath(draftFolder, draftName, "video", materialName);
 
           // 更新草稿路径
-          if (draftFolder && remoteUrl) {
+          if (draftFolder && remoteUrl && !shouldReferenceLocalSource(remoteUrl)) {
             video.path = localPath;
+            video.replace_path = localPath;
           }
           
           addTask('video', video, remoteUrl, localPath);
@@ -461,9 +525,10 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
             const materialName = audio.material_name || audio.name; 
             const localPath = buildAssetPath(draftFolder, draftName, "audio", materialName);
 
-            if (draftFolder && materialName && remoteUrl) {
+            if (draftFolder && materialName && remoteUrl && !shouldReferenceLocalSource(remoteUrl)) {
               // 更新素材路径，为后续草稿写入做准备
               audio.path = localPath; 
+              audio.replace_path = localPath;
             }
 
             if (!remoteUrl) {
@@ -494,7 +559,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
 
             if (videoType === 'photo') {
               const localPath = buildAssetPath(draftFolder, draftName, "image", materialName);
-              if (draftFolder && materialName && remoteUrl) {
+              if (draftFolder && materialName && remoteUrl && !shouldReferenceLocalSource(remoteUrl)) {
                 video.path = localPath;
                 video.replace_path = localPath;
               }
@@ -508,8 +573,9 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
               
             } else if (videoType === 'video') {
               const localPath = buildAssetPath(draftFolder, draftName, "video", materialName);
-              if (draftFolder && materialName && remoteUrl) {
+              if (draftFolder && materialName && remoteUrl && !shouldReferenceLocalSource(remoteUrl)) {
                 video.path = localPath;
+                video.replace_path = localPath;
               }
               addTask('video', video, remoteUrl, localPath);
             }
@@ -712,11 +778,29 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         }));
     }
     
-    // 5. 保存草稿信息 (70% - 90%)
+    // 5. 本地更新媒体元数据 (70% - 78%)
     if (progressCallback) {
-      progressCallback(70, i18next.t('saving_draft_info'));
+      progressCallback(70, i18next.t('updating_media_metadata'));
     }
-    logger.info(`任务 ${taskId} 进度70%：正在保存草稿信息。`);
+    logger.info(`任务 ${taskId} 进度70%：正在本地更新媒体元数据。`);
+
+    try {
+      await updateMediaMetadata(script, {
+        onProgress(message) {
+          if (progressCallback && message) {
+            progressCallback(70, message);
+          }
+        }
+      });
+    } catch (metadataError) {
+      logger.error(`任务 ${taskId}：本地更新媒体元数据失败，将继续保存草稿。`, metadataError);
+    }
+
+    // 6. 保存草稿信息 (78% - 90%)
+    if (progressCallback) {
+      progressCallback(78, i18next.t('saving_draft_info'));
+    }
+    logger.info(`任务 ${taskId} 进度78%：正在保存草稿信息。`);
     
     // 保存草稿信息到JSON文件
     await fs.promises.writeFile(

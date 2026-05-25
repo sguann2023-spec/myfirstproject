@@ -45,10 +45,11 @@ const DownloadList = ({
         draftName: 'Current Draft',
         overallProgress: 0,
         overallStatusText: '',
-        downloadFiles: []
+        downloadFiles: [],
+        errorMessage: ''
     }
 }) => {
-    const { draftName, overallProgress, overallStatusText, downloadFiles } = project;
+    const { draftName, overallProgress, overallStatusText, downloadFiles, errorMessage } = project;
     const { t } = useTranslation('legacy');
     const hasActiveDraft = typeof draftName === 'string' && draftName.trim().length > 0;
 
@@ -227,6 +228,12 @@ const DownloadList = ({
                     </Col>
                 </Row>
             </div>
+
+            {errorMessage ? (
+                <div className="download-list-error-banner">
+                    <Text className="download-list-error-text">{errorMessage}</Text>
+                </div>
+            ) : null}
 
             {/* 文件列表头部 */}
             <Row className="file-list-header-row">

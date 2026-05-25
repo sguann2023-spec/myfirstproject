@@ -14,6 +14,29 @@ const TLS_CERT_ERROR_CODES = new Set([
     'DEPTH_ZERO_SELF_SIGNED_CERT'
 ]);
 
+function isLocalLikePath(value) {
+    return typeof value === 'string'
+        && (value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('file://'));
+}
+
+function normalizeLocalPath(value) {
+    if (typeof value !== 'string' || !value) {
+        return '';
+    }
+    if (!value.startsWith('file://')) {
+        return value;
+    }
+    try {
+        const decoded = decodeURI(value);
+        if (process.platform === 'win32' && /^file:\/\/\/[a-zA-Z]:/.test(decoded)) {
+            return decoded.slice('file:///'.length);
+        }
+        return decoded.replace(/^file:\/\//, '');
+    } catch {
+        return value.replace(/^file:\/\//, '');
+    }
+}
+
 function isTlsCertificateError(error) {
     return Boolean(error && error.code && TLS_CERT_ERROR_CODES.has(error.code));
 }
@@ -41,6 +64,15 @@ async function requestWithTlsFallback(requestConfig) {
  * @returns {Promise<number>} - 文件大小（字节）
  */
 async function getFileSize(url) {
+    const localPath = normalizeLocalPath(url);
+    if (isLocalLikePath(url)) {
+        try {
+            const stats = await fs.promises.stat(localPath);
+            return stats.isFile() ? stats.size : 0;
+        } catch {
+            return 0;
+        }
+    }
     try {
         const response = await axios.head(url, {
             // 增强请求头，避免部分服务器拒绝 HEAD 请求
@@ -107,11 +139,16 @@ async function copyLocalFileWithRetry(src, dest, retries = 3) {
 
 async function downloadFile(url, localFilename, progressCallback, maxRetries = 3, timeout = 180000, fileType = null) { 
     // 检查是否是本地文件路径
-    if (fs.existsSync(url) && fs.statSync(url).isFile()) {
-        logger.debug(`Copying local file: ${url} to ${localFilename}`);
+    const normalizedUrl = normalizeLocalPath(url);
+    if (isLocalLikePath(url)) {
+        if (!fs.existsSync(normalizedUrl) || !fs.statSync(normalizedUrl).isFile()) {
+            throw new Error(`Local file does not exist: ${normalizedUrl}`);
+        }
+
+        logger.debug(`Copying local file: ${normalizedUrl} to ${localFilename}`);
         const startTime = Date.now();
 
-        await copyLocalFileWithRetry(url, localFilename, 3);
+        await copyLocalFileWithRetry(normalizedUrl, localFilename, 3);
 
         logger.debug(`Copy completed in ${(Date.now() - startTime) / 1000} seconds`);
         logger.debug(`File saved as: ${path.resolve(localFilename)}`);

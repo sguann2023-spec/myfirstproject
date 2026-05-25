@@ -25,6 +25,7 @@
   "collecting_download_tasks": "正在收集下载任务...",
   "start_downloading": "开始下载 {{count}} 个文件...",
   "downloaded_files": "已下载 {{completed}}/{{total}} 个文件...",
+  "updating_media_metadata": "正在本地更新素材元数据...",
   "saving_draft_info": "正在保存草稿信息...",
   "finalizing": "正在完成最后处理...",
   "download_failed": "下载失败！",

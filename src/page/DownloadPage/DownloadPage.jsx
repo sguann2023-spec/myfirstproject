@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import '@renderer/i18n';
 import packageInfo from '../../package.json';
 import DownloadList from '../../components/DownloadList/DownloadList';
+import { mapDownloadErrorMessage } from '../../shared/downloadErrorMessage';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -139,6 +140,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
                         draftName: prevProject ? prevProject.draftName : currentDraftIdRef.current,
                         overallProgress: progress,
                         overallStatusText: text,
+                        errorMessage: '',
                         downloadFiles: activeFiles,
                     };
                 });
@@ -161,7 +163,8 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
         });
 
         ipcRenderer.on('download-error', (event, data) => {
-            const errorMsg = typeof data === 'string' ? data : data.error || data.message || t('unknown_error');
+            const rawErrorMsg = typeof data === 'string' ? data : data.error || data.message || t('unknown_error');
+            const errorMsg = mapDownloadErrorMessage(rawErrorMsg) || t('unknown_error');
             const receivedFileList = data.fileList;
 
             setDownloading(false);
@@ -181,7 +184,8 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
                     return {
                         draftName: prevProject?.draftName || currentDraftIdRef.current,
                         overallProgress,
-                        overallStatusText: errorMsg,
+                        overallStatusText: '下载失败',
+                        errorMessage: errorMsg,
                         downloadFiles: newDownloadFiles,
                     };
                 });
@@ -221,6 +225,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
                     downloadFiles: activeFiles,
                     overallProgress,
                     overallStatusText: t('downloading_progress', { progress: overallProgress }),
+                    errorMessage: '',
                 };
             });
 

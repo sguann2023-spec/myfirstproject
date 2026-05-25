@@ -11,6 +11,7 @@ import DownloadDualList from '../../components/DownloadDualList/DownloadDualList
 import DraftPreview from '../../components/DraftPreview/DraftPreview';
 import { loggerService } from '@logger';
 import { DownloadController } from '../../shared/DownloadController.js';
+import { mapDownloadErrorMessage } from '../../shared/downloadErrorMessage';
 import DownloadList from '../../components/DownloadList/DownloadList';
 import DraftDownloadSuccessPreview from '../../components/DraftDownloadSuccessPreview/DraftDownloadSuccessPreview';
 import PresetList from '../../components/PresetList/PresetList';
@@ -1322,7 +1323,7 @@ const HomePage = () => {
 
   // 构建“已完成”记录为 DownloadList 的 project（仅失败项需要列表）
   const buildProjectFromCompleted = (item) => {
-    if (!item) return { draftName: '', overallProgress: 0, overallStatusText: '', downloadFiles: [] };
+    if (!item) return { draftName: '', overallProgress: 0, overallStatusText: '', downloadFiles: [], errorMessage: '' };
     const isSuccess = item.status === 'success';
     const list = isSuccess
       ? []
@@ -1332,10 +1333,12 @@ const HomePage = () => {
     const totalDownloaded = list.reduce((sum, f) => sum + (Number(f.downloaded) || 0), 0);
     const totalTotal = list.reduce((sum, f) => sum + (Number(f.total) || 0), 0);
     const overallProgress = isSuccess ? 100 : (totalTotal > 0 ? Math.round((totalDownloaded / totalTotal) * 100) : 0);
+    const errorMessage = isSuccess ? '' : (mapDownloadErrorMessage(item.message) || '下载失败');
     return {
       draftName: item.draft_name || item.draft_id || '',
       overallProgress,
-      overallStatusText: isSuccess ? '下载完成' : (item.message || '下载失败'),
+      overallStatusText: isSuccess ? '下载完成' : '下载失败',
+      errorMessage,
       downloadFiles: list,
     };
   };
