@@ -156,6 +156,16 @@ export class ClaudeStreamState {
     return this.blocksByIndex.get(index)
   }
 
+  getOpenBlockSnapshot(): Array<{ index: number; kind: BlockState['kind']; id: string }> {
+    return [...this.blocksByIndex.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([index, block]) => ({
+        index,
+        kind: block.kind,
+        id: block.id
+      }))
+  }
+
   getFirstOpenTextBlock(): TextBlockState | undefined {
     const candidates: TextBlockState[] = []
     for (const block of this.blocksByIndex.values()) {

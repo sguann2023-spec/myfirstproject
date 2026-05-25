@@ -506,7 +506,11 @@ function handleStreamEvent(
     case 'content_block_stop': {
       const block = state.closeBlock(event.index)
       if (!block) {
-        logger.warn('Received content_block_stop for unknown index', { index: event.index })
+        logger.warn('Received content_block_stop for unknown index', {
+          index: event.index,
+          openBlocks: state.getOpenBlockSnapshot(),
+          hasActiveStep: state.hasActiveStep()
+        })
         break
       }
 

@@ -48,6 +48,7 @@ const getAgentToolIcon = (toolName: string): ReactNode => {
     case AgentToolsType.Read:
       return <FileText size={14} />
     case AgentToolsType.Task:
+    case AgentToolsType.TaskOutput:
       return <Bot size={14} />
     case AgentToolsType.Bash:
     case AgentToolsType.BashOutput:
@@ -86,6 +87,10 @@ const getAgentToolLabel = (toolName: string, t: (key: string) => string): string
       return t('message.tools.labels.readFile')
     case AgentToolsType.Task:
       return t('message.tools.labels.task')
+    case AgentToolsType.TaskOutput: {
+      const translated = t('message.tools.labels.taskOutput')
+      return translated === 'message.tools.labels.taskOutput' ? 'Task Output' : translated
+    }
     case AgentToolsType.Bash:
       return t('message.tools.labels.bash')
     case AgentToolsType.BashOutput:

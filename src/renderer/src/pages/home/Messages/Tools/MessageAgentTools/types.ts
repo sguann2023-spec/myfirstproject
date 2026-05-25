@@ -5,6 +5,7 @@ export enum AgentToolsType {
   Skill = 'Skill',
   Read = 'Read',
   Task = 'Task',
+  TaskOutput = 'TaskOutput',
   Bash = 'Bash',
   Search = 'Search',
   Glob = 'Glob',
@@ -72,6 +73,10 @@ export type TaskToolInput = {
 }
 
 export type TaskToolOutput = TextOutput[]
+
+export type TaskOutputToolInput = TaskToolInput
+
+export type TaskOutputToolOutput = TaskToolOutput | string
 
 // Bash 工具的类型定义
 export type BashToolInput = {
@@ -418,6 +423,7 @@ export type KillBashToolInput = {
 // 联合类型
 export type ToolInput =
   | TaskToolInput
+  | TaskOutputToolInput
   | BashToolInput
   | BashOutputToolInput
   | EditToolInput
@@ -437,7 +443,7 @@ export type ToolInput =
   | AskUserQuestionToolInput
   | ToolSearchToolInput
 
-export type ToolOutput = ReadToolOutput | TaskToolOutput | BashToolOutput | ToolSearchToolOutput
+export type ToolOutput = ReadToolOutput | TaskToolOutput | TaskOutputToolOutput | BashToolOutput | ToolSearchToolOutput
 // These types are all just aliases for string, duplicating BashToolOutput.
 // They will be added back later if more complex type distinctions are needed.
 // | SearchToolOutput
@@ -463,6 +469,7 @@ export interface ToolInputMap {
   [AgentToolsType.Skill]: SkillToolInput
   [AgentToolsType.Read]: ReadToolInput
   [AgentToolsType.Task]: TaskToolInput
+  [AgentToolsType.TaskOutput]: TaskOutputToolInput
   [AgentToolsType.Bash]: BashToolInput
   [AgentToolsType.Search]: SearchToolInput
   [AgentToolsType.Glob]: GlobToolInput
@@ -484,6 +491,7 @@ export interface ToolOutputMap {
   [AgentToolsType.Skill]: SkillToolOutput
   [AgentToolsType.Read]: ReadToolOutput
   [AgentToolsType.Task]: TaskToolOutput
+  [AgentToolsType.TaskOutput]: TaskOutputToolOutput
   [AgentToolsType.Bash]: BashToolOutput
   [AgentToolsType.Search]: SearchToolOutput
   [AgentToolsType.Glob]: GlobToolOutput

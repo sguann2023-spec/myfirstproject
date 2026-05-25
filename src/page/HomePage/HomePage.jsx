@@ -115,6 +115,13 @@ const summarizeMapKeys = (mapLike, limit = 6) => {
   }
 };
 
+const logPendingState = (action, details = {}) => {
+  logger.info('[HomePage][StreamTrace] pending state changed', {
+    action,
+    ...details
+  });
+};
+
 const parseJwtPayload = (token) => {
   try {
     const base64Url = String(token || '').split('.')[1];
@@ -896,15 +903,62 @@ const HomePage = () => {
 
       if (payload.type === 'error') {
         const errorMessage = String(payload?.error?.message || '');
+        const errorCode = String(payload?.error?.code || '').trim().toUpperCase();
+        if (errorCode === 'ABORTED') {
+          logger.info('[HomePage][StreamTrace] remap aborted error to cancelled', {
+            chatId,
+            sessionId: agentSessionId,
+            requestId,
+            pendingMapSize: chatPendingByRequestIdRef.current.size,
+            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+          });
+          streamController?.error(new DOMException('Request was aborted', 'AbortError'));
+          finalizeAssistantMessage({ error: null, aborted: true });
+          if (requestId) {
+            chatPendingByRequestIdRef.current.delete(requestId);
+            logPendingState('delete', {
+              reason: 'chunk.error.aborted',
+              chatId,
+              sessionId: agentSessionId,
+              requestId,
+              pendingMapSize: chatPendingByRequestIdRef.current.size,
+              knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+            });
+          }
+          setChatSessionSending(chatId, false, 'chunk.error.aborted');
+          setChatSessionFulfilled(chatId, false, 'chunk.error.aborted');
+          setChatSending(false);
+          return;
+        }
         if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
-          if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
+          if (requestId) {
+            chatPendingByRequestIdRef.current.delete(requestId);
+            logPendingState('delete', {
+              reason: 'chunk.error.jwt',
+              chatId,
+              sessionId: agentSessionId,
+              requestId,
+              pendingMapSize: chatPendingByRequestIdRef.current.size,
+              knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+            });
+          }
           chatIdByAgentSessionIdRef.current.delete(agentSessionId);
           chatAgentSessionIdByChatIdRef.current.delete(chatId);
         }
         const normalizedError = normalizeChatError(payload?.error || new Error(payload?.error?.message || 'agent request failed'));
         streamController?.error(new Error(errorMessage || 'agent request failed'));
         finalizeAssistantMessage({ error: normalizedError, aborted: false });
-        if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
+        if (requestId) {
+          chatPendingByRequestIdRef.current.delete(requestId);
+          logPendingState('delete', {
+            reason: 'chunk.error',
+            chatId,
+            sessionId: agentSessionId,
+            requestId,
+            pendingMapSize: chatPendingByRequestIdRef.current.size,
+            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+          });
+        }
         setChatSessionSending(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
         setChatSending(false);
@@ -914,7 +968,17 @@ const HomePage = () => {
       if (payload.type === 'cancelled') {
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         finalizeAssistantMessage({ error: null, aborted: true });
-        if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
+        if (requestId) {
+          chatPendingByRequestIdRef.current.delete(requestId);
+          logPendingState('delete', {
+            reason: 'chunk.cancelled',
+            chatId,
+            sessionId: agentSessionId,
+            requestId,
+            pendingMapSize: chatPendingByRequestIdRef.current.size,
+            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+          });
+        }
         setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
         setChatSending(false);
@@ -924,7 +988,17 @@ const HomePage = () => {
       if (payload.type === 'complete') {
         streamController?.complete();
         applySnapshot(null);
-        if (requestId) chatPendingByRequestIdRef.current.delete(requestId);
+        if (requestId) {
+          chatPendingByRequestIdRef.current.delete(requestId);
+          logPendingState('delete', {
+            reason: 'chunk.complete',
+            chatId,
+            sessionId: agentSessionId,
+            requestId,
+            pendingMapSize: chatPendingByRequestIdRef.current.size,
+            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+          });
+        }
         setChatSessionSending(chatId, false, 'chunk.complete');
         setChatSessionFulfilled(chatId, true, 'chunk.complete');
         setChatSending(false);
@@ -1126,6 +1200,15 @@ const HomePage = () => {
         storeAssistantMessageId: streamController.assistantMessageId,
         streamController
       });
+      logPendingState('set', {
+        reason: 'send-start',
+        chatId: targetSessionId,
+        sessionId: agentSessionId,
+        requestId,
+        assistantMessageId,
+        pendingMapSize: chatPendingByRequestIdRef.current.size,
+        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+      });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: text,
@@ -1156,6 +1239,13 @@ const HomePage = () => {
       const normalizedError = normalizeChatError(error);
       logger.error('Chat send failed', normalizedError?.detail || error?.message || String(error));
       chatPendingByRequestIdRef.current.delete(requestId);
+      logPendingState('delete', {
+        reason: 'send-catch',
+        chatId: targetSessionId,
+        requestId,
+        pendingMapSize: chatPendingByRequestIdRef.current.size,
+        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+      });
       setChatSessionSending(targetSessionId, false, 'send-catch');
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
@@ -1185,9 +1275,14 @@ const HomePage = () => {
       const pendingEntries = [...chatPendingByRequestIdRef.current.entries()];
       const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
       if (active && active[1]?.agentSessionId) {
+        logger.info('[HomePage][StreamTrace] abort requested', {
+          chatId: active[1]?.chatId || activeChatId || '',
+          sessionId: active[1]?.agentSessionId || '',
+          requestId: active[0] || '',
+          pendingMapSize: chatPendingByRequestIdRef.current.size,
+          knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+        });
         void window.electronAPI.cherryChatStream.abort(active[1].agentSessionId);
-        setChatSessionSending(active[1]?.chatId || activeChatId, false, 'manual-stop');
-        setChatSending(false);
         return;
       }
     }
@@ -1264,6 +1359,15 @@ const HomePage = () => {
         storeAssistantMessageId: streamController.assistantMessageId,
         streamController
       });
+      logPendingState('set', {
+        reason: 'retry-start',
+        chatId: activeChatId,
+        sessionId: agentSessionId,
+        requestId,
+        assistantMessageId: messageId,
+        pendingMapSize: chatPendingByRequestIdRef.current.size,
+        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+      });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: String(prevUser.content || ''),
@@ -1273,6 +1377,13 @@ const HomePage = () => {
       if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
     } catch (error) {
       chatPendingByRequestIdRef.current.delete(requestId);
+      logPendingState('delete', {
+        reason: 'retry-catch',
+        chatId: activeChatId,
+        requestId,
+        pendingMapSize: chatPendingByRequestIdRef.current.size,
+        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+      });
       const normalizedError = normalizeChatError(error);
       setChatSessions((prev) => {
         const updated = prev.map((item) => {

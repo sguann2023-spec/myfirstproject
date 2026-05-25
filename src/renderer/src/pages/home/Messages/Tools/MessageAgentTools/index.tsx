@@ -28,6 +28,7 @@ import { ReadTool } from './ReadTool'
 import { SearchTool } from './SearchTool'
 import { SkillTool } from './SkillTool'
 import { TaskTool } from './TaskTool'
+import { TaskOutputTool } from './TaskOutputTool'
 import { TodoWriteTool } from './TodoWriteTool'
 import { ToolSearchTool } from './ToolSearchTool'
 import type { ToolInput, ToolOutput } from './types'
@@ -46,6 +47,7 @@ type ToolRenderer = (props: {
 export const toolRenderers = {
   [AgentToolsType.Read]: ReadTool,
   [AgentToolsType.Task]: TaskTool,
+  [AgentToolsType.TaskOutput]: TaskOutputTool,
   [AgentToolsType.Bash]: BashTool,
   [AgentToolsType.Search]: SearchTool,
   [AgentToolsType.Glob]: GlobTool,

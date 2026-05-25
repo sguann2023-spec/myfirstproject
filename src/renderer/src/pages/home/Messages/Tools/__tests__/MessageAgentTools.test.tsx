@@ -138,6 +138,7 @@ describe('MessageAgentTools', () => {
     'message.tools.labels.todoWrite': 'Todo Write',
     'message.tools.labels.edit': 'Edit',
     'message.tools.labels.write': 'Write',
+    'message.tools.labels.taskOutput': 'Task Output',
     'message.tools.labels.grep': 'Grep',
     'message.tools.labels.glob': 'Glob',
     'message.tools.labels.webSearch': 'Web Search',
@@ -203,6 +204,7 @@ describe('MessageAgentTools', () => {
     it('should return true for valid tool types', () => {
       expect(isValidAgentToolsType('Read')).toBe(true)
       expect(isValidAgentToolsType('Bash')).toBe(true)
+      expect(isValidAgentToolsType('TaskOutput')).toBe(true)
     })
 
     it('should return false for invalid tool types', () => {
@@ -307,6 +309,21 @@ describe('MessageAgentTools', () => {
 
       // Should render the complete tool with output
       expect(screen.getByText('Read File')).toBeInTheDocument()
+    })
+
+    it('should render TaskOutput with string response', () => {
+      const toolResponse = createToolResponse({
+        tool: { id: 'TaskOutput', name: 'TaskOutput', description: 'Task output', type: 'provider' },
+        status: 'done',
+        arguments: { description: 'Subtask result' },
+        response: '## Summary\n\nSubagent finished successfully.'
+      })
+
+      render(<MessageAgentTools toolResponse={toolResponse} />)
+
+      expect(screen.getByText('Task Output')).toBeInTheDocument()
+      expect(screen.getByText('Summary')).toBeInTheDocument()
+      expect(screen.getByText('Subagent finished successfully.')).toBeInTheDocument()
     })
 
     it('should render error state correctly', () => {

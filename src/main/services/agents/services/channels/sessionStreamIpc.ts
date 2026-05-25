@@ -287,13 +287,19 @@ export function registerSessionStreamIpc(): void {
     ipcMain.handle(abortChannel, async (_event, { sessionId }: { sessionId: string }) => {
       const activeRequest = activeAbortControllers.get(sessionId)
       if (activeRequest) {
+        logger.info('[SessionStreamIpc] Abort requested for active stream', {
+          sessionId,
+          requestId: activeRequest.requestId,
+          hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
+          subscriberCount: sessionStreamBus.subscriberCount(sessionId)
+        })
         activeRequest.controller.abort()
         activeAbortControllers.delete(sessionId)
         sessionStreamBus.publish(sessionId, {
           sessionId,
           agentId: '',
           requestId: activeRequest.requestId,
-          type: 'error',
+          type: 'cancelled',
           error: { message: 'Request aborted by user', code: 'ABORTED' }
         })
         return { success: true }
