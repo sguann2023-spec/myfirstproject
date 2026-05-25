@@ -76,6 +76,10 @@
         "**/*.node",
         "node_modules/ffprobe-static/bin/**/*"
       ],
+      "binaries": [
+        "node_modules/ffprobe-static/bin/darwin/x64/ffprobe",
+        "node_modules/ffprobe-static/bin/darwin/arm64/ffprobe"
+      ],
       "x64ArchFiles": "**/node_modules/**/*",
       "icon": "src/logo.icns",
       "artifactName": "VectCut-${version}-${arch}.${ext}",
