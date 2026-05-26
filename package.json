@@ -69,6 +69,10 @@
         ]
       }
     ],
+    "dmg": {
+      "size": "3g",
+      "shrink": false
+    },
     "mac": {
       "category": "public.app-category.utilities",
       "hardenedRuntime": true,
