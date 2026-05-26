@@ -10,6 +10,16 @@ function runOutput(command, args) {
   return execFileSync(command, args, { encoding: 'utf8' }).trim()
 }
 
+function runAllowFailure(command, args) {
+  try {
+    execFileSync(command, args, { stdio: 'inherit' })
+    return true
+  } catch (error) {
+    console.log(`[afterSign] Non-fatal command failed: ${command} ${args.join(' ')}`)
+    return false
+  }
+}
+
 function getDeveloperIdIdentity() {
   const preferred = process.env.CSC_NAME?.trim()
   if (preferred) {
@@ -153,5 +163,7 @@ module.exports = async function afterSign(context) {
 
   logSignatureDetails(appPath)
   verifyCodeSignature(appPath, true)
-  run('spctl', ['-a', '-t', 'exec', '-vv', appPath])
+  // Gatekeeper assessment happens before the workflow notarizes the DMG, so
+  // "Unnotarized Developer ID" is expected here and should not fail packaging.
+  runAllowFailure('spctl', ['-a', '-t', 'exec', '-vv', appPath])
 }
