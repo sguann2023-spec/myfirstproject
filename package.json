@@ -62,13 +62,6 @@
         ]
       },
       {
-        "from": "node_modules/ffprobe-static/bin/darwin",
-        "to": "ffprobe/darwin",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "node_modules/ffprobe-static/bin/win32/x64",
         "to": "ffprobe/win32/x64",
         "filter": [
@@ -83,6 +76,15 @@
       "entitlements": "build-resources/entitlements.mac.plist",
       "entitlementsInherit": "build-resources/entitlements.mac.inherit.plist",
       "mergeASARs": false,
+      "extraFiles": [
+        {
+          "from": "node_modules/ffprobe-static/bin/darwin",
+          "to": "Frameworks/ffprobe/darwin",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
       "asarUnpack": [
         "**/*.node"
       ],

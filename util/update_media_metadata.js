@@ -117,9 +117,14 @@ function getMediaProbeSource(material) {
 
 function resolveFfprobePath() {
   const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
-  const packaged = process.resourcesPath
-    ? path.join(process.resourcesPath, 'ffprobe', process.platform, process.arch, executableName)
-    : '';
+  let packaged = '';
+  if (process.resourcesPath) {
+    if (process.platform === 'darwin') {
+      packaged = path.join(process.resourcesPath, '..', 'Frameworks', 'ffprobe', 'darwin', process.arch, executableName);
+    } else if (process.platform === 'win32') {
+      packaged = path.join(process.resourcesPath, 'ffprobe', 'win32', process.arch, executableName);
+    }
+  }
   const bundled = ffprobeStatic?.path ? normalizePathLike(ffprobeStatic.path) : '';
   const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1');
   const candidates = [packaged, bundled, unpacked, 'ffprobe'].filter(Boolean);

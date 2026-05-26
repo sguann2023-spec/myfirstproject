@@ -122,6 +122,47 @@ const logPendingState = (action, details = {}) => {
   });
 };
 
+const getPerfTimestamp = () =>
+  (typeof globalThis?.performance?.now === 'function' ? globalThis.performance.now() : Date.now());
+
+const summarizeBlocksForPerf = (blocks) => {
+  const list = Array.isArray(blocks) ? blocks : [];
+  const summary = {
+    blockCount: list.length,
+    textBlocks: 0,
+    reasoningBlocks: 0,
+    toolBlocks: 0,
+    otherBlocks: 0
+  };
+
+  list.forEach((block) => {
+    const type = String(block?.type || '');
+    if (type.startsWith('tool-')) {
+      summary.toolBlocks += 1;
+      return;
+    }
+    if (type === 'reasoning') {
+      summary.reasoningBlocks += 1;
+      return;
+    }
+    if (type === 'text') {
+      summary.textBlocks += 1;
+      return;
+    }
+    summary.otherBlocks += 1;
+  });
+
+  return summary;
+};
+
+const summarizeSnapshotForPerf = (snapshot) => {
+  const content = String(snapshot?.content || '');
+  return {
+    contentLength: content.length,
+    ...summarizeBlocksForPerf(snapshot?.blocks)
+  };
+};
+
 const parseJwtPayload = (token) => {
   try {
     const base64Url = String(token || '').split('.')[1];
@@ -310,6 +351,7 @@ const HomePage = () => {
   const chatAgentSessionIdByChatIdRef = useRef(new Map());
   const chatIdByAgentSessionIdRef = useRef(new Map());
   const chatPendingByRequestIdRef = useRef(new Map());
+  const chatPerfByRequestIdRef = useRef(new Map());
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -833,7 +875,19 @@ const HomePage = () => {
         return;
       }
       const { chatId, assistantMessageId, streamController, storeAssistantMessageId } = pending;
+      const perfEntry = requestId ? chatPerfByRequestIdRef.current.get(requestId) : null;
       if (payload.type === 'started') {
+        if (perfEntry && !perfEntry.startedAt) {
+          perfEntry.startedAt = Date.now();
+          perfEntry.startedPerfAt = getPerfTimestamp();
+          logger.info('[HomePage][Perf] request started', {
+            requestId,
+            chatId,
+            sessionId: agentSessionId,
+            assistantMessageId,
+            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+          });
+        }
         setChatSessionSending(chatId, true, 'chunk.started');
         setChatSending(true);
         return;
@@ -841,7 +895,10 @@ const HomePage = () => {
       const applySnapshot = (error = null) => {
         const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
         if (!snapshot) return;
+        const snapshotSummary = summarizeSnapshotForPerf(snapshot);
+        let computeDurationMs = 0;
         setChatSessions((prev) => {
+          const computeStart = getPerfTimestamp();
           const updated = prev.map((item) => {
             if (item.id !== chatId) return item;
             return {
@@ -860,13 +917,38 @@ const HomePage = () => {
               ))
             };
           });
-          return sortChatSessions(updated);
+          const sorted = sortChatSessions(updated);
+          computeDurationMs = Math.round((getPerfTimestamp() - computeStart) * 100) / 100;
+          return sorted;
         });
+        if (perfEntry) {
+          perfEntry.snapshotCount += 1;
+          perfEntry.maxContentLength = Math.max(perfEntry.maxContentLength, snapshotSummary.contentLength);
+          perfEntry.maxBlockCount = Math.max(perfEntry.maxBlockCount, snapshotSummary.blockCount);
+          perfEntry.maxSnapshotComputeMs = Math.max(perfEntry.maxSnapshotComputeMs, computeDurationMs);
+        }
+        const shouldLogSlowSnapshot =
+          computeDurationMs >= 16
+          || snapshotSummary.contentLength >= 12000
+          || snapshotSummary.blockCount >= 24;
+        if (shouldLogSlowSnapshot) {
+          logger.warn('[HomePage][Perf] snapshot update pressure', {
+            requestId,
+            chatId,
+            sessionId: agentSessionId,
+            computeDurationMs,
+            errorPresent: Boolean(error),
+            ...snapshotSummary
+          });
+        }
       };
 
       const finalizeAssistantMessage = ({ error = null, aborted = false } = {}) => {
         const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+        const snapshotSummary = summarizeSnapshotForPerf(snapshot);
+        let computeDurationMs = 0;
         setChatSessions((prev) => {
+          const computeStart = getPerfTimestamp();
           const updated = prev.map((item) => {
             if (item.id !== chatId) return item;
             return {
@@ -891,12 +973,58 @@ const HomePage = () => {
               })
             };
           });
-          return sortChatSessions(updated);
+          const sorted = sortChatSessions(updated);
+          computeDurationMs = Math.round((getPerfTimestamp() - computeStart) * 100) / 100;
+          return sorted;
+        });
+        logger.info('[HomePage][Perf] finalize assistant message', {
+          requestId,
+          chatId,
+          sessionId: agentSessionId,
+          aborted,
+          hasError: Boolean(error),
+          computeDurationMs,
+          ...snapshotSummary
         });
       };
 
       if (payload.type === 'chunk') {
+        const chunkStart = getPerfTimestamp();
         streamController?.pushChunk(payload.chunk || {});
+        const pushChunkDurationMs = Math.round((getPerfTimestamp() - chunkStart) * 100) / 100;
+        const chunkType = String(payload?.chunk?.type || '');
+        if (perfEntry) {
+          perfEntry.chunkCount += 1;
+          perfEntry.totalPushChunkMs += pushChunkDurationMs;
+          perfEntry.maxPushChunkMs = Math.max(perfEntry.maxPushChunkMs, pushChunkDurationMs);
+          perfEntry.lastChunkType = chunkType;
+          if (!perfEntry.firstChunkAt) {
+            perfEntry.firstChunkAt = Date.now();
+            perfEntry.firstChunkPerfAt = getPerfTimestamp();
+          }
+          if (perfEntry.chunkCount <= 3 || perfEntry.chunkCount % 50 === 0 || pushChunkDurationMs >= 16) {
+            logger.info('[HomePage][Perf] chunk pipeline sample', {
+              requestId,
+              chatId,
+              sessionId: agentSessionId,
+              assistantMessageId,
+              chunkIndex: perfEntry.chunkCount,
+              chunkType,
+              pushChunkDurationMs,
+              totalPushChunkMs: Math.round(perfEntry.totalPushChunkMs * 100) / 100
+            });
+          }
+        }
+        if (pushChunkDurationMs >= 16) {
+          logger.warn('[HomePage][Perf] slow pushChunk', {
+            requestId,
+            chatId,
+            sessionId: agentSessionId,
+            assistantMessageId,
+            chunkType,
+            pushChunkDurationMs
+          });
+        }
         applySnapshot(null);
         return;
       }
@@ -928,6 +1056,29 @@ const HomePage = () => {
           setChatSessionSending(chatId, false, 'chunk.error.aborted');
           setChatSessionFulfilled(chatId, false, 'chunk.error.aborted');
           setChatSending(false);
+          if (requestId) {
+            const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
+            if (completedPerf) {
+              const totalDurationMs = completedPerf.startedPerfAt
+                ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
+                : null;
+              logger.info('[HomePage][Perf] request finished', {
+                requestId,
+                chatId,
+                sessionId: agentSessionId,
+                outcome: 'aborted',
+                totalDurationMs,
+                chunkCount: completedPerf.chunkCount,
+                snapshotCount: completedPerf.snapshotCount,
+                maxContentLength: completedPerf.maxContentLength,
+                maxBlockCount: completedPerf.maxBlockCount,
+                maxPushChunkMs: completedPerf.maxPushChunkMs,
+                maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
+                lastChunkType: completedPerf.lastChunkType
+              });
+              chatPerfByRequestIdRef.current.delete(requestId);
+            }
+          }
           return;
         }
         if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
@@ -962,6 +1113,29 @@ const HomePage = () => {
         setChatSessionSending(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
         setChatSending(false);
+        if (requestId) {
+          const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
+          if (completedPerf) {
+            const totalDurationMs = completedPerf.startedPerfAt
+              ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
+              : null;
+            logger.info('[HomePage][Perf] request finished', {
+              requestId,
+              chatId,
+              sessionId: agentSessionId,
+              outcome: 'error',
+              totalDurationMs,
+              chunkCount: completedPerf.chunkCount,
+              snapshotCount: completedPerf.snapshotCount,
+              maxContentLength: completedPerf.maxContentLength,
+              maxBlockCount: completedPerf.maxBlockCount,
+              maxPushChunkMs: completedPerf.maxPushChunkMs,
+              maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
+              lastChunkType: completedPerf.lastChunkType
+            });
+            chatPerfByRequestIdRef.current.delete(requestId);
+          }
+        }
         return;
       }
 
@@ -982,6 +1156,29 @@ const HomePage = () => {
         setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
         setChatSending(false);
+        if (requestId) {
+          const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
+          if (completedPerf) {
+            const totalDurationMs = completedPerf.startedPerfAt
+              ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
+              : null;
+            logger.info('[HomePage][Perf] request finished', {
+              requestId,
+              chatId,
+              sessionId: agentSessionId,
+              outcome: 'cancelled',
+              totalDurationMs,
+              chunkCount: completedPerf.chunkCount,
+              snapshotCount: completedPerf.snapshotCount,
+              maxContentLength: completedPerf.maxContentLength,
+              maxBlockCount: completedPerf.maxBlockCount,
+              maxPushChunkMs: completedPerf.maxPushChunkMs,
+              maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
+              lastChunkType: completedPerf.lastChunkType
+            });
+            chatPerfByRequestIdRef.current.delete(requestId);
+          }
+        }
         return;
       }
 
@@ -1002,6 +1199,29 @@ const HomePage = () => {
         setChatSessionSending(chatId, false, 'chunk.complete');
         setChatSessionFulfilled(chatId, true, 'chunk.complete');
         setChatSending(false);
+        if (requestId) {
+          const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
+          if (completedPerf) {
+            const totalDurationMs = completedPerf.startedPerfAt
+              ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
+              : null;
+            logger.info('[HomePage][Perf] request finished', {
+              requestId,
+              chatId,
+              sessionId: agentSessionId,
+              outcome: 'complete',
+              totalDurationMs,
+              chunkCount: completedPerf.chunkCount,
+              snapshotCount: completedPerf.snapshotCount,
+              maxContentLength: completedPerf.maxContentLength,
+              maxBlockCount: completedPerf.maxBlockCount,
+              maxPushChunkMs: completedPerf.maxPushChunkMs,
+              maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
+              lastChunkType: completedPerf.lastChunkType
+            });
+            chatPerfByRequestIdRef.current.delete(requestId);
+          }
+        }
         void triggerAutoRenameSessionTitle(chatId);
       }
     });
@@ -1200,6 +1420,26 @@ const HomePage = () => {
         storeAssistantMessageId: streamController.assistantMessageId,
         streamController
       });
+      chatPerfByRequestIdRef.current.set(requestId, {
+        requestId,
+        chatId: targetSessionId,
+        agentSessionId,
+        assistantMessageId,
+        createdAt: Date.now(),
+        createdPerfAt: getPerfTimestamp(),
+        startedAt: null,
+        startedPerfAt: null,
+        firstChunkAt: null,
+        firstChunkPerfAt: null,
+        chunkCount: 0,
+        snapshotCount: 0,
+        totalPushChunkMs: 0,
+        maxPushChunkMs: 0,
+        maxSnapshotComputeMs: 0,
+        maxContentLength: 0,
+        maxBlockCount: 0,
+        lastChunkType: ''
+      });
       logPendingState('set', {
         reason: 'send-start',
         chatId: targetSessionId,
@@ -1239,6 +1479,26 @@ const HomePage = () => {
       const normalizedError = normalizeChatError(error);
       logger.error('Chat send failed', normalizedError?.detail || error?.message || String(error));
       chatPendingByRequestIdRef.current.delete(requestId);
+      const failedPerf = chatPerfByRequestIdRef.current.get(requestId);
+      if (failedPerf) {
+        const totalDurationMs = failedPerf.createdPerfAt
+          ? Math.round((getPerfTimestamp() - failedPerf.createdPerfAt) * 100) / 100
+          : null;
+        logger.warn('[HomePage][Perf] request failed before completion', {
+          requestId,
+          chatId: targetSessionId,
+          sessionId: failedPerf.agentSessionId || '',
+          totalDurationMs,
+          chunkCount: failedPerf.chunkCount,
+          snapshotCount: failedPerf.snapshotCount,
+          maxContentLength: failedPerf.maxContentLength,
+          maxBlockCount: failedPerf.maxBlockCount,
+          maxPushChunkMs: failedPerf.maxPushChunkMs,
+          maxSnapshotComputeMs: failedPerf.maxSnapshotComputeMs,
+          lastChunkType: failedPerf.lastChunkType
+        });
+        chatPerfByRequestIdRef.current.delete(requestId);
+      }
       logPendingState('delete', {
         reason: 'send-catch',
         chatId: targetSessionId,
