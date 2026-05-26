@@ -78,10 +78,10 @@
       "mergeASARs": false,
       "extraFiles": [
         {
-          "from": "node_modules/ffprobe-static/bin/darwin",
-          "to": "Frameworks/ffprobe/darwin",
+          "from": "node_modules/ffprobe-static/bin/darwin/${arch}",
+          "to": "Frameworks/ffprobe/darwin/${arch}",
           "filter": [
-            "**/*"
+            "ffprobe"
           ]
         }
       ],
