@@ -20,7 +20,7 @@ import {
 } from '@renderer/store/settings'
 import { ThemeMode } from '@renderer/types'
 import { Button, ColorPicker, Segmented, Select, Switch, Tooltip } from 'antd'
-import { Minus, Monitor, Moon, Plus, Sun } from 'lucide-react'
+import { Minus, Plus, Sun } from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -136,24 +136,6 @@ const DisplaySettings: FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <Sun size={16} />
             <span>{t('settings.theme.light')}</span>
-          </div>
-        )
-      },
-      {
-        value: ThemeMode.dark,
-        label: (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Moon size={16} />
-            <span>{t('settings.theme.dark')}</span>
-          </div>
-        )
-      },
-      {
-        value: ThemeMode.system,
-        label: (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Monitor size={16} />
-            <span>{t('settings.theme.system')}</span>
           </div>
         )
       }

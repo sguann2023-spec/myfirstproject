@@ -272,7 +272,7 @@ export const initialState: SettingsState = {
   launchToTray: false,
   trayOnClose: true,
   tray: true,
-  theme: ThemeMode.system,
+  theme: ThemeMode.light,
   userTheme: {
     colorPrimary: '#00b96b',
     userFontFamily: '',
@@ -516,8 +516,8 @@ const settingsSlice = createSlice({
     setTrayOnClose: (state, action: PayloadAction<boolean>) => {
       state.trayOnClose = action.payload
     },
-    setTheme: (state, action: PayloadAction<ThemeMode>) => {
-      state.theme = action.payload
+    setTheme: (state, _action: PayloadAction<ThemeMode>) => {
+      state.theme = ThemeMode.light
     },
     setCustomCss: (state, action: PayloadAction<string>) => {
       state.customCss = action.payload
