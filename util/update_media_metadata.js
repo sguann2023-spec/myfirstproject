@@ -64,6 +64,10 @@ function isLocalLikePath(value) {
     && (value.startsWith('/') || value.startsWith('file://') || /^[a-zA-Z]:[\\/]/.test(value));
 }
 
+function isHttpLikeUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
 function normalizePathLike(value) {
   if (typeof value !== 'string' || !value) {
     return '';
@@ -82,12 +86,11 @@ function normalizePathLike(value) {
   }
 }
 
-function getExistingMediaPath(material) {
+function getExistingLocalMediaPath(material) {
   const candidates = [
     material?.path,
     material?.replace_path,
-    material?.local_path,
-    material?.remote_url
+    material?.local_path
   ];
 
   for (const candidate of candidates) {
@@ -100,8 +103,16 @@ function getExistingMediaPath(material) {
     }
   }
 
-  const fallback = normalizePathLike(material?.remote_url);
-  return fallback || '';
+  return '';
+}
+
+function getRemoteMediaUrl(material) {
+  const remoteUrl = normalizePathLike(material?.remote_url);
+  return isHttpLikeUrl(remoteUrl) ? remoteUrl : '';
+}
+
+function getMediaProbeSource(material) {
+  return getRemoteMediaUrl(material);
 }
 
 function resolveFfprobePath() {
@@ -147,6 +158,24 @@ async function probeMedia(filePath) {
     'json',
     filePath
   ]);
+}
+
+async function probeMediaCached(filePath, cache) {
+  if (!cache) {
+    return probeMedia(filePath);
+  }
+
+  const cacheKey = normalizePathLike(filePath);
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+  }
+
+  const pending = probeMedia(filePath).catch((error) => {
+    cache.delete(cacheKey);
+    throw error;
+  });
+  cache.set(cacheKey, pending);
+  return pending;
 }
 
 function getTrackList(script) {
@@ -515,7 +544,7 @@ function recomputeScriptDuration(script) {
   logger.info(`更新脚本总时长为: ${script.duration} 微秒。`);
 }
 
-async function updateAudioMetadata(script, progress) {
+async function updateAudioMetadata(script, progress, probeCache) {
   const audios = asArray(script?.materials?.audios);
   if (audios.length === 0) {
     logger.info('草稿中没有找到音频文件。');
@@ -524,39 +553,35 @@ async function updateAudioMetadata(script, progress) {
 
   for (const audio of audios) {
     const materialName = materialNameOf(audio);
-    const probePath = getExistingMediaPath(audio);
-    let hasValidDuration = hasPositiveNumber(audio?.duration);
+    const probeSource = getMediaProbeSource(audio);
 
-    if (!probePath) {
-      logger.warn(`警告：音频文件 ${materialName} 没有可用路径，已跳过。`);
+    if (!probeSource) {
+      logger.warn(`警告：音频文件 ${materialName} 没有可用的 remote_url，已跳过。`);
       continue;
     }
 
-    if (!hasValidDuration) {
-      try {
-        progress(`正在处理音频元数据: ${materialName}`);
-        const info = await probeMedia(probePath);
-        const streams = asArray(info?.streams);
-        if (streams.some((stream) => stream?.codec_type === 'video')) {
-          logger.warn(`警告：音频文件 ${materialName} 包含视频轨道，已跳过其元数据更新。`);
-          continue;
-        }
-
-        const audioStream = streams.find((stream) => stream?.codec_type === 'audio') || streams[0] || null;
-        const durationSeconds = toNumber(audioStream?.duration, 0) || toNumber(info?.format?.duration, 0);
-        if (durationSeconds > 0) {
-          audio.duration = Math.round(durationSeconds * 1000000);
-          hasValidDuration = true;
-          logger.info(`成功获取音频 ${materialName} 时长: ${durationSeconds.toFixed(2)} 秒 (${audio.duration} 微秒)。`);
-        } else {
-          logger.warn(`警告：无法获取音频 ${materialName} 的时长。`);
-        }
-      } catch (error) {
-        logger.error(`获取音频 ${materialName} 时长时发生错误: ${error?.message || error}`, error);
+    try {
+      progress(`正在处理音频元数据: ${materialName}`);
+      const info = await probeMediaCached(probeSource, probeCache);
+      const streams = asArray(info?.streams);
+      if (streams.some((stream) => stream?.codec_type === 'video')) {
+        logger.warn(`警告：音频文件 ${materialName} 包含视频轨道，已跳过其元数据更新。`);
+        continue;
       }
+
+      const audioStream = streams.find((stream) => stream?.codec_type === 'audio') || streams[0] || null;
+      const durationSeconds = toNumber(audioStream?.duration, 0) || toNumber(info?.format?.duration, 0);
+      if (durationSeconds > 0) {
+        audio.duration = Math.round(durationSeconds * 1000000);
+        logger.info(`成功获取音频 ${materialName} 时长: ${durationSeconds.toFixed(2)} 秒 (${audio.duration} 微秒)。`);
+      } else {
+        logger.warn(`警告：无法获取音频 ${materialName} 的时长。`);
+      }
+    } catch (error) {
+      logger.error(`获取音频 ${materialName} 时长时发生错误: ${error?.message || error}`, error);
     }
 
-    if (hasValidDuration) {
+    if (hasPositiveNumber(audio?.duration)) {
       updateMatchingSegments(script, audio.id, audio.duration, '音频');
     }
   }
@@ -588,7 +613,7 @@ async function updatePhotoMetadata(video, materialName, probePath, progress) {
   }
 }
 
-async function updateVideoMetadata(script, progress) {
+async function updateVideoMetadata(script, progress, probeCache) {
   const videos = asArray(script?.materials?.videos);
   if (videos.length === 0) {
     logger.info('草稿中没有找到视频或图片文件。');
@@ -598,15 +623,15 @@ async function updateVideoMetadata(script, progress) {
   for (const video of videos) {
     const materialName = materialNameOf(video);
     const materialType = video?.material_type || video?.type;
-    const probePath = getExistingMediaPath(video);
-
-    if (!probePath) {
-      logger.warn(`警告：媒体文件 ${materialName} 没有可用路径，已跳过。`);
-      continue;
-    }
+    const probePath = getExistingLocalMediaPath(video);
+    const probeSource = getMediaProbeSource(video);
 
     if (materialType === 'photo') {
-      await updatePhotoMetadata(video, materialName, probePath, progress);
+      if (probePath) {
+        await updatePhotoMetadata(video, materialName, probePath, progress);
+      } else if (!hasPositiveNumber(video?.width) || !hasPositiveNumber(video?.height)) {
+        logger.warn(`警告：图片文件 ${materialName} 没有可探测的本地路径，且缺少有效宽高。`);
+      }
       continue;
     }
 
@@ -614,56 +639,53 @@ async function updateVideoMetadata(script, progress) {
       continue;
     }
 
-    let hasValidDurationOrSize = hasPositiveNumber(video?.duration)
-      && hasPositiveNumber(video?.width)
-      && hasPositiveNumber(video?.height);
+    if (!probeSource) {
+      logger.warn(`警告：视频文件 ${materialName} 没有可用的 remote_url，已跳过。`);
+      continue;
+    }
 
-    if (!hasValidDurationOrSize) {
-      try {
-        progress(`正在处理视频元数据: ${materialName}`);
-        const info = await probeMedia(probePath);
-        const streams = asArray(info?.streams);
-        const videoStream = streams.find((stream) => stream?.codec_type === 'video') || streams[0] || null;
+    try {
+      progress(`正在处理视频元数据: ${materialName}`);
+      const info = await probeMediaCached(probeSource, probeCache);
+      const streams = asArray(info?.streams);
+      const videoStream = streams.find((stream) => stream?.codec_type === 'video') || streams[0] || null;
 
-        if (!hasPositiveNumber(video?.width) && hasPositiveNumber(videoStream?.width)) {
-          video.width = Math.round(videoStream.width);
-        }
-        if (!hasPositiveNumber(video?.height) && hasPositiveNumber(videoStream?.height)) {
-          video.height = Math.round(videoStream.height);
-        }
+      if (hasPositiveNumber(videoStream?.width)) {
+        video.width = Math.round(videoStream.width);
+      }
+      if (hasPositiveNumber(videoStream?.height)) {
+        video.height = Math.round(videoStream.height);
+      }
 
-        const durationSeconds = toNumber(videoStream?.duration, 0) || toNumber(info?.format?.duration, 0);
-        if (!hasPositiveNumber(video?.duration) && durationSeconds > 0) {
-          video.duration = Math.round(durationSeconds * 1000000);
-        }
+      const durationSeconds = toNumber(videoStream?.duration, 0) || toNumber(info?.format?.duration, 0);
+      if (durationSeconds > 0) {
+        video.duration = Math.round(durationSeconds * 1000000);
+      }
 
-        if (!hasPositiveNumber(video?.width)) {
-          video.width = DEFAULT_MEDIA_WIDTH;
-        }
-        if (!hasPositiveNumber(video?.height)) {
-          video.height = DEFAULT_MEDIA_HEIGHT;
-        }
+      if (!hasPositiveNumber(video?.width)) {
+        video.width = DEFAULT_MEDIA_WIDTH;
+      }
+      if (!hasPositiveNumber(video?.height)) {
+        video.height = DEFAULT_MEDIA_HEIGHT;
+      }
 
-        hasValidDurationOrSize = hasPositiveNumber(video?.duration)
-          && hasPositiveNumber(video?.width)
-          && hasPositiveNumber(video?.height);
-
-        if (hasValidDurationOrSize) {
-          logger.info(`成功设置视频 ${materialName} 宽高: ${video.width}x${video.height}。`);
-          logger.info(
-            `成功获取视频 ${materialName} 时长: ${(video.duration / 1000000).toFixed(2)} 秒 (${video.duration} 微秒)。`
-          );
-        } else {
-          logger.warn(`警告：无法完整获取视频 ${materialName} 的元数据。`);
-        }
-      } catch (error) {
-        logger.error(`获取视频 ${materialName} 信息时发生错误: ${error?.message || error}，使用默认值 1920x1080。`, error);
-        if (!hasPositiveNumber(video?.width)) {
-          video.width = DEFAULT_MEDIA_WIDTH;
-        }
-        if (!hasPositiveNumber(video?.height)) {
-          video.height = DEFAULT_MEDIA_HEIGHT;
-        }
+      if (hasPositiveNumber(video?.duration)
+        && hasPositiveNumber(video?.width)
+        && hasPositiveNumber(video?.height)) {
+        logger.info(`成功设置视频 ${materialName} 宽高: ${video.width}x${video.height}。`);
+        logger.info(
+          `成功获取视频 ${materialName} 时长: ${(video.duration / 1000000).toFixed(2)} 秒 (${video.duration} 微秒)。`
+        );
+      } else {
+        logger.warn(`警告：无法完整获取视频 ${materialName} 的元数据。`);
+      }
+    } catch (error) {
+      logger.error(`获取视频 ${materialName} 信息时发生错误: ${error?.message || error}，使用默认值 1920x1080。`, error);
+      if (!hasPositiveNumber(video?.width)) {
+        video.width = DEFAULT_MEDIA_WIDTH;
+      }
+      if (!hasPositiveNumber(video?.height)) {
+        video.height = DEFAULT_MEDIA_HEIGHT;
       }
     }
 
@@ -687,8 +709,9 @@ async function updateMediaMetadata(script, options = {}) {
     }
   };
 
-  await updateAudioMetadata(script, progress);
-  await updateVideoMetadata(script, progress);
+  const probeCache = new Map();
+  await updateAudioMetadata(script, progress, probeCache);
+  await updateVideoMetadata(script, progress, probeCache);
   removeConflictingSegments(script);
   recomputeScriptDuration(script);
   processPendingKeyframes(script);

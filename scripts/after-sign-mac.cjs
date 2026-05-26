@@ -42,6 +42,21 @@ function signBinary(identity, filePath) {
   verifyCodeSignature(filePath)
 }
 
+function signMainExecutable(identity, entitlements, filePath) {
+  run('codesign', [
+    '--force',
+    '--sign',
+    identity,
+    '--timestamp',
+    '--options',
+    'runtime',
+    '--entitlements',
+    entitlements,
+    filePath
+  ])
+  verifyCodeSignature(filePath)
+}
+
 function logSignatureDetails(filePath) {
   console.log(`[afterSign] Signature details: ${filePath}`)
   try {
@@ -85,7 +100,7 @@ module.exports = async function afterSign(context) {
   logArchitectures(mainExecutablePath)
   logSignatureDetails(mainExecutablePath)
   console.log(`[afterSign] Re-signing main executable: ${mainExecutablePath}`)
-  signBinary(identity, mainExecutablePath)
+  signMainExecutable(identity, entitlements, mainExecutablePath)
 
   const ffprobeCandidates = [
     path.join(
@@ -126,7 +141,6 @@ module.exports = async function afterSign(context) {
   console.log(`[afterSign] Re-signing app bundle: ${appPath}`)
   run('codesign', [
     '--force',
-    '--deep',
     '--sign',
     identity,
     '--timestamp',
@@ -139,4 +153,5 @@ module.exports = async function afterSign(context) {
 
   logSignatureDetails(appPath)
   verifyCodeSignature(appPath, true)
+  run('spctl', ['-a', '-t', 'exec', '-vv', appPath])
 }
