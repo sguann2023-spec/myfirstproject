@@ -6,6 +6,10 @@ function run(command, args) {
   execFileSync(command, args, { stdio: 'inherit' })
 }
 
+function runOutput(command, args) {
+  return execFileSync(command, args, { encoding: 'utf8' }).trim()
+}
+
 function getDeveloperIdIdentity() {
   const preferred = process.env.CSC_NAME?.trim()
   if (preferred) {
@@ -38,6 +42,24 @@ function signBinary(identity, filePath) {
   verifyCodeSignature(filePath)
 }
 
+function logSignatureDetails(filePath) {
+  console.log(`[afterSign] Signature details: ${filePath}`)
+  try {
+    run('codesign', ['-dvvv', filePath])
+  } catch (error) {
+    console.log(`[afterSign] Failed to dump signature details for ${filePath}: ${error.message}`)
+  }
+}
+
+function logArchitectures(filePath) {
+  try {
+    const archs = runOutput('lipo', ['-archs', filePath])
+    console.log(`[afterSign] Architectures for ${filePath}: ${archs}`)
+  } catch (error) {
+    console.log(`[afterSign] Failed to read architectures for ${filePath}: ${error.message}`)
+  }
+}
+
 module.exports = async function afterSign(context) {
   if (process.platform !== 'darwin') {
     return
@@ -54,6 +76,16 @@ module.exports = async function afterSign(context) {
     context.packager.projectDir,
     context.packager.config.mac?.entitlements || 'build-resources/entitlements.mac.plist'
   )
+  const mainExecutablePath = path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
+
+  if (!fs.existsSync(mainExecutablePath)) {
+    throw new Error(`Main executable not found: ${mainExecutablePath}`)
+  }
+
+  logArchitectures(mainExecutablePath)
+  logSignatureDetails(mainExecutablePath)
+  console.log(`[afterSign] Re-signing main executable: ${mainExecutablePath}`)
+  signBinary(identity, mainExecutablePath)
 
   const ffprobeCandidates = [
     path.join(
@@ -105,5 +137,6 @@ module.exports = async function afterSign(context) {
     appPath
   ])
 
+  logSignatureDetails(appPath)
   verifyCodeSignature(appPath, true)
 }

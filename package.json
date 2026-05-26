@@ -41,6 +41,7 @@
     "directories": {
       "output": "build"
     },
+    "beforePack": "scripts/before-pack.cjs",
     "afterSign": "scripts/after-sign-mac.cjs",
     "files": [
       "out/**/*",
