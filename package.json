@@ -41,6 +41,7 @@
     "directories": {
       "output": "build"
     },
+    "afterSign": "scripts/after-sign-mac.cjs",
     "files": [
       "out/**/*",
       "node_modules/**/*",
