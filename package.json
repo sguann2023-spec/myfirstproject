@@ -35,14 +35,9 @@
       ]
     },
     "asar": true,
-    "asarUnpack": [
-      "node_modules/ffprobe-static/bin/**/*"
-    ],
     "directories": {
       "output": "build"
     },
-    "beforePack": "scripts/before-pack.cjs",
-    "afterSign": "scripts/after-sign-mac.cjs",
     "files": [
       "out/**/*",
       "node_modules/**/*",
@@ -65,23 +60,31 @@
           "!python/x64/python-3.14.5-embed-amd64.zip",
           "!python/arm64/python-3.14.5-embed-arm64.zip"
         ]
+      },
+      {
+        "from": "node_modules/ffprobe-static/bin/darwin",
+        "to": "ffprobe/darwin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/ffprobe-static/bin/win32/x64",
+        "to": "ffprobe/win32/x64",
+        "filter": [
+          "ffprobe.exe"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.utilities",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "notarize": false,
       "entitlements": "build-resources/entitlements.mac.plist",
       "entitlementsInherit": "build-resources/entitlements.mac.inherit.plist",
       "mergeASARs": false,
       "asarUnpack": [
-        "**/*.node",
-        "node_modules/ffprobe-static/bin/**/*"
-      ],
-      "binaries": [
-        "node_modules/ffprobe-static/bin/darwin/x64/ffprobe",
-        "node_modules/ffprobe-static/bin/darwin/arm64/ffprobe"
+        "**/*.node"
       ],
       "x64ArchFiles": "**/node_modules/**/*",
       "icon": "src/logo.icns",

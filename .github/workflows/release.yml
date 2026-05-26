@@ -12,23 +12,11 @@ jobs:
   # 任务 2A: macOS 构建并上传 macOS 资产到 OSS
   # 注意：保留 Job 名称以避免影响外部状态检查配置
   build-and-upload-mac:
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     timeout-minutes: 120
     strategy:
       matrix:
-        include:
-          - node-version: 22.x
-            arch: x64
-            runner: macos-15-intel
-            metadata_file: latest-mac.yml
-            latest_zip_name: VectCut-latest-x64.zip
-            latest_dmg_name: VectCut-latest-x64.dmg
-          - node-version: 22.x
-            arch: arm64
-            runner: macos-15
-            metadata_file: latest-mac-arm64.yml
-            latest_zip_name: VectCut-latest-arm64.zip
-            latest_dmg_name: VectCut-latest-arm64.dmg
+        node-version: [22.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -65,11 +53,11 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       
-      - name: Build Mac application (${{ matrix.arch }})
+      - name: Build Mac applications (x64 + arm64)
         run: |
           rm -rf build
           pnpm run build:vite
-          pnpm exec electron-builder --mac dmg zip --${{ matrix.arch }} --publish never --config.mac.forceCodeSigning=true
+          pnpm exec electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
           NODE_OPTIONS: --max-old-space-size=8192
@@ -143,10 +131,6 @@ jobs:
                     --password "$APPLE_APP_SPECIFIC_PASSWORD" \
                     --team-id "$APPLE_TEAM_ID" || true
                 fi
-                if [ "$SUB_STATUS" = "Invalid" ]; then
-                  echo "Notarization returned Invalid; aborting without retry."
-                  exit 1
-                fi
               else
                 echo "$NOTARY_JSON"
                 if echo "$NOTARY_JSON" | grep -qiE "The operation was canceled|timed out|timeout|temporarily unavailable|network|connection"; then
@@ -187,7 +171,7 @@ jobs:
             fi
           done
 
-      - name: Prepare latest macOS artifacts and metadata (${{ matrix.arch }})
+      - name: Prepare latest macOS artifacts and metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -195,36 +179,55 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
 
-          ZIPS=(build/*-${{ matrix.arch }}.zip)
-          if [ "${#ZIPS[@]}" -eq 0 ]; then
-            echo "Missing ${{ matrix.arch }} zip artifact for latest metadata generation."
+          X64_ZIPS=(build/*-x64.zip)
+          ARM64_ZIPS=(build/*-arm64.zip)
+          if [ "${#X64_ZIPS[@]}" -eq 0 ] || [ "${#ARM64_ZIPS[@]}" -eq 0 ]; then
+            echo "Missing x64/arm64 zip artifacts for latest metadata generation."
             ls -lah build || true
             exit 1
           fi
 
-          DMGS=(build/*-${{ matrix.arch }}.dmg)
-          if [ "${#DMGS[@]}" -eq 0 ]; then
-            echo "Missing ${{ matrix.arch }} dmg artifact for latest filename generation."
+          X64_ZIP="${X64_ZIPS[0]}"
+          ARM64_ZIP="${ARM64_ZIPS[0]}"
+          X64_DMGS=(build/*-x64.dmg)
+          ARM64_DMGS=(build/*-arm64.dmg)
+          if [ "${#X64_DMGS[@]}" -eq 0 ] || [ "${#ARM64_DMGS[@]}" -eq 0 ]; then
+            echo "Missing x64/arm64 dmg artifacts for latest filename generation."
             ls -lah build || true
             exit 1
           fi
 
-          ZIP_PATH="${ZIPS[0]}"
-          DMG_PATH="${DMGS[0]}"
-          cp "$ZIP_PATH" build/${{ matrix.latest_zip_name }}
-          cp "$DMG_PATH" build/${{ matrix.latest_dmg_name }}
+          X64_DMG="${X64_DMGS[0]}"
+          ARM64_DMG="${ARM64_DMGS[0]}"
+          cp "$X64_ZIP" build/VectCut-latest-x64.zip
+          cp "$ARM64_ZIP" build/VectCut-latest-arm64.zip
+          cp "$X64_DMG" build/VectCut-latest-x64.dmg
+          cp "$ARM64_DMG" build/VectCut-latest-arm64.dmg
 
-          ZIP_SHA512=$(openssl dgst -sha512 -binary build/${{ matrix.latest_zip_name }} | openssl base64 -A)
-          ZIP_SIZE=$(stat -f%z build/${{ matrix.latest_zip_name }})
+          X64_SHA512=$(openssl dgst -sha512 -binary build/VectCut-latest-x64.zip | openssl base64 -A)
+          ARM64_SHA512=$(openssl dgst -sha512 -binary build/VectCut-latest-arm64.zip | openssl base64 -A)
+          X64_SIZE=$(stat -f%z build/VectCut-latest-x64.zip)
+          ARM64_SIZE=$(stat -f%z build/VectCut-latest-arm64.zip)
 
-          cat > build/${{ matrix.metadata_file }} <<EOF
+          cat > build/latest-mac.yml <<EOF
           version: ${VERSION}
           files:
-            - url: ${{ matrix.latest_zip_name }}
-              sha512: ${ZIP_SHA512}
-              size: ${ZIP_SIZE}
-          path: ${{ matrix.latest_zip_name }}
-          sha512: ${ZIP_SHA512}
+            - url: VectCut-latest-x64.zip
+              sha512: ${X64_SHA512}
+              size: ${X64_SIZE}
+          path: VectCut-latest-x64.zip
+          sha512: ${X64_SHA512}
+          releaseDate: '${RELEASE_DATE}'
+          EOF
+
+          cat > build/latest-mac-arm64.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: VectCut-latest-arm64.zip
+              sha512: ${ARM64_SHA512}
+              size: ${ARM64_SIZE}
+          path: VectCut-latest-arm64.zip
+          sha512: ${ARM64_SHA512}
           releaseDate: '${RELEASE_DATE}'
           EOF
 
@@ -232,12 +235,13 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: mac-signing-diagnostics-${{ matrix.arch }}-${{ github.run_id }}
+          name: mac-signing-diagnostics-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
             build/builder-debug.yml
             build/builder-effective-config.yaml
-            build/${{ matrix.metadata_file }}
+            build/latest-mac.yml
+            build/latest-mac-arm64.yml
 
       - name: Install ossutil
         run: |
@@ -255,9 +259,12 @@ jobs:
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           FILES=(
-            build/${{ matrix.latest_zip_name }}
-            build/${{ matrix.latest_dmg_name }}
-            build/${{ matrix.metadata_file }}
+            build/VectCut-latest-x64.zip
+            build/VectCut-latest-arm64.zip
+            build/VectCut-latest-x64.dmg
+            build/VectCut-latest-arm64.dmg
+            build/latest-mac.yml
+            build/latest-mac-arm64.yml
           )
           for f in "${FILES[@]}"; do
             [ -f "$f" ] || { echo "Missing mac artifact: $f"; exit 1; }
