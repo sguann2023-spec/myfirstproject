@@ -940,20 +940,6 @@ const HomePage = () => {
           perfEntry.maxBlockCount = Math.max(perfEntry.maxBlockCount, snapshotSummary.blockCount);
           perfEntry.maxSnapshotComputeMs = Math.max(perfEntry.maxSnapshotComputeMs, computeDurationMs);
         }
-        const shouldLogSlowSnapshot =
-          computeDurationMs >= 16
-          || snapshotSummary.contentLength >= 12000
-          || snapshotSummary.blockCount >= 24;
-        if (shouldLogSlowSnapshot) {
-          logger.warn('[HomePage][Perf] snapshot update pressure', {
-            requestId,
-            chatId,
-            sessionId: agentSessionId,
-            computeDurationMs,
-            errorPresent: Boolean(error),
-            ...snapshotSummary
-          });
-        }
       };
       const clearScheduledSnapshot = () => {
         const scheduled = chatSnapshotThrottleByRequestIdRef.current.get(throttleKey);
@@ -1061,18 +1047,6 @@ const HomePage = () => {
           if (!perfEntry.firstChunkAt) {
             perfEntry.firstChunkAt = Date.now();
             perfEntry.firstChunkPerfAt = getPerfTimestamp();
-          }
-          if (perfEntry.chunkCount <= 3 || perfEntry.chunkCount % 50 === 0 || pushChunkDurationMs >= 16) {
-            logger.info('[HomePage][Perf] chunk pipeline sample', {
-              requestId,
-              chatId,
-              sessionId: agentSessionId,
-              assistantMessageId,
-              chunkIndex: perfEntry.chunkCount,
-              chunkType,
-              pushChunkDurationMs,
-              totalPushChunkMs: Math.round(perfEntry.totalPushChunkMs * 100) / 100
-            });
           }
         }
         if (pushChunkDurationMs >= 16) {

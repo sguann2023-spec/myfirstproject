@@ -141,7 +141,6 @@ const sdkMessageToProviderMetadata = (message: SDKMessage): ProviderMetadata => 
  * blocks across calls so that incremental deltas can be correlated correctly.
  */
 export function transformSDKMessageToStreamParts(sdkMessage: SDKMessage, state: ClaudeStreamState): AgentStreamPart[] {
-  logger.silly('Transforming SDKMessage', { message: JSON.stringify(sdkMessage) })
   switch (sdkMessage.type) {
     case 'assistant':
       return handleAssistantMessage(sdkMessage, state)
