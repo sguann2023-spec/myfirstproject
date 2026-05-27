@@ -35,6 +35,9 @@
       ]
     },
     "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ],
     "directories": {
       "output": "build"
     },
@@ -89,9 +92,6 @@
           ]
         }
       ],
-      "asarUnpack": [
-        "**/*.node"
-      ],
       "x64ArchFiles": "**/node_modules/**/*",
       "icon": "src/logo.icns",
       "artifactName": "VectCut-${version}-${arch}.${ext}",
@@ -135,10 +135,18 @@
         {
           "from": "skills",
           "to": "skills"
+        },
+        {
+          "from": "build-resources/windows",
+          "to": "redist",
+          "filter": [
+            "vc_redist.x64.exe"
+          ]
         }
       ]
     },
     "nsis": {
+      "include": "build-resources/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",

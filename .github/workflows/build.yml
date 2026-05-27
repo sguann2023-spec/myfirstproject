@@ -547,6 +547,19 @@ jobs:
             echo "No native bindings found in node_modules; aborting Windows package build."
             exit 1
           fi
+          LIBSQL_BINDING="node_modules/@libsql/win32-x64-msvc/index.node"
+          if [ ! -f "${LIBSQL_BINDING}" ]; then
+            echo "Missing required libsql native binding: ${LIBSQL_BINDING}"
+            exit 1
+          fi
+
+      - name: Download VC++ Redistributable (Windows)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-resources/windows
+          curl -fsSL "https://aka.ms/vs/17/release/vc_redist.x64.exe" -o build-resources/windows/vc_redist.x64.exe
+          test -s build-resources/windows/vc_redist.x64.exe
 
       - name: Build Windows application
         run: pnpm run build:win
