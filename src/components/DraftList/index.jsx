@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { draftList, getClientBanner, searchDraft } from '../../api/capcut';
 import './index.css';
-import DraftIcon from '../../../public/draft_icon.svg';
 import SearchIcon from '../../../public/search_unfocus.svg';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
 import BannerCarousel from '../BannerCarousel/BannerCarousel'; // 新增导入
@@ -9,7 +8,7 @@ import { DownloadController } from '../../shared/DownloadController.js';
 
 const LIMIT = 20;
 
-function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId }) {
+function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToken = 0 }) {
   const containerRef = useRef(null);
   const [items, setItems] = useState([]);
   const [offset, setOffset] = useState(0);
@@ -27,8 +26,7 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId }) {
   // 新增：Banner 数据与轮播索引
   const [banners, setBanners] = useState([]);
   const [bannerError, setBannerError] = useState('');
-  const [bannerIndex, setBannerIndex] = useState(0);
-useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -44,16 +42,6 @@ useEffect(() => {
     })();
     return () => { cancelled = true; };
   }, []);
-
-  // 轮播：长度变化时归零；长度>1时每3秒切换
-  useEffect(() => { setBannerIndex(0); }, [banners.length]);
-  useEffect(() => {
-    if (banners.length <= 1) return;
-    const t = setInterval(() => {
-      setBannerIndex(prev => (prev + 1) % banners.length);
-    }, 3000);
-    return () => clearInterval(t);
-  }, [banners.length]);
 
   useEffect(() => { isRefreshingRef.current = isRefreshing; }, [isRefreshing]);
 
@@ -96,10 +84,13 @@ useEffect(() => {
     return `${datePart} ${timePart}`;
   };
 
-  // 初次加载
   useEffect(() => {
+    const el = containerRef.current;
+    if (el) {
+      el.scrollTop = 0;
+    }
     fetchPage(0, true);
-  }, []);
+  }, [refreshToken]);
 
   // 下拉刷新：滚轮向上且已经在顶部
   useEffect(() => {

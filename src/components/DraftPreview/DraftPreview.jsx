@@ -1,9 +1,12 @@
-import React from 'react';
+import { useState } from 'react';
 import './DraftPreview.css';
 import DraftIcon from '../../../public/draft_selected_icon.svg';
 import { DownloadController } from '../../shared/DownloadController.js';
+import { deleteDraft } from '../../api/capcut';
 
-function DraftPreview({ draft }) {
+function DraftPreview({ draft, onDeleteDraft }) {
+  const [isDeleting, setDeleting] = useState(false);
+
   if (!draft) return null;
 
   const formatTime = (input) => {
@@ -36,6 +39,40 @@ function DraftPreview({ draft }) {
     });
   };
 
+  const handleDelete = async () => {
+    if (!draft?.draft_id || isDeleting) return;
+    const confirmed = window?.modal?.confirm
+      ? await new Promise((resolve) => {
+          window.modal.confirm({
+            title: '确认删除草稿',
+            content: `删除后不可恢复，确认删除「${name}」吗？`,
+            okText: '删除',
+            cancelText: '取消',
+            centered: true,
+            okType: 'danger',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        })
+      : window.confirm(`删除后不可恢复，确认删除「${name}」吗？`);
+    if (!confirmed) return;
+
+    try {
+      setDeleting(true);
+      const res = await deleteDraft({ draft_id: draft.draft_id });
+      if (res?.success === false) {
+        throw new Error(res?.error || '删除失败');
+      }
+      if (typeof onDeleteDraft === 'function') {
+        await onDeleteDraft(draft);
+      }
+    } catch (e) {
+      window.alert(e?.message || '删除失败');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="draft-preview">
       <div className="preview-box">
@@ -48,8 +85,11 @@ function DraftPreview({ draft }) {
       <div className="preview-title">{name}</div>
       <div className="preview-subtitle">修改时间: {formatTime(draft.updated_at)}</div>
       <div className="preview-download">
-        <button className="download-button" onClick={handleDownload}>
+        <button className="download-button" onClick={handleDownload} disabled={isDeleting}>
           下载
+        </button>
+        <button className="delete-button" onClick={handleDelete} disabled={isDeleting}>
+          {isDeleting ? '删除中...' : '删除'}
         </button>
       </div>
     </div>

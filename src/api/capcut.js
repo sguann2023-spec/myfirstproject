@@ -28,6 +28,15 @@ export async function searchDraft({ draft_id }) {
   return http.getJson(`${BASE_URL}/drafts/search_draft?${qs}`);
 }
 
+export async function deleteDraft({ draft_id }) {
+  if (!draft_id) {
+    throw new Error('draft_id is required');
+  }
+  return http.postJson(`${BASE_URL}/drafts/delete_draft`, {
+    draft_id,
+  });
+}
+
 // 新增：查询草稿脚本（固定 cut_jianying 路径，带 force_update）
 export async function queryScript({ draft_id, force_update = false }) {
   if (!draft_id) {

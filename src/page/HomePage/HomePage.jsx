@@ -1,5 +1,5 @@
 // HomePage 组件
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import LogoIcon from '../../../public/logo-circle.png';
@@ -329,6 +329,7 @@ const HomePage = () => {
   const [todayCount, setTodayCount] = useState(null);
   const [selectedPane, setSelectedPane] = useState('chat');
   const [selectedDraft, setSelectedDraft] = useState(null);
+  const [draftListRefreshToken, setDraftListRefreshToken] = useState(0);
   const [downloadDualView, setDownloadDualView] = useState('downloading');
   const [downloadProject, setDownloadProject] = useState(null);
   const [selectedPreset, setSelectedPreset] = useState(null);
@@ -371,6 +372,17 @@ const HomePage = () => {
         setTodayCount(c); // 更新界面（第 23-24 行对应逻辑）
       })
       .catch(() => setTodayCount(0));
+  };
+
+  const handleDraftDeleted = async (deletedDraft) => {
+    setSelectedDraft((prev) => {
+      if (prev?.draft_id && prev.draft_id === deletedDraft?.draft_id) {
+        return null;
+      }
+      return prev;
+    });
+    setDraftListRefreshToken((prev) => prev + 1);
+    await refreshTodayCount();
   };
 
   useEffect(() => {
@@ -1867,6 +1879,7 @@ const HomePage = () => {
                 onRefreshTodayCount={refreshTodayCount}
                 onSelectDraft={setSelectedDraft}
                 selectedId={selectedDraft?.draft_id}
+                refreshToken={draftListRefreshToken}
               />
             )}
             {selectedPane === 'download' && (
@@ -1908,7 +1921,7 @@ const HomePage = () => {
             }`}
           >
             {selectedPane === 'draft' && selectedDraft ? (
-              <DraftPreview draft={selectedDraft} />
+              <DraftPreview draft={selectedDraft} onDeleteDraft={handleDraftDeleted} />
             ) : null}
             {selectedPane === 'preset' ? (
               <Preset preset={selectedPreset} />

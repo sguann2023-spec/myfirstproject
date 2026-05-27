@@ -1,5 +1,5 @@
 import React, { Suspense, useCallback, useState, useEffect } from 'react';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, Modal } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +20,7 @@ let homeRuntimeInitPromise = null;
 function App() {
   const { t, i18n } = useTranslation('legacy');
   const initialLegacyLanguage = toLegacyLanguage(i18n.resolvedLanguage || i18n.language);
+  const [modal, modalContextHolder] = Modal.useModal();
 
   const [apiKey, setApiKey] = useState('');
   const [language, setLanguage] = useState(initialLegacyLanguage);
@@ -63,6 +64,10 @@ function App() {
       logger.warn('ipcRenderer not available:', e);
     }
   }, [prepareHomeRuntime]);
+
+  useEffect(() => {
+    window.modal = modal;
+  }, [modal]);
 
   useEffect(() => {
     // 在 App 层统一处理主进程的解析请求，避免页面卸载导致监听器丢失
@@ -158,6 +163,7 @@ function App() {
 
   return (
     <ConfigProvider locale={locale}>
+      {modalContextHolder}
       <div
         className="app-container"
         style={currentPage === 'home' || currentPage === 'guider'
