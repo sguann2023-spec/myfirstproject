@@ -1,10 +1,9 @@
-import { configureStore } from '@reduxjs/toolkit';
 import React from 'react';
-import { Provider } from 'react-redux';
+import { Provider, useSelector } from 'react-redux';
 import MessageBlockRenderer from '@renderer/pages/home/Messages/Blocks';
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage';
+import appStore from '../../../../renderer/src/store';
 import Markdown from '../Markdown/Markdown';
-import { buildErrorSignature } from '../../../../shared/chatError';
 import './MessageContent.css';
 
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
@@ -39,14 +38,31 @@ const normalizeBlockType = (value) => {
   }
 };
 
-const normalizeBlockStatus = (value) => {
+const normalizeBlockStatus = (value, { isLoading = false, blockType = MessageBlockType.UNKNOWN } = {}) => {
   const status = String(value || '').toLowerCase();
-  if (!status) return MessageBlockStatus.SUCCESS;
+  if (!status) {
+    if (blockType === MessageBlockType.ERROR) return MessageBlockStatus.ERROR;
+    return isLoading ? MessageBlockStatus.STREAMING : MessageBlockStatus.SUCCESS;
+  }
   if (status === 'pending') return MessageBlockStatus.PENDING;
   if (status === 'processing') return MessageBlockStatus.PROCESSING;
   if (status === 'streaming' || status === 'running' || status === 'invoking') return MessageBlockStatus.STREAMING;
   if (status === 'error' || status === 'failed') return MessageBlockStatus.ERROR;
   return MessageBlockStatus.SUCCESS;
+};
+
+const buildAssistantMessageStatus = ({ message, isLoading, entities, blockIds }) => {
+  if (message?.error) return 'error';
+  if (isLoading) return 'processing';
+  const hasActiveBlock = blockIds.some((id) => {
+    const status = entities[id]?.status;
+    return (
+      status === MessageBlockStatus.PENDING
+      || status === MessageBlockStatus.PROCESSING
+      || status === MessageBlockStatus.STREAMING
+    );
+  });
+  return hasActiveBlock ? 'processing' : 'success';
 };
 
 const buildAssistantBlockState = ({ message, isLoading }) => {
@@ -59,12 +75,16 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
   sourceBlocks.forEach((rawBlock, index) => {
     if (!rawBlock || typeof rawBlock !== 'object') return;
     const id = String(rawBlock?.id || `${messageId}-block-${index}`);
+    const type = normalizeBlockType(rawBlock?.type);
     entities[id] = {
       ...rawBlock,
       id,
       messageId: String(rawBlock?.messageId || messageId),
-      type: normalizeBlockType(rawBlock?.type),
-      status: normalizeBlockStatus(rawBlock?.status),
+      type,
+      status: normalizeBlockStatus(rawBlock?.status, {
+        isLoading,
+        blockType: type
+      }),
       createdAt: String(rawBlock?.createdAt || createdAt),
       updatedAt: rawBlock?.updatedAt ? String(rawBlock.updatedAt) : undefined
     };
@@ -117,66 +137,74 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
   };
 };
 
-const createToolStore = (entities = {}) =>
-  configureStore({
-    reducer: (
-      state = {
-        settings: {
-          renderInputMessageAsMarkdown: false,
-          mathEngine: 'KaTeX',
-          mathEnableSingleDollar: true,
-          codeExecution: {
-            enabled: false,
-            timeoutMinutes: 1
-          },
-          codeEditor: {
-            enabled: false,
-            themeLight: 'auto',
-            themeDark: 'auto',
-            highlightActiveLine: false,
-            foldGutter: false,
-            autocompletion: true,
-            keymap: false
-          },
-          codePreview: {
-            themeLight: 'auto',
-            themeDark: 'auto'
-          },
-          codeViewer: {
-            themeLight: 'auto',
-            themeDark: 'auto'
-          },
-          codeImageTools: true,
-          codeCollapsible: false,
-          codeWrappable: false
-        },
-        messageBlocks: { entities },
-        toolPermissions: { requests: {} }
-      }
-    ) => state
-  });
+const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId }) => {
+  const storeMessage = useSelector((state) => state?.messages?.entities?.[storeAssistantMessageId] || null);
+  const resolvedMessage = storeMessage
+    ? {
+      ...storeMessage,
+      error: fallbackMessage?.error || storeMessage?.error || null
+    }
+    : null;
+  const blocks = Array.isArray(resolvedMessage?.blocks) ? resolvedMessage.blocks : [];
+
+  if (!resolvedMessage) {
+    return (
+      <div className="chat-message-content">
+        <Markdown content={String(fallbackMessage?.content || '')} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="chat-message-content tw-scope chat-tool-layout-fix">
+      <MessageBlockRenderer blocks={blocks} message={resolvedMessage} />
+    </div>
+  );
+};
 
 const MessageContent = ({ message, isLoading = false }) => {
   const role = String(message?.role || '').toLowerCase();
   const isAssistant = role === 'assistant';
+  const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
+  const canUseLiveRendererStore = isAssistant && Boolean(storeAssistantMessageId);
+
+  if (canUseLiveRendererStore) {
+    return (
+      <Provider store={appStore}>
+        <LiveAssistantMessageContent
+          fallbackMessage={message}
+          storeAssistantMessageId={storeAssistantMessageId}
+        />
+      </Provider>
+    );
+  }
 
   const assistantState = React.useMemo(
     () => buildAssistantBlockState({ message, isLoading }),
     [message, isLoading]
   );
-  const toolStore = React.useMemo(
-    () => createToolStore(assistantState.entities),
-    [assistantState]
+  const assistantStatus = React.useMemo(
+    () => buildAssistantMessageStatus({
+      message,
+      isLoading,
+      entities: assistantState.entities,
+      blockIds: assistantState.blockIds
+    }),
+    [message, isLoading, assistantState]
+  );
+  const assistantCreatedAt = React.useMemo(
+    () => String(message?.createdAt || new Date().toISOString()),
+    [message?.id, message?.createdAt]
   );
   const assistantMessage = React.useMemo(() => ({
     id: String(message?.id || ''),
     role: 'assistant',
     assistantId: '',
     topicId: '',
-    createdAt: new Date().toISOString(),
-    status: isLoading ? 'processing' : 'success',
+    createdAt: assistantCreatedAt,
+    status: assistantStatus,
     blocks: assistantState.blockIds
-  }), [message, isLoading, assistantState.blockIds]);
+  }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds]);
 
   React.useEffect(() => {
     if (!DEBUG_CHAT_LOADING) return;
@@ -200,7 +228,7 @@ const MessageContent = ({ message, isLoading = false }) => {
   }
 
   return (
-    <Provider store={toolStore}>
+    <Provider store={appStore}>
       <div className="chat-message-content tw-scope chat-tool-layout-fix">
         <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} />
       </div>
@@ -208,18 +236,4 @@ const MessageContent = ({ message, isLoading = false }) => {
   );
 };
 
-export default React.memo(MessageContent, (prevProps, nextProps) => {
-  const prevMessage = prevProps.message || {};
-  const nextMessage = nextProps.message || {};
-  const prevError = buildErrorSignature(prevMessage.error);
-  const nextError = buildErrorSignature(nextMessage.error);
-  return (
-    prevProps.isLoading === nextProps.isLoading
-    && prevMessage.id === nextMessage.id
-    && prevMessage.content === nextMessage.content
-    && prevMessage.role === nextMessage.role
-    && prevMessage.createdAt === nextMessage.createdAt
-    && prevMessage.updatedAt === nextMessage.updatedAt
-    && prevError === nextError
-  );
-});
+export default React.memo(MessageContent);

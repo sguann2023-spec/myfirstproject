@@ -16,7 +16,6 @@ import type {
 import { removeSvgEmptyLines } from '@renderer/utils/formats'
 import { processLatexBrackets } from '@renderer/utils/markdown'
 import { isEmpty } from 'lodash'
-import React from 'react'
 import { type FC, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
@@ -61,7 +60,7 @@ const Markdown: FC<Props> = ({ block, postProcess }) => {
   const prevBlockIdRef = useRef(block.id)
 
   const { addChunk, reset } = useSmoothStream({
-    onUpdate: (rawText) => {
+    onUpdate: (rawText: string) => {
       // 如果提供了后处理函数就调用，否则直接使用原始文本
       const finalText = postProcess ? postProcess(rawText) : rawText
       setDisplayedContent(finalText)

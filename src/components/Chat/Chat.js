@@ -64,19 +64,9 @@ const Chat = ({
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
-  const prevMessageCountRef = React.useRef(0);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
 
   const messages = normalizeMessages(session);
-
-  React.useEffect(() => {
-    const nextCount = Array.isArray(messages) ? messages.length : 0;
-    const prevCount = prevMessageCountRef.current;
-    if (nextCount > prevCount) {
-      messageEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-    prevMessageCountRef.current = nextCount;
-  }, [messages]);
 
   React.useEffect(() => {
     inputRef.current?.focus();

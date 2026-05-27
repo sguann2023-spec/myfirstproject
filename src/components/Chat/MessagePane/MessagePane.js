@@ -23,7 +23,29 @@ const MessagePane = ({
   userName,
   userAvatar,
 }) => {
+  const scrollContainerRef = React.useRef(null);
+  const autoScrollEnabledRef = React.useRef(true);
+  const autoScrollFrameRef = React.useRef(null);
+  const previousMessageCountRef = React.useRef(0);
   const visibleMessages = messages;
+  const isNearBottom = React.useCallback((element) => {
+    if (!element) return true;
+    const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    return distanceToBottom <= 48;
+  }, []);
+  const scrollToBottom = React.useCallback((behavior = 'auto') => {
+    const element = scrollContainerRef.current;
+    if (!element) return;
+    if (autoScrollFrameRef.current) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current);
+    }
+    autoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior
+      });
+    });
+  }, []);
   const loadingMessageId = React.useMemo(() => {
     if (!sending || visibleMessages.length === 0) return null;
     for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
@@ -69,9 +91,59 @@ const MessagePane = ({
     // });
   }, [sending, visibleMessages, loadingMessageId, groupedMessages]);
 
+  React.useEffect(() => {
+    const element = scrollContainerRef.current;
+    if (!element) return undefined;
+
+    const handleMutation = () => {
+      if (!autoScrollEnabledRef.current) return;
+      scrollToBottom('auto');
+    };
+
+    const observer = new MutationObserver(handleMutation);
+    observer.observe(element, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [scrollToBottom]);
+
+  React.useEffect(() => {
+    const nextCount = Array.isArray(visibleMessages) ? visibleMessages.length : 0;
+    const previousCount = previousMessageCountRef.current;
+    if (nextCount > previousCount && autoScrollEnabledRef.current) {
+      scrollToBottom('smooth');
+    }
+    previousMessageCountRef.current = nextCount;
+  }, [scrollToBottom, visibleMessages]);
+
+  React.useEffect(() => () => {
+    if (autoScrollFrameRef.current) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current);
+    }
+  }, []);
+
+  const handleScroll = React.useCallback((event) => {
+    autoScrollEnabledRef.current = isNearBottom(event.currentTarget);
+  }, [isNearBottom]);
+
+  const handleWheelCapture = React.useCallback((event) => {
+    if (event.deltaY < 0) {
+      autoScrollEnabledRef.current = false;
+    }
+  }, []);
+
   return (
     <div className="chat-panel__message-pane">
-      <div className="chat-panel__messages">
+      <div
+        ref={scrollContainerRef}
+        className="chat-panel__messages"
+        onScroll={handleScroll}
+        onWheelCapture={handleWheelCapture}>
         {visibleMessages.length === 0 ? (
           messages.length === 0 ? (
             <div className="chat-panel__empty chat-panel__empty--image">

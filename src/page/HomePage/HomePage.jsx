@@ -30,6 +30,7 @@ const CHAT_MODEL_KEY = 'capcut-helper-chat-model-v1';
 const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
+const CHAT_SNAPSHOT_THROTTLE_MS = 100;
 
 const resolveProviderIdByModel = (modelId = '') => {
   const lower = String(modelId || '').toLowerCase();
@@ -352,6 +353,7 @@ const HomePage = () => {
   const chatIdByAgentSessionIdRef = useRef(new Map());
   const chatPendingByRequestIdRef = useRef(new Map());
   const chatPerfByRequestIdRef = useRef(new Map());
+  const chatSnapshotThrottleByRequestIdRef = useRef(new Map());
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -597,6 +599,15 @@ const HomePage = () => {
   useEffect(() => {
     chatSessionsRef.current = chatSessions;
   }, [chatSessions]);
+
+  useEffect(() => {
+    return () => {
+      chatSnapshotThrottleByRequestIdRef.current.forEach((entry) => {
+        if (entry?.timer) clearTimeout(entry.timer);
+      });
+      chatSnapshotThrottleByRequestIdRef.current.clear();
+    };
+  }, []);
 
   const triggerAutoRenameSessionTitle = async (sessionId) => {
     const id = String(sessionId || '').trim();
@@ -876,6 +887,8 @@ const HomePage = () => {
       }
       const { chatId, assistantMessageId, streamController, storeAssistantMessageId } = pending;
       const perfEntry = requestId ? chatPerfByRequestIdRef.current.get(requestId) : null;
+      const throttleKey = requestId || `${chatId}:${assistantMessageId}`;
+      const useRendererStoreStreaming = Boolean(storeAssistantMessageId);
       if (payload.type === 'started') {
         if (perfEntry && !perfEntry.startedAt) {
           perfEntry.startedAt = Date.now();
@@ -941,6 +954,53 @@ const HomePage = () => {
             ...snapshotSummary
           });
         }
+      };
+      const clearScheduledSnapshot = () => {
+        const scheduled = chatSnapshotThrottleByRequestIdRef.current.get(throttleKey);
+        if (scheduled?.timer) clearTimeout(scheduled.timer);
+        chatSnapshotThrottleByRequestIdRef.current.delete(throttleKey);
+      };
+      const flushSnapshot = (error = null) => {
+        const scheduled = chatSnapshotThrottleByRequestIdRef.current.get(throttleKey);
+        if (scheduled?.timer) clearTimeout(scheduled.timer);
+        chatSnapshotThrottleByRequestIdRef.current.set(throttleKey, {
+          timer: null,
+          lastAppliedAt: Date.now()
+        });
+        applySnapshot(error);
+      };
+      const scheduleSnapshot = (error = null) => {
+        if (!requestId) {
+          applySnapshot(error);
+          return;
+        }
+        const current = chatSnapshotThrottleByRequestIdRef.current.get(throttleKey) || {
+          timer: null,
+          lastAppliedAt: 0
+        };
+        const now = Date.now();
+        const elapsedMs = now - current.lastAppliedAt;
+        if (elapsedMs >= CHAT_SNAPSHOT_THROTTLE_MS && !current.timer) {
+          chatSnapshotThrottleByRequestIdRef.current.set(throttleKey, {
+            timer: null,
+            lastAppliedAt: now
+          });
+          applySnapshot(error);
+          return;
+        }
+        if (current.timer) return;
+        const waitMs = Math.max(0, CHAT_SNAPSHOT_THROTTLE_MS - elapsedMs);
+        const timer = setTimeout(() => {
+          chatSnapshotThrottleByRequestIdRef.current.set(throttleKey, {
+            timer: null,
+            lastAppliedAt: Date.now()
+          });
+          applySnapshot(error);
+        }, waitMs);
+        chatSnapshotThrottleByRequestIdRef.current.set(throttleKey, {
+          timer,
+          lastAppliedAt: current.lastAppliedAt
+        });
       };
 
       const finalizeAssistantMessage = ({ error = null, aborted = false } = {}) => {
@@ -1025,7 +1085,9 @@ const HomePage = () => {
             pushChunkDurationMs
           });
         }
-        applySnapshot(null);
+        if (!useRendererStoreStreaming) {
+          scheduleSnapshot(null);
+        }
         return;
       }
 
@@ -1033,6 +1095,7 @@ const HomePage = () => {
         const errorMessage = String(payload?.error?.message || '');
         const errorCode = String(payload?.error?.code || '').trim().toUpperCase();
         if (errorCode === 'ABORTED') {
+          clearScheduledSnapshot();
           logger.info('[HomePage][StreamTrace] remap aborted error to cancelled', {
             chatId,
             sessionId: agentSessionId,
@@ -1097,6 +1160,7 @@ const HomePage = () => {
           chatAgentSessionIdByChatIdRef.current.delete(chatId);
         }
         const normalizedError = normalizeChatError(payload?.error || new Error(payload?.error?.message || 'agent request failed'));
+        clearScheduledSnapshot();
         streamController?.error(new Error(errorMessage || 'agent request failed'));
         finalizeAssistantMessage({ error: normalizedError, aborted: false });
         if (requestId) {
@@ -1140,6 +1204,7 @@ const HomePage = () => {
       }
 
       if (payload.type === 'cancelled') {
+        clearScheduledSnapshot();
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         finalizeAssistantMessage({ error: null, aborted: true });
         if (requestId) {
@@ -1184,7 +1249,7 @@ const HomePage = () => {
 
       if (payload.type === 'complete') {
         streamController?.complete();
-        applySnapshot(null);
+        flushSnapshot(null);
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
           logPendingState('delete', {
@@ -1222,10 +1287,15 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
+        clearScheduledSnapshot();
         void triggerAutoRenameSessionTitle(chatId);
       }
     });
     return () => {
+      chatSnapshotThrottleByRequestIdRef.current.forEach((entry) => {
+        if (entry?.timer) clearTimeout(entry.timer);
+      });
+      chatSnapshotThrottleByRequestIdRef.current.clear();
       if (typeof offPermissionRequest === 'function') offPermissionRequest();
       if (typeof offPermissionResult === 'function') offPermissionResult();
       if (typeof offChunk === 'function') offChunk();
@@ -1357,6 +1427,7 @@ const HomePage = () => {
       blocks: [],
       createdAt: Date.now(),
       model: chatModel,
+      storeAssistantMessageId: null,
     };
     setChatSessions((prev) => {
       const updated = prev.map((item) => {
@@ -1413,6 +1484,25 @@ const HomePage = () => {
         'vectcut_claw_default',
         chatModel
       );
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: item.messages.map((message) => (
+              message.id === assistantMessageId
+                ? {
+                  ...message,
+                  storeAssistantMessageId: streamController.assistantMessageId,
+                  updatedAt: Date.now()
+                }
+                : message
+            ))
+          };
+        });
+        return sortChatSessions(updated);
+      });
       chatPendingByRequestIdRef.current.set(requestId, {
         chatId: targetSessionId,
         agentSessionId,
@@ -1612,6 +1702,25 @@ const HomePage = () => {
         'vectcut_claw_default',
         chatModel
       );
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== activeChatId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: item.messages.map((msg) => (
+              msg.id === messageId
+                ? {
+                  ...msg,
+                  storeAssistantMessageId: streamController.assistantMessageId,
+                  updatedAt: Date.now()
+                }
+                : msg
+            ))
+          };
+        });
+        return sortChatSessions(updated);
+      });
       chatPendingByRequestIdRef.current.set(requestId, {
         chatId: activeChatId,
         agentSessionId,
