@@ -326,6 +326,23 @@ describe('MessageAgentTools', () => {
       expect(screen.getByText('Subagent finished successfully.')).toBeInTheDocument()
     })
 
+    it('should not render TodoWrite in message flow', () => {
+      const toolResponse = createToolResponse({
+        tool: { id: 'TodoWrite', name: 'TodoWrite', description: 'Creates todos', type: 'provider' },
+        status: 'done',
+        arguments: {
+          todos: [
+            { content: 'Task 1', status: 'completed', activeForm: 'Completing task 1' },
+            { content: 'Task 2', status: 'pending', activeForm: 'Completing task 2' }
+          ]
+        }
+      })
+
+      const { container } = render(<MessageAgentTools toolResponse={toolResponse} />)
+
+      expect(container.firstChild).toBeNull()
+    })
+
     it('should render error state correctly', () => {
       const toolResponse = createToolResponse({
         tool: { id: 'Read', name: 'Read', description: 'Read a file', type: 'provider' },

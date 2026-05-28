@@ -370,12 +370,6 @@ export interface TodoWriteToolMessageBlock extends Omit<ToolMessageBlock, 'metad
 }
 
 /**
- * Check if todos have any incomplete items
- */
-const hasIncompleteTodos = (todos: TodoItem[]): boolean =>
-  todos.some((todo) => todo.status === 'pending' || todo.status === 'in_progress')
-
-/**
  * Check if a block is a TodoWrite tool block
  */
 export const isTodoWriteBlock = (block: MessageBlock | undefined): block is TodoWriteToolMessageBlock => {
@@ -392,7 +386,7 @@ export const isTodoWriteBlock = (block: MessageBlock | undefined): block is Todo
  * Information about active todos for PinnedTodoPanel
  */
 export interface ActiveTodoInfo {
-  /** All todos from the latest block with incomplete items */
+  /** All todos from the latest TodoWrite block */
   todos: TodoItem[]
   /** Current active todo (in_progress or first pending) */
   activeTodo: TodoItem | undefined
@@ -405,10 +399,10 @@ export interface ActiveTodoInfo {
 }
 
 /**
- * Select active todo info for a topic in a single pass.
- * Returns undefined if no TodoWrite block with incomplete todos exists.
+ * Select the latest TodoWrite info for a topic in a single pass.
+ * Returns undefined if no TodoWrite block exists for the topic.
  *
- * Used by PinnedTodoPanel to display current task progress above the inputbar.
+ * Used by PinnedTodoPanel to display the most recent TodoWrite snapshot above the inputbar.
  */
 export const selectActiveTodoInfo = createSelector(
   [
@@ -433,15 +427,13 @@ export const selectActiveTodoInfo = createSelector(
         if (isTodoWriteBlock(block)) {
           const ids = (blockIdsByMessage[messageId] ??= [])
           ids.push(blockId)
-          const todos = block.metadata.rawMcpToolResponse?.arguments?.todos
-          if (todos && hasIncompleteTodos(todos)) {
-            latestBlock = block
-          }
+          latestBlock = block
         }
       }
     }
-    if (!latestBlock) return undefined
-    const todos = latestBlock.metadata.rawMcpToolResponse?.arguments?.todos
+    const targetBlock = latestBlock
+    if (!targetBlock) return undefined
+    const todos = targetBlock.metadata.rawMcpToolResponse?.arguments?.todos
     if (!todos) return undefined
     const activeTodo =
       todos.find((todo) => todo.status === 'in_progress') ?? todos.find((todo) => todo.status === 'pending')

@@ -228,6 +228,11 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
     )
   }
 
+  // TodoWrite is rendered by the pinned panel above the composer, not in the message flow.
+  if (tool?.name === AgentToolsType.TodoWrite) {
+    return null
+  }
+
   const effectiveStatus = getEffectiveStatus(status, !!pendingPermission)
 
   if (effectiveStatus === 'waiting') {

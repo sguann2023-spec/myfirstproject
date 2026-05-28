@@ -3,6 +3,7 @@ import { Provider, useSelector } from 'react-redux';
 import MessageBlockRenderer from '@renderer/pages/home/Messages/Blocks';
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage';
 import appStore from '../../../../renderer/src/store';
+import { upsertManyBlocks } from '../../../../renderer/src/store/messageBlock';
 import Markdown from '../Markdown/Markdown';
 import './MessageContent.css';
 
@@ -137,23 +138,51 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
   };
 };
 
-const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId }) => {
+const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId, isLoading = false }) => {
   const storeMessage = useSelector((state) => state?.messages?.entities?.[storeAssistantMessageId] || null);
+  const fallbackAssistantState = React.useMemo(
+    () => buildAssistantBlockState({ message: fallbackMessage, isLoading }),
+    [fallbackMessage, isLoading]
+  );
+  const fallbackAssistantStatus = React.useMemo(
+    () => buildAssistantMessageStatus({
+      message: fallbackMessage,
+      isLoading,
+      entities: fallbackAssistantState.entities,
+      blockIds: fallbackAssistantState.blockIds
+    }),
+    [fallbackMessage, isLoading, fallbackAssistantState]
+  );
+  const fallbackAssistantCreatedAt = React.useMemo(
+    () => String(fallbackMessage?.createdAt || new Date().toISOString()),
+    [fallbackMessage?.id, fallbackMessage?.createdAt]
+  );
+
+  React.useEffect(() => {
+    if (storeMessage) return;
+    const fallbackBlocks = fallbackAssistantState.blockIds
+      .map((id) => fallbackAssistantState.entities[id])
+      .filter(Boolean);
+    if (fallbackBlocks.length === 0) return;
+    appStore.dispatch(upsertManyBlocks(fallbackBlocks));
+  }, [storeMessage, fallbackAssistantState]);
+
   const resolvedMessage = storeMessage
     ? {
       ...storeMessage,
       error: fallbackMessage?.error || storeMessage?.error || null
     }
-    : null;
+    : {
+      id: String(fallbackMessage?.id || storeAssistantMessageId || ''),
+      role: 'assistant',
+      assistantId: '',
+      topicId: '',
+      createdAt: fallbackAssistantCreatedAt,
+      status: fallbackAssistantStatus,
+      blocks: fallbackAssistantState.blockIds,
+      error: fallbackMessage?.error || null
+    };
   const blocks = Array.isArray(resolvedMessage?.blocks) ? resolvedMessage.blocks : [];
-
-  if (!resolvedMessage) {
-    return (
-      <div className="chat-message-content">
-        <Markdown content={String(fallbackMessage?.content || '')} />
-      </div>
-    );
-  }
 
   return (
     <div className="chat-message-content tw-scope chat-tool-layout-fix">
@@ -174,6 +203,7 @@ const MessageContent = ({ message, isLoading = false }) => {
         <LiveAssistantMessageContent
           fallbackMessage={message}
           storeAssistantMessageId={storeAssistantMessageId}
+          isLoading={isLoading}
         />
       </Provider>
     );

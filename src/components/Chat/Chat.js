@@ -1,7 +1,11 @@
 import React from 'react';
+import { Provider } from 'react-redux';
+import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
+import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
 import ChatShell from './ChatShell/ChatShell';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
+import appStore from '../../renderer/src/store';
 
 const formatMessageTime = (value) => {
   if (!value) return '';
@@ -34,11 +38,37 @@ const QUICK_PROMPTS = [
   }
 ];
 const formatModelDisplayName = (value) => String(value || '').trim();
+const buildHomeChatTopicId = (chatId) => {
+  const normalizedChatId = String(chatId || '').trim();
+  return normalizedChatId ? `home-chat-${normalizedChatId}` : '';
+};
+const ChatPinnedTodoPanelContent = ({ topicId, sessionFulfilled = false }) => {
+  const activeTodoInfo = useActiveTodos(topicId);
+
+  if (!activeTodoInfo) return null;
+
+  return (
+    <div style={{ padding: '1px 24px 8px 16px' }}>
+      <PinnedTodoPanel topicId={topicId} sessionFulfilled={sessionFulfilled} />
+    </div>
+  );
+};
+
+const ChatPinnedTodoPanel = ({ topicId, sessionFulfilled = false }) => {
+  if (!topicId) return null;
+
+  return (
+    <Provider store={appStore}>
+      <ChatPinnedTodoPanelContent topicId={topicId} sessionFulfilled={sessionFulfilled} />
+    </Provider>
+  );
+};
 
 const Chat = ({
   session,
   agentId: agentIdProp,
   runtimeSessionId,
+  sessionFulfilled = false,
   input,
   setInput,
   onSendMessage,
@@ -65,6 +95,7 @@ const Chat = ({
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
+  const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
 
   const messages = normalizeMessages(session);
 
@@ -134,6 +165,7 @@ const Chat = ({
         userName={userName}
         userAvatar={userAvatar}
       />
+      <ChatPinnedTodoPanel topicId={chatTopicId} sessionFulfilled={sessionFulfilled} />
       <Composer
         agentId={agentId}
         runtimeSessionId={runtimeSessionId}

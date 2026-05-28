@@ -21,6 +21,7 @@ import Chat from '../../components/Chat/Chat';
 import { tokenStore } from '../../auth';
 import { normalizeChatError } from '../../shared/chatError';
 import appStore from '../../renderer/src/store';
+import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
 const logger = loggerService.withContext('HomePage');
 
@@ -322,6 +323,70 @@ const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
   });
 };
 
+const finalizeLatestTodoWriteInStore = (assistantMessageId) => {
+  const state = appStore.getState();
+  const message = state?.messages?.entities?.[assistantMessageId];
+  const blockIds = Array.isArray(message?.blocks) ? message.blocks : [];
+  if (!blockIds.length) return false;
+
+  for (let index = blockIds.length - 1; index >= 0; index -= 1) {
+    const block = state?.messageBlocks?.entities?.[blockIds[index]];
+    const rawToolResponse = block?.metadata?.rawMcpToolResponse;
+    const toolName = String(rawToolResponse?.tool?.name || block?.toolName || '');
+    const todos = Array.isArray(rawToolResponse?.arguments?.todos) ? rawToolResponse.arguments.todos : null;
+    if (toolName !== 'TodoWrite' || !todos?.length) continue;
+
+    const incompleteTodos = todos.filter((todo) => todo?.status === 'pending' || todo?.status === 'in_progress');
+    const updatedTodos = todos.map((todo) => {
+      if (todo?.status === 'in_progress') {
+        return { ...todo, status: 'completed' };
+      }
+      return todo;
+    });
+
+    let changed = updatedTodos.some((todo, todoIndex) => todo?.status !== todos[todoIndex]?.status);
+    if (!changed && incompleteTodos.length === 1) {
+      const targetIndex = todos.findIndex((todo) => todo?.status === 'pending' || todo?.status === 'in_progress');
+      if (targetIndex >= 0) {
+        updatedTodos[targetIndex] = { ...updatedTodos[targetIndex], status: 'completed' };
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return false;
+    }
+
+    appStore.dispatch(updateOneBlock({
+      id: block.id,
+      changes: {
+        status: 'success',
+        metadata: {
+          ...block.metadata,
+          rawMcpToolResponse: {
+            ...rawToolResponse,
+            status: 'done',
+            arguments: {
+              ...(rawToolResponse?.arguments || {}),
+              todos: updatedTodos
+            }
+          }
+        }
+      }
+    }));
+
+    logger.info('[HomePage][TodoWrite] finalized latest todo block on stream complete', {
+      assistantMessageId,
+      blockId: block.id,
+      totalTodos: todos.length,
+      remainingBeforeFinalize: incompleteTodos.length
+    });
+    return true;
+  }
+
+  return false;
+};
+
 const HomePage = () => {
   const user = electronStore.get('user') || {};
   const avatarSrc = user?.avatar || LogoIcon;
@@ -621,7 +686,7 @@ const HomePage = () => {
     };
   }, []);
 
-  const triggerAutoRenameSessionTitle = async (sessionId) => {
+  const triggerAutoRenameSessionTitle = async (sessionId, messagesOverride = null) => {
     const id = String(sessionId || '').trim();
     if (!id) return;
     if (chatTitleGeneratingSessionIdsRef.current.has(id)) return;
@@ -632,7 +697,9 @@ const HomePage = () => {
     const currentTitle = String(session.title || '').trim();
     if (currentTitle && currentTitle !== DEFAULT_CHAT_TITLE) return;
 
-    const normalizedMessages = Array.isArray(session.messages) ? session.messages : [];
+    const normalizedMessages = Array.isArray(messagesOverride)
+      ? messagesOverride
+      : (Array.isArray(session.messages) ? session.messages : []);
     const assistantReplies = normalizedMessages.filter((item) => (
       item?.role === 'assistant'
       && String(item?.content || '').trim()
@@ -640,23 +707,57 @@ const HomePage = () => {
     ));
     const hasAssistantReply = assistantReplies.length > 0;
     const hasUserMessage = normalizedMessages.some((item) => item?.role === 'user' && String(item?.content || '').trim());
-    if (!hasUserMessage || !hasAssistantReply) return;
-    if (assistantReplies.length !== 1) return;
+    if (!hasUserMessage || !hasAssistantReply) {
+      logger.info('[HomePage][TitleRename] skipped', {
+        sessionId: id,
+        reason: !hasUserMessage ? 'no-user-message' : 'no-assistant-reply',
+        messageCount: normalizedMessages.length,
+        assistantReplyCount: assistantReplies.length
+      });
+      return;
+    }
+    if (assistantReplies.length !== 1) {
+      logger.info('[HomePage][TitleRename] skipped', {
+        sessionId: id,
+        reason: 'assistant-reply-count-not-one',
+        messageCount: normalizedMessages.length,
+        assistantReplyCount: assistantReplies.length
+      });
+      return;
+    }
 
     const latestAssistant = [...normalizedMessages].reverse().find((item) => item?.role === 'assistant');
     const summaryModel = String(latestAssistant?.model || chatModel || '').trim();
-    if (!summaryModel) return;
+    if (!summaryModel) {
+      logger.info('[HomePage][TitleRename] skipped', {
+        sessionId: id,
+        reason: 'missing-summary-model',
+        messageCount: normalizedMessages.length
+      });
+      return;
+    }
 
     chatTitleGeneratingSessionIdsRef.current.add(id);
     setChatTitleRenamingSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
 
     try {
+      logger.info('[HomePage][TitleRename] start', {
+        sessionId: id,
+        messageCount: normalizedMessages.length,
+        summaryModel
+      });
       const { text } = await fetchMessagesSummary({
         messages: normalizedMessages,
         model: summaryModel
       });
       const nextTitle = String(text || '').trim();
-      if (!nextTitle) return;
+      if (!nextTitle) {
+        logger.info('[HomePage][TitleRename] skipped', {
+          sessionId: id,
+          reason: 'empty-generated-title'
+        });
+        return;
+      }
 
       let updated = false;
       setChatSessions((prev) => {
@@ -676,6 +777,10 @@ const HomePage = () => {
         return updated ? sortChatSessions(next) : prev;
       });
       if (!updated) return;
+      logger.info('[HomePage][TitleRename] updated', {
+        sessionId: id,
+        nextTitle
+      });
 
       setChatTitleNewlyRenamedSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       const oldTimer = chatTitleRevealTimersRef.current.get(id);
@@ -686,6 +791,11 @@ const HomePage = () => {
         chatTitleRevealTimersRef.current.delete(id);
       }, 1600);
       chatTitleRevealTimersRef.current.set(id, timer);
+    } catch (error) {
+      logger.warn('[HomePage][TitleRename] failed', {
+        sessionId: id,
+        error: error?.message || String(error)
+      });
     } finally {
       chatTitleGeneratingSessionIdsRef.current.delete(id);
       setChatTitleRenamingSessionIds((prev) => prev.filter((item) => item !== id));
@@ -1234,6 +1344,22 @@ const HomePage = () => {
       }
 
       if (payload.type === 'complete') {
+        const finalSnapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+        const sessionBeforeRename = chatSessionsRef.current.find((item) => item.id === chatId);
+        const messagesForRename = sessionBeforeRename
+          ? sessionBeforeRename.messages.map((message) => (
+              message.id === assistantMessageId
+                ? {
+                    ...message,
+                    content: finalSnapshot?.content || message.content || '',
+                    blocks: finalSnapshot?.blocks || message.blocks || [],
+                    error: null,
+                    updatedAt: Date.now()
+                  }
+                : message
+            ))
+          : null;
+        finalizeLatestTodoWriteInStore(storeAssistantMessageId || '');
         streamController?.complete();
         flushSnapshot(null);
         if (requestId) {
@@ -1274,7 +1400,7 @@ const HomePage = () => {
           }
         }
         clearScheduledSnapshot();
-        void triggerAutoRenameSessionTitle(chatId);
+        void triggerAutoRenameSessionTitle(chatId, messagesForRename);
       }
     });
     return () => {
@@ -1935,6 +2061,7 @@ const HomePage = () => {
                 session={activeChatSession}
                 agentId="vectcut_claw_default"
                 runtimeSessionId={activeChatSession?.runtimeSessionId || ''}
+                sessionFulfilled={Boolean(activeChatId && chatSessionFulfilledMap[activeChatId])}
                 input={chatDraftInput}
                 setInput={setChatDraftInput}
                 onSendMessage={handleSendChatMessage}

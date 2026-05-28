@@ -1,7 +1,8 @@
 import { useAppDispatch } from '@renderer/store'
 import { removeBlocksThunk } from '@renderer/store/thunk/messageThunk'
 import { Typography } from 'antd'
-import { CheckCircle, ChevronDown, ChevronUp, Circle, Loader2, X } from 'lucide-react'
+import { LoadingIcon } from '@renderer/components/Icons'
+import { CheckCircle, ChevronDown, ChevronUp, Circle, X } from 'lucide-react'
 import type { FC } from 'react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -15,20 +16,21 @@ const { Text } = Typography
 const TodoStatusIcon: FC<{ status: TodoItem['status'] }> = ({ status }) => {
   switch (status) {
     case 'completed':
-      return <CheckCircle size={14} className="text-green-500" />
+      return <CheckCircle size={14} style={{ color: '#98E0AC' }} />
     case 'in_progress':
-      return <Loader2 size={14} className="animate-spin text-blue-500" />
+      return <LoadingIcon size={14} style={{ color: 'var(--color-primary)' }} />
     case 'pending':
     default:
-      return <Circle size={14} className="text-gray-400" />
+      return <Circle size={14} style={{ color: 'var(--color-text-3)' }} />
   }
 }
 
 interface PinnedTodoPanelProps {
   topicId: string
+  sessionFulfilled?: boolean
 }
 
-export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId }) => {
+export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId, sessionFulfilled = false }) => {
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const activeTodoInfo = useActiveTodos(topicId)
@@ -53,7 +55,24 @@ export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId }) => {
     return null
   }
 
-  const { todos, activeTodo, completedCount, totalCount } = activeTodoInfo
+  const { todos } = activeTodoInfo
+  const incompleteCount = todos.filter((todo: TodoItem) => todo.status !== 'completed').length
+  const displayTodos =
+    sessionFulfilled && incompleteCount === 1
+      ? todos.map((todo: TodoItem) =>
+          todo.status === 'completed'
+            ? todo
+            : {
+                ...todo,
+                status: 'completed' as const
+              }
+        )
+      : todos
+  const displayActiveTodo =
+    displayTodos.find((todo: TodoItem) => todo.status === 'in_progress') ??
+    displayTodos.find((todo: TodoItem) => todo.status === 'pending')
+  const displayCompletedCount = displayTodos.filter((todo: TodoItem) => todo.status === 'completed').length
+  const displayTotalCount = displayTodos.length
 
   return (
     <Container>
@@ -61,15 +80,15 @@ export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId }) => {
         <PanelHeader onClick={() => setIsCollapsed(!isCollapsed)}>
           <HeaderLeft>
             {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-            {isCollapsed && activeTodo ? (
+            {isCollapsed && displayActiveTodo ? (
               <>
-                <TodoStatusIcon status={activeTodo.status} />
+                <TodoStatusIcon status={displayActiveTodo.status} />
                 <HeaderTitle>
-                  {activeTodo.status === 'in_progress' ? activeTodo.activeForm : activeTodo.content}
+                  {displayActiveTodo.status === 'in_progress' ? displayActiveTodo.activeForm : displayActiveTodo.content}
                 </HeaderTitle>
               </>
             ) : (
-              <HeaderTitle>{t('agent.todo.panel.title', { completed: completedCount, total: totalCount })}</HeaderTitle>
+              <HeaderTitle>{t('agent.todo.panel.title', { completed: displayCompletedCount, total: displayTotalCount })}</HeaderTitle>
             )}
           </HeaderLeft>
           <CloseButton onClick={handleClose}>
@@ -77,7 +96,7 @@ export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId }) => {
           </CloseButton>
         </PanelHeader>
         <TodoList $collapsed={isCollapsed}>
-          {todos.map((todo, index) => (
+          {displayTodos.map((todo: TodoItem, index: number) => (
             <TodoItemRow key={`${todo.content}-${index}`} $completed={todo.status === 'completed'}>
               <TodoStatusIcon status={todo.status} />
               <TodoContent $completed={todo.status === 'completed'}>
