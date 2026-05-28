@@ -10,6 +10,7 @@
   width: 420px;
   max-width: 80%;
   aspect-ratio: 1 / 1;
+  position: relative;
   border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e8e8e8;
@@ -17,6 +18,28 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+
+.preview-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.preview-stack-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72%;
+  height: 72%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #ececec;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  transform-origin: center center;
+  margin-left: -36%;
+  margin-top: -36%;
 }
 
 .preview-image {

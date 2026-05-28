@@ -193,6 +193,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                         src={current.cover}
                         alt="cover"
                         className="draftlist-cover-img"
+                        draggable={false}
                       />
                     ) : (
                       <DraftCoverDefault draftId={current.draft_id} />
@@ -226,6 +227,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                       src={item.cover}
                       alt="cover"
                       className="draftlist-cover-img"
+                      draggable={false}
                     />
                   ) : (
                     <DraftCoverDefault draftId={item.draft_id} />
@@ -268,6 +270,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                         src={item.cover}
                         alt="cover"
                         className="draftlist-cover-img"
+                        draggable={false}
                       />
                     ) : (
                       <DraftCoverDefault draftId={item.draft_id} />

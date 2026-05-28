@@ -394,6 +394,7 @@ const HomePage = () => {
   const [todayCount, setTodayCount] = useState(null);
   const [selectedPane, setSelectedPane] = useState('chat');
   const [selectedDraft, setSelectedDraft] = useState(null);
+  const [selectedDrafts, setSelectedDrafts] = useState([]);
   const [draftListRefreshToken, setDraftListRefreshToken] = useState(0);
   const [downloadDualView, setDownloadDualView] = useState('downloading');
   const [downloadProject, setDownloadProject] = useState(null);
@@ -439,10 +440,19 @@ const HomePage = () => {
       .catch(() => setTodayCount(0));
   };
 
-  const handleDraftDeleted = async (deletedDraft) => {
+  const handleDraftDeleted = async (deletedDraftOrDrafts) => {
+    const deletedDrafts = Array.isArray(deletedDraftOrDrafts)
+      ? deletedDraftOrDrafts.filter(Boolean)
+      : [deletedDraftOrDrafts].filter(Boolean);
+    const deletedIds = new Set(deletedDrafts.map((item) => item?.draft_id).filter(Boolean));
+    let remainingDrafts = [];
+    setSelectedDrafts((prev) => {
+      remainingDrafts = prev.filter((item) => !deletedIds.has(item?.draft_id));
+      return remainingDrafts;
+    });
     setSelectedDraft((prev) => {
-      if (prev?.draft_id && prev.draft_id === deletedDraft?.draft_id) {
-        return null;
+      if (prev?.draft_id && deletedIds.has(prev.draft_id)) {
+        return remainingDrafts[remainingDrafts.length - 1] || null;
       }
       return prev;
     });
@@ -2004,6 +2014,7 @@ const HomePage = () => {
               <DraftList
                 onRefreshTodayCount={refreshTodayCount}
                 onSelectDraft={setSelectedDraft}
+                onSelectionChange={setSelectedDrafts}
                 selectedId={selectedDraft?.draft_id}
                 refreshToken={draftListRefreshToken}
               />
@@ -2046,8 +2057,8 @@ const HomePage = () => {
               selectedPane === 'chat' && !chatHistoryVisible ? 'right-pane--chat-collapsed' : ''
             }`}
           >
-            {selectedPane === 'draft' && selectedDraft ? (
-              <DraftPreview draft={selectedDraft} onDeleteDraft={handleDraftDeleted} />
+            {selectedPane === 'draft' && (selectedDraft || selectedDrafts.length > 0) ? (
+              <DraftPreview draft={selectedDraft} drafts={selectedDrafts} onDeleteDraft={handleDraftDeleted} />
             ) : null}
             {selectedPane === 'preset' ? (
               <Preset preset={selectedPreset} />

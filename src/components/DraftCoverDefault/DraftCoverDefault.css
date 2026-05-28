@@ -10,10 +10,16 @@
   /* 适配父容器的圆角（搜索结果里是 8px） */
   border-radius: 8px;
   position: relative;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .draft-cover-default-text {
   font-size: 8px;
   font-weight: 400;
   color: #333;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }

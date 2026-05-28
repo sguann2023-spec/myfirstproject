@@ -1,4 +1,3 @@
-import React from 'react';
 import './DraftCoverDefault.css';
 import DraftEmpty from '../../../public/draft_empty.png';
 
@@ -10,7 +9,7 @@ function DraftCoverDefault({ draftId }) {
       style={{ backgroundImage: `url(${DraftEmpty})` }}
       aria-label="default-cover"
     >
-      <span className="draft-cover-default-text">{text}</span>
+      <span className="draft-cover-default-text" draggable={false}>{text}</span>
     </div>
   );
 }

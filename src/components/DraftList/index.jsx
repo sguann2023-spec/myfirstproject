@@ -8,9 +8,10 @@ import { DownloadController } from '../../shared/DownloadController.js';
 
 const LIMIT = 20;
 
-function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToken = 0 }) {
+function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, selectedId, refreshToken = 0 }) {
   const containerRef = useRef(null);
   const [items, setItems] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(() => new Set(selectedId ? [selectedId] : []));
   const [offset, setOffset] = useState(0);
   const [isRefreshing, setRefreshing] = useState(false);
   const [isLoadingMore, setLoadingMore] = useState(false);
@@ -22,6 +23,8 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToke
   const isRefreshingRef = useRef(false);
   const pullUpCountRef = useRef(0);
   const refreshCooldownRef = useRef(false);
+  const selectionAnchorRef = useRef(selectedId || null);
+  const selectedIdsRef = useRef(new Set(selectedId ? [selectedId] : []));
 
   // 新增：Banner 数据与轮播索引
   const [banners, setBanners] = useState([]);
@@ -53,6 +56,125 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToke
   const [searchError, setSearchError] = useState('');
   const queryRef = useRef('');
   useEffect(() => { queryRef.current = query; }, [query]);
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+  useEffect(() => {
+    const validIds = new Set(items.map(item => item.draft_id).filter(Boolean));
+    setSelectedIds((prev) => {
+      if (prev.size > 0) {
+        const next = new Set([...prev].filter(id => validIds.has(id)));
+        if (next.size > 0 || !selectedId) return next;
+      }
+      return selectedId && validIds.has(selectedId) ? new Set([selectedId]) : new Set();
+    });
+
+    if (selectionAnchorRef.current && !validIds.has(selectionAnchorRef.current)) {
+      selectionAnchorRef.current = selectedId && validIds.has(selectedId) ? selectedId : null;
+    }
+  }, [items, selectedId]);
+
+  const isToggleSelectionEvent = (event) => event.metaKey || event.ctrlKey;
+
+  const getDraftById = (draftId) => items.find((draft) => draft?.draft_id === draftId) || null;
+  const getSelectedDrafts = (selectedIdSet) => items.filter((draft) => selectedIdSet.has(draft?.draft_id));
+
+  useEffect(() => {
+    if (typeof onSelectionChange === 'function') {
+      onSelectionChange(getSelectedDrafts(selectedIds));
+    }
+  }, [items, selectedIds, onSelectionChange]);
+
+  const syncPreviewBySelection = (nextSelectedIds, preferredDraftId = null) => {
+    if (typeof onSelectDraft !== 'function') return;
+
+    let nextDraftId = null;
+    if (preferredDraftId && nextSelectedIds.has(preferredDraftId)) {
+      nextDraftId = preferredDraftId;
+    } else if (selectedId && nextSelectedIds.has(selectedId)) {
+      nextDraftId = selectedId;
+    } else {
+      const remainingIds = Array.from(nextSelectedIds);
+      nextDraftId = remainingIds.length > 0 ? remainingIds[remainingIds.length - 1] : null;
+    }
+
+    onSelectDraft(nextDraftId ? getDraftById(nextDraftId) : null);
+  };
+
+  const handleSelectDraft = (draft) => {
+    if (typeof onSelectDraft === 'function') {
+      onSelectDraft(draft);
+    }
+  };
+
+  const updateSelection = (nextSelectedIds, options = {}) => {
+    const {
+      preferredDraftId = null,
+      syncPreview = true,
+      setAnchor = false
+    } = options;
+    const next = new Set(nextSelectedIds);
+    setSelectedIds(next);
+    selectedIdsRef.current = next;
+
+    if (setAnchor) {
+      selectionAnchorRef.current = preferredDraftId || null;
+    }
+
+    if (syncPreview) {
+      syncPreviewBySelection(next, preferredDraftId);
+    }
+  };
+
+  const handleDraftItemClick = (item, event) => {
+    const clickedId = item?.draft_id;
+    if (!clickedId) return;
+
+    const anchorId = selectionAnchorRef.current;
+    const isToggle = isToggleSelectionEvent(event);
+    if (event.shiftKey && anchorId) {
+      const anchorIndex = items.findIndex(draft => draft?.draft_id === anchorId);
+      const clickedIndex = items.findIndex(draft => draft?.draft_id === clickedId);
+
+      if (anchorIndex !== -1 && clickedIndex !== -1) {
+        const [start, end] = anchorIndex < clickedIndex
+          ? [anchorIndex, clickedIndex]
+          : [clickedIndex, anchorIndex];
+        const rangeIds = items
+          .slice(start, end + 1)
+          .map(draft => draft?.draft_id)
+          .filter(Boolean);
+        const nextSelectedIds = isToggle
+          ? new Set([...selectedIdsRef.current, ...rangeIds])
+          : new Set(rangeIds);
+        updateSelection(nextSelectedIds, {
+          preferredDraftId: clickedId,
+          syncPreview: true
+        });
+        return;
+      }
+    }
+
+    if (isToggle) {
+      const nextSelectedIds = new Set(selectedIdsRef.current);
+      if (nextSelectedIds.has(clickedId)) {
+        nextSelectedIds.delete(clickedId);
+      } else {
+        nextSelectedIds.add(clickedId);
+      }
+      updateSelection(nextSelectedIds, {
+        preferredDraftId: clickedId,
+        syncPreview: true,
+        setAnchor: true
+      });
+      return;
+    }
+
+    updateSelection(new Set([clickedId]), {
+      preferredDraftId: clickedId,
+      syncPreview: false,
+      setAnchor: true
+    });
+    handleSelectDraft(item);
+  };
 
   const fetchPage = async (start, replace = false) => {
     try {
@@ -273,7 +395,12 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToke
                 className="draftlist-search-item"
                 onMouseDown={(e) => {
                   e.preventDefault(); // 先处理选择，避免 blur 关闭面板导致点击丢失
-                  if (onSelectDraft) onSelectDraft(searchResult);
+                  updateSelection(new Set([searchResult.draft_id]), {
+                    preferredDraftId: searchResult.draft_id,
+                    syncPreview: false,
+                    setAnchor: true
+                  });
+                  handleSelectDraft(searchResult);
                   setSearchOpen(false);
                 }}
               >
@@ -282,6 +409,7 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToke
                     <img
                       src={searchResult.cover}
                       alt="cover"
+                      draggable={false}
                     />
                   ) : (
                     // 使用默认封面组件，显示 draft_id 后 3 位
@@ -314,8 +442,8 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToke
         {items.map(item => (
             <div
             key={item.draft_id}
-            className={`draftlist-item ${selectedId === item.draft_id ? 'selected' : ''}`}
-            onClick={() => onSelectDraft && onSelectDraft(item)}
+            className={`draftlist-item ${selectedIds.has(item.draft_id) ? 'selected' : ''}`}
+            onClick={(event) => handleDraftItemClick(item, event)}
             onDoubleClick={() => {
               if (!item?.draft_id) return;
               DownloadController.enqueue({
@@ -328,7 +456,7 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, selectedId, refreshToke
             >
             <div className="draftlist-cover"> 
                 {item.cover ? (
-                <img src={item.cover} alt="cover" className="draftlist-cover-img" />
+                <img src={item.cover} alt="cover" className="draftlist-cover-img" draggable={false} />
                 ) : (
                 <DraftCoverDefault draftId={item.draft_id} />
                 )}

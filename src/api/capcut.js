@@ -28,9 +28,19 @@ export async function searchDraft({ draft_id }) {
   return http.getJson(`${BASE_URL}/drafts/search_draft?${qs}`);
 }
 
-export async function deleteDraft({ draft_id }) {
+export async function deleteDraft({ draft_id, draft_ids } = {}) {
+  const normalizedDraftIds = Array.isArray(draft_ids)
+    ? draft_ids.filter(Boolean)
+    : [];
+
+  if (normalizedDraftIds.length > 0) {
+    return http.postJson(`${BASE_URL}/drafts/delete_draft`, {
+      draft_ids: normalizedDraftIds,
+    });
+  }
+
   if (!draft_id) {
-    throw new Error('draft_id is required');
+    throw new Error('draft_id or draft_ids is required');
   }
   return http.postJson(`${BASE_URL}/drafts/delete_draft`, {
     draft_id,
