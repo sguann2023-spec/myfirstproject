@@ -263,6 +263,8 @@ describe('PromptBuilder', () => {
       expect(result).toContain('mcp__agent-memory__memory')
       expect(result).toContain('## Web Search & Browser Strategy')
       expect(result).toContain('mcp__exa__web_search_exa')
+      expect(result).toContain('curl -sL')
+      expect(result).toContain('Never use Exa fetch tools or builtin `WebFetch` for known URLs')
       expect(result).not.toContain('## VectcutClaw Tools')
       expect(result).not.toContain('mcp__claw__cron')
       expect(result).not.toContain('mcp__claw__notify')

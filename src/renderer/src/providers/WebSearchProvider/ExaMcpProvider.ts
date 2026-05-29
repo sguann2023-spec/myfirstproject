@@ -41,7 +41,7 @@ interface ExaSearchResults {
   autopromptString?: string
 }
 
-const DEFAULT_API_HOST = 'https://mcp.exa.ai/mcp'
+const DEFAULT_API_HOST = 'https://mcp.exa.ai/mcp?tools=web_search_exa'
 const DEFAULT_NUM_RESULTS = 8
 const REQUEST_TIMEOUT_MS = 25000
 

@@ -1,5 +1,5 @@
-/** Tools disabled for ALL agents — replaced by @cherry/browser MCP */
-export const GLOBALLY_DISALLOWED_TOOLS = ['WebSearch', 'WebFetch'] as const
+/** Tools disabled for ALL agents. WebSearch uses Exa, known-URL fetches use curl/browser. */
+export const GLOBALLY_DISALLOWED_TOOLS = ['WebSearch', 'WebFetch', 'mcp__exa__web_fetch_exa'] as const
 
 /**
  * System prompt section injected when the session receives messages from an

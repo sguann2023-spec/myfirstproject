@@ -1,5 +1,6 @@
 import React from 'react';
 import { Tooltip } from 'antd';
+import { UserPlus } from 'lucide-react';
 import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
@@ -15,6 +16,7 @@ const ChatShell = ({
   onRenameSessionTitle,
   onCreateSession,
   onSelectSkill,
+  onCreateSkill,
   children
 }) => {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
@@ -242,6 +244,13 @@ const ChatShell = ({
                 </div>
               </Tooltip>
             ))}
+            <button
+              type="button"
+              className="chat-panel__members-create-btn"
+              onClick={() => onCreateSkill && onCreateSkill()}>
+              <UserPlus className="chat-panel__members-create-icon" aria-hidden="true" />
+              <span>新建成员</span>
+            </button>
           </div>
         </div>
       </div>

@@ -9,6 +9,9 @@ import type { ClaudeCodeRawValue } from '@shared/agents/claudecode/types'
 import type { BlockManager } from '../BlockManager'
 
 const logger = loggerService.withContext('CompactCallbacks')
+const CONTINUATION_SUMMARY_PREFIX = 'This session is being continued from a previous conversation that ran out of context.'
+const CONTINUATION_SUMMARY_PREFIX_WITH_SUFFIX =
+  'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier part of the conversation.'
 
 interface CompactCallbacksDeps {
   blockManager: BlockManager
@@ -53,6 +56,67 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
   }
 
   /**
+   * Claude Code may emit an auto-continuation summary as plain text instead of
+   * the explicit /compact boundary + XML payload flow. Detect that boilerplate
+   * so we can still collapse it into the compact UI.
+   */
+  const isContinuationSummary = (text: string): boolean => {
+    const normalized = text.trim()
+    return (
+      normalized.startsWith(CONTINUATION_SUMMARY_PREFIX) &&
+      (normalized.includes('\nSummary:') ||
+        normalized.includes('\n\nSummary:') ||
+        normalized.includes('The summary below covers the earlier part of the conversation.'))
+    )
+  }
+
+  const stripContinuationSummaryPreamble = (text: string): string => {
+    const normalized = text.trim()
+    if (normalized.startsWith(CONTINUATION_SUMMARY_PREFIX_WITH_SUFFIX)) {
+      return normalized.slice(CONTINUATION_SUMMARY_PREFIX_WITH_SUFFIX.length).trim()
+    }
+    if (normalized.startsWith(CONTINUATION_SUMMARY_PREFIX)) {
+      return normalized.slice(CONTINUATION_SUMMARY_PREFIX.length).trim()
+    }
+    return normalized
+  }
+
+  const persistCompactBlock = async (blockId: string) => {
+    const updatedState = getState()
+    const updatedMessage = updatedState.messages.entities[assistantMsgId]
+    const updatedBlock = updatedState.messageBlocks.entities[blockId]
+    if (updatedMessage && updatedBlock) {
+      await saveUpdatesToDB(assistantMsgId, topicId, { blocks: updatedMessage.blocks }, [updatedBlock])
+    }
+  }
+
+  const convertSummaryBlockToCompact = async (summaryBlockId: string, summaryText: string, compactedContent: string) => {
+    dispatch(
+      updateOneBlock({
+        id: summaryBlockId,
+        changes: {
+          type: MessageBlockType.COMPACT,
+          content: summaryText,
+          compactedContent,
+          status: MessageBlockStatus.SUCCESS
+        }
+      })
+    )
+
+    dispatch(
+      newMessagesActions.upsertBlockReference({
+        messageId: assistantMsgId,
+        blockId: summaryBlockId,
+        status: MessageBlockStatus.SUCCESS,
+        blockType: MessageBlockType.COMPACT
+      })
+    )
+
+    blockManager.activeBlockInfo = null
+    blockManager.lastBlockType = MessageBlockType.COMPACT
+  }
+
+  /**
    * Called when raw data is received from the stream
    */
   const onRawData = (content: unknown, metadata?: Record<string, any>) => {
@@ -74,7 +138,7 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
    * Intercept text complete to detect compacted content and create compact block
    */
   const handleTextComplete = async (text: string, currentMainTextBlockId: string | null) => {
-    if (!compactState.compactBoundaryDetected || !currentMainTextBlockId) {
+    if (!currentMainTextBlockId) {
       return false
     }
 
@@ -87,6 +151,21 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     }
 
     const fullContent = currentBlock.content || text
+
+    if (!compactState.compactBoundaryDetected && isContinuationSummary(fullContent)) {
+      const summaryText = stripContinuationSummaryPreamble(fullContent)
+      logger.info('Detected Claude Code continuation summary', {
+        currentMainTextBlockId,
+        summaryPreview: summaryText.slice(0, 200)
+      })
+      await convertSummaryBlockToCompact(currentMainTextBlockId, summaryText, '')
+      await persistCompactBlock(currentMainTextBlockId)
+      return true
+    }
+
+    if (!compactState.compactBoundaryDetected) {
+      return false
+    }
 
     // First block after compact_boundary: This is the summary
     if (compactState.isFirstBlockAfterCompact) {
@@ -124,38 +203,13 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
         summaryBlockId
       })
 
-      // Update the summary block to compact type
-      dispatch(
-        updateOneBlock({
-          id: summaryBlockId,
-          changes: {
-            type: MessageBlockType.COMPACT,
-            content: compactState.summaryText,
-            compactedContent: compactedContent,
-            status: MessageBlockStatus.SUCCESS
-          }
-        })
-      )
-
-      // Update block reference
-      dispatch(
-        newMessagesActions.upsertBlockReference({
-          messageId: assistantMsgId,
-          blockId: summaryBlockId,
-          status: MessageBlockStatus.SUCCESS,
-          blockType: MessageBlockType.COMPACT
-        })
-      )
-
-      // Clear active block info and update lastBlockType since the compact block is now complete
-      blockManager.activeBlockInfo = null
-      blockManager.lastBlockType = MessageBlockType.COMPACT
+      await convertSummaryBlockToCompact(summaryBlockId, compactState.summaryText, compactedContent)
 
       // Remove the current block (the one with XML tags) from message.blocks
       const currentState = getState()
       const currentMessage = currentState.messages.entities[assistantMsgId]
       if (currentMessage && currentMessage.blocks) {
-        const updatedBlocks = currentMessage.blocks.filter((id) => id !== currentMainTextBlockId)
+        const updatedBlocks = currentMessage.blocks.filter((id: string) => id !== currentMainTextBlockId)
         dispatch(
           newMessagesActions.updateMessage({
             topicId,
@@ -165,13 +219,7 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
         )
       }
 
-      // Save to DB
-      const updatedState = getState()
-      const updatedMessage = updatedState.messages.entities[assistantMsgId]
-      const updatedBlock = updatedState.messageBlocks.entities[summaryBlockId]
-      if (updatedMessage && updatedBlock) {
-        await saveUpdatesToDB(assistantMsgId, topicId, { blocks: updatedMessage.blocks }, [updatedBlock])
-      }
+      await persistCompactBlock(summaryBlockId)
 
       // Reset compact state
       compactState.compactBoundaryDetected = false

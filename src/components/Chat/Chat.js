@@ -37,6 +37,21 @@ const QUICK_PROMPTS = [
     prompt: '将下面的这几条空镜素材混剪在一起(<https://player.install-ai-guider.top/example/broll_real_1.mp4>,<https://player.install-ai-guider.top/example/broll_real_2.mp4>,<https://player.install-ai-guider.top/example/broll_real_3.mp4>,<https://player.install-ai-guider.top/example/broll_real_4.mp4>,<https://player.install-ai-guider.top/example/broll_real_5.mp4>,<https://player.install-ai-guider.top/example/broll_real_6.mp4>,<https://player.install-ai-guider.top/example/broll_real_7.mp4>,<https://player.install-ai-guider.top/example/broll_real_8.mp4>,<https://player.install-ai-guider.top/example/broll_real_9.mp4>,<https://player.install-ai-guider.top/example/broll_real_10.mp4>)',
   }
 ];
+const CREATE_SKILL_PROMPT_TEMPLATE = [
+  '请用 skill-creator 帮我创建一个技能。',
+  '',
+  '- 技能名字：xxx',
+  '- 这个技能负责：xxx',
+  '- 当我需要 xxx，或者执行 xxx 任务的时候，需要调用它',
+  '- 它的第一步：xxx',
+  '- 它的第二步：xxx',
+  '- 它的第三步：xxx',
+  '- 它通常接收的输入：xxx',
+  '- 它最终应该输出：xxx',
+  '- 它更适合的剪辑场景：短视频文案 / 编导策划 / 脚本生成 / 分镜拆解 / 混剪执行 / 字幕包装 / 其他',
+  '- 如果需要固定脚本、工具或工作流，也请一起设计',
+  '',
+].join('\n');
 const formatModelDisplayName = (value) => String(value || '').trim();
 const buildHomeChatTopicId = (chatId) => {
   const normalizedChatId = String(chatId || '').trim();
@@ -126,6 +141,19 @@ const Chat = ({
     });
   }, [input, setInput]);
 
+  const insertCreateSkillPrompt = React.useCallback(() => {
+    const nextText = CREATE_SKILL_PROMPT_TEMPLATE;
+    const firstPlaceholderIndex = nextText.indexOf('xxx');
+    const cursorStart = firstPlaceholderIndex >= 0 ? firstPlaceholderIndex : nextText.length;
+    const cursorEnd = firstPlaceholderIndex >= 0 ? firstPlaceholderIndex + 3 : nextText.length;
+
+    setInput(nextText);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(cursorStart, cursorEnd);
+    });
+  }, [input, setInput]);
+
   const handleSend = (nextText) => {
     const text = String(typeof nextText === 'string' ? nextText : input).trim();
     if (!text || sessionSending || modelListLoading) return;
@@ -144,7 +172,8 @@ const Chat = ({
       sessionTitleRenaming={sessionTitleRenaming}
       sessionTitleNewlyRenamed={sessionTitleNewlyRenamed}
       onRenameSessionTitle={onRenameSessionTitle}
-      onSelectSkill={insertSkillMention}>
+      onSelectSkill={insertSkillMention}
+      onCreateSkill={insertCreateSkillPrompt}>
       <MessagePane
         messages={messages}
         sending={sending}

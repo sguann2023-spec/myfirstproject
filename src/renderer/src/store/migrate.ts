@@ -2984,7 +2984,7 @@ const migrateConfig = {
         const newProvider = {
           id: 'exa-mcp' as const,
           name: 'ExaMCP',
-          apiHost: 'https://mcp.exa.ai/mcp'
+          apiHost: 'https://mcp.exa.ai/mcp?tools=web_search_exa'
         }
         if (exaIndex !== -1) {
           state.websearch.providers.splice(exaIndex + 1, 0, newProvider)

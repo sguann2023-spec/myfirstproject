@@ -94,7 +94,7 @@ export const WEB_SEARCH_PROVIDERS: WebSearchProvider[] = [
   {
     id: 'exa-mcp',
     name: 'ExaMCP',
-    apiHost: 'https://mcp.exa.ai/mcp'
+    apiHost: 'https://mcp.exa.ai/mcp?tools=web_search_exa'
   },
   {
     id: 'bocha',

@@ -298,7 +298,9 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const errorChunks: string[] = []
 
-    const resolvedAllowedTools = Array.from(new Set([...(session.allowed_tools ?? []), ...DEFAULT_ALLOWED_TOOLS]))
+    const resolvedAllowedTools = Array.from(new Set([...(session.allowed_tools ?? []), ...DEFAULT_ALLOWED_TOOLS])).filter(
+      (tool) => !['WebFetch', 'mcp__exa__web_fetch_exa'].includes(tool)
+    )
     const sessionAllowedTools = new Set<string>(resolvedAllowedTools ?? [])
     const autoAllowTools = new Set<string>([...DEFAULT_AUTO_ALLOW_TOOLS, ...sessionAllowedTools])
     const readFilesInSession = new Set<string>()
@@ -724,15 +726,16 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.strictMcpConfig = true
     }
 
-    // Inject @cherry/browser MCP for all agents (replaces SDK built-in WebSearch/WebFetch)
+    // Inject @cherry/browser MCP for all agents to handle interactive browsing.
     if (!options.mcpServers) options.mcpServers = {}
     const browserServer = new BrowserServer()
     options.mcpServers.browser = { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer }
 
-    // Inject Exa MCP for structured web search (free tier, no API key required)
+    // Inject Exa MCP for structured web search only (free tier, no API key required).
+    // Known-URL page fetching should use Bash/curl or browser MCP, not WebFetch or Exa fetch tools.
     options.mcpServers.exa = {
       type: 'http',
-      url: 'https://mcp.exa.ai/mcp'
+      url: 'https://mcp.exa.ai/mcp?tools=web_search_exa'
     }
 
     // Inject a host-level system MCP for trusted desktop actions that should
