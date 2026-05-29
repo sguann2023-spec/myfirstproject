@@ -816,7 +816,17 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       }
     }
 
-    // 读取并修改 draft_meta_info.json 文件
+    const {
+      draftDate: fixedDraftDate,
+      millisTimestamp: currentMillisTimestamp,
+      microsTimestamp: currentMicrosTimestamp,
+      secondsTimestamp: currentSecondsTimestamp
+    } = getFixedDraftTimestamps();
+    logger.info(
+      `草稿时间固定为 2099-09-01: millis=${currentMillisTimestamp}, micros=${currentMicrosTimestamp}, seconds=${currentSecondsTimestamp}`
+    );
+
+    // 统一更新时间元数据
     try {
       const metaInfoPath = path.join(draftPath, 'draft_meta_info.json');
       let metaInfo = {};
@@ -828,10 +838,6 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         metaInfo = JSON.parse(metaInfoData);
       }
       
-      // 更新时间戳
-      const currentMillisTimestamp = Date.now(); // 毫秒级时间戳
-      logger.info(`当前毫秒级时间戳: ${currentMillisTimestamp}`);
-      const currentMicrosTimestamp = currentMillisTimestamp * 1000; // 微秒级时间戳
       metaInfo.tm_draft_create = currentMicrosTimestamp;
       metaInfo.tm_draft_modified = currentMicrosTimestamp;
       
@@ -841,14 +847,22 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         JSON.stringify(metaInfo, null, 2)
       );
 
+      await upsertDraftSettingsTimes(draftPath, currentSecondsTimestamp, currentSecondsTimestamp);
+
       // 新增：触发草稿目录及父目录的文件系统事件
-      await bumpDraftFolderMTime(draftPath);
-      upsertRootMetaTimes(draftPath, undefined, path.basename(draftPath), currentMicrosTimestamp, currentMicrosTimestamp);
+      await bumpDraftFolderMTime(draftPath, fixedDraftDate);
+      upsertRootMetaTimes(
+        draftPath,
+        script && script.id ? script.id : undefined,
+        draftName || path.basename(draftPath),
+        currentMicrosTimestamp,
+        currentMicrosTimestamp
+      );
       // pulseDraftSubdir(draftFolder)
       await bounceDraftByMoving(draftPath);
-      await bumpParentDirectoryEvents(draftPath);
+      await bumpParentDirectoryEvents(draftPath, fixedDraftDate);
       
-      logger.info(`已更新 draft_meta_info.json 中的时间戳，并触发目录与父目录事件。`);
+      logger.info(`已更新 draft_meta_info.json、draft_settings、root_meta_info.json 中的时间戳，并触发目录与父目录事件。`);
       if (progressCallback) {
         progressCallback(90, i18next.t('finalizing'));
       }
@@ -939,11 +953,23 @@ module.exports = {
 };
 
 // 新增：触发草稿根目录的 mtime/ctime 变化
-async function bumpDraftFolderMTime(draftPath) {
-  const now = new Date();
+function getFixedDraftTimestamps() {
+  // 使用本地时区的 2099-09-01 00:00:00，避免依赖当前系统时间。
+  const draftDate = new Date(2099, 8, 1, 0, 0, 0, 0);
+  const millisTimestamp = draftDate.getTime();
+  return {
+    draftDate,
+    millisTimestamp,
+    microsTimestamp: millisTimestamp * 1000,
+    secondsTimestamp: Math.floor(millisTimestamp / 1000)
+  };
+}
+
+// 新增：触发草稿根目录的 mtime/ctime 变化
+async function bumpDraftFolderMTime(draftPath, targetDate = getFixedDraftTimestamps().draftDate) {
   // 1) 尝试直接更新目录 mtime
   try {
-    await fs.promises.utimes(draftPath, now, now);
+    await fs.promises.utimes(draftPath, targetDate, targetDate);
   } catch (_) {}
   // 2) 创建并删除一个临时文件，更新目录的 mtime/ctime
   try {
@@ -962,12 +988,11 @@ async function bumpDraftFolderMTime(draftPath) {
 }
 
 // 新增：同时触发父目录事件，确保目录监听器刷新排序
-async function bumpParentDirectoryEvents(draftPath) {
+async function bumpParentDirectoryEvents(draftPath, targetDate = getFixedDraftTimestamps().draftDate) {
   const parentDir = path.dirname(draftPath);
-  const now = new Date();
   // 1) 更新父目录 mtime
   try {
-    await fs.promises.utimes(parentDir, now, now);
+    await fs.promises.utimes(parentDir, targetDate, targetDate);
   } catch (_) {}
   // 2) 在父目录创建并删除一个临时文件
   try {
@@ -1034,6 +1059,45 @@ async function bounceDraftByMoving(draftPath) {
             }
         } catch (_) {}
     }
+}
+
+async function upsertDraftSettingsTimes(draftFolderPath, draftCreateSeconds, draftLastEditSeconds) {
+    const draftSettingsPath = path.join(draftFolderPath, 'draft_settings');
+
+    let content = '';
+    try {
+        content = await fs.promises.readFile(draftSettingsPath, 'utf8');
+    } catch (_) {
+        content = '[General]\n';
+    }
+
+    let lines = content.replace(/\r\n/g, '\n').split('\n');
+    if (!lines.length || (lines.length === 1 && lines[0] === '')) {
+        lines = ['[General]'];
+    }
+
+    if (!lines.some(line => line.trim() === '[General]')) {
+        lines.unshift('[General]');
+    }
+
+    const upsertLine = (key, value) => {
+        const prefix = `${key}=`;
+        const idx = lines.findIndex(line => line.startsWith(prefix));
+        const nextLine = `${prefix}${value}`;
+        if (idx >= 0) {
+            lines[idx] = nextLine;
+        } else {
+            const generalIdx = lines.findIndex(line => line.trim() === '[General]');
+            const insertAt = generalIdx >= 0 ? generalIdx + 1 : lines.length;
+            lines.splice(insertAt, 0, nextLine);
+        }
+    };
+
+    upsertLine('draft_create_time', draftCreateSeconds);
+    upsertLine('draft_last_edit_time', draftLastEditSeconds);
+
+    const normalized = `${lines.join('\n').replace(/\n+$/g, '')}\n`;
+    await fs.promises.writeFile(draftSettingsPath, normalized, 'utf8');
 }
 
 function upsertRootMetaTimes(draftFolderPath, targetDraftId, targetDraftName, tmCreateMillis, tmModifiedMicros) {
