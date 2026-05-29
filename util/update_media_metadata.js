@@ -37,6 +37,7 @@ const KEYFRAME_PROPERTY_MAP = {
   scale_y: 'KFTypeScaleY',
   alpha: 'KFTypeAlpha',
   global_alpha: 'KFTypeGlobalAlpha',
+  text_color: 'KFTypeTextColor',
   saturation: 'KFTypeSaturation',
   contrast: 'KFTypeContrast',
   brightness: 'KFTypeBrightness',
@@ -283,6 +284,30 @@ function resolveKeyframeProperty(propertyType, trackType) {
   return KEYFRAME_PROPERTY_MAP[propertyType] || '';
 }
 
+function parseTextColorValue(rawValue) {
+  const value = String(rawValue ?? '').trim();
+  if (!value.startsWith('#')) {
+    throw new Error('text_color value must use #RRGGBB or #RRGGBBAA format');
+  }
+
+  let hexValue = value.slice(1);
+  if (hexValue.length === 6) {
+    hexValue += 'FF';
+  } else if (hexValue.length !== 8) {
+    throw new Error('text_color value must use #RRGGBB or #RRGGBBAA format');
+  }
+
+  if (!/^[0-9a-fA-F]{8}$/.test(hexValue)) {
+    throw new Error('text_color value contains invalid hex digits');
+  }
+
+  const rgba = [];
+  for (let index = 0; index < 8; index += 2) {
+    rgba.push(parseInt(hexValue.slice(index, index + 2), 16) / 255);
+  }
+  return rgba;
+}
+
 function parsePendingKeyframeValue(propertyType, rawValue, materialSize) {
   const value = String(rawValue ?? '').trim();
   if (!value) {
@@ -303,6 +328,9 @@ function parsePendingKeyframeValue(propertyType, rawValue, materialSize) {
       return -Math.abs(Number(value.slice(1)));
     }
     return Number(value);
+  }
+  if (propertyType === 'text_color') {
+    return parseTextColorValue(rawValue);
   }
   if (propertyType === 'mask_size_x') {
     if (!hasPositiveNumber(materialSize?.width)) {
@@ -342,6 +370,7 @@ function ensureCommonKeyframeList(segment, propertyType) {
 
 function appendSegmentKeyframe(segment, propertyType, timeOffset, value) {
   const target = ensureCommonKeyframeList(segment, propertyType);
+  const keyframeValues = Array.isArray(value) ? value : [value];
   target.keyframe_list.push({
     curveType: 'Line',
     graphID: '',
@@ -349,7 +378,7 @@ function appendSegmentKeyframe(segment, propertyType, timeOffset, value) {
     right_control: { x: 0.0, y: 0.0 },
     id: createId(),
     time_offset: Math.max(0, Math.floor(timeOffset)),
-    values: [value]
+    values: keyframeValues
   });
   target.keyframe_list.sort((a, b) => toNumber(a?.time_offset, 0) - toNumber(b?.time_offset, 0));
 }
@@ -433,7 +462,11 @@ function processPendingKeyframes(script) {
 
         const materialSize = getSegmentMaterialSize(targetSegment, videoMaterialById);
         const parsedValue = parsePendingKeyframeValue(propertyType, rawValue, materialSize);
-        if (!Number.isFinite(parsedValue)) {
+        if (Array.isArray(parsedValue)) {
+          if (parsedValue.length === 0 || parsedValue.some((item) => !Number.isFinite(item))) {
+            throw new Error(`Invalid value format: ${rawValue}`);
+          }
+        } else if (!Number.isFinite(parsedValue)) {
           throw new Error(`Invalid value format: ${rawValue}`);
         }
 

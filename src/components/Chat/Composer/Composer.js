@@ -5,6 +5,7 @@ import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
+import VoiceSquareIcon from '../../../../public/voice.svg';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
@@ -492,8 +493,26 @@ const Composer = ({
               onChange={({ fileList }) => handleUploadListChange(fileList)}
               disabled={sessionSending}
             >
-              <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="文件工具" />
+              <span
+                className="chat-panel__tool-button chat-panel__tool-button--icon-only"
+                aria-label="上传文件"
+                title="上传文件"
+                role="button"
+              >
+                <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
+              </span>
             </Upload>
+            <span className="chat-panel__tool-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="chat-panel__tool-button"
+              aria-label="音色广场"
+              title="音色广场"
+              disabled={sessionSending}
+            >
+              <img className="chat-panel__tool-icon" src={VoiceSquareIcon} alt="音色广场" />
+              <span className="chat-panel__tool-text">音色广场</span>
+            </button>
           </div>
           <div className="chat-panel__tool-right">
             <Select
