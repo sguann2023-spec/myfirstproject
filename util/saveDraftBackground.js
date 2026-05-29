@@ -830,6 +830,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     try {
       const metaInfoPath = path.join(draftPath, 'draft_meta_info.json');
       let metaInfo = {};
+      const effectiveDraftName = draftName || path.basename(draftPath);
       
       // 检查文件是否存在
       if (fs.existsSync(metaInfoPath)) {
@@ -838,6 +839,11 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         metaInfo = JSON.parse(metaInfoData);
       }
       
+      // 同步当前草稿身份，避免沿用模板草稿的旧路径/名称/ID。
+      metaInfo.draft_id = script && script.id ? script.id : (metaInfo.draft_id || "");
+      metaInfo.draft_name = effectiveDraftName;
+      metaInfo.draft_fold_path = draftPath;
+      metaInfo.draft_root_path = draftFolder;
       metaInfo.tm_draft_create = currentMicrosTimestamp;
       metaInfo.tm_draft_modified = currentMicrosTimestamp;
       
@@ -854,7 +860,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       upsertRootMetaTimes(
         draftPath,
         script && script.id ? script.id : undefined,
-        draftName || path.basename(draftPath),
+        effectiveDraftName,
         currentMicrosTimestamp,
         currentMicrosTimestamp
       );
@@ -1128,15 +1134,26 @@ function upsertRootMetaTimes(draftFolderPath, targetDraftId, targetDraftName, tm
     const draftCoverPath = path.join(draftFolderPath, 'draft_cover.jpg');
     const baseRootPath = path.dirname(draftFolderPath);
     const effectiveName = targetDraftName || path.basename(draftFolderPath);
-
-    const idx = store.findIndex(i =>
-        i.draft_id === targetDraftId ||
-        i.draft_name === effectiveName ||
+    const findIdxBy = predicate => store.findIndex(predicate);
+    // 优先按当前草稿目录/文件/名称命中，避免因为模板复用的旧 draft_id 写到历史条目。
+    let idx = findIdxBy(i =>
         i.draft_fold_path === draftFolderPath ||
         i.draft_json_file === draftJsonPath
     );
+    if (idx < 0) {
+        idx = findIdxBy(i => i.draft_name === effectiveName);
+    }
+    if (idx < 0 && targetDraftId) {
+        idx = findIdxBy(i => i.draft_id === targetDraftId);
+    }
 
     if (idx >= 0) {
+        store[idx].draft_cover = draftCoverPath;
+        store[idx].draft_fold_path = draftFolderPath;
+        store[idx].draft_id = targetDraftId || store[idx].draft_id || "";
+        store[idx].draft_json_file = draftJsonPath;
+        store[idx].draft_name = effectiveName;
+        store[idx].draft_root_path = baseRootPath;
         store[idx].tm_draft_create = tmCreateMillis;
         store[idx].tm_draft_modified = tmModifiedMicros;
     } else {

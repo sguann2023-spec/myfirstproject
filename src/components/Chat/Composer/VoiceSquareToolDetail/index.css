@@ -1,0 +1,34 @@
+.chat-panel__tool-detail-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-panel__tool-tooltip-trigger {
+  display: inline-flex;
+}
+
+.chat-panel__tool-detail-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active {
+  background: #e2e6ff;
+}
+
+.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active:not(:disabled):hover {
+  background: #e2e6ff !important;
+}
+
+.chat-panel__tool-text.chat-panel__tool-text--active {
+  color: #3167ff !important;
+}
+
+.chat-panel__tool-close-icon {
+  color: #3167ff;
+  font-size: 12px;
+}

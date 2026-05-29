@@ -5,7 +5,8 @@ import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
-import VoiceSquareIcon from '../../../../public/voice.svg';
+import ToolArea from './ToolArea/index';
+import VoiceSquareToolDetail from './VoiceSquareToolDetail/index';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
@@ -34,6 +35,7 @@ const Composer = ({
 }) => {
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
+  const [activeTool, setActiveTool] = React.useState(null);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
   const [skills, setSkills] = React.useState([]);
@@ -459,6 +461,14 @@ const Composer = ({
     setUploadedFileMeta([]);
   };
 
+  const handleToolSelect = React.useCallback((toolId) => {
+    setActiveTool(toolId);
+  }, []);
+
+  const handleToolDetailBack = React.useCallback(() => {
+    setActiveTool(null);
+  }, []);
+
   return (
     <div className="chat-panel__composer">
       <div className="chat-panel__editor">
@@ -503,16 +513,17 @@ const Composer = ({
               </span>
             </Upload>
             <span className="chat-panel__tool-divider" aria-hidden="true" />
-            <button
-              type="button"
-              className="chat-panel__tool-button"
-              aria-label="音色广场"
-              title="音色广场"
-              disabled={sessionSending}
-            >
-              <img className="chat-panel__tool-icon" src={VoiceSquareIcon} alt="音色广场" />
-              <span className="chat-panel__tool-text">音色广场</span>
-            </button>
+            {activeTool === 'voice-square' ? (
+              <VoiceSquareToolDetail
+                disabled={sessionSending}
+                onBack={handleToolDetailBack}
+              />
+            ) : (
+              <ToolArea
+                disabled={sessionSending}
+                onSelect={handleToolSelect}
+              />
+            )}
           </div>
           <div className="chat-panel__tool-right">
             <Select
