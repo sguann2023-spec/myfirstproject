@@ -1,0 +1,115 @@
+.voice-card {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: transparent;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.voice-card--selected {
+  background: #f5f7ff;
+}
+
+.voice-card__avatar-wrap {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-card__wave-line {
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+}
+
+.voice-card__wave-line > div {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+}
+
+.voice-card__wave-line canvas,
+.voice-card__wave-line svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  background: transparent !important;
+}
+
+.voice-card__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: #eef1f5;
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.voice-card__avatar--placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #6b7280;
+  position: relative;
+  z-index: 1;
+}
+
+.voice-card__preview {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #9d9fff 0%, #6f73ff 100%);
+  box-shadow: 0 2px 8px rgba(111, 115, 255, 0.35);
+  z-index: 2;
+}
+
+.voice-card__avatar-wrap:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.voice-card__preview-icon {
+  position: absolute;
+  left: 5px;
+  top: 3px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid #ffffff;
+}
+
+.voice-card__check {
+  flex: 0 0 auto;
+  color: #3167ff;
+}

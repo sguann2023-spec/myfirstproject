@@ -17,3 +17,38 @@ export async function getVoiceLibrary({
 
   return http.getJson(`${BASE_URL}/llm/tts/voice_library?${qs}`);
 }
+
+export async function getVoiceFavoritesLibrary({
+  limit = 24,
+  offset = 0,
+} = {}) {
+  const qs = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  }).toString();
+
+  return http.getJson(`${BASE_URL}/llm/tts/voice_favorites/library?${qs}`);
+}
+
+export async function getVoiceFavoriteIds(globalVoiceIds = []) {
+  const normalizedIds = Array.isArray(globalVoiceIds)
+    ? globalVoiceIds.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const qs = new URLSearchParams({
+    global_voice_ids: normalizedIds.join(','),
+  }).toString();
+
+  return http.getJson(`${BASE_URL}/llm/tts/voice_favorites/ids?${qs}`);
+}
+
+export async function addVoiceFavorite(globalVoiceId) {
+  return http.postJson(`${BASE_URL}/llm/tts/voice_favorites`, {
+    global_voice_id: String(globalVoiceId || '').trim(),
+  });
+}
+
+export async function removeVoiceFavorite(globalVoiceId) {
+  return http.postJson(`${BASE_URL}/llm/tts/voice_favorites/remove`, {
+    global_voice_id: String(globalVoiceId || '').trim(),
+  });
+}

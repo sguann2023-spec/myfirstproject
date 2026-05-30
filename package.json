@@ -359,6 +359,7 @@
     "qrcode.react": "^4.2.0",
     "rc-virtual-list": "^3.19.2",
     "react": "^19.2.0",
+    "react-audio-visualizer-pro": "^0.4.1",
     "react-dom": "^19.2.0",
     "react-error-boundary": "^6.1.1",
     "react-hotkeys-hook": "^5.2.4",

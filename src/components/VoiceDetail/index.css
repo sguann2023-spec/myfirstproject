@@ -1,0 +1,67 @@
+.voice-detail {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-detail__main {
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-detail__title {
+  font-size: 12px;
+  font-weight: 400;
+  color: #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-detail__favorite {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.voice-card:hover .voice-detail__favorite,
+.voice-detail__favorite:focus-visible,
+.voice-detail__favorite.is-favorited {
+  opacity: 1;
+}
+
+.voice-detail__favorite:not(:disabled):hover,
+.voice-detail__favorite:focus-visible {
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.voice-detail__favorite:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.voice-detail__favorite-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.voice-detail__description {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #666666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
