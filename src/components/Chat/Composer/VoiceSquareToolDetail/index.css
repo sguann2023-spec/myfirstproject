@@ -9,11 +9,19 @@
   display: inline-flex;
 }
 
+.chat-panel__tool-dropdown-trigger {
+  display: inline-flex;
+}
+
 .chat-panel__tool-detail-content {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.chat-panel__tool-button--sub-active {
+  background: #f5f5f5;
 }
 
 .chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active {
@@ -31,4 +39,116 @@
 .chat-panel__tool-close-icon {
   color: #3167ff;
   font-size: 12px;
+}
+
+.chat-panel__tool-dropdown-arrow {
+  font-size: 10px;
+  color: #999999;
+}
+
+.chat-panel__voice-library-dropdown .ant-dropdown-menu {
+  width: 540px;
+  max-height: 320px;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 12px;
+}
+
+.chat-panel__voice-library-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.chat-panel__voice-library-dropdown .ant-dropdown-menu-item {
+  padding: 0 !important;
+  margin-bottom: 8px;
+}
+
+.chat-panel__voice-library-dropdown .ant-dropdown-menu-item:last-child {
+  margin-bottom: 0;
+}
+
+.chat-panel__voice-library-dropdown .ant-dropdown-menu-title-content {
+  display: block;
+}
+
+.chat-panel__voice-library-dropdown .ant-dropdown-menu-item:hover {
+  background: #f5f5f5 !important;
+}
+
+.chat-panel__voice-library-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: 0 0 auto;
+  background: #eaeaea;
+}
+
+.chat-panel__voice-library-avatar--placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #666666;
+}
+
+.chat-panel__voice-library-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-panel__voice-library-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #000000;
+}
+
+.chat-panel__voice-library-language {
+  font-size: 12px;
+  color: #666666;
+}
+
+.chat-panel__voice-library-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #666666;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.chat-panel__voice-library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-panel__voice-library-tag {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f0f4ff;
+  font-size: 11px;
+  color: #3167ff;
+}
+
+.chat-panel__voice-library-hint {
+  width: 100%;
+  padding: 20px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #666666;
+  box-sizing: border-box;
+}
+
+.chat-panel__voice-library-hint.error {
+  color: #d4380d;
 }
