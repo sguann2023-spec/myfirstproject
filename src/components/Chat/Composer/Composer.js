@@ -1,6 +1,6 @@
 import React from 'react';
-import { Select, Tooltip, Upload, message } from 'antd';
-import { ArrowUp, CirclePause } from 'lucide-react';
+import { Select, Tooltip, Upload as AntUpload, message } from 'antd';
+import { ArrowUp, CirclePause, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
@@ -51,6 +51,8 @@ const Composer = ({
   });
   const mentionCloseTimerRef = React.useRef(null);
   const inputHighlightRef = React.useRef(null);
+  const dragCounterRef = React.useRef(0);
+  const [isDragActive, setIsDragActive] = React.useState(false);
   const inputPlaceholder =
     activeTool === 'voice-square'
       ? '输入你想要生成语音的文案'
@@ -341,18 +343,18 @@ const Composer = ({
     const isAllowedType = type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/');
     if (!file || !isAllowedType) {
       message.error('仅支持上传图片、视频、音频文件');
-      return Upload.LIST_IGNORE;
+      return AntUpload.LIST_IGNORE;
     }
     if (file.size > MAX_UPLOAD_FILE_SIZE) {
       message.error('单个文件大小不能超过 500MB，可去官网资产库上传更大文件');
-      return Upload.LIST_IGNORE;
+      return AntUpload.LIST_IGNORE;
     }
     const currentCount = uploadFileList.filter((item) => item.status !== 'removed').length;
     const availableSlots = Math.max(0, MAX_UPLOAD_COUNT - currentCount);
     const batchIndex = batchFileList.findIndex((item) => item.uid === file.uid);
     if (availableSlots <= 0 || (batchIndex >= 0 && batchIndex >= availableSlots)) {
       message.error(`最多上传 ${MAX_UPLOAD_COUNT} 个文件`);
-      return Upload.LIST_IGNORE;
+      return AntUpload.LIST_IGNORE;
     }
     return true;
   };
@@ -457,6 +459,56 @@ const Composer = ({
     });
   }, [handleBeforeUpload, handleFileUpload, sessionSending]);
 
+  const hasDraggedFiles = React.useCallback((event) => {
+    const dataTransferTypes = Array.from(event?.dataTransfer?.types || []);
+    return dataTransferTypes.includes('Files');
+  }, []);
+
+  const resetDragState = React.useCallback(() => {
+    dragCounterRef.current = 0;
+    setIsDragActive(false);
+  }, []);
+
+  const handleInputDragEnter = React.useCallback((event) => {
+    if (sessionSending || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragCounterRef.current += 1;
+    setIsDragActive(true);
+  }, [hasDraggedFiles, sessionSending]);
+
+  const handleInputDragOver = React.useCallback((event) => {
+    if (sessionSending || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+    if (!isDragActive) {
+      setIsDragActive(true);
+    }
+  }, [hasDraggedFiles, isDragActive, sessionSending]);
+
+  const handleInputDragLeave = React.useCallback((event) => {
+    if (sessionSending || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDragActive(false);
+    }
+  }, [hasDraggedFiles, sessionSending]);
+
+  const handleInputDrop = React.useCallback((event) => {
+    if (sessionSending || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const droppedFiles = Array.from(event.dataTransfer?.files || []).filter(Boolean);
+    resetDragState();
+    if (droppedFiles.length === 0) return;
+    queueFilesForUpload(droppedFiles);
+  }, [hasDraggedFiles, queueFilesForUpload, resetDragState, sessionSending]);
+
   const handleSendWithAttachments = () => {
     if (isSendDisabled) return;
     const text = String(input || '').trim();
@@ -484,7 +536,7 @@ const Composer = ({
     <div className="chat-panel__composer">
       <div className="chat-panel__editor">
         {uploadFileList.length > 0 ? (
-          <Upload
+          <AntUpload
             className="chat-panel__upload-list chat-panel__upload-list--top"
             fileList={uploadFileList}
             showUploadList={{
@@ -500,11 +552,11 @@ const Composer = ({
             openFileDialogOnClick={false}
           >
             <span />
-          </Upload>
+          </AntUpload>
         ) : null}
         <div className="chat-panel__tool-bar">
           <div className="chat-panel__tool-left">
-            <Upload
+            <AntUpload
               accept="image/*,video/*,audio/*"
               multiple
               beforeUpload={handleBeforeUpload}
@@ -522,7 +574,7 @@ const Composer = ({
               >
                 <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
               </span>
-            </Upload>
+            </AntUpload>
             <span className="chat-panel__tool-divider" aria-hidden="true" />
             {activeTool === 'voice-square' ? (
               <VoiceSquareToolDetail
@@ -568,7 +620,13 @@ const Composer = ({
             </button>
           </div>
         </div>
-        <div className="chat-panel__input-wrap">
+        <div
+          className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''}`}
+          onDragEnter={handleInputDragEnter}
+          onDragOver={handleInputDragOver}
+          onDragLeave={handleInputDragLeave}
+          onDrop={handleInputDrop}
+        >
           {mentionState.open && (skillsLoading || skillsError || filteredSkills.length > 0) ? (
             <div className="chat-panel__skill-mention-panel">
               <div className="chat-panel__skill-mention-list">
@@ -597,6 +655,14 @@ const Composer = ({
             </div>
           ) : null}
           <div className="chat-panel__input-editor">
+            {isDragActive ? (
+              <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
+                <div className="chat-panel__drag-upload-card">
+                  <UploadIcon className="chat-panel__drag-upload-icon" />
+                  <div className="chat-panel__drag-upload-text">将文件拖放到此处以添加到你的消息中</div>
+                </div>
+              </div>
+            ) : null}
             <div
               ref={inputHighlightRef}
               aria-hidden="true"
