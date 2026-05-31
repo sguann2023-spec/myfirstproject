@@ -1,5 +1,5 @@
 import { loggerService } from '@logger'
-import { isWin } from '@main/constant'
+import { isMac, isWin } from '@main/constant'
 import { getIpCountry } from '@main/utils/ipService'
 import { generateUserAgent } from '@main/utils/systemInfo'
 import { APP_NAME, FeedUrl, UpdateConfigUrl, UpdateMirror, UpgradeChannel } from '@shared/config/constant'
@@ -13,6 +13,7 @@ import path from 'path'
 import semver from 'semver'
 
 import { configManager } from './ConfigManager'
+import MacArchUpdateProvider from './MacArchUpdateProvider'
 import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('AppUpdater')
@@ -242,18 +243,30 @@ export default class AppUpdater {
   }
 
   private async _setFeedUrl() {
-    // Use legacy updater feed to keep compatibility with original main.js behavior.
+    // Use an arch-aware custom provider on macOS because electron-updater's generic
+    // provider only reads latest-mac.yml and cannot target latest-mac-arm64.yml.
     this.autoUpdater.channel = UpgradeChannel.LATEST
-    this.autoUpdater.setFeedURL({
-      provider: 'generic',
-      url: LEGACY_AUTO_UPDATER_FEED_URL,
-      channel: UpgradeChannel.LATEST
-    })
+    if (isMac) {
+      this.autoUpdater.setFeedURL({
+        provider: 'custom',
+        updateProvider: MacArchUpdateProvider,
+        url: LEGACY_AUTO_UPDATER_FEED_URL,
+        channel: UpgradeChannel.LATEST
+      } as any)
+    } else {
+      // Keep legacy generic feed behavior for non-mac platforms.
+      this.autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: LEGACY_AUTO_UPDATER_FEED_URL,
+        channel: UpgradeChannel.LATEST
+      })
+    }
     this.autoUpdater.allowDowngrade = false
     this.autoUpdater.disableDifferentialDownload = true
     logger.info('Using legacy auto updater feed URL', {
       feedUrl: LEGACY_AUTO_UPDATER_FEED_URL,
-      channel: UpgradeChannel.LATEST
+      channel: UpgradeChannel.LATEST,
+      provider: isMac ? 'custom-mac-arch' : 'generic'
     })
   }
 
