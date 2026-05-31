@@ -662,6 +662,9 @@ importers:
       shiki:
         specifier: ^4.0.2
         version: 4.0.2
+      siriwave:
+        specifier: ^2.4.0
+        version: 2.4.0
       strict-url-sanitise:
         specifier: npm:@braintree/sanitize-url@^7.1.1
         version: '@braintree/sanitize-url@7.1.2'
@@ -9801,6 +9804,9 @@ packages:
   simple-update-notifier@2.0.0:
     resolution: {integrity: sha512-a2B9Y0KlNXl9u/vsW6sTIu9vGEpfKu2wRV6l1H3XEas/0gUIzGzBoP/IouTcUQbm9JWZLH3COxyn03TYlFax6w==}
     engines: {node: '>=10'}
+
+  siriwave@2.4.0:
+    resolution: {integrity: sha512-J9X/URPuwXw800mJnnTnEIaDn2n9ZXWEX827oRdIGMwOtFi2FF5Xet2ifQhXFLx7/SYmEQ2UOxtUZP6bUkNqeQ==}
 
   slash@2.0.0:
     resolution: {integrity: sha512-ZYKh3Wh2z1PpEXWr0MpSBZ0V6mZHAQfYevttO11c51CaWjGTaadiKZ+wVt1PbMlDV5qhMFslpZCemhwOK7C89A==}
@@ -21687,6 +21693,8 @@ snapshots:
   simple-update-notifier@2.0.0:
     dependencies:
       semver: 7.8.0
+
+  siriwave@2.4.0: {}
 
   slash@2.0.0: {}
 

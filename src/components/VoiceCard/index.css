@@ -15,6 +15,10 @@
   background: #f5f7ff;
 }
 
+.voice-card:not(.voice-card--selected):hover {
+  background: #f5f5f5;
+}
+
 .voice-card__avatar-wrap {
   position: relative;
   width: 32px;

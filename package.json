@@ -388,6 +388,7 @@
     "semver": "^7.7.4",
     "sharp": "^0.34.5",
     "shiki": "^4.0.2",
+    "siriwave": "^2.4.0",
     "strict-url-sanitise": "npm:@braintree/sanitize-url@^7.1.1",
     "string-width": "^8.2.1",
     "striptags": "^3.2.0",

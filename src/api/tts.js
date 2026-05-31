@@ -30,6 +30,24 @@ export async function getVoiceFavoritesLibrary({
   return http.getJson(`${BASE_URL}/llm/tts/voice_favorites/library?${qs}`);
 }
 
+export async function getMyVoiceLibrary({
+  limit = 24,
+  offset = 0,
+  keyword,
+  provider,
+} = {}) {
+  const params = {
+    limit: String(limit),
+    offset: String(offset),
+  };
+
+  if (keyword) params.keyword = String(keyword);
+  if (provider) params.provider = String(provider);
+
+  const qs = new URLSearchParams(params).toString();
+  return http.getJson(`${BASE_URL}/llm/tts/my_voice_library?${qs}`);
+}
+
 export async function getVoiceFavoriteIds(globalVoiceIds = []) {
   const normalizedIds = Array.isArray(globalVoiceIds)
     ? globalVoiceIds.map((item) => String(item || '').trim()).filter(Boolean)
@@ -50,5 +68,55 @@ export async function addVoiceFavorite(globalVoiceId) {
 export async function removeVoiceFavorite(globalVoiceId) {
   return http.postJson(`${BASE_URL}/llm/tts/voice_favorites/remove`, {
     global_voice_id: String(globalVoiceId || '').trim(),
+  });
+}
+
+export async function updateMyVoiceProfile(payload = {}) {
+  return http.postJson(`${BASE_URL}/llm/tts/my_voice_library/profile`, payload);
+}
+
+export async function getTtsSpeechPrice({
+  provider,
+  voice_id,
+  model,
+} = {}) {
+  const params = {};
+
+  if (provider) params.provider = String(provider);
+  if (voice_id) params.voice_id = String(voice_id);
+  if (model) params.model = String(model);
+
+  const qs = new URLSearchParams(params).toString();
+  return http.getJson(`${BASE_URL}/llm/tts/speech_price${qs ? `?${qs}` : ''}`);
+}
+
+export async function getTtsClonePrice({
+  provider,
+} = {}) {
+  const params = {};
+
+  if (provider) params.provider = String(provider);
+
+  const qs = new URLSearchParams(params).toString();
+  return http.getJson(`${BASE_URL}/llm/tts/clone_price${qs ? `?${qs}` : ''}`);
+}
+
+export async function cloneTtsVoiceWithFish({
+  file_url,
+  title,
+} = {}) {
+  return http.postJson(`${BASE_URL}/llm/tts/fish/clone_voice`, {
+    file_url,
+    title,
+  });
+}
+
+export async function cloneTtsVoiceWithMinimax({
+  file_url,
+  title,
+} = {}) {
+  return http.postJson(`${BASE_URL}/llm/tts/minimax/clone_voice`, {
+    file_url,
+    title,
   });
 }

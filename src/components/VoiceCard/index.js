@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check } from 'lucide-react';
-import { CircularVisualizer } from 'react-audio-visualizer-pro';
 import './index.css';
+import VoiceCircularVisualizer from '../VoiceCircularVisualizer';
 import VoiceDetail from '../VoiceDetail';
 
 const VoiceCard = ({
@@ -41,7 +41,7 @@ const VoiceCard = ({
       >
         {isPlaying && previewUrl ? (
           <div className="voice-card__wave-line">
-            <CircularVisualizer
+            <VoiceCircularVisualizer
               audioUrl={previewUrl}
               width={40}
               height={40}
@@ -69,9 +69,14 @@ const VoiceCard = ({
       </button>
       <VoiceDetail
         title={title}
+        provider={item?.providers || item?.provider}
+        globalVoiceId={item?.global_voice_id}
+        priceText={item?.price_text}
         favorited={Boolean(item?.favorited)}
         favoriteDisabled={favoriteLoading}
-        onToggleFavorite={() => onToggleFavorite?.(item)}
+        onToggleFavorite={
+          typeof onToggleFavorite === 'function' ? () => onToggleFavorite(item) : undefined
+        }
       />
       {isSelected ? <Check className="voice-card__check" size={14} strokeWidth={2.5} aria-hidden="true" /> : null}
     </div>

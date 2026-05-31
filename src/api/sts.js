@@ -208,9 +208,10 @@ export async function uploadToOSS(file) {
     throw new Error(`UPLOAD_FAILED:${res.status}:${body}`);
   }
   const publicEndpoint = await fetchPublicEndpoint();
-  const publicUrl = await buildSignedPublicUrl(bucket, publicEndpoint, key, ak, sk, st, uploadHost);
+  const publicUrl = buildPublicUrl(bucket, publicEndpoint, uploadHost, key);
+  const signedPublicUrl = await buildSignedPublicUrl(bucket, publicEndpoint, key, ak, sk, st, uploadHost);
   console.log('publicUrl', publicUrl);
-  return { objectKey: key, publicUrl };
+  return { objectKey: key, publicUrl, signedPublicUrl };
 }
 
 export async function uploadToOSSWithProgress(file, onProgress) {
@@ -247,7 +248,8 @@ export async function uploadToOSSWithProgress(file, onProgress) {
   }
   progressTicker.done();
   const publicEndpoint = await fetchPublicEndpoint();
-  const publicUrl = await buildSignedPublicUrl(bucket, publicEndpoint, key, ak, sk, st, uploadHost);
+  const publicUrl = buildPublicUrl(bucket, publicEndpoint, uploadHost, key);
+  const signedPublicUrl = await buildSignedPublicUrl(bucket, publicEndpoint, key, ak, sk, st, uploadHost);
   console.log('publicUrl', publicUrl);
-  return { objectKey: key, publicUrl };
+  return { objectKey: key, publicUrl, signedPublicUrl };
 }

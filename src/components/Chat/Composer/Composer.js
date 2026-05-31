@@ -6,7 +6,7 @@ import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import ToolArea from './ToolArea/index';
-import VoiceSquareToolDetail from './VoiceSquareToolDetail/index';
+import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
@@ -36,6 +36,9 @@ const Composer = ({
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [activeTool, setActiveTool] = React.useState(null);
+  const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
+    getInitialSelectedVoiceLibraryItem()
+  );
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
   const [skills, setSkills] = React.useState([]);
@@ -48,6 +51,10 @@ const Composer = ({
   });
   const mentionCloseTimerRef = React.useRef(null);
   const inputHighlightRef = React.useRef(null);
+  const inputPlaceholder =
+    activeTool === 'voice-square'
+      ? '输入你想要生成语音的文案'
+      : '@技能成员，输入消息，Enter 发送，Shift+Enter 换行';
 
   React.useEffect(() => {
     let cancelled = false;
@@ -455,8 +462,12 @@ const Composer = ({
     const text = String(input || '').trim();
     const combined = [text, ...uploadedMarkdownLinks].filter(Boolean).join('\n');
     if (!combined) return;
+    const nextMessage =
+      activeTool === 'voice-square'
+        ? `@vectcut-skill 用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}将下面文字合成音频：${combined}`
+        : combined;
     closeMentionPanel();
-    handleSend && handleSend(combined);
+    handleSend && handleSend(nextMessage);
     setUploadFileList([]);
     setUploadedFileMeta([]);
   };
@@ -517,6 +528,7 @@ const Composer = ({
               <VoiceSquareToolDetail
                 disabled={sessionSending}
                 onBack={handleToolDetailBack}
+                onSelectedVoiceChange={setSelectedVoiceLibraryItem}
               />
             ) : (
               <ToolArea
@@ -594,7 +606,7 @@ const Composer = ({
             <textarea
               ref={inputRef}
               className="chat-panel__input chat-panel__input--overlay"
-              placeholder="@技能成员，输入消息，Enter 发送，Shift+Enter 换行"
+              placeholder={inputPlaceholder}
               value={input}
               onChange={(event) => {
                 setInput(event.target.value);

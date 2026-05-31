@@ -237,6 +237,15 @@ const MessageContent = ({ message, isLoading = false }) => {
   }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds]);
 
   React.useEffect(() => {
+    if (!isAssistant) return;
+    const assistantBlocks = assistantState.blockIds
+      .map((id) => assistantState.entities[id])
+      .filter(Boolean);
+    if (assistantBlocks.length === 0) return;
+    appStore.dispatch(upsertManyBlocks(assistantBlocks));
+  }, [isAssistant, assistantState]);
+
+  React.useEffect(() => {
     if (!DEBUG_CHAT_LOADING) return;
     // logger.info({
     //   messageId: message?.id || '',

@@ -23,6 +23,7 @@ import { normalizeChatError } from '../../shared/chatError';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
+import { IpcChannel } from '../../packages/shared/IpcChannel';
 const logger = loggerService.withContext('HomePage');
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
@@ -240,6 +241,23 @@ const sortChatSessions = (sessions) => {
   return [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
 
+const STREAMING_LIKE_BLOCK_STATUSES = ['pending', 'processing', 'streaming', 'running', 'invoking'];
+const TERMINAL_TOOL_RUNTIME_STATUSES = ['done', 'error', 'cancelled'];
+
+const isStreamingLikeBlockStatus = (value) => (
+  STREAMING_LIKE_BLOCK_STATUSES.includes(String(value || '').toLowerCase())
+);
+
+const isTerminalToolRuntimeStatus = (value) => (
+  TERMINAL_TOOL_RUNTIME_STATUSES.includes(String(value || '').toLowerCase())
+);
+
+const isStructuredBlockObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const hasStructuredBlocks = (blocks = []) => (
+  Array.isArray(blocks) && blocks.some((block) => isStructuredBlockObject(block))
+);
+
 const buildAssistantDisplayContentFromBlocks = (blocks = []) => {
   const pieces = [];
   (Array.isArray(blocks) ? blocks : []).forEach((block) => {
@@ -321,6 +339,131 @@ const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
 
     return nextBlock;
   });
+};
+
+const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false } = {}) => {
+  const nextBlockStatus = hasError ? 'error' : 'success';
+  return (Array.isArray(blocks) ? blocks : []).reduce((acc, block) => {
+    if (!block || typeof block !== 'object') return acc;
+
+    const nextBlock = { ...block };
+    const type = String(nextBlock?.type || '').toLowerCase();
+    const content = String(nextBlock?.content || '').trim();
+    const rawToolResponse = nextBlock?.metadata?.rawMcpToolResponse;
+
+    if (
+      type === 'unknown'
+      && !content
+      && !rawToolResponse
+      && isStreamingLikeBlockStatus(nextBlock?.status)
+    ) {
+      return acc;
+    }
+
+    if (isStreamingLikeBlockStatus(nextBlock?.status)) {
+      nextBlock.status = nextBlockStatus;
+    }
+
+    const rawToolStatus = String(rawToolResponse?.status || '').toLowerCase();
+    if (rawToolResponse && rawToolStatus && !isTerminalToolRuntimeStatus(rawToolStatus)) {
+      nextBlock.metadata = {
+        ...nextBlock.metadata,
+        rawMcpToolResponse: {
+          ...rawToolResponse,
+          status: hasError ? 'error' : 'done'
+        }
+      };
+    }
+
+    acc.push(nextBlock);
+    return acc;
+  }, []);
+};
+
+const normalizePersistedChatMessage = (message = {}) => {
+  if (!message || typeof message !== 'object') return message;
+
+  const nextMessage = { ...message };
+  if (String(nextMessage?.role || '').toLowerCase() !== 'assistant') {
+    return nextMessage;
+  }
+
+  nextMessage.storeAssistantMessageId = null;
+  if (Array.isArray(nextMessage.blocks)) {
+    const structuredBlocks = nextMessage.blocks.filter((block) => isStructuredBlockObject(block));
+    if (structuredBlocks.length === nextMessage.blocks.length) {
+      nextMessage.blocks = normalizeStructuredBlocksForPersistence(structuredBlocks, {
+        hasError: Boolean(nextMessage.error)
+      });
+    }
+  }
+
+  if (!String(nextMessage.content || '').trim() && hasStructuredBlocks(nextMessage.blocks)) {
+    nextMessage.content = buildAssistantDisplayContentFromBlocks(nextMessage.blocks);
+  }
+
+  return nextMessage;
+};
+
+const shouldHydrateChatSessionFromHistory = (session) => {
+  if (!session || !Array.isArray(session.messages)) return false;
+  const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+  if (!runtimeSessionId) return false;
+
+  return session.messages.some((message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return false;
+    return !buildVisibleAssistantContent(message);
+  });
+};
+
+const buildMessageContentFromBlocks = (blocks = []) => {
+  const pieces = [];
+  (Array.isArray(blocks) ? blocks : []).forEach((block) => {
+    if (!isStructuredBlockObject(block)) return;
+    const type = String(block?.type || '').toLowerCase();
+    const content = String(block?.content || '').trim();
+    if (!content) return;
+    if (type === 'main_text' || type === 'code' || type === 'thinking') {
+      pieces.push(content);
+    }
+  });
+  return pieces.join('\n\n').trim();
+};
+
+const buildVisibleAssistantContent = (message = {}) => {
+  const directContent = String(message?.content || '').trim();
+  if (directContent) return directContent;
+  const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+  const structuredBlocks = blocks.filter((block) => isStructuredBlockObject(block));
+  if (!structuredBlocks.length) return '';
+  return buildAssistantDisplayContentFromBlocks(structuredBlocks).trim();
+};
+
+const toPersistedHistoryMessage = (persistedEntry, index) => {
+  const sourceMessage = persistedEntry?.message || {};
+  const role = String(sourceMessage?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
+  const sourceBlocks = Array.isArray(persistedEntry?.blocks) ? persistedEntry.blocks.filter((block) => isStructuredBlockObject(block)) : [];
+  const normalizedBlocks = normalizeStructuredBlocksForPersistence(sourceBlocks, {
+    hasError: Boolean(sourceMessage?.error)
+  });
+  const contentFromBlocks = role === 'assistant'
+    ? buildAssistantDisplayContentFromBlocks(normalizedBlocks)
+    : buildMessageContentFromBlocks(normalizedBlocks);
+  const content = String(sourceMessage?.content || '').trim() || contentFromBlocks;
+  const createdAt = sourceMessage?.createdAt || Date.now();
+  const updatedAt = sourceMessage?.updatedAt || createdAt;
+
+  return {
+    id: String(sourceMessage?.id || `persisted-${index}`),
+    role,
+    content,
+    blocks: role === 'assistant' ? normalizedBlocks : [],
+    createdAt,
+    updatedAt,
+    model: sourceMessage?.modelId || sourceMessage?.model || undefined,
+    error: sourceMessage?.error || null,
+    storeAssistantMessageId: null
+  };
 };
 
 const finalizeLatestTodoWriteInStore = (assistantMessageId) => {
@@ -422,6 +565,7 @@ const HomePage = () => {
   const chatPerfByRequestIdRef = useRef(new Map());
   const chatSnapshotThrottleByRequestIdRef = useRef(new Map());
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
+  const chatHistoryHydratingRef = useRef(new Set());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
@@ -559,7 +703,9 @@ const HomePage = () => {
             createdAt: Number(item.createdAt) || Date.now(),
             updatedAt: Number(item.updatedAt) || Date.now(),
             runtimeSessionId: String(item.runtimeSessionId || '').trim(),
-            messages: Array.isArray(item.messages) ? item.messages : [],
+            messages: Array.isArray(item.messages)
+              ? item.messages.map((message) => normalizePersistedChatMessage(message))
+              : [],
           }));
         if (normalized.length > 0) {
           const sorted = sortChatSessions(normalized);
@@ -609,6 +755,82 @@ const HomePage = () => {
   }, [chatModel]);
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
+
+  useEffect(() => {
+    if (!canUseAgentRuntime) return;
+    if (selectedPane !== 'chat') return;
+    if (!activeChatSession || !shouldHydrateChatSessionFromHistory(activeChatSession)) return;
+    if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
+      logger.warn('[HomePage][HistoryHydrate] bridge unavailable', {
+        chatId: activeChatSession?.id || '',
+        sessionId: String(activeChatSession?.runtimeSessionId || '').trim()
+      });
+      return;
+    }
+
+    const runtimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
+    if (!runtimeSessionId) return;
+
+    const hydrateKey = `${activeChatSession.id}:${runtimeSessionId}`;
+    if (chatHistoryHydratingRef.current.has(hydrateKey)) return;
+
+    let cancelled = false;
+    chatHistoryHydratingRef.current.add(hydrateKey);
+    void (async () => {
+      try {
+        logger.info('[HomePage][HistoryHydrate] start', {
+          chatId: activeChatSession.id,
+          sessionId: runtimeSessionId
+        });
+        const invoke = window?.ipc?.invoke
+          ? (channel, payload) => window.ipc.invoke(channel, payload)
+          : (channel, payload) => window.electron.ipcRenderer.invoke(channel, payload);
+        const historicalMessages = await invoke(IpcChannel.AgentMessage_GetHistory, {
+          sessionId: runtimeSessionId
+        });
+        if (cancelled || !Array.isArray(historicalMessages) || historicalMessages.length === 0) return;
+
+        const hydratedMessages = historicalMessages
+          .map((entry, index) => toPersistedHistoryMessage(entry, index))
+          .filter((message) => message?.id);
+        const hasAssistantContent = hydratedMessages.some((message) => (
+          message.role === 'assistant' && String(message.content || '').trim()
+        ));
+        if (!hasAssistantContent) return;
+
+        setChatSessions((prev) => {
+          const updated = prev.map((item) => {
+            if (item.id !== activeChatSession.id) return item;
+            if (!shouldHydrateChatSessionFromHistory(item)) return item;
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              messages: hydratedMessages
+            };
+          });
+          return sortChatSessions(updated);
+        });
+        logger.info('[HomePage][HistoryHydrate] applied', {
+          chatId: activeChatSession.id,
+          sessionId: runtimeSessionId,
+          messageCount: hydratedMessages.length
+        });
+      } catch (error) {
+        if (cancelled) return;
+        logger.warn('[HomePage][HistoryHydrate] failed', {
+          chatId: activeChatSession.id,
+          sessionId: runtimeSessionId,
+          error: error?.message || String(error)
+        });
+      } finally {
+        chatHistoryHydratingRef.current.delete(hydrateKey);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseAgentRuntime, selectedPane, activeChatSession]);
   const setChatSessionSending = (chatId, sending, reason = '') => {
     const id = String(chatId || '').trim();
     if (!id) return;
@@ -998,9 +1220,22 @@ const HomePage = () => {
       if (!pending) {
         const payloadType = String(payload?.type || '');
         const chunkType = String(payload?.chunk?.type || '');
+        const mappedChatId = chatIdByAgentSessionIdRef.current.get(agentSessionId);
         if (payloadType === 'started') {
-          const mappedChatId = chatIdByAgentSessionIdRef.current.get(agentSessionId);
-          if (mappedChatId) setChatSessionSending(mappedChatId, true, 'chunk.started.without-pending');
+          if (mappedChatId) {
+            setChatSessionSending(mappedChatId, true, 'chunk.started.without-pending');
+            if (mappedChatId === activeChatId) setChatSending(true);
+          }
+        }
+        if (mappedChatId && payloadType === 'complete') {
+          setChatSessionSending(mappedChatId, false, 'chunk.complete.without-pending');
+          setChatSessionFulfilled(mappedChatId, true, 'chunk.complete.without-pending');
+          if (mappedChatId === activeChatId) setChatSending(false);
+        }
+        if (mappedChatId && (payloadType === 'error' || payloadType === 'cancelled')) {
+          setChatSessionSending(mappedChatId, false, `chunk.${payloadType}.without-pending`);
+          setChatSessionFulfilled(mappedChatId, false, `chunk.${payloadType}.without-pending`);
+          if (mappedChatId === activeChatId) setChatSending(false);
         }
         const isToolRelated =
           chunkType.startsWith('tool-') || payloadType === 'started' || payloadType === 'complete' || payloadType === 'error' || payloadType === 'cancelled';
@@ -1078,15 +1313,6 @@ const HomePage = () => {
         if (scheduled?.timer) clearTimeout(scheduled.timer);
         chatSnapshotThrottleByRequestIdRef.current.delete(throttleKey);
       };
-      const flushSnapshot = (error = null) => {
-        const scheduled = chatSnapshotThrottleByRequestIdRef.current.get(throttleKey);
-        if (scheduled?.timer) clearTimeout(scheduled.timer);
-        chatSnapshotThrottleByRequestIdRef.current.set(throttleKey, {
-          timer: null,
-          lastAppliedAt: Date.now()
-        });
-        applySnapshot(error);
-      };
       const scheduleSnapshot = (error = null) => {
         if (!requestId) {
           applySnapshot(error);
@@ -1143,6 +1369,7 @@ const HomePage = () => {
                   || '';
                 return {
                   ...message,
+                  storeAssistantMessageId: null,
                   content: nextContent,
                   blocks: nextBlocks,
                   error,
@@ -1354,24 +1581,69 @@ const HomePage = () => {
       }
 
       if (payload.type === 'complete') {
+        // Cancel any delayed snapshot first so a stale processing snapshot cannot
+        // overwrite the finalized assistant message after completion.
+        clearScheduledSnapshot();
         const finalSnapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+        const finalizedBlocks = normalizeStructuredBlocksForPersistence(
+          finalSnapshot?.blocks || [],
+          { hasError: false }
+        );
+        const finalizedContent =
+          finalSnapshot?.content
+          || buildAssistantDisplayContentFromBlocks(finalizedBlocks)
+          || '';
+        setChatSessions((prev) => {
+          const updated = prev.map((item) => {
+            if (item.id !== chatId) return item;
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              messages: item.messages.map((message) => (
+                message.id === assistantMessageId
+                  ? (() => {
+                      const normalizedMessageBlocks = normalizeStructuredBlocksForPersistence(
+                        message.blocks || [],
+                        { hasError: false }
+                      );
+                      return {
+                        ...message,
+                        storeAssistantMessageId: null,
+                        content: finalizedContent || message.content || '',
+                        blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
+                        error: null,
+                        updatedAt: Date.now()
+                      };
+                    })()
+                  : message
+              ))
+            };
+          });
+          return sortChatSessions(updated);
+        });
         const sessionBeforeRename = chatSessionsRef.current.find((item) => item.id === chatId);
         const messagesForRename = sessionBeforeRename
           ? sessionBeforeRename.messages.map((message) => (
               message.id === assistantMessageId
-                ? {
-                    ...message,
-                    content: finalSnapshot?.content || message.content || '',
-                    blocks: finalSnapshot?.blocks || message.blocks || [],
-                    error: null,
-                    updatedAt: Date.now()
-                  }
+                ? (() => {
+                    const normalizedMessageBlocks = normalizeStructuredBlocksForPersistence(
+                      message.blocks || [],
+                      { hasError: false }
+                    );
+                    return {
+                      ...message,
+                      storeAssistantMessageId: null,
+                      content: finalizedContent || message.content || '',
+                      blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
+                      error: null,
+                      updatedAt: Date.now()
+                    };
+                  })()
                 : message
             ))
           : null;
         finalizeLatestTodoWriteInStore(storeAssistantMessageId || '');
         streamController?.complete();
-        flushSnapshot(null);
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
           logPendingState('delete', {
@@ -1409,7 +1681,6 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
-        clearScheduledSnapshot();
         void triggerAutoRenameSessionTitle(chatId, messagesForRename);
       }
     });
