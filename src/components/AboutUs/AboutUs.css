@@ -14,6 +14,7 @@
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  min-height: 70px;
 }
 
 .about-logo {
@@ -23,10 +24,43 @@
   border-radius: 50%;
 }
 
+.about-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
 .about-version {
   font-size: 14px;
   color: #000000;
   font-weight: 500;
+}
+
+.about-status {
+  font-size: 12px;
+  color: #888888;
+}
+
+.about-update-button {
+  padding: 4px 10px;
+  border: 1px solid #d9d9dc;
+  background: #fff;
+  color: #000000;
+  font-size: 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.about-update-button:hover:not(:disabled) {
+  border-color: #cfd0d3;
+}
+
+.about-update-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .about-footer {

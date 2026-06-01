@@ -6,7 +6,7 @@ import { APP_NAME, FeedUrl, UpdateConfigUrl, UpdateMirror, UpgradeChannel } from
 import { IpcChannel } from '@shared/IpcChannel'
 import type { UpdateInfo } from 'builder-util-runtime'
 import { CancellationToken } from 'builder-util-runtime'
-import { app, net } from 'electron'
+import { app, BrowserWindow, net } from 'electron'
 import type { AppUpdater as _AppUpdater, Logger, NsisUpdater, UpdateCheckResult } from 'electron-updater'
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
@@ -66,6 +66,11 @@ export default class AppUpdater {
   private cancellationToken: CancellationToken = new CancellationToken()
   private updateCheckResult: UpdateCheckResult | null = null
 
+  private broadcastUpdateEvent(channel: string, ...args: unknown[]) {
+    const windows = BrowserWindow.getAllWindows().filter((browserWindow) => !browserWindow.isDestroyed())
+    windows.forEach((browserWindow) => browserWindow.webContents.send(channel, ...args))
+  }
+
   constructor() {
     autoUpdater.logger = logger as Logger
     autoUpdater.forceDevUpdateConfig = !app.isPackaged
@@ -79,29 +84,29 @@ export default class AppUpdater {
 
     autoUpdater.on('error', (error) => {
       logger.error('update error', error)
-      windowService.getMainWindow()?.webContents.send(IpcChannel.UpdateError, error)
+      this.broadcastUpdateEvent(IpcChannel.UpdateError, error)
     })
 
     autoUpdater.on('update-available', (releaseInfo: UpdateInfo) => {
       logger.info('update available', releaseInfo)
       const processedReleaseInfo = this.processReleaseInfo(releaseInfo)
-      windowService.getMainWindow()?.webContents.send(IpcChannel.UpdateAvailable, processedReleaseInfo)
+      this.broadcastUpdateEvent(IpcChannel.UpdateAvailable, processedReleaseInfo)
     })
 
     // 检测到不需要更新时
     autoUpdater.on('update-not-available', () => {
-      windowService.getMainWindow()?.webContents.send(IpcChannel.UpdateNotAvailable)
+      this.broadcastUpdateEvent(IpcChannel.UpdateNotAvailable)
     })
 
     // 更新下载进度
     autoUpdater.on('download-progress', (progress) => {
-      windowService.getMainWindow()?.webContents.send(IpcChannel.DownloadProgress, progress)
+      this.broadcastUpdateEvent(IpcChannel.DownloadProgress, progress)
     })
 
     // 当需要更新的内容下载完成后
     autoUpdater.on('update-downloaded', (releaseInfo: UpdateInfo) => {
       const processedReleaseInfo = this.processReleaseInfo(releaseInfo)
-      windowService.getMainWindow()?.webContents.send(IpcChannel.UpdateDownloaded, processedReleaseInfo)
+      this.broadcastUpdateEvent(IpcChannel.UpdateDownloaded, processedReleaseInfo)
       logger.info('update downloaded', processedReleaseInfo)
     })
 

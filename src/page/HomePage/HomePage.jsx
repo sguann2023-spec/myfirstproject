@@ -410,11 +410,32 @@ const shouldHydrateChatSessionFromHistory = (session) => {
   const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
   if (!runtimeSessionId) return false;
 
+  if (session.messages.length === 0) return true;
+
+  const hasAssistantMessage = session.messages.some(
+    (message) => String(message?.role || '').toLowerCase() === 'assistant'
+  );
+  if (!hasAssistantMessage) return true;
+
   return session.messages.some((message) => {
     if (String(message?.role || '').toLowerCase() !== 'assistant') return false;
     return !buildVisibleAssistantContent(message);
   });
 };
+
+const countVisibleAssistantMessages = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    return buildVisibleAssistantContent(message) ? count + 1 : count;
+  }, 0)
+);
+
+const countMissingVisibleAssistantMessages = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    return buildVisibleAssistantContent(message) ? count : count + 1;
+  }, 0)
+);
 
 const buildMessageContentFromBlocks = (blocks = []) => {
   const pieces = [];
@@ -566,6 +587,7 @@ const HomePage = () => {
   const chatSnapshotThrottleByRequestIdRef = useRef(new Map());
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const chatHistoryHydratingRef = useRef(new Set());
+  const chatHistoryHydrateSettledRef = useRef(new Set());
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
@@ -755,32 +777,45 @@ const HomePage = () => {
   }, [chatModel]);
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
+  const activeChatRuntimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
+  const activeChatNeedsHistoryHydrate = Boolean(
+    activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
+  );
 
   useEffect(() => {
     if (!canUseAgentRuntime) return;
     if (selectedPane !== 'chat') return;
-    if (!activeChatSession || !shouldHydrateChatSessionFromHistory(activeChatSession)) return;
+    if (!activeChatSession || !activeChatNeedsHistoryHydrate) return;
     if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
       logger.warn('[HomePage][HistoryHydrate] bridge unavailable', {
         chatId: activeChatSession?.id || '',
-        sessionId: String(activeChatSession?.runtimeSessionId || '').trim()
+        sessionId: activeChatRuntimeSessionId
       });
       return;
     }
 
-    const runtimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
+    const runtimeSessionId = activeChatRuntimeSessionId;
     if (!runtimeSessionId) return;
 
     const hydrateKey = `${activeChatSession.id}:${runtimeSessionId}`;
     if (chatHistoryHydratingRef.current.has(hydrateKey)) return;
+    if (chatHistoryHydrateSettledRef.current.has(hydrateKey)) return;
 
     let cancelled = false;
     chatHistoryHydratingRef.current.add(hydrateKey);
     void (async () => {
       try {
+        const beforeMessageCount = Array.isArray(activeChatSession.messages)
+          ? activeChatSession.messages.length
+          : 0;
+        const beforeVisibleAssistantCount = countVisibleAssistantMessages(activeChatSession.messages);
+        const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(activeChatSession.messages);
         logger.info('[HomePage][HistoryHydrate] start', {
           chatId: activeChatSession.id,
-          sessionId: runtimeSessionId
+          sessionId: runtimeSessionId,
+          beforeMessageCount,
+          beforeVisibleAssistantCount,
+          beforeMissingAssistantCount
         });
         const invoke = window?.ipc?.invoke
           ? (channel, payload) => window.ipc.invoke(channel, payload)
@@ -788,7 +823,16 @@ const HomePage = () => {
         const historicalMessages = await invoke(IpcChannel.AgentMessage_GetHistory, {
           sessionId: runtimeSessionId
         });
-        if (cancelled || !Array.isArray(historicalMessages) || historicalMessages.length === 0) return;
+        if (cancelled) return;
+        if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
+          chatHistoryHydrateSettledRef.current.add(hydrateKey);
+          logger.warn('[HomePage][HistoryHydrate] skipped empty history', {
+            chatId: activeChatSession.id,
+            sessionId: runtimeSessionId,
+            beforeMissingAssistantCount
+          });
+          return;
+        }
 
         const hydratedMessages = historicalMessages
           .map((entry, index) => toPersistedHistoryMessage(entry, index))
@@ -796,7 +840,40 @@ const HomePage = () => {
         const hasAssistantContent = hydratedMessages.some((message) => (
           message.role === 'assistant' && String(message.content || '').trim()
         ));
-        if (!hasAssistantContent) return;
+        const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
+        const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
+        if (!hasAssistantContent) {
+          chatHistoryHydrateSettledRef.current.add(hydrateKey);
+          logger.warn('[HomePage][HistoryHydrate] skipped missing assistant content', {
+            chatId: activeChatSession.id,
+            sessionId: runtimeSessionId,
+            beforeMessageCount,
+            beforeVisibleAssistantCount,
+            beforeMissingAssistantCount,
+            afterVisibleAssistantCount,
+            afterMissingAssistantCount
+          });
+          return;
+        }
+        const shouldApplyHydration = (
+          beforeMessageCount === 0
+          || beforeVisibleAssistantCount === 0
+          || afterMissingAssistantCount < beforeMissingAssistantCount
+        );
+        if (!shouldApplyHydration) {
+          chatHistoryHydrateSettledRef.current.add(hydrateKey);
+          logger.warn('[HomePage][HistoryHydrate] skipped no improvement', {
+            chatId: activeChatSession.id,
+            sessionId: runtimeSessionId,
+            beforeMessageCount,
+            beforeVisibleAssistantCount,
+            beforeMissingAssistantCount,
+            afterVisibleAssistantCount,
+            afterMissingAssistantCount,
+            messageCount: hydratedMessages.length
+          });
+          return;
+        }
 
         setChatSessions((prev) => {
           const updated = prev.map((item) => {
@@ -810,10 +887,16 @@ const HomePage = () => {
           });
           return sortChatSessions(updated);
         });
+        chatHistoryHydrateSettledRef.current.add(hydrateKey);
         logger.info('[HomePage][HistoryHydrate] applied', {
           chatId: activeChatSession.id,
           sessionId: runtimeSessionId,
-          messageCount: hydratedMessages.length
+          messageCount: hydratedMessages.length,
+          beforeMessageCount,
+          beforeVisibleAssistantCount,
+          beforeMissingAssistantCount,
+          afterVisibleAssistantCount,
+          afterMissingAssistantCount
         });
       } catch (error) {
         if (cancelled) return;
@@ -830,7 +913,13 @@ const HomePage = () => {
     return () => {
       cancelled = true;
     };
-  }, [canUseAgentRuntime, selectedPane, activeChatSession]);
+  }, [
+    canUseAgentRuntime,
+    selectedPane,
+    activeChatId,
+    activeChatRuntimeSessionId,
+    activeChatNeedsHistoryHydrate
+  ]);
   const setChatSessionSending = (chatId, sending, reason = '') => {
     const id = String(chatId || '').trim();
     if (!id) return;
