@@ -19,6 +19,13 @@ export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
 
   // 内部维护的状态
   let imageBlockId: string | null = null
+  let imageBlockReady: Promise<void> | null = null
+
+  const waitForImageBlockReady = async () => {
+    if (imageBlockReady) {
+      await imageBlockReady
+    }
+  }
 
   return {
     onImageCreated: async () => {
@@ -34,11 +41,14 @@ export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
           status: MessageBlockStatus.PENDING
         })
         imageBlockId = imageBlock.id
-        await blockManager.handleBlockTransition(imageBlock, MessageBlockType.IMAGE)
+        imageBlockReady = blockManager.handleBlockTransition(imageBlock, MessageBlockType.IMAGE)
+        await imageBlockReady
+        imageBlockReady = null
       }
     },
 
-    onImageDelta: (imageData: GenerateImageResponse) => {
+    onImageDelta: async (imageData: GenerateImageResponse) => {
+      await waitForImageBlockReady()
       const imageUrl = imageData.images?.[0] || 'placeholder_image_url'
       if (imageBlockId) {
         const changes: Partial<ImageMessageBlock> = {
@@ -71,6 +81,8 @@ export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
         }
       }
 
+      await waitForImageBlockReady()
+
       if (imageBlockId) {
         if (!imageData) {
           const changes: Partial<ImageMessageBlock> = {
@@ -82,6 +94,7 @@ export const createImageCallbacks = (deps: ImageCallbacksDependencies) => {
           blockManager.smartBlockUpdate(imageBlockId, changes, MessageBlockType.IMAGE, true)
         }
         imageBlockId = null
+        imageBlockReady = null
       } else {
         if (imageData) {
           const fields = await buildImageBlockFields(imageData)

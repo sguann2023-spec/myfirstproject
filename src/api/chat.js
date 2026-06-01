@@ -92,6 +92,13 @@ const normalizeModelItem = (item) => {
   ).trim();
 };
 
+const parseBooleanFlag = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+};
+
 const parseModelItems = (payload) => {
   const candidates = [
     payload?.model_items,
@@ -118,7 +125,8 @@ const parseModelItems = (payload) => {
         provider_id: String(item.provider_id || '').trim(),
         provider_type: String(item.provider_type || '').trim(),
         provider_name: String(item.provider_name || '').trim(),
-        id: String(item.id || '').trim()
+        id: String(item.id || '').trim(),
+        read_image: parseBooleanFlag(item.read_image ?? item.readImage)
       });
       return;
     }

@@ -943,9 +943,12 @@ export interface NormalToolResponse extends Omit<ToolCallResponse, 'tool'> {
 }
 
 export interface MCPToolResultContent {
-  type: 'text' | 'image' | 'audio' | 'resource'
+  type: 'text' | 'image' | 'audio' | 'resource' | 'resource_link'
   text?: string
   data?: string
+  uri?: string
+  name?: string
+  title?: string
   mimeType?: string
   resource?: {
     uri?: string

@@ -58,10 +58,11 @@ const buildProvidersState = (modelIds = [], apiKey = '') => {
   return { llm: { providers: Array.from(providersMap.values()) } };
 };
 
-const toModelOption = (model_id, name, icon = '') => ({
+const toModelOption = (model_id, name, icon = '', readImage = false) => ({
   value: model_id,
   label: name,
   icon,
+  read_image: Boolean(readImage),
 });
 
 const isModelInOptions = (model, options = []) => {
@@ -654,12 +655,12 @@ const HomePage = () => {
               const modelId = String(item?.model_id || item?.value || '').trim();
               if (!modelId) return null;
               const modelName = String(item?.name || item?.label || modelId).trim() || modelId;
-              return toModelOption(modelId, modelName, iconMap?.[modelId] || '');
+              return toModelOption(modelId, modelName, iconMap?.[modelId] || '', item?.read_image);
             })
             .filter(Boolean)
           : (
             (Array.isArray(payload?.models) && payload.models.length > 0 ? payload.models : CHAT_MODELS)
-              .map((name) => toModelOption(name, name, iconMap?.[name] || ''))
+              .map((name) => toModelOption(name, name, iconMap?.[name] || '', false))
           );
         setChatModelOptions(nextOptions);
 

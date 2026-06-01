@@ -269,10 +269,13 @@ const Composer = ({
     }
   };
 
-  const renderModelOptionLabel = (text, icon) => (
+  const renderModelOptionLabel = (text, icon, supportsReadImage = false) => (
     <span className="chat-panel__model-option">
-      {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
-      <span>{text}</span>
+      <span className="chat-panel__model-option-main">
+        {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
+        <span className="chat-panel__model-option-text">{text}</span>
+      </span>
+      {supportsReadImage ? <span className="chat-panel__model-option-tag">识图</span> : null}
     </span>
   );
 
@@ -282,14 +285,17 @@ const Composer = ({
         return {
           value: item,
           label: renderModelOptionLabel(formatModelDisplayName(item), null),
+          selectedLabel: renderModelOptionLabel(formatModelDisplayName(item), null, false),
         };
       }
       const value = item?.value;
       const labelText = item?.label || item?.name || item?.value || item?.id || '';
       const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
+      const supportsReadImage = Boolean(item?.read_image);
       return value ? {
         value,
-        label: renderModelOptionLabel(formatModelDisplayName(labelText), icon),
+        label: renderModelOptionLabel(formatModelDisplayName(labelText), icon, supportsReadImage),
+        selectedLabel: renderModelOptionLabel(formatModelDisplayName(labelText), icon, false),
       } : null;
     })
     .filter(Boolean);
@@ -594,8 +600,10 @@ const Composer = ({
               size="small"
               variant="borderless"
               className="chat-panel__model-picker"
+              listHeight={356}
               value={model}
               options={groupedModelOptions}
+              optionLabelProp="selectedLabel"
               loading={modelListLoading}
               onChange={(value) => onModelChange && onModelChange(value)}
               disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}

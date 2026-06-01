@@ -1,8 +1,10 @@
 import * as z from 'zod'
 
+import { ossUploadService } from '@main/services/OssUploadService'
+
 import type { CdpBrowserController } from '../controller'
 import { logger } from '../types'
-import { errorResponse, imageResponse } from './utils'
+import { errorResponse, imageResourceLinkResponse } from './utils'
 
 export const ScreenshotSchema = z.object({
   fullPage: z.boolean().optional().describe('Capture full scrollable page (default: false, viewport only)'),
@@ -49,7 +51,8 @@ export async function handleScreenshot(controller: CdpBrowserController, args: u
     const { fullPage, format, quality, privateMode, tabId } = ScreenshotSchema.parse(args)
     const base64 = await controller.screenshot({ fullPage, format, quality }, privateMode ?? false, tabId)
     const mimeType = (format ?? 'png') === 'jpeg' ? 'image/jpeg' : 'image/png'
-    return imageResponse(base64, mimeType)
+    const uploaded = await ossUploadService.uploadImageBase64(base64, mimeType)
+    return imageResourceLinkResponse(uploaded.publicUrl, mimeType, 'browser-screenshot')
   } catch (error) {
     logger.error('Screenshot failed', { error })
     return errorResponse(error instanceof Error ? error : String(error))

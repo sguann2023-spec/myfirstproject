@@ -23,7 +23,7 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { loggerService } from '@logger'
-import type { CallToolResult, ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult, ImageContent, ResourceLink, TextContent } from '@modelcontextprotocol/sdk/types.js'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -42,7 +42,8 @@ type ToolUseContent = {
 }
 
 /** Anthropic API ToolResultBlockParam content (from Claude Code SDK messages) */
-type AnthropicToolResultContent = string | Array<TextBlockParam | ImageBlockParam>
+type AnthropicResourceLink = ResourceLink & { type: 'resource_link' }
+type AnthropicToolResultContent = string | Array<TextBlockParam | ImageBlockParam | AnthropicResourceLink>
 
 type ToolResultContent = {
   type: 'tool_result'
@@ -90,7 +91,7 @@ function toMcpToolResult(content: AnthropicToolResultContent): CallToolResult | 
     return content
   }
 
-  const mapped: Array<TextContent | ImageContent> = content.map((item) => {
+  const mapped: Array<TextContent | ImageContent | AnthropicResourceLink> = content.map((item) => {
     if (item.type === 'image' && item.source.type === 'base64') {
       return {
         type: 'image' as const,
@@ -98,7 +99,7 @@ function toMcpToolResult(content: AnthropicToolResultContent): CallToolResult | 
         mimeType: item.source.media_type
       }
     }
-    return item as TextContent
+    return item as TextContent | AnthropicResourceLink
   })
 
   return { content: mapped }

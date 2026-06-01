@@ -232,7 +232,86 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
 type ExtractedContent = {
   text: string
-  images: Array<{ data: string; mimeType: string }>
+  images: Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }>
+}
+
+const IMAGE_URL_PATTERN = /https?:\/\/[^\s"'`]+/g
+const IMAGE_URL_SUFFIX_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg)(?:[?#].*)?$/i
+
+const extractImageUrlsFromUnknown = (response: unknown): string[] => {
+  const collected = new Set<string>()
+  const isLikelyImageUrl = (url: string) => IMAGE_URL_SUFFIX_PATTERN.test(url)
+
+  const collectUrl = (value: unknown, mimeType?: unknown) => {
+    const url = String(value ?? '').trim()
+    if (!url.startsWith('http')) {
+      return
+    }
+    const normalizedMimeType = String(mimeType ?? '').trim().toLowerCase()
+    if (normalizedMimeType) {
+      if (!normalizedMimeType.startsWith('image/')) {
+        return
+      }
+    } else if (!isLikelyImageUrl(url)) {
+      return
+    }
+    collected.add(url)
+  }
+
+  const collectUrlsFromText = (value: unknown) => {
+    const text = String(value ?? '')
+    if (!text) {
+      return
+    }
+    for (const match of text.matchAll(IMAGE_URL_PATTERN)) {
+      collectUrl(match[0])
+    }
+  }
+
+  if (typeof response === 'string') {
+    collectUrlsFromText(response)
+    return Array.from(collected)
+  }
+
+  if (!response || typeof response !== 'object') {
+    return []
+  }
+
+  const record = response as {
+    publicUrl?: unknown
+    url?: unknown
+    text?: unknown
+    summary?: unknown
+    uploadedImageUrls?: unknown
+    mimeType?: unknown
+    structuredContent?: Record<string, unknown>
+  }
+
+  collectUrl(record.publicUrl, record.mimeType)
+  collectUrl(record.url, record.mimeType)
+  collectUrlsFromText(record.text)
+  collectUrlsFromText(record.summary)
+
+  if (Array.isArray(record.uploadedImageUrls)) {
+    for (const url of record.uploadedImageUrls) {
+      collectUrl(url, record.mimeType)
+    }
+  }
+
+  const structuredContent = record.structuredContent
+  if (structuredContent && typeof structuredContent === 'object') {
+    collectUrl(structuredContent.publicUrl, structuredContent.mimeType)
+    collectUrl(structuredContent.url, structuredContent.mimeType)
+    collectUrlsFromText(structuredContent.text)
+    collectUrlsFromText(structuredContent.summary)
+    if (Array.isArray(structuredContent.uploadedImageUrls)) {
+      for (const url of structuredContent.uploadedImageUrls) {
+        collectUrl(url, structuredContent.mimeType)
+      }
+    }
+  }
+
+  return Array.from(collected)
 }
 
 /**
@@ -247,7 +326,7 @@ const extractPreviewContent = (response: unknown): ExtractedContent => {
     if (contents.length === 0) return { text: '', images: [] }
 
     const textParts: string[] = []
-    const images: Array<{ data: string; mimeType: string }> = []
+    const images: Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }> = []
     for (const content of contents) {
       switch (content.type) {
         case 'text':
@@ -262,7 +341,14 @@ const extractPreviewContent = (response: unknown): ExtractedContent => {
           break
         case 'image':
           if (content.data) {
-            images.push({ data: content.data, mimeType: content.mimeType ?? 'image/png' })
+            images.push({ source: content.data, mimeType: content.mimeType ?? 'image/png', kind: 'base64' })
+          }
+          break
+        case 'resource_link':
+          if (content.uri && (content.mimeType || '').startsWith('image/')) {
+            images.push({ source: content.uri, mimeType: content.mimeType ?? 'image/png', kind: 'url' })
+          } else if (content.uri) {
+            textParts.push(`[Resource Link: ${content.uri}]`)
           }
           break
         case 'resource':
@@ -270,11 +356,22 @@ const extractPreviewContent = (response: unknown): ExtractedContent => {
           break
       }
     }
+
+    const extraImageUrls = extractImageUrlsFromUnknown(response)
+    for (const url of extraImageUrls) {
+      if (!images.some((image) => image.kind === 'url' && image.source === url)) {
+        images.push({ source: url, mimeType: 'image/png', kind: 'url' })
+      }
+    }
+
     return { text: textParts.join('\n\n'), images }
   }
 
+  const imageUrls = extractImageUrlsFromUnknown(response)
+  const images = imageUrls.map((url) => ({ source: url, mimeType: 'image/png', kind: 'url' as const }))
+
   // Fallback: return JSON string for unknown format
-  return { text: JSON.stringify(response, null, 2), images: [] }
+  return { text: JSON.stringify(response, null, 2), images }
 }
 
 // Unified tool response content component
@@ -286,7 +383,7 @@ const ToolResponseContent: FC<{
 }> = ({ isExpanded, args, isStreaming, response }) => {
   const { highlightCode } = useCodeStyle()
   const [highlightedResponse, setHighlightedResponse] = useState<string>('')
-  const [responseImages, setResponseImages] = useState<Array<{ data: string; mimeType: string }>>([])
+  const [responseImages, setResponseImages] = useState<Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }>>([])
   const [isTruncated, setIsTruncated] = useState(false)
   const [originalLength, setOriginalLength] = useState(0)
 
@@ -382,7 +479,7 @@ const ToolResponseContent: FC<{
           {responseImages.map((img, idx) => (
             <img
               key={idx}
-              src={`data:${img.mimeType};base64,${img.data}`}
+              src={img.kind === 'url' ? img.source : `data:${img.mimeType};base64,${img.source}`}
               alt="Tool output"
               style={{ maxWidth: 300, borderRadius: 4, marginTop: 8 }}
             />

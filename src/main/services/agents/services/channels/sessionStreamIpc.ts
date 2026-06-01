@@ -362,6 +362,15 @@ export function registerSessionStreamIpc(): void {
       const sessionId = String(payload?.sessionId || '').trim()
       const content = String(payload?.content || '').trim()
       const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const images = Array.isArray(payload?.images)
+        ? payload.images.filter(
+            (item: unknown): item is { data: string; media_type: string } =>
+              !!item &&
+              typeof item === 'object' &&
+              typeof (item as { data?: unknown }).data === 'string' &&
+              typeof (item as { media_type?: unknown }).media_type === 'string'
+          )
+        : undefined
       if (!sessionId) return { ok: false, error: 'sessionId is required' }
       if (!content) return { ok: false, error: 'content is required' }
 
@@ -375,7 +384,8 @@ export function registerSessionStreamIpc(): void {
         sessionId,
         rawModel,
         normalizedModel,
-        effectiveModel
+        effectiveModel,
+        imageCount: images?.length ?? 0
       })
 
       const abortController = new AbortController()
@@ -391,7 +401,7 @@ export function registerSessionStreamIpc(): void {
         session,
         { content, model: effectiveModel || undefined, effort: payload?.effort, thinking: payload?.thinking },
         abortController,
-        { persist: true, displayContent: content }
+        { persist: true, displayContent: content, images }
       )
       logger.info('[SessionStreamIpc][TRACE] createSessionMessage resolved', {
         sessionId,

@@ -16,7 +16,7 @@ import type {
   SpawnedProcess
 } from '@anthropic-ai/claude-agent-sdk'
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { loggerService } from '@logger'
 import { config as apiConfigService } from '@main/apiServer/config'
 import { validateModelId } from '@main/apiServer/utils'
@@ -28,6 +28,7 @@ import SkillsServer from '@main/mcpServers/skills'
 import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
 import { configManager } from '@main/services/ConfigManager'
+import { ossUploadService } from '@main/services/OssUploadService'
 import {
   getNodeProxyConfigFromEnvironment,
   getProxyEnvironment,
@@ -992,7 +993,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       resume: options.resume
     })
 
-    const { stream: userInputStream, close: closeUserStream } = await this.createUserMessageStream(
+    const { stream: userInputStream, enqueue: enqueueUserMessage, close: closeUserStream } = await this.createUserMessageStream(
       prompt,
       abortController.signal,
       images
@@ -1002,6 +1003,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     setImmediate(() => {
       this.processSDKQuery(
         userInputStream,
+        enqueueUserMessage,
         closeUserStream,
         options,
         aiStream,
@@ -1136,20 +1138,134 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const blocks: ContentBlockParam[] = [{ type: 'text', text: prompt }]
 
-    const resizedImages = await Promise.all(images.map((img) => this.resizeImageIfNeeded(img.data, img.media_type)))
+    const uploadedImages = await Promise.all(
+      images.map(async (img) => {
+        const resized = await this.resizeImageIfNeeded(img.data, img.media_type)
+        const uploaded = await ossUploadService.uploadImageBase64(resized.data, resized.media_type)
+        return { ...uploaded, media_type: resized.media_type }
+      })
+    )
 
-    for (const resized of resizedImages) {
+    for (const uploaded of uploadedImages) {
       blocks.push({
         type: 'image',
         source: {
-          type: 'base64',
-          media_type: resized.media_type as Base64ImageSource['media_type'],
-          data: resized.data
+          type: 'url',
+          url: uploaded.publicUrl
         }
       })
     }
 
     return blocks
+  }
+
+  private extractImageUrlsFromToolOutput(output: unknown): string[] {
+    const collected = new Set<string>()
+    const imageUrlPattern = /https?:\/\/[^\s"'`]+/g
+
+    const collectUrl = (candidate: unknown, mimeType?: unknown) => {
+      const url = String(candidate || '').trim()
+      if (!url || !url.startsWith('http')) {
+        return
+      }
+      const normalizedMimeType = String(mimeType || '').trim().toLowerCase()
+      if (normalizedMimeType && !normalizedMimeType.startsWith('image/')) {
+        return
+      }
+      collected.add(url)
+    }
+
+    const collectUrlsFromText = (text: unknown) => {
+      const rawText = String(text || '')
+      if (!rawText) {
+        return
+      }
+      for (const match of rawText.matchAll(imageUrlPattern)) {
+        collectUrl(match[0], 'image/png')
+      }
+    }
+
+    if (typeof output === 'string') {
+      collectUrlsFromText(output)
+      return Array.from(collected)
+    }
+
+    if (!output || typeof output !== 'object') {
+      return []
+    }
+
+    const outputRecord = output as {
+      content?: unknown[]
+      structuredContent?: Record<string, unknown>
+      publicUrl?: string
+      url?: string
+    }
+
+    collectUrl(outputRecord.publicUrl, 'image/png')
+    collectUrl(outputRecord.url, 'image/png')
+
+    const structuredContent = outputRecord.structuredContent
+    if (structuredContent && typeof structuredContent === 'object') {
+      collectUrl(structuredContent.publicUrl, structuredContent.mimeType)
+      collectUrl(structuredContent.url, structuredContent.mimeType)
+      const uploadedImageUrls = Array.isArray(structuredContent.uploadedImageUrls)
+        ? structuredContent.uploadedImageUrls
+        : []
+      for (const url of uploadedImageUrls) {
+        collectUrl(url, structuredContent.mimeType)
+      }
+      collectUrlsFromText(structuredContent.text)
+      collectUrlsFromText(structuredContent.summary)
+    }
+
+    const content = Array.isArray(outputRecord.content) ? outputRecord.content : []
+
+    for (const item of content) {
+      if (!item || typeof item !== 'object') {
+        continue
+      }
+      const candidate = item as { type?: string; uri?: string; mimeType?: string; text?: string }
+      if (candidate.type === 'resource_link') {
+        collectUrl(candidate.uri, candidate.mimeType)
+        continue
+      }
+      if (candidate.type === 'text') {
+        collectUrlsFromText(candidate.text)
+      }
+    }
+
+    return Array.from(collected)
+  }
+
+  private buildSyntheticToolImageMessage(imageUrls: string[]): UserInputMessage {
+    const content: ContentBlockParam[] = [
+      {
+        type: 'text',
+        text:
+          'The previous browser screenshot tool returned uploaded images. Use the attached images as the visual context for the current task and continue answering based on them.'
+      }
+    ]
+
+    for (const url of imageUrls) {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'url',
+          url
+        }
+      })
+    }
+
+    return {
+      type: 'user',
+      session_id: '',
+      parent_tool_use_id: null,
+      isSynthetic: true,
+      message: {
+        role: 'user',
+        content
+      }
+    }
   }
 
   /**
@@ -1229,6 +1345,7 @@ class ClaudeCodeService implements AgentServiceInterface {
    */
   private async processSDKQuery(
     promptStream: AsyncIterable<UserInputMessage>,
+    enqueuePromptMessage: (value: UserInputMessage | null) => void,
     closePromptStream: () => void,
     options: Options,
     stream: ClaudeCodeStream,
@@ -1240,6 +1357,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     let hasCompleted = false
     const startTime = Date.now()
     const streamState = new ClaudeStreamState({ agentSessionId: sessionId })
+    const bridgedScreenshotUrls = new Set<string>()
     const toolUseProbe = {
       assistantMessageCount: 0,
       assistantWithToolUseCount: 0,
@@ -1442,6 +1560,33 @@ class ClaudeCodeService implements AgentServiceInterface {
               error: summarizeChunkField((chunk as any).error).slice(0, 1200)
             })
           }
+
+          if (chunk.type === 'tool-result' && (chunk as any).toolName === 'mcp__browser__screenshot') {
+            const imageUrls = this.extractImageUrlsFromToolOutput((chunk as any).output).filter((url) => {
+              if (bridgedScreenshotUrls.has(url)) {
+                return false
+              }
+              bridgedScreenshotUrls.add(url)
+              return true
+            })
+
+            if (imageUrls.length > 0) {
+              logger.info('Bridging screenshot tool result back into SDK as image input', {
+                sessionId,
+                toolCallId: (chunk as any).toolCallId ?? '',
+                imageCount: imageUrls.length,
+                imageUrls
+              })
+              enqueuePromptMessage(this.buildSyntheticToolImageMessage(imageUrls))
+            } else {
+              logger.warn('Screenshot tool result did not expose any bridgeable image URL', {
+                sessionId,
+                toolCallId: (chunk as any).toolCallId ?? '',
+                output: summarizeChunkField((chunk as any).output).slice(0, 1200)
+              })
+            }
+          }
+
           stream.emit('data', {
             type: 'chunk',
             chunk

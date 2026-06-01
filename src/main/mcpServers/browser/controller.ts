@@ -201,6 +201,33 @@ export class CdpBrowserController {
     })
   }
 
+  private isSafeBrowserUrl(url: string): boolean {
+    const trimmedUrl = url.trim()
+    if (!trimmedUrl) return false
+    if (trimmedUrl === 'about:blank') return true
+
+    try {
+      const parsed = new URL(trimmedUrl)
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+    } catch {
+      return false
+    }
+  }
+
+  private syncWindowAudioState(windowInfo: WindowInfo, isWindowVisible: boolean) {
+    const shouldMute = !isWindowVisible
+
+    if (windowInfo.tabBarView && !windowInfo.tabBarView.webContents.isDestroyed()) {
+      windowInfo.tabBarView.webContents.setAudioMuted(shouldMute)
+    }
+
+    for (const tab of windowInfo.tabs.values()) {
+      if (!tab.view.webContents.isDestroyed()) {
+        tab.view.webContents.setAudioMuted(shouldMute)
+      }
+    }
+  }
+
   private handleBackAction(windowInfo: WindowInfo) {
     if (!windowInfo.activeTabId) return
     const activeTab = windowInfo.tabs.get(windowInfo.activeTabId)
@@ -375,6 +402,20 @@ export class CdpBrowserController {
       }
     })
 
+    win.on('show', () => {
+      const windowInfo = this.windows.get(windowKey)
+      if (windowInfo) {
+        this.syncWindowAudioState(windowInfo, true)
+      }
+    })
+
+    win.on('hide', () => {
+      const windowInfo = this.windows.get(windowKey)
+      if (windowInfo) {
+        this.syncWindowAudioState(windowInfo, false)
+      }
+    })
+
     return win
   }
 
@@ -400,6 +441,7 @@ export class CdpBrowserController {
       this.windows.set(windowKey, windowInfo)
       const tabBarView = this.createTabBarView(windowInfo)
       windowInfo.tabBarView = tabBarView
+      this.syncWindowAudioState(windowInfo, showWindow)
 
       // Register resize listener once per window (not per tab)
       // Capture windowKey to look up fresh windowInfo on each resize
@@ -411,6 +453,9 @@ export class CdpBrowserController {
       logger.info('Created new window', { windowKey, privateMode })
     } else if (showWindow && !windowInfo.window.isDestroyed()) {
       windowInfo.window.show()
+      this.syncWindowAudioState(windowInfo, true)
+    } else {
+      this.syncWindowAudioState(windowInfo, !windowInfo.window.isDestroyed() && windowInfo.window.isVisible())
     }
 
     this.touchWindow(windowKey)
@@ -464,6 +509,7 @@ export class CdpBrowserController {
     })
 
     view.webContents.setUserAgent(userAgent)
+    view.webContents.setAudioMuted(!windowInfo.window.isVisible())
 
     const windowKey = windowInfo.windowKey
     view.webContents.on('did-start-loading', () => logger.info(`did-start-loading`, { windowKey, tabId }))
@@ -501,8 +547,34 @@ export class CdpBrowserController {
       this.sendTabBarUpdate(windowInfo)
     })
 
+    const blockUnsafeNavigation = (event: { preventDefault: () => void }, url: string, reason: string) => {
+      if (this.isSafeBrowserUrl(url)) {
+        return
+      }
+
+      event.preventDefault()
+      logger.warn('Blocked unsafe browser navigation', { url, tabId, windowKey, reason })
+    }
+
+    view.webContents.on('will-navigate', (event, url) => {
+      blockUnsafeNavigation(event, url, 'will-navigate')
+    })
+
+    ;(view.webContents as any).on('will-frame-navigate', (event: { preventDefault: () => void }, url: string) => {
+      blockUnsafeNavigation(event, url, 'will-frame-navigate')
+    })
+
+    view.webContents.on('will-redirect', (event, url) => {
+      blockUnsafeNavigation(event, url, 'will-redirect')
+    })
+
     // Handle new window requests (e.g., target="_blank" links) - open in new tab instead
     view.webContents.setWindowOpenHandler(({ url }) => {
+      if (!this.isSafeBrowserUrl(url)) {
+        logger.warn('Blocked unsafe popup URL', { url, tabId, windowKey })
+        return { action: 'deny' }
+      }
+
       // Create a new tab and navigate to the URL
       this.createTab(privateMode, true)
         .then(({ tabId: newTabId }) => {

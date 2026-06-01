@@ -30,24 +30,38 @@ vi.mock('electron', () => {
     sendCommand
   }
 
-  const createWebContents = () => ({
-    debugger: debuggerObj,
-    setUserAgent: vi.fn(),
-    getURL: vi.fn(() => 'https://example.com/'),
-    getTitle: vi.fn(() => 'Example Title'),
-    loadURL: vi.fn(async () => {}),
-    once: vi.fn(),
-    removeListener: vi.fn(),
-    on: vi.fn(),
-    isDestroyed: vi.fn(() => false),
-    canGoBack: vi.fn(() => false),
-    canGoForward: vi.fn(() => false),
-    goBack: vi.fn(),
-    goForward: vi.fn(),
-    reload: vi.fn(),
-    executeJavaScript: vi.fn(async () => null),
-    setWindowOpenHandler: vi.fn()
-  })
+  const createWebContents = () => {
+    const eventHandlers = new Map<string, Array<(...args: any[]) => void>>()
+
+    return {
+      debugger: debuggerObj,
+      setUserAgent: vi.fn(),
+      setAudioMuted: vi.fn(),
+      getURL: vi.fn(() => 'https://example.com/'),
+      getTitle: vi.fn(() => 'Example Title'),
+      loadURL: vi.fn(async () => {}),
+      once: vi.fn(),
+      removeListener: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+        const handlers = eventHandlers.get(event) ?? []
+        handlers.push(handler)
+        eventHandlers.set(event, handlers)
+      }),
+      isDestroyed: vi.fn(() => false),
+      canGoBack: vi.fn(() => false),
+      canGoForward: vi.fn(() => false),
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+      reload: vi.fn(),
+      executeJavaScript: vi.fn(async () => null),
+      setWindowOpenHandler: vi.fn(),
+      __emit: (event: string, ...args: any[]) => {
+        for (const handler of eventHandlers.get(event) ?? []) {
+          handler(...args)
+        }
+      }
+    }
+  }
 
   const windows: any[] = []
   const views: any[] = []
@@ -68,6 +82,7 @@ vi.mock('electron', () => {
     public removeBrowserView = vi.fn()
     public getContentSize = vi.fn(() => [1200, 800])
     public show = vi.fn()
+    public isVisible = vi.fn(() => false)
 
     constructor() {
       windows.push(this)
@@ -349,6 +364,65 @@ describe('CdpBrowserController', () => {
       // Second call with showWindow=true should show existing window
       const result = await controller.open('https://example.com/', 5000, false, false, true)
       expect(result.currentUrl).toBe('https://example.com/')
+    })
+
+    it('mutes hidden tabs by default', async () => {
+      const controller = new CdpBrowserController()
+      const { view } = await controller.createTab(false, false)
+      expect(view.webContents.setAudioMuted).toHaveBeenCalledWith(true)
+    })
+  })
+
+  describe('External protocol safety', () => {
+    it('blocks custom protocol popups from opening in new tabs', async () => {
+      const controller = new CdpBrowserController()
+      await controller.open('https://example.com/', 5000, false)
+
+      const electronMock = (await import('electron')) as any
+      const pageView = (electronMock.__mockViews as any[]).find(
+        (view) => view.webContents.setWindowOpenHandler.mock.calls.length > 0
+      )
+      expect(pageView).toBeDefined()
+
+      const handler = pageView.webContents.setWindowOpenHandler.mock.calls[0][0]
+      const viewCountBefore = (electronMock.__mockViews as any[]).length
+
+      const result = handler({ url: 'bitbrowser://cc/' })
+
+      expect(result).toEqual({ action: 'deny' })
+      expect((electronMock.__mockViews as any[]).length).toBe(viewCountBefore)
+    })
+
+    it('blocks custom protocol top-level navigations', async () => {
+      const controller = new CdpBrowserController()
+      await controller.open('https://example.com/', 5000, false)
+
+      const electronMock = (await import('electron')) as any
+      const pageView = (electronMock.__mockViews as any[]).find(
+        (view) => view.webContents.setWindowOpenHandler.mock.calls.length > 0
+      )
+      expect(pageView).toBeDefined()
+
+      const preventDefault = vi.fn()
+      pageView.webContents.__emit('will-navigate', { preventDefault }, 'bitbrowser://cc/')
+
+      expect(preventDefault).toHaveBeenCalledOnce()
+    })
+
+    it('blocks custom protocol redirects', async () => {
+      const controller = new CdpBrowserController()
+      await controller.open('https://example.com/', 5000, false)
+
+      const electronMock = (await import('electron')) as any
+      const pageView = (electronMock.__mockViews as any[]).find(
+        (view) => view.webContents.setWindowOpenHandler.mock.calls.length > 0
+      )
+      expect(pageView).toBeDefined()
+
+      const preventDefault = vi.fn()
+      pageView.webContents.__emit('will-redirect', { preventDefault }, 'bitbrowser://cc/')
+
+      expect(preventDefault).toHaveBeenCalledOnce()
     })
   })
 

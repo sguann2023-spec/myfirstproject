@@ -39,7 +39,7 @@ export type CreateMessageOptions = {
   persist?: boolean
   /** Optional display-safe user content for persistence. When set, this is stored instead of req.content (which may contain security wrappers not meant for display). */
   displayContent?: string
-  /** Images to persist in the user message for UI display (not sent to AI model). */
+  /** User images for persistence and optional multimodal model input. */
   images?: Array<{ data: string; media_type: string }>
 }
 
@@ -210,6 +210,7 @@ export class SessionMessageService extends BaseService {
       agentId: session.agent_id,
       model: String(req?.model || session?.model || ''),
       contentLength: promptText.length,
+      imageCount: options?.images?.length ?? 0,
       startsWithSlashCommand: /^\/[\w-]+/.test(promptText.trim()),
       contentPreview: promptText.slice(0, 200),
       effort: req?.effort ?? DEFAULT_AGENT_EFFORT,
@@ -233,7 +234,7 @@ export class SessionMessageService extends BaseService {
         thinking: req.thinking ?? DEFAULT_AGENT_THINKING
       },
       req.model,
-      undefined
+      options?.images
     )
     logger.info('[TRACE][SessionMessageService] claudeCodeService.invoke resolved', {
       sessionId: session.id,
