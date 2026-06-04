@@ -124,9 +124,17 @@ const Chat = ({
 
     const currentText = String(input || '');
     const inputElement = inputRef.current;
-    const isInputFocused = inputElement && document.activeElement === inputElement;
-    const selectionStart = isInputFocused ? (inputElement.selectionStart ?? currentText.length) : currentText.length;
-    const selectionEnd = isInputFocused ? (inputElement.selectionEnd ?? selectionStart) : selectionStart;
+    const isInputFocused = typeof inputElement?.isFocused === 'function'
+      ? inputElement.isFocused()
+      : inputElement && document.activeElement === inputElement;
+    const selectionRange = typeof inputElement?.getSelectionRange === 'function'
+      ? inputElement.getSelectionRange()
+      : {
+        start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
+        end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
+      };
+    const selectionStart = selectionRange?.start ?? currentText.length;
+    const selectionEnd = selectionRange?.end ?? selectionStart;
     const prefix = currentText.slice(0, selectionStart);
     const suffix = currentText.slice(selectionEnd);
     const needsLeadingSpace = prefix.length > 0 && !/\s$/.test(prefix);
@@ -150,7 +158,9 @@ const Chat = ({
     setInput(nextText);
     window.requestAnimationFrame(() => {
       inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(cursorStart, cursorEnd);
+      if (typeof inputRef.current?.setSelectionRange === 'function') {
+        inputRef.current.setSelectionRange(cursorStart, cursorEnd);
+      }
     });
   }, [input, setInput]);
 

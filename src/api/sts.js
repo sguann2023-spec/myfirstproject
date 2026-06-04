@@ -1,8 +1,22 @@
 import { http } from '../http';
+import { tokenStore } from '../auth';
 
 const BASE_URL = 'https://open.vectcut.com';
 const PUBLIC_ENDPOINT = 'https://player.install-ai-guider.top';
 const SIGN_EXPIRES_SECONDS = 24 * 60 * 60;
+
+const decodeJwtPayload = (jwtToken) => {
+  const parts = String(jwtToken || '').split('.');
+  if (parts.length !== 3) return null;
+
+  try {
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    return JSON.parse(atob(padded));
+  } catch (error) {
+    return null;
+  }
+};
 
 // 回包结构：
 // {
@@ -20,6 +34,15 @@ export async function getCredentials({ bucket_name = '', folder = '' } = {}) {
   if (bucket_name) payload.bucket_name = bucket_name;
   if (folder) payload.folder = folder;
   return http.postJson(`${BASE_URL}/sts/get_credentials`, payload);
+}
+
+export async function getCurrentAuthUserId() {
+  try {
+    const accessToken = await tokenStore.ensureValidAccessToken();
+    return String(decodeJwtPayload(accessToken)?.sub || '').trim();
+  } catch (error) {
+    return '';
+  }
 }
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
@@ -130,6 +153,54 @@ export async function uploadPresetCover(file, { userId, presetId } = {}) {
   const publicEndpoint = await fetchPublicEndpoint();
   const publicUrl = buildPublicUrl(bucket, publicEndpoint, uploadHost, key);
   console.log('[uploadPresetCover] success', { key, publicUrl });
+  return { objectKey: key, publicUrl };
+}
+
+export async function uploadDigitalHumanAvatarCover(file, { userId = '' } = {}) {
+  if (!file) throw new Error('MISSING_FILE');
+  if (file.size > MAX_FILE_SIZE) throw new Error('FILE_TOO_LARGE');
+
+  const resolvedUserId = String(userId || await getCurrentAuthUserId()).trim();
+  if (!resolvedUserId) throw new Error('MISSING_USER_ID');
+
+  const resp = await getCredentials({ bucket_name: 'oss-hangzhou-mp4', folder: 'digital_human' });
+  const bucket = (resp && resp.bucket_name) || 'oss-hangzhou-mp4';
+  const region = (resp && resp.region) || 'oss-cn-hangzhou';
+  const endpoint = (resp && resp.endpoint) ? String(resp.endpoint).replace(/^https?:\/\//, '') : `${region}.aliyuncs.com`;
+  const uploadHost = `https://${bucket}.${endpoint}`;
+  const creds = resp && resp.credentials ? resp.credentials : {};
+  const ak = creds.AccessKeyId || '';
+  const sk = creds.AccessKeySecret || '';
+  const st = creds.SecurityToken || '';
+
+  if (!ak || !sk) throw new Error('STS_INVALID');
+
+  const { ext, t } = detectExt(file);
+  const keyPrefix = `digital_human/${resolvedUserId}/`;
+  const randomSuffix = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const key = `${keyPrefix}avatar_cover_${randomSuffix}${ext || '.jpg'}`;
+  const p64 = makePolicyBase64(30, keyPrefix, st);
+  const sig = await hmacSha1Base64(p64, sk);
+  const form = new FormData();
+  form.append('key', key);
+  form.append('policy', p64);
+  form.append('OSSAccessKeyId', ak);
+  form.append('x-oss-security-token', st);
+  form.append('success_action_status', '200');
+  form.append('Signature', sig);
+  form.append('Content-Type', t || 'application/octet-stream');
+  form.append('file', file);
+
+  const res = await fetch(uploadHost, { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`UPLOAD_FAILED:${res.status}:${body}`);
+  }
+
+  const publicEndpoint = await fetchPublicEndpoint();
+  const publicUrl = buildPublicUrl(bucket, publicEndpoint, uploadHost, key);
   return { objectKey: key, publicUrl };
 }
 

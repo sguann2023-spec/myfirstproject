@@ -1,6 +1,6 @@
 ---
 name: vectcut-skill
-description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI补镜、AI配音、预设、平台视频抓取、渲染导出），也支持把既有视频制作流程整理为飞书多维表格自动化工作流。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”，或想把视频制作流程固化为飞书多维表格 AI Agent 工作流时，必须优先使用本技能。"
+description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告、数字人合成等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI 补镜、AI 配音、数字人、预设、平台视频抓取、渲染导出），也支持把既有视频制作流程整理为飞书多维表格自动化工作流。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/数字人合成/图片数字人/抓平台视频后再剪”，或想把视频制作流程固化为飞书多维表格 AI Agent 工作流时，必须优先使用本技能。"
 homepage: "https://www.vectcut.com/"
 metadata:
   openclaw:
@@ -20,7 +20,8 @@ dependency:
 - 需要基于“预设片段”替换素材、组合复杂包装效果（如把 `text1` 改为指定文案）
 - 需要“抓取抖音/快手/小红书/B站/TikTok/YouTube 链接后分析并剪辑”
 - 想要查看VectCut 流光剪辑的API都支持哪些功能，具体API怎么使用。
-- 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 云渲染导出”
+- 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 数字人合成 / 云渲染导出”
+- 用户提到“数字人 / AI 数字人 / 数字人口播 / 对口型数字人 / 图片驱动数字人 / 照片说话”
 - 已有 `dfd_cat_` 草稿 ID，希望一键拉取到客户端（单个或批量）
 - 想把刚整理好的视频生产链路固化为飞书多维表格工作流，输出字段结构和 AI Agent 提示词
 
@@ -74,18 +75,25 @@ dependency:
 - 配音需求：`speech-synthesis`
 - 包装完成后最终 `cloud-render`
 
-6. **草稿下载链路**
+6. **数字人链路**
+- 用户提到“数字人 / AI 数字人 / 数字人口播 / 对口型数字人 / 图片驱动数字人 / 照片说话”时，优先路由到 `digital_human`
+- 若输入为“音频 + 人物视频”，默认走口型匹配数字人模式
+- 若输入为“音频 + 人物图片”，默认走图片驱动数字人（Omni）模式
+- 如果素材是本地路径，先调用 `sts-upload` 转公网 URL，再发起数字人任务
+- 数字人任务是异步任务，先返回 `task_id`，再轮询对应状态接口拿最终视频 URL
+
+7. **草稿下载链路**
 - 用户提供一个或多个 `dfd_cat_` 草稿 ID 时，调用 `draft-downloader`
 - 先做去空、去重与 `dfd_cat_` 前缀校验，再触发 deeplink：`vectcut://download?draft_id=...`
 - 适合“下载草稿”“打开草稿到客户端”“批量拉取草稿”的需求
 
-7. **纯文字添加分流**
+8. **纯文字添加分流**
 - 用户只是要“添加一段文字/标题/说明文案/标签/贴纸文案”时，不要路由到 `add-subtitle-template`
 - 这类请求不是“字幕生成后上屏”链路，应先调用 `vectcut-api-search` 查找最新合适接口
 - 若语义明确是固定标题位，可进一步落到 `add-title`
 - 若是普通文字轨、动态文字或参数不确定，先以 `vectcut-api-search` 结果为准再执行
 
-8. **飞书多维表格工作流固化**
+9. **飞书多维表格工作流固化**
 - 当用户想把“刚才的视频制作流程”沉淀成飞书多维表格自动化时，路由到 `feishu-bitetable-creator`
 - 输入可以是自动化代码脚本，也可以是多轮对话摘要
 - 输出必须同时包含：`多维表格字段结构` 与 `飞书多维表格 AI Agent 工作流提示词`
@@ -102,6 +110,7 @@ dependency:
 ## 输出要求
 
 - 至少返回：`draft_id`、`draft_url`
+- 若走数字人链路，至少返回：`mode`、`task_id`，成功时补充最终视频 URL
 - 同步返回：执行的技能链路摘要（调用顺序与关键结果）
 - 若失败：返回失败步骤、原始错误、建议修复动作（优先 `query-draft` + `vectcut-api-search`）
 - 用户要求导出成片时：调用 `cloud-render` 并返回可播放/下载地址
@@ -119,6 +128,7 @@ dependency:
 - [cut-koubo](rules/cut-koubo.md)
 - [cut-koubo-template](rules/cut-koubo-template.md)
 - [describe-video](rules/describe-video.md)
+- [digital_human](rules/digital_human.md)
 - [draft-downloader](rules/draft-downloader.md)
 - [extract-audio](rules/extract-audio.md)
 - [feishu-bitetable-creator](rules/feishu-bitetable-creator.md)

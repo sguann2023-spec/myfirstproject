@@ -1,4 +1,5 @@
 import './index.css';
+import DigitalHumanIcon from '../../../../../public/digital_human.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
 
 const TOOL_ITEMS = [
@@ -6,6 +7,11 @@ const TOOL_ITEMS = [
     id: 'voice-square',
     label: '语音生成',
     icon: VoiceSquareIcon,
+  },
+  {
+    id: 'digital-human',
+    label: '数字人',
+    icon: DigitalHumanIcon,
   },
 ];
 

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-05-24T15:37:21Z",
+  "updatedAt": "2026-06-04T15:49:50Z",
   "skills": {
     "find-skills": {
       "version": "1.0.0",
@@ -12,8 +12,8 @@
       "minAppVersion": "1.5.0"
     },
     "vectcut-skill": {
-      "version": "1.5.21",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_5_21/vectcut-skill.zip",
+      "version": "1.5.22",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_5_22/vectcut-skill.zip",
       "minAppVersion": "1.5.0"
     },
     "vectcut-coze": {

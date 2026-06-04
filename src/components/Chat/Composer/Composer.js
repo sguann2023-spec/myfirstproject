@@ -1,11 +1,18 @@
 import React from 'react';
-import { Select, Tooltip, Upload as AntUpload, message } from 'antd';
-import { ArrowUp, CirclePause, Upload as UploadIcon } from 'lucide-react';
+import { mergeAttributes, Node } from '@tiptap/core';
+import Mention from '@tiptap/extension-mention';
+import { Fragment } from '@tiptap/pm/model';
+import { TextSelection } from '@tiptap/pm/state';
+import { StarterKit } from '@tiptap/starter-kit';
+import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
+import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
+import { ArrowUp, CirclePause, FileAudio, FileImage, FileVideo, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import ToolArea from './ToolArea/index';
+import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 
 const { shell } = window.require('electron');
@@ -13,9 +20,1156 @@ const MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
 const MAX_UPLOAD_COUNT = 5;
 const SKILL_MENTION_CLOSE_DELAY = 120;
 const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
+const MENTION_PANEL_DEFAULT_WIDTH = 180;
+const MENTION_PANEL_EDGE_OFFSET = 4;
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
+const getSkillMentionLabel = (skill) => String(skill?.name || skill?.id || '').trim();
+const getMentionText = (attrs = {}) => `@${attrs.label || attrs.id || ''}`;
+const getFileReferenceText = (attrs = {}) => `#${attrs.name || '文件'}`;
+const getFileDisplayName = (file = {}) => file.name || '文件';
+const DIGITAL_HUMAN_VIDEO_SLOT_ID = 'digital-human-video';
+const DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID = 'digital-human-selected-voice-id';
+const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE = 'digitalHumanScriptPlaceholder';
+const DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE = 'digitalHumanMotionPlaceholder';
+const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT = '请输入文案';
+const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
+const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
+const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
+const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
+const DEFAULT_DIGITAL_HUMAN_MODE = 'lips';
+const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
+const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
+const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'gv_5cbd3d5acae44943805e9bb7717f9f97';
+const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
+const FILE_SLOT_PLACEHOLDER = '请输入';
+const normalizeDigitalHumanMode = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue === 'jimeng-avatar' ? 'jimeng-avatar' : DEFAULT_DIGITAL_HUMAN_MODE;
+};
+const readPersistedDigitalHumanMode = () => {
+  try {
+    return normalizeDigitalHumanMode(localStorage.getItem(DIGITAL_HUMAN_MODE_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_DIGITAL_HUMAN_MODE;
+  }
+};
+const normalizeDigitalHumanAvatarTitle = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE;
+};
+const normalizeDigitalHumanAvatarCoverUrl = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL;
+};
+const normalizeDigitalHumanAvatarVoiceId = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID;
+};
+const readPersistedDigitalHumanAvatarSelection = () => {
+  try {
+    return {
+      title: normalizeDigitalHumanAvatarTitle(localStorage.getItem(DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY)),
+      cover_url: normalizeDigitalHumanAvatarCoverUrl(localStorage.getItem(DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY)),
+      voice_id: normalizeDigitalHumanAvatarVoiceId(localStorage.getItem(DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY)),
+    };
+  } catch (error) {
+    return {
+      title: DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE,
+      cover_url: DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL,
+      voice_id: DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID,
+    };
+  }
+};
+const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
+  uid: overrides.uid ?? file.uid ?? '',
+  name: overrides.name ?? file.name ?? '',
+  url: overrides.url ?? file.url ?? '',
+  fileType: overrides.fileType ?? file.fileType ?? '',
+  thumbnailUrl: overrides.thumbnailUrl ?? file.thumbnailUrl ?? file.url ?? '',
+  previewUrl: overrides.previewUrl ?? file.previewUrl ?? file.url ?? '',
+  localThumbUrl: overrides.localThumbUrl ?? file.localThumbUrl ?? '',
+  localPreviewUrl: overrides.localPreviewUrl ?? file.localPreviewUrl ?? file.localThumbUrl ?? '',
+  durationLabel: overrides.durationLabel ?? file.durationLabel ?? '',
+  templateSlot: Boolean(overrides.templateSlot ?? file.templateSlot),
+  slotId: overrides.slotId ?? file.slotId ?? '',
+  slotLabel: overrides.slotLabel ?? file.slotLabel ?? '',
+  acceptedKind: overrides.acceptedKind ?? file.acceptedKind ?? '',
+  placeholderText: overrides.placeholderText ?? file.placeholderText ?? FILE_SLOT_PLACEHOLDER,
+});
+const createDigitalHumanSelectedVoiceReferenceAttrs = (
+  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
+  selectedVoiceLibraryItem = null,
+  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
+) => {
+  if (selectedMode === 'jimeng-avatar') {
+    return createFileReferenceAttrs({}, {
+      uid: normalizeDigitalHumanAvatarVoiceId(selectedAvatar?.voice_id),
+      name: normalizeDigitalHumanAvatarTitle(selectedAvatar?.title),
+      fileType: 'audio/mpeg',
+      slotId: DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID,
+      slotLabel: '形象音色',
+      placeholderText: normalizeDigitalHumanAvatarTitle(selectedAvatar?.title),
+    });
+  }
+
+  return createFileReferenceAttrs({}, {
+    uid: selectedVoiceLibraryItem?.global_voice_id || '',
+    name: selectedVoiceLibraryItem?.title || '音色id',
+    fileType: selectedVoiceLibraryItem?.global_voice_id ? 'audio/mpeg' : '',
+    slotId: DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID,
+    slotLabel: '音色id',
+    placeholderText: selectedVoiceLibraryItem?.title || '音色id',
+  });
+};
+const createDigitalHumanMediaReferenceAttrs = (
+  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
+  currentFile = {},
+  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
+) =>
+  createFileReferenceAttrs(currentFile, {
+    uid: selectedMode === 'jimeng-avatar'
+      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
+      : currentFile.uid,
+    name: selectedMode === 'jimeng-avatar'
+      ? normalizeDigitalHumanAvatarTitle(selectedAvatar?.title)
+      : currentFile.name,
+    url: selectedMode === 'jimeng-avatar'
+      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
+      : currentFile.url,
+    fileType: selectedMode === 'jimeng-avatar' ? 'image/jpeg' : currentFile.fileType,
+    thumbnailUrl: selectedMode === 'jimeng-avatar'
+      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
+      : currentFile.thumbnailUrl,
+    previewUrl: selectedMode === 'jimeng-avatar'
+      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
+      : currentFile.previewUrl,
+    templateSlot: true,
+    slotId: DIGITAL_HUMAN_VIDEO_SLOT_ID,
+    slotLabel: selectedMode === 'jimeng-avatar' ? '人物照片' : '人物视频',
+    acceptedKind: selectedMode === 'jimeng-avatar' ? 'image' : 'video',
+    placeholderText: selectedMode === 'jimeng-avatar' ? '选择的形象照片' : '人物视频',
+  });
+const buildDigitalHumanMediaParagraph = (
+  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
+  currentFile = {},
+  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
+) => {
+  if (selectedMode === 'jimeng-avatar') {
+    return {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: '第二步: 将上一步生成的语音和人物照片 ' },
+        {
+          type: 'fileReference',
+          attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
+        },
+        { type: 'text', text: ' 合并成一个数字人视频，视频中的人物动作是' },
+        {
+          type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
+          attrs: {
+            text: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
+          },
+        },
+      ],
+    };
+  }
+
+  return {
+    type: 'paragraph',
+    content: [
+      { type: 'text', text: '第二步: 将上一步生成的语音和人物视频 ' },
+      {
+        type: 'fileReference',
+        attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
+      },
+      { type: 'text', text: ' 合并成一个数字人视频。' },
+    ],
+  };
+};
+const getFileReferenceNodeText = (attrs = {}) => {
+  if (attrs?.uid) {
+    return getFileReferenceText(attrs);
+  }
+  if (attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) {
+    return `[${attrs?.placeholderText || attrs?.name || '音色id'}]`;
+  }
+  return `[${attrs?.placeholderText || FILE_SLOT_PLACEHOLDER}]`;
+};
+const createDigitalHumanScriptPlaceholderExtension = () => {
+  const DigitalHumanScriptPlaceholderNodeView = ({ editor, getPos, node }) => (
+    <NodeViewWrapper
+      as="span"
+      contentEditable={false}
+      className="chat-panel__digital-human-script-placeholder-node"
+    >
+      <button
+        type="button"
+        className="chat-panel__digital-human-script-placeholder"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          const position = typeof getPos === 'function' ? getPos() : null;
+          if (typeof position !== 'number') return;
+
+          const transaction = editor.state.tr.deleteRange(position, position + node.nodeSize);
+          transaction.setSelection(TextSelection.create(transaction.doc, position));
+          editor.view.dispatch(transaction.scrollIntoView());
+          editor.view.focus();
+        }}
+      >
+        {node?.attrs?.text || DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT}
+      </button>
+    </NodeViewWrapper>
+  );
+
+  return Node.create({
+    name: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
+    group: 'inline',
+    inline: true,
+    atom: true,
+    selectable: false,
+
+    addAttributes() {
+      return {
+        text: { default: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT },
+      };
+    },
+
+    parseHTML() {
+      return [{ tag: 'span[data-type="digital-human-script-placeholder"]' }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+      return [
+        'span',
+        mergeAttributes(HTMLAttributes, {
+          'data-type': 'digital-human-script-placeholder',
+          class: 'chat-panel__digital-human-script-placeholder-node',
+        }),
+        ['span', { class: 'chat-panel__digital-human-script-placeholder' }, HTMLAttributes.text || DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT],
+      ];
+    },
+
+    renderText() {
+      return '';
+    },
+
+    addNodeView() {
+      return ReactNodeViewRenderer(DigitalHumanScriptPlaceholderNodeView);
+    },
+  });
+};
+const createDigitalHumanMotionPlaceholderExtension = () => {
+  const DigitalHumanMotionPlaceholderNodeView = ({ editor, getPos, node }) => (
+    <NodeViewWrapper
+      as="span"
+      contentEditable={false}
+      className="chat-panel__digital-human-script-placeholder-node"
+    >
+      <button
+        type="button"
+        className="chat-panel__digital-human-script-placeholder"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          const position = typeof getPos === 'function' ? getPos() : null;
+          if (typeof position !== 'number') return;
+
+          const text = String(node?.attrs?.text || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT);
+          const replacementText = `[${text}]`;
+          const transaction = editor.state.tr.insertText(
+            replacementText,
+            position,
+            position + node.nodeSize
+          );
+          transaction.setSelection(
+            TextSelection.create(transaction.doc, position + replacementText.length - 1)
+          );
+          editor.view.dispatch(transaction.scrollIntoView());
+          editor.view.focus();
+        }}
+      >
+        [{node?.attrs?.text || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT}]
+      </button>
+    </NodeViewWrapper>
+  );
+
+  return Node.create({
+    name: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
+    group: 'inline',
+    inline: true,
+    atom: true,
+    selectable: false,
+
+    addAttributes() {
+      return {
+        text: { default: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT },
+      };
+    },
+
+    parseHTML() {
+      return [{ tag: 'span[data-type="digital-human-motion-placeholder"]' }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+      const text = HTMLAttributes.text || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT;
+      return [
+        'span',
+        mergeAttributes(HTMLAttributes, {
+          'data-type': 'digital-human-motion-placeholder',
+          class: 'chat-panel__digital-human-script-placeholder-node',
+        }),
+        ['span', { class: 'chat-panel__digital-human-script-placeholder' }, `[${text}]`],
+      ];
+    },
+
+    renderText({ node }) {
+      return `[${node?.attrs?.text || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT}]`;
+    },
+
+    addNodeView() {
+      return ReactNodeViewRenderer(DigitalHumanMotionPlaceholderNodeView);
+    },
+  });
+};
+const buildDigitalHumanEditorDocument = (
+  selectedVoiceLibraryItem = null,
+  selectedMode = readPersistedDigitalHumanMode(),
+  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
+) => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: '使用' },
+        {
+          type: 'mention',
+          attrs: {
+            id: 'vectcut-skill',
+            label: 'vectcut-skill',
+          },
+        },
+        { type: 'text', text: '执行下面步骤：' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: '第一步: 将说话内容：[' },
+        {
+          type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
+          attrs: {
+            text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
+          },
+        },
+        { type: 'text', text: '] 利用音色 ' },
+        {
+          type: 'fileReference',
+          attrs: createDigitalHumanSelectedVoiceReferenceAttrs(selectedMode, selectedVoiceLibraryItem, selectedAvatar),
+        },
+        { type: 'text', text: ' 合成语音。' },
+      ],
+    },
+    buildDigitalHumanMediaParagraph(selectedMode, {}, selectedAvatar),
+  ],
+});
+const formatMediaDuration = (durationInSeconds) => {
+  const totalSeconds = Math.max(0, Math.floor(Number(durationInSeconds) || 0));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+};
+const createLocalObjectUrl = (file) => {
+  if (!(file instanceof File) || typeof URL?.createObjectURL !== 'function') return '';
+  try {
+    return URL.createObjectURL(file);
+  } catch (error) {
+    return '';
+  }
+};
+const revokeLocalObjectUrl = (value) => {
+  if (!value || typeof URL?.revokeObjectURL !== 'function') return;
+  try {
+    URL.revokeObjectURL(value);
+  } catch (error) {
+    // noop
+  }
+};
+const readMediaDuration = (mediaUrl, tagName = 'video') => new Promise((resolve) => {
+  if (!mediaUrl || typeof document === 'undefined') {
+    resolve('');
+    return;
+  }
+
+  const element = document.createElement(tagName === 'audio' ? 'audio' : 'video');
+  const cleanup = () => {
+    element.removeAttribute('src');
+    element.load?.();
+  };
+  const finish = (value = '') => {
+    cleanup();
+    resolve(value);
+  };
+
+  element.preload = 'metadata';
+  element.onloadedmetadata = () => {
+    finish(formatMediaDuration(element.duration));
+  };
+  element.onerror = () => {
+    finish('');
+  };
+  element.src = mediaUrl;
+});
+const getFileKindFromType = (fileType = '') => {
+  if (String(fileType).startsWith('image/')) return 'image';
+  if (String(fileType).startsWith('video/')) return 'video';
+  if (String(fileType).startsWith('audio/')) return 'audio';
+  return 'file';
+};
+const isPreviewableFile = (fileType = '') => ['image', 'video', 'audio'].includes(getFileKindFromType(fileType));
+const renderFilePreviewContent = (file = {}, className = '') => {
+  const previewUrl = file.localPreviewUrl || file.localThumbUrl || file.previewUrl || file.thumbnailUrl || file.url;
+  const kind = getFileKindFromType(file.fileType);
+
+  if (!previewUrl) {
+    return (
+      <div className={`chat-panel__file-ref-preview chat-panel__file-ref-preview--empty ${className}`.trim()}>
+        暂无预览
+      </div>
+    );
+  }
+
+  if (kind === 'image') {
+    return (
+      <div className={`chat-panel__file-ref-preview ${className}`.trim()}>
+        <div className="chat-panel__file-ref-preview-title">{getFileDisplayName(file)}</div>
+        <img className="chat-panel__file-ref-preview-image" src={previewUrl} alt={getFileDisplayName(file)} />
+      </div>
+    );
+  }
+
+  if (kind === 'video') {
+    return (
+      <div className={`chat-panel__file-ref-preview ${className}`.trim()}>
+        <div className="chat-panel__file-ref-preview-title">{getFileDisplayName(file)}</div>
+        <video className="chat-panel__file-ref-preview-video" src={previewUrl} controls muted playsInline />
+      </div>
+    );
+  }
+
+  if (kind === 'audio') {
+    return (
+      <div className={`chat-panel__file-ref-preview chat-panel__file-ref-preview--audio ${className}`.trim()}>
+        <div className="chat-panel__file-ref-preview-title">{getFileDisplayName(file)}</div>
+        <audio className="chat-panel__file-ref-preview-audio" src={previewUrl} controls preload="metadata" />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`chat-panel__file-ref-preview chat-panel__file-ref-preview--empty ${className}`.trim()}>
+      暂不支持预览
+    </div>
+  );
+};
+const renderFileThumb = (file = {}, options = {}) => {
+  const previewUrl = file.localThumbUrl || file.localPreviewUrl || file.thumbnailUrl || file.previewUrl || file.url;
+  const kind = getFileKindFromType(file.fileType);
+  const showDuration = options.showDuration !== false;
+
+  if (previewUrl && kind === 'image') {
+    return <img className="chat-panel__file-ref-thumb-image" src={previewUrl} alt={getFileDisplayName(file)} />;
+  }
+
+  if (previewUrl && kind === 'video') {
+    return (
+      <>
+        <video
+          className="chat-panel__file-ref-thumb-video"
+          src={previewUrl}
+          muted
+          playsInline
+          preload="metadata"
+        />
+        {showDuration && file.durationLabel ? (
+          <span className="chat-panel__file-ref-thumb-duration">{file.durationLabel}</span>
+        ) : null}
+      </>
+    );
+  }
+
+  if (kind === 'video') {
+    return <FileVideo className="chat-panel__file-ref-thumb-icon" />;
+  }
+
+  if (kind === 'audio') {
+    return <FileAudio className="chat-panel__file-ref-thumb-icon" />;
+  }
+
+  return <FileImage className="chat-panel__file-ref-thumb-icon" />;
+};
+const getEditorPlainText = (editor) => {
+  if (!editor || editor.isDestroyed) return '';
+  return editor.getText({ blockSeparator: '\n' });
+};
+const getDigitalHumanTemplateCompletionState = (editor) => {
+  if (!editor || editor.isDestroyed) {
+    return {
+      hasScriptContent: false,
+      hasVideoReference: false,
+      isComplete: false,
+    };
+  }
+
+  const paragraphs = [];
+  editor.state.doc.forEach((node) => {
+    if (node.type?.name === 'paragraph') {
+      paragraphs.push(node);
+    }
+  });
+
+  const scriptParagraph = paragraphs[1];
+  const videoParagraph = paragraphs[2];
+
+  let hasScriptPlaceholder = false;
+  let scriptText = '';
+  if (scriptParagraph) {
+    scriptParagraph.forEach((child) => {
+      if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
+        hasScriptPlaceholder = true;
+        return;
+      }
+      if (child.type?.name === 'fileReference' && child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) {
+        return false;
+      }
+      if (child.type?.name === 'text') {
+        scriptText += child.text || '';
+      }
+      return true;
+    });
+  }
+
+  const normalizedScriptText = scriptText
+    .replace(/^第一步:\s*将说话内容：/, '')
+    .replace(/\s*利用音色\s*$/, '')
+    .trim();
+
+  let hasVideoReference = false;
+  if (videoParagraph) {
+    videoParagraph.forEach((child) => {
+      if (
+        child.type?.name === 'fileReference' &&
+        child.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID &&
+        child.attrs?.uid
+      ) {
+        hasVideoReference = true;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  const hasScriptContent = !hasScriptPlaceholder && normalizedScriptText.length > 0;
+  return {
+    hasScriptContent,
+    hasVideoReference,
+    isComplete: hasScriptContent && hasVideoReference,
+  };
+};
+const syncDigitalHumanVoiceReferenceNode = (
+  editorInstance,
+  selectedMode,
+  selectedVoiceLibraryItem,
+  selectedAvatar
+) => {
+  if (!editorInstance || editorInstance.isDestroyed) return;
+
+  const nextAttrs = createDigitalHumanSelectedVoiceReferenceAttrs(
+    selectedMode,
+    selectedVoiceLibraryItem,
+    selectedAvatar
+  );
+  let changed = false;
+  const transaction = editorInstance.state.tr;
+
+  editorInstance.state.doc.descendants((node, pos) => {
+    if (node.type?.name !== 'fileReference') return true;
+    if (node.attrs?.slotId !== DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) return true;
+
+    transaction.setNodeMarkup(pos, undefined, {
+      ...node.attrs,
+      ...nextAttrs,
+    });
+    changed = true;
+    return true;
+  });
+
+  if (changed) {
+    editorInstance.view.dispatch(transaction);
+  }
+};
+const syncDigitalHumanMediaParagraph = (editorInstance, selectedMode, selectedAvatar) => {
+  if (!editorInstance || editorInstance.isDestroyed) return;
+
+  const currentDocument = editorInstance.getJSON();
+  if (!Array.isArray(currentDocument?.content) || currentDocument.content.length < 3) return;
+
+  const currentParagraph = currentDocument.content[2];
+  const currentFileReferenceNode = Array.isArray(currentParagraph?.content)
+    ? currentParagraph.content.find(
+      (child) => child?.type === 'fileReference' && child?.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
+    )
+    : null;
+  const nextParagraph = buildDigitalHumanMediaParagraph(
+    selectedMode,
+    currentFileReferenceNode?.attrs || {},
+    selectedAvatar
+  );
+
+  if (JSON.stringify(currentParagraph) === JSON.stringify(nextParagraph)) return;
+
+  const nextDocument = {
+    ...currentDocument,
+    content: [...currentDocument.content],
+  };
+  nextDocument.content[2] = nextParagraph;
+  editorInstance.commands.setContent(nextDocument, false);
+};
+
+const getInlineNodeText = (node) => {
+  if (!node) return '';
+  if (node.type?.name === 'mention') {
+  }
+  if (node.type?.name === DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE) {
+    return `[${node?.attrs?.text || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT}]`;
+  }
+  if (node.type?.name === 'fileReference') {
+    return getFileReferenceNodeText(node.attrs);
+  }
+  return node.text || node.textContent || '';
+};
+const syncTemplateFileReferenceNode = (editorInstance, slotId, targetFile) => {
+  if (!editorInstance || editorInstance.isDestroyed || !slotId || !targetFile?.uid) return false;
+
+  let changed = false;
+  const transaction = editorInstance.state.tr;
+
+  editorInstance.state.doc.descendants((node, pos) => {
+    if (node.type?.name !== 'fileReference') return true;
+    if (node.attrs?.slotId !== slotId) return true;
+
+    transaction.setNodeMarkup(pos, undefined, createFileReferenceAttrs(targetFile, {
+      templateSlot: true,
+      slotId,
+      slotLabel: node.attrs?.slotLabel,
+      acceptedKind: node.attrs?.acceptedKind,
+      placeholderText: node.attrs?.placeholderText,
+    }));
+    changed = true;
+    return true;
+  });
+
+  if (changed) {
+    editorInstance.view.dispatch(transaction);
+  }
+
+  return changed;
+};
+
+const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef }) => {
+  const FileReferenceNodeView = ({ node, selected, updateAttributes }) => {
+    const file = node?.attrs || {};
+    const isTemplateSlot = Boolean(file.templateSlot);
+    const isDigitalHumanSelectedVoiceReference = file.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID;
+    const getAvailableFiles = React.useCallback(() => {
+      return Array.isArray(uploadedFilesRef.current) ? uploadedFilesRef.current : [];
+    }, [uploadedFilesRef]);
+
+    const handleSelectFile = React.useCallback((targetFile) => {
+      updateAttributes(createFileReferenceAttrs(targetFile, {
+        templateSlot: true,
+        slotId: file.slotId,
+        slotLabel: file.slotLabel,
+        placeholderText: file.placeholderText,
+      }));
+    }, [file.placeholderText, file.slotId, file.slotLabel, updateAttributes]);
+
+    const renderPickerContent = () => {
+      const availableFiles = getAvailableFiles().filter((item) => {
+        if (!file.acceptedKind) return true;
+        return getFileKindFromType(item?.fileType) === file.acceptedKind;
+      });
+      return (
+        <div className={availableFiles.length === 0 ? 'chat-panel__skill-mention-panel--empty-upload' : ''}>
+          <div className="chat-panel__skill-mention-list">
+          {availableFiles.length > 0 ? (
+            <>
+              {availableFiles.map((item) => (
+                <button
+                  key={item.uid || item.url || item.name}
+                  type="button"
+                  className="chat-panel__skill-mention-item chat-panel__file-reference-item"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleSelectFile(item)}
+                >
+                  <span className="chat-panel__file-reference-item-thumb">
+                    {renderFileThumb(item)}
+                  </span>
+                  <span className="chat-panel__file-reference-item-main">
+                    <span className="chat-panel__skill-mention-name">{getFileDisplayName(item)}</span>
+                  </span>
+                </button>
+              ))}
+            </>
+          ) : (
+            <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
+              <Empty
+                description="你还没有创建过引用"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                className="chat-panel__skill-mention-empty-state"
+              />
+              <Button
+                type="default"
+                className="chat-panel__skill-mention-empty-action"
+                icon={<Plus className="chat-panel__skill-mention-empty-action-icon" />}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => requestUploadPickerRef.current && requestUploadPickerRef.current(file.slotId)}
+              >
+                上传引用
+              </Button>
+            </div>
+          )}
+          </div>
+        </div>
+      );
+    };
+
+    const nodeContent = file.uid ? (
+      <span className="chat-panel__file-ref-chip">
+        <span className="chat-panel__file-ref-thumb">
+          {renderFileThumb(file, { showDuration: false })}
+        </span>
+        <span className="chat-panel__file-ref-label">{getFileDisplayName(file)}</span>
+      </span>
+    ) : (
+      <span className="chat-panel__input-mention-token">[{file.placeholderText || FILE_SLOT_PLACEHOLDER}]</span>
+    );
+
+    return (
+      <NodeViewWrapper
+        as="span"
+        contentEditable={false}
+        className={`chat-panel__file-ref-node ${selected ? 'is-selected' : ''}`}
+      >
+        {isDigitalHumanSelectedVoiceReference ? nodeContent : (
+          <Popover
+            trigger="hover"
+            placement="topLeft"
+            classNames={{ root: 'chat-panel__file-ref-preview-popover' }}
+            content={isTemplateSlot ? renderPickerContent : renderFilePreviewContent(file)}
+          >
+            {nodeContent}
+          </Popover>
+        )}
+      </NodeViewWrapper>
+    );
+  };
+
+  return Node.create({
+    name: 'fileReference',
+    group: 'inline',
+    inline: true,
+    atom: true,
+    selectable: true,
+
+    addAttributes() {
+      return {
+        uid: { default: '' },
+        name: { default: '' },
+        url: { default: '' },
+        fileType: { default: '' },
+        thumbnailUrl: { default: '' },
+        previewUrl: { default: '' },
+        localThumbUrl: { default: '' },
+        localPreviewUrl: { default: '' },
+        durationLabel: { default: '' },
+        templateSlot: { default: false },
+        slotId: { default: '' },
+        slotLabel: { default: '' },
+        acceptedKind: { default: '' },
+        placeholderText: { default: FILE_SLOT_PLACEHOLDER },
+      };
+    },
+
+    parseHTML() {
+      return [{ tag: 'span[data-type="file-reference"]' }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+      return ['span', mergeAttributes(HTMLAttributes, { 'data-type': 'file-reference' }), getFileReferenceNodeText(HTMLAttributes)];
+    },
+
+    renderText({ node }) {
+      return getFileReferenceNodeText(node.attrs);
+    },
+
+    addNodeView() {
+      return ReactNodeViewRenderer(FileReferenceNodeView);
+    },
+  });
+};
+
+const getActiveMentionStateFromSelection = (selection) => {
+  if (!selection?.$from) {
+    return null;
+  }
+
+  const { from, $from } = selection;
+  const blockTextBeforeCursor = $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC');
+  const atIndex = blockTextBeforeCursor.lastIndexOf('@');
+  const hashIndex = blockTextBeforeCursor.lastIndexOf('#');
+  const triggerIndex = Math.max(atIndex, hashIndex);
+
+  if (triggerIndex < 0) {
+    return null;
+  }
+
+  const symbol = blockTextBeforeCursor.charAt(triggerIndex);
+  const query = blockTextBeforeCursor.slice(triggerIndex + 1);
+  if (/[\s@#]/.test(query)) {
+    return null;
+  }
+
+  return {
+    open: true,
+    symbol,
+    query,
+    start: $from.start() + triggerIndex,
+    end: from,
+  };
+};
+
+const getActiveMentionState = (editorInstance) => {
+  if (!editorInstance || editorInstance.isDestroyed) {
+    return null;
+  }
+  return getActiveMentionStateFromSelection(editorInstance.state.selection);
+};
+
+const getMentionPanelPosition = (editorInstance, containerElement, panelElement) => {
+  if (!editorInstance || editorInstance.isDestroyed || !containerElement) {
+    return {
+      left: MENTION_PANEL_EDGE_OFFSET,
+      top: 8,
+    };
+  }
+
+  try {
+    const { from } = editorInstance.state.selection;
+    const caretCoordinates = editorInstance.view.coordsAtPos(from);
+    const containerRect = containerElement.getBoundingClientRect();
+    const panelWidth = panelElement?.offsetWidth || MENTION_PANEL_DEFAULT_WIDTH;
+    const maxLeft = Math.max(
+      MENTION_PANEL_EDGE_OFFSET,
+      containerRect.width - panelWidth - MENTION_PANEL_EDGE_OFFSET
+    );
+
+    return {
+      left: Math.min(
+        Math.max(MENTION_PANEL_EDGE_OFFSET, caretCoordinates.left - containerRect.left),
+        maxLeft
+      ),
+      top: Math.max(8, caretCoordinates.top - containerRect.top),
+    };
+  } catch (error) {
+    return {
+      left: MENTION_PANEL_EDGE_OFFSET,
+      top: 8,
+    };
+  }
+};
+
+const insertInlineNodeAtView = (view, activeMentionState, nodeName, attrs) => {
+  if (!view || !activeMentionState || !nodeName) return false;
+
+  const inlineNodeType = view.state.schema.nodes[nodeName];
+  if (!inlineNodeType) return false;
+
+  const inlineNode = inlineNodeType.create(attrs);
+  const fragment = Fragment.fromArray([inlineNode, view.state.schema.text(' ')]);
+  const cursorPosition = activeMentionState.start + fragment.size;
+  const transaction = view.state.tr.replaceWith(activeMentionState.start, activeMentionState.end, fragment);
+  transaction.setSelection(TextSelection.create(transaction.doc, cursorPosition));
+
+  view.dispatch(transaction.scrollIntoView());
+  view.focus();
+  return true;
+};
+
+const insertSkillMentionAtView = (view, activeMentionState, mentionLabel) => {
+  if (!mentionLabel) return false;
+  return insertInlineNodeAtView(view, activeMentionState, 'mention', {
+    id: mentionLabel,
+    label: mentionLabel,
+  });
+};
+
+const insertFileReferenceAtView = (view, activeMentionState, file) => {
+  if (!file?.uid) return false;
+  return insertInlineNodeAtView(view, activeMentionState, 'fileReference', createFileReferenceAttrs(file));
+};
+
+const serializeEditorBlock = (node, buildMarkdownLink, referencedFileUids) => {
+  if (!node) return '';
+
+  let output = '';
+  node.forEach((child) => {
+    if (child.type?.name === 'text') {
+      output += child.text || '';
+      return;
+    }
+
+    if (child.type?.name === 'mention') {
+      output += getMentionText(child.attrs);
+      return;
+    }
+
+    if (child.type?.name === 'fileReference') {
+      if (child.attrs?.uid) {
+        referencedFileUids.add(child.attrs.uid);
+      }
+      if (child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) {
+        output += child.attrs?.uid || child.attrs?.name || '音色id';
+        return;
+      }
+      output += child.attrs?.url
+        ? buildMarkdownLink(child.attrs.name || '附件', child.attrs.url)
+        : getFileReferenceNodeText(child.attrs);
+      return;
+    }
+
+    if (child.type?.name === DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE) {
+      output += `[${child.attrs?.text || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT}]`;
+      return;
+    }
+
+    if (child.type?.name === 'hardBreak') {
+      output += '\n';
+      return;
+    }
+
+    output += serializeEditorBlock(child, buildMarkdownLink, referencedFileUids);
+  });
+
+  return output;
+};
+
+const serializeEditorMessage = (editor, buildMarkdownLink) => {
+  if (!editor || editor.isDestroyed) {
+    return { text: '', referencedFileUids: new Set() };
+  }
+
+  const referencedFileUids = new Set();
+  const lines = [];
+  editor.state.doc.forEach((block) => {
+    lines.push(serializeEditorBlock(block, buildMarkdownLink, referencedFileUids));
+  });
+
+  return {
+    text: lines.join('\n').trim(),
+    referencedFileUids,
+  };
+};
+
+const buildEditorDocument = (value, mentionRegex) => {
+  const text = String(value || '');
+  const lines = text.split('\n');
+
+  const content = lines.map((line) => {
+    if (!line) {
+      return { type: 'paragraph' };
+    }
+
+    if (!mentionRegex) {
+      return {
+        type: 'paragraph',
+        content: [{ type: 'text', text: line }],
+      };
+    }
+
+    const inlineContent = [];
+    let lastIndex = 0;
+    mentionRegex.lastIndex = 0;
+    let match = mentionRegex.exec(line);
+
+    while (match) {
+      const matchText = match[0];
+      const matchIndex = match.index;
+      const label = matchText.slice(1);
+
+      if (matchIndex > lastIndex) {
+        inlineContent.push({
+          type: 'text',
+          text: line.slice(lastIndex, matchIndex),
+        });
+      }
+
+      inlineContent.push({
+        type: 'mention',
+        attrs: {
+          id: label,
+          label,
+        },
+      });
+
+      lastIndex = matchIndex + matchText.length;
+      match = mentionRegex.exec(line);
+    }
+
+    if (lastIndex < line.length) {
+      inlineContent.push({
+        type: 'text',
+        text: line.slice(lastIndex),
+      });
+    }
+
+    return inlineContent.length > 0
+      ? { type: 'paragraph', content: inlineContent }
+      : { type: 'paragraph' };
+  });
+
+  return {
+    type: 'doc',
+    content: content.length > 0 ? content : [{ type: 'paragraph' }],
+  };
+};
+
+const mapDocPositionToTextOffset = (editor, targetPosition) => {
+  if (!editor || editor.isDestroyed) return 0;
+
+  const { doc } = editor.state;
+  let textOffset = 0;
+  let result = null;
+
+  doc.forEach((block, blockOffset, blockIndex) => {
+    if (result !== null) return;
+
+    const blockStart = blockOffset + 1;
+    const blockEnd = blockStart + block.content.size;
+
+    if (targetPosition <= blockStart) {
+      result = textOffset;
+      return;
+    }
+
+    block.forEach((child, childOffset) => {
+      if (result !== null) return;
+
+      const childStart = blockStart + childOffset;
+      const childText = getInlineNodeText(child);
+      const childLength = childText.length;
+
+      if (child.isText) {
+        const childEnd = childStart + childLength;
+        if (targetPosition <= childEnd) {
+          result = textOffset + Math.max(0, targetPosition - childStart);
+          return;
+        }
+      } else {
+        const childEnd = childStart + child.nodeSize;
+        if (targetPosition <= childEnd) {
+          result = textOffset + (targetPosition <= childStart ? 0 : childLength);
+          return;
+        }
+      }
+
+      textOffset += childLength;
+    });
+
+    if (result !== null) return;
+
+    if (targetPosition <= blockEnd) {
+      result = textOffset;
+      return;
+    }
+
+    if (blockIndex < doc.childCount - 1) {
+      textOffset += 1;
+      if (targetPosition <= blockOffset + block.nodeSize) {
+        result = textOffset;
+      }
+    }
+  });
+
+  if (result !== null) return result;
+  return textOffset;
+};
+
+const mapTextOffsetToDocPosition = (editor, targetOffset) => {
+  if (!editor || editor.isDestroyed) return 0;
+
+  const text = getEditorPlainText(editor);
+  const clampedOffset = Math.max(0, Math.min(Number(targetOffset) || 0, text.length));
+  const { doc } = editor.state;
+  let currentOffset = 0;
+  let result = doc.content.size;
+
+  doc.forEach((block, blockOffset, blockIndex) => {
+    if (result !== doc.content.size) return;
+
+    const blockStart = blockOffset + 1;
+    const blockEnd = blockStart + block.content.size;
+
+    if (clampedOffset <= currentOffset) {
+      result = blockStart;
+      return;
+    }
+
+    block.forEach((child, childOffset) => {
+      if (result !== doc.content.size) return;
+
+      const childStart = blockStart + childOffset;
+      const childText = getInlineNodeText(child);
+      const childLength = childText.length;
+
+      if (child.isText) {
+        if (clampedOffset <= currentOffset + childLength) {
+          result = childStart + (clampedOffset - currentOffset);
+          return;
+        }
+      } else {
+        if (clampedOffset <= currentOffset) {
+          result = childStart;
+          return;
+        }
+        if (clampedOffset <= currentOffset + childLength) {
+          result = childStart + child.nodeSize;
+          return;
+        }
+      }
+
+      currentOffset += childLength;
+    });
+
+    if (result !== doc.content.size) return;
+
+    if (clampedOffset <= currentOffset) {
+      result = blockEnd;
+      return;
+    }
+
+    if (blockIndex < doc.childCount - 1) {
+      if (clampedOffset <= currentOffset + 1) {
+        result = blockEnd;
+        return;
+      }
+      currentOffset += 1;
+    }
+  });
+
+  return result;
+};
 
 const Composer = ({
   agentId,
@@ -36,6 +1190,8 @@ const Composer = ({
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [activeTool, setActiveTool] = React.useState(null);
+  const [selectedDigitalHumanMode, setSelectedDigitalHumanMode] = React.useState(() => readPersistedDigitalHumanMode());
+  const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(() => readPersistedDigitalHumanAvatarSelection());
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
@@ -44,19 +1200,43 @@ const Composer = ({
   const [skills, setSkills] = React.useState([]);
   const [mentionState, setMentionState] = React.useState({
     open: false,
+    symbol: '',
     query: '',
     start: -1,
     end: -1,
     activeIndex: 0,
   });
+  const [mentionPanelPosition, setMentionPanelPosition] = React.useState({
+    left: MENTION_PANEL_EDGE_OFFSET,
+    top: 8,
+  });
   const mentionCloseTimerRef = React.useRef(null);
-  const inputHighlightRef = React.useRef(null);
   const dragCounterRef = React.useRef(0);
+  const latestInputRef = React.useRef(String(input || ''));
+  const queueFilesForUploadRef = React.useRef(() => {});
+  const latestMentionStateRef = React.useRef(mentionState);
+  const latestFilteredSkillsRef = React.useRef([]);
+  const latestSkillsRef = React.useRef(skills);
+  const latestUploadedFileMetaRef = React.useRef(uploadedFileMeta);
+  const handleSendWithAttachmentsRef = React.useRef(() => {});
+  const mentionPanelPointerDownRef = React.useRef(false);
+  const requestUploadPickerRef = React.useRef(() => {});
+  const toolbarUploadTriggerRef = React.useRef(null);
+  const pendingTemplateSlotAutoReferenceRef = React.useRef('');
+  const inputWrapRef = React.useRef(null);
+  const mentionPanelRef = React.useRef(null);
   const [isDragActive, setIsDragActive] = React.useState(false);
   const inputPlaceholder =
     activeTool === 'voice-square'
       ? '输入你想要生成语音的文案'
-      : '@技能成员，输入消息，Enter 发送，Shift+Enter 换行';
+      : activeTool === 'digital-human'
+        ? ''
+        : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
+
+  requestUploadPickerRef.current = (slotId = '') => {
+    pendingTemplateSlotAutoReferenceRef.current = slotId || '';
+    toolbarUploadTriggerRef.current?.click?.();
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -145,45 +1325,24 @@ const Composer = ({
     }
   }, []);
 
+  React.useEffect(() => {
+    latestInputRef.current = String(input || '');
+  }, [input]);
+
   const closeMentionPanel = React.useCallback(() => {
-    setMentionState((prev) => ({ ...prev, open: false, query: '', start: -1, end: -1, activeIndex: 0 }));
+    setMentionState((prev) => ({ ...prev, open: false, symbol: '', query: '', start: -1, end: -1, activeIndex: 0 }));
   }, []);
 
-  const syncMentionState = React.useCallback((target) => {
-    const value = String(target?.value || '');
-    const cursor = target?.selectionStart ?? value.length;
-    const prefix = value.slice(0, cursor);
-    const mentionStart = prefix.lastIndexOf('@');
-
-    if (mentionStart < 0) {
-      closeMentionPanel();
-      return;
+  const cancelMentionClose = React.useCallback(() => {
+    if (mentionCloseTimerRef.current) {
+      window.clearTimeout(mentionCloseTimerRef.current);
+      mentionCloseTimerRef.current = null;
     }
-
-    const query = prefix.slice(mentionStart + 1);
-    if (/[\s@]/.test(query)) {
-      closeMentionPanel();
-      return;
-    }
-
-    setMentionState((prev) => ({
-      open: true,
-      query,
-      start: mentionStart,
-      end: cursor,
-      activeIndex: prev.open && prev.query === query ? prev.activeIndex : 0,
-    }));
-  }, [closeMentionPanel]);
-
-  const filteredSkills = React.useMemo(() => {
-    const query = String(mentionState.query || '').trim().toLowerCase();
-    if (!query) return skills;
-    return skills.filter((skill) => String(skill?.name || '').toLowerCase().startsWith(query));
-  }, [mentionState.query, skills]);
+  }, []);
 
   const mentionHighlightRegex = React.useMemo(() => {
     const escapedNames = skills
-      .map((skill) => String(skill?.name || '').trim())
+      .map((skill) => getSkillMentionLabel(skill))
       .filter(Boolean)
       .sort((left, right) => right.length - left.length)
       .map((name) => escapeRegExp(name));
@@ -193,71 +1352,385 @@ const Composer = ({
     return new RegExp(`@(?:${escapedNames.join('|')})(?=$|${MENTION_TOKEN_BOUNDARY})`, 'gi');
   }, [skills]);
 
+  const updateMentionPanelPosition = React.useCallback((editorInstance) => {
+    const nextPosition = getMentionPanelPosition(
+      editorInstance,
+      inputWrapRef.current,
+      mentionPanelRef.current
+    );
+    setMentionPanelPosition((prev) => (
+      prev.left === nextPosition.left && prev.top === nextPosition.top
+        ? prev
+        : nextPosition
+    ));
+  }, []);
+
+  const syncMentionState = React.useCallback((editorInstance) => {
+    const nextMentionState = getActiveMentionState(editorInstance);
+    if (!nextMentionState) {
+      closeMentionPanel();
+      return;
+    }
+
+    updateMentionPanelPosition(editorInstance);
+    setMentionState((prev) => ({
+      ...prev,
+      ...nextMentionState,
+      activeIndex: prev.open && prev.query === nextMentionState.query ? prev.activeIndex : 0,
+    }));
+  }, [closeMentionPanel, updateMentionPanelPosition]);
+
+  const filteredSkills = React.useMemo(() => {
+    if (mentionState.symbol !== '@') return skills;
+    const query = String(mentionState.query || '').trim().toLowerCase();
+    if (!query) return skills;
+    return skills.filter((skill) => String(skill?.name || '').toLowerCase().startsWith(query));
+  }, [mentionState.query, mentionState.symbol, skills]);
+
+  const filteredUploadedFiles = React.useMemo(() => {
+    const query = String(mentionState.query || '').trim().toLowerCase();
+    const source = Array.isArray(uploadedFileMeta) ? uploadedFileMeta : [];
+    if (mentionState.symbol !== '#') return source;
+    if (!query) return source;
+    return source.filter((file) => (
+      String(file?.name || '').toLowerCase().includes(query)
+    ));
+  }, [mentionState.query, mentionState.symbol, uploadedFileMeta]);
+
+  React.useEffect(() => {
+    latestMentionStateRef.current = mentionState;
+  }, [mentionState]);
+
+  React.useEffect(() => {
+    latestFilteredSkillsRef.current = filteredSkills;
+  }, [filteredSkills]);
+
+  React.useEffect(() => {
+    latestSkillsRef.current = skills;
+  }, [skills]);
+
+  React.useEffect(() => {
+    latestUploadedFileMetaRef.current = uploadedFileMeta;
+  }, [uploadedFileMeta]);
+
+  const fileReferenceExtension = React.useMemo(() => (
+    createFileReferenceExtension({
+      uploadedFilesRef: latestUploadedFileMetaRef,
+      requestUploadPickerRef,
+    })
+  ), []);
+  const digitalHumanScriptPlaceholderExtension = React.useMemo(
+    () => createDigitalHumanScriptPlaceholderExtension(),
+    []
+  );
+  const digitalHumanMotionPlaceholderExtension = React.useMemo(
+    () => createDigitalHumanMotionPlaceholderExtension(),
+    []
+  );
+
+  React.useEffect(() => () => {
+    latestUploadedFileMetaRef.current.forEach((item) => {
+      revokeLocalObjectUrl(item?.localThumbUrl);
+    });
+  }, []);
+
+  const activeSuggestionItems = mentionState.symbol === '#'
+    ? filteredUploadedFiles
+    : filteredSkills;
+
   React.useEffect(() => {
     if (!mentionState.open) return;
-    if (filteredSkills.length === 0) {
+    if (activeSuggestionItems.length === 0) {
       setMentionState((prev) => ({ ...prev, activeIndex: 0 }));
       return;
     }
-    if (mentionState.activeIndex > filteredSkills.length - 1) {
+    if (mentionState.activeIndex > activeSuggestionItems.length - 1) {
       setMentionState((prev) => ({ ...prev, activeIndex: 0 }));
     }
-  }, [filteredSkills.length, mentionState.activeIndex, mentionState.open]);
+  }, [activeSuggestionItems.length, mentionState.activeIndex, mentionState.open]);
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit.configure({
+        heading: false,
+        blockquote: false,
+        bulletList: false,
+        orderedList: false,
+        codeBlock: false,
+        horizontalRule: false,
+      }),
+      Mention.extend({
+        renderText({ node }) {
+          return getMentionText(node.attrs);
+        },
+        renderHTML({ node, HTMLAttributes }) {
+          return ['span', mergeAttributes(HTMLAttributes, { class: 'chat-panel__input-mention-token' }), getMentionText(node.attrs)];
+        },
+      }).configure({
+        HTMLAttributes: {
+          class: 'chat-panel__input-mention-token',
+        },
+      }),
+      digitalHumanScriptPlaceholderExtension,
+      digitalHumanMotionPlaceholderExtension,
+      fileReferenceExtension,
+    ],
+    editorProps: {
+      attributes: {
+        class: 'chat-panel__input-prosemirror',
+      },
+      handleKeyDown: (view, event) => {
+        const liveMentionState = getActiveMentionStateFromSelection(view.state.selection);
+        const liveFilteredSkills = liveMentionState?.symbol === '@'
+          ? latestSkillsRef.current.filter((skill) => {
+            const liveQuery = String(liveMentionState.query || '').trim().toLowerCase();
+            if (!liveQuery) return true;
+            return String(skill?.name || '').toLowerCase().startsWith(liveQuery);
+          })
+          : [];
+        const liveFilteredFiles = liveMentionState?.symbol === '#'
+          ? latestUploadedFileMetaRef.current.filter((file) => {
+            const liveQuery = String(liveMentionState.query || '').trim().toLowerCase();
+            if (!liveQuery) return true;
+            return String(file?.name || '').toLowerCase().includes(liveQuery);
+          })
+          : [];
+        const liveSuggestionItems = liveMentionState?.symbol === '#'
+          ? liveFilteredFiles
+          : liveFilteredSkills;
+
+        if (liveMentionState?.open) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setMentionState((prev) => ({
+              ...prev,
+              activeIndex: liveSuggestionItems.length > 0 ? (prev.activeIndex + 1) % liveSuggestionItems.length : 0,
+            }));
+            return true;
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setMentionState((prev) => ({
+              ...prev,
+              activeIndex: liveSuggestionItems.length > 0
+                ? (prev.activeIndex - 1 + liveSuggestionItems.length) % liveSuggestionItems.length
+                : 0,
+            }));
+            return true;
+          }
+          if ((event.key === 'Enter' || event.key === 'Tab') && liveSuggestionItems.length > 0) {
+            event.preventDefault();
+            const activeIndex = latestMentionStateRef.current?.activeIndex || 0;
+            const activeItem = liveSuggestionItems[activeIndex] || liveSuggestionItems[0];
+
+            if (liveMentionState.symbol === '@') {
+              if (insertSkillMentionAtView(view, liveMentionState, getSkillMentionLabel(activeItem))) {
+                closeMentionPanel();
+                return true;
+              }
+            }
+
+            if (liveMentionState.symbol === '#') {
+              if (insertFileReferenceAtView(view, liveMentionState, activeItem)) {
+                closeMentionPanel();
+                return true;
+              }
+            }
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeMentionPanel();
+            return true;
+          }
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          handleSendWithAttachmentsRef.current();
+          return true;
+        }
+
+        return false;
+      },
+      handlePaste: (_, event) => {
+        const clipboardItems = Array.from(event.clipboardData?.items || []);
+        const files = clipboardItems
+          .filter((item) => item.kind === 'file')
+          .map((item) => item.getAsFile())
+          .filter(Boolean);
+        const fallbackFiles = Array.from(event.clipboardData?.files || []).filter(Boolean);
+        const pastedFiles = files.length > 0 ? files : fallbackFiles;
+        if (pastedFiles.length === 0) return false;
+        event.preventDefault();
+        queueFilesForUploadRef.current(pastedFiles);
+        return true;
+      },
+    },
+    onUpdate: ({ editor: currentEditor }) => {
+      const nextText = getEditorPlainText(currentEditor);
+      if (nextText !== latestInputRef.current) {
+        latestInputRef.current = nextText;
+        setInput(nextText);
+      }
+      syncMentionState(currentEditor);
+    },
+    onSelectionUpdate: ({ editor: currentEditor }) => {
+      syncMentionState(currentEditor);
+    },
+    onBlur: () => {
+      if (mentionPanelPointerDownRef.current) {
+        mentionPanelPointerDownRef.current = false;
+        return;
+      }
+      mentionCloseTimerRef.current = window.setTimeout(() => {
+        closeMentionPanel();
+      }, SKILL_MENTION_CLOSE_DELAY);
+    },
+    onFocus: ({ editor: currentEditor }) => {
+      cancelMentionClose();
+      syncMentionState(currentEditor);
+    },
+  });
+
+  React.useEffect(() => {
+    if (!mentionState.open || !editor || editor.isDestroyed) return undefined;
+
+    const schedulePositionUpdate = () => {
+      window.requestAnimationFrame(() => {
+        updateMentionPanelPosition(editor);
+      });
+    };
+
+    const scrollElement = editor.view.dom;
+    schedulePositionUpdate();
+    scrollElement.addEventListener('scroll', schedulePositionUpdate);
+    window.addEventListener('resize', schedulePositionUpdate);
+
+    return () => {
+      scrollElement.removeEventListener('scroll', schedulePositionUpdate);
+      window.removeEventListener('resize', schedulePositionUpdate);
+    };
+  }, [editor, mentionState.open, updateMentionPanelPosition]);
+
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+
+    const currentText = getEditorPlainText(editor);
+    const nextText = String(input || '');
+    if (currentText === nextText) return;
+
+    const selection = {
+      start: mapDocPositionToTextOffset(editor, editor.state.selection.from),
+      end: mapDocPositionToTextOffset(editor, editor.state.selection.to),
+    };
+
+    editor.commands.setContent(buildEditorDocument(nextText, mentionHighlightRegex), false);
+
+    const nextPlainText = getEditorPlainText(editor);
+    const nextSelectionEnd = Math.min(selection.end, nextPlainText.length);
+    const nextSelectionStart = Math.min(selection.start, nextSelectionEnd);
+    const from = mapTextOffsetToDocPosition(editor, nextSelectionStart);
+    const to = mapTextOffsetToDocPosition(editor, nextSelectionEnd);
+    editor.commands.setTextSelection({ from, to });
+  }, [editor, input, mentionHighlightRegex]);
+
+  React.useEffect(() => {
+    if (!inputRef) return undefined;
+
+    const controller = {
+      focus: () => {
+        if (!editor || editor.isDestroyed) return;
+        editor.commands.focus();
+      },
+      blur: () => {
+        editor?.view?.dom?.blur?.();
+      },
+      isFocused: () => Boolean(editor && !editor.isDestroyed && editor.isFocused),
+      getSelectionRange: () => {
+        if (!editor || editor.isDestroyed) {
+          return { start: 0, end: 0 };
+        }
+        return {
+          start: mapDocPositionToTextOffset(editor, editor.state.selection.from),
+          end: mapDocPositionToTextOffset(editor, editor.state.selection.to),
+        };
+      },
+      setSelectionRange: (start, end = start) => {
+        if (!editor || editor.isDestroyed) return;
+        const from = mapTextOffsetToDocPosition(editor, start);
+        const to = mapTextOffsetToDocPosition(editor, end);
+        editor.chain().focus().setTextSelection({ from, to }).run();
+      },
+      get value() {
+        return getEditorPlainText(editor);
+      },
+      get selectionStart() {
+        return this.getSelectionRange().start;
+      },
+      get selectionEnd() {
+        return this.getSelectionRange().end;
+      },
+    };
+
+    inputRef.current = controller;
+
+    return () => {
+      if (inputRef.current === controller) {
+        inputRef.current = null;
+      }
+    };
+  }, [editor, inputRef]);
 
   const insertSkillMention = React.useCallback((skill) => {
-    const mentionLabel = skill?.name || skill?.id;
-    if (!mentionLabel || mentionState.start < 0 || mentionState.end < mentionState.start) return;
+    const mentionLabel = getSkillMentionLabel(skill);
+    if (!editor || editor.isDestroyed || !mentionLabel || mentionState.start < 0 || mentionState.end < mentionState.start) return;
 
-    const currentText = String(input || '');
-    const replacement = `@${mentionLabel} `;
-    const nextText = `${currentText.slice(0, mentionState.start)}${replacement}${currentText.slice(mentionState.end)}`;
-    const nextCursor = mentionState.start + replacement.length;
-    setInput(nextText);
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        { from: mentionState.start, to: mentionState.end },
+        [
+          {
+            type: 'mention',
+            attrs: {
+              id: mentionLabel,
+              label: mentionLabel,
+            },
+          },
+          {
+            type: 'text',
+            text: ' ',
+          },
+        ]
+      )
+      .run();
     closeMentionPanel();
+  }, [closeMentionPanel, editor, mentionState.end, mentionState.start]);
 
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
-  }, [closeMentionPanel, input, inputRef, mentionState.end, mentionState.start, setInput]);
+  const insertFileReference = React.useCallback((file) => {
+    if (!editor || editor.isDestroyed || !file?.uid || mentionState.start < 0 || mentionState.end < mentionState.start) return;
 
-  const renderHighlightedInput = React.useCallback(() => {
-    const text = String(input || '');
-    if (!text) return null;
-    if (!mentionHighlightRegex) return text;
-
-    mentionHighlightRegex.lastIndex = 0;
-
-    const nodes = [];
-    let lastIndex = 0;
-    let match = mentionHighlightRegex.exec(text);
-
-    while (match) {
-      const matchText = match[0];
-      const matchIndex = match.index;
-
-      if (matchIndex > lastIndex) {
-        nodes.push(text.slice(lastIndex, matchIndex));
-      }
-
-      nodes.push(
-        <span
-          key={`${matchText}-${matchIndex}`}
-          className="chat-panel__input-mention-token">
-          {matchText}
-        </span>
-      );
-
-      lastIndex = matchIndex + matchText.length;
-      match = mentionHighlightRegex.exec(text);
-    }
-
-    if (lastIndex < text.length) {
-      nodes.push(text.slice(lastIndex));
-    }
-
-    return nodes;
-  }, [input, mentionHighlightRegex]);
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        { from: mentionState.start, to: mentionState.end },
+        [
+          {
+            type: 'fileReference',
+            attrs: createFileReferenceAttrs(file),
+          },
+          {
+            type: 'text',
+            text: ' ',
+          },
+        ]
+      )
+      .run();
+    closeMentionPanel();
+  }, [closeMentionPanel, editor, mentionState.end, mentionState.start]);
 
   const handleOpenPricingDoc = (event) => {
     event.preventDefault();
@@ -341,8 +1814,13 @@ const Composer = ({
     .filter((item) => item?.url)
     .map((item) => buildMarkdownFileLink(item.name, item.url));
   const hasUploadingFile = uploadFileList.some((item) => item?.status === 'uploading');
+  const digitalHumanCompletionState = React.useMemo(
+    () => getDigitalHumanTemplateCompletionState(editor),
+    [editor, input]
+  );
   const canSend = String(input || '').trim().length > 0 || uploadedMarkdownLinks.length > 0;
-  const isSendDisabled = !canSend || modelListLoading || hasUploadingFile;
+  const isDigitalHumanSendBlocked = activeTool === 'digital-human' && !digitalHumanCompletionState.isComplete;
+  const isSendDisabled = !canSend || modelListLoading || hasUploadingFile || isDigitalHumanSendBlocked;
 
   const handleBeforeUpload = (file, batchFileList = []) => {
     const type = String(file?.type || '');
@@ -369,37 +1847,66 @@ const Composer = ({
     const nextList = fileList.slice(-MAX_UPLOAD_COUNT);
     const uidSet = new Set(nextList.map((item) => item.uid));
     setUploadFileList(nextList);
-    setUploadedFileMeta((prev) => prev.filter((item) => uidSet.has(item.uid)));
+    setUploadedFileMeta((prev) => {
+      const removedItems = prev.filter((item) => !uidSet.has(item.uid));
+      removedItems.forEach((item) => {
+        revokeLocalObjectUrl(item?.localThumbUrl);
+      });
+      return prev.filter((item) => uidSet.has(item.uid));
+    });
   }, []);
 
   const handleFileUpload = async ({ file, onProgress, onSuccess, onError }) => {
     const targetFile = file instanceof File ? file : file?.originFileObj;
     const uid = file?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const localThumbUrl = createLocalObjectUrl(targetFile);
     if (!targetFile) {
       const error = new Error('INVALID_FILE');
       onError && onError(error);
       return;
     }
     try {
+      const durationLabel = getFileKindFromType(targetFile?.type || file?.type || '') === 'video'
+        ? await readMediaDuration(localThumbUrl, 'video')
+        : '';
       const result = await uploadToOSSWithProgress(targetFile, (event) => {
         onProgress && onProgress({ percent: Number(event?.percent || 0) }, targetFile);
       });
       onSuccess && onSuccess(result, targetFile);
       if (result?.publicUrl) {
         const normalizedUrl = stripUrlSearch(result.publicUrl);
+        const uploadedFile = {
+          uid,
+          url: normalizedUrl,
+          name: targetFile?.name || file?.name || '附件',
+          fileType: targetFile?.type || file?.type || '',
+          thumbnailUrl: normalizedUrl,
+          previewUrl: normalizedUrl,
+          localThumbUrl,
+          localPreviewUrl: localThumbUrl,
+          durationLabel,
+        };
         setUploadedFileMeta((prev) => {
           const next = prev.filter((item) => item.uid !== uid);
-          next.push({
-            uid,
-            url: normalizedUrl,
-            name: targetFile?.name || file?.name || '附件',
-          });
+          const previousItem = prev.find((item) => item.uid === uid);
+          if (previousItem?.localThumbUrl && previousItem.localThumbUrl !== localThumbUrl) {
+            revokeLocalObjectUrl(previousItem.localThumbUrl);
+          }
+          next.push(uploadedFile);
           return next;
         });
+        const pendingSlotId = pendingTemplateSlotAutoReferenceRef.current;
+        if (pendingSlotId) {
+          syncTemplateFileReferenceNode(editor, pendingSlotId, uploadedFile);
+          pendingTemplateSlotAutoReferenceRef.current = '';
+        }
+      } else {
+        revokeLocalObjectUrl(localThumbUrl);
       }
       message.success('文件上传成功');
     } catch (error) {
       onError && onError(error);
+      revokeLocalObjectUrl(localThumbUrl);
       message.error('文件上传失败');
     }
   };
@@ -465,6 +1972,10 @@ const Composer = ({
     });
   }, [handleBeforeUpload, handleFileUpload, sessionSending]);
 
+  React.useEffect(() => {
+    queueFilesForUploadRef.current = queueFilesForUpload;
+  }, [queueFilesForUpload]);
+
   const hasDraggedFiles = React.useCallback((event) => {
     const dataTransferTypes = Array.from(event?.dataTransfer?.types || []);
     return dataTransferTypes.includes('Files');
@@ -517,8 +2028,12 @@ const Composer = ({
 
   const handleSendWithAttachments = () => {
     if (isSendDisabled) return;
-    const text = String(input || '').trim();
-    const combined = [text, ...uploadedMarkdownLinks].filter(Boolean).join('\n');
+    const serializedMessage = serializeEditorMessage(editor, buildMarkdownFileLink);
+    const remainingUploadedLinks = uploadedFileMeta
+      .filter((item) => item?.url && !serializedMessage.referencedFileUids.has(item.uid))
+      .map((item) => buildMarkdownFileLink(item.name, item.url));
+    const text = serializedMessage.text || String(input || '').trim();
+    const combined = [text, ...remainingUploadedLinks].filter(Boolean).join('\n');
     if (!combined) return;
     const nextMessage =
       activeTool === 'voice-square'
@@ -527,12 +2042,48 @@ const Composer = ({
     closeMentionPanel();
     handleSend && handleSend(nextMessage);
     setUploadFileList([]);
-    setUploadedFileMeta([]);
+    setUploadedFileMeta((prev) => {
+      prev.forEach((item) => {
+        revokeLocalObjectUrl(item?.localThumbUrl);
+      });
+      return [];
+    });
   };
 
+  React.useEffect(() => {
+    handleSendWithAttachmentsRef.current = handleSendWithAttachments;
+  }, [handleSendWithAttachments]);
+
+  React.useEffect(() => {
+    if (activeTool !== 'digital-human') return;
+    syncDigitalHumanVoiceReferenceNode(
+      editor,
+      selectedDigitalHumanMode,
+      selectedVoiceLibraryItem,
+      selectedDigitalHumanAvatar
+    );
+  }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
+
+  React.useEffect(() => {
+    if (activeTool !== 'digital-human') return;
+    syncDigitalHumanMediaParagraph(editor, selectedDigitalHumanMode, selectedDigitalHumanAvatar);
+  }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode]);
+
   const handleToolSelect = React.useCallback((toolId) => {
-    setActiveTool(toolId);
-  }, []);
+    const nextTool = activeTool === toolId ? null : toolId;
+    setActiveTool(nextTool);
+    if (nextTool === 'digital-human' && editor && !editor.isDestroyed) {
+      editor.commands.setContent(
+        buildDigitalHumanEditorDocument(
+          selectedVoiceLibraryItem,
+          selectedDigitalHumanMode,
+          selectedDigitalHumanAvatar
+        ),
+        false
+      );
+      editor.commands.focus('end');
+    }
+  }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
 
   const handleToolDetailBack = React.useCallback(() => {
     setActiveTool(null);
@@ -552,7 +2103,11 @@ const Composer = ({
             }}
             onRemove={(file) => {
               setUploadFileList((prev) => prev.filter((item) => item.uid !== file.uid));
-              setUploadedFileMeta((prev) => prev.filter((item) => item.uid !== file.uid));
+              setUploadedFileMeta((prev) => {
+                const removedItem = prev.find((item) => item.uid === file.uid);
+                revokeLocalObjectUrl(removedItem?.localThumbUrl);
+                return prev.filter((item) => item.uid !== file.uid);
+              });
               return true;
             }}
             openFileDialogOnClick={false}
@@ -573,6 +2128,7 @@ const Composer = ({
               disabled={sessionSending}
             >
               <span
+                ref={toolbarUploadTriggerRef}
                 className="chat-panel__tool-button chat-panel__tool-button--icon-only"
                 aria-label="上传文件"
                 title="上传文件"
@@ -586,6 +2142,14 @@ const Composer = ({
               <VoiceSquareToolDetail
                 disabled={sessionSending}
                 onBack={handleToolDetailBack}
+                onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+              />
+            ) : activeTool === 'digital-human' ? (
+              <DigitalHumanToolDetail
+                disabled={sessionSending}
+                onBack={handleToolDetailBack}
+                onModeChange={setSelectedDigitalHumanMode}
+                onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
                 onSelectedVoiceChange={setSelectedVoiceLibraryItem}
               />
             ) : (
@@ -629,20 +2193,72 @@ const Composer = ({
           </div>
         </div>
         <div
+          ref={inputWrapRef}
           className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''}`}
           onDragEnter={handleInputDragEnter}
           onDragOver={handleInputDragOver}
           onDragLeave={handleInputDragLeave}
           onDrop={handleInputDrop}
         >
-          {mentionState.open && (skillsLoading || skillsError || filteredSkills.length > 0) ? (
-            <div className="chat-panel__skill-mention-panel">
+          {mentionState.open && (
+            (mentionState.symbol === '@' && (skillsLoading || skillsError || filteredSkills.length > 0))
+            || (mentionState.symbol === '#' && (uploadedFileMeta.length > 0 || mentionState.query.length >= 0))
+          ) ? (
+            <div
+              ref={mentionPanelRef}
+              className={`chat-panel__skill-mention-panel ${
+                mentionState.symbol === '#' && uploadedFileMeta.length === 0
+                  ? 'chat-panel__skill-mention-panel--empty-upload'
+                  : ''
+              }`}
+              style={{
+                left: `${mentionPanelPosition.left}px`,
+                top: `${mentionPanelPosition.top}px`,
+              }}
+              onMouseDown={() => {
+                mentionPanelPointerDownRef.current = true;
+                cancelMentionClose();
+                window.setTimeout(() => {
+                  mentionPanelPointerDownRef.current = false;
+                }, 0);
+              }}
+            >
               <div className="chat-panel__skill-mention-list">
-                {skillsLoading ? <div className="chat-panel__skill-mention-empty">加载技能中...</div> : null}
-                {!skillsLoading && skillsError ? (
+                {mentionState.symbol === '@' && skillsLoading ? <div className="chat-panel__skill-mention-empty">加载技能中...</div> : null}
+                {mentionState.symbol === '@' && !skillsLoading && skillsError ? (
                   <div className="chat-panel__skill-mention-empty">{skillsError}</div>
                 ) : null}
-                {!skillsLoading && !skillsError && filteredSkills.map((skill, index) => {
+                {mentionState.symbol === '#' && uploadedFileMeta.length === 0 ? (
+                  <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
+                    <Empty
+                      description="你还没有创建过引用"
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      className="chat-panel__skill-mention-empty-state"
+                    />
+                    <AntUpload
+                      accept="image/*,video/*,audio/*"
+                      multiple
+                      beforeUpload={handleBeforeUpload}
+                      customRequest={handleFileUpload}
+                      showUploadList={false}
+                      fileList={uploadFileList}
+                      onChange={({ fileList }) => handleUploadListChange(fileList)}
+                      disabled={sessionSending}
+                    >
+                      <Button
+                        type="default"
+                        className="chat-panel__skill-mention-empty-action"
+                        icon={<Plus className="chat-panel__skill-mention-empty-action-icon" />}
+                      >
+                        上传引用
+                      </Button>
+                    </AntUpload>
+                  </div>
+                ) : null}
+                {mentionState.symbol === '#' && uploadedFileMeta.length > 0 && filteredUploadedFiles.length === 0 ? (
+                  <div className="chat-panel__skill-mention-empty">没有匹配的文件</div>
+                ) : null}
+                {mentionState.symbol === '@' && !skillsLoading && !skillsError && filteredSkills.map((skill, index) => {
                   const label = skill?.name || '';
                   const isActive = index === mentionState.activeIndex;
                   return (
@@ -659,6 +2275,36 @@ const Composer = ({
                     </button>
                   );
                 })}
+                {mentionState.symbol === '#' && filteredUploadedFiles.map((file, index) => {
+                  const isActive = index === mentionState.activeIndex;
+                  return (
+                    <button
+                      key={file.uid || file.url || file.name}
+                      type="button"
+                      className={`chat-panel__skill-mention-item chat-panel__file-reference-item ${isActive ? 'active' : ''}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        insertFileReference(file);
+                      }}
+                    >
+                      <span className="chat-panel__file-reference-item-thumb">
+                        {renderFileThumb(file)}
+                      </span>
+                      <span className="chat-panel__file-reference-item-main">
+                        <span className="chat-panel__skill-mention-name">{getFileDisplayName(file)}</span>
+                      </span>
+                      {isPreviewableFile(file?.fileType) ? (
+                        <Popover
+                          trigger="hover"
+                          placement="rightTop"
+                          classNames={{ root: 'chat-panel__file-ref-preview-popover' }}
+                          content={renderFilePreviewContent(file, 'chat-panel__file-ref-preview--panel')}
+                        >
+                        </Popover>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -671,92 +2317,14 @@ const Composer = ({
                 </div>
               </div>
             ) : null}
-            <div
-              ref={inputHighlightRef}
-              aria-hidden="true"
-              className="chat-panel__input-highlights">
-              {renderHighlightedInput()}
-            </div>
-            <textarea
-              ref={inputRef}
-              className="chat-panel__input chat-panel__input--overlay"
-              placeholder={inputPlaceholder}
-              value={input}
-              onChange={(event) => {
-                setInput(event.target.value);
-                syncMentionState(event.target);
-              }}
-              onScroll={(event) => {
-                if (inputHighlightRef.current) {
-                  inputHighlightRef.current.scrollTop = event.target.scrollTop;
-                  inputHighlightRef.current.scrollLeft = event.target.scrollLeft;
-                }
-              }}
-              onClick={(event) => syncMentionState(event.target)}
-              onPaste={(event) => {
-                const clipboardItems = Array.from(event.clipboardData?.items || []);
-                const files = clipboardItems
-                  .filter((item) => item.kind === 'file')
-                  .map((item) => item.getAsFile())
-                  .filter(Boolean);
-                const fallbackFiles = Array.from(event.clipboardData?.files || []).filter(Boolean);
-                const pastedFiles = files.length > 0 ? files : fallbackFiles;
-                if (pastedFiles.length === 0) return;
-                event.preventDefault();
-                queueFilesForUpload(pastedFiles);
-              }}
-              onKeyUp={(event) => {
-                if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Enter') {
-                  syncMentionState(event.target);
-                }
-              }}
-              onBlur={() => {
-                mentionCloseTimerRef.current = window.setTimeout(() => {
-                  closeMentionPanel();
-                }, SKILL_MENTION_CLOSE_DELAY);
-              }}
-              onFocus={(event) => {
-                if (mentionCloseTimerRef.current) {
-                  window.clearTimeout(mentionCloseTimerRef.current);
-                }
-                syncMentionState(event.target);
-              }}
-              onKeyDown={(event) => {
-                if (mentionState.open) {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault();
-                    setMentionState((prev) => ({
-                      ...prev,
-                      activeIndex: filteredSkills.length > 0 ? (prev.activeIndex + 1) % filteredSkills.length : 0,
-                    }));
-                    return;
-                  }
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault();
-                    setMentionState((prev) => ({
-                      ...prev,
-                      activeIndex: filteredSkills.length > 0
-                        ? (prev.activeIndex - 1 + filteredSkills.length) % filteredSkills.length
-                        : 0,
-                    }));
-                    return;
-                  }
-                  if ((event.key === 'Enter' || event.key === 'Tab') && filteredSkills.length > 0) {
-                    event.preventDefault();
-                    insertSkillMention(filteredSkills[mentionState.activeIndex] || filteredSkills[0]);
-                    return;
-                  }
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    closeMentionPanel();
-                    return;
-                  }
-                }
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  handleSendWithAttachments();
-                }
-              }}
+            {!String(input || '').length ? (
+              <div aria-hidden="true" className="chat-panel__input-placeholder">
+                {inputPlaceholder}
+              </div>
+            ) : null}
+            <EditorContent
+              editor={editor}
+              className="chat-panel__input chat-panel__input--tiptap"
             />
           </div>
         </div>

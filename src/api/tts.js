@@ -81,9 +81,12 @@ export async function getTtsSpeechPrice({
   model,
 } = {}) {
   const params = {};
+  const normalizedVoiceId = Array.isArray(voice_id)
+    ? voice_id.map((item) => String(item || '').trim()).filter(Boolean).join(',')
+    : String(voice_id || '').trim();
 
   if (provider) params.provider = String(provider);
-  if (voice_id) params.voice_id = String(voice_id);
+  if (normalizedVoiceId) params.voice_id = normalizedVoiceId;
   if (model) params.model = String(model);
 
   const qs = new URLSearchParams(params).toString();

@@ -8,6 +8,7 @@ import VoiceCollectedIcon from '../../../public/voice_collected.svg';
 const DEFAULT_PRICE_TEXT = '--/百字';
 const voicePriceCache = new Map();
 const voicePriceRequestCache = new Map();
+const voicePriceBatchQueue = new Map();
 
 const normalizeVoiceProvider = (provider) =>
   String(provider || '')
@@ -17,6 +18,135 @@ const normalizeVoiceProvider = (provider) =>
 
 const buildVoicePriceCacheKey = ({ provider = '', voiceId = '', model = '' } = {}) =>
   [provider, voiceId, model].join('|');
+
+const buildVoicePriceBatchKey = ({ provider = '', model = '' } = {}) =>
+  [provider, model].join('|');
+
+const getVoicePriceResponseItems = (result) => {
+  if (Array.isArray(result?.items)) return result.items;
+  if (Array.isArray(result?.data?.items)) return result.data.items;
+  if (Array.isArray(result?.prices)) return result.prices;
+  if (Array.isArray(result?.data?.prices)) return result.data.prices;
+  if (Array.isArray(result?.data)) return result.data;
+  return [];
+};
+
+const buildVoicePriceTextMap = (result, voiceIds = []) => {
+  const normalizedVoiceIds = Array.isArray(voiceIds)
+    ? voiceIds.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const priceTextMap = new Map();
+  const responseItems = getVoicePriceResponseItems(result);
+
+  responseItems.forEach((item) => {
+    const voiceId = String(item?.voice_id || item?.global_voice_id || item?.id || '').trim();
+    if (!voiceId) return;
+    const nextText = String(item?.price_text || item?.price || '').trim();
+    if (nextText) {
+      priceTextMap.set(voiceId, nextText);
+    }
+  });
+
+  const responsePriceMap = result?.price_map || result?.data?.price_map || result?.prices_map || result?.data?.prices_map;
+  if (responsePriceMap && typeof responsePriceMap === 'object') {
+    Object.entries(responsePriceMap).forEach(([voiceId, value]) => {
+      const normalizedVoiceId = String(voiceId || '').trim();
+      const nextText = String(value?.price_text || value?.price || value || '').trim();
+      if (normalizedVoiceId && nextText) {
+        priceTextMap.set(normalizedVoiceId, nextText);
+      }
+    });
+  }
+
+  if (normalizedVoiceIds.length === 1 && !priceTextMap.has(normalizedVoiceIds[0])) {
+    const nextText = String(result?.price_text || result?.data?.price_text || '').trim();
+    if (nextText) {
+      priceTextMap.set(normalizedVoiceIds[0], nextText);
+    }
+  }
+
+  return priceTextMap;
+};
+
+const requestVoicePriceBatch = ({ provider = '', voiceId = '', model = '' } = {}) => {
+  const normalizedVoiceId = String(voiceId || '').trim();
+  if (!normalizedVoiceId) return Promise.resolve(DEFAULT_PRICE_TEXT);
+
+  const requestKey = buildVoicePriceCacheKey({ provider, voiceId: normalizedVoiceId, model });
+  if (voicePriceCache.has(requestKey)) {
+    return Promise.resolve(voicePriceCache.get(requestKey) || DEFAULT_PRICE_TEXT);
+  }
+  if (voicePriceRequestCache.has(requestKey)) {
+    return voicePriceRequestCache.get(requestKey);
+  }
+
+  const batchKey = buildVoicePriceBatchKey({ provider, model });
+  let batch = voicePriceBatchQueue.get(batchKey);
+
+  if (!batch) {
+    batch = {
+      provider,
+      model,
+      voiceIds: new Set(),
+      resolvers: new Map(),
+      timer: null,
+    };
+    voicePriceBatchQueue.set(batchKey, batch);
+  }
+
+  batch.voiceIds.add(normalizedVoiceId);
+
+  const pendingRequest = new Promise((resolve) => {
+    const resolvers = batch.resolvers.get(normalizedVoiceId) || [];
+    resolvers.push(resolve);
+    batch.resolvers.set(normalizedVoiceId, resolvers);
+  });
+
+  voicePriceRequestCache.set(requestKey, pendingRequest);
+
+  if (!batch.timer) {
+    batch.timer = window.setTimeout(async () => {
+      const currentBatch = voicePriceBatchQueue.get(batchKey);
+      if (!currentBatch) return;
+
+      voicePriceBatchQueue.delete(batchKey);
+      const voiceIds = Array.from(currentBatch.voiceIds);
+
+      try {
+        const result = await getTtsSpeechPrice({
+          provider: currentBatch.provider || undefined,
+          voice_id: voiceIds,
+          model: currentBatch.provider === 'minimax' ? currentBatch.model || undefined : undefined,
+        });
+        const priceTextMap = buildVoicePriceTextMap(result, voiceIds);
+
+        voiceIds.forEach((currentVoiceId) => {
+          const currentRequestKey = buildVoicePriceCacheKey({
+            provider: currentBatch.provider,
+            voiceId: currentVoiceId,
+            model: currentBatch.model,
+          });
+          const nextText = priceTextMap.get(currentVoiceId) || DEFAULT_PRICE_TEXT;
+          voicePriceCache.set(currentRequestKey, nextText);
+          voicePriceRequestCache.delete(currentRequestKey);
+          (currentBatch.resolvers.get(currentVoiceId) || []).forEach((resolver) => resolver(nextText));
+        });
+      } catch (error) {
+        voiceIds.forEach((currentVoiceId) => {
+          const currentRequestKey = buildVoicePriceCacheKey({
+            provider: currentBatch.provider,
+            voiceId: currentVoiceId,
+            model: currentBatch.model,
+          });
+          voicePriceRequestCache.delete(currentRequestKey);
+          (currentBatch.resolvers.get(currentVoiceId) || []).forEach((resolver) => resolver(DEFAULT_PRICE_TEXT));
+        });
+      }
+    }, 0);
+  }
+
+  return pendingRequest;
+};
 
 const VoiceDetail = ({
   title,
@@ -71,22 +201,17 @@ const VoiceDetail = ({
       if (!requestKey) return;
 
       try {
-        const pendingRequest =
-          voicePriceRequestCache.get(requestKey) ||
-          getTtsSpeechPrice({
-            provider: normalizedProvider || undefined,
-            voice_id: normalizedVoiceId || undefined,
-            model: normalizedProvider === 'minimax' ? normalizedPriceModel || undefined : undefined,
-          });
-        voicePriceRequestCache.set(requestKey, pendingRequest);
+        const pendingRequest = requestVoicePriceBatch({
+          provider: normalizedProvider,
+          voiceId: normalizedVoiceId,
+          model: normalizedPriceModel,
+        });
         const result = await pendingRequest;
-        const nextText = String(result?.price_text || '').trim() || DEFAULT_PRICE_TEXT;
+        const nextText = String(result || '').trim() || DEFAULT_PRICE_TEXT;
         voicePriceCache.set(requestKey, nextText);
         if (!cancelled) setUnitPriceText(nextText);
       } catch (error) {
         if (!cancelled) setUnitPriceText(DEFAULT_PRICE_TEXT);
-      } finally {
-        voicePriceRequestCache.delete(requestKey);
       }
     };
 
