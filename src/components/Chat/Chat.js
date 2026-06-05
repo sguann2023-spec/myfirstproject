@@ -164,10 +164,13 @@ const Chat = ({
     });
   }, [input, setInput]);
 
-  const handleSend = (nextText) => {
-    const text = String(typeof nextText === 'string' ? nextText : input).trim();
+  const handleSend = (nextText, options = {}) => {
+    const rawText = typeof nextText === 'string'
+      ? nextText
+      : (nextText && typeof nextText === 'object' ? nextText.text : input);
+    const text = String(rawText || '').trim();
     if (!text || sessionSending || modelListLoading) return;
-    onSendMessage && onSendMessage(text);
+    onSendMessage && onSendMessage(text, options);
     setInput('');
   };
 

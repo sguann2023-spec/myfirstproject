@@ -123,6 +123,16 @@ const createDigitalHumanSelectedVoiceReferenceAttrs = (
     placeholderText: selectedVoiceLibraryItem?.title || '音色id',
   });
 };
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  if (!(file instanceof Blob)) {
+    reject(new Error('INVALID_FILE'));
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(reader.error || new Error('READ_FILE_FAILED'));
+  reader.readAsDataURL(file);
+});
 const createDigitalHumanMediaReferenceAttrs = (
   selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
   currentFile = {},
@@ -1772,6 +1782,12 @@ const Composer = ({
       } : null;
     })
     .filter(Boolean);
+  const selectedModelConfig = (Array.isArray(modelOptions) ? modelOptions : []).find((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const candidateValue = String(item?.value || item?.id || item?.name || '').trim();
+    return candidateValue && candidateValue === String(model || '').trim();
+  }) || null;
+  const selectedModelSupportsReadImage = Boolean(selectedModelConfig?.read_image);
 
   const groupedModelOptions = availableModelOptions.length > 0
     ? [
@@ -2026,7 +2042,36 @@ const Composer = ({
     queueFilesForUpload(droppedFiles);
   }, [hasDraggedFiles, queueFilesForUpload, resetDragState, sessionSending]);
 
-  const handleSendWithAttachments = () => {
+  const collectImagePayloads = React.useCallback(async () => {
+    if (!selectedModelSupportsReadImage) return [];
+    const uploadedImageTypesByUid = new Map(
+      uploadedFileMeta
+        .filter((item) => String(item?.fileType || '').toLowerCase().startsWith('image/'))
+        .map((item) => [String(item.uid || '').trim(), String(item.fileType || '').trim()])
+    );
+    const imageFiles = uploadFileList
+      .filter((item) => item?.status !== 'removed')
+      .map((item) => item?.originFileObj || item)
+      .filter((file) => file instanceof File)
+      .filter((file) => {
+        const uid = String(file?.uid || '').trim();
+        const mimeType = uploadedImageTypesByUid.get(uid) || String(file?.type || '').trim();
+        return mimeType.toLowerCase().startsWith('image/');
+      });
+    if (imageFiles.length === 0) return [];
+    const payloads = await Promise.all(imageFiles.map(async (file) => {
+      const dataUrl = await readFileAsDataUrl(file);
+      const [, base64 = ''] = dataUrl.split(',', 2);
+      if (!base64) return null;
+      return {
+        data: base64,
+        media_type: String(file?.type || 'image/png').trim() || 'image/png',
+      };
+    }));
+    return payloads.filter(Boolean);
+  }, [selectedModelSupportsReadImage, uploadFileList, uploadedFileMeta]);
+
+  const handleSendWithAttachments = async () => {
     if (isSendDisabled) return;
     const serializedMessage = serializeEditorMessage(editor, buildMarkdownFileLink);
     const remainingUploadedLinks = uploadedFileMeta
@@ -2039,8 +2084,14 @@ const Composer = ({
       activeTool === 'voice-square'
         ? `@vectcut-skill 用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}将下面文字合成音频：${combined}`
         : combined;
+    let imagePayloads = [];
+    try {
+      imagePayloads = await collectImagePayloads();
+    } catch (error) {
+      console.warn('[Composer] failed to collect image payloads', error);
+    }
     closeMentionPanel();
-    handleSend && handleSend(nextMessage);
+    handleSend && handleSend(nextMessage, { images: imagePayloads });
     setUploadFileList([]);
     setUploadedFileMeta((prev) => {
       prev.forEach((item) => {

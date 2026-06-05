@@ -1889,8 +1889,16 @@ const HomePage = () => {
     });
   };
 
-  const handleSendChatMessage = async (inputText) => {
+  const handleSendChatMessage = async (inputText, options = {}) => {
     const text = String(inputText || '').trim();
+    const images = Array.isArray(options?.images)
+      ? options.images.filter((item) => (
+        item
+        && typeof item === 'object'
+        && typeof item.data === 'string'
+        && typeof item.media_type === 'string'
+      ))
+      : [];
     if (!text) return;
 
     let targetSessionId = activeChatId;
@@ -2054,7 +2062,8 @@ const HomePage = () => {
         sessionId: agentSessionId,
         content: text,
         requestId,
-        model: chatModel
+        model: chatModel,
+        images
       });
       logger.info('[HomePage][StreamTrace] createMessage roundtrip done', {
         chatId: targetSessionId,
