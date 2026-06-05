@@ -779,6 +779,9 @@ const HomePage = () => {
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
   const activeChatRuntimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
+  const activeChatSessionSending = Boolean(
+    activeChatId && chatSessionSendingMap[String(activeChatId || '').trim()]
+  );
   const activeChatNeedsHistoryHydrate = Boolean(
     activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
   );
@@ -787,6 +790,13 @@ const HomePage = () => {
     if (!canUseAgentRuntime) return;
     if (selectedPane !== 'chat') return;
     if (!activeChatSession || !activeChatNeedsHistoryHydrate) return;
+    if (activeChatSessionSending) {
+      logger.info('[HomePage][HistoryHydrate] skipped while session sending', {
+        chatId: activeChatSession?.id || '',
+        sessionId: activeChatRuntimeSessionId
+      });
+      return;
+    }
     if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
       logger.warn('[HomePage][HistoryHydrate] bridge unavailable', {
         chatId: activeChatSession?.id || '',
@@ -809,6 +819,11 @@ const HomePage = () => {
         const beforeMessageCount = Array.isArray(activeChatSession.messages)
           ? activeChatSession.messages.length
           : 0;
+        const beforeMessageIds = new Set(
+          (Array.isArray(activeChatSession.messages) ? activeChatSession.messages : [])
+            .map((message) => String(message?.id || '').trim())
+            .filter(Boolean)
+        );
         const beforeVisibleAssistantCount = countVisibleAssistantMessages(activeChatSession.messages);
         const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(activeChatSession.messages);
         logger.info('[HomePage][HistoryHydrate] start', {
@@ -880,10 +895,22 @@ const HomePage = () => {
           const updated = prev.map((item) => {
             if (item.id !== activeChatSession.id) return item;
             if (!shouldHydrateChatSessionFromHistory(item)) return item;
+            const currentMessages = Array.isArray(item.messages) ? item.messages : [];
+            const hydratedMessageIds = new Set(
+              hydratedMessages.map((message) => String(message?.id || '').trim()).filter(Boolean)
+            );
+            // Preserve optimistic messages added after hydrate started so a restart +
+            // quick resend does not get overwritten by late-arriving history data.
+            const locallyAddedMessages = currentMessages.filter((message) => {
+              const messageId = String(message?.id || '').trim();
+              if (!messageId) return false;
+              if (hydratedMessageIds.has(messageId)) return false;
+              return !beforeMessageIds.has(messageId);
+            });
             return {
               ...item,
               updatedAt: Date.now(),
-              messages: hydratedMessages
+              messages: [...hydratedMessages, ...locallyAddedMessages]
             };
           });
           return sortChatSessions(updated);
@@ -919,7 +946,8 @@ const HomePage = () => {
     selectedPane,
     activeChatId,
     activeChatRuntimeSessionId,
-    activeChatNeedsHistoryHydrate
+    activeChatNeedsHistoryHydrate,
+    activeChatSessionSending
   ]);
   const setChatSessionSending = (chatId, sending, reason = '') => {
     const id = String(chatId || '').trim();

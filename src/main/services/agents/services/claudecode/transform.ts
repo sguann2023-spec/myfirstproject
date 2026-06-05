@@ -246,6 +246,13 @@ function handleAssistantMessage(
   }
 
   if (!isStreamingActive) {
+    logger.info('Assistant text snapshot fell back to non-streaming text emission', {
+      sessionId: message.session_id,
+      messageUuid: message.uuid || '',
+      textChars: combinedText.length,
+      textBlockCount: textBlocks.length,
+      reason: 'assistant_snapshot_without_active_stream'
+    })
     const id = message.uuid?.toString() || generateMessageId()
     state.beginStep()
     chunks.push({
@@ -274,6 +281,14 @@ function handleAssistantMessage(
 
   const existingTextBlock = state.getFirstOpenTextBlock()
   const fallbackId = existingTextBlock?.id || message.uuid?.toString() || generateMessageId()
+  logger.info('Assistant text snapshot merged into streaming step', {
+    sessionId: message.session_id,
+    messageUuid: message.uuid || '',
+    textChars: combinedText.length,
+    textBlockCount: textBlocks.length,
+    reusedOpenTextBlock: Boolean(existingTextBlock),
+    reason: existingTextBlock ? 'assistant_snapshot_after_partial_stream' : 'assistant_snapshot_without_open_text_block'
+  })
   if (!existingTextBlock) {
     chunks.push({
       type: 'text-start',

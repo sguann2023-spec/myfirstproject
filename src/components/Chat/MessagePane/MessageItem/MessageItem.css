@@ -17,11 +17,11 @@
 .chat-panel__message-body {
   margin-top: -12px;
   margin-left: 45px;
-  max-width: calc(100% - 45px);
+  max-width: calc(100% - 90px);
 }
 
 .chat-panel__message-body.user {
-  margin-left: 0;
+  margin-left: 45px;
   margin-right: 45px;
   min-width: 0;
   background: #ccebff;
@@ -31,7 +31,7 @@
 }
 
 .chat-panel__message-body.assistant {
-  width: calc(100% - 45px);
+  width: calc(100% - 90px);
   min-width: 0;
   color: #111;
 }

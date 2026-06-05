@@ -116,6 +116,16 @@ You have three complementary web paths: \`mcp__exa__web_search_exa\` for structu
 **Use \`mcp__browser__screenshot\`** to visually inspect pages (search results, dashboards, verification). It's far more efficient than full browser extraction.
 **Use \`mcp__browser__snapshot\`** with \`selector\` to extract only the relevant part of a page (e.g., \`selector: "#search"\` for Google results).`
 
+const BROWSER_ACTION_GUIDANCE = `## Browser Action Rules
+
+When using \`mcp__browser__*\` tools, prefer the dedicated browser tool that matches the action instead of injecting JavaScript navigation commands.
+
+Rules:
+- To refresh the current page, use \`mcp__browser__reload\`.
+- Do not use \`mcp__browser__execute\` with \`location.reload()\`, \`window.location.reload()\`, \`history.go(0)\`, or similar page-reload snippets.
+- Use \`mcp__browser__execute\` for DOM reads and interactions inside the current page, not for host-level navigation control when a dedicated browser tool exists.
+- If you need a fresh navigation to another URL, use \`mcp__browser__open\` instead of assigning to \`window.location\` from injected JavaScript.`
+
 const SHELL_GUIDANCE = `## Shell Strategy
 
 When the builtin shell tool is available, prefer Bash-compatible commands on every platform, including Windows.
@@ -161,6 +171,7 @@ function composeToolGuidance(opts: { hasClaw: boolean }): string {
   parts.push(WORKFLOW_GUIDANCE)
   parts.push(MEMORY_GUIDANCE)
   parts.push(WEB_TOOLS_GUIDANCE)
+  parts.push(BROWSER_ACTION_GUIDANCE)
   parts.push(SYSTEM_GUIDANCE)
   parts.push(SHELL_GUIDANCE)
   parts.push(FILE_EDITING_GUIDANCE)

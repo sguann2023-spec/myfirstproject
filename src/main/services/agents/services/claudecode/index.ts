@@ -731,6 +731,20 @@ class ClaudeCodeService implements AgentServiceInterface {
     if (!options.mcpServers) options.mcpServers = {}
     const browserServer = new BrowserServer()
     options.mcpServers.browser = { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer }
+    autoAllowTools.add('mcp__browser__open')
+    autoAllowTools.add('mcp__browser__execute')
+    autoAllowTools.add('mcp__browser__reload')
+    autoAllowTools.add('mcp__browser__screenshot')
+    autoAllowTools.add('mcp__browser__snapshot')
+    autoAllowTools.add('mcp__browser__list_tabs')
+    autoAllowTools.add('mcp__browser__switch_tab')
+    autoAllowTools.add('mcp__browser__close_tab')
+    autoAllowTools.add('mcp__browser__reset')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__browser__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__browser__*']
+      }
+    }
 
     // Inject Exa MCP for structured web search only (free tier, no API key required).
     // Known-URL page fetching should use Bash/curl or browser MCP, not WebFetch or Exa fetch tools.
@@ -1371,6 +1385,17 @@ class ClaudeCodeService implements AgentServiceInterface {
       assistantReasoningBlockCount: 0,
       assistantReasoningChars: 0
     }
+    const streamingProbe = {
+      firstChunkAtMs: null as number | null,
+      firstTextDeltaAtMs: null as number | null,
+      firstReasoningDeltaAtMs: null as number | null,
+      firstToolCallAtMs: null as number | null,
+      firstToolResultAtMs: null as number | null,
+      textDeltaCount: 0,
+      reasoningDeltaCount: 0,
+      assistantSnapshotWithTextCount: 0,
+      assistantSnapshotTextChars: 0
+    }
 
     try {
       for await (const message of query({ prompt: promptStream, options })) {
@@ -1411,16 +1436,24 @@ class ClaudeCodeService implements AgentServiceInterface {
           const blocks = (message as any).message.content as any[]
           const blockTypes = blocks.map((block) => String(block?.type || 'unknown'))
           const toolUseBlocks = blocks.filter((block) => String(block?.type || '') === 'tool_use')
+          const textBlocks = blocks.filter((block) => String(block?.type || '') === 'text')
+          const textChars = textBlocks.reduce((total, block) => total + String((block as any)?.text || '').length, 0)
           if (toolUseBlocks.length > 0) {
             toolUseProbe.assistantWithToolUseCount += 1
             toolUseProbe.assistantToolUseBlockCount += toolUseBlocks.length
+          }
+          if (textBlocks.length > 0 && textChars > 0) {
+            streamingProbe.assistantSnapshotWithTextCount += 1
+            streamingProbe.assistantSnapshotTextChars += textChars
           }
           logger.info('Assistant snapshot probe', {
             sessionId,
             assistantMessageIndex: toolUseProbe.assistantMessageCount,
             blockTypes,
             toolUseBlockCount: toolUseBlocks.length,
-            toolUseNames: toolUseBlocks.map((block) => String((block as any)?.name || 'unknown'))
+            toolUseNames: toolUseBlocks.map((block) => String((block as any)?.name || 'unknown')),
+            textBlockCount: textBlocks.length,
+            textChars
           })
           for (const block of blocks) {
             const blockType = String(block?.type || '')
@@ -1551,6 +1584,64 @@ class ClaudeCodeService implements AgentServiceInterface {
           }
         }
         for (const chunk of chunks) {
+          const elapsedMs = Date.now() - startTime
+          if (streamingProbe.firstChunkAtMs === null) {
+            streamingProbe.firstChunkAtMs = elapsedMs
+            logger.info('Streaming probe: first transformed chunk emitted', {
+              sessionId,
+              elapsedMs,
+              chunkType: chunk.type,
+              sdkMessageType: message.type
+            })
+          }
+
+          if (chunk.type === 'text-delta') {
+            streamingProbe.textDeltaCount += 1
+            if (streamingProbe.firstTextDeltaAtMs === null) {
+              streamingProbe.firstTextDeltaAtMs = elapsedMs
+              logger.info('Streaming probe: first text delta emitted', {
+                sessionId,
+                elapsedMs,
+                sdkMessageType: message.type,
+                chars: String((chunk as any).text || '').length
+              })
+            }
+          }
+
+          if (chunk.type === 'reasoning-delta') {
+            streamingProbe.reasoningDeltaCount += 1
+            if (streamingProbe.firstReasoningDeltaAtMs === null) {
+              streamingProbe.firstReasoningDeltaAtMs = elapsedMs
+              logger.info('Streaming probe: first reasoning delta emitted', {
+                sessionId,
+                elapsedMs,
+                sdkMessageType: message.type,
+                chars: String((chunk as any).text || '').length
+              })
+            }
+          }
+
+          if (chunk.type === 'tool-call' && streamingProbe.firstToolCallAtMs === null) {
+            streamingProbe.firstToolCallAtMs = elapsedMs
+            logger.info('Streaming probe: first tool call emitted', {
+              sessionId,
+              elapsedMs,
+              sdkMessageType: message.type,
+              toolName: (chunk as any).toolName ?? ''
+            })
+          }
+
+          if ((chunk.type === 'tool-result' || chunk.type === 'tool-error') && streamingProbe.firstToolResultAtMs === null) {
+            streamingProbe.firstToolResultAtMs = elapsedMs
+            logger.info('Streaming probe: first tool result emitted', {
+              sessionId,
+              elapsedMs,
+              chunkType: chunk.type,
+              sdkMessageType: message.type,
+              toolName: (chunk as any).toolName ?? ''
+            })
+          }
+
           if (chunk.type === 'tool-error') {
             logger.warn('Tool execution failed in stream chunk', {
               sessionId,
@@ -1605,6 +1696,29 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
 
       const duration = Date.now() - startTime
+
+      logger.info('Streaming probe summary', {
+        sessionId,
+        duration,
+        messageCount: jsonOutput.length,
+        firstChunkAtMs: streamingProbe.firstChunkAtMs,
+        firstTextDeltaAtMs: streamingProbe.firstTextDeltaAtMs,
+        firstReasoningDeltaAtMs: streamingProbe.firstReasoningDeltaAtMs,
+        firstToolCallAtMs: streamingProbe.firstToolCallAtMs,
+        firstToolResultAtMs: streamingProbe.firstToolResultAtMs,
+        textDeltaCount: streamingProbe.textDeltaCount,
+        reasoningDeltaCount: streamingProbe.reasoningDeltaCount,
+        assistantSnapshotWithTextCount: streamingProbe.assistantSnapshotWithTextCount,
+        assistantSnapshotTextChars: streamingProbe.assistantSnapshotTextChars
+      })
+      if (streamingProbe.textDeltaCount === 0 && streamingProbe.assistantSnapshotWithTextCount > 0) {
+        logger.warn('Streaming probe detected snapshot-only text response', {
+          sessionId,
+          duration,
+          assistantSnapshotWithTextCount: streamingProbe.assistantSnapshotWithTextCount,
+          assistantSnapshotTextChars: streamingProbe.assistantSnapshotTextChars
+        })
+      }
 
       // logger.debug('SDK query completed successfully', {
       //   duration,

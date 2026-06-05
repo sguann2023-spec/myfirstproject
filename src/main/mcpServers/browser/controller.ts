@@ -8,6 +8,8 @@ import { SESSION_KEY_DEFAULT, SESSION_KEY_PRIVATE, TAB_BAR_HEIGHT } from './cons
 import { TAB_BAR_HTML } from './tabbar-html'
 import { logger, type TabInfo, userAgent, type WindowInfo } from './types'
 
+const BROWSER_COMMAND_TIMEOUT_MS = 10000
+
 /**
  * Controller for managing browser windows via Chrome DevTools Protocol (CDP).
  * Supports two modes: normal (persistent) and private (ephemeral).
@@ -97,13 +99,32 @@ export class CdpBrowserController {
       try {
         logger.info('Attaching debugger', { sessionKey })
         dbg.attach('1.3')
-        await dbg.sendCommand('Page.enable')
-        await dbg.sendCommand('Runtime.enable')
+        await this.sendDebuggerCommandWithTimeout(dbg, 'Page.enable', undefined, BROWSER_COMMAND_TIMEOUT_MS)
+        await this.sendDebuggerCommandWithTimeout(dbg, 'Runtime.enable', undefined, BROWSER_COMMAND_TIMEOUT_MS)
         logger.info('Debugger attached and domains enabled')
       } catch (error) {
         logger.error('Failed to attach debugger', { error })
         throw error
       }
+    }
+  }
+
+  private async sendDebuggerCommandWithTimeout<T>(
+    dbg: Electron.Debugger,
+    method: string,
+    params?: Record<string, unknown>,
+    timeout = BROWSER_COMMAND_TIMEOUT_MS
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    try {
+      return (await Promise.race([
+        dbg.sendCommand(method, params),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(`${method} timed out`)), timeout)
+        })
+      ])) as T
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle)
     }
   }
 
@@ -785,6 +806,71 @@ export class CdpBrowserController {
     }
   }
 
+  public async reload(privateMode = false, tabId?: string, timeout = 10000) {
+    const { tabId: actualTabId, tab } = await this.getTab(privateMode, tabId)
+    const windowKey = this.getWindowKey(privateMode)
+    this.touchTab(windowKey, actualTabId)
+    const { webContents } = tab.view
+
+    if (webContents.isDestroyed()) {
+      throw new Error(`Tab ${actualTabId} is no longer available`)
+    }
+
+    let resolved = false
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    let onFinish: () => void
+    let onDomReady: () => void
+    let onFail: (_event: Electron.Event, code: number, desc: string) => void
+
+    const cleanup = () => {
+      if (timeoutHandle) clearTimeout(timeoutHandle)
+      webContents.removeListener('did-finish-load', onFinish)
+      webContents.removeListener('did-fail-load', onFail)
+      webContents.removeListener('dom-ready', onDomReady)
+    }
+
+    const loadPromise = new Promise<void>((resolve, reject) => {
+      onFinish = () => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        resolve()
+      }
+      onDomReady = () => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        resolve()
+      }
+      onFail = (_event: Electron.Event, code: number, desc: string) => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        reject(new Error(`Reload failed (${code}): ${desc}`))
+      }
+      webContents.once('did-finish-load', onFinish)
+      webContents.once('dom-ready', onDomReady)
+      webContents.once('did-fail-load', onFail)
+    })
+
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error('Reload timed out')), timeout)
+    })
+
+    logger.info('Reloading current tab', { windowKey, tabId: actualTabId, privateMode })
+
+    try {
+      webContents.reload()
+      await Promise.race([loadPromise, timeoutPromise])
+    } finally {
+      cleanup()
+    }
+
+    return {
+      reloaded: actualTabId
+    }
+  }
+
   public async reset(privateMode?: boolean, tabId?: string) {
     if (privateMode !== undefined && tabId) {
       const windowKey = this.getWindowKey(privateMode)
@@ -956,7 +1042,13 @@ export class CdpBrowserController {
       params.quality = options.quality
     }
 
-    const result = (await dbg.sendCommand('Page.captureScreenshot', params)) as { data: string }
+    logger.info('Capturing screenshot', { windowKey, tabId: actualTabId, format, fullPage: options.fullPage ?? false })
+    const result = await this.sendDebuggerCommandWithTimeout<{ data: string }>(
+      dbg,
+      'Page.captureScreenshot',
+      params,
+      BROWSER_COMMAND_TIMEOUT_MS
+    )
     return result.data
   }
 

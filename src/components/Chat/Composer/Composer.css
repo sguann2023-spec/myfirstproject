@@ -418,6 +418,16 @@
   overflow-wrap: break-word;
 }
 
+.chat-panel__input .chat-panel__input-prosemirror a,
+.chat-panel__input .chat-panel__input-prosemirror a:visited,
+.chat-panel__input .chat-panel__input-prosemirror a:hover,
+.chat-panel__input .chat-panel__input-prosemirror a:active,
+.chat-panel__input .chat-panel__input-prosemirror a[x-apple-data-detectors],
+.chat-panel__input .chat-panel__input-prosemirror [x-apple-data-detectors] {
+  color: inherit;
+  text-decoration: none;
+}
+
 .chat-panel__input .chat-panel__input-prosemirror:focus {
   outline: none;
 }
