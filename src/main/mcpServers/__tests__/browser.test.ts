@@ -366,10 +366,10 @@ describe('CdpBrowserController', () => {
       expect(result.currentUrl).toBe('https://example.com/')
     })
 
-    it('mutes hidden tabs by default', async () => {
+    it('keeps tabs unmuted when the default visible window is used', async () => {
       const controller = new CdpBrowserController()
-      const { view } = await controller.createTab(false, false)
-      expect(view.webContents.setAudioMuted).toHaveBeenCalledWith(true)
+      const { view } = await controller.createTab(false)
+      expect(view.webContents.setAudioMuted).toHaveBeenCalledWith(false)
     })
   })
 

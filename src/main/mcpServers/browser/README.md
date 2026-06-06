@@ -43,12 +43,12 @@ Open a URL in a browser window. Optionally return page content.
   "timeout": 10000,
   "privateMode": false,
   "newTab": false,
-  "showWindow": false
+  "showWindow": true
 }
 ```
 - `format`: If set (`html`, `txt`, `markdown`, `json`), returns page content in that format along with tabId. If not set, just opens the page and returns navigation info.
 - `newTab`: Set to `true` to open in a new tab (required for parallel requests)
-- `showWindow`: Set to `true` to display the browser window (useful for debugging)
+- `showWindow`: Defaults to `true`; set to `false` to keep browsing in the background
 - Returns (without format): `{ currentUrl, title, tabId }`
 - Returns (with format): `{ tabId, content }` where content is in the specified format
 
@@ -174,4 +174,4 @@ const controller = new CdpBrowserController({
   - Normal mode: `persist:default` (disk-persisted, global)
   - Private mode: `private` (memory only)
 - **Window Size**: 1200x800 (default)
-- **Visibility**: Windows hidden by default (use `showWindow: true` to display)
+- **Visibility**: Windows shown by default (use `showWindow: false` for background browsing)

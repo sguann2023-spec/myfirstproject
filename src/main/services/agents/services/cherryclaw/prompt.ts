@@ -101,7 +101,7 @@ const WEB_TOOLS_GUIDANCE = `## Web Search & Browser Strategy
 
 You have three complementary web paths: \`mcp__exa__web_search_exa\` for structured search, builtin \`Bash\` with \`curl -sL\` for reading a known URL, and \`mcp__browser__*\` for page interaction.
 
-**Search-first, curl-second, browse-third:** Start with Exa for search queries (returns clean structured results). When you already know the URL and need page content, prefer builtin \`Bash\` with \`curl -sL\` first. Only use the browser when you need screenshots, interaction, login, or JavaScript-rendered content that plain HTTP fetching cannot retrieve well.
+**Search-first, curl-second, browse-third:** Start with Exa for search queries (returns clean structured results). When you already know the URL and need page content, prefer builtin \`Bash\` with \`curl -sL\` first. Use the browser when you need screenshots, interaction, login, or JavaScript-rendered content that plain HTTP fetching cannot retrieve well. Browser pages now open with a visible window by default unless you explicitly choose otherwise.
 **Never use Exa fetch tools or builtin \`WebFetch\` for known URLs.** Do not use \`mcp__exa__web_fetch_exa\`, any Exa page-fetching tool, or builtin \`WebFetch\` to read a specific page directly, because known-URL reads in this environment should avoid those fetch layers.
 
 **Always parallelize when possible.** You can call multiple tools simultaneously in a single response. Do this whenever queries are independent:

@@ -113,6 +113,7 @@ class ClaudeCodeStream extends EventEmitter implements AgentStream {
 class ClaudeCodeService implements AgentServiceInterface {
   private claudeExecutablePath: string
   private claudeProxyBootstrapPath: string
+  private browserServers = new Map<string, BrowserServer>()
 
   constructor() {
     // Resolve Claude Code CLI robustly (works in dev and in asar)
@@ -120,6 +121,22 @@ class ClaudeCodeService implements AgentServiceInterface {
       path.join(path.dirname(require_.resolve('@anthropic-ai/claude-agent-sdk')), 'cli.js')
     )
     this.claudeProxyBootstrapPath = toAsarUnpackedPath(path.join(app.getAppPath(), 'out', 'proxy', 'index.js'))
+  }
+
+  private getOrCreateBrowserServer(sessionId: string): BrowserServer {
+    const existing = this.browserServers.get(sessionId)
+    if (existing) {
+      logger.debug('Reusing browser MCP server for session', { sessionId })
+      return existing
+    }
+
+    const browserServer = new BrowserServer()
+    this.browserServers.set(sessionId, browserServer)
+    logger.info('Created browser MCP server for session', {
+      sessionId,
+      cachedSessionCount: this.browserServers.size
+    })
+    return browserServer
   }
 
   async invoke(
@@ -729,7 +746,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     // Inject @cherry/browser MCP for all agents to handle interactive browsing.
     if (!options.mcpServers) options.mcpServers = {}
-    const browserServer = new BrowserServer()
+    const browserServer = this.getOrCreateBrowserServer(session.id)
     options.mcpServers.browser = { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer }
     autoAllowTools.add('mcp__browser__open')
     autoAllowTools.add('mcp__browser__execute')

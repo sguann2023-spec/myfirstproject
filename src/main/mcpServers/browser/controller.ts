@@ -384,7 +384,7 @@ export class CdpBrowserController {
   private async createBrowserWindow(
     windowKey: string,
     privateMode: boolean,
-    showWindow = false
+    showWindow = true
   ): Promise<BrowserWindow> {
     await this.ensureAppReady()
 
@@ -440,7 +440,7 @@ export class CdpBrowserController {
     return win
   }
 
-  private async getOrCreateWindow(privateMode: boolean, showWindow = false): Promise<WindowInfo> {
+  private async getOrCreateWindow(privateMode: boolean, showWindow = true): Promise<WindowInfo> {
     await this.ensureAppReady()
     this.sweepIdle()
 
@@ -510,10 +510,10 @@ export class CdpBrowserController {
   /**
    * Creates a new tab in the window
    * @param privateMode - If true, uses private browsing mode (default: false)
-   * @param showWindow - If true, shows the browser window (default: false)
+   * @param showWindow - If true, shows the browser window (default: true)
    * @returns Tab ID and view
    */
-  public async createTab(privateMode = false, showWindow = false): Promise<{ tabId: string; view: BrowserView }> {
+  public async createTab(privateMode = false, showWindow = true): Promise<{ tabId: string; view: BrowserView }> {
     const windowInfo = await this.getOrCreateWindow(privateMode, showWindow)
     const tabId = randomUUID()
     const partition = this.getPartition(privateMode)
@@ -639,13 +639,13 @@ export class CdpBrowserController {
    * @param privateMode - Whether to use private browsing mode
    * @param tabId - Optional specific tab ID to use
    * @param newTab - If true, always create a new tab (useful for parallel requests)
-   * @param showWindow - If true, shows the browser window (default: false)
+   * @param showWindow - If true, shows the browser window (default: true)
    */
   private async getTab(
     privateMode: boolean,
     tabId?: string,
     newTab?: boolean,
-    showWindow = false
+    showWindow = true
   ): Promise<{ tabId: string; tab: TabInfo }> {
     const windowInfo = await this.getOrCreateWindow(privateMode, showWindow)
 
@@ -691,10 +691,10 @@ export class CdpBrowserController {
    * @param timeout - Navigation timeout in milliseconds (default: 10000)
    * @param privateMode - If true, uses private browsing mode (default: false)
    * @param newTab - If true, always creates a new tab (useful for parallel requests)
-   * @param showWindow - If true, shows the browser window (default: false)
+   * @param showWindow - If true, shows the browser window (default: true)
    * @returns Object containing the current URL, page title, and tab ID after navigation
    */
-  public async open(url: string, timeout = 10000, privateMode = false, newTab = false, showWindow = false) {
+  public async open(url: string, timeout = 10000, privateMode = false, newTab = false, showWindow = true) {
     const { tabId: actualTabId, tab } = await this.getTab(privateMode, undefined, newTab, showWindow)
     const view = tab.view
     const windowKey = this.getWindowKey(privateMode)
@@ -943,7 +943,7 @@ export class CdpBrowserController {
    * @param timeout - Navigation timeout in milliseconds (default: 10000)
    * @param privateMode - If true, uses private browsing mode (default: false)
    * @param newTab - If true, always creates a new tab (useful for parallel requests)
-   * @param showWindow - If true, shows the browser window (default: false)
+   * @param showWindow - If true, shows the browser window (default: true)
    * @returns Object with tabId and content in the requested format. For 'json', content is parsed object or { data: rawContent } if parsing fails
    */
   public async fetch(
@@ -952,7 +952,7 @@ export class CdpBrowserController {
     timeout = 10000,
     privateMode = false,
     newTab = false,
-    showWindow = false,
+    showWindow = true,
     selector?: string
   ): Promise<{ tabId: string; content: string | object }> {
     const { tabId } = await this.open(url, timeout, privateMode, newTab, showWindow)
