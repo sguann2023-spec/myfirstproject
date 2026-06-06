@@ -3,9 +3,11 @@ import { useState } from 'react';
 import './SettingPage.css';
 
 import GeneralSettingIcon from '../../../public/settings_general.png';
+import PrivacyIcon from '../../../public/privacy.svg';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import GeneralSettings from '../../components/GeneralSettings/GeneralSettings';
 import AboutUs from '../../components/AboutUs/AboutUs';
+import PolicyAgreement from '../../components/PolicyAgreement/PolicyAgreement';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('SettingPage');
 
@@ -13,6 +15,7 @@ const logger = loggerService.withContext('SettingPage');
 const settingMenuItems = [
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
   { key: 'about', icon: <InfoCircleOutlined />, title: '关于流光剪辑', component: AboutUs },
+  { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement }
 ];
 
 const SettingPage = () => {

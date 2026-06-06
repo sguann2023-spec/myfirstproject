@@ -1,0 +1,68 @@
+.policy-agreement {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.policy-agreement-card {
+  width: 100%;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.policy-agreement-row {
+  width: 100%;
+  position: relative;
+  background: #fff;
+}
+
+.policy-agreement-row-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+}
+
+.policy-agreement-row::after {
+  content: '';
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  height: 1px;
+  background: #f0f0f0;
+}
+
+.policy-agreement-row:last-child::after {
+  display: none;
+}
+
+.policy-agreement-card-title {
+  font-size: 14px;
+  font-weight: 400;
+  color: #000;
+}
+
+.policy-agreement-card-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #000;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.policy-agreement-card-action:hover {
+  background: #f5f5f5;
+}
+
+.policy-agreement-card-action:focus {
+  outline: none;
+  background: #f5f5f5;
+}
