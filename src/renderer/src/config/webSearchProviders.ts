@@ -69,8 +69,7 @@ export const WEB_SEARCH_PROVIDERS: WebSearchProvider[] = [
   {
     id: 'zhipu',
     name: 'Zhipu',
-    apiHost: 'https://open.bigmodel.cn/api/paas/v4/web_search',
-    apiKey: ''
+    apiHost: 'https://open.vectcut.com/search/zhipu'
   },
   {
     id: 'tavily',

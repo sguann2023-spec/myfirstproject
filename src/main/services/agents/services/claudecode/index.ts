@@ -25,6 +25,7 @@ import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import SkillsServer from '@main/mcpServers/skills'
+import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
 import { configManager } from '@main/services/ConfigManager'
@@ -771,11 +772,13 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     }
 
-    // Inject Exa MCP for structured web search only (free tier, no API key required).
-    // Known-URL page fetching should use Bash/curl or browser MCP, not WebFetch or Exa fetch tools.
-    options.mcpServers.exa = {
-      type: 'http',
-      url: 'https://mcp.exa.ai/mcp?tools=web_search_exa'
+    const zhipuSearchServer = new ZhipuSearchServer()
+    options.mcpServers.search = { type: 'sdk', name: 'search', instance: zhipuSearchServer.mcpServer }
+    autoAllowTools.add('mcp__search__web_search')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__search__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__search__*']
+      }
     }
 
     // Inject a host-level system MCP for trusted desktop actions that should

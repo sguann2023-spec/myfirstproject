@@ -414,6 +414,11 @@ class CherryINOAuthService {
     return response
   }
 
+  public fetchWithAuth = async (apiHost: string, endpoint: string, options: RequestInit = {}): Promise<Response> => {
+    this.validateApiHost(apiHost)
+    return this.authenticatedFetch(apiHost, endpoint, options)
+  }
+
   /**
    * Get user balance from CherryIN API
    */

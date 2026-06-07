@@ -109,6 +109,10 @@ class WebSearchService {
       return true
     }
 
+    if (provider.id === 'zhipu') {
+      return provider.apiHost !== ''
+    }
+
     if (hasObjectKey(provider, 'apiKey')) {
       return provider.apiKey !== ''
     }

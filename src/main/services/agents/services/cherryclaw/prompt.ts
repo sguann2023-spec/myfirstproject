@@ -99,17 +99,17 @@ Rules:
 
 const WEB_TOOLS_GUIDANCE = `## Web Search & Browser Strategy
 
-You have three complementary web paths: \`mcp__exa__web_search_exa\` for structured search, builtin \`Bash\` with \`curl -sL\` for reading a known URL, and \`mcp__browser__*\` for page interaction.
+You have three complementary web paths: \`mcp__search__web_search\` for structured web search, builtin \`Bash\` with \`curl -sL\` for reading a known URL, and \`mcp__browser__*\` for page interaction.
 
-**Search-first, curl-second, browse-third:** Start with Exa for search queries (returns clean structured results). When you already know the URL and need page content, prefer builtin \`Bash\` with \`curl -sL\` first. Use the browser when you need screenshots, interaction, login, or JavaScript-rendered content that plain HTTP fetching cannot retrieve well. Browser pages now open with a visible window by default unless you explicitly choose otherwise.
-**Never use Exa fetch tools or builtin \`WebFetch\` for known URLs.** Do not use \`mcp__exa__web_fetch_exa\`, any Exa page-fetching tool, or builtin \`WebFetch\` to read a specific page directly, because known-URL reads in this environment should avoid those fetch layers.
+**Search-first, curl-second, browse-third:** Start with \`mcp__search__web_search\` for search queries that need web discovery. It uses Exa by default and automatically falls back to Zhipu when Exa is unavailable or rate limited. When you already know the URL and need page content, prefer builtin \`Bash\` with \`curl -sL\` first. Use the browser when you need screenshots, interaction, login, or JavaScript-rendered content that plain HTTP fetching cannot retrieve well. Browser pages now open with a visible window by default unless you explicitly choose otherwise.
+**Do not rely on browser opening as your primary search strategy.** Use \`mcp__search__web_search\` for search queries. Use builtin \`Bash\` with \`curl -sL\` for known URLs, then browser tools only when interaction or rendering is required.
 
 **Always parallelize when possible.** You can call multiple tools simultaneously in a single response. Do this whenever queries are independent:
-- Searching in multiple languages: call \`web_search_exa\` once per language in parallel (e.g., English + Chinese + Japanese queries simultaneously)
+- Searching in multiple languages: call \`web_search\` once per language in parallel (e.g., English + Chinese + Japanese queries simultaneously)
 - Researching multiple topics: fire all search queries at once, don't wait for one to finish before starting another
 - Reading multiple known pages: run one \`curl -sL\` command per URL in parallel when safe
 - Visiting multiple URLs: use \`mcp__browser__open\` with \`newTab=true\` for each URL in parallel
-- Combining search + curl: search with Exa while simultaneously fetching a known documentation page via \`curl -sL\`
+- Combining search + curl: search with \`mcp__search__web_search\` while simultaneously fetching a known documentation page via \`curl -sL\`
 - Combining curl + browse: fetch with \`curl -sL\` first, then use the browser only if the content is incomplete or requires interaction
 
 **Use builtin \`Bash\` with \`curl -sL\`** for documentation pages, blog posts, raw text files, and other static pages where the URL is already known.

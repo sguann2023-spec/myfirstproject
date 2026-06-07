@@ -182,7 +182,7 @@ const WebSearchProviderSetting: FC<Props> = ({ providerId }) => {
   const isDefault = defaultProvider?.id === provider.id
 
   // Check if provider needs API key but doesn't have one configured
-  const needsApiKey = hasObjectKey(provider, 'apiKey')
+  const needsApiKey = provider.id !== 'zhipu' && hasObjectKey(provider, 'apiKey')
   const hasApiKey = provider.apiKey && provider.apiKey.trim() !== ''
   const canSetAsDefault = !isDefault && (!needsApiKey || hasApiKey)
 
@@ -228,7 +228,7 @@ const WebSearchProviderSetting: FC<Props> = ({ providerId }) => {
           </SettingHelpTextRow>
         </>
       )}
-      {!isLocalProvider && hasObjectKey(provider, 'apiKey') && (
+      {!isLocalProvider && needsApiKey && (
         <>
           <SettingSubtitle
             style={{
