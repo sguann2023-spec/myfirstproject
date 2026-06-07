@@ -14,14 +14,14 @@ export const ExecuteSchema = z.object({
 export const executeToolDefinition = {
   name: 'execute',
   description:
-    'Run JavaScript in the currently open page. Use after open to: click elements, fill forms, extract content (document.body.innerText), or interact with the page. The page must be opened first with open or fetch.',
+    'Run JavaScript in the currently open page. Prefer dedicated tools like click, type, press, scroll, focus, hover, wait_for, and inspect for normal interactions. Use execute for DOM reads, extraction, and last-resort page scripting.',
   inputSchema: {
     type: 'object',
     properties: {
       code: {
         type: 'string',
         description:
-          'JavaScript to evaluate. Examples: document.body.innerText (get text), document.querySelector("button").click() (click), document.title (get title)'
+          'JavaScript to evaluate. Examples: document.body.innerText (get text), document.title (get title), Array.from(document.querySelectorAll("button")).map(b => b.innerText) (inspect DOM)'
       },
       timeout: {
         type: 'number',

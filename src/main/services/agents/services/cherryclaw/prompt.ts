@@ -122,8 +122,14 @@ When using \`mcp__browser__*\` tools, prefer the dedicated browser tool that mat
 
 Rules:
 - To refresh the current page, use \`mcp__browser__reload\`.
+- To click or continue a UI flow, prefer \`mcp__browser__click\`. Use \`mcp__browser__hover\` first if the control only appears on hover.
+- To type into inputs, editors, or textareas, prefer \`mcp__browser__type\`; use \`mcp__browser__focus\` first when keyboard input must go to a specific field.
+- To trigger shortcuts or non-text keyboard actions, use \`mcp__browser__press\`.
+- To wait for UI updates after clicks, navigations, or async actions, use \`mcp__browser__wait_for\` instead of guessing timing.
+- To understand why an element cannot be clicked or typed into, use \`mcp__browser__inspect\` before falling back to JavaScript.
+- To scroll long pages or scroll containers, use \`mcp__browser__scroll\`.
 - Do not use \`mcp__browser__execute\` with \`location.reload()\`, \`window.location.reload()\`, \`history.go(0)\`, or similar page-reload snippets.
-- Use \`mcp__browser__execute\` for DOM reads and interactions inside the current page, not for host-level navigation control when a dedicated browser tool exists.
+- Use \`mcp__browser__execute\` mainly for DOM reads, extraction, or last-resort page scripting when the dedicated browser tools still cannot complete the action.
 - If you need a fresh navigation to another URL, use \`mcp__browser__open\` instead of assigning to \`window.location\` from injected JavaScript.`
 
 const SHELL_GUIDANCE = `## Shell Strategy
