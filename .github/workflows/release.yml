@@ -376,3 +376,80 @@ jobs:
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f build/VectCut-Setup-latest-x64.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-Setup-latest-x64.exe" -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/latest.yml" -c /tmp/.ossutilconfig
+
+  refresh-dcdn:
+    runs-on: ubuntu-latest
+    needs:
+      - build-and-upload-mac
+      - build-and-upload-win
+    timeout-minutes: 15
+    steps:
+      - name: Install Alibaba Cloud CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o aliyun-cli.tgz
+          tar -xzf aliyun-cli.tgz
+          sudo mv aliyun /usr/local/bin/aliyun
+          aliyun version
+
+      - name: Configure Alibaba Cloud CLI
+        shell: bash
+        env:
+          ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
+          ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          [ -n "${ALIBABA_CLOUD_ACCESS_KEY_ID:-}" ] || { echo "Missing AccessKey ID"; exit 1; }
+          [ -n "${ALIBABA_CLOUD_ACCESS_KEY_SECRET:-}" ] || { echo "Missing AccessKey Secret"; exit 1; }
+          aliyun configure set \
+            --mode AK \
+            --access-key-id "${ALIBABA_CLOUD_ACCESS_KEY_ID}" \
+            --access-key-secret "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}" \
+            --region cn-hangzhou
+
+      - name: Refresh and preload DCDN caches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          refresh_urls=$(cat <<'EOF'
+          https://player.install-ai-guider.top/client/latest/latest.yml
+          https://player.install-ai-guider.top/client/latest/latest-mac.yml
+          https://player.install-ai-guider.top/client/latest/latest-mac-arm64.yml
+          https://player.install-ai-guider.top/client/latest/VectCut-Setup-latest-x64.exe
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.zip
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.zip
+          EOF
+          )
+
+          preload_urls=$(cat <<'EOF'
+          https://player.install-ai-guider.top/client/latest/VectCut-Setup-latest-x64.exe
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.zip
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.zip
+          EOF
+          )
+
+          retry() {
+            local max_attempts="$1"
+            shift
+            local attempt=1
+            until "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "Command failed after ${max_attempts} attempts: $*"
+                return 1
+              fi
+              echo "Attempt ${attempt}/${max_attempts} failed, retrying in 10s..."
+              attempt=$((attempt + 1))
+              sleep 10
+            done
+          }
+
+          echo "Refreshing DCDN URLs..."
+          retry 3 aliyun dcdn RefreshDcdnObjectCaches \
+            --ObjectPath "${refresh_urls}" \
+            --ObjectType File
+
+          echo "Preloading DCDN URLs..."
+          retry 3 aliyun dcdn PreloadDcdnObjectCaches \
+            --ObjectPath "${preload_urls}"
