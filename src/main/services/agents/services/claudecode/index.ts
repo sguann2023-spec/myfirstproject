@@ -639,6 +639,18 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     }
 
+    const finalSystemPrompt: Options['systemPrompt'] = assistantSystemPrompt
+      ? assistantSystemPrompt
+      : soulSystemPrompt
+        ? `${soulSystemPrompt}${session.instructions ? `\n\n${session.instructions}` : ''}${channelSecurityBlock}\n\n${getLanguageInstruction()}`
+        : {
+            type: 'preset',
+            preset: 'claude_code',
+            append:
+              [nonSoulToolGuidance, nonSoulFactsRecall, session.instructions].filter(Boolean).join('\n\n') +
+              `${channelSecurityBlock}\n\n${getLanguageInstruction()}`
+          }
+
     // Build SDK options from session configuration
     const options: Options = {
       abortController,
@@ -683,17 +695,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         })
         return child as unknown as SpawnedProcess
       },
-      systemPrompt: assistantSystemPrompt
-        ? assistantSystemPrompt
-        : soulSystemPrompt
-          ? `${soulSystemPrompt}${session.instructions ? `\n\n${session.instructions}` : ''}${channelSecurityBlock}\n\n${getLanguageInstruction()}`
-          : {
-              type: 'preset',
-              preset: 'claude_code',
-              append:
-                [nonSoulToolGuidance, nonSoulFactsRecall, session.instructions].filter(Boolean).join('\n\n') +
-                `${channelSecurityBlock}\n\n${getLanguageInstruction()}`
-            },
+      systemPrompt: finalSystemPrompt,
       // Built-in agents skip CLAUDE.md loading to save tokens
       settingSources: builtinRole ? [] : ['project', 'local'],
       includePartialMessages: true,

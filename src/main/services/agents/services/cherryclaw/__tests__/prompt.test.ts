@@ -259,6 +259,8 @@ describe('PromptBuilder', () => {
 
       expect(result).toContain('## Skills')
       expect(result).toContain('mcp__skills__skills')
+      expect(result).toContain('## 中文自媒体选题与文案强约束')
+      expect(result).toContain('信息差')
       expect(result).toContain('## Workspace Memory')
       expect(result).toContain('mcp__agent-memory__memory')
       expect(result).toContain('## Web Search & Browser Strategy')
@@ -281,6 +283,7 @@ describe('PromptBuilder', () => {
       expect(result).toContain('mcp__claw__config')
       // Skills, memory, and web are still included
       expect(result).toContain('mcp__skills__skills')
+      expect(result).toContain('## 中文自媒体选题与文案强约束')
       expect(result).toContain('mcp__agent-memory__memory')
       expect(result).toContain('## Web Search & Browser Strategy')
     })
@@ -290,12 +293,14 @@ describe('PromptBuilder', () => {
 
       const clawIdx = result.indexOf('## VectcutClaw Tools')
       const skillsIdx = result.indexOf('## Skills')
+      const contentIdx = result.indexOf('## 中文自媒体选题与文案强约束')
       const memoryIdx = result.indexOf('## Workspace Memory')
       const webIdx = result.indexOf('## Web Search & Browser Strategy')
 
       expect(clawIdx).toBeGreaterThanOrEqual(0)
       expect(clawIdx).toBeLessThan(skillsIdx)
-      expect(skillsIdx).toBeLessThan(memoryIdx)
+      expect(skillsIdx).toBeLessThan(contentIdx)
+      expect(contentIdx).toBeLessThan(memoryIdx)
       expect(memoryIdx).toBeLessThan(webIdx)
     })
 
@@ -315,6 +320,16 @@ describe('PromptBuilder', () => {
       expect(result).toMatch(/6 months|durable/i)
     })
 
+    it('enforces topic upgrading for Chinese self-media copywriting', () => {
+      const result = builder.buildToolGuidance()
+
+      expect(result).toContain('必须优先改写成“群体观察 + 结果揭示 + 隐含规则”的题型')
+      expect(result).toContain('从“我的问题”升级成“某类人的真实选择”')
+      expect(result).toContain('禁止直接顺着平庸问题输出标准答案')
+      expect(result).toContain('富人的女儿都嫁给了谁？')
+      expect(result).toContain('私人求助题”升级成“群体观察题”和“现实揭示题')
+    })
+
     it('returns the same content soul-mode buildSystemPrompt embeds (with claw)', async () => {
       setupFiles({})
       const soulPrompt = await builder.buildSystemPrompt('/workspace')
@@ -323,6 +338,7 @@ describe('PromptBuilder', () => {
       // The Soul prompt should embed every section the with-claw guidance has.
       expect(soulPrompt).toContain('## VectcutClaw Tools')
       expect(soulPrompt).toContain('## Skills')
+      expect(soulPrompt).toContain('## 中文自媒体选题与文案强约束')
       expect(soulPrompt).toContain('## Workspace Memory')
       expect(soulPrompt).toContain('## Web Search & Browser Strategy')
       // And the guidance string is a contiguous substring of the soul prompt.
