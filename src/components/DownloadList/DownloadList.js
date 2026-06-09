@@ -1,35 +1,17 @@
-import React from 'react';
-import { Typography, List, Row, Col, Space, Progress, Tooltip } from 'antd';
-import { FileOutlined, PauseCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { useMemo, useState } from 'react';
+import { Typography, List, Row, Col, Space, Progress, Tooltip, Button, Modal } from 'antd';
+import { CaretRightOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Square, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import './DownloadList.css'; // 引入外部 CSS 文件
 import RightArrowIcon from '../../../public/right_arrow.svg'
 import FileIcon from '../../../public/download_file_icon.svg'
 import { loggerService } from '@logger';
+import { DownloadController } from '../../shared/DownloadController.js';
 const logger = loggerService.withContext('DownloadList');
 const { ipcRenderer, shell } = window.require('electron');
-const path = window.require('path'); // 如果需要路径操作，也可以直接引入
 
 const { Text } = Typography;
-
-// 模拟下载文件的数据结构
-const mockDownloadFiles = [
-    { id: 1, name: 'test123123123123123123123123123.exe', url:"http://xxx.xxxx.mp4", downloaded: 1, total: 11.8, unit: 'MB', status: 'downloading', folderPath: 'D:\\Downloads\\ProjectA' }, // ⚡️ 新增 folderPath
-    { id: 2, name: 'redis-check-rdb.exe',url:"http://xxx.xxxx.mp4", downloaded: 3.26, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectA' }, // ⚡️ 新增 folderPath
-    { id: 3, name: 'redis-check-aof.exe',url:"http://xxx.xxxx.mp4", downloaded: 2, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'C:\\Users\\Guest\\Docs' }, // ⚡️ 新增 folderPath
-    { id: 4, name: 'file_4.exe', url:"http://xxx.xxxx.mp4", downloaded: 1, total: 11.8, unit: 'MB', status: 'downloading', folderPath: 'D:\\Downloads\\ProjectB' },
-    { id: 5, name: 'file_5.exe',url:"http://xxx.xxxx.mp4", downloaded: 3.26, total: 4.62, unit: 'MB', status: 'paused', folderPath: '/Users/sunguannan/Movies/JianyingPro/User Data/Projects/com.lveditor.draft/dfd_cat_1761487581_d0192067/assets'},
-    { id: 6, name: 'file_6_failed.exe',url:"http://www.baidu.com", downloaded: 0.1, total: 4.62, unit: 'MB', status: 'failed', folderPath: '/Users/sunguannan/Movies/JianyingPro/User Data/Projects/com.lveditor.draft/dfd_cat_1761487581_d0192067/assets' }, // ⚡️ 新增 folderPath
-    { id: 7, name: 'file_7.exe', url:"http://xxx.xxxx.mp4", downloaded: 1, total: 11.8, unit: 'MB', status: 'downloading', folderPath: 'D:\\Downloads\\ProjectC' },
-    { id: 8, name: 'file_8.exe',url:"http://xxx.xxxx.mp4", downloaded: 3.26, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectA' },
-    { id: 9, name: 'file_9.exe',url:"http://xxx.xxxx.mp4", downloaded: 2, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectA' },
-    { id: 10, name: 'file_10.exe', url:"http://xxx.xxxx.mp4", downloaded: 1, total: 11.8, unit: 'MB', status: 'downloading', folderPath: 'D:\\Downloads\\ProjectB' },
-    { id: 11, name: 'file_11.exe',url:"http://xxx.xxxx.mp4", downloaded: 3.26, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectB' },
-    { id: 12, name: 'file_12.exe',url:"http://xxx.xxxx.mp4", downloaded: 2, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectC' },
-    { id: 13, name: 'file_13.exe', url:"http://xxx.xxxx.mp4", downloaded: 1, total: 11.8, unit: 'MB', status: 'downloading', folderPath: 'D:\\Downloads\\ProjectC' },
-    { id: 14, name: 'file_14.exe',url:"http://xxx.xxxx.mp4", downloaded: 3.26, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectA' },
-    { id: 15, name: 'file_15.exe',url:"http://xxx.xxxx.mp4", downloaded: 2, total: 4.62, unit: 'MB', status: 'paused', folderPath: 'D:\\Downloads\\ProjectA' },
-];
 
 /**
  * DownloadList 组件：用于展示下载列表、总体进度和状态。
@@ -49,12 +31,85 @@ const DownloadList = ({
         errorMessage: ''
     }
 }) => {
-    const { draftName, overallProgress, overallStatusText, downloadFiles, errorMessage } = project;
+    const { draftId, draftName, jobId, status, overallProgress, overallStatusText, downloadFiles, errorMessage } = project;
     const { t } = useTranslation('legacy');
     const hasActiveDraft = typeof draftName === 'string' && draftName.trim().length > 0;
+    const [pendingAction, setPendingAction] = useState('');
+
+    const handleQueueAction = async (action) => {
+        if (action === 'cancel') {
+            const taskName = draftName || draftId || '当前任务';
+            const confirmed = await new Promise((resolve) => {
+                Modal.confirm({
+                    title: '确认取消下载',
+                    content: `取消后当前下载任务会立即停止，确认取消「${taskName}」吗？`,
+                    okText: '确认取消',
+                    cancelText: '继续下载',
+                    centered: true,
+                    okType: 'danger',
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
+            });
+            if (!confirmed) return;
+        }
+
+        setPendingAction(action);
+        try {
+            if (action === 'pause') {
+                await DownloadController.pauseCurrent();
+            } else if (action === 'resume') {
+                await DownloadController.resumeCurrent();
+            } else if (action === 'retry') {
+                await DownloadController.retryTask({ draft_id: draftId, jobId });
+            } else if (action === 'cancel') {
+                await DownloadController.cancelCurrent();
+            }
+        } catch (error) {
+            logger.error(`Failed to perform ${action} for download task`, error);
+        } finally {
+            setPendingAction('');
+        }
+    };
+
+    const actionButtons = useMemo(() => {
+        if (!draftId && !jobId) return [];
+
+        if (status === 'downloading') {
+            return [
+                { key: 'pause', label: '停止', icon: <Square size={12} strokeWidth={2.4} /> },
+                { key: 'cancel', label: '取消', title: '取消', icon: <X size={14} strokeWidth={2.2} /> },
+            ];
+        }
+
+        if (status === 'paused') {
+            return [
+                { key: 'resume', label: '开始', icon: <CaretRightOutlined /> },
+                { key: 'cancel', label: '取消', title: '取消', icon: <X size={14} strokeWidth={2.2} /> },
+            ];
+        }
+
+        if (status === 'failed') {
+            return [
+                { key: 'retry', label: '重试', icon: <ReloadOutlined /> },
+            ];
+        }
+
+        return [];
+    }, [draftId, jobId, status]);
+
+    const getFileStatusLabel = (fileStatus) => {
+        if (fileStatus === 'failed') return '下载失败';
+        if (fileStatus === 'paused') return '已暂停';
+        if (fileStatus === 'queued') return '排队中';
+        if (fileStatus === 'completed' || fileStatus === 'success') return '已完成';
+        return '下载中';
+    };
 
     const renderFileItem = (item) => {
-        const percent = Math.round((item.downloaded / item.total) * 100);
+        const total = Number(item.total) || 0;
+        const downloaded = Number(item.downloaded) || 0;
+        const percent = total > 0 ? Math.round((downloaded / total) * 100) : 0;
         let statusContent;
 
         const handleOpenExternalUrl = (e, url) => {
@@ -92,28 +147,6 @@ const DownloadList = ({
                 logger.error("IPC Renderer not available. Check main.js for contextIsolation/nodeIntegration.");
             }
         };
-        // 处理刷新操作
-        const handleRefresh = (e) => {
-            e.preventDefault(); 
-            e.stopPropagation();
-            logger.debug(`[React Component] Refresh triggered for file ID: ${item.id}. In a real app, this would re-check the file status.`);
-            
-            // 构造完整的预期文件路径
-            const expectedPath = path.join(item.folderPath, item.name);
-
-            if (ipcRenderer) {
-                logger.debug(`[React Component] Sending IPC to check file existence for ID: ${item.id} at path: ${expectedPath}`);
-                // 发送 IPC 消息给主进程，请求检查文件是否存在
-                // 主进程应该监听 'check-file-existence'，检查文件后，如果存在，则发送 'file-found'
-                ipcRenderer.send('check-file-existence', { 
-                    id: item.id, 
-                    expectedPath: expectedPath 
-                });
-            } else {
-                logger.error("IPC Renderer not available. Cannot check file existence.");
-            }
-        };
-
         // ⚡️ Tooltip 内容的 JSX 渲染
         // 注意：这里的点击事件需要是真实的回调函数，但为了演示，我们先使用 #
         const failedTooltipTitle = (
@@ -151,7 +184,7 @@ const DownloadList = ({
                 <div className='status-and-progress-wrapper'>
                     {/* 状态文本 (下载中/已暂停) */}
                     <Text className='file-list-item-status'>
-                        下载中
+                        {getFileStatusLabel(item.status)}
                     </Text>
                     
                     {/* 进度条 */}
@@ -209,8 +242,8 @@ const DownloadList = ({
             {/* 顶部总体状态栏 */}
             <div className="download-list-header">
                 <Row align="middle">
-                    <Col span={23}>
-                        <Space className="custom-space-align-center" size={4}> 
+                    <Col span={16}>
+                        <Space className="custom-space-align-center" size={4}>
                             <Text className="header-path-text">{t('download_list')}</Text>
                             <img 
                                 src={RightArrowIcon} 
@@ -225,6 +258,23 @@ const DownloadList = ({
                             )}
                             <Text className="header-path-text">{overallStatusText || `已下载 ${overallProgress}%`}</Text>
                         </Space>
+                    </Col>
+                    <Col span={8} className="download-list-header-actions">
+                        {actionButtons.map((action) => (
+                            <Button
+                                key={action.key}
+                                size="small"
+                                type="text"
+                                icon={action.icon}
+                                className={`download-list-action-button ${action.key === 'cancel' ? 'download-list-action-button-cancel' : ''}`}
+                                loading={pendingAction === action.key}
+                                title={action.title || action.label}
+                                aria-label={action.title || action.label}
+                                onClick={() => handleQueueAction(action.key)}
+                            >
+                                {action.label}
+                            </Button>
+                        ))}
                     </Col>
                 </Row>
             </div>

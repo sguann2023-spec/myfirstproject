@@ -2319,15 +2319,20 @@ const HomePage = () => {
 
   // 订阅当前下载任务的文件列表，映射为 DownloadList 所需的 project
   useEffect(() => {
-    const unsubscribe = DownloadController.subscribeFileList(({ draft_id, fileList }) => {
+    const unsubscribe = DownloadController.subscribeFileList(({ draft_id, draft_name, jobId, status, progress, message, fileList }) => {
       const active = Array.isArray(fileList) ? fileList.filter(f => f.status !== 'completed') : [];
       const totalDownloaded = active.reduce((sum, f) => sum + (Number(f.downloaded) || 0), 0);
       const totalTotal = active.reduce((sum, f) => sum + (Number(f.total) || 0), 0);
-      const overallProgress = totalTotal > 0 ? Math.round((totalDownloaded / totalTotal) * 100) : 0;
+      const overallProgress = totalTotal > 0 ? Math.round((totalDownloaded / totalTotal) * 100) : Math.round(progress || 0);
+      const normalizedStatus = status || 'downloading';
+      const overallStatusText = message || (normalizedStatus === 'paused' ? '已暂停' : `已下载 ${overallProgress}%`);
       setDownloadProject({
-        draftName: draft_id || '',
+        draftId: draft_id || '',
+        draftName: draft_name || draft_id || '',
+        jobId: jobId || null,
+        status: normalizedStatus,
         overallProgress,
-        overallStatusText: `已下载 ${overallProgress}%`,
+        overallStatusText,
         downloadFiles: active,
       });
     });
@@ -2358,7 +2363,10 @@ const HomePage = () => {
     const overallProgress = isSuccess ? 100 : (totalTotal > 0 ? Math.round((totalDownloaded / totalTotal) * 100) : 0);
     const errorMessage = isSuccess ? '' : (mapDownloadErrorMessage(item.message) || '下载失败');
     return {
+      draftId: item.draft_id || '',
       draftName: item.draft_name || item.draft_id || '',
+      jobId: item.jobId || null,
+      status: item.status || (isSuccess ? 'success' : 'failed'),
       overallProgress,
       overallStatusText: isSuccess ? '下载完成' : '下载失败',
       errorMessage,

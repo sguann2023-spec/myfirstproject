@@ -17,6 +17,35 @@
     padding-bottom: 16px;
 }
 
+.download-list-header-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-right: 12px;
+}
+
+.download-list-action-button {
+    color: #5f5f5f;
+    font-size: 12px;
+    background-color: #E8E8E8 !important;
+    gap: 4px;
+    border-radius: 4px;
+}
+
+.download-list-action-button.ant-btn:hover {
+    color: #1677ff;
+}
+
+.download-list-action-button-cancel {
+    min-width: 28px;
+    padding-inline: 8px !important;
+}
+
+.download-list-action-button-cancel.ant-btn:hover {
+    background-color: #FEEBEB !important;
+    color: #F35B51 !important;
+}
+
 .download-list-error-banner {
     padding: 12px 12px 0;
 }

@@ -182,13 +182,8 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       const downloadSectionProgress = overallProgress * 0.40; 
       const finalProgress = Math.floor(baseProgress + downloadSectionProgress);
 
-      const totalMB = totalBytes / 1024 / 1024;
-      const downloadedMB = downloadedBytes / 1024 / 1024;
-      
-      const statusText = `${message} (${downloadedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB)`;
-      
       if (progressCallback) {
-          progressCallback(finalProgress, statusText, tasks.map(task => ({
+          progressCallback(finalProgress, message, tasks.map(task => ({
               id: task.id,
               name: task.material.material_name || task.material.name || path.basename(task.localPath),
               url: task.url,

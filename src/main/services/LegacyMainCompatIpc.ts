@@ -15,6 +15,13 @@ let registered = false
 let authWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
 const pendingArtistUrlRequests = new Map<string, Worker>()
+const activeDownloadWorkers = new Map<number, {
+  worker: Worker
+  sender: any
+  draftId: string
+  stopReason: string | null
+  lastFileList: any[]
+}>()
 
 function safeHandle(channel: string, handler: Parameters<typeof ipcMain.handle>[1]) {
   try {
@@ -219,6 +226,7 @@ function registerLegacyDownloadChannels() {
 
   safeOn('process-parameters', (event, params: any = {}) => {
     const draftId = String(params?.draft_id || '').trim()
+    const jobId = Number(params?.jobId || 0) || Date.now()
     if (!draftId) {
       event.reply('download-error', 'missing draft_id')
       return
@@ -236,8 +244,18 @@ function registerLegacyDownloadChannels() {
       }
     })
 
-    let lastFileList: unknown[] = []
+    const runtime = {
+      worker,
+      sender: event.sender,
+      draftId,
+      stopReason: null,
+      lastFileList: [] as any[]
+    }
+    activeDownloadWorkers.set(jobId, runtime)
     worker.on('message', (message: any) => {
+      const activeRuntime = activeDownloadWorkers.get(jobId)
+      if (!activeRuntime || activeRuntime.worker !== worker) return
+
       if (message?.type === 'log') {
         const moduleName = String(message.module || 'LegacyWorker')
         const logMessage = String(message.message || '')
@@ -268,8 +286,9 @@ function registerLegacyDownloadChannels() {
       }
 
       if (message?.type === 'progress') {
-        if (Array.isArray(message.fileList)) lastFileList = message.fileList
-        event.reply('download-progress', {
+        if (Array.isArray(message.fileList)) activeRuntime.lastFileList = message.fileList
+        activeRuntime.sender.send('download-progress', {
+          jobId,
           progress: Number(message.progress || 0),
           text: String(message.message || ''),
           fileList: message.fileList
@@ -278,42 +297,104 @@ function registerLegacyDownloadChannels() {
       }
 
       if (message?.type === 'complete') {
+        activeDownloadWorkers.delete(jobId)
         logger.info('[DLTRACE][Main] worker complete', {
+          jobId,
           draftId,
           message: String(message.message || 'download complete')
         })
-        event.reply('download-complete', {
+        activeRuntime.sender.send('download-complete', {
+          jobId,
           draft_id: draftId,
-          message: message.message || 'download complete'
+          message: message.message || 'download complete',
+          fileList: activeRuntime.lastFileList
         })
         return
       }
 
       if (message?.type === 'error') {
+        activeDownloadWorkers.delete(jobId)
+        if (activeRuntime.stopReason) {
+          logger.info('[DLTRACE][Main] worker stopped by user action', {
+            jobId,
+            draftId,
+            action: activeRuntime.stopReason
+          })
+          return
+        }
         logger.error('[DLTRACE][Main] worker error', {
+          jobId,
           draftId,
           error: String(message.error || 'download failed'),
           message: String(message.message || ''),
-          fileListCount: Array.isArray(lastFileList) ? lastFileList.length : -1
+          fileListCount: Array.isArray(activeRuntime.lastFileList) ? activeRuntime.lastFileList.length : -1
         })
-        event.reply('download-error', {
+        activeRuntime.sender.send('download-error', {
+          jobId,
           error: String(message.error || 'download failed'),
-          fileList: lastFileList
+          fileList: activeRuntime.lastFileList
         })
       }
     })
 
     worker.on('error', (error) => {
-      logger.error('Download worker failed', error)
+      const activeRuntime = activeDownloadWorkers.get(jobId)
+      activeDownloadWorkers.delete(jobId)
+      if (activeRuntime?.stopReason) {
+        logger.info('[DLTRACE][Main] worker error ignored after user stop', {
+          jobId,
+          draftId,
+          action: activeRuntime.stopReason
+        })
+        return
+      }
+      if (error instanceof Error) logger.error('Download worker failed', error)
+      else logger.error('Download worker failed', { error: String(error) })
       const message = error instanceof Error ? error.message : String(error)
-      event.reply('download-error', message || 'download worker error')
+      event.sender.send('download-error', {
+        jobId,
+        error: message || 'download worker error'
+      })
     })
     worker.on('exit', (code) => {
+      activeDownloadWorkers.delete(jobId)
       logger.info('[DLTRACE][Main] worker exit', {
+        jobId,
         draftId,
         code
       })
     })
+  })
+
+  safeHandle('control-download-worker', async (_event, payload: any = {}) => {
+    const jobId = Number(payload?.jobId || 0)
+    const action = String(payload?.action || 'stop')
+
+    if (!jobId) {
+      return { ok: false, error: 'missing jobId' }
+    }
+
+    const runtime = activeDownloadWorkers.get(jobId)
+    if (!runtime) {
+      return { ok: true, alreadyStopped: true, action }
+    }
+
+    runtime.stopReason = action
+    try {
+      const exitCode = await runtime.worker.terminate()
+      return { ok: true, action, exitCode }
+    } catch (error) {
+      logger.error('[DLTRACE][Main] terminate worker failed', {
+        jobId,
+        action,
+        message: error instanceof Error ? error.message : String(error)
+      })
+      return {
+        ok: false,
+        action,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
   })
 
   safeOn('resolve-artist-effect-url-response', (_event, payload: any) => {
@@ -400,7 +481,7 @@ function registerLegacyMiscChannels() {
         return { ok: false, error: 'missing upload url' }
       }
 
-      const logsDir = loggerService.getLogsDir()
+      const logsDir = typeof (loggerService as any).getLogsDir === 'function' ? (loggerService as any).getLogsDir() : ''
       const candidates = fs.existsSync(logsDir)
         ? fs
             .readdirSync(logsDir)
@@ -455,10 +536,16 @@ function registerLegacyMiscChannels() {
   safeOn('log-message', (_event, payload: { level?: string; messages?: unknown[] } = {}) => {
     const level = String(payload.level || 'info')
     const messages = Array.isArray(payload.messages) ? payload.messages : []
-    if (level === 'error') logger.error(...(messages as any[]))
-    else if (level === 'warn') logger.warn(...(messages as any[]))
-    else if (level === 'debug') logger.debug(...(messages as any[]))
-    else logger.info(...(messages as any[]))
+    const [firstMessage, ...restMessages] = messages as any[]
+    if (firstMessage === undefined) return
+    const messageText = firstMessage instanceof Error ? firstMessage.message : String(firstMessage)
+    const context = restMessages.length > 0
+      ? { payload: firstMessage, extraMessages: restMessages }
+      : (firstMessage instanceof Error ? firstMessage : { payload: firstMessage })
+    if (level === 'error') logger.error(messageText, context)
+    else if (level === 'warn') logger.warn(messageText, context)
+    else if (level === 'debug') logger.debug(messageText, context)
+    else logger.info(messageText, context)
   })
 }
 

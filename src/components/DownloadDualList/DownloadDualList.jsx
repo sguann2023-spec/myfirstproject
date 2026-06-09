@@ -134,6 +134,13 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
     setCompleted([]);
   };
 
+  const getCurrentStatusLabel = (item) => {
+    if (!item) return '';
+    if (item.status === 'paused') return '已暂停';
+    if (item.status === 'failed') return '下载失败';
+    return '下载中';
+  };
+
   return (
     <div className="download-dual-container">
       {/* 顶部分段选择器 */}
@@ -207,7 +214,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                       className="draftlist-time"
                       style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                     >
-                      <span>下载中 · {Math.round(current.progress || 0)}%</span>
+                      <span>{getCurrentStatusLabel(current)} · {Math.round(current.progress || 0)}%</span>
                     </div>
                   </div>
                 </div>

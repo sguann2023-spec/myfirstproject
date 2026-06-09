@@ -16,6 +16,7 @@ const state = {
 
 const listeners = new Set();
 const fileListListeners = new Set(); // 新增：fileList 专用订阅集合
+let activeRunToken = 0;
 
 async function resolveRuntimeSettings() {
   let draftFolder = electronStore.get('draftFolder') || undefined;
@@ -50,7 +51,11 @@ function notifyProgress() {
 function notifyFileList() {
   const payload = {
     draft_id: state.current?.draft_id,
+    draft_name: state.current?.draft_name,
     jobId: state.current?.jobId,
+    status: state.current?.status,
+    progress: state.current?.progress || 0,
+    message: state.current?.message || '',
     fileList: Array.isArray(state.current?.fileList) ? [...state.current.fileList] : [],
   };
   fileListListeners.forEach(fn => {
@@ -121,6 +126,146 @@ function buildFailedMessage(payload, currentItem) {
   return isGenericFailedMessage(rawMessage) ? '下载失败，请稍后重试' : rawMessage;
 }
 
+function matchesTask(item, target = {}) {
+  if (!item) return false;
+  if (target.jobId && item.jobId) return item.jobId === target.jobId;
+  return Boolean(target.draft_id) && item.draft_id === target.draft_id;
+}
+
+function markFileListPaused(fileList = []) {
+  return Array.isArray(fileList)
+    ? fileList.map(file => (
+        file?.status === 'completed' || file?.status === 'success'
+          ? file
+          : { ...file, status: 'paused' }
+      ))
+    : [];
+}
+
+function resetFileListForRetry(fileList = []) {
+  return Array.isArray(fileList)
+    ? fileList.map(file => ({
+        ...file,
+        downloaded: 0,
+        status: 'queued'
+      }))
+    : [];
+}
+
+function invalidateActiveRun() {
+  activeRunToken += 1;
+}
+
+async function stopActiveWorker(action) {
+  if (!ipc?.invoke || !state.current?.jobId) return true;
+  try {
+    const result = await ipc.invoke('control-download-worker', {
+      jobId: state.current.jobId,
+      action
+    });
+    return result?.ok !== false;
+  } catch (error) {
+    logger.error('[DLTRACE] stopActiveWorker failed', {
+      action,
+      jobId: state.current?.jobId,
+      message: error?.message || String(error)
+    });
+    return false;
+  }
+}
+
+async function launchCurrentDownload() {
+  const currentItem = state.current;
+  if (!currentItem || !ipc) return;
+
+  const runToken = ++activeRunToken;
+  logger.debug('start download worker, draft_id', currentItem.draft_id);
+
+  try {
+    const { draftFolder, isCapcut } = await resolveRuntimeSettings();
+    if (!state.current || state.current.jobId !== currentItem.jobId || runToken !== activeRunToken || state.current.status !== 'downloading') {
+      return;
+    }
+
+    logger.info('[DLTRACE] startNextIfIdle begin', {
+      jobId: currentItem.jobId,
+      draftId: currentItem.draft_id,
+      draftName: currentItem.draft_name,
+      draftFolder: draftFolder || '',
+      isCapcut
+    });
+
+    logger.info('[DLTRACE] queryScript request', {
+      draftId: currentItem.draft_id,
+      force_update: false
+    });
+    const resData = await queryScript({ draft_id: currentItem.draft_id, force_update: false });
+    const ok = resData && (resData.success === true || resData.code === 200);
+    logger.info('[DLTRACE] queryScript response', {
+      draftId: currentItem.draft_id,
+      ok: Boolean(ok),
+      success: resData?.success,
+      code: resData?.code,
+      hasOutput: Boolean(resData?.output || resData?.data?.output || resData?.result?.output)
+    });
+    if (!ok) {
+      throw new Error('查询草稿失败');
+    }
+
+    if (!state.current || state.current.jobId !== currentItem.jobId || runToken !== activeRunToken || state.current.status !== 'downloading') {
+      return;
+    }
+
+    const output =
+      resData.output ||
+      resData.data?.output ||
+      resData.result?.output;
+    const script = typeof output === 'string' ? JSON.parse(output) : output;
+
+    state.current = { ...state.current, message: '下载中…', progress: Math.max(Number(state.current.progress) || 0, 10) };
+    notifyAll();
+
+    const payload = {
+      jobId: currentItem.jobId,
+      draft_id: currentItem.draft_id,
+      draft_name: currentItem.draft_name,
+      draftFolder,
+      is_capcut: isCapcut,
+      script,
+    };
+    logger.info('[DLTRACE] send process-parameters', {
+      jobId: payload.jobId,
+      draftId: payload.draft_id,
+      draftName: payload.draft_name,
+      draftFolder: payload.draftFolder || '',
+      isCapcut: payload.is_capcut,
+      hasScript: Boolean(payload.script),
+      scriptMaterialsKeys: Object.keys(payload.script?.materials || {})
+    });
+    ipc.send('process-parameters', payload);
+  } catch (err) {
+    if (!state.current || state.current.jobId !== currentItem.jobId || runToken !== activeRunToken) {
+      return;
+    }
+
+    logger.error('[DLTRACE] startNextIfIdle failed', {
+      draftId: currentItem?.draft_id || '',
+      message: err?.message || 'unknown error',
+      stack: err?.stack || ''
+    });
+    const failedItem = {
+      ...state.current,
+      status: 'failed',
+      message: buildFailedMessage({ error: err?.message }, state.current)
+    };
+    state.completed = [failedItem, ...state.completed];
+    state.current = null;
+    persistCompletedToStore();
+    notifyAll();
+    setTimeout(startNextIfIdle, 100);
+  }
+}
+
 let nextJobId = 1; // 唯一任务ID，用于区分同一 draft_id 的多次入队
 
 function enqueue({ draft_id, draft_name, cover, createdAt }) {
@@ -169,91 +314,8 @@ async function startNextIfIdle() {
 
   // 设为当前项
   state.current = { ...next, status: 'downloading', message: '下载中…' };
-  // 修复：不要把队列中相同 draft_id 的项同步成 downloading，保持它们为 queued
-  // 原有代码（删除）：
-  // state.queue = state.queue.map(i =>
-  //   i.draft_id === state.current.draft_id ? { ...state.current } : i
-  // );
   notifyAll();
-
-  const { draftFolder, isCapcut } = await resolveRuntimeSettings();
-  logger.info('[DLTRACE] startNextIfIdle begin', {
-    jobId: next.jobId,
-    draftId: next.draft_id,
-    draftName: next.draft_name,
-    draftFolder: draftFolder || '',
-    isCapcut
-  });
-
-  logger.debug('start download worker, draft_id', next.draft_id);
-
-  try {
-    // 在前端请求脚本（带鉴权）
-    logger.info('[DLTRACE] queryScript request', {
-      draftId: next.draft_id,
-      force_update: false
-    });
-    const resData = await queryScript({ draft_id: next.draft_id, force_update: false });
-    const ok = resData && (resData.success === true || resData.code === 200);
-    logger.info('[DLTRACE] queryScript response', {
-      draftId: next.draft_id,
-      ok: Boolean(ok),
-      success: resData?.success,
-      code: resData?.code,
-      hasOutput: Boolean(resData?.output || resData?.data?.output || resData?.result?.output)
-    });
-    if (!ok) {
-      const msg = '查询草稿失败';
-      throw new Error(msg);
-    }
-    const output =
-      resData.output ||
-      resData.data?.output ||
-      resData.result?.output;
-    const script = typeof output === 'string' ? JSON.parse(output) : output;
-
-    // 成功拿到脚本，进入下载阶段
-    state.current = { ...state.current, message: '下载中…', progress: 10 };
-    // 修复：这里也不要同步队列中相同 draft_id 的项
-    // state.queue = state.queue.map(i =>
-    //   i.draft_id === state.current.draft_id ? { ...state.current } : i
-    // );
-    notifyAll();
-
-    logger.debug('send download worker, draft_id', next.draft_id);
-    const payload = {
-      draft_id: next.draft_id,
-      draft_name: next.draft_name,
-      draftFolder,
-      is_capcut: isCapcut,
-      script, // 将脚本传给主进程
-    };
-    logger.info('[DLTRACE] send process-parameters', {
-      draftId: payload.draft_id,
-      draftName: payload.draft_name,
-      draftFolder: payload.draftFolder || '',
-      isCapcut: payload.is_capcut,
-      hasScript: Boolean(payload.script),
-      scriptMaterialsKeys: Object.keys(payload.script?.materials || {})
-    });
-    ipc.send('process-parameters', payload);
-  } catch (err) {
-    logger.error('[DLTRACE] startNextIfIdle failed', {
-      draftId: next?.draft_id || '',
-      message: err?.message || 'unknown error',
-      stack: err?.stack || ''
-    });
-    const failedItem = {
-      ...state.current,
-      status: 'failed',
-      message: buildFailedMessage({ error: err?.message }, state.current)
-    };
-    state.completed = [failedItem, ...state.completed];
-    state.queue = state.queue.filter(i => i.draft_id !== state.current.draft_id);
-    state.current = null;
-    notifyAll();
-    setTimeout(startNextIfIdle, 100);
-  }
+  void launchCurrentDownload();
 }
 // 新增：持久化“已完成”列表
 const COMPLETED_STORE_KEY = 'downloadCompleted';
@@ -312,8 +374,10 @@ function attachIpcListenersOnce() {
   if (attachIpcListenersOnce._attached) return;
   attachIpcListenersOnce._attached = true;
 
-  ipc.on('download-progress', (event, { progress, text, fileList }) => {
+  ipc.on('download-progress', (_event, { jobId, progress, text, fileList }) => {
     if (!state.current) return;
+    if (jobId && state.current.jobId && jobId !== state.current.jobId) return;
+    if (state.current.status !== 'downloading') return;
     const pct = typeof progress === 'number' ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
     const msg = text || '下载中…';
     // 若本次进度未携带 fileList，则保留之前的列表
@@ -325,9 +389,10 @@ function attachIpcListenersOnce() {
     }
   });
 
-  ipc.on('download-complete', (event, data) => {
+  ipc.on('download-complete', (_event, data) => {
     logger.debug('download-complete', data);
     logger.info('[DLTRACE] download-complete', {
+      jobId: data?.jobId || 0,
       draftId: data?.draft_id || '',
       hasCurrent: Boolean(state.current),
       currentDraftId: state.current?.draft_id || '',
@@ -335,6 +400,7 @@ function attachIpcListenersOnce() {
     });
     const completedDraftId = data?.draft_id;
     if (!state.current) return;
+    if (data?.jobId && state.current.jobId && data.jobId !== state.current.jobId) return;
     if (completedDraftId && completedDraftId !== state.current.draft_id) return;
 
     const doneItem = { 
@@ -360,9 +426,12 @@ function attachIpcListenersOnce() {
     setTimeout(startNextIfIdle, 100);
   });
 
-  ipc.on('download-error', (event, payload) => {
+  ipc.on('download-error', (_event, payload) => {
     if (!state.current) return;
+    if (payload?.jobId && state.current.jobId && payload.jobId !== state.current.jobId) return;
+    if (state.current.status !== 'downloading') return;
     logger.error('[DLTRACE] download-error', {
+      jobId: payload?.jobId || 0,
       draftId: state.current?.draft_id || '',
       payloadType: typeof payload,
       error: typeof payload === 'string' ? payload : String(payload?.error || ''),
@@ -407,12 +476,106 @@ function subscribeFileList(listener) {
   try {
     listener({
       draft_id: state.current?.draft_id,
+      draft_name: state.current?.draft_name,
       jobId: state.current?.jobId,
-      progress: getProgressState(),
+      status: state.current?.status,
+      progress: state.current?.progress || 0,
+      message: state.current?.message || '',
       fileList: Array.isArray(state.current?.fileList) ? [...state.current.fileList] : [],
     });
   } catch (e) {}
   return () => fileListListeners.delete(listener);
+}
+
+async function pauseCurrent() {
+  if (!state.current || state.current.status !== 'downloading') return false;
+  invalidateActiveRun();
+  await stopActiveWorker('pause');
+
+  if (!state.current) return false;
+  state.current = {
+    ...state.current,
+    status: 'paused',
+    message: '已暂停',
+    fileList: markFileListPaused(state.current.fileList)
+  };
+  notifyAll();
+  notifyFileList();
+  return true;
+}
+
+async function resumeCurrent() {
+  if (!state.current || state.current.status !== 'paused') return false;
+
+  state.current = {
+    ...state.current,
+    status: 'downloading',
+    message: '继续下载中…'
+  };
+  notifyAll();
+  notifyFileList();
+  void launchCurrentDownload();
+  return true;
+}
+
+async function cancelCurrent() {
+  if (!state.current) return false;
+  invalidateActiveRun();
+  await stopActiveWorker('cancel');
+
+  state.current = null;
+  notifyAll();
+  setTimeout(startNextIfIdle, 100);
+  return true;
+}
+
+async function retryCurrent() {
+  if (!state.current) return false;
+  invalidateActiveRun();
+  if (state.current.status === 'downloading') {
+    await stopActiveWorker('retry');
+  }
+
+  if (!state.current) return false;
+  state.current = {
+    ...state.current,
+    status: 'downloading',
+    progress: 0,
+    message: '重新下载中…',
+    fileList: resetFileListForRetry(state.current.fileList)
+  };
+  notifyAll();
+  notifyFileList();
+  void launchCurrentDownload();
+  return true;
+}
+
+async function retryTask(target = {}) {
+  if (state.current && matchesTask(state.current, target)) {
+    return retryCurrent();
+  }
+
+  const index = state.completed.findIndex(item => matchesTask(item, target));
+  if (index === -1) return false;
+
+  const [item] = state.completed.splice(index, 1);
+  persistCompletedToStore();
+
+  const retryItem = {
+    jobId: nextJobId++,
+    draft_id: item.draft_id,
+    draft_name: item.draft_name || item.draft_id,
+    cover: item.cover,
+    status: 'queued',
+    progress: 0,
+    message: '排队中',
+    createdAt: Date.now(),
+  };
+
+  state.queue.unshift(retryItem);
+  notifyAll();
+  void startNextIfIdle();
+  return true;
 }
 
 function clearCompleted() {
@@ -459,6 +622,10 @@ init();
 
 export const DownloadController = {
   enqueue,
+  pauseCurrent,
+  resumeCurrent,
+  retryTask,
+  cancelCurrent,
   subscribeProgress,   // 显式进度订阅
   subscribeFileList,   // 文件列表订阅
   getState,
