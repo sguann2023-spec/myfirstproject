@@ -22,6 +22,7 @@ import { tokenStore } from '../../auth';
 import { normalizeChatError } from '../../shared/chatError';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock } from '../../renderer/src/store/messageBlock';
+import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
 const logger = loggerService.withContext('HomePage');
@@ -1279,32 +1280,53 @@ const HomePage = () => {
     const offPermissionRequest = window.electronAPI.cherryChatStream.onPermissionRequest(async (payload) => {
       const requestId = String(payload?.requestId || '').trim();
       if (!requestId) return;
+      const toolName = String(payload?.toolName || '').trim();
+      const isAskUserQuestion = toolName === 'AskUserQuestion';
 
       logger.info('[HomePage][ToolPermission] request received', {
         requestId,
-        toolName: payload?.toolName || '',
+        toolName,
         toolCallId: payload?.toolCallId || '',
         autoApprove: Boolean(payload?.autoApprove)
       });
 
       try {
-        const response = payload?.autoApprove
-          ? await window.electronAPI.agentTools.respondToPermission({
+        if (payload?.autoApprove) {
+          const response = await window.electronAPI.agentTools.respondToPermission({
             requestId,
             behavior: 'allow',
             updatedInput: payload?.input,
             updatedPermissions: Array.isArray(payload?.suggestions) ? payload.suggestions : undefined
-          })
-          : await window.electronAPI.agentTools.respondToPermission({
-            requestId,
-            behavior: 'deny',
-            message: 'Tool approval UI is unavailable in HomePage runtime.'
           });
+
+          logger.info('[HomePage][ToolPermission] response sent', {
+            requestId,
+            ok: Boolean(response?.success),
+            behavior: 'allow'
+          });
+          return;
+        }
+
+        if (isAskUserQuestion) {
+          appStore.dispatch(toolPermissionsActions.requestReceived(payload));
+          logger.info('[HomePage][ToolPermission] queued interactive request', {
+            requestId,
+            toolName,
+            toolCallId: payload?.toolCallId || ''
+          });
+          return;
+        }
+
+        const response = await window.electronAPI.agentTools.respondToPermission({
+          requestId,
+          behavior: 'deny',
+          message: 'Tool approval UI is unavailable in HomePage runtime.'
+        });
 
         logger.info('[HomePage][ToolPermission] response sent', {
           requestId,
           ok: Boolean(response?.success),
-          behavior: payload?.autoApprove ? 'allow' : 'deny'
+          behavior: 'deny'
         });
       } catch (error) {
         logger.error('[HomePage][ToolPermission] failed to send response', {
@@ -1315,6 +1337,7 @@ const HomePage = () => {
     });
 
     const offPermissionResult = window.electronAPI.cherryChatStream.onPermissionResult((payload) => {
+      appStore.dispatch(toolPermissionsActions.requestResolved(payload));
       logger.info('[HomePage][ToolPermission] result received', {
         requestId: payload?.requestId || '',
         behavior: payload?.behavior || '',

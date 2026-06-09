@@ -370,7 +370,12 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     }
     const normalizeToolName = (name: string) => (name.startsWith('builtin_') ? name.slice('builtin_'.length) : name)
+    const requiresInteractiveApproval = (name: string) => normalizeToolName(name) === 'AskUserQuestion'
     const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+    const interactiveApprovalCache = new Map<
+      string,
+      { behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string }
+    >()
     const resolveToolFilePath = (toolInput: unknown, defaultCwd: string) => {
       const input = isRecord(toolInput) ? toolInput : null
       if (!input) return null
@@ -431,17 +436,44 @@ class ClaudeCodeService implements AgentServiceInterface {
       })
       const normalizedToolName = normalizeToolName(toolName)
 
-      if (shouldAutoApproveTools) {
-        logger.debug('Auto-approving tool due to CHERRY_AUTO_ALLOW_TOOLS flag', { toolName })
-        return { behavior: 'allow', updatedInput: input }
-      }
-
       if (options.signal.aborted) {
         logger.debug('Permission request signal already aborted; denying tool', { toolName })
         return {
           behavior: 'deny',
           message: 'Tool request was cancelled before prompting the user'
         }
+      }
+
+      if (requiresInteractiveApproval(toolName)) {
+        const namespacedToolCallId = buildNamespacedToolCallId(session.id, options.toolUseID)
+        const cachedApproval = interactiveApprovalCache.get(namespacedToolCallId)
+        if (cachedApproval) {
+          interactiveApprovalCache.delete(namespacedToolCallId)
+          logger.info('Reusing cached interactive approval for tool', {
+            toolName,
+            normalizedToolName,
+            namespacedToolCallId,
+            behavior: cachedApproval.behavior
+          })
+          return cachedApproval.behavior === 'allow'
+            ? { behavior: 'allow', updatedInput: cachedApproval.updatedInput }
+            : { behavior: 'deny', message: cachedApproval.message }
+        }
+
+        logger.debug('Forcing interactive approval for tool', {
+          toolName,
+          normalizedToolName,
+          namespacedToolCallId
+        })
+        return promptForToolApproval(toolName, input, {
+          ...options,
+          toolCallId: namespacedToolCallId
+        })
+      }
+
+      if (shouldAutoApproveTools) {
+        logger.debug('Auto-approving tool due to CHERRY_AUTO_ALLOW_TOOLS flag', { toolName })
+        return { behavior: 'allow', updatedInput: input }
       }
 
       if (autoAllowTools.has(toolName) || autoAllowTools.has(normalizedToolName)) {
@@ -538,8 +570,51 @@ class ClaudeCodeService implements AgentServiceInterface {
       if (toolUseID) {
         const bypassAll = input.permission_mode === 'bypassPermissions'
         const autoAllowed = autoAllowTools.has(toolName) || autoAllowTools.has(normalizedToolName)
+        const needsInteractiveApproval = requiresInteractiveApproval(toolName)
+        const namespacedToolCallId = buildNamespacedToolCallId(session.id, toolUseID)
+        if (needsInteractiveApproval && (bypassAll || autoAllowed)) {
+          logger.info('Forcing interactive PreToolUse approval for tool', {
+            toolName,
+            normalizedToolName,
+            namespacedToolCallId,
+            permission_mode: input.permission_mode,
+            bypassAll,
+            autoAllowed
+          })
+          const toolInput = isRecord(input.tool_input) ? input.tool_input : {}
+          const approval = await promptForToolApproval(toolName, toolInput, {
+            ...options,
+            toolCallId: namespacedToolCallId
+          })
+
+          if (approval.behavior === 'allow') {
+            interactiveApprovalCache.set(namespacedToolCallId, {
+              behavior: 'allow',
+              updatedInput: isRecord(approval.updatedInput) ? approval.updatedInput : toolInput
+            })
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'allow',
+                updatedInput: isRecord(approval.updatedInput) ? approval.updatedInput : toolInput
+              }
+            }
+          }
+
+          interactiveApprovalCache.set(namespacedToolCallId, {
+            behavior: 'deny',
+            message: approval.message ?? 'User denied permission for this tool'
+          })
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'deny',
+              permissionDecisionReason: approval.message ?? 'User denied permission for this tool'
+            }
+          }
+        }
+
         if (bypassAll || autoAllowed) {
-          const namespacedToolCallId = buildNamespacedToolCallId(session.id, toolUseID)
           logger.debug('handling auto approved tools', {
             toolName,
             normalizedToolName,

@@ -9,6 +9,7 @@ import type { ReactNode } from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import './AskUserQuestionCard.css'
 import { SkeletonValue } from './MessageAgentTools/GenericTools'
 import { type AskUserQuestionItem, parseAskUserQuestionToolInput } from './MessageAgentTools/types'
 
@@ -28,12 +29,12 @@ interface CardHeaderProps {
 function CardHeader({ currentIndex, totalQuestions, extra }: CardHeaderProps) {
   const { t } = useTranslation()
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <HelpCircle className="h-5 w-5 text-(--color-primary)" />
-        <span className="font-semibold text-default-700">{t('agent.askUserQuestion.title')}</span>
+    <div className="ask-user-question-header">
+      <div className="ask-user-question-header-main">
+        <HelpCircle className="ask-user-question-header-icon" />
+        <span className="ask-user-question-header-title">{t('agent.askUserQuestion.title')}</span>
       </div>
-      <span className="text-default-500 text-xs">
+      <span className="ask-user-question-header-meta">
         <SkeletonValue value={totalQuestions > 0 ? `${currentIndex + 1} / ${totalQuestions}` : null} width="40px" />
         {extra}
       </span>
@@ -54,11 +55,11 @@ function Navigation({ showPrevious = true, isFirst, onPrevious, rightButton }: N
   return (
     <div
       className={cn(
-        'flex items-center border-default-200 border-t pt-3',
-        showPrevious ? 'justify-between' : 'justify-end'
+        'ask-user-question-navigation',
+        showPrevious ? 'ask-user-question-navigation--between' : 'ask-user-question-navigation--end'
       )}>
       {showPrevious && (
-        <Button icon={<ChevronLeft size={16} />} disabled={isFirst} onClick={onPrevious} className="flex items-center">
+        <Button icon={<ChevronLeft size={16} />} disabled={isFirst} onClick={onPrevious} className="ask-user-question-navigation-button">
           {t('agent.askUserQuestion.previous')}
         </Button>
       )}
@@ -80,15 +81,14 @@ function OptionItem({ label, description, isSelected, control, onClick }: Option
   return (
     <div
       className={cn(
-        'flex cursor-pointer items-start gap-2 rounded-lg border p-2 transition-colors',
-        'hover:border-(--color-primary) hover:bg-primary/10',
-        isSelected ? 'border-(--color-primary) bg-primary/10' : 'border-default-200 bg-default-50'
+        'ask-user-question-option',
+        isSelected ? 'ask-user-question-option--selected' : undefined
       )}
       onClick={onClick}>
       {control}
-      <div className="min-w-0 flex-1">
-        <div className="text-sm">{label}</div>
-        {description && <div className="mt-0.5 text-default-500 text-xs">{description}</div>}
+      <div className="ask-user-question-option-body">
+        <div className="ask-user-question-option-label">{label}</div>
+        {description && <div className="ask-user-question-option-description">{description}</div>}
       </div>
     </div>
   )
@@ -135,15 +135,15 @@ function OptionsList({ options, selected, hasCustomInput, multiSelect, onSelect,
   )
 
   return (
-    <div className="max-h-64 space-y-2 overflow-y-auto">
+    <div className="ask-user-question-options">
       {multiSelect ? (
         optionItems
       ) : (
         <Radio.Group
           value={hasCustomInput ? OTHER_OPTION_VALUE : selected[0]}
           onChange={(e) => onSelect(e.target.value)}
-          className="w-full">
-          <div className="space-y-2">{optionItems}</div>
+          className="ask-user-question-radio-group">
+          <div className="ask-user-question-options-stack">{optionItems}</div>
         </Radio.Group>
       )}
     </div>
@@ -159,20 +159,20 @@ interface CompletedContentProps {
 
 function CompletedContent({ question, answer }: CompletedContentProps) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="ask-user-question-content ask-user-question-content--completed">
+      <div className="ask-user-question-tags">
         <Tag color={answer ? 'processing' : 'default'} className="m-0">
           <SkeletonValue value={question?.header} width="60px" />
         </Tag>
-        {answer && <CheckCircle2 className="h-4 w-4 text-(--color-primary)" />}
+        {answer && <CheckCircle2 className="ask-user-question-status-icon" />}
       </div>
-      <div className="text-default-700 text-sm">
+      <div className="ask-user-question-prompt">
         <SkeletonValue value={question?.question} width="100%" />
       </div>
       {answer && (
-        <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-(--color-primary)" />
-          <span className="text-(--color-primary) text-sm">{answer}</span>
+        <div className="ask-user-question-answer">
+          <CheckCircle2 className="ask-user-question-answer-icon" />
+          <span className="ask-user-question-answer-text">{answer}</span>
         </div>
       )}
     </div>
@@ -208,9 +208,8 @@ function PendingContent({
   const { t } = useTranslation()
 
   return (
-    <div className="space-y-3">
-      {/* Header Tag */}
-      <div className="flex items-center gap-2">
+    <div className="ask-user-question-content ask-user-question-content--pending">
+      <div className="ask-user-question-tags">
         <Tag color="processing" className="m-0">
           <SkeletonValue value={question?.header} width="60px" />
         </Tag>
@@ -219,15 +218,13 @@ function PendingContent({
             {t('agent.askUserQuestion.multiSelect')}
           </Tag>
         )}
-        {isAnswered && <CheckCircle className="h-4 w-4 text-(--color-primary)" />}
+        {isAnswered && <CheckCircle className="ask-user-question-status-icon" />}
       </div>
 
-      {/* Question */}
-      <div className="font-medium text-default-700 text-sm">
+      <div className="ask-user-question-prompt ask-user-question-prompt--strong">
         <SkeletonValue value={question?.question} width="100%" />
       </div>
 
-      {/* Options */}
       {question?.options ? (
         <OptionsList
           options={question.options}
@@ -238,16 +235,15 @@ function PendingContent({
           otherLabel={t('agent.askUserQuestion.other')}
         />
       ) : (
-        <div className="space-y-2">
+        <div className="ask-user-question-skeletons">
           <SkeletonValue value={null} width="100%" />
           <SkeletonValue value={null} width="100%" />
         </div>
       )}
 
-      {/* Custom input field */}
       {hasCustomInput && (
         <Input
-          className="mt-2"
+          className="ask-user-question-custom-input"
           placeholder={t('agent.askUserQuestion.customPlaceholder')}
           value={customInputValue}
           onChange={(e) => onCustomInputChange(e.target.value)}
@@ -264,7 +260,10 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   const dispatch = useAppDispatch()
   const request = useAppSelector((state) => selectPendingPermission(state.toolPermissions, toolResponse.toolCallId))
 
-  const isPending = toolResponse.status === 'pending' && !!request
+  // HomePage runtime may keep the tool block in "streaming" while the
+  // permission request is already pending. Treat any active request as the
+  // interactive state so we can render the question/options immediately.
+  const isPending = !!request
 
   // Parse from available sources - prefer request.input when pending, fall back to toolResponse.arguments
   const { questions, answers } = useMemo(() => {
@@ -369,14 +368,35 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
       }
     })
 
+    logger.info('AskUserQuestion submit start', {
+      requestId: request.requestId,
+      toolCallId: toolResponse.toolCallId,
+      questionsCount: questions.length,
+      answersCount: Object.keys(collectedAnswers).length,
+      hasCustomInput: Object.values(showCustomInput).some(Boolean),
+      requestStatus: request.status
+    })
+
     setSubmittedAnswers(collectedAnswers)
     dispatch(toolPermissionsActions.submissionSent({ requestId: request.requestId, behavior: 'allow' }))
 
     try {
+      logger.info('AskUserQuestion respondToPermission send', {
+        requestId: request.requestId,
+        toolCallId: toolResponse.toolCallId,
+        updatedInputKeys: Object.keys({ ...request.input, answers: collectedAnswers })
+      })
       const response = await window.api.agentTools.respondToPermission({
         requestId: request.requestId,
         behavior: 'allow' as const,
         updatedInput: { ...request.input, answers: collectedAnswers }
+      })
+
+      logger.info('AskUserQuestion respondToPermission result', {
+        requestId: request.requestId,
+        toolCallId: toolResponse.toolCallId,
+        success: Boolean(response?.success),
+        error: response?.error || ''
       })
 
       if (!response?.success) throw new Error('Response rejected by main process')
@@ -389,7 +409,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
 
   if (isPending && (questions.length === 0 || !currentQuestion)) {
     return (
-      <div className="rounded-xl border border-default-200 bg-default-100 px-4 py-3 text-default-500 text-sm">
+      <div className="ask-user-question-waiting">
         {t('agent.toolPermission.waiting')}
       </div>
     )
@@ -428,7 +448,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
       <Button
         disabled={isLastQuestion}
         onClick={handleNext}
-        className="flex items-center"
+        className="ask-user-question-navigation-button"
         iconPosition="end"
         icon={<ChevronRight size={16} />}>
         {t('agent.askUserQuestion.next')}
@@ -437,8 +457,8 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   }
 
   return (
-    <div className="w-full max-w-xl rounded-xl border border-default-200 bg-default-100 px-4 py-3 shadow-sm">
-      <div className="flex flex-col gap-3">
+    <div className="ask-user-question-card">
+      <div className="ask-user-question-card-inner">
         <CardHeader
           currentIndex={currentIndex}
           totalQuestions={totalQuestions}

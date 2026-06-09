@@ -1,0 +1,286 @@
+.ask-user-question-card {
+  width: 100%;
+  max-width: 560px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.ask-user-question-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.ask-user-question-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ask-user-question-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ask-user-question-header-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--color-primary, #22c55e);
+  flex-shrink: 0;
+}
+
+.ask-user-question-header-title {
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ask-user-question-header-meta {
+  flex-shrink: 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ask-user-question-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.ask-user-question-content--pending {
+  gap: 12px;
+}
+
+.ask-user-question-content--completed {
+  gap: 8px;
+}
+
+.ask-user-question-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ask-user-question-status-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-primary, #22c55e);
+  flex-shrink: 0;
+}
+
+.ask-user-question-prompt {
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ask-user-question-prompt--strong {
+  font-weight: 500;
+}
+
+.ask-user-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 256px;
+  overflow-y: auto;
+}
+
+.ask-user-question-options-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-user-question-radio-group {
+  width: 100%;
+}
+
+.ask-user-question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.ask-user-question-option:hover {
+  border-color: #02b96b;
+  background: #ebf7ef;
+}
+
+.ask-user-question-option--selected {
+  border-color: #02b96b;
+  background: #ebf7ef;
+}
+
+.ask-user-question-option .ant-radio-wrapper,
+.ask-user-question-option .ant-checkbox-wrapper {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.ask-user-question-option .ant-radio-inner {
+  border-color: #02b96b;
+}
+
+.ask-user-question-option .ant-radio-wrapper:hover .ant-radio-inner,
+.ask-user-question-option .ant-radio:hover .ant-radio-inner {
+  border-color: #02b96b;
+}
+
+.ask-user-question-option .ant-radio-checked .ant-radio-inner {
+  background-color: #02b96b;
+  border-color: #02b96b;
+}
+
+.ask-user-question-option .ant-radio-checked::after {
+  border-color: #02b96b;
+}
+
+.ask-user-question-option-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ask-user-question-option-label {
+  display: block;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ask-user-question-option-description {
+  display: block;
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ask-user-question-skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-user-question-custom-input {
+  margin-top: 8px;
+}
+
+.ask-user-question-custom-input.ant-input,
+.ask-user-question-card .ask-user-question-custom-input.ant-input {
+  border-color: #02b96b;
+}
+
+.ask-user-question-custom-input.ant-input:hover,
+.ask-user-question-card .ask-user-question-custom-input.ant-input:hover {
+  border-color: #02b96b;
+}
+
+.ask-user-question-custom-input.ant-input:focus,
+.ask-user-question-custom-input.ant-input:focus-within,
+.ask-user-question-card .ask-user-question-custom-input.ant-input:focus,
+.ask-user-question-card .ask-user-question-custom-input.ant-input:focus-within {
+  border-color: #02b96b;
+  box-shadow: 0 0 0 2px rgba(2, 185, 107, 0.15);
+}
+
+.ask-user-question-answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 10px;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.ask-user-question-answer-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-primary, #22c55e);
+  flex-shrink: 0;
+}
+
+.ask-user-question-answer-text {
+  color: var(--color-primary, #16a34a);
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ask-user-question-navigation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.ask-user-question-navigation--between {
+  justify-content: space-between;
+}
+
+.ask-user-question-navigation--end {
+  justify-content: flex-end;
+}
+
+.ask-user-question-navigation-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ask-user-question-card .ant-btn-color-primary,
+.ask-user-question-card .ant-btn-variant-solid {
+  background: #02b96b;
+  border-color: #02b96b;
+  box-shadow: none;
+}
+
+.ask-user-question-card .ant-btn-color-primary:not(:disabled):not(.ant-btn-disabled):hover,
+.ask-user-question-card .ant-btn-variant-solid:not(:disabled):not(.ant-btn-disabled):hover {
+  background: #029f5d;
+  border-color: #029f5d;
+}
+
+.ask-user-question-card .ant-btn-color-primary:not(:disabled):not(.ant-btn-disabled):active,
+.ask-user-question-card .ant-btn-variant-solid:not(:disabled):not(.ant-btn-disabled):active {
+  background: #028a51;
+  border-color: #028a51;
+}
+
+.ask-user-question-card .ant-btn-color-primary:disabled,
+.ask-user-question-card .ant-btn-color-primary.ant-btn-disabled,
+.ask-user-question-card .ant-btn-variant-solid:disabled,
+.ask-user-question-card .ant-btn-variant-solid.ant-btn-disabled {
+  background: #f5f5f5;
+  border-color: #d9d9d9;
+  color: #b8b8b8;
+  box-shadow: none;
+}
+
+.ask-user-question-waiting {
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+}

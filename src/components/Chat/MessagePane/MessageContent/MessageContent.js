@@ -1,5 +1,6 @@
 import React from 'react';
 import { Provider, useSelector } from 'react-redux';
+import '@renderer/assets/styles/index.css';
 import MessageBlockRenderer from '@renderer/pages/home/Messages/Blocks';
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage';
 import appStore from '../../../../renderer/src/store';

@@ -170,6 +170,14 @@ const ensureIpcHandlersRegistered = () => {
     const { requestId, behavior, updatedInput, message } = payload
     const pending = pendingRequests.get(requestId)
 
+    logger.info('Tool permission response lookup', {
+      requestId,
+      behavior,
+      pendingExists: Boolean(pending),
+      pendingCount: pendingRequests.size,
+      pendingRequestIds: Array.from(pendingRequests.keys())
+    })
+
     if (!pending) {
       logger.warn('Received renderer tool permission response for unknown request', { requestId })
       return { success: false, error: 'unknown-request' }

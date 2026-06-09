@@ -137,13 +137,25 @@ export const selectPendingPermission = (
   state: ToolPermissionsState,
   toolCallId: string
 ): ToolPermissionEntry | undefined => {
+  const statusPriority: Record<ToolPermissionStatus, number> = {
+    pending: 0,
+    'submitting-allow': 1,
+    'submitting-deny': 2,
+    invoking: 3
+  }
+
   const activeEntries = Object.values(state.requests)
     .filter((entry) => entry.toolCallId === toolCallId)
     .filter((entry) => ['pending', 'submitting-allow', 'submitting-deny', 'invoking'].includes(entry.status))
 
   if (activeEntries.length === 0) return undefined
 
-  activeEntries.sort((a, b) => a.createdAt - b.createdAt)
+  activeEntries.sort((a, b) => {
+    const priorityDiff = statusPriority[a.status] - statusPriority[b.status]
+    if (priorityDiff !== 0) return priorityDiff
+    return b.createdAt - a.createdAt
+  })
+
   return activeEntries[0]
 }
 
