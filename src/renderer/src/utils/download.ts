@@ -3,6 +3,18 @@ import i18n from '@renderer/i18n'
 
 const logger = loggerService.withContext('Utils:download')
 
+const extractFilenameFromUrl = (url: string): string | null => {
+  try {
+    const pathname = new URL(url).pathname
+    const rawFilename = pathname.substring(pathname.lastIndexOf('/') + 1)
+    return rawFilename ? decodeURIComponent(rawFilename) : null
+  } catch {
+    const sanitizedUrl = url.split('#')[0].split('?')[0]
+    const rawFilename = sanitizedUrl.substring(sanitizedUrl.lastIndexOf('/') + 1)
+    return rawFilename ? decodeURIComponent(rawFilename) : null
+  }
+}
+
 export const download = (url: string, filename?: string) => {
   // 处理可直接通过 <a> 标签下载的 URL:
   // - 本地文件 ( file:// )
@@ -53,7 +65,7 @@ export const download = (url: string, filename?: string) => {
         }
 
         // 如果URL中有文件名，使用URL中的文件名
-        const urlFilename = url.split('/').pop()
+        const urlFilename = extractFilenameFromUrl(url)
         if (urlFilename && urlFilename.includes('.')) {
           finalFilename = urlFilename
         }

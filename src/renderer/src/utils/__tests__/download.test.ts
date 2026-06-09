@@ -197,6 +197,19 @@ describe('download', () => {
         expect(element.download).toBe(`${now}_file.pdf`)
       })
 
+      it('should strip query parameters from URL filenames', async () => {
+        const now = Date.now()
+        vi.spyOn(Date, 'now').mockReturnValue(now)
+
+        mockFetch.mockResolvedValue(createMockResponse())
+
+        download('https://example.com/file.jpeg?OSSAccessKeyId=abc&Signature=xyz')
+        await waitForAsync()
+
+        const element = mockCreateElement.mock.results[0].value
+        expect(element.download).toBe(`${now}_file.jpeg`)
+      })
+
       it('should handle Content-Type when filename has no extension', async () => {
         const headers = new Headers()
         headers.set('Content-Type', 'application/pdf')

@@ -24,7 +24,9 @@ import { isWin } from '@main/constant'
 import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
+import ImageGenerateServer from '@main/mcpServers/image-generate'
 import SkillsServer from '@main/mcpServers/skills'
+import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
@@ -780,6 +782,24 @@ class ClaudeCodeService implements AgentServiceInterface {
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
       if (!options.allowedTools.includes('mcp__search__*')) {
         options.allowedTools = [...options.allowedTools, 'mcp__search__*']
+      }
+    }
+
+    const imageGenerateServer = new ImageGenerateServer()
+    options.mcpServers.image = { type: 'sdk', name: 'image', instance: imageGenerateServer.mcpServer }
+    autoAllowTools.add('mcp__image__generate_image')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__image__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__image__*']
+      }
+    }
+
+    const speechGenerateServer = new SpeechGenerateServer()
+    options.mcpServers.speech = { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer }
+    autoAllowTools.add('mcp__speech__generate_speech')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__speech__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__speech__*']
       }
     }
 
