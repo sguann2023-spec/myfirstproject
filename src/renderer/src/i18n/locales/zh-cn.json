@@ -2494,7 +2494,7 @@
         "exitPlanMode": "退出计划模式",
         "glob": "文件匹配",
         "grep": "搜索",
-        "mcpServerTool": "MCP 服务器工具",
+        "mcpServerTool": "工具",
         "multiEdit": "批量编辑",
         "notebookEdit": "笔记本编辑",
         "readFile": "读取文件",

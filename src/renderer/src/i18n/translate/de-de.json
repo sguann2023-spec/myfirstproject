@@ -2493,7 +2493,7 @@
         "exitPlanMode": "ExitPlanModus",
         "glob": "Globus",
         "grep": "Grep",
-        "mcpServerTool": "MCP-Server-Tool",
+        "mcpServerTool": "Tool",
         "multiEdit": "MultiEdit",
         "notebookEdit": "NotizbuchBearbeiten",
         "readFile": "Datei lesen",

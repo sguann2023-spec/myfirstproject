@@ -2494,7 +2494,7 @@
         "exitPlanMode": "ExitPlanMode",
         "glob": "Glob",
         "grep": "Grep",
-        "mcpServerTool": "MCP Server Tool",
+        "mcpServerTool": "Tool",
         "multiEdit": "MultiEdit",
         "notebookEdit": "NotebookEdit",
         "readFile": "Read File",

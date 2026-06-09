@@ -2493,7 +2493,7 @@
         "exitPlanMode": "РежимВыходаПлана",
         "glob": "Глоб",
         "grep": "Grep",
-        "mcpServerTool": "Инструмент сервера MCP",
+        "mcpServerTool": "Инструмент",
         "multiEdit": "МультиРедакт",
         "notebookEdit": "РедакторБлокнота",
         "readFile": "Прочитать файл",

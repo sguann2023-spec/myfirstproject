@@ -26,6 +26,7 @@ import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
+import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
@@ -813,6 +814,16 @@ class ClaudeCodeService implements AgentServiceInterface {
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
       if (!options.allowedTools.includes('mcp__digital-human__*')) {
         options.allowedTools = [...options.allowedTools, 'mcp__digital-human__*']
+      }
+    }
+
+    const kouboTemplateServer = new KouboTemplateServer()
+    options.mcpServers['koubo-template'] = { type: 'sdk', name: 'koubo-template', instance: kouboTemplateServer.mcpServer }
+    autoAllowTools.add('mcp__koubo-template__submit_koubo_template_task')
+    autoAllowTools.add('mcp__koubo-template__get_koubo_template_task_status')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__koubo-template__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__koubo-template__*']
       }
     }
 
