@@ -24,6 +24,7 @@ import { isWin } from '@main/constant'
 import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
+import DigitalHumanServer from '@main/mcpServers/digital-human'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
@@ -800,6 +801,18 @@ class ClaudeCodeService implements AgentServiceInterface {
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
       if (!options.allowedTools.includes('mcp__speech__*')) {
         options.allowedTools = [...options.allowedTools, 'mcp__speech__*']
+      }
+    }
+
+    const digitalHumanServer = new DigitalHumanServer()
+    options.mcpServers['digital-human'] = { type: 'sdk', name: 'digital-human', instance: digitalHumanServer.mcpServer }
+    autoAllowTools.add('mcp__digital-human__create_lip_sync_digital_human')
+    autoAllowTools.add('mcp__digital-human__get_lip_sync_digital_human_status')
+    autoAllowTools.add('mcp__digital-human__create_image_driven_digital_human')
+    autoAllowTools.add('mcp__digital-human__get_image_driven_digital_human_status')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__digital-human__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__digital-human__*']
       }
     }
 

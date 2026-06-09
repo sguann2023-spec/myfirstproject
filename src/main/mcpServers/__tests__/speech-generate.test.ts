@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item'
+
 const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
@@ -73,7 +75,10 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 describe('SpeechGenerateServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+    mockStoreGet.mockImplementation((key: string) => {
+      if (key === 'auth.refresh_token') return 'refresh-token'
+      return undefined
+    })
   })
 
   it('should expose only the generate_speech tool', async () => {
@@ -116,6 +121,10 @@ describe('SpeechGenerateServer', () => {
     })
 
     expect(mockStoreSet).toHaveBeenCalledWith('auth.refresh_token', 'refresh-token-next')
+    expect(mockStoreSet).toHaveBeenCalledWith(VOICE_SELECTED_STORAGE_KEY, {
+      global_voice_id: 'gv_6e52beeb34614e13ab166b64d08fe8c2',
+      providers: 'minimax'
+    })
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
       'https://open.vectcut.com/cut_jianying/generate_speech',
@@ -184,6 +193,10 @@ describe('SpeechGenerateServer', () => {
       trackName: 'audio_speech'
     })
 
+    expect(mockStoreSet).toHaveBeenCalledWith(VOICE_SELECTED_STORAGE_KEY, {
+      global_voice_id: 'audiobook_male_1',
+      providers: 'minimax'
+    })
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
       'https://open.vectcut.com/cut_jianying/generate_speech',
@@ -249,6 +262,53 @@ describe('SpeechGenerateServer', () => {
       provider: 'minimax',
       text: 'hello',
       voice_id: 'gv_6e52beeb34614e13ab166b64d08fe8c2'
+    })
+  })
+
+  it('should prefer persisted selected voice and provider when omitted', async () => {
+    mockStoreGet.mockImplementation((key: string) => {
+      if (key === 'auth.refresh_token') return 'refresh-token'
+      if (key === VOICE_SELECTED_STORAGE_KEY) {
+        return {
+          global_voice_id: 'gv_cached_voice',
+          providers: 'fish',
+          title: '缓存音色'
+        }
+      }
+      return undefined
+    })
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            audio_url: 'https://example.com/audio.mp3'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, {
+      text: 'use cached voice'
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      provider: 'fish',
+      text: 'use cached voice',
+      voice_id: 'gv_cached_voice'
+    })
+    expect(mockStoreSet).toHaveBeenCalledWith(VOICE_SELECTED_STORAGE_KEY, {
+      global_voice_id: 'gv_cached_voice',
+      providers: 'fish',
+      title: '缓存音色'
     })
   })
 })

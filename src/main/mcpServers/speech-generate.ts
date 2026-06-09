@@ -12,6 +12,7 @@ const SPEECH_GENERATE_ENDPOINT = '/cut_jianying/generate_speech'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
+const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item'
 const DEFAULT_SPEECH_PROVIDER = 'minimax'
 const DEFAULT_SPEECH_VOICE_ID = 'gv_6e52beeb34614e13ab166b64d08fe8c2'
 
@@ -106,6 +107,14 @@ const GENERATE_SPEECH_TOOL: Tool = {
 type PendingToken = {
   accessToken: string
   expiresAt: number
+}
+
+type PersistedSelectedVoiceItem = {
+  global_voice_id?: string
+  voice_id?: string
+  providers?: string
+  provider?: string
+  [key: string]: unknown
 }
 
 type SpeechGenerateResponse = {
@@ -282,18 +291,61 @@ class SpeechGenerateServer {
     }
   }
 
+  private readPersistedSelectedVoiceItem(): PersistedSelectedVoiceItem | null {
+    const rawValue = this.store.get(VOICE_SELECTED_STORAGE_KEY)
+
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+      return null
+    }
+
+    const item = rawValue as PersistedSelectedVoiceItem
+    const voiceId = String(item.global_voice_id || item.voice_id || '').trim()
+    if (!voiceId) {
+      return null
+    }
+
+    return {
+      ...item,
+      global_voice_id: voiceId
+    }
+  }
+
+  private persistSelectedVoiceItem(voiceId: string, provider: string) {
+    const normalizedVoiceId = String(voiceId || '').trim()
+    if (!normalizedVoiceId) {
+      return
+    }
+
+    const normalizedProvider = String(provider || '').trim()
+    const currentItem = this.readPersistedSelectedVoiceItem()
+
+    this.store.set(VOICE_SELECTED_STORAGE_KEY, {
+      ...(currentItem ?? {}),
+      global_voice_id: normalizedVoiceId,
+      providers: normalizedProvider || currentItem?.providers || currentItem?.provider || DEFAULT_SPEECH_PROVIDER
+    })
+  }
+
   private buildSpeechPayload(args: Record<string, unknown>) {
     const text = typeof args.text === 'string' ? args.text.trim() : ''
+    const persistedVoiceItem = this.readPersistedSelectedVoiceItem()
     const voiceIdRaw = typeof args.voiceId === 'string' ? args.voiceId : args.voice_id
     const voiceId =
-      typeof voiceIdRaw === 'string' && voiceIdRaw.trim() ? voiceIdRaw.trim() : DEFAULT_SPEECH_VOICE_ID
+      typeof voiceIdRaw === 'string' && voiceIdRaw.trim()
+        ? voiceIdRaw.trim()
+        : String(persistedVoiceItem?.global_voice_id || persistedVoiceItem?.voice_id || DEFAULT_SPEECH_VOICE_ID).trim()
     if (!text) {
       throw new McpError(ErrorCode.InvalidParams, "'text' is required for generate_speech")
     }
 
+    const provider =
+      typeof args.provider === 'string' && args.provider.trim()
+        ? args.provider.trim()
+        : String(persistedVoiceItem?.providers || persistedVoiceItem?.provider || DEFAULT_SPEECH_PROVIDER).trim() ||
+          DEFAULT_SPEECH_PROVIDER
+
     const payload: Record<string, unknown> = {
-      provider:
-        typeof args.provider === 'string' && args.provider.trim() ? args.provider.trim() : DEFAULT_SPEECH_PROVIDER
+      provider
     }
 
     for (const [rawKey, value] of Object.entries(args)) {
@@ -306,6 +358,7 @@ class SpeechGenerateServer {
 
     payload.text = text
     payload.voice_id = voiceId
+    this.persistSelectedVoiceItem(voiceId, provider)
     return payload
   }
 
