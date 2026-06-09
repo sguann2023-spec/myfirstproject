@@ -160,9 +160,19 @@ const ToolName = styled(Flex)`
   font-weight: 500;
   color: var(--color-text);
   flex-shrink: 0;
+  align-items: center;
 
   .tool-icon {
     color: var(--color-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+
+  .tool-icon svg {
+    display: block;
   }
 
   .name {

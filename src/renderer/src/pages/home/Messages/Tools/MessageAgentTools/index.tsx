@@ -31,6 +31,7 @@ import { TaskTool } from './TaskTool'
 import { TaskOutputTool } from './TaskOutputTool'
 import { TodoWriteTool } from './TodoWriteTool'
 import { ToolSearchTool } from './ToolSearchTool'
+import { isAgentMcpToolName, McpServerToolRenderer } from './McpServerToolRenderer'
 import type { ToolInput, ToolOutput } from './types'
 import { AgentToolsType } from './types'
 import { UnknownToolRenderer } from './UnknownToolRenderer'
@@ -149,7 +150,9 @@ function ToolContent({
 
   const renderedItem = isValidAgentToolsType(toolName) && !shouldFallbackToUnknownForBash
     ? renderTool(toolName, (input ?? {}) as Record<string, unknown>, output)
-    : UnknownToolRenderer({ toolName: toolName ?? 'Tool', input, output })
+    : isAgentMcpToolName(toolName ?? '')
+      ? McpServerToolRenderer({ toolName: toolName ?? 'Tool', input, output })
+      : UnknownToolRenderer({ toolName: toolName ?? 'Tool', input, output })
 
   const toolContentItem: NonNullable<CollapseProps['items']>[number] = {
     ...renderedItem,

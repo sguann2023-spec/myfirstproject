@@ -8,6 +8,7 @@ import styled from 'styled-components'
 
 import { useAgentToolApproval } from './hooks/useAgentToolApproval'
 import { type StatusColor, StatusIndicatorContainer, StreamingContext } from './MessageAgentTools/GenericTools'
+import { isAgentMcpToolName, McpServerToolRenderer } from './MessageAgentTools/McpServerToolRenderer'
 import { isValidAgentToolsType, renderTool } from './MessageAgentTools/index'
 import { UnknownToolRenderer } from './MessageAgentTools/UnknownToolRenderer'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
@@ -38,7 +39,9 @@ export function ToolPermissionRequestCard({ toolResponse }: Props) {
 
     const renderedItem = isValidAgentToolsType(toolName)
       ? renderTool(toolName, input)
-      : UnknownToolRenderer({ input, toolName })
+      : isAgentMcpToolName(toolName)
+        ? McpServerToolRenderer({ input, toolName })
+        : UnknownToolRenderer({ input, toolName })
 
     const statusIndicator = (
       <StatusIndicatorContainer $color={statusInfo.color}>
