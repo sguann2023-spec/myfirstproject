@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { draftList, getClientBanner, searchDraft } from '../../api/capcut';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Checkbox, Tooltip } from 'antd';
+import { CloseOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
+import { deleteDraft, draftList, getClientBanner, searchDraft } from '../../api/capcut';
 import './index.css';
 import SearchIcon from '../../../public/search_unfocus.svg';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
@@ -11,10 +13,11 @@ const LIMIT = 20;
 function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, selectedId, refreshToken = 0 }) {
   const containerRef = useRef(null);
   const [items, setItems] = useState([]);
-  const [selectedIds, setSelectedIds] = useState(() => new Set(selectedId ? [selectedId] : []));
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [offset, setOffset] = useState(0);
   const [isRefreshing, setRefreshing] = useState(false);
   const [isLoadingMore, setLoadingMore] = useState(false);
+  const [isDeleting, setDeleting] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState('');
   const [pullTip, setPullTip] = useState('');
@@ -23,8 +26,8 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
   const isRefreshingRef = useRef(false);
   const pullUpCountRef = useRef(0);
   const refreshCooldownRef = useRef(false);
-  const selectionAnchorRef = useRef(selectedId || null);
-  const selectedIdsRef = useRef(new Set(selectedId ? [selectedId] : []));
+  const selectionAnchorRef = useRef(null);
+  const selectedIdsRef = useRef(new Set());
 
   // 新增：Banner 数据与轮播索引
   const [banners, setBanners] = useState([]);
@@ -60,22 +63,26 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
   useEffect(() => {
     const validIds = new Set(items.map(item => item.draft_id).filter(Boolean));
     setSelectedIds((prev) => {
-      if (prev.size > 0) {
-        const next = new Set([...prev].filter(id => validIds.has(id)));
-        if (next.size > 0 || !selectedId) return next;
-      }
-      return selectedId && validIds.has(selectedId) ? new Set([selectedId]) : new Set();
+      return new Set([...prev].filter(id => validIds.has(id)));
     });
 
     if (selectionAnchorRef.current && !validIds.has(selectionAnchorRef.current)) {
-      selectionAnchorRef.current = selectedId && validIds.has(selectedId) ? selectedId : null;
+      selectionAnchorRef.current = null;
     }
-  }, [items, selectedId]);
-
-  const isToggleSelectionEvent = (event) => event.metaKey || event.ctrlKey;
+  }, [items]);
 
   const getDraftById = (draftId) => items.find((draft) => draft?.draft_id === draftId) || null;
   const getSelectedDrafts = (selectedIdSet) => items.filter((draft) => selectedIdSet.has(draft?.draft_id));
+  const selectableDrafts = useMemo(
+    () => items.filter((draft) => draft?.draft_id),
+    [items]
+  );
+  const selectedDrafts = useMemo(() => getSelectedDrafts(selectedIds), [items, selectedIds]);
+  const selectedCount = selectedDrafts.length;
+  const selectableCount = selectableDrafts.length;
+  const isAllSelected = selectableCount > 0 && selectedCount === selectableCount;
+  const isPartiallySelected = selectedCount > 0 && selectedCount < selectableCount;
+  const isToggleSelectionEvent = (event) => event.metaKey || event.ctrlKey;
 
   useEffect(() => {
     if (typeof onSelectionChange === 'function') {
@@ -128,11 +135,19 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
     const clickedId = item?.draft_id;
     if (!clickedId) return;
 
+    const hasSelection = selectedIdsRef.current.size > 0;
     const anchorId = selectionAnchorRef.current;
     const isToggle = isToggleSelectionEvent(event);
+    const shouldUseSelection = hasSelection || isToggle || event.shiftKey;
+
+    if (!shouldUseSelection) {
+      handleSelectDraft(item);
+      return;
+    }
+
     if (event.shiftKey && anchorId) {
-      const anchorIndex = items.findIndex(draft => draft?.draft_id === anchorId);
-      const clickedIndex = items.findIndex(draft => draft?.draft_id === clickedId);
+      const anchorIndex = items.findIndex((draft) => draft?.draft_id === anchorId);
+      const clickedIndex = items.findIndex((draft) => draft?.draft_id === clickedId);
 
       if (anchorIndex !== -1 && clickedIndex !== -1) {
         const [start, end] = anchorIndex < clickedIndex
@@ -140,11 +155,12 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
           : [clickedIndex, anchorIndex];
         const rangeIds = items
           .slice(start, end + 1)
-          .map(draft => draft?.draft_id)
+          .map((draft) => draft?.draft_id)
           .filter(Boolean);
         const nextSelectedIds = isToggle
           ? new Set([...selectedIdsRef.current, ...rangeIds])
           : new Set(rangeIds);
+
         updateSelection(nextSelectedIds, {
           preferredDraftId: clickedId,
           syncPreview: true
@@ -160,6 +176,18 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
       } else {
         nextSelectedIds.add(clickedId);
       }
+
+      updateSelection(nextSelectedIds, {
+        preferredDraftId: clickedId,
+        syncPreview: true,
+        setAnchor: true
+      });
+      return;
+    }
+
+    if (hasSelection) {
+      const nextSelectedIds = new Set(selectedIdsRef.current);
+      nextSelectedIds.add(clickedId);
       updateSelection(nextSelectedIds, {
         preferredDraftId: clickedId,
         syncPreview: true,
@@ -174,6 +202,102 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
       setAnchor: true
     });
     handleSelectDraft(item);
+  };
+
+  const handleCheckboxChange = (draftId, checked) => {
+    if (!draftId) return;
+
+    const nextSelectedIds = new Set(selectedIdsRef.current);
+    if (checked) {
+      nextSelectedIds.add(draftId);
+    } else {
+      nextSelectedIds.delete(draftId);
+    }
+
+    updateSelection(nextSelectedIds, {
+      preferredDraftId: draftId,
+      syncPreview: true,
+      setAnchor: checked
+    });
+  };
+
+  const clearSelection = () => {
+    updateSelection(new Set(), {
+      preferredDraftId: null,
+      syncPreview: false,
+      setAnchor: true
+    });
+    handleSelectDraft(null);
+  };
+
+  const handleCheckAllChange = (event) => {
+    const checked = event.target.checked;
+    if (!checked) {
+      clearSelection();
+      return;
+    }
+
+    const nextSelectedIds = new Set(selectableDrafts.map((draft) => draft.draft_id));
+    const preferredDraftId = selectableDrafts[selectableDrafts.length - 1]?.draft_id || null;
+    updateSelection(nextSelectedIds, {
+      preferredDraftId,
+      syncPreview: true,
+      setAnchor: Boolean(preferredDraftId)
+    });
+  };
+
+  const handleBatchDownload = () => {
+    selectedDrafts.forEach((item) => {
+      if (!item?.draft_id) return;
+      DownloadController.enqueue({
+        draft_id: item.draft_id,
+        draft_name: item.draft_name,
+        cover: item.cover,
+        createdAt: item.created_at
+      });
+    });
+    clearSelection();
+  };
+
+  const handleBatchDelete = async () => {
+    const draftIds = selectedDrafts.map((item) => item?.draft_id).filter(Boolean);
+    if (draftIds.length === 0 || isDeleting) return;
+
+    const confirmed = window?.modal?.confirm
+      ? await new Promise((resolve) => {
+          window.modal.confirm({
+            title: '确认删除草稿',
+            content: `删除后不可恢复，确认删除这 ${draftIds.length} 个草稿吗？`,
+            okText: '删除',
+            cancelText: '取消',
+            centered: true,
+            okType: 'danger',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        })
+      : window.confirm(`删除后不可恢复，确认删除这 ${draftIds.length} 个草稿吗？`);
+
+    if (!confirmed) return;
+
+    try {
+      clearSelection();
+      setDeleting(true);
+      const res = await deleteDraft({ draft_ids: draftIds });
+      if (res?.success === false) {
+        throw new Error(res?.error || '删除失败');
+      }
+
+      const deletedIdSet = new Set(draftIds);
+      setItems((prev) => prev.filter((item) => !deletedIdSet.has(item?.draft_id)));
+      if (typeof onRefreshTodayCount === 'function') {
+        onRefreshTodayCount();
+      }
+    } catch (e) {
+      window.alert(e?.message || '删除失败');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const fetchPage = async (start, replace = false) => {
@@ -359,6 +483,50 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
 
   return (
     <div className="draftlist-root">
+      {selectedCount >= 1 && (
+        <div className="draftlist-selection-toolbar">
+          <Checkbox
+            className="draftlist-selection-checkall"
+            indeterminate={isPartiallySelected}
+            checked={isAllSelected}
+            onChange={handleCheckAllChange}
+            disabled={selectableCount === 0 || isDeleting}
+          >
+            {selectedCount} 已选
+          </Checkbox>
+          <div className="draftlist-selection-divider" />
+          <Tooltip title="下载" placement="top">
+            <button
+              type="button"
+              className="draftlist-selection-action"
+              onClick={handleBatchDownload}
+              disabled={isDeleting}
+            >
+              <DownloadOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="删除" placement="top">
+            <button
+              type="button"
+              className="draftlist-selection-action draftlist-selection-action-delete"
+              onClick={handleBatchDelete}
+              disabled={isDeleting}
+            >
+              <DeleteOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="关闭" placement="top">
+            <button
+              type="button"
+              className="draftlist-selection-action"
+              onClick={clearSelection}
+              disabled={isDeleting}
+            >
+              <CloseOutlined />
+            </button>
+          </Tooltip>
+        </div>
+      )}
         
       {/* 顶部 Banner 区域（只显示一个，轮播） */}
       {bannerError && <div className="draftlist-banner-error">{bannerError}</div>}
@@ -440,7 +608,7 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
         {error && <div className="draftlist-error">{error}</div>}
 
         {items.map(item => (
-            <div
+          <div
             key={item.draft_id}
             className={`draftlist-item ${selectedIds.has(item.draft_id) ? 'selected' : ''}`}
             onClick={(event) => handleDraftItemClick(item, event)}
@@ -453,7 +621,17 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
                 createdAt: item.created_at
               });
             }}
+          >
+            <div
+              className="draftlist-item-checkbox"
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
+              <Checkbox
+                checked={selectedIds.has(item.draft_id)}
+                onChange={(e) => handleCheckboxChange(item.draft_id, e.target.checked)}
+              />
+            </div>
             <div className="draftlist-cover"> 
                 {item.cover ? (
                 <img src={item.cover} alt="cover" className="draftlist-cover-img" draggable={false} />

@@ -14,30 +14,38 @@ const IMAGE_MODEL_CAPABILITIES_ENDPOINT = '/llm/image/model_capabilities'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
+const PRIMARY_IMAGE_TOOL_NAME = 'generate_or_edit_image'
+const LEGACY_IMAGE_TOOL_NAME = 'generate_image'
+const IMAGE_TASK_WAIT_TIME = '3-5 minutes'
+const IMAGE_CAPABILITIES_CACHE_TTL_MS = 5 * 60 * 1000
 
 const IMAGE_GENERATE_TOOL: Tool = {
-  name: 'generate_image',
+  name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Submit or query asynchronous AI image generation tasks via VectCut. Omit action to submit a new task, or use action="status" with taskId to query an existing task.',
+    'Create, generate, edit, restyle, or query asynchronous AI image tasks via VectCut. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. These tasks are asynchronous and typically take 3-5 minutes. After submitting a task, if the response contains a taskId and the status is not final, you should continue polling with action="status" automatically instead of stopping and waiting for the user to ask again. Treat image generation and image editing as long-running tasks. Only stop when the task reaches a final status such as success, failed, or error, or when a reasonable timeout is reached. Omit action to submit a new generation/edit task, or use action="status" with taskId to query an existing task.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
         enum: ['submit', 'status'],
-        description: 'submit creates a new task, status queries a previous task. Defaults to submit.'
+        description:
+          'submit creates a new long-running task, status queries a previous task. After submit returns a taskId, keep using status to poll automatically until the task finishes. Defaults to submit.'
       },
       prompt: {
         type: 'string',
-        description: 'Image generation prompt. Required when action is submit.'
+        description:
+          'Instruction for generating or editing the image. Required when action is submit. Describe what to create, or what to change in the supplied image(s).'
       },
       taskId: {
         type: 'string',
-        description: 'Task ID returned by submit. Required when action is status.'
+        description:
+          'Task ID returned by submit. Required when action is status. Use this to continue polling long-running image tasks until they reach a final status.'
       },
       model: {
         type: 'string',
-        description: 'Optional image model, such as seedream-4.5 or nano_banana_2.'
+        description:
+          'Optional image model, such as seedream-4.5 or nano_banana_2. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities.'
       },
       size: {
         type: 'string',
@@ -45,14 +53,35 @@ const IMAGE_GENERATE_TOOL: Tool = {
       },
       referenceImage: {
         type: 'string',
-        description: 'Optional single reference image URL.'
+        description:
+          'Optional single source/reference image URL. Use for image editing, retouching, image-to-image, style transfer, or preserving composition from an existing image.'
       },
       referenceImages: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Optional multiple reference image URLs.'
+        description:
+          'Optional multiple source/reference image URLs. Use for multi-image editing, style mixing, composition fusion, or generating from several existing images.'
+      },
+      sourceImage: {
+        type: 'string',
+        description: 'Alias of referenceImage. Optional source image URL for editing or image-to-image tasks.'
+      },
+      sourceImages: {
+        type: 'array',
+        items: {
+          type: 'string'
+        },
+        description: 'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks.'
+      },
+      baseImage: {
+        type: 'string',
+        description: 'Alias of referenceImage. Optional base image URL to modify, enhance, or restyle.'
+      },
+      editImage: {
+        type: 'string',
+        description: 'Alias of referenceImage. Optional image URL to edit or retouch.'
       },
       composeDraft: {
         type: 'boolean',
@@ -74,7 +103,7 @@ const IMAGE_GENERATE_TOOL: Tool = {
 const IMAGE_CAPABILITIES_TOOL: Tool = {
   name: 'get_image_capabilities',
   description:
-    'Get supported image generation models, resolutions, reference image support, and optional pricing information from VectCut.',
+    'Get supported image creation/editing models, resolutions, reference image support for image-to-image or editing workflows, and optional pricing information from VectCut.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -153,9 +182,24 @@ type ImageCapabilitiesResponse = {
   [key: string]: unknown
 }
 
+type CachedImageCapabilities = {
+  capabilities: Record<string, ModelCapability>
+  prices: Record<string, ModelPrice>
+  expiresAt: number
+}
+
+type CachedImageModelList = {
+  models: string[]
+  expiresAt: number
+}
+
 const IMAGE_SUBMIT_FIELD_ALIASES: Record<string, string> = {
   referenceImage: 'reference_image',
   referenceImages: 'reference_images',
+  sourceImage: 'reference_image',
+  sourceImages: 'reference_images',
+  baseImage: 'reference_image',
+  editImage: 'reference_image',
   composeDraft: 'compose_draft',
   draftId: 'draft_id',
   transformX: 'transform_x',
@@ -192,6 +236,8 @@ class ImageGenerateServer {
   private readonly store = new Store({ name: 'vectcut' })
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
+  private capabilitiesCache: CachedImageCapabilities | null = null
+  private imageModelListCache: CachedImageModelList | null = null
 
   constructor() {
     this.mcpServer = new McpServer(
@@ -219,7 +265,8 @@ class ImageGenerateServer {
 
       try {
         switch (toolName) {
-          case 'generate_image':
+          case PRIMARY_IMAGE_TOOL_NAME:
+          case LEGACY_IMAGE_TOOL_NAME:
             return await this.generateImage(args as Record<string, unknown>)
           case 'get_image_capabilities':
             return await this.getImageCapabilities(args as Record<string, unknown>)
@@ -353,10 +400,185 @@ class ImageGenerateServer {
     }
   }
 
-  private buildImageSubmitPayload(args: Record<string, unknown>) {
+  public async getImageModelList(forceRefresh = false) {
+    if (!forceRefresh && this.imageModelListCache && Date.now() < this.imageModelListCache.expiresAt) {
+      return {
+        models: this.imageModelListCache.models,
+        defaultModel: ''
+      }
+    }
+
+    if (!forceRefresh && this.capabilitiesCache && Date.now() < this.capabilitiesCache.expiresAt) {
+      const models = Object.keys(this.capabilitiesCache.capabilities)
+      this.imageModelListCache = {
+        models,
+        expiresAt: this.capabilitiesCache.expiresAt
+      }
+      return {
+        models,
+        defaultModel: ''
+      }
+    }
+
+    const capabilitiesPayload = await this.fetchImageCapabilitiesPayload(forceRefresh)
+    const models = Object.keys(capabilitiesPayload.capabilities)
+    this.imageModelListCache = {
+      models,
+      expiresAt: capabilitiesPayload.expiresAt
+    }
+
+    return {
+      models,
+      defaultModel: ''
+    }
+  }
+
+  private async fetchImageCapabilitiesPayload(forceRefresh = false): Promise<CachedImageCapabilities> {
+    if (!forceRefresh && this.capabilitiesCache && Date.now() < this.capabilitiesCache.expiresAt) {
+      return this.capabilitiesCache
+    }
+
+    const response = await this.requestWithAuth(IMAGE_MODEL_CAPABILITIES_ENDPOINT, {
+      method: 'GET'
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Image model capabilities query failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const payload = (await response.json()) as ImageCapabilitiesResponse
+    this.capabilitiesCache = {
+      capabilities: payload.capabilities ?? {},
+      prices: payload.prices ?? {},
+      expiresAt: Date.now() + IMAGE_CAPABILITIES_CACHE_TTL_MS
+    }
+    this.imageModelListCache = {
+      models: Object.keys(this.capabilitiesCache.capabilities),
+      expiresAt: this.capabilitiesCache.expiresAt
+    }
+
+    return this.capabilitiesCache
+  }
+
+  private normalizeModelName(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  }
+
+  private levenshtein(a: string, b: string): number {
+    if (a === '' || b === '') {
+      return Math.max(a.length, b.length)
+    }
+
+    const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
+      Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+    )
+
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1
+        matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
+      }
+    }
+
+    return matrix[a.length][b.length]
+  }
+
+  private findClosestModelMatch(requestedModel: string, availableModels: string[]) {
+    const trimmedRequestedModel = requestedModel.trim()
+    if (!trimmedRequestedModel || availableModels.length === 0) {
+      return null
+    }
+
+    const exactMatch = availableModels.find((model) => model === trimmedRequestedModel)
+    if (exactMatch) {
+      return { model: exactMatch, score: 1, matchType: 'exact' }
+    }
+
+    const requestedLower = trimmedRequestedModel.toLowerCase()
+    const caseInsensitiveMatch = availableModels.find((model) => model.toLowerCase() === requestedLower)
+    if (caseInsensitiveMatch) {
+      return { model: caseInsensitiveMatch, score: 0.99, matchType: 'case_insensitive' }
+    }
+
+    const normalizedRequestedModel = this.normalizeModelName(trimmedRequestedModel)
+    if (!normalizedRequestedModel) {
+      return null
+    }
+
+    let bestMatch: { model: string; score: number; matchType: string } | null = null
+
+    for (const candidate of availableModels) {
+      const normalizedCandidate = this.normalizeModelName(candidate)
+      if (!normalizedCandidate) {
+        continue
+      }
+
+      let score = 0
+      let matchType = 'fuzzy'
+
+      if (normalizedCandidate === normalizedRequestedModel) {
+        score = 0.98
+        matchType = 'normalized'
+      } else if (normalizedCandidate.startsWith(normalizedRequestedModel)) {
+        score = 0.94 - (normalizedCandidate.length - normalizedRequestedModel.length) / 100
+        matchType = 'prefix'
+      } else if (normalizedCandidate.includes(normalizedRequestedModel)) {
+        score = 0.9 - (normalizedCandidate.length - normalizedRequestedModel.length) / 100
+        matchType = 'contains'
+      } else if (normalizedRequestedModel.includes(normalizedCandidate)) {
+        score = 0.82 - (normalizedRequestedModel.length - normalizedCandidate.length) / 100
+        matchType = 'reverse_contains'
+      } else {
+        const distance = this.levenshtein(normalizedRequestedModel, normalizedCandidate)
+        const maxLength = Math.max(normalizedRequestedModel.length, normalizedCandidate.length)
+        const similarity = maxLength === 0 ? 0 : 1 - distance / maxLength
+        score = similarity
+      }
+
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { model: candidate, score, matchType }
+      }
+    }
+
+    if (!bestMatch || bestMatch.score < 0.55) {
+      return null
+    }
+
+    return bestMatch
+  }
+
+  private async resolveImageModelName(requestedModel: string) {
+    const trimmedRequestedModel = requestedModel.trim()
+    if (!trimmedRequestedModel) {
+      return null
+    }
+
+    const { models: availableModels } = await this.getImageModelList()
+    const closestMatch = this.findClosestModelMatch(trimmedRequestedModel, availableModels)
+
+    if (!closestMatch) {
+      return {
+        requestedModel: trimmedRequestedModel,
+        resolvedModel: trimmedRequestedModel,
+        matchType: 'unresolved'
+      }
+    }
+
+    return {
+      requestedModel: trimmedRequestedModel,
+      resolvedModel: closestMatch.model,
+      matchType: closestMatch.matchType
+    }
+  }
+
+  private async buildImageSubmitPayload(args: Record<string, unknown>) {
     const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
     if (!prompt) {
-      throw new McpError(ErrorCode.InvalidParams, "'prompt' is required when submitting an image generation task")
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "'prompt' is required when submitting an image generation or editing task"
+      )
     }
 
     const payload: Record<string, unknown> = {}
@@ -374,12 +596,21 @@ class ImageGenerateServer {
       payload[key] = value
     }
 
+    const rawModel = typeof payload.model === 'string' ? payload.model.trim() : ''
+    const modelResolution = rawModel ? await this.resolveImageModelName(rawModel) : null
+    if (modelResolution?.resolvedModel) {
+      payload.model = modelResolution.resolvedModel
+    }
+
     payload.prompt = prompt
-    return payload
+    return {
+      payload,
+      modelResolution
+    }
   }
 
   private async submitImageTask(args: Record<string, unknown>) {
-    const payload = this.buildImageSubmitPayload(args)
+    const { payload, modelResolution } = await this.buildImageSubmitPayload(args)
     const response = await this.requestWithAuth(IMAGE_GENERATE_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -394,12 +625,23 @@ class ImageGenerateServer {
 
     logger.info('AI image generation task submitted', {
       taskId: result.task_id,
-      model: typeof payload.model === 'string' ? payload.model : undefined
+      model: typeof payload.model === 'string' ? payload.model : undefined,
+      requestedModel: modelResolution?.requestedModel,
+      modelMatchType: modelResolution?.matchType
     })
 
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'submit',
+      estimated_wait_time: IMAGE_TASK_WAIT_TIME,
+      polling_hint: 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
+      ...(modelResolution?.requestedModel
+        ? {
+            requested_model: modelResolution.requestedModel,
+            resolved_model: modelResolution.resolvedModel,
+            model_match_type: modelResolution.matchType
+          }
+        : {}),
       ...result
     })
   }
@@ -428,6 +670,12 @@ class ImageGenerateServer {
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'status',
+      ...(result.status && !['success', 'failed', 'error'].includes(result.status)
+        ? {
+            estimated_wait_time: IMAGE_TASK_WAIT_TIME,
+            polling_hint: 'AI image tasks are asynchronous and may take around 3-5 minutes before completion.'
+          }
+        : {}),
       ...result
     })
   }
@@ -486,25 +734,15 @@ class ImageGenerateServer {
     const ratio = typeof args.ratio === 'string' ? args.ratio.trim() : ''
     const includePrices = typeof args.includePrices === 'boolean' ? args.includePrices : true
 
-    const response = await this.requestWithAuth(IMAGE_MODEL_CAPABILITIES_ENDPOINT, {
-      method: 'GET'
-    })
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`Image model capabilities query failed (${response.status}): ${body || 'unknown error'}`)
-    }
-
-    const payload = (await response.json()) as ImageCapabilitiesResponse
-    const capabilities = payload.capabilities ?? {}
-    const prices = payload.prices ?? {}
+    const { capabilities, prices } = await this.fetchImageCapabilitiesPayload()
 
     const availableModels = Object.keys(capabilities)
-    if (modelFilter && !availableModels.includes(modelFilter)) {
+    const resolvedModelFilter = modelFilter ? this.findClosestModelMatch(modelFilter, availableModels) : null
+    if (modelFilter && !resolvedModelFilter) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown image model: ${modelFilter}`)
     }
 
-    const targetModels = modelFilter ? [modelFilter] : availableModels
+    const targetModels = modelFilter ? [resolvedModelFilter!.model] : availableModels
     const models = targetModels
       .map((model) =>
         this.normalizeModelCapability(model, capabilities[model], prices, {
@@ -519,7 +757,8 @@ class ImageGenerateServer {
       )
 
     logger.info('Image model capabilities queried', {
-      model: modelFilter || undefined,
+      model: resolvedModelFilter?.model ?? (modelFilter || undefined),
+      requestedModel: modelFilter || undefined,
       tier: tier || undefined,
       ratio: ratio || undefined,
       count: models.length
@@ -528,6 +767,12 @@ class ImageGenerateServer {
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'capabilities',
+      ...(modelFilter
+        ? {
+            requested_model: modelFilter,
+            resolved_model: resolvedModelFilter?.model
+          }
+        : {}),
       models
     })
   }

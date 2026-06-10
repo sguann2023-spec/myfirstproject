@@ -46,7 +46,7 @@ function createServer() {
 async function callTool(
   server: ImageGenerateServerInstance,
   args: Record<string, unknown>,
-  toolName = 'generate_image'
+  toolName = 'generate_or_edit_image'
 ) {
   const handlers = (server.mcpServer.server as any)._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
@@ -80,13 +80,13 @@ describe('ImageGenerateServer', () => {
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
   })
 
-  it('should expose only the generate_image tool', async () => {
+  it('should expose only the generate_or_edit_image tool', async () => {
     const server = createServer()
     const result = await listTools(server)
 
     expect(result.tools).toHaveLength(2)
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      'generate_image',
+      'generate_or_edit_image',
       'get_image_capabilities'
     ])
   })
@@ -151,6 +151,8 @@ describe('ImageGenerateServer', () => {
     expect(JSON.parse(result.content[0].text)).toEqual({
       provider: 'vectcut',
       action: 'capabilities',
+      requested_model: 'seedream-4.5',
+      resolved_model: 'seedream-4.5',
       models: [
         {
           model: 'seedream-4.5',
@@ -165,6 +167,46 @@ describe('ImageGenerateServer', () => {
         }
       ]
     })
+  })
+
+  it('should cache image model list loaded from capabilities', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          capabilities: {
+            'gpt-image-2-all': {
+              reference_supported: true,
+              resolutions: {
+                '1K': [{ ratio: '1:1', size: '1024x1024' }]
+              }
+            },
+            'seedream-4.5': {
+              reference_supported: true,
+              resolutions: {
+                '2K': [{ ratio: '1:1', size: '2048x2048' }]
+              }
+            }
+          },
+          prices: {}
+        })
+      )
+
+    const server = createServer()
+    const firstResult = await server.getImageModelList()
+    const secondResult = await server.getImageModelList()
+
+    expect(firstResult).toEqual({
+      models: ['gpt-image-2-all', 'seedream-4.5'],
+      defaultModel: ''
+    })
+    expect(secondResult).toEqual(firstResult)
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
   })
 
   it('should omit prices when includePrices is false', async () => {
@@ -225,6 +267,19 @@ describe('ImageGenerateServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
+          capabilities: {
+            'seedream-4.5': {
+              reference_supported: true,
+              resolutions: {
+                '1K': [{ ratio: '1:1', size: '1024x1024' }]
+              }
+            }
+          },
+          prices: {}
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
           success: true,
           task_id: 'task-123',
           message_id: 'msg-123',
@@ -247,6 +302,16 @@ describe('ImageGenerateServer', () => {
     expect(mockStoreSet).toHaveBeenCalledWith('auth.refresh_token', 'refresh-token-next')
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
+      'https://open.vectcut.com/llm/image/model_capabilities',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token'
+        })
+      })
+    )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      3,
       'https://open.vectcut.com/llm/image/submit_task/generate',
       expect.objectContaining({
         method: 'POST',
@@ -269,12 +334,147 @@ describe('ImageGenerateServer', () => {
     expect(JSON.parse(result.content[0].text)).toEqual({
       provider: 'vectcut',
       action: 'submit',
+      estimated_wait_time: '3-5 minutes',
+      polling_hint: 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
+      requested_model: 'seedream-4.5',
+      resolved_model: 'seedream-4.5',
+      model_match_type: 'exact',
       success: true,
       task_id: 'task-123',
       message_id: 'msg-123',
       status: 'queued',
       queue_name: 'llm-image-task',
       error: ''
+    })
+  })
+
+  it('should keep supporting the legacy generate_image tool name', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-legacy-123',
+          status: 'queued'
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, {
+      prompt: '把这张图改成胶片质感',
+      editImage: 'https://example.com/original.png'
+    }, 'generate_image')
+
+    expect(result.isError).not.toBe(true)
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      provider: 'vectcut',
+      action: 'submit',
+      task_id: 'task-legacy-123'
+    })
+  })
+
+  it('should accept editing-style image aliases and map them to reference fields', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-edit-123',
+          status: 'queued'
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, {
+      prompt: '保留人物主体，把背景改成雪山，并提升清晰度',
+      editImage: 'https://example.com/original.png',
+      composeDraft: false
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/llm/image/submit_task/generate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: '保留人物主体，把背景改成雪山，并提升清晰度',
+          reference_image: 'https://example.com/original.png',
+          compose_draft: false
+        })
+      })
+    )
+  })
+
+  it('should resolve non-standard model aliases to the closest supported model', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          capabilities: {
+            'gpt-image-2-all': {
+              reference_supported: true,
+              resolutions: {
+                '1K': [{ ratio: '1:1', size: '1024x1024' }]
+              }
+            },
+            'seedream-4.5': {
+              reference_supported: true,
+              resolutions: {
+                '1K': [{ ratio: '1:1', size: '1024x1024' }]
+              }
+            }
+          },
+          prices: {}
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-model-123',
+          status: 'queued'
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, {
+      prompt: '保留主体，把图片变成电影海报风格',
+      model: 'gptimage2',
+      editImage: 'https://example.com/original.png'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      3,
+      'https://open.vectcut.com/llm/image/submit_task/generate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: '保留主体，把图片变成电影海报风格',
+          model: 'gpt-image-2-all',
+          reference_image: 'https://example.com/original.png'
+        })
+      })
+    )
+
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      provider: 'vectcut',
+      action: 'submit',
+      requested_model: 'gptimage2',
+      resolved_model: 'gpt-image-2-all'
     })
   })
 

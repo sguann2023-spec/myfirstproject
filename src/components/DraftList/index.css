@@ -5,6 +5,115 @@
   background: transparent;
 }
 
+.draftlist-selection-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 30;
+  height: 38px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+
+.draftlist-selection-checkall {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 400;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.draftlist-selection-checkall .ant-checkbox + span {
+  padding-inline-start: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #fff;
+}
+
+.draftlist-selection-checkall .ant-checkbox-inner {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border-color: rgba(255, 255, 255, 0.8);
+  background: transparent;
+}
+
+.draftlist-selection-checkall .ant-checkbox:hover .ant-checkbox-inner,
+.draftlist-selection-checkall:hover .ant-checkbox-inner {
+  border-color: transparent !important;
+}
+
+.draftlist-selection-checkall .ant-checkbox-checked .ant-checkbox-inner {
+  background: #0099ff;
+  border-color: #0099ff;
+}
+
+.draftlist-selection-checkall .ant-checkbox-indeterminate .ant-checkbox-inner {
+  background: #0099ff;
+  border-color: #0099ff;
+  border-radius: 5px;
+}
+
+.draftlist-selection-checkall .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+  background: #fff;
+  width: 8px;
+  height: 2px;
+  border-radius: 999px;
+  inset-inline-start: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.draftlist-selection-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0px 2px 0px 4px; 
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.draftlist-selection-action {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.16s ease, opacity 0.16s ease;
+}
+
+.draftlist-selection-action .anticon {
+  font-size: 12px;
+}
+
+.draftlist-selection-action-delete .anticon {
+  color: #ff6D6F;
+}
+
+.draftlist-selection-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.draftlist-selection-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .draftlist-refresh-tip {
   display: flex;
   align-items: center;
@@ -35,6 +144,7 @@
 }
 
 .draftlist-item {
+  position: relative;
   display: flex;
   align-items: center;
   height: 38px;
@@ -42,6 +152,55 @@
   margin-left: 2px;
   margin-right: 2px;
   margin-bottom: 4px;
+}
+
+.draftlist-item-checkbox {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.draftlist-item:hover .draftlist-item-checkbox,
+.draftlist-item.selected .draftlist-item-checkbox {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.draftlist-item-checkbox .ant-checkbox-inner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border-color: #c4c4c4;
+  background: #fff;
+}
+
+.draftlist-item-checkbox .ant-checkbox:hover .ant-checkbox-inner,
+.draftlist-item-checkbox .ant-checkbox-wrapper:hover .ant-checkbox-inner {
+  border-color: #0099ff;
+}
+
+.draftlist-item-checkbox .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #0099ff;
+  border-color: #0099ff;
+}
+
+.draftlist-item-checkbox .ant-checkbox-checked::after {
+  border-color: #0099ff;
+  border-radius: 50%;
+}
+
+.draftlist-item-checkbox .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+  background-color: #0099ff;
+}
+
+.draftlist-item-checkbox .ant-checkbox-input:focus-visible + .ant-checkbox-inner {
+  outline: 2px solid rgba(0, 153, 255, 0.2);
+  outline-offset: 2px;
 }
 
 .draftlist-item.selected {
@@ -243,6 +402,7 @@
 
 .draftlist-root {
   height: 100%;
+  position: relative;
   display: flex;
   flex-direction: column;
 }

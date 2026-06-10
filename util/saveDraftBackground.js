@@ -146,8 +146,11 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     throw new Error(errorMessage);
   }
 
-  const draftPath = path.join(draftFolder, draftName);
   const downloadTasks = []; // 存储所有下载任务的完整列表
+  const DOWNLOAD_PROGRESS_THROTTLE_MS = 150;
+  let pendingDownloadProgress = null;
+  let pendingDownloadProgressTimer = null;
+  let lastDownloadProgressAt = 0;
 
   // --- 辅助函数：根据下载任务列表计算总体进度 ---
   const calculateOverallProgress = (tasks) => {
@@ -176,7 +179,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
 
   // --- 辅助函数：发送进度报告 (包含文件列表) ---
   const sendProgress = (baseProgress, message, tasks) => {
-      const { overallProgress, totalBytes, downloadedBytes } = calculateOverallProgress(tasks);
+      const { overallProgress } = calculateOverallProgress(tasks);
       
       // 下载部分占 40% (从 30% 到 70%)
       const downloadSectionProgress = overallProgress * 0.40; 
@@ -196,6 +199,52 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
           })));
       }
       return finalProgress;
+  };
+
+  const flushDownloadProgress = () => {
+      pendingDownloadProgressTimer = null;
+      if (!pendingDownloadProgress) {
+        return;
+      }
+      const { baseProgress, message, tasks } = pendingDownloadProgress;
+      pendingDownloadProgress = null;
+      lastDownloadProgressAt = Date.now();
+      sendProgress(baseProgress, message, tasks);
+  };
+
+  const reportDownloadProgress = (baseProgress, message, tasks, options = {}) => {
+      if (!progressCallback) {
+        return;
+      }
+
+      pendingDownloadProgress = { baseProgress, message, tasks };
+      if (options.force) {
+        if (pendingDownloadProgressTimer) {
+          clearTimeout(pendingDownloadProgressTimer);
+          pendingDownloadProgressTimer = null;
+        }
+        flushDownloadProgress();
+        return;
+      }
+
+      const now = Date.now();
+      const remaining = DOWNLOAD_PROGRESS_THROTTLE_MS - (now - lastDownloadProgressAt);
+      if (remaining <= 0) {
+        flushDownloadProgress();
+        return;
+      }
+
+      if (!pendingDownloadProgressTimer) {
+        pendingDownloadProgressTimer = setTimeout(flushDownloadProgress, remaining);
+      }
+  };
+
+  const disposeDownloadProgressReporter = () => {
+      pendingDownloadProgress = null;
+      if (pendingDownloadProgressTimer) {
+        clearTimeout(pendingDownloadProgressTimer);
+        pendingDownloadProgressTimer = null;
+      }
   };
   
   try {
@@ -392,7 +441,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
             downloadOptions: downloadOptions,
             total: 0,   // 稍后获取文件大小（字节）
             downloaded: 0,  // 初始下载量（字节）
-            status: 'downloading',  // pending | downloading | completed | failed
+            status: 'queued',  // queued | downloading | completed | failed
         };
 
         downloadTasks.push(task);
@@ -640,7 +689,6 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
 
     // 并发执行所有下载任务
     const downloadedPaths = [];
-    let completedFiles = 0;
     const failedDownloads = [];
 
     if (downloadTasks.length > 0) {
@@ -654,14 +702,9 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       for (let i = 0; i < downloadTasks.length; i += batchSize) {
         batches.push(downloadTasks.slice(i, i + batchSize));
       }
-      
-      // 预先获取所有文件大小 (并发进行)
-      await Promise.all(downloadTasks.map(async task => {
-          task.total = await downloader.getFileSize(task.url);
-      }));
-      
-      // 更新一次进度，显示文件总大小
-      sendProgress(30, i18next.t('download_tasks_ready'), downloadTasks);
+
+      // 不再在正式下载前同步预探测所有文件大小，避免 HEAD/Range 失败拖慢启动速度。
+      reportDownloadProgress(30, i18next.t('download_tasks_ready'), downloadTasks, { force: true });
       
       for (const batch of batches) {
         const promises = batch.map(task => {
@@ -669,7 +712,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
             try {
                 // 1. 更新状态为 downloading
                 task.status = 'downloading';
-                sendProgress(30, i18next.t('downloading'), downloadTasks);
+                reportDownloadProgress(30, i18next.t('downloading'), downloadTasks);
               
                 // 2. 执行下载，传入实时回调
                 await downloader.downloadFile(
@@ -681,8 +724,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
                         // 实时更新 total (如果 totalBytes 在回调中更新)
                         if (totalBytes > 0) task.total = totalBytes; 
                         task.status = 'downloading';
-                        // 限制 progressCallback 的调用频率以防性能问题，这里简化为每次都调用
-                        sendProgress(30, i18next.t('downloading'), downloadTasks);
+                        reportDownloadProgress(30, i18next.t('downloading'), downloadTasks);
                     },
                     task.downloadOptions.retry,
                     task.downloadOptions.timeout,
@@ -706,6 +748,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
               task.downloaded = finalSize;
               task.total = finalSize; 
               task.status = 'completed';
+              downloadedPaths.push(task.localPath);
 
               if (Array.isArray(task.aliasLocalPaths) && task.aliasLocalPaths.length > 0) {
                 await Promise.all(task.aliasLocalPaths.map(async aliasPath => {
@@ -717,7 +760,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
                 }));
               }
               
-              sendProgress(30, i18next.t('downloading'), downloadTasks);
+              reportDownloadProgress(30, i18next.t('downloading'), downloadTasks, { force: true });
 
               return { success: true, url: task.url };
             } catch (error) {
@@ -727,7 +770,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
               failedDownloads.push({ url: task.url, error: error.message });
               
               // 报告失败，继续处理其他文件
-              sendProgress(30, i18next.t('downloading_with_errors'), downloadTasks);
+              reportDownloadProgress(30, i18next.t('downloading_with_errors'), downloadTasks, { force: true });
 
               return { success: false, url: task.url };
             }
@@ -894,10 +937,12 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     if (progressCallback) {
       progressCallback(100, i18next.t('download_complete'));
     }
+    disposeDownloadProgressReporter();
     return { success: true, message: i18next.t('download_complete') };
 
   } catch (error) {
     // 更新任务状态 - 失败
+    disposeDownloadProgressReporter();
     logger.error(`保存草稿 ${draftName} 任务 ${taskId} 失败: ${error?.message || ''}`);
     logger.error('[DLTRACE][Worker] saveDraftBackground:catch', {
       draftId,

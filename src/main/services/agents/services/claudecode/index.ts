@@ -119,6 +119,7 @@ class ClaudeCodeService implements AgentServiceInterface {
   private claudeExecutablePath: string
   private claudeProxyBootstrapPath: string
   private browserServers = new Map<string, BrowserServer>()
+  private readonly imageGenerateServer: ImageGenerateServer
 
   constructor() {
     // Resolve Claude Code CLI robustly (works in dev and in asar)
@@ -126,6 +127,20 @@ class ClaudeCodeService implements AgentServiceInterface {
       path.join(path.dirname(require_.resolve('@anthropic-ai/claude-agent-sdk')), 'cli.js')
     )
     this.claudeProxyBootstrapPath = toAsarUnpackedPath(path.join(app.getAppPath(), 'out', 'proxy', 'index.js'))
+    this.imageGenerateServer = new ImageGenerateServer()
+
+    void app.whenReady().then(async () => {
+      try {
+        const payload = await this.imageGenerateServer.getImageModelList()
+        logger.info('Preloaded image model list', {
+          count: payload.models.length
+        })
+      } catch (error) {
+        logger.warn('Failed to preload image model list', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    })
   }
 
   private getOrCreateBrowserServer(sessionId: string): BrowserServer {
@@ -862,8 +877,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     }
 
-    const imageGenerateServer = new ImageGenerateServer()
-    options.mcpServers.image = { type: 'sdk', name: 'image', instance: imageGenerateServer.mcpServer }
+    options.mcpServers.image = { type: 'sdk', name: 'image', instance: this.imageGenerateServer.mcpServer }
+    autoAllowTools.add('mcp__image__generate_or_edit_image')
     autoAllowTools.add('mcp__image__generate_image')
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
       if (!options.allowedTools.includes('mcp__image__*')) {
