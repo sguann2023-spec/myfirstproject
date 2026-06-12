@@ -357,12 +357,27 @@ function registerLegacyDownloadChannels() {
       })
     })
     worker.on('exit', (code) => {
+      const activeRuntime = activeDownloadWorkers.get(jobId)
       activeDownloadWorkers.delete(jobId)
       logger.info('[DLTRACE][Main] worker exit', {
         jobId,
         draftId,
         code
       })
+
+      if (!activeRuntime?.stopReason && code !== 0) {
+        logger.error('[DLTRACE][Main] worker exit with non-zero code', {
+          jobId,
+          draftId,
+          code,
+          fileListCount: Array.isArray(activeRuntime?.lastFileList) ? activeRuntime.lastFileList.length : -1
+        })
+        activeRuntime?.sender.send('download-error', {
+          jobId,
+          error: `download worker exited unexpectedly with code ${code}`,
+          fileList: activeRuntime?.lastFileList
+        })
+      }
     })
   })
 

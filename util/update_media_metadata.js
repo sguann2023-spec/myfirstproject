@@ -113,7 +113,9 @@ function getRemoteMediaUrl(material) {
 }
 
 function getMediaProbeSource(material) {
-  return getRemoteMediaUrl(material);
+  // 元数据更新阶段通常已经完成素材下载，优先探测本地文件可避免在 70% 阶段
+  // 再次访问远程地址导致长时间卡住；仅在本地文件缺失时回退到 remote_url。
+  return getExistingLocalMediaPath(material) || getRemoteMediaUrl(material);
 }
 
 function resolveFfprobePath() {
