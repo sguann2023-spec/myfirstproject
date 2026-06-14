@@ -55,6 +55,84 @@
   align-items: center;
   justify-content: center;
 }
+
+.d-pane-points-button {
+  position: relative;
+  width: 100%;
+  min-height: 68px;
+  border: 1px solid #e4e3e2;
+  border-radius: 9px;
+  background: transparent;
+  padding: 4px 5px 4px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.d-pane-points-button:hover {
+  background: #ebebeb;
+}
+
+.d-pane-points-button:disabled {
+  cursor: default;
+}
+
+.d-pane-points-button.is-loading {
+  opacity: 0.7;
+}
+
+.d-pane-points-button.is-loading:hover {
+  background: transparent;
+}
+
+@keyframes d-pane-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.d-pane-points-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.d-pane-points-text {
+  max-width: 100%;
+  color: #333;
+  font-size: 11px;
+  text-align: center;
+  word-break: break-all;
+  min-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.d-pane-loading-icon {
+  width: 14px;
+  height: 14px;
+  animation: d-pane-spin 0.8s linear infinite;
+}
+
+.d-pane-points-divider {
+  width: 30px;
+  height: 1px;
+  background: #e4e3e2;
+  margin: 2px 0 0;
+}
+
+.d-pane-points-label {
+  color: #333333;
+  font-size: 11px;
+}
+
 /* 新增：下载队列角标样式（红底白字 + 白色外环） */
 .d-pane-badge {
   position: absolute;
@@ -91,6 +169,11 @@
 
 /* 仅图标悬停时显示 Tip */
 .d-pane-item:hover .d-pane-tip {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+.d-pane-points-button:hover .d-pane-tip {
   opacity: 1;
   transform: translateY(-50%) scale(1);
 }

@@ -1,5 +1,5 @@
 // HomePage 组件
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import LogoIcon from '../../../public/logo-circle.png';
@@ -18,6 +18,7 @@ import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
+import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { normalizeChatError } from '../../shared/chatError';
 import appStore from '../../renderer/src/store';
@@ -78,6 +79,17 @@ const createRequestId = () =>
   (typeof globalThis?.crypto?.randomUUID === 'function'
     ? globalThis.crypto.randomUUID()
     : `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+
+const formatCreditsCount = (value) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return '--';
+  if (numericValue >= 1000000) return `${(numericValue / 1000000).toFixed(2)}m`;
+  if (numericValue >= 1000) return `${(numericValue / 1000).toFixed(2)}k`;
+  if (Number.isInteger(numericValue)) return String(numericValue);
+  return numericValue.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const summarizeLogValue = (value) => {
   if (typeof value === 'string') {
@@ -558,6 +570,8 @@ const HomePage = () => {
   const avatarSrc = user?.avatar || LogoIcon;
   const userName = user?.name || '';
   const [todayCount, setTodayCount] = useState(null);
+  const [creditsBalance, setCreditsBalance] = useState(null);
+  const [creditsLoading, setCreditsLoading] = useState(true);
   const [selectedPane, setSelectedPane] = useState('chat');
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [selectedDrafts, setSelectedDrafts] = useState([]);
@@ -590,9 +604,11 @@ const HomePage = () => {
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const chatHistoryHydratingRef = useRef(new Set());
   const chatHistoryHydrateSettledRef = useRef(new Set());
+  const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
+  const creditsBalanceRef = useRef(null);
   const canUseAgentRuntime = Boolean(
     window?.electronAPI?.cherryChatStream
     && typeof window.electronAPI.cherryChatStream.createSession === 'function'
@@ -607,6 +623,67 @@ const HomePage = () => {
       })
       .catch(() => setTodayCount(0));
   };
+
+  const refreshRechargeBalance = useCallback(async ({ withCheckin = false } = {}) => {
+    if (creditsBalanceMountedRef.current) {
+      setCreditsLoading(true);
+    }
+
+    if (withCheckin) {
+      try {
+        await checkinRechargeDaily();
+      } catch (error) {
+        logger.warn('Failed to complete daily recharge check-in on init.', error);
+      }
+    }
+
+    try {
+      const res = await getRechargeBalance();
+      const nextBalance = res?.availableCredits ?? null;
+      if (creditsBalanceMountedRef.current) {
+        setCreditsBalance(nextBalance);
+      }
+      return nextBalance;
+    } catch (error) {
+      if (creditsBalanceMountedRef.current) {
+        logger.warn('Failed to load recharge balance.', error);
+        setCreditsBalance(null);
+      }
+      return null;
+    } finally {
+      if (creditsBalanceMountedRef.current) {
+        setCreditsLoading(false);
+      }
+    }
+  }, []);
+
+  const refreshRechargeBalanceAfterPayment = useCallback(async () => {
+    const previousBalance = creditsBalanceRef.current;
+    let latestBalance = previousBalance;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      latestBalance = await refreshRechargeBalance();
+      if (
+        latestBalance != null
+        && previousBalance != null
+        && Number(latestBalance) !== Number(previousBalance)
+      ) {
+        return latestBalance;
+      }
+      if (latestBalance != null && previousBalance == null) {
+        return latestBalance;
+      }
+      if (attempt < 4) {
+        await wait(1200);
+      }
+    }
+
+    return latestBalance;
+  }, [refreshRechargeBalance]);
+
+  const handleCreditsButtonClick = useCallback(async () => {
+    await refreshRechargeBalance({ withCheckin: true });
+  }, [refreshRechargeBalance]);
 
   const handleDraftDeleted = async (deletedDraftOrDrafts) => {
     const deletedDrafts = Array.isArray(deletedDraftOrDrafts)
@@ -640,6 +717,35 @@ const HomePage = () => {
       });
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    creditsBalanceRef.current = creditsBalance;
+  }, [creditsBalance]);
+
+  useEffect(() => {
+    creditsBalanceMountedRef.current = true;
+    void refreshRechargeBalance({ withCheckin: true });
+    return () => { creditsBalanceMountedRef.current = false; };
+  }, [refreshRechargeBalance]);
+
+  useEffect(() => {
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const handlePaymentSuccess = async () => {
+        const nextBalance = await refreshRechargeBalanceAfterPayment();
+        const nextBalanceText = formatCreditsCount(nextBalance);
+        window.toast?.success?.(`支付成功，当前积分 ${nextBalanceText}`);
+      };
+
+      ipcRenderer.on(IpcChannel.Payment_Success, handlePaymentSuccess);
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.Payment_Success, handlePaymentSuccess);
+      };
+    } catch (error) {
+      logger.warn('Failed to subscribe payment success events.', error);
+      return undefined;
+    }
+  }, [refreshRechargeBalanceAfterPayment]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2428,7 +2534,13 @@ const HomePage = () => {
       {/* 主体三栏 */}
       <div className="home-content">
           <div className="left-pane column">
-              <DPane selected={selectedPane} onSelect={setSelectedPane} />
+              <DPane
+                selected={selectedPane}
+                onSelect={setSelectedPane}
+                credits={formatCreditsCount(creditsBalance)}
+                creditsLoading={creditsLoading}
+                onRefreshCredits={handleCreditsButtonClick}
+              />
           </div>
           <div
             className={`center-pane column ${

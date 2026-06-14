@@ -1,5 +1,8 @@
 // DPane 组件
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { tokenStore } from '../../auth';
+import { electronStore } from '../../shared/electronStore';
 import './DPane.css';
 import DraftIcon from '../../../public/draft_icon.svg';
 import DraftSelectedIcon from '../../../public/draft_selected_icon.svg';
@@ -10,9 +13,21 @@ import DownloadIcon from '../../../public/download_icon.png';
 import DownloadSelectedIcon from '../../../public/download_selected_icon.png';
 import PresetIcon from '../../../public/preset_icon.svg';
 import PresetSelectedIcon from '../../../public/preset_selected_icon.svg';
+import PointIcon from '../../../public/point2.svg';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('DPane');
-const DPane = ({ children, style, className = '', selected = 'chat', onSelect }) => {
+const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
+
+const DPane = ({
+  children,
+  style,
+  className = '',
+  selected = 'chat',
+  onSelect,
+  credits = '--',
+  creditsLoading = false,
+  onRefreshCredits,
+}) => {
   const isDraftSelected = selected === 'draft';
   const isChatSelected = selected === 'chat';
   const isDownloadSelected = selected === 'download';
@@ -28,6 +43,59 @@ const DPane = ({ children, style, className = '', selected = 'chat', onSelect })
       logger.warn('Electron ipcRenderer not available. Simulating settings open.', e);
       alert('Simulating opening settings window...');
     }
+  };
+
+  const handleOpenCredits = async () => {
+    let paymentUrl = REDEEM_PAYMENT_URL;
+
+    if (typeof onRefreshCredits === 'function') {
+      void Promise.resolve(onRefreshCredits()).catch((error) => {
+        logger.warn('Failed to refresh credits after opening redeem payment window.', error);
+      });
+    }
+
+    try {
+      const accessToken = await tokenStore.ensureValidAccessToken();
+      if (typeof accessToken === 'string' && accessToken.trim()) {
+        const currentUser = electronStore.get('user') || {};
+        const paymentUrlObject = new URL(REDEEM_PAYMENT_URL);
+        const hashParams = new URLSearchParams({
+          jwt: accessToken.trim(),
+        });
+        if (typeof currentUser?.name === 'string' && currentUser.name.trim()) {
+          hashParams.set('name', currentUser.name.trim());
+        }
+        if (typeof currentUser?.avatar === 'string' && currentUser.avatar.trim()) {
+          hashParams.set('avatar', currentUser.avatar.trim());
+        }
+        if (typeof currentUser?.email === 'string' && currentUser.email.trim()) {
+          hashParams.set('email', currentUser.email.trim());
+        }
+        paymentUrlObject.hash = hashParams.toString();
+        paymentUrl = paymentUrlObject.toString();
+      }
+    } catch (error) {
+      logger.warn('Failed to resolve access token for redeem payment window.', error);
+    }
+
+    try {
+      if (window.api?.openInternalWebsite) {
+        window.api.openInternalWebsite(paymentUrl);
+        return;
+      }
+    } catch {}
+
+    try {
+      const { shell } = window.require('electron');
+      if (shell?.openExternal) {
+        shell.openExternal(paymentUrl);
+        return;
+      }
+    } catch (error) {
+      logger.warn('Electron shell is not available. Falling back to window.open.', error);
+    }
+
+    window.open(paymentUrl, '_blank', 'noopener,noreferrer');
   };
 
   // 新增：下载队列角标计数（默认读取全局暂存队列长度）
@@ -104,7 +172,27 @@ const DPane = ({ children, style, className = '', selected = 'chat', onSelect })
 
       {/* 底部图标组：利用 Flexbox 将其推到底部 */}
       <div className="d-pane-bottom-group">
-        {/* 设置图标移动到底部 */}
+        <button
+          type="button"
+          className={`d-pane-points-button ${creditsLoading ? 'is-loading' : ''}`}
+          onClick={handleOpenCredits}
+          disabled={creditsLoading}
+          aria-busy={creditsLoading}
+        >
+          <img
+            src={PointIcon}
+            alt="Points Icon"
+            className="d-pane-points-icon"
+          />
+          <span className="d-pane-points-text">
+            {creditsLoading ? <Loader2 className="d-pane-loading-icon" /> : credits}
+          </span>
+          <span className="d-pane-points-divider" />
+          <span className="d-pane-points-label">
+            升级
+          </span>
+          <div className="d-pane-tip">积分</div>
+        </button>
       <div 
         className={`d-pane-item ${isSettingsSelected ? 'selected' : ''}`}
         onClick={handleOpenSettings}

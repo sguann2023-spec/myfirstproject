@@ -41,7 +41,16 @@ export default defineConfig({
       }
     },
     build: {
-      sourcemap: isDev
+      sourcemap: isDev,
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          payment: resolve('src/preload/payment.ts')
+        },
+        output: {
+          entryFileNames: '[name].js'
+        }
+      }
     }
   },
   renderer: {

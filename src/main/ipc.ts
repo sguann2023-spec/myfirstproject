@@ -33,7 +33,7 @@ import type {
 } from '@types'
 import checkDiskSpace from 'check-disk-space'
 import type { ProxyConfig } from 'electron'
-import { BrowserWindow, dialog, ipcMain, session, shell, systemPreferences, webContents } from 'electron'
+import { BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, webContents } from 'electron'
 import fontList from 'font-list'
 
 import { agentMessageRepository } from './services/agents/database'
@@ -191,6 +191,7 @@ const exportService = new ExportService()
 const obsidianVaultService = new ObsidianVaultService()
 const vertexAIService = VertexAIService.getInstance()
 const dxtService = new DxtService()
+let internalWebsiteWindow: BrowserWindow | null = null
 
 export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   const appUpdater = new AppUpdater()
@@ -252,6 +253,82 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       return
     }
     return shell.openExternal(url)
+  })
+  ipcMain.on(IpcChannel.Payment_NotifySuccess, (event, payload: Record<string, unknown> = {}) => {
+    if (!internalWebsiteWindow || internalWebsiteWindow.isDestroyed()) {
+      return
+    }
+
+    if (event.sender.id !== internalWebsiteWindow.webContents.id) {
+      logger.warn('Blocked payment success notification from unexpected sender')
+      return
+    }
+
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannel.Payment_Success, payload)
+    }
+
+    internalWebsiteWindow.close()
+  })
+  ipcMain.handle(IpcChannel.Open_InternalWebsite, async (_, url: string) => {
+    if (!isSafeExternalUrl(url)) {
+      logger.warn(`Blocked internal website window for untrusted URL scheme: ${url}`)
+      return
+    }
+
+    if (internalWebsiteWindow && !internalWebsiteWindow.isDestroyed()) {
+      await internalWebsiteWindow.loadURL(url)
+      internalWebsiteWindow.show()
+      internalWebsiteWindow.focus()
+      return
+    }
+
+    const { workAreaSize } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+
+    internalWebsiteWindow = new BrowserWindow({
+      width: workAreaSize.width,
+      height: workAreaSize.height,
+      minWidth: workAreaSize.width,
+      minHeight: workAreaSize.height,
+      show: false,
+      parent: mainWindow,
+      autoHideMenuBar: true,
+      backgroundColor: '#ffffff',
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/payment.js'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true
+      }
+    })
+
+    internalWebsiteWindow.on('closed', () => {
+      internalWebsiteWindow = null
+    })
+
+    internalWebsiteWindow.once('ready-to-show', () => {
+      internalWebsiteWindow?.show()
+      internalWebsiteWindow?.focus()
+    })
+
+    internalWebsiteWindow.webContents.on('will-navigate', (event, nextUrl) => {
+      if (isSafeExternalUrl(nextUrl)) return
+      event.preventDefault()
+      logger.warn(`Blocked internal website navigation for untrusted URL scheme: ${nextUrl}`)
+    })
+
+    internalWebsiteWindow.webContents.setWindowOpenHandler(({ url: nextUrl }) => {
+      if (!isSafeExternalUrl(nextUrl)) {
+        logger.warn(`Blocked internal website popup for untrusted URL scheme: ${nextUrl}`)
+        return { action: 'deny' }
+      }
+
+      void internalWebsiteWindow?.loadURL(nextUrl)
+      return { action: 'deny' }
+    })
+
+    await internalWebsiteWindow.loadURL(url)
   })
 
   // Update
