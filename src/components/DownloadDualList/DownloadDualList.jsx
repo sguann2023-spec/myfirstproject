@@ -8,6 +8,7 @@ import FolderIcon from '../../../public/folder.png';
 import { DownloadController } from '../../shared/DownloadController.js';
 import { loggerService } from '@logger';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
+import { toMediaSrc } from '../../shared/mediaSrc.js';
 const logger = loggerService.withContext('DownloadDualList');
 
 function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedCompletedKey }) {
@@ -140,6 +141,7 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
     if (item.status === 'failed') return '下载失败';
     return '下载中';
   };
+  const getCoverSrc = (cover) => toMediaSrc(cover);
 
   return (
     <div className="download-dual-container">
@@ -195,9 +197,9 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                   tabIndex={-1}
                 >
                   <div className="draftlist-cover">
-                    {current.cover ? (
+                    {getCoverSrc(current.cover) ? (
                       <img
-                        src={current.cover}
+                        src={getCoverSrc(current.cover)}
                         alt="cover"
                         className="draftlist-cover-img"
                         draggable={false}
@@ -229,9 +231,9 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                 tabIndex={-1}
               >
                 <div className="draftlist-cover">
-                  {item.cover ? (
+                  {getCoverSrc(item.cover) ? (
                     <img
-                      src={item.cover}
+                      src={getCoverSrc(item.cover)}
                       alt="cover"
                       className="draftlist-cover-img"
                       draggable={false}
@@ -272,9 +274,9 @@ function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedComplet
                   }}
                 >
                   <div className="draftlist-cover">
-                    {item.cover ? (
+                    {getCoverSrc(item.cover) ? (
                       <img
-                        src={item.cover}
+                        src={getCoverSrc(item.cover)}
                         alt="cover"
                         className="draftlist-cover-img"
                         draggable={false}

@@ -3,6 +3,7 @@ import './DraftPreview.css';
 import DraftIcon from '../../../public/draft_selected_icon.svg';
 import { DownloadController } from '../../shared/DownloadController.js';
 import { deleteDraft } from '../../api/capcut';
+import { toMediaSrc } from '../../shared/mediaSrc.js';
 
 function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
   const [isDeleting, setDeleting] = useState(false);
@@ -43,7 +44,7 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
   };
 
   const name = activeDraft.draft_name || activeDraft.draft_id || '未命名草稿';
-  const cover = activeDraft.cover;
+  const cover = toMediaSrc(activeDraft.cover);
   const displayDrafts = selectedDrafts.length > 0 ? selectedDrafts : [activeDraft];
   const selectedCount = displayDrafts.length;
   const displayNames = displayDrafts.map((item) => item?.draft_name || item?.draft_id || '未命名草稿');
@@ -168,8 +169,8 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
                   zIndex: item.zIndex
                 }}
               >
-                {item.cover ? (
-                  <img src={item.cover} alt="preview" className="preview-image" />
+                {toMediaSrc(item.cover) ? (
+                  <img src={toMediaSrc(item.cover)} alt="preview" className="preview-image" />
                 ) : (
                   <img src={DraftIcon} alt="preview" className="preview-placeholder" />
                 )}

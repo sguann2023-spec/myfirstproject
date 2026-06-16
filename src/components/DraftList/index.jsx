@@ -7,6 +7,7 @@ import SearchIcon from '../../../public/search_unfocus.svg';
 import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
 import BannerCarousel from '../BannerCarousel/BannerCarousel'; // 新增导入
 import { DownloadController } from '../../shared/DownloadController.js';
+import { toMediaSrc } from '../../shared/mediaSrc.js';
 
 const LIMIT = 20;
 
@@ -83,6 +84,7 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
   const isAllSelected = selectableCount > 0 && selectedCount === selectableCount;
   const isPartiallySelected = selectedCount > 0 && selectedCount < selectableCount;
   const isToggleSelectionEvent = (event) => event.metaKey || event.ctrlKey;
+  const getCoverSrc = (cover) => toMediaSrc(cover);
 
   useEffect(() => {
     if (typeof onSelectionChange === 'function') {
@@ -573,9 +575,9 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
                 }}
               >
                 <div className="draftlist-search-item-cover">
-                  {searchResult.cover ? (
+                  {getCoverSrc(searchResult.cover) ? (
                     <img
-                      src={searchResult.cover}
+                      src={getCoverSrc(searchResult.cover)}
                       alt="cover"
                       draggable={false}
                     />
@@ -633,8 +635,8 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
               />
             </div>
             <div className="draftlist-cover"> 
-                {item.cover ? (
-                <img src={item.cover} alt="cover" className="draftlist-cover-img" draggable={false} />
+                {getCoverSrc(item.cover) ? (
+                <img src={getCoverSrc(item.cover)} alt="cover" className="draftlist-cover-img" draggable={false} />
                 ) : (
                 <DraftCoverDefault draftId={item.draft_id} />
                 )}
