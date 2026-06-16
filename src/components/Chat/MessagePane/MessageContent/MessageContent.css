@@ -15,6 +15,34 @@
   line-height: 1.4;
 }
 
+.chat-message-user-attachments {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.chat-message-user-attachment {
+  display: inline-flex;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.06);
+}
+
+.chat-message-user-attachment .ant-image {
+  display: block;
+  line-height: 0;
+}
+
+.chat-message-user-attachment__image {
+  display: block;
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+}
+
 .chat-message-blocks {
   display: flex;
   flex-direction: column;

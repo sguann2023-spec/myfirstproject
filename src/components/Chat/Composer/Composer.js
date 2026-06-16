@@ -2073,7 +2073,22 @@ const Composer = ({
 
   const handleSendWithAttachments = async () => {
     if (isSendDisabled) return;
+    let imagePayloads = [];
+    try {
+      imagePayloads = await collectImagePayloads();
+    } catch (error) {
+      console.warn('[Composer] failed to collect image payloads', error);
+    }
     const serializedMessage = serializeEditorMessage(editor, buildMarkdownFileLink);
+    const hasMultimodalImages = selectedModelSupportsReadImage && imagePayloads.length > 0;
+    const imageAttachmentPreviews = hasMultimodalImages
+      ? uploadedFileMeta
+        .filter((item) => String(item?.fileType || '').toLowerCase().startsWith('image/'))
+        .map((item) => createFileReferenceAttrs(item, {
+          localThumbUrl: '',
+          localPreviewUrl: ''
+        }))
+      : [];
     const remainingUploadedLinks = uploadedFileMeta
       .filter((item) => item?.url && !serializedMessage.referencedFileUids.has(item.uid))
       .map((item) => buildMarkdownFileLink(item.name, item.url));
@@ -2084,14 +2099,11 @@ const Composer = ({
       activeTool === 'voice-square'
         ? `@vectcut-skill 用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}将下面文字合成音频：${combined}`
         : combined;
-    let imagePayloads = [];
-    try {
-      imagePayloads = await collectImagePayloads();
-    } catch (error) {
-      console.warn('[Composer] failed to collect image payloads', error);
-    }
     closeMentionPanel();
-    handleSend && handleSend(nextMessage, { images: imagePayloads });
+    handleSend && handleSend(nextMessage, {
+      images: imagePayloads,
+      imageAttachmentPreviews
+    });
     setUploadFileList([]);
     setUploadedFileMeta((prev) => {
       prev.forEach((item) => {

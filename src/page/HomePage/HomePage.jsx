@@ -2028,6 +2028,19 @@ const HomePage = () => {
         && typeof item.media_type === 'string'
       ))
       : [];
+    const imageAttachmentPreviews = Array.isArray(options?.imageAttachmentPreviews)
+      ? options.imageAttachmentPreviews.filter((item) => (
+        item
+        && typeof item === 'object'
+        && typeof item.name === 'string'
+        && typeof item.fileType === 'string'
+        && (
+          typeof item.url === 'string'
+          || typeof item.previewUrl === 'string'
+          || typeof item.thumbnailUrl === 'string'
+        )
+      ))
+      : [];
     if (!text) return;
 
     let targetSessionId = activeChatId;
@@ -2050,6 +2063,7 @@ const HomePage = () => {
       id: createMessageId(),
       role: 'user',
       content: text,
+      imageAttachments: imageAttachmentPreviews,
       createdAt: Date.now(),
     };
 

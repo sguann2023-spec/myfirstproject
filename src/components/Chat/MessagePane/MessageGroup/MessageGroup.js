@@ -7,6 +7,17 @@ import './MessageGroup.css';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessageGroup');
 
+const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
+  (Array.isArray(attachments) ? attachments : []).map((item) => ({
+    uid: String(item?.uid || ''),
+    name: String(item?.name || ''),
+    url: String(item?.url || ''),
+    previewUrl: String(item?.previewUrl || ''),
+    thumbnailUrl: String(item?.thumbnailUrl || ''),
+    fileType: String(item?.fileType || '')
+  }))
+);
+
 const MessageGroup = ({
   role,
   messages,
@@ -67,6 +78,7 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
       || prev.content !== next.content
       || prev.createdAt !== next.createdAt
       || prev.updatedAt !== next.updatedAt
+      || buildImageAttachmentSignature(prev.imageAttachments) !== buildImageAttachmentSignature(next.imageAttachments)
       || buildErrorSignature(prev.error) !== buildErrorSignature(next.error)
     ) {
       return false;

@@ -9,6 +9,17 @@ import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessageItem');
 
+const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
+  (Array.isArray(attachments) ? attachments : []).map((item) => ({
+    uid: String(item?.uid || ''),
+    name: String(item?.name || ''),
+    url: String(item?.url || ''),
+    previewUrl: String(item?.previewUrl || ''),
+    thumbnailUrl: String(item?.thumbnailUrl || ''),
+    fileType: String(item?.fileType || '')
+  }))
+);
+
 const MessageItem = ({
   message,
   role,
@@ -155,6 +166,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevMessage.role === nextMessage.role
     && prevMessage.createdAt === nextMessage.createdAt
     && prevMessage.updatedAt === nextMessage.updatedAt
+    && buildImageAttachmentSignature(prevMessage.imageAttachments) === buildImageAttachmentSignature(nextMessage.imageAttachments)
     && prevError === nextError
   );
 });

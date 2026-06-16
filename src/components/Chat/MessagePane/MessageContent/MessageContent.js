@@ -1,4 +1,5 @@
 import React from 'react';
+import { Image } from 'antd';
 import { Provider, useSelector } from 'react-redux';
 import '@renderer/assets/styles/index.css';
 import MessageBlockRenderer from '@renderer/pages/home/Messages/Blocks';
@@ -9,6 +10,15 @@ import Markdown from '../Markdown/Markdown';
 import './MessageContent.css';
 
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
+
+const getUserImageAttachmentPreviewUrl = (attachment = {}) => (
+  String(
+    attachment?.previewUrl
+    || attachment?.thumbnailUrl
+    || attachment?.url
+    || ''
+  ).trim()
+);
 
 const normalizeBlockType = (value) => {
   const type = String(value || '').toLowerCase();
@@ -260,9 +270,40 @@ const MessageContent = ({ message, isLoading = false }) => {
   }, [message, isLoading, role, isAssistant, assistantState.blockIds.length]);
 
   if (!isAssistant) {
+    const imageAttachments = Array.isArray(message?.imageAttachments)
+      ? message.imageAttachments.filter((item) => (
+        item
+        && typeof item === 'object'
+        && String(item?.fileType || '').toLowerCase().startsWith('image/')
+        && getUserImageAttachmentPreviewUrl(item)
+      ))
+      : [];
     return (
       <div className="chat-message-content">
         <Markdown content={String(message?.content || '')} />
+        {imageAttachments.length > 0 && (
+          <Image.PreviewGroup>
+            <div className="chat-message-user-attachments" aria-label="图片附件">
+              {imageAttachments.map((attachment, index) => {
+                const previewUrl = getUserImageAttachmentPreviewUrl(attachment);
+                const name = String(attachment?.name || `图片 ${index + 1}`);
+                return (
+                  <div
+                    key={String(attachment?.uid || attachment?.url || `${name}-${index}`)}
+                    className="chat-message-user-attachment">
+                    <Image
+                      className="chat-message-user-attachment__image"
+                      src={previewUrl}
+                      alt={name}
+                      width={120}
+                      height={120}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </Image.PreviewGroup>
+        )}
       </div>
     );
   }
