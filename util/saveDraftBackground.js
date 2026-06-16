@@ -122,7 +122,7 @@ async function stabilizeLocalRemoteUrls(script, draftId) {
  * @param {boolean} is_capcut - 是否为CapCut
  * @returns {Promise<Object>} - 返回结果对象 {success: boolean, error: string, message: string}
  */
-async function saveDraftBackground(draftId, draftName, draftFolder, taskId, progressCallback, is_capcut, apiHost, scriptFromRenderer) {
+async function saveDraftBackground(draftId, draftName, draftFolder, taskId, progressCallback, is_capcut, apiHost, cover, scriptFromRenderer) {
   let script;
   // 如果draftName为空，就应该设置为draftId
   draftName = draftName || draftId;
@@ -133,6 +133,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     taskId: taskId || '',
     is_capcut: Boolean(is_capcut),
     hasApiHost: Boolean(apiHost),
+    hasCover: Boolean(cover),
     hasScriptFromRenderer: Boolean(scriptFromRenderer)
   });
 
@@ -351,6 +352,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     logger.info(`复制模板目录 ${templatePath} 到草稿路径 ${draftPath}`);
     await copyFolderRecursive(templatePath, draftPath);
     logger.info(`模板目录复制完成`);
+    const draftCoverPath = path.join(draftPath, 'draft_cover.jpg');
     
     if (progressCallback) {
       progressCallback(20, i18next.t('collecting_download_tasks'));
@@ -401,7 +403,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         }
 
         const localSourcePath = resolveLocalSourcePath(remoteUrl);
-        if (localSourcePath) {
+        if (localSourcePath && !downloadOptions.forceDownload) {
             assignMaterialSourcePath(material, localSourcePath);
             const exists = fs.existsSync(localSourcePath);
             logger.info(`[DLTRACE][Worker] 本地素材直接引用，跳过下载`, {
@@ -447,6 +449,43 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         downloadTasks.push(task);
         taskIndexByKey.set(taskKey, task);
     };
+
+    const coverCandidates = [];
+    const appendCoverCandidate = (value) => {
+      if (Array.isArray(value)) {
+        value.forEach(appendCoverCandidate);
+        return;
+      }
+      if (typeof value !== 'string') {
+        return;
+      }
+      const trimmed = value.trim();
+      if (!trimmed || coverCandidates.includes(trimmed)) {
+        return;
+      }
+      coverCandidates.push(trimmed);
+    };
+
+    appendCoverCandidate(cover);
+    appendCoverCandidate(script?.cover);
+    appendCoverCandidate(script?.cover_url);
+    appendCoverCandidate(script?.coverUrl);
+    appendCoverCandidate(script?.draft_cover);
+    appendCoverCandidate(script?.draftCover);
+
+    const explicitCoverSource = coverCandidates.find((candidate) =>
+      isHttpLikeUrl(candidate) || shouldReferenceLocalSource(candidate)
+    );
+    if (explicitCoverSource) {
+      logger.info(`[DLTRACE][Worker] 收到草稿封面，将写入 ${draftCoverPath}`);
+      addTask(
+        'cover',
+        { material_name: 'draft_cover.jpg', name: 'draft_cover.jpg' },
+        explicitCoverSource,
+        draftCoverPath,
+        { retry: 3, timeout: 180000, context: 'draft_cover', forceDownload: true }
+      );
+    }
 
     // 收集音频下载任务
     const audios = script.materials.audios;
@@ -608,12 +647,6 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
                 video.replace_path = localPath;
               }
               addTask('image', video, remoteUrl, localPath);
-              const coverDraftId = (nestedDraft && typeof nestedDraft === 'object') ? (nestedDraft.id || nestedDraft.draft_id) : null;
-              if (coverDraftId === "28D7F8DB-7861-49CB-B634-C116DE87AE69") {
-                logger.info(`封面图片 ${materialName}`);
-                const coverPath = path.join(draftPath, "draft_cover.jpg");
-                addTask('image', video, remoteUrl, coverPath);
-              }
               
             } else if (videoType === 'video') {
               const localPath = buildAssetPath(draftFolder, draftName, "video", materialName);

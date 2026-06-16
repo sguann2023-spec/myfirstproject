@@ -43,10 +43,11 @@ initI18n()
 async function runDownload() {
   logger.info('runDownload')
   try {
-    const { draft_id, draft_name, draftFolder, taskId, is_capcut, apiHost, script } = workerData;
+    const { draft_id, draft_name, cover, draftFolder, taskId, is_capcut, apiHost, script } = workerData;
     logger.info('[DLTRACE][Worker] runDownload args', {
       draft_id,
       draft_name: draft_name || '',
+      hasCover: Boolean(cover),
       draftFolder: draftFolder || '',
       taskId: taskId || '',
       is_capcut: Boolean(is_capcut),
@@ -79,6 +80,7 @@ async function runDownload() {
       progressCallback,
       is_capcut,
       apiHost,
+      cover,
       script // 传入前端获取的脚本
     );
     logger.info('[DLTRACE][Worker] saveDraftBackground result', {

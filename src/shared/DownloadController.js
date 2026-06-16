@@ -229,6 +229,7 @@ async function launchCurrentDownload() {
       jobId: currentItem.jobId,
       draft_id: currentItem.draft_id,
       draft_name: currentItem.draft_name,
+      cover: currentItem.cover,
       draftFolder,
       is_capcut: isCapcut,
       script,
@@ -612,8 +613,8 @@ function init() {
   loadCompletedFromStore(); // 新增：启动加载已完成记录
   consumeBootQueue();
   window.addEventListener('enqueue-draft-download', (e) => {
-    const { draft_id, draft_name, createdAt } = e.detail || {};
-    if (draft_id) enqueue({ draft_id, draft_name, createdAt });
+    const { draft_id, draft_name, cover, createdAt } = e.detail || {};
+    if (draft_id) enqueue({ draft_id, draft_name, cover, createdAt });
   });
   notifyAll();
 }
