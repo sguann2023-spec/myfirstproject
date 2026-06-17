@@ -21,7 +21,6 @@ dependency:
 - 需要“抓取抖音/快手/小红书/B站/TikTok/YouTube 链接后分析并剪辑”
 - 想要查看VectCut 流光剪辑的API都支持哪些功能，具体API怎么使用。
 - 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 云渲染导出”
-- 已有 `dfd_cat_` 草稿 ID，希望一键拉取到客户端（单个或批量）
 - 想把刚整理好的视频生产链路固化为飞书多维表格工作流，输出字段结构和 AI Agent 提示词
 
 ## 统一前置规则（沿用）
@@ -74,18 +73,13 @@ dependency:
 - 配音需求：`speech-synthesis`
 - 包装完成后最终 `cloud-render`
 
-6. **草稿下载链路**
-- 用户提供一个或多个 `dfd_cat_` 草稿 ID 时，调用 `draft-downloader`
-- 先做去空、去重与 `dfd_cat_` 前缀校验，再触发 deeplink：`vectcut://download?draft_id=...`
-- 适合“下载草稿”“打开草稿到客户端”“批量拉取草稿”的需求
-
-7. **纯文字添加分流**
+6. **纯文字添加分流**
 - 用户只是要“添加一段文字/标题/说明文案/标签/贴纸文案”时，不要路由到 `add-subtitle-template`
 - 这类请求不是“字幕生成后上屏”链路，应先调用 `vectcut-api-search` 查找最新合适接口
 - 若语义明确是固定标题位，可进一步落到 `add-title`
 - 若是普通文字轨、动态文字或参数不确定，先以 `vectcut-api-search` 结果为准再执行
 
-8. **飞书多维表格工作流固化**
+7. **飞书多维表格工作流固化**
 - 当用户想把“刚才的视频制作流程”沉淀成飞书多维表格自动化时，路由到 `feishu-bitetable-creator`
 - 输入可以是自动化代码脚本，也可以是多轮对话摘要
 - 输出必须同时包含：`多维表格字段结构` 与 `飞书多维表格 AI Agent 工作流提示词`
@@ -119,7 +113,6 @@ dependency:
 - [cut-koubo](rules/cut-koubo.md)
 - [cut-koubo-template](rules/cut-koubo-template.md)
 - [describe-video](rules/describe-video.md)
-- [draft-downloader](rules/draft-downloader.md)
 - [extract-audio](rules/extract-audio.md)
 - [feishu-bitetable-creator](rules/feishu-bitetable-creator.md)
 - [generate-ai-image](rules/generate-ai-image.md)
