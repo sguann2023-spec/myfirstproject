@@ -271,10 +271,6 @@ let nextJobId = 1; // 唯一任务ID，用于区分同一 draft_id 的多次入�
 
 function enqueue({ draft_id, draft_name, cover, createdAt }) {
   if (!draft_id) return;
-  // 允许重复入队，移除去重逻辑
-  // if (state.current && state.current.draft_id === draft_id) return;
-  // if (state.queue.some(i => i.draft_id === draft_id)) return;
-  // if (state.completed.some(i => i.draft_id === draft_id)) return;
 
   const jobId = nextJobId++;
   logger.info('[DLTRACE] enqueue', {
@@ -297,6 +293,19 @@ function enqueue({ draft_id, draft_name, cover, createdAt }) {
   });
   notifyAll();
   startNextIfIdle();
+}
+
+function enqueueMany(items = []) {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+
+  let accepted = 0;
+  items.forEach((item) => {
+    if (!item?.draft_id) return;
+    enqueue(item);
+    accepted += 1;
+  });
+
+  return accepted;
 }
 
 async function startNextIfIdle() {
@@ -462,6 +471,16 @@ function attachIpcListenersOnce() {
     notifyAll();
     setTimeout(startNextIfIdle, 100);
   });
+
+  ipc.on('mcp-download-draft-enqueue', (_event, payload = {}) => {
+    const drafts = Array.isArray(payload?.drafts)
+      ? payload.drafts
+      : payload?.draft_id
+        ? [payload]
+        : [];
+    const accepted = enqueueMany(drafts);
+    logger.info('[DLTRACE] mcp-download-draft-enqueue', { accepted });
+  });
 }
 
 function subscribeProgress(listener) {
@@ -623,12 +642,13 @@ init();
 
 export const DownloadController = {
   enqueue,
+  enqueueMany,
   pauseCurrent,
   resumeCurrent,
   retryTask,
   cancelCurrent,
-  subscribeProgress,   // 显式进度订阅
-  subscribeFileList,   // 文件列表订阅
+  subscribeProgress,
+  subscribeFileList,
   getState,
   clearCompleted,
   removeCompletedItem,

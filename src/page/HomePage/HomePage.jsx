@@ -2542,7 +2542,7 @@ const HomePage = () => {
             <img src={avatarSrc} alt="avatar" className="header-avatar" />
             <span className="header-username">{userName}</span>
             <span className="header-welcome">
-              今天你创作了{todayCount != null ? todayCount : '…'}个草稿
+              今天你创作了{todayCount != null ? todayCount : '…'}条视频
             </span>
         </div>
       {/* 主体三栏 */}

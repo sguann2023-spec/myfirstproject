@@ -25,6 +25,7 @@ import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
+import DraftDownloadServer from '@main/mcpServers/draft-download'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import SkillsServer from '@main/mcpServers/skills'
@@ -892,6 +893,15 @@ class ClaudeCodeService implements AgentServiceInterface {
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
       if (!options.allowedTools.includes('mcp__speech__*')) {
         options.allowedTools = [...options.allowedTools, 'mcp__speech__*']
+      }
+    }
+
+    const draftDownloadServer = new DraftDownloadServer()
+    options.mcpServers['draft-download'] = { type: 'sdk', name: 'draft-download', instance: draftDownloadServer.mcpServer }
+    autoAllowTools.add('mcp__draft-download__download_draft')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__draft-download__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__draft-download__*']
       }
     }
 
