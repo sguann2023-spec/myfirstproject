@@ -60,6 +60,7 @@ import type {
   AgentThinkingOptions
 } from '../../interfaces/AgentStreamInterface'
 import { skillService } from '../../skills/SkillService'
+import { agentRuntimeAuthService } from '../AgentRuntimeAuthService'
 import { agentService } from '../AgentService'
 import { isProvisioned, provisionBuiltinAgent } from '../builtin/BuiltinAgentProvisioner'
 import { channelService } from '../ChannelService'
@@ -90,6 +91,16 @@ const IMAGE_MAX_DIMENSION = 2000
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
 const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
 const NO_RESUME_COMMANDS = ['/clear']
+
+const isVectcutGatewayUrl = (value: string): boolean => {
+  const raw = String(value || '').trim()
+  if (!raw) return false
+  try {
+    return new URL(raw).hostname === 'open.vectcut.com'
+  } catch {
+    return raw.includes('open.vectcut.com')
+  }
+}
 
 const getLanguageInstruction = () => {
   const lang = configManager.getLanguage()
@@ -245,8 +256,6 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const apiConfig = await apiConfigService.get()
     const loginShellEnv = await getLoginShellEnvironment()
-    const vectcutApiKey = String(sessionEnvVars.VECTCUT_API_KEY || '').trim()
-    const runtimeAuthToken = vectcutApiKey || String(provider.apiKey || '').trim()
 
     // Auto-discover Git Bash path on Windows (already logs internally)
     const customGitBashPath = isWin ? autoDiscoverGitBash() : null
@@ -265,6 +274,37 @@ class ClaudeCodeService implements AgentServiceInterface {
       return withoutTrailingApiVersion(provider.anthropicApiHost?.trim() || provider.apiHost || gatewayAnthropicBaseUrl)
     }
     const anthropicBaseUrl = resolveAnthropicBaseUrl()
+    const sessionVectcutApiKey = String(sessionEnvVars.VECTCUT_API_KEY || '').trim()
+    const providerApiKey = String(provider.apiKey || '').trim()
+    const shouldUseRuntimeGatewayToken = isVectcutGatewayUrl(anthropicBaseUrl)
+    let runtimeAuthToken = providerApiKey
+    let authTokenSource: 'provider_api_key' | 'runtime_access_token' | 'session_fallback' = 'provider_api_key'
+
+    if (shouldUseRuntimeGatewayToken) {
+      try {
+        runtimeAuthToken = await agentRuntimeAuthService.ensureValidAccessToken()
+        authTokenSource = 'runtime_access_token'
+      } catch (error) {
+        if (sessionVectcutApiKey) {
+          runtimeAuthToken = sessionVectcutApiKey
+          authTokenSource = 'session_fallback'
+          logger.warn('Falling back to session-scoped VECTCUT_API_KEY after runtime token refresh failed', {
+            sessionId: session.id,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        } else {
+          throw error
+        }
+      }
+    }
+
+    logger.info('Resolved Claude runtime auth token source', {
+      sessionId: session.id,
+      anthropicBaseUrl,
+      usesVectcutGatewayToken: shouldUseRuntimeGatewayToken,
+      authTokenSource,
+      hasRuntimeAuthToken: Boolean(runtimeAuthToken)
+    })
 
     const env: Record<string, string> = {
       ...loginShellEnv,
