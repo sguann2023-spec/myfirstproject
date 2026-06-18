@@ -10,6 +10,8 @@ interface McpServerToolProps {
   toolName: string
   input?: unknown
   output?: unknown
+  progress?: number
+  progressMessage?: string
 }
 
 export function isAgentMcpToolName(name: string): boolean {
@@ -30,6 +32,13 @@ function normalizeArgs(value: unknown): Record<string, unknown> | unknown[] | nu
   return { value }
 }
 
+function normalizeProgressMessage(message: string | undefined, progress?: number): string | undefined {
+  const text = String(message || '').trim()
+  if (!text) return undefined
+  if (typeof progress !== 'number' || progress <= 0) return text
+  return text.replace(/\s+\d+%$/, '').trim() || text
+}
+
 function extractMcpText(output: unknown): string | null {
   const result = CallToolResultSchema.safeParse(output)
   if (!result.success) return null
@@ -46,13 +55,16 @@ function extractMcpText(output: unknown): string | null {
 export function McpServerToolRenderer({
   toolName = '',
   input,
-  output
+  output,
+  progress,
+  progressMessage
 }: McpServerToolProps): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
 
   const normalizedInput = normalizeArgs(input)
   const mcpText = extractMcpText(output)
   const normalizedOutput = mcpText !== null ? { value: mcpText } : normalizeArgs(output)
+  const normalizedProgressMessage = normalizeProgressMessage(progressMessage, progress)
 
   return {
     key: `mcp-tool-${toolName}`,
@@ -60,7 +72,8 @@ export function McpServerToolRenderer({
       <ToolHeader
         toolName={getAgentMcpToolDisplayName(toolName)}
         icon={<Wrench size={14} style={{ marginLeft: 11, marginRight: 11 }} />}
-        params={t('message.tools.labels.mcpServerTool')}
+        params={normalizedProgressMessage || t('message.tools.labels.mcpServerTool')}
+        stats={typeof progress === 'number' && progress > 0 ? `${Math.round(progress * 100)}%` : undefined}
         variant="collapse-label"
         showStatus={false}
       />

@@ -31,3 +31,5 @@ cherry-studio-main/
 dist-main/
 .claw/
 .sandbox
+
+resources/ffmpeg

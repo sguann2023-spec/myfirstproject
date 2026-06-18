@@ -943,7 +943,8 @@ class McpService {
             if (mainWindow) {
               mainWindow.webContents.send(IpcChannel.Mcp_Progress, {
                 callId: toolCallId,
-                progress: process.progress / (process.total || 1)
+                progress: process.progress / (process.total || 1),
+                message: typeof process.message === 'string' ? process.message : undefined
               } as MCPProgressEvent)
             }
           },

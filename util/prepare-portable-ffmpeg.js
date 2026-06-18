@@ -5,6 +5,7 @@ const { spawnSync } = require('child_process')
 
 const repoRoot = process.cwd()
 const ffmpegRoot = path.join(repoRoot, 'resources', 'ffmpeg')
+const downloadRoot = path.join(ffmpegRoot, '.downloads')
 
 const DOWNLOADS = {
   darwin: {
@@ -131,10 +132,12 @@ function collectTargets(targetPlatform, targetArches) {
 
 async function prepareTarget(platform, arch, config) {
   const extractRoot = path.join(ffmpegRoot, platform, arch)
-  const archivePath = path.join(extractRoot, path.basename(new URL(config.url).pathname))
+  const archiveDir = path.join(downloadRoot, platform, arch)
+  const archivePath = path.join(archiveDir, path.basename(new URL(config.url).pathname))
   const binaryPath = path.join(extractRoot, config.binaryRelativePath)
 
   ensureDir(extractRoot)
+  ensureDir(archiveDir)
 
   if (fs.existsSync(binaryPath)) {
     console.log(`[prepare-portable-ffmpeg] Reusing existing binary: ${binaryPath}`)
@@ -143,6 +146,10 @@ async function prepareTarget(platform, arch, config) {
 
   console.log(`[prepare-portable-ffmpeg] Downloading ${config.url}`)
   await download(config.url, archivePath)
+  if (!fs.existsSync(archivePath) || fs.statSync(archivePath).size === 0) {
+    console.error(`[prepare-portable-ffmpeg] Download completed but archive is missing or empty: ${archivePath}`)
+    process.exit(1)
+  }
 
   console.log(`[prepare-portable-ffmpeg] Extracting ${archivePath} -> ${extractRoot}`)
   extractZip(archivePath, extractRoot)

@@ -1,12 +1,14 @@
 import { useAppSelector } from '@renderer/store'
 import { selectPendingPermission } from '@renderer/store/toolPermissions'
 import type { NormalToolResponse } from '@renderer/types'
+import type { MCPProgressEvent } from '@shared/config/types'
+import { IpcChannel } from '@shared/IpcChannel'
 import { loggerService } from '@logger'
 import type { CollapseProps } from 'antd'
 import { Collapse } from 'antd'
 import { parse as parsePartialJson } from 'partial-json'
 import React from 'react'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 // 导出所有类型
 export * from './types'
@@ -133,7 +135,9 @@ function ToolContent({
   output,
   isStreaming = false,
   status,
-  hasError = false
+  hasError = false,
+  progress,
+  progressMessage
 }: {
   toolName?: string
   input?: ToolInput | Record<string, unknown>
@@ -141,6 +145,8 @@ function ToolContent({
   isStreaming?: boolean
   status?: ToolStatus
   hasError?: boolean
+  progress?: number
+  progressMessage?: string
 }) {
   const shouldFallbackToUnknownForBash =
     toolName === AgentToolsType.Bash
@@ -151,7 +157,7 @@ function ToolContent({
   const renderedItem = isValidAgentToolsType(toolName) && !shouldFallbackToUnknownForBash
     ? renderTool(toolName, (input ?? {}) as Record<string, unknown>, output)
     : isAgentMcpToolName(toolName ?? '')
-      ? McpServerToolRenderer({ toolName: toolName ?? 'Tool', input, output })
+      ? McpServerToolRenderer({ toolName: toolName ?? 'Tool', input, output, progress, progressMessage })
       : UnknownToolRenderer({ toolName: toolName ?? 'Tool', input, output })
 
   const toolContentItem: NonNullable<CollapseProps['items']>[number] = {
@@ -187,6 +193,8 @@ function ToolContent({
 // 统一的组件渲染入口
 export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolResponse }) {
   const { arguments: args, response, tool, status, partialArguments } = toolResponse
+  const [progress, setProgress] = useState(0)
+  const [progressMessage, setProgressMessage] = useState('')
 
   const pendingPermission = useAppSelector((state) =>
     selectPendingPermission(state.toolPermissions, toolResponse.toolCallId)
@@ -200,6 +208,30 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
       return undefined
     }
   }, [partialArguments])
+
+  useEffect(() => {
+    if (!isAgentMcpToolName(tool?.name || '') || !toolResponse.toolCallId) {
+      setProgress(0)
+      setProgressMessage('')
+      return
+    }
+
+    const removeListener = window.electron.ipcRenderer.on(
+      IpcChannel.Mcp_Progress,
+      (_event: Electron.IpcRendererEvent, data: MCPProgressEvent) => {
+        if (data.callId === toolResponse.toolCallId) {
+          setProgress(data.progress)
+          setProgressMessage(data.message || '')
+        }
+      }
+    )
+
+    return () => {
+      setProgress(0)
+      setProgressMessage('')
+      removeListener()
+    }
+  }, [tool?.name, toolResponse.toolCallId])
 
   React.useEffect(() => {
     const toolName = String(tool?.name || '')
@@ -251,6 +283,8 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
       isStreaming={isLoading}
       status={effectiveStatus}
       hasError={status === 'error'}
+      progress={progress}
+      progressMessage={progressMessage}
     />
   )
 }

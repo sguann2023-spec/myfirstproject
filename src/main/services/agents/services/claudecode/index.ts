@@ -429,6 +429,19 @@ class ClaudeCodeService implements AgentServiceInterface {
     const normalizeToolName = (name: string) => (name.startsWith('builtin_') ? name.slice('builtin_'.length) : name)
     const requiresInteractiveApproval = (name: string) => normalizeToolName(name) === 'AskUserQuestion'
     const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+    const attachInternalToolContext = (
+      toolName: string,
+      toolInput: Record<string, unknown>,
+      toolCallId: string
+    ): Record<string, unknown> => {
+      if (normalizeToolName(toolName) === 'mcp__copylab__derive_copy_prompt') {
+        return {
+          ...toolInput,
+          __toolCallId: toolCallId
+        }
+      }
+      return toolInput
+    }
     const interactiveApprovalCache = new Map<
       string,
       { behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string }
@@ -638,7 +651,11 @@ class ClaudeCodeService implements AgentServiceInterface {
             bypassAll,
             autoAllowed
           })
-          const toolInput = isRecord(input.tool_input) ? input.tool_input : {}
+          const toolInput = attachInternalToolContext(
+            toolName,
+            isRecord(input.tool_input) ? input.tool_input : {},
+            namespacedToolCallId
+          )
           const approval = await promptForToolApproval(toolName, toolInput, {
             ...options,
             toolCallId: namespacedToolCallId
@@ -679,13 +696,24 @@ class ClaudeCodeService implements AgentServiceInterface {
             permission_mode: input.permission_mode,
             autoAllowTools
           })
-          const toolInput = isRecord(input.tool_input) ? input.tool_input : {}
+          const toolInput = attachInternalToolContext(
+            toolName,
+            isRecord(input.tool_input) ? input.tool_input : {},
+            namespacedToolCallId
+          )
 
           await promptForToolApproval(toolName, toolInput, {
             ...options,
             toolCallId: namespacedToolCallId,
             autoApprove: true
           })
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+              updatedInput: toolInput
+            }
+          }
         }
       }
 
@@ -947,15 +975,15 @@ class ClaudeCodeService implements AgentServiceInterface {
     }
 
     const socialCopywritingServer = new SocialCopywritingServer()
-    options.mcpServers['social-copywriting'] = {
+    options.mcpServers.copylab = {
       type: 'sdk',
-      name: 'social-copywriting',
+      name: 'copylab',
       instance: socialCopywritingServer.mcpServer
     }
-    autoAllowTools.add('mcp__social-copywriting__extract_social_copywriting_prompt')
+    autoAllowTools.add('mcp__copylab__derive_copy_prompt')
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__social-copywriting__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__social-copywriting__*']
+      if (!options.allowedTools.includes('mcp__copylab__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__copylab__*']
       }
     }
 

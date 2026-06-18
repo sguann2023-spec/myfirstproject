@@ -49,6 +49,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   const { t } = useTranslation()
   const { messageFont, fontSize } = useSettings()
   const [progress, setProgress] = useState<number>(0)
+  const [progressMessage, setProgressMessage] = useState<string>('')
   const { setTimeoutTimer } = useTimer()
 
   // Use the unified approval hook
@@ -69,11 +70,13 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
         // Only update progress if this event is for our specific tool call
         if (data.callId === id) {
           setProgress(data.progress)
+          setProgressMessage(data.message || '')
         }
       }
     )
     return () => {
       setProgress(0)
+      setProgressMessage('')
       removeListener()
     }
   }, [id])
@@ -133,14 +136,17 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       label: (
         <MessageTitleLabel>
           <TitleContent>
-            <ToolName align="center" gap={4}>
-              {tool.serverName} : {tool.name}
-              {isToolAutoApproved(tool) && (
-                <Tooltip title={t('message.tools.autoApproveEnabled')} mouseLeaveDelay={0}>
-                  <ShieldCheck size={14} color="var(--status-color-success)" />
-                </Tooltip>
-              )}
-            </ToolName>
+            <ToolNameRow align="center" gap={4}>
+              <ToolName align="center" gap={4}>
+                {tool.serverName} : {tool.name}
+                {isToolAutoApproved(tool) && (
+                  <Tooltip title={t('message.tools.autoApproveEnabled')} mouseLeaveDelay={0}>
+                    <ShieldCheck size={14} color="var(--status-color-success)" />
+                  </Tooltip>
+                )}
+              </ToolName>
+            </ToolNameRow>
+            {progressMessage && <ToolStepMessage>{progressMessage}</ToolStepMessage>}
           </TitleContent>
           <ActionButtonsContainer>
             {progress > 0 ? (
@@ -213,7 +219,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
                 <ActionLabel>
                   {approval.isWaiting
                     ? t('settings.mcp.tools.autoApprove.tooltip.confirm')
-                    : t('message.tools.invoking')}
+                    : progressMessage || t('message.tools.invoking')}
                 </ActionLabel>
 
                 <ToolApprovalActionsComponent
@@ -544,6 +550,18 @@ const CollapseContainer = styled(Collapse)`
     align-items: center !important;
   }
 
+  .ant-collapse-header-text {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .ant-collapse-expand-icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .ant-collapse-content-box {
     padding: 0 !important;
   }
@@ -573,30 +591,52 @@ const MessageTitleLabel = styled.div`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   gap: 10px;
   padding: 0;
   margin-left: 4px;
+  padding-right: 8px;
 `
 
 const TitleContent = styled.div`
   display: flex;
-  flex-direction: row;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+`
+
+const ToolNameRow = styled(Flex)`
+  min-width: 0;
 `
 
 const ToolName = styled(Flex)`
   color: var(--color-text);
   font-weight: 500;
   font-size: 13px;
+  min-width: 0;
+`
+
+const ToolStepMessage = styled.div`
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(520px, 58vw);
 `
 
 const ActionButtonsContainer = styled.div`
   display: flex;
   gap: 6px;
   margin-left: auto;
+  margin-right: 8px;
   align-items: center;
+  flex: 0 0 auto;
+  min-width: fit-content;
 `
 
 const ActionButton = styled.button`

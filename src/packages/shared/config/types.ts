@@ -37,6 +37,7 @@ export type FileChangeEvent = {
 export type MCPProgressEvent = {
   callId: string
   progress: number // 0-1 range
+  message?: string
 }
 
 export type MCPServerLogEntry = {
