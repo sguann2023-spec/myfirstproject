@@ -28,6 +28,7 @@ import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
+import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
@@ -942,6 +943,19 @@ class ClaudeCodeService implements AgentServiceInterface {
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
       if (!options.allowedTools.includes('mcp__draft-download__*')) {
         options.allowedTools = [...options.allowedTools, 'mcp__draft-download__*']
+      }
+    }
+
+    const socialCopywritingServer = new SocialCopywritingServer()
+    options.mcpServers['social-copywriting'] = {
+      type: 'sdk',
+      name: 'social-copywriting',
+      instance: socialCopywritingServer.mcpServer
+    }
+    autoAllowTools.add('mcp__social-copywriting__extract_social_copywriting_prompt')
+    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
+      if (!options.allowedTools.includes('mcp__social-copywriting__*')) {
+        options.allowedTools = [...options.allowedTools, 'mcp__social-copywriting__*']
       }
     }
 

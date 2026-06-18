@@ -36,6 +36,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Prepare bundled ffmpeg (macOS)
+        run: pnpm run prepare:portable-ffmpeg:mac
+        shell: bash
+
       - name: Import macOS signing certificate
         uses: apple-actions/import-codesign-certs@v3
         with:
@@ -57,6 +61,7 @@ jobs:
         run: |
           rm -rf build
           pnpm run build:vite
+          pnpm run prepare:portable-ffmpeg:mac
           pnpm exec electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
@@ -297,6 +302,10 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare bundled ffmpeg (Windows)
+        shell: bash
+        run: pnpm run prepare:portable-ffmpeg:win
 
       - name: Rebuild Electron native dependencies (Windows)
         shell: bash
