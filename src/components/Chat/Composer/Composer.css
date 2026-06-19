@@ -313,6 +313,29 @@
   background: transparent;
 }
 
+.chat-panel__ai-write-field-placeholder {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: text;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.chat-panel__ai-write-field-placeholder:focus,
+.chat-panel__ai-write-field-placeholder:focus-visible,
+.chat-panel__ai-write-field-placeholder:hover,
+.chat-panel__ai-write-field-placeholder:active {
+  outline: none;
+  box-shadow: none;
+  border: none;
+  background: transparent;
+}
+
 .chat-panel__file-ref-node {
   display: inline-flex;
   vertical-align: middle;
@@ -416,6 +439,14 @@
   word-break: break-word;
   word-wrap: break-word;
   overflow-wrap: break-word;
+}
+
+.chat-panel__input .chat-panel__input-prosemirror p {
+  margin: 0;
+}
+
+.chat-panel__input .chat-panel__input-prosemirror p + p {
+  margin-top: 4px;
 }
 
 .chat-panel__input .chat-panel__input-prosemirror a,

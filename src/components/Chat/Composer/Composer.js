@@ -11,6 +11,12 @@ import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
+import AiWriteToolDetail from './AiWriteToolDetail/index';
+import {
+  getDefaultAiWritePresetId,
+  getAiWriteFields,
+  getAiWritePresetById,
+} from './AiWriteToolDetail/presetOptions';
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
@@ -33,7 +39,9 @@ const DIGITAL_HUMAN_VIDEO_SLOT_ID = 'digital-human-video';
 const DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID = 'digital-human-selected-voice-id';
 const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE = 'digitalHumanScriptPlaceholder';
 const DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE = 'digitalHumanMotionPlaceholder';
+const AI_WRITE_FIELD_PLACEHOLDER_NODE = 'aiWriteFieldPlaceholder';
 const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT = '请输入文案';
+const AI_WRITE_FIELD_PLACEHOLDER_TEXT = '请输入';
 const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
 const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
 const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
@@ -342,6 +350,69 @@ const createDigitalHumanMotionPlaceholderExtension = () => {
     },
   });
 };
+const createAiWriteFieldPlaceholderExtension = () => {
+  const AiWriteFieldPlaceholderNodeView = ({ editor, getPos, node }) => (
+    <NodeViewWrapper
+      as="span"
+      contentEditable={false}
+      className="chat-panel__ai-write-field-placeholder-node"
+    >
+      <button
+        type="button"
+        className="chat-panel__ai-write-field-placeholder"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          const position = typeof getPos === 'function' ? getPos() : null;
+          if (typeof position !== 'number') return;
+
+          const transaction = editor.state.tr.deleteRange(position, position + node.nodeSize);
+          transaction.setSelection(TextSelection.create(transaction.doc, position));
+          editor.view.dispatch(transaction.scrollIntoView());
+          editor.view.focus();
+        }}
+      >
+        {node?.attrs?.text || AI_WRITE_FIELD_PLACEHOLDER_TEXT}
+      </button>
+    </NodeViewWrapper>
+  );
+
+  return Node.create({
+    name: AI_WRITE_FIELD_PLACEHOLDER_NODE,
+    group: 'inline',
+    inline: true,
+    atom: true,
+    selectable: false,
+
+    addAttributes() {
+      return {
+        text: { default: AI_WRITE_FIELD_PLACEHOLDER_TEXT },
+      };
+    },
+
+    parseHTML() {
+      return [{ tag: 'span[data-type="ai-write-field-placeholder"]' }];
+    },
+
+    renderHTML({ HTMLAttributes }) {
+      return [
+        'span',
+        mergeAttributes(HTMLAttributes, {
+          'data-type': 'ai-write-field-placeholder',
+          class: 'chat-panel__ai-write-field-placeholder-node',
+        }),
+        ['span', { class: 'chat-panel__ai-write-field-placeholder' }, HTMLAttributes.text || AI_WRITE_FIELD_PLACEHOLDER_TEXT],
+      ];
+    },
+
+    renderText() {
+      return '';
+    },
+
+    addNodeView() {
+      return ReactNodeViewRenderer(AiWriteFieldPlaceholderNodeView);
+    },
+  });
+};
 const buildDigitalHumanEditorDocument = (
   selectedVoiceLibraryItem = null,
   selectedMode = readPersistedDigitalHumanMode(),
@@ -384,6 +455,36 @@ const buildDigitalHumanEditorDocument = (
     buildDigitalHumanMediaParagraph(selectedMode, {}, selectedAvatar),
   ],
 });
+const buildAiWriteEditorDocument = (presetId = getDefaultAiWritePresetId()) => {
+  const preset = getAiWritePresetById(presetId);
+  const fields = getAiWriteFields(presetId);
+  const instructionText = String(preset?.instruction || '').trim() || `根据下面信息生成${preset.label}：`;
+
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: instructionText },
+        ],
+      },
+      ...fields.map((fieldLabel) => ({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: `${fieldLabel}：[` },
+          {
+            type: AI_WRITE_FIELD_PLACEHOLDER_NODE,
+            attrs: {
+              text: AI_WRITE_FIELD_PLACEHOLDER_TEXT,
+            },
+          },
+          { type: 'text', text: ']' },
+        ],
+      })),
+    ],
+  };
+};
 const formatMediaDuration = (durationInSeconds) => {
   const totalSeconds = Math.max(0, Math.floor(Number(durationInSeconds) || 0));
   const minutes = Math.floor(totalSeconds / 60);
@@ -585,6 +686,60 @@ const getDigitalHumanTemplateCompletionState = (editor) => {
     hasScriptContent,
     hasVideoReference,
     isComplete: hasScriptContent && hasVideoReference,
+  };
+};
+const getAiWriteTemplateCompletionState = (editor, presetId = getDefaultAiWritePresetId()) => {
+  const fields = getAiWriteFields(presetId);
+
+  if (!editor || editor.isDestroyed) {
+    return {
+      filledCount: 0,
+      totalCount: fields.length,
+      isComplete: false,
+    };
+  }
+
+  const paragraphs = [];
+  editor.state.doc.forEach((node) => {
+    if (node.type?.name === 'paragraph') {
+      paragraphs.push(node);
+    }
+  });
+
+  const fieldParagraphs = paragraphs.slice(1, fields.length + 1);
+  let filledCount = 0;
+
+  fieldParagraphs.forEach((paragraph, index) => {
+    const fieldLabel = String(fields[index] || '').trim();
+    if (!fieldLabel) return;
+
+    let hasPlaceholder = false;
+    let paragraphText = '';
+
+    paragraph.forEach((child) => {
+      if (child.type?.name === AI_WRITE_FIELD_PLACEHOLDER_NODE) {
+        hasPlaceholder = true;
+        return;
+      }
+      if (child.type?.name === 'text') {
+        paragraphText += child.text || '';
+      }
+    });
+
+    const normalizedFieldValue = paragraphText
+      .replace(new RegExp(`^${escapeRegExp(fieldLabel)}：\\s*\\[`), '')
+      .replace(/\]\s*$/, '')
+      .trim();
+
+    if (!hasPlaceholder && normalizedFieldValue.length > 0) {
+      filledCount += 1;
+    }
+  });
+
+  return {
+    filledCount,
+    totalCount: fields.length,
+    isComplete: fields.length > 0 && filledCount === fields.length,
   };
 };
 const syncDigitalHumanVoiceReferenceNode = (
@@ -1200,6 +1355,7 @@ const Composer = ({
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [activeTool, setActiveTool] = React.useState(null);
+  const [selectedAiWritePresetId, setSelectedAiWritePresetId] = React.useState(() => getDefaultAiWritePresetId());
   const [selectedDigitalHumanMode, setSelectedDigitalHumanMode] = React.useState(() => readPersistedDigitalHumanMode());
   const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(() => readPersistedDigitalHumanAvatarSelection());
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
@@ -1429,6 +1585,10 @@ const Composer = ({
       requestUploadPickerRef,
     })
   ), []);
+  const aiWriteFieldPlaceholderExtension = React.useMemo(
+    () => createAiWriteFieldPlaceholderExtension(),
+    []
+  );
   const digitalHumanScriptPlaceholderExtension = React.useMemo(
     () => createDigitalHumanScriptPlaceholderExtension(),
     []
@@ -1482,6 +1642,7 @@ const Composer = ({
           class: 'chat-panel__input-mention-token',
         },
       }),
+      aiWriteFieldPlaceholderExtension,
       digitalHumanScriptPlaceholderExtension,
       digitalHumanMotionPlaceholderExtension,
       fileReferenceExtension,
@@ -1834,9 +1995,14 @@ const Composer = ({
     () => getDigitalHumanTemplateCompletionState(editor),
     [editor, input]
   );
+  const aiWriteCompletionState = React.useMemo(
+    () => getAiWriteTemplateCompletionState(editor, selectedAiWritePresetId),
+    [editor, input, selectedAiWritePresetId]
+  );
   const canSend = String(input || '').trim().length > 0 || uploadedMarkdownLinks.length > 0;
   const isDigitalHumanSendBlocked = activeTool === 'digital-human' && !digitalHumanCompletionState.isComplete;
-  const isSendDisabled = !canSend || modelListLoading || hasUploadingFile || isDigitalHumanSendBlocked;
+  const isAiWriteSendBlocked = activeTool === 'ai-write' && !aiWriteCompletionState.isComplete;
+  const isSendDisabled = !canSend || modelListLoading || hasUploadingFile || isDigitalHumanSendBlocked || isAiWriteSendBlocked;
 
   const handleBeforeUpload = (file, batchFileList = []) => {
     const type = String(file?.type || '');
@@ -2132,10 +2298,23 @@ const Composer = ({
     syncDigitalHumanMediaParagraph(editor, selectedDigitalHumanMode, selectedDigitalHumanAvatar);
   }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode]);
 
+  const applyAiWriteTemplate = React.useCallback((presetId) => {
+    if (!editor || editor.isDestroyed) return;
+    editor.commands.setContent(buildAiWriteEditorDocument(presetId), false);
+    editor.commands.focus('end');
+  }, [editor]);
+
+  const handleAiWritePresetSelect = React.useCallback((presetId) => {
+    setSelectedAiWritePresetId(presetId);
+    if (activeTool !== 'ai-write') return;
+    applyAiWriteTemplate(presetId);
+  }, [activeTool, applyAiWriteTemplate]);
+
   const handleToolSelect = React.useCallback((toolId) => {
     const nextTool = activeTool === toolId ? null : toolId;
     setActiveTool(nextTool);
-    if (nextTool === 'digital-human' && editor && !editor.isDestroyed) {
+    if (!editor || editor.isDestroyed) return;
+    if (nextTool === 'digital-human') {
       editor.commands.setContent(
         buildDigitalHumanEditorDocument(
           selectedVoiceLibraryItem,
@@ -2145,8 +2324,12 @@ const Composer = ({
         false
       );
       editor.commands.focus('end');
+      return;
     }
-  }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
+    if (nextTool === 'ai-write') {
+      applyAiWriteTemplate(selectedAiWritePresetId);
+    }
+  }, [activeTool, applyAiWriteTemplate, editor, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
 
   const handleToolDetailBack = React.useCallback(() => {
     setActiveTool(null);
@@ -2214,6 +2397,13 @@ const Composer = ({
                 onModeChange={setSelectedDigitalHumanMode}
                 onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
                 onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+              />
+            ) : activeTool === 'ai-write' ? (
+              <AiWriteToolDetail
+                disabled={sessionSending}
+                onBack={handleToolDetailBack}
+                selectedPresetId={selectedAiWritePresetId}
+                onPresetSelect={handleAiWritePresetSelect}
               />
             ) : (
               <ToolArea

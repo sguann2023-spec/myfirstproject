@@ -1,0 +1,184 @@
+.chat-panel__tool-detail-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-panel__tool-tooltip-trigger {
+  display: inline-flex;
+}
+
+.chat-panel__tool-detail-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active {
+  background: #e2e6ff;
+}
+
+.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active:not(:disabled):hover {
+  background: #e2e6ff !important;
+}
+
+.chat-panel__tool-text.chat-panel__tool-text--active {
+  color: #3167ff !important;
+}
+
+.chat-panel__tool-close-icon {
+  color: #3167ff;
+  font-size: 12px;
+}
+
+.chat-panel__ai-write-picker {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.chat-panel__ai-write-picker.ant-select {
+  border-radius: 8px;
+}
+
+.chat-panel__ai-write-picker.ant-select .ant-select-selector {
+  min-height: 32px !important;
+  padding: 6px 2px 6px 6px !important;
+  border-radius: 8px !important;
+  gap: 4px;
+}
+
+.chat-panel__ai-write-picker.ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  background: #ebebeb !important;
+}
+
+.chat-panel__ai-write-picker.ant-select-focused .ant-select-selector,
+.chat-panel__ai-write-picker.ant-select-open .ant-select-selector {
+  box-shadow: none !important;
+}
+
+.chat-panel__ai-write-picker.ant-select .ant-select-selector,
+.chat-panel__ai-write-picker .ant-select-selection-item,
+.chat-panel__ai-write-picker .ant-select-selection-search {
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.chat-panel__ai-write-picker .ant-select-arrow {
+  display: none !important;
+}
+
+.chat-panel__ai-write-picker .ant-select-selection-item {
+  line-height: 1;
+  padding-inline-end: 0 !important;
+}
+
+.chat-panel__ai-write-picker .ant-select-selection-item > .chat-panel__ai-write-selected {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+}
+
+.chat-panel__ai-write-selected .chat-panel__model-option-main,
+.chat-panel__ai-write-option {
+  gap: 8px;
+}
+
+.chat-panel__ai-write-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-panel__ai-write-selected-arrow {
+  flex: 0 0 auto;
+  color: #000000;
+  font-size: 10px;
+  transition: transform 0.2s ease;
+  transform: rotate(0deg);
+}
+
+.chat-panel__ai-write-selected-arrow.is-open {
+  transform: rotate(180deg);
+}
+
+.chat-panel__ai-write-picker-dropdown.ant-select-dropdown {
+  min-width: 160px !important;
+}
+
+.chat-panel__ai-write-picker-dropdown .ant-select-item-option {
+  min-height: 40px !important;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 3px;
+  font-size: 14px;
+  font-weight: 400;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: none !important;
+  animation: none !important;
+}
+
+.chat-panel__ai-write-picker-dropdown .ant-select-item-option:hover {
+  background: #f5f5f5 !important;
+}
+
+.chat-panel__ai-write-picker-dropdown .ant-select-item-option-selected {
+  background: #f5f7ff !important;
+  color: #000000 !important;
+}
+
+.chat-panel__ai-write-picker-dropdown .ant-select-item-option-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.chat-panel__ai-write-option-wrap {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-panel__ai-write-option-wrap--selected .chat-panel__model-option-text {
+  color: #000000;
+  font-weight: 400;
+}
+
+.chat-panel__ai-write-option {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.chat-panel__ai-write-option-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.chat-panel__ai-write-option .chat-panel__model-option-text {
+  color: #000000;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.chat-panel__ai-write-selected .chat-panel__model-option-text {
+  color: #000000;
+  font-size: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.chat-panel__ai-write-option-check {
+  flex: 0 0 auto;
+  color: #3167ff;
+  font-size: 12px;
+}

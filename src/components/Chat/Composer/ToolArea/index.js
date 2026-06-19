@@ -1,8 +1,14 @@
 import './index.css';
+import AiWriteIcon from '../../../../../public/ai_write.svg';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
 
 const TOOL_ITEMS = [
+  {
+    id: 'ai-write',
+    label: '帮我写文案',
+    icon: AiWriteIcon,
+  },
   {
     id: 'voice-square',
     label: '语音生成',
