@@ -9,7 +9,7 @@ import {
   PlayCircleFilled,
   RedoOutlined,
 } from '@ant-design/icons';
-import { Button, Input, Select, Tooltip, message } from 'antd';
+import { Button, Dropdown, Input, Select, Tooltip, message } from 'antd';
 import SiriWave from 'siriwave';
 import { uploadToOSSWithProgress } from '../../../../api/sts';
 import {
@@ -960,7 +960,7 @@ const VoiceSquareToolDetail = ({
               aria-label="关闭"
               onClick={handleVoiceCloneDialogClose}
             />
-            <audio ref={cloneAudioRef} src={cloneSelectedFile?.url || ''} preload="metadata" />
+            <audio ref={cloneAudioRef} src={cloneSelectedFile?.url || undefined} preload="metadata" />
             {cloneRecordingActive ? (
               <div className="chat-panel__clone-dialog-panel">
                 <div className="chat-panel__clone-dialog-header">
