@@ -778,34 +778,64 @@ const getAiWriteTemplateCompletionState = (editor, presetId = getDefaultAiWriteP
     isComplete: fields.length > 0 && filledCount === fields.length,
   };
 };
-const getVoiceSquareScriptText = (editor) => {
-  if (!editor || editor.isDestroyed) return '';
+const getVoiceSquareComposeParts = (editor) => {
+  if (!editor || editor.isDestroyed) {
+    return {
+      scriptText: '',
+      extraText: '',
+    };
+  }
 
   const firstParagraph = editor.state.doc.firstChild;
-  if (!firstParagraph || firstParagraph.type?.name !== 'paragraph') return '';
+  if (!firstParagraph || firstParagraph.type?.name !== 'paragraph') {
+    return {
+      scriptText: '',
+      extraText: '',
+    };
+  }
 
   let hasScriptPlaceholder = false;
-  let paragraphText = '';
+  let beforeVoiceReferenceText = '';
+  let afterVoiceReferenceText = '';
+  let reachedVoiceReference = false;
   firstParagraph.forEach((child) => {
     if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
       hasScriptPlaceholder = true;
       return;
     }
     if (child.type?.name === 'fileReference' && child.attrs?.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) {
-      return false;
+      reachedVoiceReference = true;
+      return true;
     }
     if (child.type?.name === 'text') {
-      paragraphText += child.text || '';
+      if (reachedVoiceReference) {
+        afterVoiceReferenceText += child.text || '';
+      } else {
+        beforeVoiceReferenceText += child.text || '';
+      }
     }
     return true;
   });
 
-  if (hasScriptPlaceholder) return '';
+  if (hasScriptPlaceholder) {
+    return {
+      scriptText: '',
+      extraText: '',
+    };
+  }
 
-  return paragraphText
+  const scriptText = beforeVoiceReferenceText
     .replace(/^将说话内容[:：]\s*\[/, '')
-    .replace(/\]\s*利用音色\s*合成语音。?\s*$/, '')
+    .replace(/\]\s*利用音色\s*$/, '')
     .trim();
+  const extraText = afterVoiceReferenceText
+    .replace(/^\s*合成语音。?\s*/, '')
+    .trim();
+
+  return {
+    scriptText,
+    extraText,
+  };
 };
 const syncDigitalHumanVoiceReferenceNode = (
   editorInstance,
@@ -2347,14 +2377,20 @@ const Composer = ({
     const remainingUploadedLinks = uploadedFileMeta
       .filter((item) => item?.url && !serializedMessage.referencedFileUids.has(item.uid))
       .map((item) => buildMarkdownFileLink(item.name, item.url));
+    const voiceSquareComposeParts = activeTool === 'voice-square'
+      ? getVoiceSquareComposeParts(editor)
+      : null;
     const text = activeTool === 'voice-square'
-      ? getVoiceSquareScriptText(editor)
+      ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingUploadedLinks].filter(Boolean).join('\n');
     if (!combined) return;
     const nextMessage =
       activeTool === 'voice-square'
-        ? `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`
+        ? [
+          `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`,
+          voiceSquareComposeParts?.extraText || '',
+        ].filter(Boolean).join(' ')
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
