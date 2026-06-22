@@ -40,9 +40,17 @@ const GENERATE_SPEECH_TOOL: Tool = {
         type: 'string',
         description: `Optional voice ID. Defaults to ${DEFAULT_SPEECH_VOICE_ID}.`
       },
+      voice_id: {
+        type: 'string',
+        description: 'Alias of voiceId. Uses the same semantics as the VectCut API docs.'
+      },
       speechSpeed: {
         type: 'number',
-        description: 'Speech speed, usually between 0.2 and 2.'
+        description: 'Speech speed, usually between 0.7 and 1.3'
+      },
+      speech_speed: {
+        type: 'number',
+        description: 'Alias of speechSpeed. Uses the same semantics as the VectCut API docs.'
       },
       start: {
         type: 'number',
@@ -56,6 +64,18 @@ const GENERATE_SPEECH_TOOL: Tool = {
         type: 'string',
         description: 'Optional draft ID for adding the generated audio.'
       },
+      draft_id: {
+        type: 'string',
+        description: 'Alias of draftId. Uses the same semantics as the VectCut API docs.'
+      },
+      onlyTts: {
+        type: 'boolean',
+        description: 'Whether to generate audio only without creating a new draft.'
+      },
+      only_tts: {
+        type: 'boolean',
+        description: 'Alias of onlyTts. Uses the same semantics as the VectCut API docs.'
+      },
       volume: {
         type: 'number',
         description: 'Optional volume in dB.'
@@ -63,6 +83,10 @@ const GENERATE_SPEECH_TOOL: Tool = {
       targetStart: {
         type: 'number',
         description: 'Optional audio start time on the timeline in seconds.'
+      },
+      target_start: {
+        type: 'number',
+        description: 'Alias of targetStart. Uses the same semantics as the VectCut API docs.'
       },
       speed: {
         type: 'number',
@@ -72,9 +96,17 @@ const GENERATE_SPEECH_TOOL: Tool = {
         type: 'string',
         description: 'Optional target track name. Defaults to audio_speech on the API side.'
       },
+      track_name: {
+        type: 'string',
+        description: 'Alias of trackName. Uses the same semantics as the VectCut API docs.'
+      },
       effectType: {
         type: 'string',
         description: 'Optional effect type.'
+      },
+      effect_type: {
+        type: 'string',
+        description: 'Alias of effectType. Uses the same semantics as the VectCut API docs.'
       },
       effectParams: {
         type: 'array',
@@ -82,6 +114,13 @@ const GENERATE_SPEECH_TOOL: Tool = {
           type: 'number'
         },
         description: 'Optional effect parameters.'
+      },
+      effect_params: {
+        type: 'array',
+        items: {
+          type: 'number'
+        },
+        description: 'Alias of effectParams. Uses the same semantics as the VectCut API docs.'
       },
       width: {
         type: 'integer',
@@ -95,9 +134,25 @@ const GENERATE_SPEECH_TOOL: Tool = {
         type: 'number',
         description: 'Optional fade-in duration in seconds.'
       },
+      fade_in_duration: {
+        type: 'number',
+        description: 'Alias of fadeInDuration. Uses the same semantics as the VectCut API docs.'
+      },
       fadeOutDuration: {
         type: 'number',
         description: 'Optional fade-out duration in seconds.'
+      },
+      fade_out_duration: {
+        type: 'number',
+        description: 'Alias of fadeOutDuration. Uses the same semantics as the VectCut API docs.'
+      },
+      licenseKey: {
+        type: 'string',
+        description: 'Deprecated alias of license_key kept for backward compatibility.'
+      },
+      license_key: {
+        type: 'string',
+        description: 'Deprecated VectCut billing field kept for compatibility with the public API docs.'
       }
     },
     required: ['text']
@@ -135,12 +190,14 @@ const SPEECH_FIELD_ALIASES: Record<string, string> = {
   voiceId: 'voice_id',
   speechSpeed: 'speech_speed',
   draftId: 'draft_id',
+  onlyTts: 'only_tts',
   targetStart: 'target_start',
   trackName: 'track_name',
   effectType: 'effect_type',
   effectParams: 'effect_params',
   fadeInDuration: 'fade_in_duration',
-  fadeOutDuration: 'fade_out_duration'
+  fadeOutDuration: 'fade_out_duration',
+  licenseKey: 'license_key'
 }
 
 class SpeechGenerateServer {

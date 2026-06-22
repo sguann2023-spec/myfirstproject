@@ -26,6 +26,23 @@ const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item';
 export const VOICE_TAB_ALL = 'all';
 export const VOICE_TAB_FAVORITES = 'favorites';
 export const VOICE_TAB_MY = 'my';
+const createVoiceLoadTracker = () => ({
+  [VOICE_TAB_ALL]: {
+    activeRequestId: '',
+    activeOffset: null,
+    latestRequestId: '',
+  },
+  [VOICE_TAB_FAVORITES]: {
+    activeRequestId: '',
+    activeOffset: null,
+    latestRequestId: '',
+  },
+  [VOICE_TAB_MY]: {
+    activeRequestId: '',
+    activeOffset: null,
+    latestRequestId: '',
+  },
+});
 
 export const DEFAULT_SELECTED_VOICE_LIBRARY_ITEM = {
   avatar_url:
@@ -58,8 +75,62 @@ const createVoiceListState = (initialOffset) => ({
   },
 });
 
+const normalizeVoiceId = (item) =>
+  String(item?.global_voice_id || item?.voice_id || item?.id || '').trim();
+
+const normalizeVoiceTitle = (item) =>
+  String(item?.title || item?.voice_name || item?.name || item?.display_name || '').trim();
+
+const getVoiceItemIdentity = (item) => {
+  const normalizedTitle = normalizeVoiceTitle(item);
+  const normalizedProvider = String(item?.providers || item?.provider || '').trim();
+  const normalizedAvatarUrl = String(item?.avatar_url || '').trim();
+  const normalizedPreviewUrl = String(item?.try_listen_url || '').trim();
+
+  return (
+    normalizeVoiceId(item) ||
+    [
+      normalizedTitle || 'voice',
+      normalizedProvider || 'provider',
+      normalizedAvatarUrl || 'avatar',
+      normalizedPreviewUrl || 'preview',
+    ].join('|')
+  );
+};
+
+const getVoiceRenderKey = (item, index = 0) => {
+  const normalizedIdentity = getVoiceItemIdentity(item);
+
+  return [
+    normalizedIdentity || 'voice',
+    index,
+  ].join('|');
+};
+
+const getVoiceSelectionValue = (item, index = 0) =>
+  normalizeVoiceId(item) || getVoiceRenderKey(item, index);
+
+const mergeUniqueVoiceItems = (prevItems = [], nextItems = []) => {
+  const mergedItems = [];
+  const seenKeys = new Set();
+
+  [...prevItems, ...nextItems].forEach((item, index) => {
+    const dedupeKey = getVoiceItemIdentity(item) || getVoiceRenderKey(item, index);
+    if (!dedupeKey || seenKeys.has(dedupeKey)) return;
+    seenKeys.add(dedupeKey);
+    mergedItems.push(item);
+  });
+
+  return mergedItems;
+};
+
+const createVoiceLoadRequestId = (tab, offset) =>
+  `${tab}:${String(offset)}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+
 const normalizeVoiceItem = (item, favorited) => ({
   ...(item || {}),
+  global_voice_id: normalizeVoiceId(item),
+  title: normalizeVoiceTitle(item) || normalizeVoiceId(item),
   favorited: typeof favorited === 'boolean' ? favorited : Boolean(item?.favorited),
 });
 
@@ -84,7 +155,6 @@ const readPersistedSelectedVoiceLibraryItem = () => {
   try {
     const rawValue = localStorage.getItem(VOICE_SELECTED_STORAGE_KEY);
     if (!rawValue) return null;
-
     return normalizePersistedVoiceItem(JSON.parse(rawValue));
   } catch (error) {
     return null;
@@ -107,6 +177,7 @@ export const getInitialSelectedVoiceLibraryItem = () =>
 
 export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const initialSelectedVoiceLibraryItemRef = React.useRef(getInitialSelectedVoiceLibraryItem());
+  const loadTrackerRef = React.useRef(createVoiceLoadTracker());
   const [activeVoiceTab, setActiveVoiceTab] = React.useState(VOICE_TAB_ALL);
   const [voiceLibraryOpen, setVoiceLibraryOpen] = React.useState(false);
   const [allVoiceState, setAllVoiceState] = React.useState(() => createVoiceListState(VOICE_LIBRARY_INITIAL_OFFSET));
@@ -134,8 +205,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const selectedVoiceLibraryItem = React.useMemo(() => {
     const matchedItem =
       allVoiceItems.find(
-        (item, index) =>
-          (item?.global_voice_id || `${item?.title || 'voice'}-${index}`) === selectedVoiceLibraryId
+        (item, index) => getVoiceSelectionValue(item, index) === selectedVoiceLibraryId
       ) || null;
 
     if (matchedItem) return matchedItem;
@@ -256,6 +326,15 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     const initialOffset = getVoiceInitialOffsetByTab(tab);
     const targetOffset = typeof offset === 'number' ? offset : initialOffset;
     const setVoiceState = isFavoritesTab ? setFavoriteVoiceState : isMyVoiceTab ? setMyVoiceState : setAllVoiceState;
+    const tabLoadTracker = loadTrackerRef.current[tab];
+
+    if (tabLoadTracker?.activeRequestId) {
+      return;
+    }
+    const requestId = createVoiceLoadRequestId(tab, targetOffset);
+    tabLoadTracker.activeRequestId = requestId;
+    tabLoadTracker.activeOffset = targetOffset;
+    tabLoadTracker.latestRequestId = requestId;
 
     if (append) {
       setVoiceState((prev) => ({
@@ -289,6 +368,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
             });
 
       if (!result?.success) {
+        if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
+          return;
+        }
         setVoiceState((prev) => ({
           ...prev,
           initialized: true,
@@ -301,7 +383,6 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       }
 
       let nextItems = Array.isArray(result?.items) ? result.items : [];
-
       if (isFavoritesTab) {
         nextItems = nextItems.map((item) => normalizeVoiceItem(item, true));
       } else if (isMyVoiceTab) {
@@ -324,13 +405,16 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
         }
       }
 
+      if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
+        return;
+      }
       setVoiceState((prev) => ({
         ...prev,
         initialized: true,
         loading: false,
         loadingMore: false,
         error: '',
-        items: append ? [...prev.items, ...nextItems] : nextItems,
+        items: append ? mergeUniqueVoiceItems(prev.items, nextItems) : nextItems,
         pagination: {
           limit: Number(result?.pagination?.limit) || VOICE_LIBRARY_LIMIT,
           offset: Number(result?.pagination?.offset) || targetOffset,
@@ -338,6 +422,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
         },
       }));
     } catch (error) {
+      if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
+        return;
+      }
       setVoiceState((prev) => ({
         ...prev,
         initialized: true,
@@ -346,6 +433,11 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
         error: error?.message || '加载音色库失败',
         items: append ? prev.items : [],
       }));
+    } finally {
+      if (loadTrackerRef.current[tab]?.activeRequestId === requestId) {
+        loadTrackerRef.current[tab].activeRequestId = '';
+        loadTrackerRef.current[tab].activeOffset = null;
+      }
     }
   }, []);
 
@@ -383,10 +475,12 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   }, [currentVoiceState]);
 
   const loadMoreVoiceLibrary = React.useCallback(() => {
+    const tabLoadTracker = loadTrackerRef.current[activeVoiceTab];
     if (
       !voiceLibraryOpen ||
       currentVoiceState.loading ||
       currentVoiceState.loadingMore ||
+      Boolean(tabLoadTracker?.activeRequestId) ||
       !hasMoreVoiceLibraryItems
     ) {
       return;
@@ -414,7 +508,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
         : activeVoiceTab === VOICE_TAB_MY
           ? myVoiceState
           : allVoiceState;
-    if (targetState.initialized || targetState.loading) return undefined;
+    if (targetState.initialized || targetState.loading || loadTrackerRef.current[activeVoiceTab]?.activeRequestId) {
+      return undefined;
+    }
 
     const loadVoiceLibrary = async () => {
       await loadVoicePage(activeVoiceTab);
@@ -574,11 +670,12 @@ const VoiceLib = ({
             data={currentVoiceState.items}
             height={VOICE_LIBRARY_LIST_HEIGHT}
             itemHeight={VOICE_LIBRARY_ITEM_HEIGHT}
-            itemKey={(item) => item?.global_voice_id || item?.title || 'voice'}
+            itemKey={(item, index) => getVoiceRenderKey(item, index)}
             onScroll={handleVoiceLibraryScroll}
           >
             {(item, index) => {
-              const itemKey = item?.global_voice_id || `${item?.title || 'voice'}-${index}`;
+              const renderKey = getVoiceRenderKey(item, index);
+              const selectionValue = getVoiceSelectionValue(item, index);
               return (
                 <div
                   className="chat-panel__voice-library-row"
@@ -587,17 +684,18 @@ const VoiceLib = ({
                   onMouseDown={(event) => {
                     event.preventDefault();
                   }}
-                  onClick={() => handleVoiceSelect(itemKey)}
+                  onClick={() => handleVoiceSelect(selectionValue)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      handleVoiceSelect(itemKey);
+                      handleVoiceSelect(selectionValue);
                     }
                   }}
                 >
                   <VoiceCard
+                    rowKey={renderKey}
                     item={item}
-                    isSelected={selectedVoiceLibraryId === itemKey}
+                    isSelected={selectedVoiceLibraryId === selectionValue}
                     isPlaying={playingVoiceId === String(item?.global_voice_id || '').trim()}
                     favoriteLoading={
                       activeVoiceTab !== VOICE_TAB_MY &&
@@ -708,6 +806,44 @@ const VoiceLib = ({
     ? (selectedTextPrefix ? `${selectedTextPrefix} ${selectedText}` : selectedText)
     : label;
   const isActive = typeof active === 'boolean' ? active : voiceLibraryOpen;
+  const triggerButton = (
+    <button
+      type="button"
+      className={`chat-panel__tool-button ${isActive ? 'chat-panel__tool-button--sub-active' : ''}`}
+      aria-label={triggerTitle}
+      title={triggerTitle}
+      disabled={disabled}
+    >
+      {selectedVoiceLibraryItem ? (
+        <>
+          {selectedVoiceLibraryItem?.avatar_url ? (
+            <img
+              className="chat-panel__tool-icon chat-panel__tool-avatar"
+              src={selectedVoiceLibraryItem.avatar_url}
+              alt=""
+              aria-hidden="true"
+            />
+          ) : (
+            <span className="chat-panel__tool-avatar chat-panel__tool-avatar--placeholder" aria-hidden="true">
+              {String(selectedText || '?').slice(0, 1)}
+            </span>
+          )}
+          <span className="chat-panel__tool-text chat-panel__tool-selected-text">
+            {selectedTriggerText}
+          </span>
+        </>
+      ) : (
+        <>
+          <img className="chat-panel__tool-icon" src={VoiceLibIcon} alt="" aria-hidden="true" />
+          <span className="chat-panel__tool-text">{label}</span>
+        </>
+      )}
+      <DownOutlined
+        className={`chat-panel__tool-dropdown-arrow ${voiceLibraryOpen ? 'open' : ''}`}
+        aria-hidden="true"
+      />
+    </button>
+  );
 
   return (
     <Dropdown
@@ -722,42 +858,7 @@ const VoiceLib = ({
       popupRender={() => voiceLibraryPopupContent}
     >
       <span className="chat-panel__tool-dropdown-trigger">
-        <button
-          type="button"
-          className={`chat-panel__tool-button ${isActive ? 'chat-panel__tool-button--sub-active' : ''}`}
-          aria-label={triggerTitle}
-          title={triggerTitle}
-          disabled={disabled}
-        >
-          {selectedVoiceLibraryItem ? (
-            <>
-              {selectedVoiceLibraryItem?.avatar_url ? (
-                <img
-                  className="chat-panel__tool-icon chat-panel__tool-avatar"
-                  src={selectedVoiceLibraryItem.avatar_url}
-                  alt=""
-                  aria-hidden="true"
-                />
-              ) : (
-                <span className="chat-panel__tool-avatar chat-panel__tool-avatar--placeholder" aria-hidden="true">
-                  {String(selectedText || '?').slice(0, 1)}
-                </span>
-              )}
-              <span className="chat-panel__tool-text chat-panel__tool-selected-text">
-                {selectedTriggerText}
-              </span>
-            </>
-          ) : (
-            <>
-              <img className="chat-panel__tool-icon" src={VoiceLibIcon} alt="" aria-hidden="true" />
-              <span className="chat-panel__tool-text">{label}</span>
-            </>
-          )}
-          <DownOutlined
-            className={`chat-panel__tool-dropdown-arrow ${voiceLibraryOpen ? 'open' : ''}`}
-            aria-hidden="true"
-          />
-        </button>
+        {triggerButton}
       </span>
     </Dropdown>
   );

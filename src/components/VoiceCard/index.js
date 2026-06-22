@@ -4,6 +4,21 @@ import './index.css';
 import VoiceCircularVisualizer from '../VoiceCircularVisualizer';
 import VoiceDetail from '../VoiceDetail';
 
+const getVoiceCardCompareShape = (props = {}) => ({
+  rowKey: String(props?.rowKey || '').trim(),
+  globalVoiceId: String(props?.item?.global_voice_id || '').trim(),
+  title: String(props?.item?.title || '').trim(),
+  avatarUrl: String(props?.item?.avatar_url || '').trim(),
+  previewUrl: String(props?.item?.try_listen_url || '').trim(),
+  provider: String(props?.item?.price_provider || props?.item?.providers || props?.item?.provider || '').trim(),
+  priceText: String(props?.item?.price_text || props?.item?.price || '').trim(),
+  priceModel: String(props?.item?.price_model || '').trim(),
+  favorited: Boolean(props?.item?.favorited),
+  isSelected: Boolean(props?.isSelected),
+  isPlaying: Boolean(props?.isPlaying),
+  favoriteLoading: Boolean(props?.favoriteLoading),
+});
+
 const VoiceCard = ({
   item,
   isSelected = false,
@@ -69,9 +84,10 @@ const VoiceCard = ({
       </button>
       <VoiceDetail
         title={title}
-        provider={item?.providers || item?.provider}
+        provider={item?.price_provider || item?.providers || item?.provider}
         globalVoiceId={item?.global_voice_id}
-        priceText={item?.price_text}
+        priceText={item?.price_text || item?.price}
+        priceModel={item?.price_model}
         favorited={Boolean(item?.favorited)}
         favoriteDisabled={favoriteLoading}
         onToggleFavorite={
@@ -82,5 +98,11 @@ const VoiceCard = ({
     </div>
   );
 };
+const areVoiceCardPropsEqual = (prevProps, nextProps) => {
+  const prevShape = getVoiceCardCompareShape(prevProps);
+  const nextShape = getVoiceCardCompareShape(nextProps);
 
-export default React.memo(VoiceCard);
+  return Object.keys(prevShape).every((key) => prevShape[key] === nextShape[key]);
+};
+
+export default React.memo(VoiceCard, areVoiceCardPropsEqual);

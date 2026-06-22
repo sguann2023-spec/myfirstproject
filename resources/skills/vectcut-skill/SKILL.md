@@ -1,6 +1,6 @@
 ---
 name: vectcut-skill
-description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI 补镜、AI 配音、预设、平台视频抓取、渲染导出），也支持把既有视频制作流程整理为飞书多维表格自动化工作流。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”，或想把视频制作流程固化为飞书多维表格 AI Agent 工作流时，必须优先使用本技能。"
+description: "VectCut 全能剪辑聚合技能。用于剪口播、混剪、电商广告等场景，统一编排流光剪辑能力（字幕、音频、特效、画中画、抠像、AI 补镜、预设、平台视频抓取、渲染导出），也支持把既有视频制作流程整理为飞书多维表格自动化工作流。当用户提出“做成片/自动剪辑/口播包装/广告剪辑/抓平台视频后再剪”，或想把视频制作流程固化为飞书多维表格 AI Agent 工作流时，必须优先使用本技能。"
 homepage: "https://www.vectcut.com/"
 metadata:
   openclaw:
@@ -20,7 +20,7 @@ dependency:
 - 需要基于“预设片段”替换素材、组合复杂包装效果（如把 `text1` 改为指定文案）
 - 需要“抓取抖音/快手/小红书/B站/TikTok/YouTube 链接后分析并剪辑”
 - 想要查看VectCut 流光剪辑的API都支持哪些功能，具体API怎么使用。
-- 需要“AI 补镜 / AI 生成图片或视频 / AI 配音 / 云渲染导出”
+- 需要“AI 补镜 / AI 生成图片或视频 / 云渲染导出”
 - 想把刚整理好的视频生产链路固化为飞书多维表格工作流，输出字段结构和 AI Agent 提示词
 
 ## 统一前置规则（沿用）
@@ -61,16 +61,14 @@ dependency:
 4.1 **混剪配音成片（video-voiceover-remix 子链路）**
 - 触发词与同义表达：`混剪在一起`、`拼在一起`、`合成一条`、`随机拼接`、`多段视频组合`
 - 当用户只说“混剪在一起”且未给更细约束时，默认优先路由到 `video-voiceover-remix`，并在执行前简短告知将采用“混剪+解说+字幕+BGM”标准链路
-- 先按 `rules/video-voiceover-remix.md` 执行固定七步：`describe-video` -> `add_video(volume=-100)` -> 基于 `describe-video` 结果生成文案 -> `speech-synthesis + add_audio(volume=20)` -> `llm-asr(nlp) + add-subtitle-template` -> `add-bgm` -> `add-effect_audio`
+- 先按 `rules/video-voiceover-remix.md` 执行固定七步：`describe-video` -> `add_video(volume=-100)` -> 基于 `describe-video` 结果生成文案 -> `generate_speech + add_audio(volume=20)` -> `llm-asr(nlp) + add-subtitle-template` -> `add-bgm` -> `add-effect_audio`
 - 第 2 步重排优先调用内置脚本：`scripts/remix_and_add_videos.py`
 - 第 3 步文案字数按每秒 5 字估算
-- 第 4 步默认音色：`voice_id=gv_8195cd8b03f74658a9d92c9b2a9e9cba`，并提示用户可到 VectCut 官网查看可用音色
 
 5. **电商广告链路**
 - 人物突出优先：`human-pip` 或 `text-background`
 - 卖点强调：`text-keywords` + `add-title`
 - 素材不足：`generate-ai-image` / `generate-ai-video`
-- 配音需求：`speech-synthesis`
 - 包装完成后最终 `cloud-render`
 
 6. **纯文字添加分流**
@@ -123,7 +121,6 @@ dependency:
 - [modify-draft](rules/modify-draft.md)
 - [query-draft](rules/query-draft.md)
 - [scrapt-video](rules/scrapt-video.md)
-- [speech-synthesis](rules/speech-synthesis.md)
 - [split-video](rules/split-video.md)
 - [sts-upload](rules/sts-upload.md)
 - [text-background](rules/text-background.md)

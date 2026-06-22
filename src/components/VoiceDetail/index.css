@@ -52,7 +52,25 @@
   opacity: 0;
 }
 
+.voice-detail__copy {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-right: -6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  color: #000;
+}
+
 .voice-card:hover .voice-detail__favorite,
+.voice-card:hover .voice-detail__copy,
+.voice-detail__copy:focus-visible,
 .voice-detail__favorite:focus-visible,
 .voice-detail__favorite.is-favorited {
   opacity: 1;
@@ -65,6 +83,17 @@
 .voice-detail__favorite:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.voice-detail__copy:hover {
+  color: #111827;
+}
+
+.voice-detail__copy-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 .voice-detail__favorite-icon {

@@ -37,6 +37,7 @@ const getFileReferenceText = (attrs = {}) => `#${attrs.name || '文件'}`;
 const getFileDisplayName = (file = {}) => file.name || '文件';
 const DIGITAL_HUMAN_VIDEO_SLOT_ID = 'digital-human-video';
 const DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID = 'digital-human-selected-voice-id';
+const VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID = 'voice-square-selected-voice-id';
 const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE = 'digitalHumanScriptPlaceholder';
 const DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE = 'digitalHumanMotionPlaceholder';
 const AI_WRITE_FIELD_PLACEHOLDER_NODE = 'aiWriteFieldPlaceholder';
@@ -131,6 +132,15 @@ const createDigitalHumanSelectedVoiceReferenceAttrs = (
     placeholderText: selectedVoiceLibraryItem?.title || '音色id',
   });
 };
+const createVoiceSquareSelectedVoiceReferenceAttrs = (selectedVoiceLibraryItem = null) =>
+  createFileReferenceAttrs({}, {
+    uid: selectedVoiceLibraryItem?.global_voice_id || '',
+    name: selectedVoiceLibraryItem?.title || '音色',
+    fileType: selectedVoiceLibraryItem?.global_voice_id ? 'audio/mpeg' : '',
+    slotId: VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID,
+    slotLabel: '音色',
+    placeholderText: selectedVoiceLibraryItem?.title || '音色',
+  });
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   if (!(file instanceof Blob)) {
     reject(new Error('INVALID_FILE'));
@@ -212,6 +222,9 @@ const getFileReferenceNodeText = (attrs = {}) => {
   }
   if (attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) {
     return `[${attrs?.placeholderText || attrs?.name || '音色id'}]`;
+  }
+  if (attrs?.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) {
+    return `[${attrs?.placeholderText || attrs?.name || '音色'}]`;
   }
   return `[${attrs?.placeholderText || FILE_SLOT_PLACEHOLDER}]`;
 };
@@ -453,6 +466,29 @@ const buildDigitalHumanEditorDocument = (
       ],
     },
     buildDigitalHumanMediaParagraph(selectedMode, {}, selectedAvatar),
+  ],
+});
+const buildVoiceSquareEditorDocument = (selectedVoiceLibraryItem = null) => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: '将说话内容: [' },
+        {
+          type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
+          attrs: {
+            text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
+          },
+        },
+        { type: 'text', text: '] 利用音色 ' },
+        {
+          type: 'fileReference',
+          attrs: createVoiceSquareSelectedVoiceReferenceAttrs(selectedVoiceLibraryItem),
+        },
+        { type: 'text', text: ' 合成语音。' },
+      ],
+    },
   ],
 });
 const buildAiWriteEditorDocument = (presetId = getDefaultAiWritePresetId()) => {
@@ -742,6 +778,35 @@ const getAiWriteTemplateCompletionState = (editor, presetId = getDefaultAiWriteP
     isComplete: fields.length > 0 && filledCount === fields.length,
   };
 };
+const getVoiceSquareScriptText = (editor) => {
+  if (!editor || editor.isDestroyed) return '';
+
+  const firstParagraph = editor.state.doc.firstChild;
+  if (!firstParagraph || firstParagraph.type?.name !== 'paragraph') return '';
+
+  let hasScriptPlaceholder = false;
+  let paragraphText = '';
+  firstParagraph.forEach((child) => {
+    if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
+      hasScriptPlaceholder = true;
+      return;
+    }
+    if (child.type?.name === 'fileReference' && child.attrs?.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) {
+      return false;
+    }
+    if (child.type?.name === 'text') {
+      paragraphText += child.text || '';
+    }
+    return true;
+  });
+
+  if (hasScriptPlaceholder) return '';
+
+  return paragraphText
+    .replace(/^将说话内容[:：]\s*\[/, '')
+    .replace(/\]\s*利用音色\s*合成语音。?\s*$/, '')
+    .trim();
+};
 const syncDigitalHumanVoiceReferenceNode = (
   editorInstance,
   selectedMode,
@@ -761,6 +826,29 @@ const syncDigitalHumanVoiceReferenceNode = (
   editorInstance.state.doc.descendants((node, pos) => {
     if (node.type?.name !== 'fileReference') return true;
     if (node.attrs?.slotId !== DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) return true;
+
+    transaction.setNodeMarkup(pos, undefined, {
+      ...node.attrs,
+      ...nextAttrs,
+    });
+    changed = true;
+    return true;
+  });
+
+  if (changed) {
+    editorInstance.view.dispatch(transaction);
+  }
+};
+const syncVoiceSquareReferenceNode = (editorInstance, selectedVoiceLibraryItem) => {
+  if (!editorInstance || editorInstance.isDestroyed) return;
+
+  const nextAttrs = createVoiceSquareSelectedVoiceReferenceAttrs(selectedVoiceLibraryItem);
+  let changed = false;
+  const transaction = editorInstance.state.tr;
+
+  editorInstance.state.doc.descendants((node, pos) => {
+    if (node.type?.name !== 'fileReference') return true;
+    if (node.attrs?.slotId !== VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) return true;
 
     transaction.setNodeMarkup(pos, undefined, {
       ...node.attrs,
@@ -846,7 +934,10 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
   const FileReferenceNodeView = ({ node, selected, updateAttributes }) => {
     const file = node?.attrs || {};
     const isTemplateSlot = Boolean(file.templateSlot);
-    const isDigitalHumanSelectedVoiceReference = file.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID;
+    const isPinnedVoiceReference = (
+      file.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID ||
+      file.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID
+    );
     const getAvailableFiles = React.useCallback(() => {
       return Array.isArray(uploadedFilesRef.current) ? uploadedFilesRef.current : [];
     }, [uploadedFilesRef]);
@@ -927,7 +1018,7 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
         contentEditable={false}
         className={`chat-panel__file-ref-node ${selected ? 'is-selected' : ''}`}
       >
-        {isDigitalHumanSelectedVoiceReference ? nodeContent : (
+        {isPinnedVoiceReference ? nodeContent : (
           <Popover
             trigger="hover"
             placement="topLeft"
@@ -1393,11 +1484,9 @@ const Composer = ({
   const mentionPanelRef = React.useRef(null);
   const [isDragActive, setIsDragActive] = React.useState(false);
   const inputPlaceholder =
-    activeTool === 'voice-square'
-      ? '输入你想要生成语音的文案'
-      : activeTool === 'digital-human'
-        ? ''
-        : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
+    activeTool === 'digital-human'
+      ? ''
+      : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
@@ -2258,12 +2347,14 @@ const Composer = ({
     const remainingUploadedLinks = uploadedFileMeta
       .filter((item) => item?.url && !serializedMessage.referencedFileUids.has(item.uid))
       .map((item) => buildMarkdownFileLink(item.name, item.url));
-    const text = serializedMessage.text || String(input || '').trim();
+    const text = activeTool === 'voice-square'
+      ? getVoiceSquareScriptText(editor)
+      : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingUploadedLinks].filter(Boolean).join('\n');
     if (!combined) return;
     const nextMessage =
       activeTool === 'voice-square'
-        ? `@vectcut-skill 用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}将下面文字合成音频：${combined}`
+        ? `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
@@ -2294,6 +2385,11 @@ const Composer = ({
   }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
 
   React.useEffect(() => {
+    if (activeTool !== 'voice-square') return;
+    syncVoiceSquareReferenceNode(editor, selectedVoiceLibraryItem);
+  }, [activeTool, editor, selectedVoiceLibraryItem]);
+
+  React.useEffect(() => {
     if (activeTool !== 'digital-human') return;
     syncDigitalHumanMediaParagraph(editor, selectedDigitalHumanMode, selectedDigitalHumanAvatar);
   }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode]);
@@ -2314,6 +2410,14 @@ const Composer = ({
     const nextTool = activeTool === toolId ? null : toolId;
     setActiveTool(nextTool);
     if (!editor || editor.isDestroyed) return;
+    if (nextTool === 'voice-square') {
+      editor.commands.setContent(
+        buildVoiceSquareEditorDocument(selectedVoiceLibraryItem),
+        false
+      );
+      editor.commands.focus('end');
+      return;
+    }
     if (nextTool === 'digital-human') {
       editor.commands.setContent(
         buildDigitalHumanEditorDocument(

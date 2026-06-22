@@ -234,6 +234,78 @@ describe('SpeechGenerateServer', () => {
     })
   })
 
+  it('should accept snake_case fields from the public API docs', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            audio_url: 'https://example.com/audio.mp3',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-2'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, {
+      text: 'snake case payload',
+      provider: 'fish',
+      voice_id: 'gv_snake_case',
+      speech_speed: 0.9,
+      target_start: 12,
+      draft_id: 'draft-2',
+      only_tts: true,
+      track_name: 'audio_speech',
+      effect_type: '麦霸',
+      effect_params: [45, 80],
+      fade_in_duration: 0.5,
+      fade_out_duration: 0.8,
+      license_key: 'deprecated-key'
+    })
+
+    expect(mockStoreSet).toHaveBeenCalledWith(VOICE_SELECTED_STORAGE_KEY, {
+      global_voice_id: 'gv_snake_case',
+      providers: 'fish'
+    })
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      provider: 'fish',
+      text: 'snake case payload',
+      voice_id: 'gv_snake_case',
+      speech_speed: 0.9,
+      target_start: 12,
+      draft_id: 'draft-2',
+      only_tts: true,
+      track_name: 'audio_speech',
+      effect_type: '麦霸',
+      effect_params: [45, 80],
+      fade_in_duration: 0.5,
+      fade_out_duration: 0.8,
+      license_key: 'deprecated-key'
+    })
+
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      action: 'generate_speech',
+      request: {
+        provider: 'fish',
+        voice_id: 'gv_snake_case'
+      },
+      error: '',
+      output: {
+        audio_url: 'https://example.com/audio.mp3',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-2'
+      },
+      success: true
+    })
+  })
+
   it('should use default voiceId when omitted', async () => {
     mockNetFetch
       .mockResolvedValueOnce(

@@ -1,6 +1,7 @@
 import VideoScript from '../../../../../public/video_script.svg';
 import AuthorCommentIcon from '../../../../../public/auth_comment.svg';
 import RevertPromptIcon from '../../../../../public/revert_prompt.svg';
+import KouboIcon from '../../../../../public/koubo_icon.svg';
 import TagIcon from '../../../../../public/tag_icon.svg';
 import TitleIcon from '../../../../../public/title_icon.svg';
 import ZhongcaoIcon from '../../../../../public/zhongcao.svg';
@@ -15,6 +16,16 @@ export const AI_WRITE_PRESET_OPTIONS = [
     fields: ['主题', '受众', '时长', '风格'],
     description: '适合生成完整的视频脚本结构',
     instruction: '你是一名短视频文案策划，请根据我的需求输出一版可直接使用的短视频脚本，包含标题建议、开场钩子、正文分段和结尾行动引导。',
+  },
+  {
+    id: 'voiceover-copy',
+    label: '口播文案',
+    icon: KouboIcon,
+    placeholder: '行业：[请输入] 产品：[请输入] 时长：[请输入]',
+    template: '行业：[请输入]\n产品：[请输入]\n时长：[请输入]',
+    fields: ['行业', '产品', '时长'],
+    description: '适合生成真人出镜或配音朗读的口播文案',
+    instruction: '你是一名口播文案策划，请根据我的需求输出一版自然顺口、适合真人出镜或配音朗读的口播文案，包含开场吸引、中段表达和结尾收束。',
   },
   {
     id: 'social-post',

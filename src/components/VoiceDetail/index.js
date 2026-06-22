@@ -1,4 +1,6 @@
 import React from 'react';
+import { Copy } from 'lucide-react';
+import { message } from 'antd';
 import { getTtsSpeechPrice } from '../../api/tts';
 import './index.css';
 import Point2Icon from '../../../public/point2.svg';
@@ -181,6 +183,13 @@ const VoiceDetail = ({
   const [unitPriceText, setUnitPriceText] = React.useState(initialPriceText);
 
   React.useEffect(() => {
+    const nextText = String(priceText || '').trim();
+    if (cacheKey && nextText) {
+      voicePriceCache.set(cacheKey, nextText);
+    }
+  }, [cacheKey, priceText]);
+
+  React.useEffect(() => {
     setUnitPriceText(initialPriceText);
   }, [initialPriceText]);
 
@@ -233,12 +242,36 @@ const VoiceDetail = ({
     onToggleFavorite();
   };
 
+  const handleCopyVoiceId = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!normalizedVoiceId) return;
+    try {
+      await navigator.clipboard.writeText(normalizedVoiceId);
+      message.success('音色ID已复制');
+    } catch (error) {
+      message.error('复制失败');
+    }
+  };
+
   return (
     <div className="voice-detail">
       <div className="voice-detail__main">
         <div className="voice-detail__title">{title}</div>
         {description ? <div className="voice-detail__description">{description}</div> : null}
       </div>
+      {normalizedVoiceId ? (
+        <button
+          type="button"
+          className="voice-detail__copy"
+          aria-label="复制音色ID"
+          title={normalizedVoiceId}
+          onMouseDown={handleFavoriteMouseDown}
+          onClick={handleCopyVoiceId}
+        >
+          <Copy className="voice-detail__copy-icon" size={18} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      ) : null}
       {typeof onToggleFavorite === 'function' ? (
         <button
           type="button"
