@@ -790,8 +790,13 @@ const getVoiceSquareComposeParts = (editor) => {
     };
   }
 
-  const firstParagraph = editor.state.doc.firstChild;
-  if (!firstParagraph || firstParagraph.type?.name !== 'paragraph') {
+  const paragraphs = [];
+  editor.state.doc.forEach((node) => {
+    if (node.type?.name === 'paragraph') {
+      paragraphs.push(node);
+    }
+  });
+  if (paragraphs.length === 0) {
     return {
       scriptText: '',
       extraText: '',
@@ -799,26 +804,47 @@ const getVoiceSquareComposeParts = (editor) => {
   }
 
   let hasScriptPlaceholder = false;
-  let beforeVoiceReferenceText = '';
-  let afterVoiceReferenceText = '';
+  const beforeVoiceReferenceLines = [];
+  const afterVoiceReferenceLines = [];
   let reachedVoiceReference = false;
-  firstParagraph.forEach((child) => {
-    if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
-      hasScriptPlaceholder = true;
-      return;
-    }
-    if (child.type?.name === 'fileReference' && child.attrs?.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) {
-      reachedVoiceReference = true;
-      return true;
-    }
-    if (child.type?.name === 'text') {
-      if (reachedVoiceReference) {
-        afterVoiceReferenceText += child.text || '';
-      } else {
-        beforeVoiceReferenceText += child.text || '';
+  const getChildText = (child) => {
+    if (!child) return '';
+    if (child.type?.name === 'hardBreak') return '\n';
+    if (child.type?.name === 'text') return child.text || '';
+    return getInlineNodeText(child);
+  };
+
+  paragraphs.forEach((paragraph) => {
+    let paragraphBeforeVoiceReferenceText = '';
+    let paragraphAfterVoiceReferenceText = '';
+
+    paragraph.forEach((child) => {
+      if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
+        hasScriptPlaceholder = true;
+        return;
       }
+      if (child.type?.name === 'fileReference' && child.attrs?.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) {
+        reachedVoiceReference = true;
+        return true;
+      }
+
+      const childText = getChildText(child);
+      if (!childText) return true;
+
+      if (reachedVoiceReference) {
+        paragraphAfterVoiceReferenceText += childText;
+      } else {
+        paragraphBeforeVoiceReferenceText += childText;
+      }
+      return true;
+    });
+
+    if (paragraphBeforeVoiceReferenceText) {
+      beforeVoiceReferenceLines.push(paragraphBeforeVoiceReferenceText);
     }
-    return true;
+    if (paragraphAfterVoiceReferenceText) {
+      afterVoiceReferenceLines.push(paragraphAfterVoiceReferenceText);
+    }
   });
 
   if (hasScriptPlaceholder) {
@@ -828,11 +854,13 @@ const getVoiceSquareComposeParts = (editor) => {
     };
   }
 
-  const scriptText = beforeVoiceReferenceText
+  const scriptText = beforeVoiceReferenceLines
+    .join('\n')
     .replace(/^将说话内容[:：]\s*\[/, '')
     .replace(/\]\s*利用音色\s*$/, '')
     .trim();
-  const extraText = afterVoiceReferenceText
+  const extraText = afterVoiceReferenceLines
+    .join('\n')
     .replace(/^\s*合成语音。?\s*/, '')
     .trim();
 
