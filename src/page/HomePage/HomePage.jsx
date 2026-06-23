@@ -60,17 +60,117 @@ const buildProvidersState = (modelIds = [], apiKey = '') => {
   return { llm: { providers: Array.from(providersMap.values()) } };
 };
 
-const toModelOption = (model_id, name, icon = '', readImage = false) => ({
+const toModelOption = (model_id, name, icon = '', readImage = false, pricing = undefined, priceText = '', description = '', badges = []) => ({
   value: model_id,
   label: name,
   icon,
   read_image: Boolean(readImage),
+  pricing: pricing && typeof pricing === 'object' ? { ...pricing } : undefined,
+  price_text: String(priceText || '').trim(),
+  description: String(description || '').trim(),
+  badges: Array.isArray(badges) ? badges.map((badge) => String(badge || '').trim()).filter(Boolean) : [],
 });
 
 const isModelInOptions = (model, options = []) => {
   const target = String(model || '').trim();
   if (!target) return false;
   return options.some((item) => String(item?.value || '').trim() === target);
+};
+
+const canonicalizeChatModelId = (modelId = '') => {
+  const normalized = String(modelId || '').trim();
+  if (!normalized) return '';
+  const segments = normalized.split(':').map((item) => String(item || '').trim()).filter(Boolean);
+  return segments.length >= 2 ? segments[segments.length - 1] : normalized;
+};
+
+const extractChatModelProvider = (modelId = '') => {
+  const normalized = String(modelId || '').trim();
+  if (!normalized || !normalized.includes(':')) return '';
+  return String(normalized.split(':')[0] || '').trim();
+};
+
+const buildChatMessageModelMeta = (modelId, options = []) => {
+  const rawModelId = String(modelId || '').trim();
+  const normalizedModelId = canonicalizeChatModelId(rawModelId);
+  if (!normalizedModelId) return undefined;
+  const inferredProvider = extractChatModelProvider(rawModelId);
+  const matched = (Array.isArray(options) ? options : []).find((item) => (
+    [item?.value, item?.id, item?.name]
+      .map((value) => canonicalizeChatModelId(value))
+      .includes(normalizedModelId)
+  ));
+  if (!matched) {
+    return {
+      id: normalizedModelId,
+      name: normalizedModelId,
+      provider: inferredProvider || 'vectcut',
+    };
+  }
+  return {
+    id: normalizedModelId,
+    name: String(matched?.label || matched?.name || normalizedModelId).trim() || normalizedModelId,
+    provider: String(matched?.provider_id || matched?.provider_type || inferredProvider || 'vectcut').trim() || 'vectcut',
+    pricing: matched?.pricing && typeof matched.pricing === 'object' ? { ...matched.pricing } : undefined,
+    description: String(matched?.description || '').trim() || undefined,
+  };
+};
+
+const resolveMessageModelId = (rawModel, fallbackModelId = '') => {
+  if (rawModel && typeof rawModel === 'object' && !Array.isArray(rawModel)) {
+    return canonicalizeChatModelId(
+      rawModel?.id
+      || rawModel?.modelId
+      || rawModel?.value
+      || rawModel?.name
+      || fallbackModelId
+      || ''
+    );
+  }
+  return canonicalizeChatModelId(rawModel || fallbackModelId || '');
+};
+
+const normalizeMessageModelMeta = (rawModel, fallbackModelId = '', options = []) => {
+  const resolvedModelId = resolveMessageModelId(rawModel, fallbackModelId);
+  if (!resolvedModelId) return undefined;
+
+  const matchedMeta = buildChatMessageModelMeta(resolvedModelId, options);
+  const rawObject = rawModel && typeof rawModel === 'object' && !Array.isArray(rawModel)
+    ? rawModel
+    : null;
+  if (!rawObject) {
+    return matchedMeta;
+  }
+
+  return {
+    id: resolvedModelId,
+    name: String(rawObject?.name || matchedMeta?.name || resolvedModelId).trim() || resolvedModelId,
+    provider: String(
+      rawObject?.provider
+      || rawObject?.provider_id
+      || rawObject?.provider_type
+      || extractChatModelProvider(rawObject?.id || rawObject?.modelId || rawObject?.value || rawObject?.name || '')
+      || matchedMeta?.provider
+      || 'vectcut'
+    ).trim() || 'vectcut',
+    pricing: rawObject?.pricing && typeof rawObject.pricing === 'object'
+      ? { ...rawObject.pricing }
+      : (matchedMeta?.pricing && typeof matchedMeta.pricing === 'object' ? { ...matchedMeta.pricing } : undefined),
+    description: String(rawObject?.description || matchedMeta?.description || '').trim() || undefined,
+  };
+};
+
+const buildComparableModelMeta = (rawModel) => {
+  if (!rawModel || typeof rawModel !== 'object' || Array.isArray(rawModel)) {
+    return String(rawModel || '').trim();
+  }
+  return JSON.stringify({
+    id: String(rawModel?.id || '').trim(),
+    name: String(rawModel?.name || '').trim(),
+    provider: String(rawModel?.provider || rawModel?.provider_id || rawModel?.provider_type || '').trim(),
+    pricing: rawModel?.pricing && typeof rawModel.pricing === 'object' ? rawModel.pricing : undefined,
+    description: String(rawModel?.description || '').trim()
+  });
 };
 
 const createChatId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -132,12 +232,6 @@ const summarizeMapKeys = (mapLike, limit = 6) => {
   }
 };
 
-const logPendingState = (action, details = {}) => {
-  logger.info('[HomePage][StreamTrace] pending state changed', {
-    action,
-    ...details
-  });
-};
 
 const getPerfTimestamp = () =>
   (typeof globalThis?.performance?.now === 'function' ? globalThis.performance.now() : Date.now());
@@ -319,7 +413,10 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
     }));
   return {
     blocks,
-    content: buildAssistantDisplayContentFromBlocks(blocks)
+    content: buildAssistantDisplayContentFromBlocks(blocks),
+    usage: message?.usage ? { ...message.usage } : undefined,
+    metrics: message?.metrics ? { ...message.metrics } : undefined,
+    model: message?.model || undefined
   };
 };
 
@@ -394,26 +491,54 @@ const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false
   }, []);
 };
 
-const normalizePersistedChatMessage = (message = {}) => {
+const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
   if (!message || typeof message !== 'object') return message;
 
-  const nextMessage = { ...message };
+  let nextMessage = message;
+  const ensureCloned = () => {
+    if (nextMessage === message) {
+      nextMessage = { ...message };
+    }
+    return nextMessage;
+  };
+
   if (String(nextMessage?.role || '').toLowerCase() !== 'assistant') {
     return nextMessage;
   }
 
-  nextMessage.storeAssistantMessageId = null;
+  if (nextMessage.storeAssistantMessageId !== null) {
+    ensureCloned().storeAssistantMessageId = null;
+  }
   if (Array.isArray(nextMessage.blocks)) {
     const structuredBlocks = nextMessage.blocks.filter((block) => isStructuredBlockObject(block));
     if (structuredBlocks.length === nextMessage.blocks.length) {
-      nextMessage.blocks = normalizeStructuredBlocksForPersistence(structuredBlocks, {
+      const normalizedBlocks = normalizeStructuredBlocksForPersistence(structuredBlocks, {
         hasError: Boolean(nextMessage.error)
       });
+      if (JSON.stringify(normalizedBlocks) !== JSON.stringify(nextMessage.blocks)) {
+        ensureCloned().blocks = normalizedBlocks;
+      }
     }
   }
 
   if (!String(nextMessage.content || '').trim() && hasStructuredBlocks(nextMessage.blocks)) {
-    nextMessage.content = buildAssistantDisplayContentFromBlocks(nextMessage.blocks);
+    const nextContent = buildAssistantDisplayContentFromBlocks(nextMessage.blocks);
+    if (nextContent !== nextMessage.content) {
+      ensureCloned().content = nextContent;
+    }
+  }
+
+  const normalizedModel = normalizeMessageModelMeta(nextMessage.model, nextMessage.modelId, modelOptions);
+  const normalizedModelId = String(
+    normalizedModel?.id || resolveMessageModelId(nextMessage.model, nextMessage.modelId)
+  ).trim();
+  if (
+    buildComparableModelMeta(nextMessage.model) !== buildComparableModelMeta(normalizedModel)
+    || String(nextMessage.modelId || '').trim() !== normalizedModelId
+  ) {
+    const target = ensureCloned();
+    target.model = normalizedModel;
+    target.modelId = normalizedModelId || undefined;
   }
 
   return nextMessage;
@@ -474,7 +599,7 @@ const buildVisibleAssistantContent = (message = {}) => {
   return buildAssistantDisplayContentFromBlocks(structuredBlocks).trim();
 };
 
-const toPersistedHistoryMessage = (persistedEntry, index) => {
+const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => {
   const sourceMessage = persistedEntry?.message || {};
   const role = String(sourceMessage?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
   const sourceBlocks = Array.isArray(persistedEntry?.blocks) ? persistedEntry.blocks.filter((block) => isStructuredBlockObject(block)) : [];
@@ -487,6 +612,12 @@ const toPersistedHistoryMessage = (persistedEntry, index) => {
   const content = String(sourceMessage?.content || '').trim() || contentFromBlocks;
   const createdAt = sourceMessage?.createdAt || Date.now();
   const updatedAt = sourceMessage?.updatedAt || createdAt;
+  const modelMeta = role === 'assistant'
+    ? normalizeMessageModelMeta(sourceMessage?.model, sourceMessage?.modelId, modelOptions)
+    : undefined;
+  const modelId = String(
+    modelMeta?.id || resolveMessageModelId(sourceMessage?.model, sourceMessage?.modelId)
+  ).trim();
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
@@ -495,7 +626,10 @@ const toPersistedHistoryMessage = (persistedEntry, index) => {
     blocks: role === 'assistant' ? normalizedBlocks : [],
     createdAt,
     updatedAt,
-    model: sourceMessage?.modelId || sourceMessage?.model || undefined,
+    model: modelMeta,
+    modelId: modelId || undefined,
+    usage: sourceMessage?.usage ? { ...sourceMessage.usage } : undefined,
+    metrics: sourceMessage?.metrics ? { ...sourceMessage.metrics } : undefined,
     error: sourceMessage?.error || null,
     storeAssistantMessageId: null
   };
@@ -609,10 +743,16 @@ const HomePage = () => {
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const chatTitleRevealTimersRef = useRef(new Map());
   const creditsBalanceRef = useRef(null);
+  const chatModelOptionsRef = useRef(chatModelOptions);
+  const chatModelMetaRef = useRef(undefined);
   const canUseAgentRuntime = Boolean(
     window?.electronAPI?.cherryChatStream
     && typeof window.electronAPI.cherryChatStream.createSession === 'function'
   );
+
+  const logPendingState = useCallback((action, payload = {}) => {
+    logger.info(`[HomePage][Pending] ${action}`, payload);
+  }, []);
 
   // 暴露一个可复用的计数刷新方法
   const refreshTodayCount = () => {
@@ -762,7 +902,16 @@ const HomePage = () => {
               const modelId = String(item?.model_id || item?.value || '').trim();
               if (!modelId) return null;
               const modelName = String(item?.name || item?.label || modelId).trim() || modelId;
-              return toModelOption(modelId, modelName, iconMap?.[modelId] || '', item?.read_image);
+              return toModelOption(
+                modelId,
+                modelName,
+                iconMap?.[modelId] || '',
+                item?.read_image,
+                item?.pricing,
+                item?.price_text,
+                item?.description,
+                item?.badges
+              );
             })
             .filter(Boolean)
           : (
@@ -852,6 +1001,27 @@ const HomePage = () => {
   }, []);
 
   useEffect(() => {
+    if (!Array.isArray(chatModelOptions) || chatModelOptions.length === 0) return;
+    setChatSessions((prev) => {
+      let changed = false;
+      const next = prev.map((session) => {
+        const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
+        let sessionChanged = false;
+        const nextMessages = currentMessages.map((message) => {
+          const normalizedMessage = normalizePersistedChatMessage(message, chatModelOptions);
+          if (normalizedMessage !== message) {
+            changed = true;
+            sessionChanged = true;
+          }
+          return normalizedMessage;
+        });
+        return sessionChanged ? { ...session, messages: nextMessages } : session;
+      });
+      return changed ? next : prev;
+    });
+  }, [chatModelOptions]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatSessions));
       if (activeChatId) {
@@ -886,6 +1056,16 @@ const HomePage = () => {
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
   const activeChatRuntimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
+  const chatModelMeta = useMemo(
+    () => buildChatMessageModelMeta(chatModel, chatModelOptions),
+    [chatModel, chatModelOptions]
+  );
+  useEffect(() => {
+    chatModelOptionsRef.current = chatModelOptions;
+  }, [chatModelOptions]);
+  useEffect(() => {
+    chatModelMetaRef.current = chatModelMeta;
+  }, [chatModelMeta]);
   const activeChatSessionSending = Boolean(
     activeChatId && chatSessionSendingMap[String(activeChatId || '').trim()]
   );
@@ -958,7 +1138,7 @@ const HomePage = () => {
         }
 
         const hydratedMessages = historicalMessages
-          .map((entry, index) => toPersistedHistoryMessage(entry, index))
+          .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptions))
           .filter((message) => message?.id);
         const hasAssistantContent = hydratedMessages.some((message) => (
           message.role === 'assistant' && String(message.content || '').trim()
@@ -1121,16 +1301,6 @@ const HomePage = () => {
   );
 
   useEffect(() => {
-    logger.info('[HomePage][SessionSending] snapshot', {
-      activeChatId,
-      activeChatSending,
-      chatSending,
-      sessionSendingMap: chatSessionSendingMap,
-      sessionFulfilledMap: chatSessionFulfilledMap
-    });
-  }, [activeChatId, activeChatSending, chatSending, chatSessionSendingMap, chatSessionFulfilledMap]);
-
-  useEffect(() => {
     chatSessionsRef.current = chatSessions;
   }, [chatSessions]);
 
@@ -1268,19 +1438,7 @@ const HomePage = () => {
 
     const ensurePromise = (async () => {
       const subscribeToSession = async (agentSessionId, reason) => {
-        logger.info('[HomePage][StreamTrace] subscribe start', {
-          chatId,
-          sessionId: agentSessionId,
-          reason
-        });
         await window.electronAPI.cherryChatStream.subscribe(agentSessionId);
-        logger.info('[HomePage][StreamTrace] subscribe done', {
-          chatId,
-          sessionId: agentSessionId,
-          reason,
-          mappedChatSessionCount: chatAgentSessionIdByChatIdRef.current.size,
-          mappedAgentSessionCount: chatIdByAgentSessionIdRef.current.size
-        });
         return agentSessionId;
       };
 
@@ -1533,13 +1691,31 @@ const HomePage = () => {
               updatedAt: Date.now(),
               messages: item.messages.map((message) => (
                 message.id === assistantMessageId
-                  ? {
-                    ...message,
-                    content: snapshot.content || '',
-                    blocks: snapshot.blocks || [],
-                    error,
-                    updatedAt: Date.now()
-                  }
+                  ? (() => {
+                    const nextModel = normalizeMessageModelMeta(
+                      snapshot?.model || message.model,
+                      snapshot?.model?.id || message.modelId || chatModel,
+                      chatModelOptionsRef.current
+                    ) || message.model || chatModelMetaRef.current || chatModelMeta;
+                    const nextModelId = String(
+                      nextModel?.id
+                      || resolveMessageModelId(snapshot?.model, message.modelId || chatModel)
+                      || message.modelId
+                      || chatModel
+                      || ''
+                    ).trim() || chatModel;
+                    return {
+                      ...message,
+                      content: snapshot.content || '',
+                      blocks: snapshot.blocks || [],
+                      usage: snapshot?.usage ? { ...snapshot.usage } : message.usage,
+                      metrics: snapshot?.metrics ? { ...snapshot.metrics } : message.metrics,
+                      model: nextModel,
+                      modelId: nextModelId,
+                      error,
+                      updatedAt: Date.now()
+                    };
+                  })()
                   : message
               ))
             };
@@ -1614,11 +1790,27 @@ const HomePage = () => {
                   || buildAssistantDisplayContentFromBlocks(nextBlocks)
                   || message.content
                   || '';
+                const nextModel = normalizeMessageModelMeta(
+                  snapshot?.model || message.model,
+                  snapshot?.model?.id || message.modelId || chatModel,
+                  chatModelOptionsRef.current
+                ) || message.model || chatModelMetaRef.current || chatModelMeta;
+                const nextModelId = String(
+                  nextModel?.id
+                  || resolveMessageModelId(snapshot?.model, message.modelId || chatModel)
+                  || message.modelId
+                  || chatModel
+                  || ''
+                ).trim() || chatModel;
                 return {
                   ...message,
                   storeAssistantMessageId: null,
                   content: nextContent,
                   blocks: nextBlocks,
+                  usage: snapshot?.usage ? { ...snapshot.usage } : message.usage,
+                  metrics: snapshot?.metrics ? { ...snapshot.metrics } : message.metrics,
+                  model: nextModel,
+                  modelId: nextModelId,
                   error,
                   updatedAt: Date.now()
                 };
@@ -1676,13 +1868,6 @@ const HomePage = () => {
         const errorCode = String(payload?.error?.code || '').trim().toUpperCase();
         if (errorCode === 'ABORTED') {
           clearScheduledSnapshot();
-          logger.info('[HomePage][StreamTrace] remap aborted error to cancelled', {
-            chatId,
-            sessionId: agentSessionId,
-            requestId,
-            pendingMapSize: chatPendingByRequestIdRef.current.size,
-            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-          });
           streamController?.error(new DOMException('Request was aborted', 'AbortError'));
           finalizeAssistantMessage({ error: null, aborted: true });
           if (requestId) {
@@ -1853,11 +2038,27 @@ const HomePage = () => {
                         message.blocks || [],
                         { hasError: false }
                       );
+                      const nextModel = normalizeMessageModelMeta(
+                        finalSnapshot?.model || message.model,
+                        finalSnapshot?.model?.id || message.modelId || chatModel,
+                        chatModelOptionsRef.current
+                      ) || message.model || chatModelMetaRef.current || chatModelMeta;
+                      const nextModelId = String(
+                        nextModel?.id
+                        || resolveMessageModelId(finalSnapshot?.model, message.modelId || chatModel)
+                        || message.modelId
+                        || chatModel
+                        || ''
+                      ).trim() || chatModel;
                       return {
                         ...message,
                         storeAssistantMessageId: null,
                         content: finalizedContent || message.content || '',
                         blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
+                        usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
+                        metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
+                        model: nextModel,
+                        modelId: nextModelId,
                         error: null,
                         updatedAt: Date.now()
                       };
@@ -1877,11 +2078,27 @@ const HomePage = () => {
                       message.blocks || [],
                       { hasError: false }
                     );
+                    const nextModel = normalizeMessageModelMeta(
+                      finalSnapshot?.model || message.model,
+                      finalSnapshot?.model?.id || message.modelId || chatModel,
+                      chatModelOptionsRef.current
+                    ) || message.model || chatModelMetaRef.current || chatModelMeta;
+                    const nextModelId = String(
+                      nextModel?.id
+                      || resolveMessageModelId(finalSnapshot?.model, message.modelId || chatModel)
+                      || message.modelId
+                      || chatModel
+                      || ''
+                    ).trim() || chatModel;
                     return {
                       ...message,
                       storeAssistantMessageId: null,
                       content: finalizedContent || message.content || '',
                       blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
+                      usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
+                      metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
+                      model: nextModel,
+                      modelId: nextModelId,
                       error: null,
                       updatedAt: Date.now()
                     };
@@ -2088,7 +2305,8 @@ const HomePage = () => {
       content: '',
       blocks: [],
       createdAt: Date.now(),
-      model: chatModel,
+      model: chatModelMeta,
+      modelId: chatModel,
       storeAssistantMessageId: null,
     };
     setChatSessions((prev) => {
@@ -2133,12 +2351,6 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
-      logger.info('[HomePage][StreamTrace] register pending before createMessage', {
-        chatId: targetSessionId,
-        sessionId: agentSessionId,
-        requestId,
-        assistantMessageId
-      });
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
@@ -2207,15 +2419,6 @@ const HomePage = () => {
         requestId,
         model: chatModel,
         images
-      });
-      logger.info('[HomePage][StreamTrace] createMessage roundtrip done', {
-        chatId: targetSessionId,
-        sessionId: agentSessionId,
-        requestId,
-        resultRequestId: result?.requestId || '',
-        assistantMessageId,
-        pendingMapSize: chatPendingByRequestIdRef.current.size,
-        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
       });
       logger.info('[HomePage] cherryChatStream createMessage result', {
         chatId: targetSessionId,
@@ -2288,13 +2491,6 @@ const HomePage = () => {
       const pendingEntries = [...chatPendingByRequestIdRef.current.entries()];
       const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
       if (active && active[1]?.agentSessionId) {
-        logger.info('[HomePage][StreamTrace] abort requested', {
-          chatId: active[1]?.chatId || activeChatId || '',
-          sessionId: active[1]?.agentSessionId || '',
-          requestId: active[0] || '',
-          pendingMapSize: chatPendingByRequestIdRef.current.size,
-          knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-        });
         void window.electronAPI.cherryChatStream.abort(active[1].agentSessionId);
         return;
       }
@@ -2344,7 +2540,15 @@ const HomePage = () => {
           updatedAt: Date.now(),
           messages: item.messages.map((msg) => (
             msg.id === messageId
-              ? { ...msg, content: '', blocks: [], error: null, updatedAt: Date.now(), model: chatModel }
+              ? {
+                ...msg,
+                content: '',
+                blocks: [],
+                error: null,
+                updatedAt: Date.now(),
+                model: chatModelMeta,
+                modelId: chatModel
+              }
               : msg
           )),
         };
@@ -2376,6 +2580,8 @@ const HomePage = () => {
                 ? {
                   ...msg,
                   storeAssistantMessageId: streamController.assistantMessageId,
+                  model: msg.model || chatModelMeta,
+                  modelId: msg.modelId || chatModel,
                   updatedAt: Date.now()
                 }
                 : msg
@@ -2425,7 +2631,13 @@ const HomePage = () => {
             updatedAt: Date.now(),
             messages: item.messages.map((msg) => (
               msg.id === messageId
-                ? { ...msg, error: normalizedError, updatedAt: Date.now(), model: chatModel }
+                ? {
+                  ...msg,
+                  error: normalizedError,
+                  updatedAt: Date.now(),
+                  model: msg.model || chatModelMeta,
+                  modelId: msg.modelId || chatModel
+                }
                 : msg
             )),
           };

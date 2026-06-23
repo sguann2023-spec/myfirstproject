@@ -122,11 +122,22 @@ const parseModelItems = (payload) => {
       out.push({
         model_id: modelId,
         name: String(item.name || item.display_name || modelId).trim(),
+        description: String(item.description || '').trim(),
+        badges: Array.isArray(item.badges)
+          ? item.badges
+            .map((badge) => String(badge || '').trim())
+            .filter(Boolean)
+          : [],
         provider_id: String(item.provider_id || '').trim(),
         provider_type: String(item.provider_type || '').trim(),
         provider_name: String(item.provider_name || '').trim(),
+        provider_model_id: String(item.provider_model_id || '').trim(),
         id: String(item.id || '').trim(),
-        read_image: parseBooleanFlag(item.read_image ?? item.readImage)
+        read_image: parseBooleanFlag(item.read_image ?? item.readImage),
+        price_text: String(item.price_text || '').trim(),
+        pricing: item.pricing && typeof item.pricing === 'object' && !Array.isArray(item.pricing)
+          ? { ...item.pricing }
+          : undefined
       });
       return;
     }
@@ -166,6 +177,12 @@ const parseBlackIconMap = (payload) => {
     }
   });
   return map;
+};
+
+const parsePriceMap = (payload) => {
+  const candidate = payload?.prices || payload?.data?.prices || {};
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return {};
+  return { ...candidate };
 };
 
 const safeString = (value) => String(value || '');
@@ -240,6 +257,7 @@ export async function getChatModelList() {
     models,
     modelItems: parseModelItems(payload),
     defaultModel,
+    prices: parsePriceMap(payload),
     blackIconMap: parseBlackIconMap(payload)
   };
 }

@@ -4,6 +4,7 @@ import { Tooltip, message as antMessage } from 'antd';
 import './MessageItem.css';
 import MessageContent from '../MessageContent/MessageContent';
 import MessageHeader from '../MessageHeader/MessageHeader';
+import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
@@ -19,6 +20,19 @@ const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
     fileType: String(item?.fileType || '')
   }))
 );
+
+const buildUsageSignature = (usage = null) => JSON.stringify({
+  total_tokens: Number(usage?.total_tokens || 0),
+  prompt_tokens: Number(usage?.prompt_tokens || 0),
+  completion_tokens: Number(usage?.completion_tokens || 0),
+  cost: Number(usage?.cost || 0)
+});
+
+const buildMetricsSignature = (metrics = null) => JSON.stringify({
+  completion_tokens: Number(metrics?.completion_tokens || 0),
+  time_completion_millsec: Number(metrics?.time_completion_millsec || 0),
+  time_first_token_millsec: Number(metrics?.time_first_token_millsec || 0)
+});
 
 const MessageItem = ({
   message,
@@ -111,6 +125,11 @@ const MessageItem = ({
                 <Trash2 size={15} className="chat-panel__message-action-icon" />
               </button>
             </Tooltip>
+            {message?.usage ? (
+              <div className="chat-panel__message-tokens">
+                <MessageTokens message={message} />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -148,6 +167,10 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
   const nextMessage = nextProps.message || {};
   const prevError = buildErrorSignature(prevMessage.error);
   const nextError = buildErrorSignature(nextMessage.error);
+  const prevUsage = buildUsageSignature(prevMessage.usage);
+  const nextUsage = buildUsageSignature(nextMessage.usage);
+  const prevMetrics = buildMetricsSignature(prevMessage.metrics);
+  const nextMetrics = buildMetricsSignature(nextMessage.metrics);
   return (
     prevProps.role === nextProps.role
     && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
@@ -166,6 +189,8 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevMessage.role === nextMessage.role
     && prevMessage.createdAt === nextMessage.createdAt
     && prevMessage.updatedAt === nextMessage.updatedAt
+    && prevUsage === nextUsage
+    && prevMetrics === nextMetrics
     && buildImageAttachmentSignature(prevMessage.imageAttachments) === buildImageAttachmentSignature(nextMessage.imageAttachments)
     && prevError === nextError
   );

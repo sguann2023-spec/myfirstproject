@@ -106,16 +106,23 @@ function getLogFilePath() {
     }
 }
 
+function getFileBaseName(filePath) {
+    const normalizedPath = String(filePath || '');
+    if (!normalizedPath) return '';
+    const segments = normalizedPath.split(/[\\/]/);
+    return segments[segments.length - 1] || normalizedPath;
+}
+
 // 新增：上传日志到后台（读取文件末尾 limitBytes，POST JSON）
 async function uploadLogs(url, meta = {}, limitBytes = 512 * 1024) {
     const fs = require('fs');
-    const path = getLogFilePath();
-    if (!path) throw new Error('No log file path available.');
-    const stat = fs.statSync(path);
+    const logFilePath = getLogFilePath();
+    if (!logFilePath) throw new Error('No log file path available.');
+    const stat = fs.statSync(logFilePath);
 
     let content;
     if (stat.size > limitBytes) {
-        const fd = fs.openSync(path, 'r');
+        const fd = fs.openSync(logFilePath, 'r');
         try {
             const buf = Buffer.alloc(limitBytes);
             fs.readSync(fd, buf, 0, limitBytes, stat.size - limitBytes);
@@ -124,12 +131,12 @@ async function uploadLogs(url, meta = {}, limitBytes = 512 * 1024) {
             fs.closeSync(fd);
         }
     } else {
-        content = fs.readFileSync(path, 'utf8');
+        content = fs.readFileSync(logFilePath, 'utf8');
     }
 
     const payload = {
         meta,
-        fileName: require('path').basename(path),
+        fileName: getFileBaseName(logFilePath),
         size: stat.size,
         content,
     };

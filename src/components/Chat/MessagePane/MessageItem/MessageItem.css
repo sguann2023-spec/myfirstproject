@@ -54,6 +54,13 @@
   pointer-events: auto;
 }
 
+.chat-panel__message-tokens {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .chat-panel__message-action-btn {
   width: 26px;
   height: 26px;

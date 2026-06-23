@@ -11,6 +11,7 @@ import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
+import Point2Icon from '../../../../public/point2.svg';
 import AiWriteToolDetail from './AiWriteToolDetail/index';
 import {
   getDefaultAiWritePresetId,
@@ -28,6 +29,9 @@ const SKILL_MENTION_CLOSE_DELAY = 120;
 const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
 const MENTION_PANEL_DEFAULT_WIDTH = 180;
 const MENTION_PANEL_EDGE_OFFSET = 4;
+const MODEL_HOVER_CARD_WIDTH = 180;
+const MODEL_HOVER_CARD_GAP = 20;
+const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
@@ -1482,6 +1486,8 @@ const Composer = ({
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
+  const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
+  const [hoveredModelCard, setHoveredModelCard] = React.useState(null);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
   const [skills, setSkills] = React.useState([]);
@@ -1512,6 +1518,7 @@ const Composer = ({
   const pendingTemplateSlotAutoReferenceRef = React.useRef('');
   const inputWrapRef = React.useRef(null);
   const mentionPanelRef = React.useRef(null);
+  const modelHoverCardRef = React.useRef(null);
   const [isDragActive, setIsDragActive] = React.useState(false);
   const inputPlaceholder =
     activeTool === 'digital-human'
@@ -2032,33 +2039,191 @@ const Composer = ({
     }
   };
 
-  const renderModelOptionLabel = (text, icon, supportsReadImage = false) => (
+  const formatModelOptionPrice = (value) => {
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue)) {
+      return numericValue.toFixed(1);
+    }
+    return String(value || '')
+      .replace(/\/\s*千token/gi, '')
+      .replace(/[,\s]+$/g, '')
+      .trim();
+  };
+
+  const resolveModelOptionPricing = (item) => {
+    if (!item || typeof item !== 'object') return { input: '', output: '' };
+    const pricing = item?.pricing && typeof item.pricing === 'object' ? item.pricing : null;
+    const input = formatModelOptionPrice(
+      pricing?.input_resource_points_per_unit ?? pricing?.input ?? pricing?.input_price_text
+    );
+    const output = formatModelOptionPrice(
+      pricing?.output_resource_points_per_unit ?? pricing?.output ?? pricing?.output_price_text
+    );
+    return { input, output };
+  };
+
+  const renderModelOptionPopoverContent = (text, description = '', priceMeta = null) => {
+    if (!description && !priceMeta?.input && !priceMeta?.output) return null;
+    return (
+      <div className="chat-panel__model-option-popover">
+        <div className="chat-panel__model-option-popover-title">{text}</div>
+        {description ? (
+          <div className="chat-panel__model-option-popover-description">{description}</div>
+        ) : null}
+        {(priceMeta?.input || priceMeta?.output) ? (
+          <div className="chat-panel__model-option-popover-section">
+            {priceMeta?.input ? (
+              <div className="chat-panel__model-option-popover-row">
+                <img className="chat-panel__model-option-popover-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+                <span>{priceMeta.input} / 1,000 tokens</span>
+                <span className="chat-panel__model-option-popover-price-name">↑</span>
+              </div>
+            ) : null}
+            {priceMeta?.output ? (
+              <div className="chat-panel__model-option-popover-row">
+                <img className="chat-panel__model-option-popover-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+                <span>{priceMeta.output} / 1,000 tokens</span>
+                <span className="chat-panel__model-option-popover-price-name">↓</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderModelOptionInner = (text, icon, supportsReadImage = false, badges = []) => (
     <span className="chat-panel__model-option">
       <span className="chat-panel__model-option-main">
         {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
         <span className="chat-panel__model-option-text">{text}</span>
       </span>
-      {supportsReadImage ? <span className="chat-panel__model-option-tag">识图</span> : null}
+      <span className="chat-panel__model-option-tags">
+        {supportsReadImage ? <span className="chat-panel__model-option-tag">识图</span> : null}
+        {Array.isArray(badges) ? badges.map((badge) => (
+          <span
+            key={badge}
+            className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
+          >
+            {badge}
+          </span>
+        )) : null}
+      </span>
     </span>
   );
+
+  const renderSelectedModelLabel = (text, icon) => (
+    <span className="chat-panel__model-option-main chat-panel__model-option-main--selected">
+      {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
+      <span className="chat-panel__model-option-text">{text}</span>
+    </span>
+  );
+
+  const computeModelHoverCardPosition = React.useCallback((anchorRect, cardSize = {}) => {
+    const viewportWidth = window.innerWidth || 0;
+    const viewportHeight = window.innerHeight || 0;
+    const cardWidth = Number(cardSize?.width) || MODEL_HOVER_CARD_WIDTH;
+    const cardHeight = Number(cardSize?.height) || 0;
+    let left = anchorRect.left - cardWidth - MODEL_HOVER_CARD_GAP;
+    if (left < MODEL_HOVER_CARD_VIEWPORT_MARGIN) {
+      left = anchorRect.right + MODEL_HOVER_CARD_GAP;
+    }
+    const maxLeft = Math.max(MODEL_HOVER_CARD_VIEWPORT_MARGIN, viewportWidth - cardWidth - MODEL_HOVER_CARD_VIEWPORT_MARGIN);
+    left = Math.min(Math.max(MODEL_HOVER_CARD_VIEWPORT_MARGIN, left), maxLeft);
+
+    let top = anchorRect.top;
+    const maxTop = Math.max(MODEL_HOVER_CARD_VIEWPORT_MARGIN, viewportHeight - cardHeight - MODEL_HOVER_CARD_VIEWPORT_MARGIN);
+    top = Math.min(Math.max(MODEL_HOVER_CARD_VIEWPORT_MARGIN, top), maxTop);
+
+    return { left, top };
+  }, []);
+
+  const clearHoveredModelCard = React.useCallback(() => {
+    setHoveredModelCard(null);
+  }, []);
+
+  const showHoveredModelCard = React.useCallback((optionMeta, currentTarget) => {
+    if (!optionMeta?.value || !currentTarget) return;
+    const anchorRect = currentTarget.getBoundingClientRect();
+    const normalizedAnchorRect = {
+      top: anchorRect.top,
+      right: anchorRect.right,
+      bottom: anchorRect.bottom,
+      left: anchorRect.left,
+    };
+    const nextPosition = computeModelHoverCardPosition(normalizedAnchorRect, { width: MODEL_HOVER_CARD_WIDTH });
+    setHoveredModelCard({
+      key: String(optionMeta.value),
+      text: String(optionMeta.displayText || optionMeta.value || '').trim(),
+      description: String(optionMeta.description || '').trim(),
+      priceMeta: optionMeta.priceMeta || null,
+      anchorRect: normalizedAnchorRect,
+      left: nextPosition.left,
+      top: nextPosition.top,
+    });
+  }, [computeModelHoverCardPosition]);
+
+  React.useLayoutEffect(() => {
+    if (!hoveredModelCard || !modelHoverCardRef.current) return;
+    const cardRect = modelHoverCardRef.current.getBoundingClientRect();
+    const nextPosition = computeModelHoverCardPosition(hoveredModelCard.anchorRect, {
+      width: cardRect.width,
+      height: cardRect.height,
+    });
+    if (Math.abs(nextPosition.left - hoveredModelCard.left) < 1 && Math.abs(nextPosition.top - hoveredModelCard.top) < 1) {
+      return;
+    }
+    setHoveredModelCard((current) => {
+      if (!current || current.key !== hoveredModelCard.key) return current;
+      return { ...current, left: nextPosition.left, top: nextPosition.top };
+    });
+  }, [computeModelHoverCardPosition, hoveredModelCard]);
+
+  React.useEffect(() => {
+    if (!modelPickerOpen) return undefined;
+    const handleViewportChange = () => {
+      clearHoveredModelCard();
+    };
+    window.addEventListener('scroll', handleViewportChange, true);
+    window.addEventListener('resize', handleViewportChange);
+    return () => {
+      window.removeEventListener('scroll', handleViewportChange, true);
+      window.removeEventListener('resize', handleViewportChange);
+    };
+  }, [clearHoveredModelCard, modelPickerOpen]);
 
   const availableModelOptions = (Array.isArray(modelOptions) ? modelOptions : [])
     .map((item) => {
       if (typeof item === 'string') {
+        const displayText = formatModelDisplayName(item);
         return {
           value: item,
-          label: renderModelOptionLabel(formatModelDisplayName(item), null),
-          selectedLabel: renderModelOptionLabel(formatModelDisplayName(item), null, false),
+          label: displayText,
+          displayText,
+          icon: '',
+          supportsReadImage: false,
+          description: '',
+          badges: [],
+          priceMeta: null,
+          selectedLabel: renderSelectedModelLabel(displayText, null),
         };
       }
       const value = item?.value;
       const labelText = item?.label || item?.name || item?.value || item?.id || '';
+      const displayText = formatModelDisplayName(labelText);
       const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
       const supportsReadImage = Boolean(item?.read_image);
+      const priceMeta = resolveModelOptionPricing(item);
       return value ? {
         value,
-        label: renderModelOptionLabel(formatModelDisplayName(labelText), icon, supportsReadImage),
-        selectedLabel: renderModelOptionLabel(formatModelDisplayName(labelText), icon, false),
+        label: displayText,
+        displayText,
+        icon,
+        supportsReadImage,
+        description: String(item?.description || '').trim(),
+        badges: Array.isArray(item?.badges) ? item.badges : [],
+        priceMeta,
+        selectedLabel: renderSelectedModelLabel(displayText, icon),
       } : null;
     })
     .filter(Boolean);
@@ -2080,14 +2245,7 @@ const Composer = ({
               classNames={{ root: 'chat-panel__model-tip-overlay' }}
               title={(
                 <span className="chat-panel__model-tip-text">
-                  由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表，按
-                  <button
-                    type="button"
-                    className="chat-panel__model-tip-link"
-                    onClick={handleOpenPricingDoc}
-                  >
-                    token计费
-                  </button>
+                  由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
                 </span>
               )}
             >
@@ -2558,14 +2716,38 @@ const Composer = ({
               variant="borderless"
               className="chat-panel__model-picker"
               listHeight={356}
+              virtual={false}
               value={model}
               options={groupedModelOptions}
               optionLabelProp="selectedLabel"
               loading={modelListLoading}
               onChange={(value) => onModelChange && onModelChange(value)}
+              onOpenChange={(open) => {
+                setModelPickerOpen(open);
+                if (!open) clearHoveredModelCard();
+              }}
               disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}
               popupMatchSelectWidth={false}
               getPopupContainer={(trigger) => trigger.parentElement}
+              optionRender={(option) => {
+                const optionMeta = option?.data || {};
+                const optionValue = String(optionMeta?.value || '').trim();
+                const displayText = String(optionMeta?.displayText || optionValue).trim();
+                const icon = optionMeta?.icon || '';
+                const supportsReadImage = Boolean(optionMeta?.supportsReadImage);
+                const badges = Array.isArray(optionMeta?.badges) ? optionMeta.badges : [];
+                const optionContent = renderModelOptionInner(displayText, icon, supportsReadImage, badges);
+                return (
+                  <div
+                    className="chat-panel__model-option-trigger"
+                    onPointerEnter={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
+                    onPointerMove={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
+                    onPointerLeave={optionValue ? clearHoveredModelCard : undefined}
+                  >
+                    {optionContent}
+                  </div>
+                );
+              }}
             />
             <button
               type="button"
@@ -2722,6 +2904,18 @@ const Composer = ({
           </div>
         </div>
       </div>
+      {hoveredModelCard ? (
+        <div
+          ref={modelHoverCardRef}
+          className="chat-panel__model-hover-card"
+          style={{
+            left: `${hoveredModelCard.left}px`,
+            top: `${hoveredModelCard.top}px`,
+          }}
+        >
+          {renderModelOptionPopoverContent(hoveredModelCard.text, hoveredModelCard.description, hoveredModelCard.priceMeta)}
+        </div>
+      ) : null}
     </div>
   );
 };

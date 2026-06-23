@@ -5015,6 +5015,8 @@
       },
       "markdown_rendering_input_message": "Markdown render input message",
       "metrics": "{{time_first_token_millsec}}ms to first token | {{token_speed}} tok/sec",
+      "estimated_cost": "Estimated cost {{cost}} (final billing may vary)",
+      "estimated_price": "Estimated Cost",
       "model": {
         "title": "Model Settings"
       },

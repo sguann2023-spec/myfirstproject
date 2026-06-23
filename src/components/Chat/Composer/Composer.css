@@ -143,11 +143,27 @@
   min-width: 0;
 }
 
+.chat-panel__model-option-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.chat-panel__model-option-trigger {
+  display: block;
+  width: 100%;
+}
+
 .chat-panel__model-option-main {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.chat-panel__model-option-main--selected {
+  max-width: 100%;
 }
 
 .chat-panel__model-option-icon {
@@ -172,6 +188,12 @@
   color: #2d77e5;
   font-size: 12px;
   line-height: 20px;
+}
+
+.chat-panel__model-option-tag--promo {
+  background: rgba(219, 173, 106, 0.18);
+  font-weight: 400;
+  color: #95642b;
 }
 
 .chat-panel__model-group-title {
@@ -705,6 +727,66 @@
 
 .chat-panel__file-ref-preview-popover .ant-popover-arrow {
   display: none;
+}
+
+.chat-panel__model-hover-card {
+  position: fixed;
+  z-index: 1400;
+  pointer-events: none;
+}
+
+.chat-panel__model-option-popover {
+  min-width: 150px;
+  max-width: 180px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  pointer-events: none;
+}
+
+.chat-panel__model-option-popover-title {
+  font-size: 15px;
+  line-height: 1.4;
+  color: #000;
+}
+
+.chat-panel__model-option-popover-description {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a8a8a;
+}
+
+.chat-panel__model-option-popover-section {
+  margin-top: 12px;
+}
+
+.chat-panel__model-option-popover-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #8a8a8a;
+}
+
+.chat-panel__model-option-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #8a8a8a;
+  white-space: nowrap;
+}
+
+.chat-panel__model-option-popover-price-name {
+  min-width: 24px;
+}
+
+.chat-panel__model-option-popover-price-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+  flex: 0 0 auto;
 }
 
 .chat-panel__file-ref-preview {

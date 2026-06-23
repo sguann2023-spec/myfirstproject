@@ -5015,6 +5015,8 @@
       },
       "markdown_rendering_input_message": "Markdown 渲染输入消息",
       "metrics": "首字时延 {{time_first_token_millsec}} ms | 每秒 {{token_speed}} tokens",
+      "estimated_cost": "预估消耗 {{cost}}（以实际结算为准）",
+      "estimated_price": "预估花费",
       "model": {
         "title": "模型设置"
       },

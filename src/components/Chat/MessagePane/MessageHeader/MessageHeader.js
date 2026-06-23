@@ -30,8 +30,11 @@ const MessageHeader = ({
   userAvatar,
 }) => {
   const isAssistant = role === 'assistant';
+  const rawMessageModel = message?.model;
   const messageModel = String(
-    message?.model
+    (rawMessageModel && typeof rawMessageModel === 'object'
+      ? (rawMessageModel?.id || rawMessageModel?.name)
+      : rawMessageModel)
     || message?.modelId
     || message?.model_id
     || message?.modelName

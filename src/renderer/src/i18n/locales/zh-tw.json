@@ -5015,6 +5015,8 @@
       },
       "markdown_rendering_input_message": "Markdown 渲染輸入訊息",
       "metrics": "首字延遲 {{time_first_token_millsec}} ms | 每秒 {{token_speed}} tokens",
+      "estimated_cost": "預估消耗 {{cost}}（以實際結算為準）",
+      "estimated_price": "預估花費",
       "model": {
         "title": "模型設定"
       },
