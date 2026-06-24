@@ -123,3 +123,44 @@ export async function cloneTtsVoiceWithMinimax({
     title,
   });
 }
+
+export async function cloneTtsVoiceWithElevenlabs({
+  file_url,
+  file_urls,
+  title,
+  description,
+  labels,
+  remove_background_noise,
+} = {}) {
+  return http.postJson(`${BASE_URL}/llm/tts/elevenlabs/clone_voice`, {
+    file_url,
+    file_urls,
+    title,
+    description,
+    labels,
+    remove_background_noise,
+  });
+}
+
+export async function deleteMyTtsVoice({
+  provider,
+  voice_id,
+  global_voice_id,
+} = {}) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const normalizedVoiceId = String(voice_id || global_voice_id || '').trim();
+  let routePath = '';
+
+  if (normalizedProvider === 'elevenlabs') routePath = 'elevenlabs/delete_voice';
+  if (normalizedProvider === 'fish') routePath = 'fish/delete_voice';
+  if (normalizedProvider === 'minimax') routePath = 'minimax/delete_voice';
+
+  if (!routePath) {
+    throw new Error('暂不支持删除该音色');
+  }
+
+  return http.postJson(`${BASE_URL}/llm/tts/${routePath}`, {
+    voice_id: normalizedVoiceId,
+    global_voice_id: normalizedVoiceId,
+  });
+}

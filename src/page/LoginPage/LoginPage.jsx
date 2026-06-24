@@ -8,6 +8,7 @@ import LogoIcon from '../../../public/logo.png'
 
 import './LoginPage.css';
 import { electronStore } from '../../shared/electronStore'; // 从共享模块导入
+import { ensureVectcutApiKeyForCurrentSession } from '../../auth/vectcutApiKey';
 const { Title, Text } = Typography;
 
 const { ipcRenderer } = window.require('electron');
@@ -406,6 +407,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         electronStore.set('auth.vectcut_api_key', agentApiKey);
                     } else {
                         electronStore.delete('auth.vectcut_api_key');
+                        void ensureVectcutApiKeyForCurrentSession();
                     }
                     setAvatarUrl(claims.picture || claims.avatar || claims.photo || null);
                     setDisplayName(name);
@@ -471,6 +473,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     electronStore.set('auth.vectcut_api_key', agentApiKey);
                 } else {
                     electronStore.delete('auth.vectcut_api_key');
+                    void ensureVectcutApiKeyForCurrentSession();
                 }
                 // 更新到本地状态以驱动 UI
                 setAvatarUrl(claims.picture || claims.avatar || claims.photo || null);

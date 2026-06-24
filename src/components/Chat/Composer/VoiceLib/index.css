@@ -40,6 +40,10 @@
   white-space: nowrap;
 }
 
+.chat-panel__tool-selected-text--member {
+  color: var(--member-color, #da9b60);
+}
+
 .chat-panel__voice-library-dropdown {
   background: transparent !important;
   box-shadow: none !important;

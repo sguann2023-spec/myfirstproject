@@ -1,15 +1,17 @@
 import React from 'react';
 import { DownOutlined } from '@ant-design/icons';
-import { Dropdown, Tooltip } from 'antd';
+import { Dropdown, Tooltip, message } from 'antd';
 import VirtualList from 'rc-virtual-list';
 import {
   addVoiceFavorite,
+  deleteMyTtsVoice,
   getVoiceFavoriteIds,
   getVoiceFavoritesLibrary,
   getMyVoiceLibrary,
   getVoiceLibrary,
   removeVoiceFavorite,
 } from '../../../../api/tts';
+import { isMemberVoiceProvider, normalizeMemberProvider } from '../../../../constants/member';
 import VoiceCard from '../../../VoiceCard';
 import './index.css';
 import VoiceCollectIcon from '../../../../../public/voice_collect.svg';
@@ -81,6 +83,23 @@ const normalizeVoiceId = (item) =>
 const normalizeVoiceTitle = (item) =>
   String(item?.title || item?.voice_name || item?.name || item?.display_name || '').trim();
 
+const normalizeVoiceProvider = (item) =>
+  normalizeMemberProvider(item?.price_provider || item?.providers || item?.provider);
+
+const buildVoicePendingKey = (voiceId, provider) =>
+  [normalizeMemberProvider(provider), String(voiceId || '').trim()].join('|');
+
+const isMatchingVoiceItem = (item, voiceId, provider) => {
+  const normalizedVoiceId = String(voiceId || '').trim();
+  if (!normalizedVoiceId) return false;
+  if (normalizeVoiceId(item) !== normalizedVoiceId) return false;
+
+  const normalizedProvider = normalizeMemberProvider(provider);
+  if (!normalizedProvider) return true;
+
+  return normalizeVoiceProvider(item) === normalizedProvider;
+};
+
 const getVoiceItemIdentity = (item) => {
   const normalizedTitle = normalizeVoiceTitle(item);
   const normalizedProvider = String(item?.providers || item?.provider || '').trim();
@@ -110,6 +129,25 @@ const getVoiceRenderKey = (item, index = 0) => {
 const getVoiceSelectionValue = (item, index = 0) =>
   normalizeVoiceId(item) || getVoiceRenderKey(item, index);
 
+const filterVoiceItems = (items = [], voiceId, provider) =>
+  items.filter((item) => !isMatchingVoiceItem(item, voiceId, provider));
+
+const buildFilteredVoiceState = (prevState, voiceId, provider) => {
+  const nextItems = filterVoiceItems(prevState?.items, voiceId, provider);
+  const removedCount = (prevState?.items?.length || 0) - nextItems.length;
+
+  if (removedCount <= 0) return prevState;
+
+  return {
+    ...prevState,
+    items: nextItems,
+    pagination: {
+      ...prevState.pagination,
+      total: Math.max(0, (Number(prevState?.pagination?.total) || 0) - removedCount),
+    },
+  };
+};
+
 const mergeUniqueVoiceItems = (prevItems = [], nextItems = []) => {
   const mergedItems = [];
   const seenKeys = new Set();
@@ -134,6 +172,27 @@ const normalizeVoiceItem = (item, favorited) => ({
   favorited: typeof favorited === 'boolean' ? favorited : Boolean(item?.favorited),
 });
 
+const normalizeVoiceSourceTab = (value) => {
+  const normalizedValue = String(value || '').trim();
+  if (
+    normalizedValue === VOICE_TAB_ALL ||
+    normalizedValue === VOICE_TAB_FAVORITES ||
+    normalizedValue === VOICE_TAB_MY
+  ) {
+    return normalizedValue;
+  }
+  return '';
+};
+
+const attachVoiceSourceTab = (item, sourceTab) => {
+  const normalizedSourceTab = normalizeVoiceSourceTab(sourceTab || item?.sourceTab);
+  if (!normalizedSourceTab) return { ...(item || {}) };
+  return {
+    ...(item || {}),
+    sourceTab: normalizedSourceTab,
+  };
+};
+
 const getVoiceInitialOffsetByTab = (tab) => {
   if (tab === VOICE_TAB_FAVORITES) return VOICE_FAVORITES_INITIAL_OFFSET;
   if (tab === VOICE_TAB_MY) return VOICE_MY_LIBRARY_INITIAL_OFFSET;
@@ -143,11 +202,13 @@ const getVoiceInitialOffsetByTab = (tab) => {
 const normalizePersistedVoiceItem = (item) => {
   const normalizedId = String(item?.global_voice_id || '').trim();
   if (!normalizedId) return null;
+  const normalizedSourceTab = normalizeVoiceSourceTab(item?.sourceTab);
 
   return {
     ...DEFAULT_SELECTED_VOICE_LIBRARY_ITEM,
     ...(item || {}),
     global_voice_id: normalizedId,
+    ...(normalizedSourceTab ? { sourceTab: normalizedSourceTab } : {}),
   };
 };
 
@@ -190,6 +251,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   );
   const [playingVoiceId, setPlayingVoiceId] = React.useState('');
   const [favoritePendingIds, setFavoritePendingIds] = React.useState([]);
+  const [deletePendingIds, setDeletePendingIds] = React.useState([]);
 
   const currentVoiceState = React.useMemo(() => {
     if (activeVoiceTab === VOICE_TAB_FAVORITES) return favoriteVoiceState;
@@ -217,6 +279,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   }, [allVoiceItems, selectedVoiceLibraryId]);
 
   const favoritePendingIdSet = React.useMemo(() => new Set(favoritePendingIds), [favoritePendingIds]);
+  const deletePendingIdSet = React.useMemo(() => new Set(deletePendingIds), [deletePendingIds]);
 
   React.useEffect(() => {
     if (selectedVoiceLibraryItem) {
@@ -248,8 +311,28 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     setPlayingVoiceId((prev) => (prev === normalizedId ? '' : prev));
   }, []);
 
-  const handleVoiceSelect = React.useCallback((voiceId) => {
-    setSelectedVoiceLibraryId(String(voiceId || ''));
+  const handleVoiceSelect = React.useCallback((voiceId, item = null, sourceTab = '') => {
+    const normalizedVoiceId = String(voiceId || '').trim();
+    if (!normalizedVoiceId) return;
+
+    const nextSelectedItem = normalizePersistedVoiceItem(
+      item
+        ? attachVoiceSourceTab(
+            {
+              ...item,
+              global_voice_id: normalizedVoiceId,
+            },
+            sourceTab
+          )
+        : null
+    );
+
+    if (nextSelectedItem) {
+      initialSelectedVoiceLibraryItemRef.current = nextSelectedItem;
+      persistSelectedVoiceLibraryItem(nextSelectedItem);
+    }
+
+    setSelectedVoiceLibraryId(normalizedVoiceId);
   }, []);
 
   const syncVoiceFavoriteStatus = React.useCallback((globalVoiceId, favorited, item) => {
@@ -384,9 +467,13 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
 
       let nextItems = Array.isArray(result?.items) ? result.items : [];
       if (isFavoritesTab) {
-        nextItems = nextItems.map((item) => normalizeVoiceItem(item, true));
+        nextItems = nextItems.map((item) =>
+          attachVoiceSourceTab(normalizeVoiceItem(item, true), VOICE_TAB_FAVORITES)
+        );
       } else if (isMyVoiceTab) {
-        nextItems = nextItems.map((item) => normalizeVoiceItem(item, Boolean(item?.favorited)));
+        nextItems = nextItems.map((item) =>
+          attachVoiceSourceTab(normalizeVoiceItem(item, Boolean(item?.favorited)), VOICE_TAB_MY)
+        );
       } else if (nextItems.length > 0) {
         try {
           const favoriteIdsResult = await getVoiceFavoriteIds(
@@ -398,10 +485,15 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
               : []
           );
           nextItems = nextItems.map((item) =>
-            normalizeVoiceItem(item, favoriteIdSet.has(String(item?.global_voice_id || '').trim()))
+            attachVoiceSourceTab(
+              normalizeVoiceItem(item, favoriteIdSet.has(String(item?.global_voice_id || '').trim())),
+              VOICE_TAB_ALL
+            )
           );
         } catch (error) {
-          nextItems = nextItems.map((item) => normalizeVoiceItem(item, Boolean(item?.favorited)));
+          nextItems = nextItems.map((item) =>
+            attachVoiceSourceTab(normalizeVoiceItem(item, Boolean(item?.favorited)), VOICE_TAB_ALL)
+          );
         }
       }
 
@@ -467,6 +559,80 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       }
     },
     [favoritePendingIds, syncVoiceFavoriteStatus]
+  );
+
+  const removeMyVoiceItem = React.useCallback(
+    (item) => {
+      const normalizedVoiceId = normalizeVoiceId(item);
+      const normalizedProvider = normalizeVoiceProvider(item);
+      if (!normalizedVoiceId) return;
+
+      const nextMyItems = filterVoiceItems(myVoiceState.items, normalizedVoiceId, normalizedProvider);
+
+      setAllVoiceState((prev) => buildFilteredVoiceState(prev, normalizedVoiceId, normalizedProvider));
+      setFavoriteVoiceState((prev) => buildFilteredVoiceState(prev, normalizedVoiceId, normalizedProvider));
+      setMyVoiceState((prev) => buildFilteredVoiceState(prev, normalizedVoiceId, normalizedProvider));
+      setPlayingVoiceId((prev) => (prev === normalizedVoiceId ? '' : prev));
+
+      if (selectedVoiceLibraryId === normalizedVoiceId) {
+        const fallbackVoiceId =
+          getVoiceSelectionValue(nextMyItems[0], 0) || initialSelectedVoiceLibraryItemRef.current.global_voice_id;
+        setSelectedVoiceLibraryId(fallbackVoiceId);
+      }
+    },
+    [myVoiceState.items, selectedVoiceLibraryId]
+  );
+
+  const handleDeleteMyVoice = React.useCallback(
+    async (item) => {
+      const normalizedVoiceId = normalizeVoiceId(item);
+      const normalizedProvider = normalizeVoiceProvider(item);
+      const normalizedTitle = normalizeVoiceTitle(item) || normalizedVoiceId || '未命名音色';
+      const pendingKey = buildVoicePendingKey(normalizedVoiceId, normalizedProvider);
+
+      if (!normalizedVoiceId || !normalizedProvider) return;
+      if (deletePendingIds.includes(pendingKey)) return;
+
+      const deleteContent = `删除后不可恢复，确认删除「${normalizedTitle}」吗？`;
+      const confirmed = window?.modal?.confirm
+        ? await new Promise((resolve) => {
+            window.modal.confirm({
+              title: '确认删除音色',
+              content: deleteContent,
+              okText: '删除',
+              cancelText: '取消',
+              centered: true,
+              okType: 'danger',
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            });
+          })
+        : window.confirm(deleteContent);
+
+      if (!confirmed) return;
+
+      setDeletePendingIds((prev) => [...prev, pendingKey]);
+
+      try {
+        const result = await deleteMyTtsVoice({
+          provider: normalizedProvider,
+          voice_id: normalizedVoiceId,
+        });
+
+        if (!result?.success) {
+          throw new Error(result?.error || '删除音色失败');
+        }
+
+        removeMyVoiceItem(item);
+        message.success('音色已删除');
+      } catch (error) {
+        console.error(error);
+        message.error(error?.message || '删除音色失败');
+      } finally {
+        setDeletePendingIds((prev) => prev.filter((key) => key !== pendingKey));
+      }
+    },
+    [deletePendingIds, removeMyVoiceItem]
   );
 
   const hasMoreVoiceLibraryItems = React.useMemo(() => {
@@ -556,7 +722,10 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       const existingIndex = prev.items.findIndex(
         (voice) => String(voice?.global_voice_id || '').trim() === normalizedId
       );
-      const normalizedItem = normalizeVoiceItem(item, Boolean(item?.favorited));
+      const normalizedItem = attachVoiceSourceTab(
+        normalizeVoiceItem(item, Boolean(item?.favorited)),
+        VOICE_TAB_MY
+      );
 
       if (existingIndex >= 0) {
         return {
@@ -580,7 +749,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   return {
     activeVoiceTab,
     currentVoiceState,
+    deletePendingIdSet,
     favoritePendingIdSet,
+    handleDeleteMyVoice,
     handlePreviewEnd,
     handlePreviewToggle,
     handleToggleFavorite,
@@ -588,6 +759,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     handleVoiceLibraryScroll,
     handleVoiceSelect,
     hasMoreVoiceLibraryItems,
+    myVoiceState,
     playingVoiceId,
     selectedVoiceLibraryId,
     selectedVoiceLibraryItem,
@@ -612,7 +784,9 @@ const VoiceLib = ({
   const {
     activeVoiceTab,
     currentVoiceState,
+    deletePendingIdSet,
     favoritePendingIdSet,
+    handleDeleteMyVoice,
     handlePreviewEnd,
     handlePreviewToggle,
     handleToggleFavorite,
@@ -620,6 +794,7 @@ const VoiceLib = ({
     handleVoiceLibraryScroll,
     handleVoiceSelect,
     hasMoreVoiceLibraryItems,
+    myVoiceState,
     playingVoiceId,
     selectedVoiceLibraryId,
     selectedVoiceLibraryItem,
@@ -684,11 +859,11 @@ const VoiceLib = ({
                   onMouseDown={(event) => {
                     event.preventDefault();
                   }}
-                  onClick={() => handleVoiceSelect(selectionValue)}
+                  onClick={() => handleVoiceSelect(selectionValue, item, activeVoiceTab)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      handleVoiceSelect(selectionValue);
+                      handleVoiceSelect(selectionValue, item, activeVoiceTab);
                     }
                   }}
                 >
@@ -697,10 +872,22 @@ const VoiceLib = ({
                     item={item}
                     isSelected={selectedVoiceLibraryId === selectionValue}
                     isPlaying={playingVoiceId === String(item?.global_voice_id || '').trim()}
+                    highlightMember={
+                      activeVoiceTab === VOICE_TAB_MY &&
+                      isMemberVoiceProvider(item?.price_provider || item?.providers || item?.provider)
+                    }
+                    showDelete={activeVoiceTab === VOICE_TAB_MY}
+                    deleteDisabled={deletePendingIdSet.has(
+                      buildVoicePendingKey(
+                        item?.global_voice_id,
+                        item?.price_provider || item?.providers || item?.provider
+                      )
+                    )}
                     favoriteLoading={
                       activeVoiceTab !== VOICE_TAB_MY &&
                       favoritePendingIdSet.has(String(item?.global_voice_id || '').trim())
                     }
+                    onDelete={activeVoiceTab === VOICE_TAB_MY ? handleDeleteMyVoice : undefined}
                     onPreviewToggle={handlePreviewToggle}
                     onPreviewEnd={handlePreviewEnd}
                     onToggleFavorite={activeVoiceTab === VOICE_TAB_MY ? undefined : handleToggleFavorite}
@@ -805,6 +992,14 @@ const VoiceLib = ({
   const selectedTriggerText = selectedVoiceLibraryItem
     ? (selectedTextPrefix ? `${selectedTextPrefix} ${selectedText}` : selectedText)
     : label;
+  const selectedIsMyVoice =
+    selectedVoiceLibraryItem?.sourceTab === VOICE_TAB_MY ||
+    myVoiceState.items.some((item, index) => getVoiceSelectionValue(item, index) === selectedVoiceLibraryId);
+  const selectedIsMemberVoice =
+    selectedIsMyVoice &&
+    isMemberVoiceProvider(
+      selectedVoiceLibraryItem?.price_provider || selectedVoiceLibraryItem?.providers || selectedVoiceLibraryItem?.provider
+    );
   const isActive = typeof active === 'boolean' ? active : voiceLibraryOpen;
   const triggerButton = (
     <button
@@ -828,7 +1023,11 @@ const VoiceLib = ({
               {String(selectedText || '?').slice(0, 1)}
             </span>
           )}
-          <span className="chat-panel__tool-text chat-panel__tool-selected-text">
+          <span
+            className={`chat-panel__tool-text chat-panel__tool-selected-text ${
+              selectedIsMemberVoice ? 'chat-panel__tool-selected-text--member' : ''
+            }`}
+          >
             {selectedTriggerText}
           </span>
         </>

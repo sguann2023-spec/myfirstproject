@@ -475,31 +475,37 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
   font-size: 13px;
   color: #4a4a4a;
 }
 
 .chat-panel__clone-provider-select {
-  min-width: 88px;
+  min-width: 132px;
 }
 
 .chat-panel__clone-provider-select .ant-select-selector {
-  padding: 0 6px !important;
+  padding: 0 8px !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
 
 .chat-panel__clone-provider-select .ant-select-selection-item {
-  padding-inline-end: 14px !important;
+  padding-inline-end: 18px !important;
   font-size: 13px !important;
   color: #4a4a4a !important;
   line-height: 1.2 !important;
+  white-space: nowrap;
 }
 
 .chat-panel__clone-provider-select .ant-select-arrow {
   color: #4a4a4a !important;
+}
+
+.chat-panel__clone-provider-option-member {
+  color: var(--member-color, #da9b60);
+  font-weight: 500;
 }
 
 
@@ -507,6 +513,27 @@
   margin-top: 16px;
   display: flex;
   justify-content: center;
+}
+
+.chat-panel__clone-membership-cta-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+}
+
+.chat-panel__clone-membership-cta {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--member-color, #da9b60);
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.chat-panel__clone-membership-cta:hover {
+  color: var(--member-color, #da9b60);
+  opacity: 0.85;
 }
 
 .chat-panel__clone-submit-btn.ant-btn {
@@ -529,7 +556,7 @@
 
 .chat-panel__clone-submit-btn.ant-btn:hover,
 .chat-panel__clone-submit-btn.ant-btn:focus {
-  background: linear-gradient(90deg, #dcd8ff 0%, #99d8ff 100%) !important;
+  background: linear-gradient(90deg, #cfccef 0%, #8ec9ed 100%) !important;
   color: #0b1c36 !important;
 }
 
@@ -537,6 +564,18 @@
 .chat-panel__clone-submit-btn.ant-btn[disabled]:hover {
   background: linear-gradient(90deg, #e7e3ff 0%, #b7e4ff 100%) !important;
   color: rgba(11, 28, 54, 0.7) !important;
+}
+
+.chat-panel__clone-submit-btn--member.ant-btn,
+.chat-panel__clone-submit-btn--member.ant-btn:hover,
+.chat-panel__clone-submit-btn--member.ant-btn:focus,
+.chat-panel__clone-submit-btn--member.ant-btn:active {
+  border: 1px solid var(--member-color, #da9b60) !important;
+}
+
+.chat-panel__clone-submit-btn--member.ant-btn[disabled],
+.chat-panel__clone-submit-btn--member.ant-btn[disabled]:hover {
+  border: 1px solid var(--member-color, #da9b60) !important;
 }
 
 .chat-panel__clone-submit-btn .ant-btn-icon {

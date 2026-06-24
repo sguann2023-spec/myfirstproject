@@ -100,6 +100,10 @@
   transform: rotate(0deg);
 }
 
+.chat-panel__digital-human-selected-arrow--member {
+  color: var(--member-color, #da9b60);
+}
+
 .chat-panel__digital-human-selected-arrow.is-open {
   transform: rotate(180deg);
 }
@@ -113,6 +117,10 @@
   height: 20px;
 }
 
+.chat-panel__model-option-text--member {
+  color: var(--member-color, #da9b60);
+}
+
 .chat-panel__digital-human-picker-dropdown .ant-select-item-option {
   height: 40px !important;
   padding-top: 8px;
@@ -123,12 +131,14 @@
   border-radius: 6px;
   display: flex;
   align-items: center;
+  overflow: visible !important;
   transition: none !important;
   animation: none !important;
 }
 
 .chat-panel__digital-human-picker-dropdown.ant-select-dropdown {
   width: 340px !important;
+  overflow: visible !important;
 }
 
 .chat-panel__digital-human-picker-dropdown .ant-select-item-option:hover {
@@ -147,6 +157,7 @@
   display: flex;
   align-items: center;
   width: 100%;
+  overflow: visible !important;
 }
 
 .chat-panel__digital-human-picker-dropdown .chat-panel__model-option {
@@ -159,6 +170,59 @@
 
 .chat-panel__digital-human-picker-dropdown .chat-panel__model-option-main {
   min-width: 0;
+}
+
+.chat-panel__model-option-main--locked {
+  cursor: not-allowed;
+}
+
+.chat-panel__digital-human-member-popover .ant-popover-inner {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.chat-panel__digital-human-member-popover .ant-popover-arrow {
+  display: none;
+}
+
+.chat-panel__digital-human-member-popover-content {
+  width: 220px;
+  padding: 14px 16px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-panel__digital-human-member-hover-title {
+  color: #000;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.chat-panel__digital-human-member-hover-desc {
+  color: #8a8a8a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-panel__digital-human-member-hover-action {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(218, 155, 96, 0.14);
+  color: var(--member-color, #da9b60);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-panel__digital-human-member-hover-action:hover {
+  background: rgba(218, 155, 96, 0.2);
 }
 
 .chat-panel__digital-human-option-side {
@@ -448,6 +512,10 @@
 
 .chat-panel__digital-human-avatar-action:hover {
   background: rgba(28, 28, 28, 0.58);
+}
+
+.chat-panel__tool-button--member-locked {
+  border: 1px solid rgba(218, 155, 96, 0.5);
 }
 
 .chat-panel__digital-human-avatar-action:focus,

@@ -11,13 +11,19 @@ import {
 } from '@ant-design/icons';
 import { Button, Dropdown, Input, Select, Tooltip, message } from 'antd';
 import SiriWave from 'siriwave';
+import { loggerService } from '@logger';
+import { IpcChannel } from '../../../../packages/shared/IpcChannel';
 import { uploadToOSSWithProgress } from '../../../../api/sts';
 import {
+  cloneTtsVoiceWithElevenlabs,
   cloneTtsVoiceWithFish,
   cloneTtsVoiceWithMinimax,
   getTtsClonePrice,
   updateMyVoiceProfile,
 } from '../../../../api/tts';
+import { tokenStore } from '../../../../auth';
+import { electronStore } from '../../../../shared/electronStore';
+import { MEMBER_COLOR } from '../../../../constants/member';
 import './index.css';
 import Point3Icon from '../../../../../public/point3.svg';
 import VoiceCloneActionIcon from '../../../../../public/voice_clone_icon.svg';
@@ -28,6 +34,8 @@ import VoiceCloneIcon from '../../../../../public/voice_clone.svg';
 import VoiceSelectedIcon from '../../../../../public/voice_selected.svg';
 import VoiceLib, { VOICE_TAB_MY, useVoiceLib } from '../VoiceLib';
 
+const logger = loggerService.withContext('VoiceSquareToolDetail');
+const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
 const VOICE_CLONE_AUDIO_ACCEPT = '.wav,.mp3,.m4a,.aac,.ogg,.pcm';
 const VOICE_CLONE_MIN_RECORD_SECONDS = 10;
 const VOICE_CLONE_MAX_RECORD_SECONDS = 60;
@@ -40,6 +48,69 @@ const VOICE_CLONE_RECOMMENDED_AVATARS = Array.from(
   { length: 10 },
   (_, index) => `https://player.install-ai-guider.top/example/voice/avatar/avatar${index + 1}.png`
 );
+const VOICE_CLONE_PROVIDER_OPTIONS = [
+  { label: 'fish', value: 'fish' },
+  { label: 'minimax', value: 'minimax' },
+  {
+    label: (
+      <span className="chat-panel__clone-provider-option-member" style={{ color: MEMBER_COLOR }}>
+        elevenlabs(会员)
+      </span>
+    ),
+    value: 'elevenlabs',
+  },
+];
+const ELEVENLABS_MEMBERSHIP_LEVEL_TEXT_MAP = {
+  none: '非会员',
+  basic: '基础会员',
+  medium: '标准会员',
+  high: '高级会员',
+};
+
+const toNullableNumber = (value) => {
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : null;
+};
+
+const buildCloneBillingState = (provider, payload = {}) => {
+  const normalizedProvider = String(provider || payload?.provider || '').trim().toLowerCase();
+  const billingMode =
+    String(payload?.billing_mode || '').trim().toLowerCase() ||
+    (normalizedProvider === 'elevenlabs' ? 'membership_slots' : 'points');
+  const membershipLevel = String(payload?.membership_level || '').trim().toLowerCase() || null;
+  const slotLimit = toNullableNumber(payload?.slot_limit);
+  const usedSlots = toNullableNumber(payload?.used_slots);
+  const remainingSlots = toNullableNumber(payload?.remaining_slots);
+  const usageText = String(payload?.usage_text || '').trim();
+  const priceText = String(payload?.price_text || '').trim();
+  let text = priceText || '--/次';
+
+  if (billingMode === 'membership_slots' || normalizedProvider === 'elevenlabs') {
+    if (usageText) {
+      text = usageText;
+    } else if (usedSlots !== null && remainingSlots !== null && ((slotLimit || 0) > 0 || usedSlots > 0)) {
+      text = `已用${usedSlots}/剩余${remainingSlots}`;
+    } else if ((slotLimit || 0) <= 0) {
+      text =
+        membershipLevel && membershipLevel !== 'none'
+          ? `${ELEVENLABS_MEMBERSHIP_LEVEL_TEXT_MAP[membershipLevel] || '当前会员'}不可用`
+          : '会员专享';
+    } else {
+      text = '会员槽位';
+    }
+  }
+
+  return {
+    provider: normalizedProvider,
+    billingMode,
+    membershipLevel,
+    slotLimit,
+    usedSlots,
+    remainingSlots,
+    text,
+  };
+};
+
 const stripUrlQuery = (url) => {
   const raw = String(url || '').trim();
   if (!raw) return '';
@@ -87,8 +158,8 @@ const VoiceSquareToolDetail = ({
   const [cloningVoice, setCloningVoice] = React.useState(false);
   const [cloneSuccess, setCloneSuccess] = React.useState(false);
   const [clonedVoiceItem, setClonedVoiceItem] = React.useState(null);
-  const [clonePriceText, setClonePriceText] = React.useState('--/次');
   const [clonePriceLoading, setClonePriceLoading] = React.useState(false);
+  const [cloneBillingState, setCloneBillingState] = React.useState(() => buildCloneBillingState('fish'));
   const [cloneEditingName, setCloneEditingName] = React.useState(false);
   const [cloneEditNameValue, setCloneEditNameValue] = React.useState('');
   const [cloneProfileSaving, setCloneProfileSaving] = React.useState(false);
@@ -97,6 +168,28 @@ const VoiceSquareToolDetail = ({
   const cloneUploadDone = cloneSelectedFile?.status === 'done';
   const cloneSelectedSourceUrl = cloneSelectedFile?.sourceUrl || cloneSelectedFile?.url || '';
   const cloneWaveVisible = voiceCloneDialogOpen && (cloneRecordingActive || !cloneUploadDone);
+  const showCloneMembershipCta = cloneProvider === 'elevenlabs';
+  const cloneSubmitDisabled =
+    cloneUploading ||
+    (cloneBillingState.billingMode === 'membership_slots' &&
+      (cloneBillingState.slotLimit === 0 || cloneBillingState.remainingSlots === 0));
+  const refreshCloneBillingState = React.useCallback(
+    async (provider) => {
+      const normalizedProvider = String(provider || '').trim().toLowerCase();
+      if (!normalizedProvider) return;
+      setClonePriceLoading(true);
+      setCloneBillingState(buildCloneBillingState(normalizedProvider));
+      try {
+        const result = await getTtsClonePrice({ provider: normalizedProvider });
+        setCloneBillingState(buildCloneBillingState(normalizedProvider, result));
+      } catch (error) {
+        setCloneBillingState(buildCloneBillingState(normalizedProvider));
+      } finally {
+        setClonePriceLoading(false);
+      }
+    },
+    []
+  );
   const clonePlayTimeText = React.useMemo(() => {
     const formatAudioTime = (seconds) => {
       const safe = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
@@ -262,6 +355,7 @@ const VoiceSquareToolDetail = ({
     setCloneAudioCurrentSec(0);
     setCloneAudioDurationSec(0);
     setCloneProvider('fish');
+    setCloneBillingState(buildCloneBillingState('fish'));
     setCloningVoice(false);
     setCloneSuccess(false);
     setClonedVoiceItem(null);
@@ -508,7 +602,7 @@ const VoiceSquareToolDetail = ({
     if (!normalizedId) return;
 
     voiceLib.upsertMyVoiceItem(clonedVoiceItem);
-    voiceLib.setSelectedVoiceLibraryId(normalizedId);
+    voiceLib.setSelectedVoiceLibraryId(normalizedId, clonedVoiceItem, VOICE_TAB_MY);
     voiceLib.setActiveVoiceTab(VOICE_TAB_MY);
     handleVoiceCloneDialogClose();
     message.success('已切换为新复刻音色');
@@ -645,11 +739,17 @@ const VoiceSquareToolDetail = ({
       const response =
         cloneProvider === 'minimax'
           ? await cloneTtsVoiceWithMinimax(payload)
-          : await cloneTtsVoiceWithFish(payload);
+          : cloneProvider === 'elevenlabs'
+            ? await cloneTtsVoiceWithElevenlabs(payload)
+            : await cloneTtsVoiceWithFish(payload);
 
       if (!response?.success) {
         message.error('复刻失败，请稍后重试');
         return;
+      }
+
+      if (cloneProvider === 'elevenlabs') {
+        setCloneBillingState(buildCloneBillingState(cloneProvider, response));
       }
 
       const voiceId = String(response?.voice_id || response?.item?.global_voice_id || '').trim();
@@ -671,7 +771,10 @@ const VoiceSquareToolDetail = ({
       voiceLib.upsertMyVoiceItem(nextVoiceItem);
       message.success('复刻任务已提交');
     } catch (error) {
-      message.error('复刻失败，请稍后重试');
+      if (cloneProvider === 'elevenlabs' && error?.data && typeof error.data === 'object') {
+        setCloneBillingState(buildCloneBillingState(cloneProvider, error.data));
+      }
+      message.error(error?.message || '复刻失败，请稍后重试');
     } finally {
       setCloningVoice(false);
     }
@@ -681,6 +784,53 @@ const VoiceSquareToolDetail = ({
     cloneSelectedSourceUrl,
     voiceLib,
   ]);
+
+  const handleOpenMembershipPayment = React.useCallback(async () => {
+    let paymentUrl = REDEEM_PAYMENT_URL;
+
+    try {
+      const accessToken = await tokenStore.ensureValidAccessToken();
+      if (typeof accessToken === 'string' && accessToken.trim()) {
+        const currentUser = electronStore.get('user') || {};
+        const paymentUrlObject = new URL(REDEEM_PAYMENT_URL);
+        const hashParams = new URLSearchParams({
+          jwt: accessToken.trim(),
+        });
+        if (typeof currentUser?.name === 'string' && currentUser.name.trim()) {
+          hashParams.set('name', currentUser.name.trim());
+        }
+        if (typeof currentUser?.avatar === 'string' && currentUser.avatar.trim()) {
+          hashParams.set('avatar', currentUser.avatar.trim());
+        }
+        if (typeof currentUser?.email === 'string' && currentUser.email.trim()) {
+          hashParams.set('email', currentUser.email.trim());
+        }
+        paymentUrlObject.hash = hashParams.toString();
+        paymentUrl = paymentUrlObject.toString();
+      }
+    } catch (error) {
+      logger.warn('Failed to resolve access token for membership payment window.', error);
+    }
+
+    try {
+      if (window.api?.openInternalWebsite) {
+        window.api.openInternalWebsite(paymentUrl);
+        return;
+      }
+    } catch {}
+
+    try {
+      const { shell } = window.require('electron');
+      if (shell?.openExternal) {
+        shell.openExternal(paymentUrl);
+        return;
+      }
+    } catch (error) {
+      logger.warn('Electron shell is not available. Falling back to window.open.', error);
+    }
+
+    window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+  }, []);
 
   React.useEffect(() => {
     if (!voiceCloneDialogOpen) return undefined;
@@ -798,19 +948,12 @@ const VoiceSquareToolDetail = ({
 
     let cancelled = false;
     const loadClonePrice = async () => {
-      setClonePriceLoading(true);
       try {
-        const result = await getTtsClonePrice({ provider: cloneProvider });
+        await refreshCloneBillingState(cloneProvider);
         if (cancelled) return;
-        const nextText = String(result?.price_text || '').trim();
-        setClonePriceText(nextText || '--/次');
       } catch (error) {
         if (!cancelled) {
-          setClonePriceText('--/次');
-        }
-      } finally {
-        if (!cancelled) {
-          setClonePriceLoading(false);
+          setCloneBillingState(buildCloneBillingState(cloneProvider));
         }
       }
     };
@@ -819,7 +962,25 @@ const VoiceSquareToolDetail = ({
     return () => {
       cancelled = true;
     };
-  }, [cloneProvider, voiceCloneDialogOpen]);
+  }, [cloneProvider, refreshCloneBillingState, voiceCloneDialogOpen]);
+
+  React.useEffect(() => {
+    if (!voiceCloneDialogOpen) return undefined;
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const handlePaymentSuccess = () => {
+        if (cloneProvider !== 'elevenlabs') return;
+        void refreshCloneBillingState('elevenlabs');
+      };
+      ipcRenderer.on(IpcChannel.Payment_Success, handlePaymentSuccess);
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.Payment_Success, handlePaymentSuccess);
+      };
+    } catch (error) {
+      logger.warn('Failed to subscribe payment success events in voice clone dialog.', error);
+      return undefined;
+    }
+  }, [cloneProvider, refreshCloneBillingState, voiceCloneDialogOpen]);
 
   React.useEffect(() => {
     const audio = cloneAudioRef.current;
@@ -901,7 +1062,7 @@ const VoiceSquareToolDetail = ({
   }, [cloneRecordSeconds]);
 
   return (
-    <div className="chat-panel__tool-detail-area">
+    <div className="chat-panel__tool-detail-area" style={{ '--member-color': MEMBER_COLOR }}>
       <Tooltip title="点击退出">
         <span className="chat-panel__tool-tooltip-trigger">
           <button
@@ -1185,10 +1346,7 @@ const VoiceSquareToolDetail = ({
                         value={cloneProvider}
                         onChange={setCloneProvider}
                         className="chat-panel__clone-provider-select"
-                        options={[
-                          { label: 'fish', value: 'fish' },
-                          { label: 'minimax', value: 'minimax' },
-                        ]}
+                        options={VOICE_CLONE_PROVIDER_OPTIONS}
                         variant="borderless"
                         popupMatchSelectWidth={false}
                         getPopupContainer={(trigger) => trigger.parentElement}
@@ -1198,7 +1356,9 @@ const VoiceSquareToolDetail = ({
                     <div className="chat-panel__clone-submit-row">
                       <Button
                         type="primary"
-                        className="chat-panel__clone-submit-btn"
+                        className={`chat-panel__clone-submit-btn ${
+                          cloneProvider === 'elevenlabs' ? 'chat-panel__clone-submit-btn--member' : ''
+                        }`}
                         icon={
                           <img
                             src={VoiceCloneActionIcon}
@@ -1209,20 +1369,33 @@ const VoiceSquareToolDetail = ({
                         }
                         loading={cloningVoice}
                         onClick={handleCloneVoiceSubmit}
-                        disabled={cloneUploading}
+                        disabled={cloneSubmitDisabled}
                       >
                         <span className="chat-panel__clone-submit-label">开始复刻</span>
                         <span className="chat-panel__clone-submit-price">
-                          <img
-                            src={Point3Icon}
-                            alt=""
-                            className="chat-panel__clone-submit-price-icon"
-                            aria-hidden="true"
-                          />
-                          {clonePriceLoading ? <LoadingOutlined spin /> : clonePriceText}
+                          {cloneBillingState.billingMode === 'membership_slots' ? null : (
+                            <img
+                              src={Point3Icon}
+                              alt=""
+                              className="chat-panel__clone-submit-price-icon"
+                              aria-hidden="true"
+                            />
+                          )}
+                          {clonePriceLoading ? <LoadingOutlined spin /> : cloneBillingState.text}
                         </span>
                       </Button>
                     </div>
+                    {showCloneMembershipCta ? (
+                      <div className="chat-panel__clone-membership-cta-row">
+                        <button
+                          type="button"
+                          className="chat-panel__clone-membership-cta"
+                          onClick={handleOpenMembershipPayment}
+                        >
+                          开通会员
+                        </button>
+                      </div>
+                    ) : null}
                   </>
                 )}
               </div>

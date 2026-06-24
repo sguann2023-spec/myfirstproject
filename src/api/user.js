@@ -34,3 +34,19 @@ export async function getUserPoints(userId) {
     return null;
   }
 }
+
+export async function getUserApiKey(userId, loginType = 'authing') {
+  const payload = { user_id: String(userId || '').trim(), login_type: loginType };
+  if (!payload.user_id) {
+    return '';
+  }
+
+  try {
+    const data = await http.postJson(`${BASE_URL}/user_manager/get_token`, payload);
+    const apiKey = data?.token || data?.api_key || '';
+    return String(apiKey || '').trim();
+  } catch (err) {
+    logger.warn('get_token failed:', err.data || err.message);
+    return '';
+  }
+}

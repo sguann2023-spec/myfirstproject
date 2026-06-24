@@ -1,16 +1,22 @@
 import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
-import { Dropdown, Empty, Select, Spin, Tooltip, message } from 'antd';
+import { Dropdown, Empty, Popover, Select, Spin, Tooltip, message } from 'antd';
 import { Check, Play, Plus, Square, Trash2 } from 'lucide-react';
-import { getProjectPricing } from '../../../../api/pricing';
 import {
   deleteDigitalHumanAvatarLibrary,
   getDigitalHumanAvatarExamples,
+  getDigitalHumanPricing,
 } from '../../../../api/digital_human';
+import { getMembershipSummary } from '../../../../api/membership';
+import { tokenStore } from '../../../../auth';
+import { electronStore } from '../../../../shared/electronStore';
+import { MEMBER_COLOR } from '../../../../constants/member';
+import { IpcChannel } from '../../../../packages/shared/IpcChannel';
 import './index.css';
 import DigitalHumanSelectedIcon from '../../../../../public/digital_human_selected.svg';
 import LipsIcon from '../../../../../public/lips.svg';
 import DigitalHumanAvatarIcon from '../../../../../public/digital_human_avatar.svg';
+import DigitalHumanAvatarMemberIcon from '../../../../../public/digital_human_avatar_member.svg';
 import Point2Icon from '../../../../../public/point2.svg';
 import VoiceLib, { useVoiceLib } from '../VoiceLib';
 import CreateDigitalHumanAvatorDialog from '../CreateDigitalHumanAvatorDialog';
@@ -21,20 +27,30 @@ const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-ava
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'gv_5cbd3d5acae44943805e9bb7717f9f97';
+const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
+const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
+const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
 const DIGITAL_HUMAN_OPTIONS = [
+  {
+    value: 'seedance-avatar',
+    label: 'seedance图片驱动',
+    icon: DigitalHumanAvatarIcon,
+    pricingKey: 'seedance_image_driver',
+    badges: ['官网同款'],
+    highlightMember: true,
+  },
+  {
+    value: 'jimeng-avatar',
+    label: '即梦图片驱动',
+    icon: DigitalHumanAvatarIcon,
+    pricingKey: 'omni_image_driver',
+    badges: [],
+  },
   {
     value: 'lips',
     label: '口型驱动',
     icon: LipsIcon,
-    projectId: '32',
-  },
-  {
-    value: 'jimeng-avatar',
-    label: '图片驱动',
-    icon: DigitalHumanAvatarIcon,
-    projectId: '77',
-    badges: ['即梦', '官网同款'],
+    pricingKey: 'lip_sync',
   },
 ];
 
@@ -49,6 +65,26 @@ const normalizeDigitalHumanMode = (value) => {
   const normalizedValue = String(value || '').trim();
   return DIGITAL_HUMAN_OPTION_VALUES.has(normalizedValue) ? normalizedValue : DIGITAL_HUMAN_OPTIONS[0].value;
 };
+
+const isDigitalHumanImageDriveMode = (value) => DIGITAL_HUMAN_IMAGE_DRIVE_MODES.has(String(value || '').trim());
+const SEEDANCE_DIGITAL_HUMAN_MODE = 'seedance-avatar';
+const DEFAULT_NON_MEMBER_DIGITAL_HUMAN_MODE = 'jimeng-avatar';
+
+const stopOptionSelectEvent = (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+};
+
+const normalizeMembershipSummary = (payload = {}) => {
+  const membershipLevel = String(payload?.membership_level || '').trim().toLowerCase() || 'none';
+  return {
+    membershipLevel,
+    isActive: Boolean(payload?.is_active) && membershipLevel !== 'none',
+  };
+};
+
+const getAccessibleDigitalHumanMode = (membershipSummary) =>
+  membershipSummary?.isActive ? SEEDANCE_DIGITAL_HUMAN_MODE : DEFAULT_NON_MEMBER_DIGITAL_HUMAN_MODE;
 
 const readPersistedDigitalHumanMode = () => {
   try {
@@ -151,9 +187,9 @@ const formatDigitalHumanPriceText = (price) => {
   return integerPrice ? `${integerPrice}/秒` : DEFAULT_PRICE_TEXT;
 };
 
-const buildDigitalHumanPriceMap = (projects = []) => DIGITAL_HUMAN_OPTIONS.reduce((acc, item) => {
-  const matchedProject = projects.find((project) => String(project?.project_id || '').trim() === item.projectId);
-  acc[item.value] = formatDigitalHumanPriceText(matchedProject?.resource_points_per_unit);
+const buildDigitalHumanPriceMap = (priceItems = []) => DIGITAL_HUMAN_OPTIONS.reduce((acc, item) => {
+  const matchedItem = priceItems.find((priceItem) => String(priceItem?.key || '').trim() === item.pricingKey);
+  acc[item.value] = formatDigitalHumanPriceText(matchedItem?.resource_points_per_unit);
   return acc;
 }, {});
 
@@ -196,37 +232,109 @@ const normalizeDigitalHumanAvatarExamples = (result) => {
     .map(({ __sourceIndex, ...item }) => item);
 };
 
-const renderDigitalHumanOptionLabel = (text, icon, priceText, badges = []) => (
-  <span className="chat-panel__model-option">
-    <span className="chat-panel__model-option-main">
-      <img className="chat-panel__model-option-icon" src={icon} alt="" aria-hidden="true" />
-      <span className="chat-panel__model-option-text">{text}</span>
-    </span>
-    <span className="chat-panel__digital-human-option-side">
-      {badges.length ? (
-        <span className="chat-panel__digital-human-option-tags">
-          {badges.map((badge) => (
-            <span key={badge} className="chat-panel__model-option-tag">{badge}</span>
-          ))}
+const renderDigitalHumanOptionLabel = (
+  text,
+  icon,
+  priceText,
+  badges = [],
+  highlightMember = false,
+  lockedMember = false,
+  onOpenMembershipPayment = null
+) => {
+  const optionContent = (
+    <span className="chat-panel__model-option">
+      <span
+        className={`chat-panel__model-option-main ${lockedMember ? 'chat-panel__model-option-main--locked' : ''}`}
+        onMouseDown={lockedMember ? stopOptionSelectEvent : undefined}
+        onClick={lockedMember ? stopOptionSelectEvent : undefined}
+      >
+        <img
+          className="chat-panel__model-option-icon"
+          src={highlightMember ? DigitalHumanAvatarMemberIcon : icon}
+          alt=""
+          aria-hidden="true"
+        />
+        <span
+          className={`chat-panel__model-option-text ${highlightMember ? 'chat-panel__model-option-text--member' : ''}`}
+          style={highlightMember ? { color: MEMBER_COLOR } : undefined}
+        >
+          {text}
         </span>
-      ) : null}
-      <span className="chat-panel__digital-human-option-price-wrap">
-        <img className="chat-panel__digital-human-option-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
-        <span className="chat-panel__digital-human-option-price">{priceText}</span>
       </span>
-      <Check className="chat-panel__digital-human-option-check" size={16} strokeWidth={2.25} aria-hidden="true" />
+      <span className="chat-panel__digital-human-option-side">
+        {badges.length ? (
+          <span className="chat-panel__digital-human-option-tags">
+            {badges.map((badge) => (
+              <span key={badge} className="chat-panel__model-option-tag">{badge}</span>
+            ))}
+          </span>
+        ) : null}
+        <span className="chat-panel__digital-human-option-price-wrap">
+          <img className="chat-panel__digital-human-option-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+          <span className="chat-panel__digital-human-option-price">{priceText}</span>
+        </span>
+        <Check className="chat-panel__digital-human-option-check" size={16} strokeWidth={2.25} aria-hidden="true" />
+      </span>
     </span>
-  </span>
-);
+  );
 
-const renderDigitalHumanSelectedLabel = (text, icon, open = false) => (
+  if (!lockedMember) return optionContent;
+
+  return (
+    <Popover
+      trigger="hover"
+      placement="right"
+      align={{ offset: [20, 20] }}
+      mouseEnterDelay={0.12}
+      classNames={{ root: 'chat-panel__digital-human-member-popover' }}
+      content={(
+        <div
+          className="chat-panel__digital-human-member-popover-content"
+          onMouseDown={stopOptionSelectEvent}
+          onClick={stopOptionSelectEvent}
+        >
+          <div className="chat-panel__digital-human-member-hover-title">会员专属</div>
+          <div className="chat-panel__digital-human-member-hover-desc">开通会员后即可使用官网同款图片驱动数字人</div>
+          <button
+            type="button"
+            className="chat-panel__digital-human-member-hover-action"
+            onMouseDown={stopOptionSelectEvent}
+            onClick={(event) => {
+              stopOptionSelectEvent(event);
+              onOpenMembershipPayment?.();
+            }}
+          >
+            开通会员
+          </button>
+        </div>
+      )}
+    >
+      {optionContent}
+    </Popover>
+  );
+};
+
+const renderDigitalHumanSelectedLabel = (text, icon, open = false, highlightMember = false) => (
   <span className="chat-panel__digital-human-selected">
     <span className="chat-panel__model-option-main">
-      <img className="chat-panel__model-option-icon" src={icon} alt="" aria-hidden="true" />
-      <span className="chat-panel__model-option-text">{text}</span>
+      <img
+        className="chat-panel__model-option-icon"
+        src={highlightMember ? DigitalHumanAvatarMemberIcon : icon}
+        alt=""
+        aria-hidden="true"
+      />
+      <span
+        className={`chat-panel__model-option-text ${highlightMember ? 'chat-panel__model-option-text--member' : ''}`}
+        style={highlightMember ? { color: MEMBER_COLOR } : undefined}
+      >
+        {text}
+      </span>
     </span>
     <DownOutlined
-      className={`chat-panel__digital-human-selected-arrow ${open ? 'is-open' : ''}`}
+      className={`chat-panel__digital-human-selected-arrow ${
+        highlightMember ? 'chat-panel__digital-human-selected-arrow--member' : ''
+      } ${open ? 'is-open' : ''}`}
+      style={highlightMember ? { color: MEMBER_COLOR } : undefined}
       aria-hidden="true"
     />
   </span>
@@ -254,24 +362,121 @@ const DigitalHumanToolDetail = ({
   const [deletingAvatarIds, setDeletingAvatarIds] = React.useState([]);
   const [createAvatarDialogOpen, setCreateAvatarDialogOpen] = React.useState(false);
   const [createAvatarName, setCreateAvatarName] = React.useState('');
+  const [membershipSummary, setMembershipSummary] = React.useState(() => normalizeMembershipSummary());
+  const [membershipLoaded, setMembershipLoaded] = React.useState(false);
   const voiceLib = useVoiceLib({ onSelectedVoiceChange });
   const selectedAvatarButtonText = `形象 ${selectedAvatarTitle}`;
+  const seedanceLocked =
+    membershipLoaded && selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE && !membershipSummary.isActive;
+
+  const refreshMembershipSummary = React.useCallback(async () => {
+    try {
+      const result = await getMembershipSummary();
+      setMembershipSummary(normalizeMembershipSummary(result));
+    } catch (error) {
+      setMembershipSummary(normalizeMembershipSummary());
+    } finally {
+      setMembershipLoaded(true);
+    }
+  }, []);
+
+  const handleOpenMembershipPayment = React.useCallback(async () => {
+    let paymentUrl = REDEEM_PAYMENT_URL;
+
+    try {
+      const accessToken = await tokenStore.ensureValidAccessToken();
+      if (typeof accessToken === 'string' && accessToken.trim()) {
+        const currentUser = electronStore.get('user') || {};
+        const paymentUrlObject = new URL(REDEEM_PAYMENT_URL);
+        const hashParams = new URLSearchParams({
+          jwt: accessToken.trim(),
+        });
+        if (typeof currentUser?.name === 'string' && currentUser.name.trim()) {
+          hashParams.set('name', currentUser.name.trim());
+        }
+        if (typeof currentUser?.avatar === 'string' && currentUser.avatar.trim()) {
+          hashParams.set('avatar', currentUser.avatar.trim());
+        }
+        if (typeof currentUser?.email === 'string' && currentUser.email.trim()) {
+          hashParams.set('email', currentUser.email.trim());
+        }
+        paymentUrlObject.hash = hashParams.toString();
+        paymentUrl = paymentUrlObject.toString();
+      }
+    } catch {}
+
+    try {
+      if (window.api?.openInternalWebsite) {
+        window.api.openInternalWebsite(paymentUrl);
+        return;
+      }
+    } catch {}
+
+    try {
+      const { shell } = window.require('electron');
+      if (shell?.openExternal) {
+        shell.openExternal(paymentUrl);
+        return;
+      }
+    } catch {}
+
+    window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+  }, []);
 
   const handleModeChange = React.useCallback((nextValue) => {
     const normalizedValue = normalizeDigitalHumanMode(nextValue);
+    if (membershipLoaded && normalizedValue === SEEDANCE_DIGITAL_HUMAN_MODE && !membershipSummary.isActive) {
+      return;
+    }
     persistDigitalHumanMode(normalizedValue);
     setSelectedMode(normalizedValue);
     if (typeof onModeChange === 'function') {
       onModeChange(normalizedValue);
     }
-  }, [onModeChange]);
+  }, [membershipLoaded, membershipSummary.isActive, onModeChange]);
 
   React.useEffect(() => {
-    if (selectedMode !== 'jimeng-avatar') {
+    void refreshMembershipSummary();
+  }, [refreshMembershipSummary]);
+
+  React.useEffect(() => {
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const handlePaymentSuccess = () => {
+        void refreshMembershipSummary();
+      };
+      ipcRenderer.on(IpcChannel.Payment_Success, handlePaymentSuccess);
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.Payment_Success, handlePaymentSuccess);
+      };
+    } catch {
+      return undefined;
+    }
+  }, [refreshMembershipSummary]);
+
+  React.useEffect(() => {
+    if (!isDigitalHumanImageDriveMode(selectedMode)) {
       setAvatarDropdownOpen(false);
       setPlayingAvatarExampleKey('');
     }
   }, [selectedMode]);
+
+  React.useEffect(() => {
+    if (!seedanceLocked) return;
+    setAvatarDropdownOpen(false);
+    setPlayingAvatarExampleKey('');
+  }, [seedanceLocked]);
+
+  React.useEffect(() => {
+    if (!membershipLoaded) return;
+    if (membershipSummary.isActive) return;
+    if (selectedMode !== SEEDANCE_DIGITAL_HUMAN_MODE) return;
+    const nextMode = getAccessibleDigitalHumanMode(membershipSummary);
+    if (!nextMode || nextMode === selectedMode) return;
+    persistDigitalHumanMode(nextMode);
+    setSelectedMode(nextMode);
+    onModeChange?.(nextMode);
+  }, [membershipLoaded, membershipSummary, onModeChange, selectedMode]);
 
   React.useEffect(() => {
     if (typeof onSelectedAvatarChange !== 'function') return;
@@ -291,15 +496,15 @@ const DigitalHumanToolDetail = ({
     let cancelled = false;
     const fetchPricing = async () => {
       try {
-        const pendingRequest = digitalHumanPriceRequest || getProjectPricing();
+        const pendingRequest = digitalHumanPriceRequest || getDigitalHumanPricing();
         digitalHumanPriceRequest = pendingRequest;
         const result = await pendingRequest;
-        const projects = Array.isArray(result?.projects)
-          ? result.projects
-          : Array.isArray(result?.data?.projects)
-            ? result.data.projects
+        const priceItems = Array.isArray(result?.items)
+          ? result.items
+          : Array.isArray(result?.data?.items)
+            ? result.data.items
             : [];
-        const nextPriceMap = buildDigitalHumanPriceMap(projects);
+        const nextPriceMap = buildDigitalHumanPriceMap(priceItems);
         digitalHumanPriceCache = nextPriceMap;
         if (!cancelled) {
           setPriceMap(nextPriceMap);
@@ -431,10 +636,18 @@ const DigitalHumanToolDetail = ({
       item.label,
       item.icon,
       priceMap[item.value] || DEFAULT_PRICE_TEXT,
-      item.badges || []
+      item.badges || [],
+      Boolean(item.highlightMember),
+      membershipLoaded && item.value === SEEDANCE_DIGITAL_HUMAN_MODE && !membershipSummary.isActive,
+      handleOpenMembershipPayment
     ),
-    selectedLabel: renderDigitalHumanSelectedLabel(item.label, item.icon, pickerOpen),
-  })), [pickerOpen, priceMap]);
+    selectedLabel: renderDigitalHumanSelectedLabel(
+      item.label,
+      item.icon,
+      pickerOpen,
+      Boolean(item.highlightMember)
+    ),
+  })), [handleOpenMembershipPayment, membershipLoaded, membershipSummary.isActive, pickerOpen, priceMap]);
 
   const digitalHumanAvatarPopupContent = React.useMemo(() => {
     if (avatarExamplesLoading && avatarExamples.length === 0) {
@@ -657,9 +870,9 @@ const DigitalHumanToolDetail = ({
             disabled={disabled}
           />
         ) : null}
-        {selectedMode === 'jimeng-avatar' ? (
+        {isDigitalHumanImageDriveMode(selectedMode) ? (
           <Dropdown
-            disabled={disabled}
+            disabled={disabled || seedanceLocked}
             trigger={['click']}
             open={avatarDropdownOpen}
             onOpenChange={handleAvatarDropdownOpenChange}
@@ -672,10 +885,12 @@ const DigitalHumanToolDetail = ({
             <span className="chat-panel__tool-dropdown-trigger">
               <button
                 type="button"
-                className={`chat-panel__tool-button ${avatarDropdownOpen ? 'chat-panel__tool-button--sub-active' : ''}`}
+                className={`chat-panel__tool-button ${avatarDropdownOpen ? 'chat-panel__tool-button--sub-active' : ''} ${
+                  seedanceLocked ? 'chat-panel__tool-button--member-locked' : ''
+                }`}
                 aria-label={selectedAvatarButtonText}
                 title={selectedAvatarButtonText}
-                disabled={disabled}
+                disabled={disabled || seedanceLocked}
               >
                 <img className="chat-panel__tool-icon" src={selectedAvatarCoverUrl} alt="" aria-hidden="true" />
                 <span

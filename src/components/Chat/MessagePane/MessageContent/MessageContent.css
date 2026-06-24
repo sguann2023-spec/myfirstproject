@@ -2,6 +2,14 @@
   width: 100%;
 }
 
+.chat-message-user-text {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* Local typography baseline for scoped MessageBlockRenderer rendering.
    We no longer mount tw-root-scope on html/body, so keep chat text sizing stable here. */
 .chat-message-content.tw-scope {

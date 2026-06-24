@@ -17,6 +17,9 @@ const getVoiceCardCompareShape = (props = {}) => ({
   isSelected: Boolean(props?.isSelected),
   isPlaying: Boolean(props?.isPlaying),
   favoriteLoading: Boolean(props?.favoriteLoading),
+  highlightMember: Boolean(props?.highlightMember),
+  showDelete: Boolean(props?.showDelete),
+  deleteDisabled: Boolean(props?.deleteDisabled),
 });
 
 const VoiceCard = ({
@@ -24,8 +27,12 @@ const VoiceCard = ({
   isSelected = false,
   isPlaying = false,
   favoriteLoading = false,
+  highlightMember = false,
+  showDelete = false,
+  deleteDisabled = false,
   onPreviewToggle,
   onPreviewEnd,
+  onDelete,
   onToggleFavorite,
 }) => {
   const title = item?.title || item?.global_voice_id || '未命名音色';
@@ -88,8 +95,12 @@ const VoiceCard = ({
         globalVoiceId={item?.global_voice_id}
         priceText={item?.price_text || item?.price}
         priceModel={item?.price_model}
+        highlightMember={highlightMember}
+        showDelete={showDelete}
+        deleteDisabled={deleteDisabled}
         favorited={Boolean(item?.favorited)}
         favoriteDisabled={favoriteLoading}
+        onDelete={typeof onDelete === 'function' ? () => onDelete(item) : undefined}
         onToggleFavorite={
           typeof onToggleFavorite === 'function' ? () => onToggleFavorite(item) : undefined
         }

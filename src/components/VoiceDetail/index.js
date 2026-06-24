@@ -1,7 +1,8 @@
 import React from 'react';
-import { Copy } from 'lucide-react';
+import { Copy, Trash2 } from 'lucide-react';
 import { message } from 'antd';
 import { getTtsSpeechPrice } from '../../api/tts';
+import { MEMBER_COLOR } from '../../constants/member';
 import './index.css';
 import Point2Icon from '../../../public/point2.svg';
 import VoiceCollectIcon from '../../../public/voice_collect.svg';
@@ -157,8 +158,12 @@ const VoiceDetail = ({
   globalVoiceId,
   priceText = '',
   priceModel = '',
+  highlightMember = false,
+  showDelete = false,
+  deleteDisabled = false,
   favorited = false,
   favoriteDisabled = false,
+  onDelete,
   onToggleFavorite,
 }) => {
   const favoriteTitle = favorited ? '取消收藏' : '收藏';
@@ -254,12 +259,42 @@ const VoiceDetail = ({
     }
   };
 
+  const handleDeleteMouseDown = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleDeleteClick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (deleteDisabled || typeof onDelete !== 'function') return;
+    onDelete();
+  };
+
   return (
     <div className="voice-detail">
       <div className="voice-detail__main">
-        <div className="voice-detail__title">{title}</div>
+        <div
+          className={`voice-detail__title ${highlightMember ? 'voice-detail__title--member' : ''}`}
+          style={highlightMember ? { color: MEMBER_COLOR } : undefined}
+        >
+          {title}
+        </div>
         {description ? <div className="voice-detail__description">{description}</div> : null}
       </div>
+      {showDelete ? (
+        <button
+          type="button"
+          className="voice-detail__delete"
+          aria-label="删除音色"
+          title="删除音色"
+          disabled={deleteDisabled}
+          onMouseDown={handleDeleteMouseDown}
+          onClick={handleDeleteClick}
+        >
+          <Trash2 className="voice-detail__delete-icon" size={18} strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      ) : null}
       {normalizedVoiceId ? (
         <button
           type="button"

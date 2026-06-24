@@ -52,15 +52,18 @@ const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-
 const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
 const DEFAULT_DIGITAL_HUMAN_MODE = 'lips';
+const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
 const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'gv_5cbd3d5acae44943805e9bb7717f9f97';
+const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
   const normalizedValue = String(value || '').trim();
-  return normalizedValue === 'jimeng-avatar' ? 'jimeng-avatar' : DEFAULT_DIGITAL_HUMAN_MODE;
+  return DIGITAL_HUMAN_IMAGE_DRIVE_MODES.has(normalizedValue) ? normalizedValue : DEFAULT_DIGITAL_HUMAN_MODE;
 };
+const isDigitalHumanImageDriveMode = (value) => DIGITAL_HUMAN_IMAGE_DRIVE_MODES.has(String(value || '').trim());
+const isSeedanceDigitalHumanMode = (value) => String(value || '').trim() === 'seedance-avatar';
 const readPersistedDigitalHumanMode = () => {
   try {
     return normalizeDigitalHumanMode(localStorage.getItem(DIGITAL_HUMAN_MODE_STORAGE_KEY));
@@ -116,7 +119,7 @@ const createDigitalHumanSelectedVoiceReferenceAttrs = (
   selectedVoiceLibraryItem = null,
   selectedAvatar = readPersistedDigitalHumanAvatarSelection()
 ) => {
-  if (selectedMode === 'jimeng-avatar') {
+  if (isDigitalHumanImageDriveMode(selectedMode)) {
     return createFileReferenceAttrs({}, {
       uid: normalizeDigitalHumanAvatarVoiceId(selectedAvatar?.voice_id),
       name: normalizeDigitalHumanAvatarTitle(selectedAvatar?.title),
@@ -161,34 +164,66 @@ const createDigitalHumanMediaReferenceAttrs = (
   selectedAvatar = readPersistedDigitalHumanAvatarSelection()
 ) =>
   createFileReferenceAttrs(currentFile, {
-    uid: selectedMode === 'jimeng-avatar'
+    uid: isDigitalHumanImageDriveMode(selectedMode)
       ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
       : currentFile.uid,
-    name: selectedMode === 'jimeng-avatar'
+    name: isDigitalHumanImageDriveMode(selectedMode)
       ? normalizeDigitalHumanAvatarTitle(selectedAvatar?.title)
       : currentFile.name,
-    url: selectedMode === 'jimeng-avatar'
+    url: isDigitalHumanImageDriveMode(selectedMode)
       ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
       : currentFile.url,
-    fileType: selectedMode === 'jimeng-avatar' ? 'image/jpeg' : currentFile.fileType,
-    thumbnailUrl: selectedMode === 'jimeng-avatar'
+    fileType: isDigitalHumanImageDriveMode(selectedMode) ? 'image/jpeg' : currentFile.fileType,
+    thumbnailUrl: isDigitalHumanImageDriveMode(selectedMode)
       ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
       : currentFile.thumbnailUrl,
-    previewUrl: selectedMode === 'jimeng-avatar'
+    previewUrl: isDigitalHumanImageDriveMode(selectedMode)
       ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
       : currentFile.previewUrl,
     templateSlot: true,
     slotId: DIGITAL_HUMAN_VIDEO_SLOT_ID,
-    slotLabel: selectedMode === 'jimeng-avatar' ? '人物照片' : '人物视频',
-    acceptedKind: selectedMode === 'jimeng-avatar' ? 'image' : 'video',
-    placeholderText: selectedMode === 'jimeng-avatar' ? '选择的形象照片' : '人物视频',
+    slotLabel: isDigitalHumanImageDriveMode(selectedMode) ? '人物照片' : '人物视频',
+    acceptedKind: isDigitalHumanImageDriveMode(selectedMode) ? 'image' : 'video',
+    placeholderText: isDigitalHumanImageDriveMode(selectedMode) ? '选择的形象照片' : '人物视频',
   });
 const buildDigitalHumanMediaParagraph = (
   selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
   currentFile = {},
   selectedAvatar = readPersistedDigitalHumanAvatarSelection()
 ) => {
-  if (selectedMode === 'jimeng-avatar') {
+  if (isSeedanceDigitalHumanMode(selectedMode)) {
+    return {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: '将说话内容：[' },
+        {
+          type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
+          attrs: {
+            text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
+          },
+        },
+        { type: 'text', text: '] 利用音色 ' },
+        {
+          type: 'fileReference',
+          attrs: createDigitalHumanSelectedVoiceReferenceAttrs(selectedMode, null, selectedAvatar),
+        },
+        { type: 'text', text: ' 和人物照片 ' },
+        {
+          type: 'fileReference',
+          attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
+        },
+        { type: 'text', text: ' 合并成一个seedance数字人视频，视频中人物的动作是' },
+        {
+          type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
+          attrs: {
+            text: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
+          },
+        },
+      ],
+    };
+  }
+
+  if (isDigitalHumanImageDriveMode(selectedMode)) {
     return {
       type: 'paragraph',
       content: [
@@ -197,7 +232,7 @@ const buildDigitalHumanMediaParagraph = (
           type: 'fileReference',
           attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
         },
-        { type: 'text', text: ' 合并成一个数字人视频，视频中的人物动作是' },
+        { type: 'text', text: ' 合并成一个即梦数字人视频，视频中的人物动作是' },
         {
           type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
           attrs: {
@@ -434,24 +469,18 @@ const buildDigitalHumanEditorDocument = (
   selectedVoiceLibraryItem = null,
   selectedMode = readPersistedDigitalHumanMode(),
   selectedAvatar = readPersistedDigitalHumanAvatarSelection()
-) => ({
-  type: 'doc',
-  content: [
+) => {
+  const content = [
     {
       type: 'paragraph',
       content: [
-        { type: 'text', text: '使用' },
-        {
-          type: 'mention',
-          attrs: {
-            id: 'vectcut-skill',
-            label: 'vectcut-skill',
-          },
-        },
         { type: 'text', text: '执行下面步骤：' },
       ],
     },
-    {
+  ];
+
+  if (!isSeedanceDigitalHumanMode(selectedMode)) {
+    content.push({
       type: 'paragraph',
       content: [
         { type: 'text', text: '第一步: 将说话内容：[' },
@@ -468,10 +497,16 @@ const buildDigitalHumanEditorDocument = (
         },
         { type: 'text', text: ' 合成语音。' },
       ],
-    },
-    buildDigitalHumanMediaParagraph(selectedMode, {}, selectedAvatar),
-  ],
-});
+    });
+  }
+
+  content.push(buildDigitalHumanMediaParagraph(selectedMode, {}, selectedAvatar));
+
+  return {
+    type: 'doc',
+    content,
+  };
+};
 const buildVoiceSquareEditorDocument = (selectedVoiceLibraryItem = null) => ({
   type: 'doc',
   content: [
@@ -680,46 +715,53 @@ const getDigitalHumanTemplateCompletionState = (editor) => {
     }
   });
 
-  const scriptParagraph = paragraphs[1];
-  const videoParagraph = paragraphs[2];
-
   let hasScriptPlaceholder = false;
-  let scriptText = '';
-  if (scriptParagraph) {
-    scriptParagraph.forEach((child) => {
+  let hasVideoReference = false;
+  const scriptLines = [];
+
+  paragraphs.forEach((paragraph) => {
+    let paragraphBeforeVoiceReferenceText = '';
+    let reachedVoiceReference = false;
+
+    paragraph.forEach((child) => {
       if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
         hasScriptPlaceholder = true;
         return;
       }
-      if (child.type?.name === 'fileReference' && child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) {
-        return false;
-      }
-      if (child.type?.name === 'text') {
-        scriptText += child.text || '';
-      }
-      return true;
-    });
-  }
 
-  const normalizedScriptText = scriptText
-    .replace(/^第一步:\s*将说话内容：/, '')
-    .replace(/\s*利用音色\s*$/, '')
-    .trim();
-
-  let hasVideoReference = false;
-  if (videoParagraph) {
-    videoParagraph.forEach((child) => {
       if (
         child.type?.name === 'fileReference' &&
         child.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID &&
         child.attrs?.uid
       ) {
         hasVideoReference = true;
-        return false;
+      }
+
+      if (
+        child.type?.name === 'fileReference' &&
+        child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID
+      ) {
+        reachedVoiceReference = true;
+        return true;
+      }
+
+      if (!reachedVoiceReference && child.type?.name === 'text') {
+        paragraphBeforeVoiceReferenceText += child.text || '';
       }
       return true;
     });
-  }
+
+    if (reachedVoiceReference && paragraphBeforeVoiceReferenceText) {
+      scriptLines.push(paragraphBeforeVoiceReferenceText);
+    }
+  });
+
+  const normalizedScriptText = scriptLines
+    .join('\n')
+    .replace(/^第一步:\s*将说话内容[:：]/, '')
+    .replace(/^将说话内容[:：]/, '')
+    .replace(/\s*利用音色\s*$/, '')
+    .trim();
 
   const hasScriptContent = !hasScriptPlaceholder && normalizedScriptText.length > 0;
   return {
@@ -928,9 +970,16 @@ const syncDigitalHumanMediaParagraph = (editorInstance, selectedMode, selectedAv
   if (!editorInstance || editorInstance.isDestroyed) return;
 
   const currentDocument = editorInstance.getJSON();
-  if (!Array.isArray(currentDocument?.content) || currentDocument.content.length < 3) return;
+  if (!Array.isArray(currentDocument?.content)) return;
 
-  const currentParagraph = currentDocument.content[2];
+  const mediaParagraphIndex = currentDocument.content.findIndex(
+    (node) => node?.type === 'paragraph' && Array.isArray(node?.content) && node.content.some(
+      (child) => child?.type === 'fileReference' && child?.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
+    )
+  );
+  if (mediaParagraphIndex < 0) return;
+
+  const currentParagraph = currentDocument.content[mediaParagraphIndex];
   const currentFileReferenceNode = Array.isArray(currentParagraph?.content)
     ? currentParagraph.content.find(
       (child) => child?.type === 'fileReference' && child?.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
@@ -948,7 +997,7 @@ const syncDigitalHumanMediaParagraph = (editorInstance, selectedMode, selectedAv
     ...currentDocument,
     content: [...currentDocument.content],
   };
-  nextDocument.content[2] = nextParagraph;
+  nextDocument.content[mediaParagraphIndex] = nextParagraph;
   editorInstance.commands.setContent(nextDocument, false);
 };
 

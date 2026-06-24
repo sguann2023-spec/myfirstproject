@@ -280,7 +280,9 @@ const MessageContent = ({ message, isLoading = false }) => {
       : [];
     return (
       <div className="chat-message-content">
-        <Markdown content={String(message?.content || '')} />
+        <div className="chat-message-user-text">
+          {String(message?.content || '')}
+        </div>
         {imageAttachments.length > 0 && (
           <Image.PreviewGroup>
             <div className="chat-message-user-attachments" aria-label="图片附件">

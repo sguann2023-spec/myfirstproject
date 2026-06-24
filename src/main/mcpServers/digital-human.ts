@@ -12,6 +12,8 @@ const DIGITAL_HUMAN_CREATE_ENDPOINT = '/cut_jianying/digital_human/create'
 const DIGITAL_HUMAN_STATUS_ENDPOINT = '/cut_jianying/digital_human/task_status'
 const OMNI_DIGITAL_HUMAN_SUBMIT_ENDPOINT = '/cut_jianying/digital_human/omni/submit'
 const OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT = '/cut_jianying/digital_human/omni/task_status'
+const SEEDANCE_DIGITAL_HUMAN_SUBMIT_ENDPOINT = '/llm/digital_human/seedance/submit'
+const SEEDANCE_DIGITAL_HUMAN_STATUS_ENDPOINT = '/llm/digital_human/seedance/task_status'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
@@ -19,7 +21,7 @@ const DEFAULT_OMNI_OUTPUT_RESOLUTION = 1080
 
 const CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_lip_sync_digital_human',
-  description: 'Create a lip-sync digital human video from an audio URL and a portrait video URL.',
+  description: 'Use this when the user wants to merge one audio file and one real-person portrait video into a lip-sync digital human video. This calls /cut_jianying/digital_human/create.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -39,7 +41,7 @@ const CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL: Tool = {
 
 const GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
   name: 'get_lip_sync_digital_human_status',
-  description: 'Query the status of a lip-sync digital human task by task ID.',
+  description: 'Query the status of a lip-sync digital human task by task ID. This calls /cut_jianying/digital_human/task_status.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -55,7 +57,7 @@ const GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
 
 const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_image_driven_digital_human',
-  description: 'Create an image-driven Omni digital human video from an audio URL, image URL, and prompt.',
+  description: 'Legacy alias for creating a Jimeng Omni image-driven digital human video from an audio URL, image URL, and prompt.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -84,13 +86,65 @@ const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
 
 const GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
   name: 'get_image_driven_digital_human_status',
-  description: 'Query the status of an image-driven Omni digital human task by task ID.',
+  description: 'Legacy alias for querying a Jimeng Omni image-driven digital human task by task ID.',
   inputSchema: {
     type: 'object',
     properties: {
       taskId: {
         type: 'string',
         description: 'Required image-driven digital human task ID.'
+      }
+    },
+    required: ['taskId'],
+    additionalProperties: false
+  }
+}
+
+const CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
+  name: 'create_omni_image_driven_digital_human',
+  description: 'Use this when the user wants to merge one audio file and one portrait photo into a Jimeng Omni image-driven digital human video. This calls /cut_jianying/digital_human/omni/submit.',
+  inputSchema: CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL.inputSchema,
+}
+
+const GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
+  name: 'get_omni_image_driven_digital_human_status',
+  description: 'Query the status of a Jimeng Omni image-driven digital human task by task ID. This calls /cut_jianying/digital_human/omni/task_status.',
+  inputSchema: GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL.inputSchema,
+}
+
+const CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL: Tool = {
+  name: 'create_seedance_digital_human',
+  description: 'Use this when the user wants to merge one voice ID, one copywriting text, and one portrait photo into a Seedance image-driven digital human video. This calls /llm/digital_human/seedance/submit.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      imageUrl: {
+        type: 'string',
+        description: 'Required portrait image URL.'
+      },
+      copywriting: {
+        type: 'string',
+        description: 'Required spoken copywriting content.'
+      },
+      voiceId: {
+        type: 'string',
+        description: 'Required voice ID used to synthesize the digital human audio.'
+      }
+    },
+    required: ['imageUrl', 'copywriting', 'voiceId'],
+    additionalProperties: false
+  }
+}
+
+const GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
+  name: 'get_seedance_digital_human_status',
+  description: 'Query the status of a Seedance image-driven digital human task by task ID. This calls /llm/digital_human/seedance/task_status.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      taskId: {
+        type: 'string',
+        description: 'Required Seedance digital human task ID.'
       }
     },
     required: ['taskId'],
@@ -142,7 +196,11 @@ class DigitalHumanServer {
         CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL,
         GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL,
         CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
-        GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL
+        GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
+        CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
+        GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
+        CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL,
+        GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL
       ]
     }))
 
@@ -157,9 +215,15 @@ class DigitalHumanServer {
           case 'get_lip_sync_digital_human_status':
             return await this.getLipSyncDigitalHumanStatus(args as Record<string, unknown>)
           case 'create_image_driven_digital_human':
+          case 'create_omni_image_driven_digital_human':
             return await this.createImageDrivenDigitalHuman(args as Record<string, unknown>)
           case 'get_image_driven_digital_human_status':
+          case 'get_omni_image_driven_digital_human_status':
             return await this.getImageDrivenDigitalHumanStatus(args as Record<string, unknown>)
+          case 'create_seedance_digital_human':
+            return await this.createSeedanceDigitalHuman(args as Record<string, unknown>)
+          case 'get_seedance_digital_human_status':
+            return await this.getSeedanceDigitalHumanStatus(args as Record<string, unknown>)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -422,6 +486,70 @@ class DigitalHumanServer {
     return this.formatJsonResult({
       provider: 'vectcut',
       mode: 'image_driven',
+      action: 'status',
+      task_id: taskId,
+      ...result
+    })
+  }
+
+  private async createSeedanceDigitalHuman(args: Record<string, unknown>) {
+    const imageUrl = this.getRequiredString(args, 'imageUrl', 'image_url')
+    const copywriting = this.getRequiredString(args, 'copywriting')
+    const voiceId = this.getRequiredString(args, 'voiceId', 'voice_id')
+
+    const response = await this.requestWithAuth(SEEDANCE_DIGITAL_HUMAN_SUBMIT_ENDPOINT, {
+      method: 'POST',
+      body: {
+        image_url: imageUrl,
+        copywriting,
+        voice_id: voiceId
+      }
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Seedance digital human creation failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as Record<string, unknown>
+
+    logger.info('Seedance digital human task created', {
+      taskId: result.task_id
+    })
+
+    return this.formatJsonResult({
+      provider: 'vectcut',
+      mode: 'seedance_image_driven',
+      action: 'submit',
+      image_url: imageUrl,
+      voice_id: voiceId,
+      ...result
+    })
+  }
+
+  private async getSeedanceDigitalHumanStatus(args: Record<string, unknown>) {
+    const taskId = this.getRequiredString(args, 'taskId', 'task_id')
+    const response = await this.requestWithAuth(SEEDANCE_DIGITAL_HUMAN_STATUS_ENDPOINT, {
+      method: 'GET',
+      query: {
+        task_id: taskId
+      }
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Seedance digital human status query failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as Record<string, unknown>
+
+    logger.info('Seedance digital human status queried', {
+      taskId
+    })
+
+    return this.formatJsonResult({
+      provider: 'vectcut',
+      mode: 'seedance_image_driven',
       action: 'status',
       task_id: taskId,
       ...result

@@ -84,7 +84,11 @@ describe('DigitalHumanServer', () => {
       'create_lip_sync_digital_human',
       'get_lip_sync_digital_human_status',
       'create_image_driven_digital_human',
-      'get_image_driven_digital_human_status'
+      'get_image_driven_digital_human_status',
+      'create_omni_image_driven_digital_human',
+      'get_omni_image_driven_digital_human_status',
+      'create_seedance_digital_human',
+      'get_seedance_digital_human_status'
     ])
   })
 
@@ -265,6 +269,133 @@ describe('DigitalHumanServer', () => {
       task_id: 'omni-1',
       status: 'success',
       video_url: 'https://example.com/omni.mp4'
+    })
+  })
+
+  it('should create a seedance digital human task', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'seedance-1',
+          status: 'queued',
+          success: true
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'create_seedance_digital_human', {
+      imageUrl: 'https://example.com/avatar.png',
+      copywriting: '欢迎来到 vectcut',
+      voiceId: 'voice-123'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/llm/digital_human/seedance/submit',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({
+          image_url: 'https://example.com/avatar.png',
+          copywriting: '欢迎来到 vectcut',
+          voice_id: 'voice-123'
+        })
+      })
+    )
+
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      mode: 'seedance_image_driven',
+      action: 'submit',
+      image_url: 'https://example.com/avatar.png',
+      voice_id: 'voice-123',
+      task_id: 'seedance-1',
+      status: 'queued',
+      success: true
+    })
+  })
+
+  it('should support the omni image-driven alias tool', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'omni-alias-1',
+          message: '任务创建成功'
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'create_omni_image_driven_digital_human', {
+      audioUrl: 'https://example.com/audio.mp3',
+      imageUrl: 'https://example.com/avatar.png',
+      prompt: '人物自然地进行口播'
+    })
+
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      mode: 'image_driven',
+      action: 'submit',
+      output_resolution: 1080,
+      task_id: 'omni-alias-1',
+      message: '任务创建成功'
+    })
+  })
+
+  it('should query seedance digital human status', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'processing',
+          progress: 45,
+          success: true
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'get_seedance_digital_human_status', {
+      taskId: 'seedance-1'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/llm/digital_human/seedance/task_status?task_id=seedance-1',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token'
+        })
+      })
+    )
+
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      mode: 'seedance_image_driven',
+      action: 'status',
+      task_id: 'seedance-1',
+      status: 'processing',
+      progress: 45,
+      success: true
     })
   })
 })

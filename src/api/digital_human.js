@@ -1,6 +1,11 @@
 import { http } from '../http';
 
 const BASE_URL = 'https://open.vectcut.com/digital_human';
+const DIGITAL_HUMAN_PRICING_URL = 'https://open.vectcut.com/cut_jianying/digital_human/prices';
+
+export async function getDigitalHumanPricing() {
+  return http.getJson(DIGITAL_HUMAN_PRICING_URL);
+}
 
 export async function getDigitalHumanAvatarExamples() {
   return http.getJson(`${BASE_URL}/avatar/example`);
