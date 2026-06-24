@@ -381,7 +381,20 @@ jobs:
         run: |
           WIN_EXE=$(ls build/*.exe | head -n 1)
           cp "$WIN_EXE" build/VectCut-Setup-latest-x64.exe
-          node -e "const fs=require('fs');const p='build/latest.yml';let s=fs.readFileSync(p,'utf8');s=s.replace(/[\w.-]+\.exe/g,'VectCut-Setup-latest-x64.exe');fs.writeFileSync(p,s);"
+          VERSION=$(node -p "require('./package.json').version")
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          WIN_SHA512=$(openssl dgst -sha512 -binary build/VectCut-Setup-latest-x64.exe | openssl base64 -A)
+          WIN_SIZE=$(stat -c%s build/VectCut-Setup-latest-x64.exe)
+          cat > build/latest.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: VectCut-Setup-latest-x64.exe
+              sha512: ${WIN_SHA512}
+              size: ${WIN_SIZE}
+          path: VectCut-Setup-latest-x64.exe
+          sha512: ${WIN_SHA512}
+          releaseDate: '${RELEASE_DATE}'
+          EOF
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f build/VectCut-Setup-latest-x64.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-Setup-latest-x64.exe" -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/latest.yml" -c /tmp/.ossutilconfig
