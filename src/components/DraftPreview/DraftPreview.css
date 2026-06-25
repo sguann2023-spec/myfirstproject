@@ -61,6 +61,12 @@
   font-weight: 500;
 }
 
+.preview-draft-id {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #5B5B5B;
+}
+
 .preview-subtitle {
   margin-top: 6px;
   font-size: 12px;

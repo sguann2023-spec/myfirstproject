@@ -54,6 +54,12 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
     if (selectedCount === 2) return `${displayNames[0]}，${displayNames[1]}`;
     return `${displayNames[0]}，${displayNames[1]}等  ${selectedCount}个草稿`;
   })();
+  const draftIdText = (() => {
+    if (selectedCount <= 1) return `草稿ID: ${activeDraft.draft_id || '-'}`;
+    if (draftIds.length === 0) return '草稿ID: -';
+    if (draftIds.length <= 2) return `草稿ID: ${draftIds.join('，')}`;
+    return `草稿ID: ${draftIds[0]}，${draftIds[1]}等 ${draftIds.length} 个`;
+  })();
   const subtitleText = (() => {
     if (selectedCount <= 1) {
       return `修改时间: ${formatTime(activeDraft.updated_at)}`;
@@ -184,6 +190,7 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
         )}
       </div>
       <div className="preview-title">{titleText}</div>
+      <div className="preview-draft-id">{draftIdText}</div>
       <div className="preview-subtitle">{subtitleText}</div>
       <div className="preview-download">
         <button className="download-button" onClick={handleDownload} disabled={isDeleting}>
