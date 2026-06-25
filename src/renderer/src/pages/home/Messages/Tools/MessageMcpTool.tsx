@@ -241,85 +241,6 @@ type ExtractedContent = {
   images: Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }>
 }
 
-const IMAGE_URL_PATTERN = /https?:\/\/[^\s"'`]+/g
-const IMAGE_URL_SUFFIX_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg)(?:[?#].*)?$/i
-
-const extractImageUrlsFromUnknown = (response: unknown): string[] => {
-  const collected = new Set<string>()
-  const isLikelyImageUrl = (url: string) => IMAGE_URL_SUFFIX_PATTERN.test(url)
-
-  const collectUrl = (value: unknown, mimeType?: unknown) => {
-    const url = String(value ?? '').trim()
-    if (!url.startsWith('http')) {
-      return
-    }
-    const normalizedMimeType = String(mimeType ?? '').trim().toLowerCase()
-    if (normalizedMimeType) {
-      if (!normalizedMimeType.startsWith('image/')) {
-        return
-      }
-    } else if (!isLikelyImageUrl(url)) {
-      return
-    }
-    collected.add(url)
-  }
-
-  const collectUrlsFromText = (value: unknown) => {
-    const text = String(value ?? '')
-    if (!text) {
-      return
-    }
-    for (const match of text.matchAll(IMAGE_URL_PATTERN)) {
-      collectUrl(match[0])
-    }
-  }
-
-  if (typeof response === 'string') {
-    collectUrlsFromText(response)
-    return Array.from(collected)
-  }
-
-  if (!response || typeof response !== 'object') {
-    return []
-  }
-
-  const record = response as {
-    publicUrl?: unknown
-    url?: unknown
-    text?: unknown
-    summary?: unknown
-    uploadedImageUrls?: unknown
-    mimeType?: unknown
-    structuredContent?: Record<string, unknown>
-  }
-
-  collectUrl(record.publicUrl, record.mimeType)
-  collectUrl(record.url, record.mimeType)
-  collectUrlsFromText(record.text)
-  collectUrlsFromText(record.summary)
-
-  if (Array.isArray(record.uploadedImageUrls)) {
-    for (const url of record.uploadedImageUrls) {
-      collectUrl(url, record.mimeType)
-    }
-  }
-
-  const structuredContent = record.structuredContent
-  if (structuredContent && typeof structuredContent === 'object') {
-    collectUrl(structuredContent.publicUrl, structuredContent.mimeType)
-    collectUrl(structuredContent.url, structuredContent.mimeType)
-    collectUrlsFromText(structuredContent.text)
-    collectUrlsFromText(structuredContent.summary)
-    if (Array.isArray(structuredContent.uploadedImageUrls)) {
-      for (const url of structuredContent.uploadedImageUrls) {
-        collectUrl(url, structuredContent.mimeType)
-      }
-    }
-  }
-
-  return Array.from(collected)
-}
-
 /**
  * Extract preview content from MCP tool response using SDK schema
  */
@@ -363,21 +284,11 @@ const extractPreviewContent = (response: unknown): ExtractedContent => {
       }
     }
 
-    const extraImageUrls = extractImageUrlsFromUnknown(response)
-    for (const url of extraImageUrls) {
-      if (!images.some((image) => image.kind === 'url' && image.source === url)) {
-        images.push({ source: url, mimeType: 'image/png', kind: 'url' })
-      }
-    }
-
     return { text: textParts.join('\n\n'), images }
   }
 
-  const imageUrls = extractImageUrlsFromUnknown(response)
-  const images = imageUrls.map((url) => ({ source: url, mimeType: 'image/png', kind: 'url' as const }))
-
   // Fallback: return JSON string for unknown format
-  return { text: JSON.stringify(response, null, 2), images }
+  return { text: JSON.stringify(response, null, 2), images: [] }
 }
 
 // Unified tool response content component

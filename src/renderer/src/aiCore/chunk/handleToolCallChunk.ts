@@ -424,96 +424,20 @@ function extractImagesFromToolOutput(output: unknown): string[] {
     return []
   }
 
-  const imageUrls = new Set<string>()
-  const imageUrlPattern = /https?:\/\/[^\s"'`]+/g
-  const imageUrlSuffixPattern = /\.(png|jpe?g|gif|webp|bmp|svg)(?:[?#].*)?$/i
-
-  const isLikelyImageUrl = (url: string) => imageUrlSuffixPattern.test(url)
-
-  const collectImageUrl = (value: unknown, mimeType?: unknown) => {
-    const url = String(value ?? '').trim()
-    if (!url.startsWith('http')) {
-      return
-    }
-    const normalizedMimeType = String(mimeType ?? '').trim().toLowerCase()
-    if (normalizedMimeType) {
-      if (!normalizedMimeType.startsWith('image/')) {
-        return
-      }
-    } else if (!isLikelyImageUrl(url)) {
-      return
-    }
-    imageUrls.add(url)
-  }
-
-  const collectUrlsFromText = (value: unknown) => {
-    const text = String(value ?? '')
-    if (!text) {
-      return
-    }
-    for (const match of text.matchAll(imageUrlPattern)) {
-      collectImageUrl(match[0])
-    }
-  }
-
   const result = CallToolResultSchema.safeParse(output)
   if (result.success) {
     const base64Images = result.data.content
       .filter((c) => c.type === 'image')
       .map((content) => `data:${content.mimeType ?? 'image/png'};base64,${content.data}`)
 
-    for (const content of result.data.content) {
-      if (content.type === 'resource_link' && (content.mimeType || '').startsWith('image/')) {
-        collectImageUrl(content.uri, content.mimeType)
-      }
-      if (content.type === 'text') {
-        collectUrlsFromText(content.text)
-      }
-    }
+    const resourceLinkImages = result.data.content.flatMap((content) => (
+      content.type === 'resource_link' && (content.mimeType || '').startsWith('image/')
+        ? [content.uri]
+        : []
+    ))
 
-    return [...base64Images, ...imageUrls]
+    return [...base64Images, ...resourceLinkImages]
   }
 
-  if (typeof output === 'string') {
-    collectUrlsFromText(output)
-    return Array.from(imageUrls)
-  }
-
-  if (typeof output === 'object' && output !== null) {
-    const record = output as {
-      publicUrl?: unknown
-      url?: unknown
-      text?: unknown
-      summary?: unknown
-      uploadedImageUrls?: unknown
-      mimeType?: unknown
-      structuredContent?: Record<string, unknown>
-    }
-
-    collectImageUrl(record.publicUrl, record.mimeType)
-    collectImageUrl(record.url, record.mimeType)
-    collectUrlsFromText(record.text)
-    collectUrlsFromText(record.summary)
-
-    if (Array.isArray(record.uploadedImageUrls)) {
-      for (const url of record.uploadedImageUrls) {
-        collectImageUrl(url, record.mimeType)
-      }
-    }
-
-    const structuredContent = record.structuredContent
-    if (structuredContent && typeof structuredContent === 'object') {
-      collectImageUrl(structuredContent.publicUrl, structuredContent.mimeType)
-      collectImageUrl(structuredContent.url, structuredContent.mimeType)
-      collectUrlsFromText(structuredContent.text)
-      collectUrlsFromText(structuredContent.summary)
-      if (Array.isArray(structuredContent.uploadedImageUrls)) {
-        for (const url of structuredContent.uploadedImageUrls) {
-          collectImageUrl(url, structuredContent.mimeType)
-        }
-      }
-    }
-  }
-
-  return Array.from(imageUrls)
+  return []
 }
