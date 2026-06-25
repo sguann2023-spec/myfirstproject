@@ -1,30 +1,35 @@
 // SettingPage.jsx
-import { useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import './SettingPage.css';
 
+import AccountSecurityIcon from '../../../public/account_security.svg';
 import GeneralSettingIcon from '../../../public/settings_general.png';
 import PrivacyIcon from '../../../public/privacy.svg';
-import { InfoCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import GeneralSettings from '../../components/GeneralSettings/GeneralSettings';
-import AccountSecurity from '../../components/AccountSecurity/AccountSecurity';
-import AboutUs from '../../components/AboutUs/AboutUs';
-import PolicyAgreement from '../../components/PolicyAgreement/PolicyAgreement';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('SettingPage');
+const GeneralSettings = lazy(() => import('../../components/GeneralSettings/GeneralSettings'));
+const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
+const AboutUs = lazy(() => import('../../components/AboutUs/AboutUs'));
+const PolicyAgreement = lazy(() => import('../../components/PolicyAgreement/PolicyAgreement'));
 
 // 菜单项数据
 const settingMenuItems = [
+  { key: 'account-security', icon: <img src={AccountSecurityIcon} alt="Account Security" className="setting-icon" />, title: '账号与安全', component: AccountSecurity },
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
   { key: 'about', icon: <InfoCircleOutlined />, title: '关于流光剪辑', component: AboutUs },
-  { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement },
-  { key: 'account-security', icon: <SafetyCertificateOutlined />, title: '账号与安全', component: AccountSecurity }
+  { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement }
 ];
 
 const SettingPage = () => {
-  // 默认选中 'general'
-  const [selectedKey, setSelectedKey] = useState('general');
+  // 默认选中 'account-security'
+  const [selectedKey, setSelectedKey] = useState('account-security');
   const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
   logger.debug('settingPage');
+
+  useEffect(() => {
+    document.getElementById('spinner')?.remove();
+  }, []);
 
   const handleWinCtrl = (action) => {
     try {
@@ -93,7 +98,9 @@ const SettingPage = () => {
                 {settingMenuItems.find(item => item.key === selectedKey)?.title || '通用'}
                 </div>
                 <div className="setting-content-body">
-                <SelectedComponent />
+                <Suspense fallback={<div className="setting-content-loading">加载中...</div>}>
+                  <SelectedComponent />
+                </Suspense>
                 </div>
             </div>
         </div>

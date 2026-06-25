@@ -17,30 +17,30 @@
 }
 
 .account-security-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 8px 14px 20px;
+  padding: 14px 12px 14px 20px;
   border-radius: 12px;
   background: #fff;
-}
-
-.account-security-desc {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .account-security-label {
   font-size: 14px;
   color: #333;
+  flex: 0 0 auto;
 }
 
 .account-security-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 60px;
   font-size: 13px;
   color: #909090;
   letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .account-security-value.empty {
@@ -48,12 +48,12 @@
 }
 
 .account-security-button {
+  flex: 0 0 auto;
   padding: 4px 10px;
   border: 1px solid #d9d9dc;
   background: #fff;
   color: #000;
   font-size: 12px;
-  margin-right: 12px;
   border-radius: 20px;
   cursor: pointer;
 }

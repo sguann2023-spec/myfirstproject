@@ -36,8 +36,12 @@ const GeneralSettings = () => {
     const presetFallback = electronStore?.get('presetFolder', '') || '';
     setPresetFolder(presetFallback);
     ipcInvoke('get-draft-folder')
-      .then(({ draftFolder }) => setDraftFolder(draftFolder || draftFallback))
-      .catch(() => setDraftFolder(draftFallback));
+      .then(({ draftFolder }) => {
+        setDraftFolder(draftFolder || draftFallback);
+      })
+      .catch(() => {
+        setDraftFolder(draftFallback);
+      });
   }, []);
 
   const handleChangeDraftFolder = async () => {

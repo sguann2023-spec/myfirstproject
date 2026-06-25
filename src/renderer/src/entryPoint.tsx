@@ -15,12 +15,12 @@ const view = new URLSearchParams(window.location.search).get('view')
 
 async function bootstrap() {
   if (view === 'settings') {
-    const { default: SettingPage } = await import('../../page/SettingPage/SettingPage.jsx')
+    const { default: SettingPage } = await import('../../page/SettingPage/SettingPage.jsx');
     root.render(
       <ConfigProvider>
         <SettingPage />
       </ConfigProvider>
-    )
+    );
     return
   }
 

@@ -5,21 +5,15 @@ import { electronStore } from '../../shared/electronStore';
 import {
   ensureVectcutApiKeyForCurrentSession,
   getCachedVectcutApiKey,
-  getCurrentVectcutUserId,
   getVectcutSessionSignature,
   persistVectcutApiKey,
 } from '../../auth/vectcutApiKey';
-
-function maskApiKey(apiKey) {
-  if (!apiKey) {
-    return '未登录';
-  }
-  return '••••••••••••••••';
-}
+import { maskApiKey } from '@renderer/utils/api';
 
 const AccountSecurity = () => {
   const [apiKey, setApiKey] = useState(() => getCachedVectcutApiKey());
-  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [sessionSignature, setSessionSignature] = useState(() => getVectcutSessionSignature());
 
   useEffect(() => {
@@ -32,6 +26,7 @@ const AccountSecurity = () => {
       if (!nextSessionSignature) {
         persistVectcutApiKey('');
         setApiKey('');
+        setSyncing(false);
         return;
       }
 
@@ -39,10 +34,11 @@ const AccountSecurity = () => {
       setApiKey(cachedApiKey);
 
       if (cachedApiKey) {
+        setSyncing(false);
         return;
       }
 
-      setLoading(true);
+      setSyncing(true);
       try {
         const nextApiKey = await ensureVectcutApiKeyForCurrentSession();
         if (!disposed) {
@@ -50,7 +46,7 @@ const AccountSecurity = () => {
         }
       } finally {
         if (!disposed) {
-          setLoading(false);
+          setSyncing(false);
         }
       }
     };
@@ -88,51 +84,41 @@ const AccountSecurity = () => {
     };
   }, []);
 
-  const handleCopy = async () => {
-    const currentSessionSignature = getVectcutSessionSignature();
-    const currentUserId = getCurrentVectcutUserId();
+  const isLoggedIn = Boolean(sessionSignature);
+  const canCopy = Boolean(isLoggedIn && apiKey && !copying);
+  const displayValue = apiKey
+    ? maskApiKey(apiKey)
+    : syncing
+      ? '正在同步...'
+      : isLoggedIn
+        ? '未获取到 API KEY'
+        : '未登录';
 
-    if (!currentSessionSignature || !currentUserId) {
-      message.warning('请先登录账号');
+  const handleCopy = async () => {
+    if (!apiKey) {
+      message.warning('未获取到 API_KEY');
       return;
     }
 
-    setLoading(true);
+    setCopying(true);
     try {
-      const latestApiKey = await ensureVectcutApiKeyForCurrentSession();
-      if (!latestApiKey) {
-        message.error('获取 API_KEY 失败，请稍后重试');
-        return;
-      }
-      await navigator.clipboard.writeText(latestApiKey);
-      setApiKey(latestApiKey);
+      await navigator.clipboard.writeText(apiKey);
       message.success('API_KEY 已复制');
     } catch {
       message.error('复制失败，请稍后重试');
     } finally {
-      setLoading(false);
+      setCopying(false);
     }
   };
-
-  const isLoggedIn = Boolean(sessionSignature);
 
   return (
     <div className="account-security">
       <div className="account-security-section">
         <div className="account-security-row">
-          <div className="account-security-desc">
-            <div className="account-security-label">我的API KEY</div>
-            <div className={`account-security-value ${!apiKey ? 'empty' : ''}`}>
-              {loading ? '正在同步...' : maskApiKey(apiKey)}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="account-security-button"
-            onClick={handleCopy}
-            disabled={loading || !isLoggedIn}
-          >
-            {loading ? '复制中...' : '复制'}
+          <div className="account-security-label">我的API KEY</div>
+          <div className={`account-security-value ${!apiKey ? 'empty' : ''}`}>{displayValue}</div>
+          <button type="button" className="account-security-button" onClick={handleCopy} disabled={!canCopy}>
+            复制
           </button>
         </div>
       </div>
