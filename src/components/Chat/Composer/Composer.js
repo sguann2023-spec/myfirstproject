@@ -2753,6 +2753,9 @@ const Composer = ({
       images: imagePayloads,
       imageAttachmentPreviews
     });
+    if (activeTool) {
+      setActiveTool(null);
+    }
     setUploadFileList([]);
     setUploadedFileMeta((prev) => {
       prev.forEach((item) => {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { DownOutlined } from '@ant-design/icons';
-import { Dropdown, Tooltip, message } from 'antd';
+import { Dropdown, Select, Tooltip, message } from 'antd';
 import VirtualList from 'rc-virtual-list';
 import {
   addVoiceFavorite,
@@ -9,6 +9,7 @@ import {
   getVoiceFavoritesLibrary,
   getMyVoiceLibrary,
   getVoiceLibrary,
+  getVoiceLibraryFilterOptions,
   removeVoiceFavorite,
 } from '../../../../api/tts';
 import { isMemberVoiceProvider, normalizeMemberProvider } from '../../../../constants/member';
@@ -17,17 +18,37 @@ import './index.css';
 import VoiceCollectIcon from '../../../../../public/voice_collect.svg';
 import MyVoiceIcon from '../../../../../public/my_voice.svg';
 import VoiceLibIcon from '../../../../../public/voice_lib.svg';
+import VoicePlaceholderIcon from '../../../../../public/voice.svg';
 
 const VOICE_LIBRARY_LIMIT = 24;
 const VOICE_LIBRARY_INITIAL_OFFSET = 24;
 const VOICE_FAVORITES_INITIAL_OFFSET = 0;
 const VOICE_MY_LIBRARY_INITIAL_OFFSET = 0;
 const VOICE_LIBRARY_LIST_HEIGHT = 290;
+const VOICE_LIBRARY_FILTER_BAR_HEIGHT = 48;
 const VOICE_LIBRARY_ITEM_HEIGHT = 42;
 const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item';
 export const VOICE_TAB_ALL = 'all';
 export const VOICE_TAB_FAVORITES = 'favorites';
 export const VOICE_TAB_MY = 'my';
+const DEFAULT_VOICE_LIBRARY_FILTERS = {
+  provider: undefined,
+  gender: undefined,
+  language: undefined,
+};
+const DEFAULT_VOICE_LIBRARY_FILTER_OPTIONS = {
+  providerOptions: [],
+  genderOptions: [],
+  languageOptions: [],
+};
+const VOICE_PROVIDER_LABEL_MAP = {
+  volc: '豆包',
+};
+const VOICE_GENDER_LABEL_MAP = {
+  female: '女',
+  male: '男',
+  unknown: '未知',
+};
 const createVoiceLoadTracker = () => ({
   [VOICE_TAB_ALL]: {
     activeRequestId: '',
@@ -47,8 +68,7 @@ const createVoiceLoadTracker = () => ({
 });
 
 export const DEFAULT_SELECTED_VOICE_LIBRARY_ITEM = {
-  avatar_url:
-    'https://player.install-ai-guider.top/tts/avatar/source_5_r3_c1.png?OSSAccessKeyId=LTAI5t6GK97EdxsFqDT25U2j&Expires=1780818178&Signature=hxbnLNQrJHmJ61N8BzIgtQE2HNI%3D',
+  avatar_url: VoicePlaceholderIcon,
   gender: 'Male',
   global_voice_id: 'gv_9116b98cc83e4205b66653d16656c680',
   language: 'zh',
@@ -57,8 +77,7 @@ export const DEFAULT_SELECTED_VOICE_LIBRARY_ITEM = {
   readable_language: '中文',
   style: null,
   title: '男1',
-  try_listen_url:
-    'https://player.install-ai-guider.top/tts/try_listen/fish/tmp66jib31v.mp3?OSSAccessKeyId=LTAI5t6GK97EdxsFqDT25U2j&Expires=1780818178&Signature=5MiQ0R%2F2mMdCMiVq%2FIySKXcE0YE%3D',
+  try_listen_url: '',
   updated_at: 'Fri, 03 Apr 2026 00:53:59 GMT',
   voice_persona_desc: '沉稳磁性的男声，语速悠缓自然，语气中流露出对生活的感悟与温情，极具亲和力与治愈感。',
   voice_persona_tags: '情感阅读,有声阅读,陪聊,故事讲述',
@@ -199,6 +218,24 @@ const getVoiceInitialOffsetByTab = (tab) => {
   return VOICE_LIBRARY_INITIAL_OFFSET;
 };
 
+const getVoiceLibraryListHeight = (tab) =>
+  (tab === VOICE_TAB_ALL ? VOICE_LIBRARY_LIST_HEIGHT - VOICE_LIBRARY_FILTER_BAR_HEIGHT : VOICE_LIBRARY_LIST_HEIGHT);
+
+const normalizeVoiceLibraryFilterValue = (value, lowercase = false) => {
+  const text = String(value || '').trim();
+  if (!text) return undefined;
+  return lowercase ? text.toLowerCase() : text;
+};
+
+const normalizeVoiceLibraryFilters = (filters = {}) => ({
+  provider: normalizeVoiceLibraryFilterValue(filters?.provider, true),
+  gender: normalizeVoiceLibraryFilterValue(filters?.gender, false),
+  language: normalizeVoiceLibraryFilterValue(filters?.language, true),
+});
+
+const buildVoiceLibraryFilterSignature = (filters = {}) =>
+  JSON.stringify(normalizeVoiceLibraryFilters(filters));
+
 const normalizePersistedVoiceItem = (item) => {
   const normalizedId = String(item?.global_voice_id || '').trim();
   if (!normalizedId) return null;
@@ -239,6 +276,9 @@ export const getInitialSelectedVoiceLibraryItem = () =>
 export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const initialSelectedVoiceLibraryItemRef = React.useRef(getInitialSelectedVoiceLibraryItem());
   const loadTrackerRef = React.useRef(createVoiceLoadTracker());
+  const allVoiceFiltersRef = React.useRef(normalizeVoiceLibraryFilters(DEFAULT_VOICE_LIBRARY_FILTERS));
+  const allVoiceFilterSignatureRef = React.useRef(buildVoiceLibraryFilterSignature(DEFAULT_VOICE_LIBRARY_FILTERS));
+  const filterOptionsRequestIdRef = React.useRef('');
   const [activeVoiceTab, setActiveVoiceTab] = React.useState(VOICE_TAB_ALL);
   const [voiceLibraryOpen, setVoiceLibraryOpen] = React.useState(false);
   const [allVoiceState, setAllVoiceState] = React.useState(() => createVoiceListState(VOICE_LIBRARY_INITIAL_OFFSET));
@@ -252,6 +292,17 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const [playingVoiceId, setPlayingVoiceId] = React.useState('');
   const [favoritePendingIds, setFavoritePendingIds] = React.useState([]);
   const [deletePendingIds, setDeletePendingIds] = React.useState([]);
+  const [voiceLibraryFilters, setVoiceLibraryFilters] = React.useState(() =>
+    normalizeVoiceLibraryFilters(DEFAULT_VOICE_LIBRARY_FILTERS)
+  );
+  const [voiceLibraryFilterOptions, setVoiceLibraryFilterOptions] = React.useState(
+    DEFAULT_VOICE_LIBRARY_FILTER_OPTIONS
+  );
+  const [voiceLibraryFilterOptionsLoading, setVoiceLibraryFilterOptionsLoading] = React.useState(false);
+  const allVoiceFilterSignature = React.useMemo(
+    () => buildVoiceLibraryFilterSignature(voiceLibraryFilters),
+    [voiceLibraryFilters]
+  );
 
   const currentVoiceState = React.useMemo(() => {
     if (activeVoiceTab === VOICE_TAB_FAVORITES) return favoriteVoiceState;
@@ -282,6 +333,11 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const deletePendingIdSet = React.useMemo(() => new Set(deletePendingIds), [deletePendingIds]);
 
   React.useEffect(() => {
+    allVoiceFiltersRef.current = voiceLibraryFilters;
+    allVoiceFilterSignatureRef.current = allVoiceFilterSignature;
+  }, [allVoiceFilterSignature, voiceLibraryFilters]);
+
+  React.useEffect(() => {
     if (selectedVoiceLibraryItem) {
       persistSelectedVoiceLibraryItem(selectedVoiceLibraryItem);
     }
@@ -309,6 +365,23 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     const normalizedId = String(voiceId || '').trim();
     if (!normalizedId) return;
     setPlayingVoiceId((prev) => (prev === normalizedId ? '' : prev));
+  }, []);
+
+  const handleVoiceLibraryFilterChange = React.useCallback((key, value) => {
+    setVoiceLibraryFilters((prev) => {
+      const nextFilters = normalizeVoiceLibraryFilters({
+        ...prev,
+        [key]: value,
+      });
+      if (
+        prev.provider === nextFilters.provider &&
+        prev.gender === nextFilters.gender &&
+        prev.language === nextFilters.language
+      ) {
+        return prev;
+      }
+      return nextFilters;
+    });
   }, []);
 
   const handleVoiceSelect = React.useCallback((voiceId, item = null, sourceTab = '') => {
@@ -406,10 +479,13 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const loadVoicePage = React.useCallback(async (tab, { append = false, offset } = {}) => {
     const isFavoritesTab = tab === VOICE_TAB_FAVORITES;
     const isMyVoiceTab = tab === VOICE_TAB_MY;
+    const isAllTab = tab === VOICE_TAB_ALL;
     const initialOffset = getVoiceInitialOffsetByTab(tab);
     const targetOffset = typeof offset === 'number' ? offset : initialOffset;
     const setVoiceState = isFavoritesTab ? setFavoriteVoiceState : isMyVoiceTab ? setMyVoiceState : setAllVoiceState;
     const tabLoadTracker = loadTrackerRef.current[tab];
+    const allTabFilters = allVoiceFiltersRef.current;
+    const requestFilterSignature = isAllTab ? buildVoiceLibraryFilterSignature(allTabFilters) : '';
 
     if (tabLoadTracker?.activeRequestId) {
       return;
@@ -448,10 +524,16 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
               only_active: true,
               limit: VOICE_LIBRARY_LIMIT,
               offset: targetOffset,
+              provider: allTabFilters.provider,
+              gender: allTabFilters.gender,
+              language: allTabFilters.language,
             });
 
       if (!result?.success) {
         if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
+          return;
+        }
+        if (isAllTab && allVoiceFilterSignatureRef.current !== requestFilterSignature) {
           return;
         }
         setVoiceState((prev) => ({
@@ -500,6 +582,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
         return;
       }
+      if (isAllTab && allVoiceFilterSignatureRef.current !== requestFilterSignature) {
+        return;
+      }
       setVoiceState((prev) => ({
         ...prev,
         initialized: true,
@@ -517,6 +602,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
         return;
       }
+      if (isAllTab && allVoiceFilterSignatureRef.current !== requestFilterSignature) {
+        return;
+      }
       setVoiceState((prev) => ({
         ...prev,
         initialized: true,
@@ -532,6 +620,81 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       }
     }
   }, []);
+
+  React.useEffect(() => {
+    loadTrackerRef.current[VOICE_TAB_ALL].activeRequestId = '';
+    loadTrackerRef.current[VOICE_TAB_ALL].activeOffset = null;
+    loadTrackerRef.current[VOICE_TAB_ALL].latestRequestId = '';
+    setAllVoiceState(createVoiceListState(VOICE_LIBRARY_INITIAL_OFFSET));
+  }, [allVoiceFilterSignature]);
+
+  React.useEffect(() => {
+    if (!voiceLibraryOpen || activeVoiceTab !== VOICE_TAB_ALL) {
+      return undefined;
+    }
+
+    const requestId = createVoiceLoadRequestId('voice-filter-options', Date.now());
+    filterOptionsRequestIdRef.current = requestId;
+    setVoiceLibraryFilterOptionsLoading(true);
+
+    const loadFilterOptions = async () => {
+      try {
+        const result = await getVoiceLibraryFilterOptions({
+          provider: voiceLibraryFilters.provider,
+          gender: voiceLibraryFilters.gender,
+          language: voiceLibraryFilters.language,
+          only_active: true,
+        });
+
+        if (filterOptionsRequestIdRef.current !== requestId) return;
+        if (!result?.success) {
+          throw new Error(result?.error || '加载筛选项失败');
+        }
+
+        const rawProviderOptions = Array.isArray(result?.options?.provider) ? result.options.provider : [];
+        const rawGenderOptions = Array.isArray(result?.options?.gender) ? result.options.gender : [];
+        const rawLanguageOptions = Array.isArray(result?.options?.language) ? result.options.language : [];
+        const readableLanguageMap =
+          result?.readable_language && typeof result.readable_language === 'object'
+            ? result.readable_language
+            : {};
+
+        setVoiceLibraryFilterOptions({
+          providerOptions: rawProviderOptions
+            .map((value) => normalizeVoiceLibraryFilterValue(value, true))
+            .filter(Boolean)
+            .map((value) => ({
+              label: VOICE_PROVIDER_LABEL_MAP[String(value).toLowerCase()] || value,
+              value,
+            })),
+          genderOptions: rawGenderOptions
+            .map((value) => normalizeVoiceLibraryFilterValue(value, false))
+            .filter(Boolean)
+            .map((value) => ({
+              label: VOICE_GENDER_LABEL_MAP[String(value).toLowerCase()] || value,
+              value,
+            })),
+          languageOptions: rawLanguageOptions
+            .map((value) => normalizeVoiceLibraryFilterValue(value, true))
+            .filter(Boolean)
+            .map((value) => ({
+              label: readableLanguageMap[value] || value,
+              value,
+            })),
+        });
+      } catch (error) {
+        if (filterOptionsRequestIdRef.current !== requestId) return;
+        setVoiceLibraryFilterOptions(DEFAULT_VOICE_LIBRARY_FILTER_OPTIONS);
+      } finally {
+        if (filterOptionsRequestIdRef.current === requestId) {
+          setVoiceLibraryFilterOptionsLoading(false);
+        }
+      }
+    };
+
+    void loadFilterOptions();
+    return undefined;
+  }, [activeVoiceTab, voiceLibraryFilters, voiceLibraryOpen]);
 
   const handleToggleFavorite = React.useCallback(
     async (item) => {
@@ -752,6 +915,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     deletePendingIdSet,
     favoritePendingIdSet,
     handleDeleteMyVoice,
+    handleVoiceLibraryFilterChange,
     handlePreviewEnd,
     handlePreviewToggle,
     handleToggleFavorite,
@@ -766,6 +930,9 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     setActiveVoiceTab,
     setSelectedVoiceLibraryId: handleVoiceSelect,
     upsertMyVoiceItem,
+    voiceLibraryFilterOptions,
+    voiceLibraryFilterOptionsLoading,
+    voiceLibraryFilters,
     voiceLibraryOpen,
   };
 };
@@ -787,6 +954,7 @@ const VoiceLib = ({
     deletePendingIdSet,
     favoritePendingIdSet,
     handleDeleteMyVoice,
+    handleVoiceLibraryFilterChange,
     handlePreviewEnd,
     handlePreviewToggle,
     handleToggleFavorite,
@@ -799,8 +967,12 @@ const VoiceLib = ({
     selectedVoiceLibraryId,
     selectedVoiceLibraryItem,
     setActiveVoiceTab,
+    voiceLibraryFilterOptions,
+    voiceLibraryFilterOptionsLoading,
+    voiceLibraryFilters,
     voiceLibraryOpen,
   } = controller;
+  const voiceLibraryListHeight = getVoiceLibraryListHeight(activeVoiceTab);
 
   const emptyText =
     activeVoiceTab === VOICE_TAB_FAVORITES
@@ -821,19 +993,28 @@ const VoiceLib = ({
 
     if (currentVoiceState.loading && currentVoiceState.items.length === 0) {
       content = (
-        <div className="chat-panel__voice-library-content chat-panel__voice-library-content--center">
+        <div
+          className="chat-panel__voice-library-content chat-panel__voice-library-content--center"
+          style={{ height: `${voiceLibraryListHeight}px` }}
+        >
           <div className="chat-panel__voice-library-hint">加载中...</div>
         </div>
       );
     } else if (currentVoiceState.error) {
       content = (
-        <div className="chat-panel__voice-library-content chat-panel__voice-library-content--center">
+        <div
+          className="chat-panel__voice-library-content chat-panel__voice-library-content--center"
+          style={{ height: `${voiceLibraryListHeight}px` }}
+        >
           <div className="chat-panel__voice-library-hint error">{currentVoiceState.error}</div>
         </div>
       );
     } else if (currentVoiceState.items.length === 0) {
       content = (
-        <div className="chat-panel__voice-library-content chat-panel__voice-library-content--center">
+        <div
+          className="chat-panel__voice-library-content chat-panel__voice-library-content--center"
+          style={{ height: `${voiceLibraryListHeight}px` }}
+        >
           <div className="chat-panel__voice-library-hint">{emptyText}</div>
         </div>
       );
@@ -843,7 +1024,7 @@ const VoiceLib = ({
           <VirtualList
             className="chat-panel__voice-library-list"
             data={currentVoiceState.items}
-            height={VOICE_LIBRARY_LIST_HEIGHT}
+            height={voiceLibraryListHeight}
             itemHeight={VOICE_LIBRARY_ITEM_HEIGHT}
             itemKey={(item, index) => getVoiceRenderKey(item, index)}
             onScroll={handleVoiceLibraryScroll}
@@ -907,6 +1088,51 @@ const VoiceLib = ({
 
     return (
       <div className="chat-panel__voice-library-popup">
+        {activeVoiceTab === VOICE_TAB_ALL ? (
+          <div
+            className="chat-panel__voice-library-filters"
+            onMouseDown={(event) => {
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <Select
+              size="small"
+              allowClear
+              placeholder="供应商"
+              className="chat-panel__voice-library-filter"
+              value={voiceLibraryFilters.provider}
+              loading={voiceLibraryFilterOptionsLoading}
+              options={voiceLibraryFilterOptions.providerOptions}
+              onChange={(value) => handleVoiceLibraryFilterChange('provider', value)}
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+            />
+            <Select
+              size="small"
+              allowClear
+              placeholder="性别"
+              className="chat-panel__voice-library-filter"
+              value={voiceLibraryFilters.gender}
+              loading={voiceLibraryFilterOptionsLoading}
+              options={voiceLibraryFilterOptions.genderOptions}
+              onChange={(value) => handleVoiceLibraryFilterChange('gender', value)}
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+            />
+            <Select
+              size="small"
+              allowClear
+              placeholder="语言"
+              className="chat-panel__voice-library-filter"
+              value={voiceLibraryFilters.language}
+              loading={voiceLibraryFilterOptionsLoading}
+              options={voiceLibraryFilterOptions.languageOptions}
+              onChange={(value) => handleVoiceLibraryFilterChange('language', value)}
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+            />
+          </div>
+        ) : null}
         {content}
         <div className="chat-panel__voice-library-tabs">
           <Tooltip title="全部音色">
@@ -979,12 +1205,17 @@ const VoiceLib = ({
     handlePreviewEnd,
     handlePreviewToggle,
     handleToggleFavorite,
+    handleVoiceLibraryFilterChange,
     handleVoiceLibraryScroll,
     handleVoiceSelect,
     hasMoreVoiceLibraryItems,
     playingVoiceId,
     selectedVoiceLibraryId,
     setActiveVoiceTab,
+    voiceLibraryFilterOptions,
+    voiceLibraryFilterOptionsLoading,
+    voiceLibraryFilters,
+    voiceLibraryListHeight,
   ]);
 
   const triggerTitle = selectedVoiceLibraryItem?.title || label;

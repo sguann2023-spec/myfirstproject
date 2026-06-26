@@ -81,6 +81,41 @@
   justify-content: center;
 }
 
+.chat-panel__voice-library-filters {
+  display: flex;
+  gap: 8px;
+  padding: 8px 8px 0;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.chat-panel__voice-library-filter {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.chat-panel__voice-library-filter .ant-select-selector {
+  height: 24px !important;
+  border-radius: 4px !important;
+  border-color: #e1e1e1 !important;
+  box-shadow: none !important;
+}
+
+.chat-panel__voice-library-filter.ant-select-single.ant-select-sm .ant-select-selector {
+  padding: 0 10px !important;
+}
+
+.chat-panel__voice-library-filter.ant-select-single .ant-select-selector .ant-select-selection-search,
+.chat-panel__voice-library-filter.ant-select-single .ant-select-selector .ant-select-selection-item,
+.chat-panel__voice-library-filter.ant-select-single .ant-select-selector .ant-select-selection-placeholder {
+  line-height: 30px !important;
+}
+
+.chat-panel__voice-library-filter.ant-select-focused .ant-select-selector,
+.chat-panel__voice-library-filter:hover .ant-select-selector {
+  border-color: #e1e1e1 !important;
+}
+
 .chat-panel__voice-library-list {
   overflow: auto;
   scrollbar-width: thin;

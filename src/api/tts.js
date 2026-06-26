@@ -7,15 +7,42 @@ export async function getVoiceLibrary({
   only_active = true,
   limit = 24,
   offset = 24,
+  provider,
+  gender,
+  language,
 } = {}) {
-  const qs = new URLSearchParams({
+  const params = {
     sort_type: String(sort_type),
     only_active: String(only_active),
     limit: String(limit),
     offset: String(offset),
-  }).toString();
+  };
+
+  if (provider) params.provider = String(provider);
+  if (gender) params.gender = String(gender);
+  if (language) params.language = String(language);
+
+  const qs = new URLSearchParams(params).toString();
 
   return http.getJson(`${BASE_URL}/llm/tts/voice_library?${qs}`);
+}
+
+export async function getVoiceLibraryFilterOptions({
+  provider,
+  gender,
+  language,
+  only_active = true,
+} = {}) {
+  const params = {
+    only_active: String(only_active),
+  };
+
+  if (provider) params.provider = String(provider);
+  if (gender) params.gender = String(gender);
+  if (language) params.language = String(language);
+
+  const qs = new URLSearchParams(params).toString();
+  return http.getJson(`${BASE_URL}/llm/tts/voice_library/filter_options?${qs}`);
 }
 
 export async function getVoiceFavoritesLibrary({
