@@ -8,6 +8,13 @@ const isDev = process.env.NODE_ENV === 'development'
 
 export default defineConfig({
   main: {
+    define: {
+      'process.env.FEEDBACK_SMTP_HOST': JSON.stringify(process.env.FEEDBACK_SMTP_HOST || ''),
+      'process.env.FEEDBACK_SMTP_PORT': JSON.stringify(process.env.FEEDBACK_SMTP_PORT || ''),
+      'process.env.FEEDBACK_SMTP_USER': JSON.stringify(process.env.FEEDBACK_SMTP_USER || ''),
+      'process.env.FEEDBACK_SMTP_PASS': JSON.stringify(process.env.FEEDBACK_SMTP_PASS || ''),
+      'process.env.FEEDBACK_TO_EMAIL': JSON.stringify(process.env.FEEDBACK_TO_EMAIL || '')
+    },
     resolve: {
       alias: {
         '@main': resolve('src/main'),

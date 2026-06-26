@@ -95,6 +95,11 @@ jobs:
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          FEEDBACK_SMTP_HOST: ${{ secrets.FEEDBACK_SMTP_HOST }}
+          FEEDBACK_SMTP_PORT: ${{ secrets.FEEDBACK_SMTP_PORT }}
+          FEEDBACK_SMTP_USER: ${{ secrets.FEEDBACK_SMTP_USER }}
+          FEEDBACK_SMTP_PASS: ${{ secrets.FEEDBACK_SMTP_PASS }}
+          FEEDBACK_TO_EMAIL: ${{ secrets.FEEDBACK_TO_EMAIL }}
 
       - name: Sign and notarize macOS artifacts
         timeout-minutes: 80
@@ -349,6 +354,11 @@ jobs:
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          FEEDBACK_SMTP_HOST: ${{ secrets.FEEDBACK_SMTP_HOST }}
+          FEEDBACK_SMTP_PORT: ${{ secrets.FEEDBACK_SMTP_PORT }}
+          FEEDBACK_SMTP_USER: ${{ secrets.FEEDBACK_SMTP_USER }}
+          FEEDBACK_SMTP_PASS: ${{ secrets.FEEDBACK_SMTP_PASS }}
+          FEEDBACK_TO_EMAIL: ${{ secrets.FEEDBACK_TO_EMAIL }}
 
       - name: Sign and notarize macOS artifacts
         timeout-minutes: 80
@@ -581,6 +591,11 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          FEEDBACK_SMTP_HOST: ${{ secrets.FEEDBACK_SMTP_HOST }}
+          FEEDBACK_SMTP_PORT: ${{ secrets.FEEDBACK_SMTP_PORT }}
+          FEEDBACK_SMTP_USER: ${{ secrets.FEEDBACK_SMTP_USER }}
+          FEEDBACK_SMTP_PASS: ${{ secrets.FEEDBACK_SMTP_PASS }}
+          FEEDBACK_TO_EMAIL: ${{ secrets.FEEDBACK_TO_EMAIL }}
 
       - name: Download EVSign CLI
         shell: powershell

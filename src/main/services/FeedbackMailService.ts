@@ -7,11 +7,11 @@ import path from 'path'
 
 const logger = loggerService.withContext('FeedbackMailService')
 
-const SMTP_HOST = 'smtp.qq.com'
-const SMTP_PORT = 465
-const SMTP_USER = 'sguann@qq.com'
-const SMTP_PASS = 'nvfnwtchhzgibbcj'
-const FEEDBACK_TO = 'sguann@qq.com'
+const SMTP_HOST = process.env.FEEDBACK_SMTP_HOST || 'smtp.qq.com'
+const SMTP_PORT = Number(process.env.FEEDBACK_SMTP_PORT || '465')
+const SMTP_USER = process.env.FEEDBACK_SMTP_USER || ''
+const SMTP_PASS = process.env.FEEDBACK_SMTP_PASS || ''
+const FEEDBACK_TO = process.env.FEEDBACK_TO_EMAIL || SMTP_USER
 
 export type FeedbackMailAttachment = {
   filename: string
@@ -33,20 +33,26 @@ export type FeedbackMailPayload = {
 }
 
 class FeedbackMailService {
-  private transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: true,
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS
-    }
-  })
+  private createTransporter() {
+    return nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS
+      }
+    })
+  }
 
   public async sendFeedbackMail(payload: FeedbackMailPayload): Promise<void> {
     const message = String(payload.message || '').trim()
     if (!message) {
       throw new Error('反馈内容不能为空')
+    }
+
+    if (!SMTP_USER || !SMTP_PASS || !FEEDBACK_TO) {
+      throw new Error('反馈邮箱未配置，请检查 FEEDBACK_SMTP_USER / FEEDBACK_SMTP_PASS / FEEDBACK_TO_EMAIL')
     }
 
     const subjectParts = ['流光剪辑反馈']
@@ -72,7 +78,7 @@ class FeedbackMailService {
       attachments.push(logsZipAttachment)
     }
 
-    await this.transporter.sendMail({
+    await this.createTransporter().sendMail({
       from: `"流光剪辑反馈" <${SMTP_USER}>`,
       to: FEEDBACK_TO,
       subject: subjectParts.map((part) => `[${part}]`).join(''),
