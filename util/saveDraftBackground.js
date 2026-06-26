@@ -727,9 +727,9 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     if (downloadTasks.length > 0) {
       logger.info(`开始并发下载 ${downloadTasks.length} 个文件...`);
       
-      // 使用Promise.all并发下载，最大并发数为16
+      // 使用Promise.all并发下载，最大并发数为4
       // 这里简化处理，实际可能需要更复杂的并发控制
-      const batchSize = 16;
+      const batchSize = 4;
       const batches = [];
       
       for (let i = 0; i < downloadTasks.length; i += batchSize) {
