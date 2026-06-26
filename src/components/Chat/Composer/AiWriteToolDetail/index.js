@@ -71,7 +71,7 @@ const AiWriteToolDetail = ({
           onOpenChange={setPickerOpen}
           disabled={disabled}
           popupMatchSelectWidth={false}
-          getPopupContainer={(trigger) => trigger.parentElement}
+          getPopupContainer={() => document.body}
           optionRender={(option) => {
             const isSelected = option.data.value === selectedPresetId;
             return (

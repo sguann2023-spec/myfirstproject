@@ -1182,7 +1182,7 @@ const VoiceSquareToolDetail = ({
                         overlayClassName="chat-panel__clone-avatar-dropdown"
                         open={cloneAvatarDropdownOpen}
                         onOpenChange={setCloneAvatarDropdownOpen}
-                        getPopupContainer={(trigger) => trigger.parentElement}
+                        getPopupContainer={() => document.body}
                       >
                         <button
                           type="button"
@@ -1349,7 +1349,7 @@ const VoiceSquareToolDetail = ({
                         options={VOICE_CLONE_PROVIDER_OPTIONS}
                         variant="borderless"
                         popupMatchSelectWidth={false}
-                        getPopupContainer={(trigger) => trigger.parentElement}
+                        getPopupContainer={() => document.body}
                       />
                       <span>复刻音色</span>
                     </div>

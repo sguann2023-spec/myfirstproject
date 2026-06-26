@@ -862,7 +862,7 @@ const DigitalHumanToolDetail = ({
           onOpenChange={setPickerOpen}
           disabled={disabled}
           popupMatchSelectWidth={false}
-          getPopupContainer={(trigger) => trigger.parentElement}
+          getPopupContainer={() => document.body}
         />
         {selectedMode === 'lips' ? (
           <VoiceLib
@@ -880,7 +880,7 @@ const DigitalHumanToolDetail = ({
             placement="topLeft"
             menu={{ items: [] }}
             popupRender={() => digitalHumanAvatarPopupContent}
-            getPopupContainer={(trigger) => trigger.parentElement}
+            getPopupContainer={() => document.body}
           >
             <span className="chat-panel__tool-dropdown-trigger">
               <button

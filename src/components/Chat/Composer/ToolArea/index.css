@@ -2,5 +2,6 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  min-width: max-content;
+  white-space: nowrap;
 }

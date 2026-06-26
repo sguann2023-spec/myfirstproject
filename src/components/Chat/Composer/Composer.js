@@ -6,7 +6,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { StarterKit } from '@tiptap/starter-kit';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
-import { ArrowUp, CirclePause, FileAudio, FileImage, FileVideo, Plus, Upload as UploadIcon } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileImage, FileVideo, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
@@ -32,6 +32,9 @@ const MENTION_PANEL_EDGE_OFFSET = 4;
 const MODEL_HOVER_CARD_WIDTH = 180;
 const MODEL_HOVER_CARD_GAP = 20;
 const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
+const TOOL_BAR_SCROLL_STEP = 220;
+const TOOL_BAR_MIN_RIGHT_GAP = 32;
+const TOOL_BAR_NAV_VISIBILITY_THRESHOLD = 24;
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
@@ -1596,7 +1599,17 @@ const Composer = ({
   const inputWrapRef = React.useRef(null);
   const mentionPanelRef = React.useRef(null);
   const modelHoverCardRef = React.useRef(null);
+  const toolContentScrollRef = React.useRef(null);
+  const toolBarRef = React.useRef(null);
+  const toolLeftPrefixRef = React.useRef(null);
+  const toolRightRef = React.useRef(null);
   const [isDragActive, setIsDragActive] = React.useState(false);
+  const [toolContentScrollState, setToolContentScrollState] = React.useState({
+    isOverflowing: false,
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
+  const [toolContentMaxWidth, setToolContentMaxWidth] = React.useState(null);
   const inputPlaceholder =
     activeTool === 'digital-human'
       ? ''
@@ -1781,6 +1794,114 @@ const Composer = ({
   React.useEffect(() => {
     latestUploadedFileMetaRef.current = uploadedFileMeta;
   }, [uploadedFileMeta]);
+
+  const updateToolContentScrollState = React.useCallback(() => {
+    const element = toolContentScrollRef.current;
+    if (!element) return;
+
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+    const isOverflowing = maxScrollLeft > TOOL_BAR_NAV_VISIBILITY_THRESHOLD;
+    const nextState = {
+      isOverflowing,
+      canScrollLeft: isOverflowing && element.scrollLeft > 1,
+      canScrollRight: isOverflowing && element.scrollLeft < maxScrollLeft - 1,
+    };
+
+    setToolContentScrollState((prev) => (
+      prev.isOverflowing === nextState.isOverflowing
+      && prev.canScrollLeft === nextState.canScrollLeft
+      && prev.canScrollRight === nextState.canScrollRight
+        ? prev
+        : nextState
+    ));
+  }, []);
+
+  const updateToolContentMaxWidth = React.useCallback(() => {
+    const toolBarElement = toolBarRef.current;
+    const toolPrefixElement = toolLeftPrefixRef.current;
+    const toolRightElement = toolRightRef.current;
+    if (!toolBarElement || !toolPrefixElement || !toolRightElement) return;
+
+    const toolBarStyle = window.getComputedStyle(toolBarElement);
+    const toolLeftElement = toolPrefixElement.parentElement;
+    const toolLeftStyle = toolLeftElement ? window.getComputedStyle(toolLeftElement) : null;
+    const toolBarGap = Number.parseFloat(toolBarStyle.columnGap || toolBarStyle.gap || '0') || 0;
+    const toolLeftGap = Number.parseFloat(toolLeftStyle?.columnGap || toolLeftStyle?.gap || '0') || 0;
+    const nextWidth = Math.max(
+      0,
+      toolBarElement.clientWidth
+      - toolRightElement.offsetWidth
+      - toolPrefixElement.offsetWidth
+      - toolBarGap
+      - toolLeftGap
+      - TOOL_BAR_MIN_RIGHT_GAP
+    );
+
+    setToolContentMaxWidth((prev) => (
+      Math.abs((prev || 0) - nextWidth) < 1 ? prev : nextWidth
+    ));
+  }, []);
+
+  React.useEffect(() => {
+    const element = toolContentScrollRef.current;
+    if (!element) return undefined;
+
+    updateToolContentScrollState();
+    element.addEventListener('scroll', updateToolContentScrollState, { passive: true });
+
+    let observer = null;
+    if (typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => {
+        updateToolContentScrollState();
+      });
+      observer.observe(element);
+      if (element.firstElementChild) {
+        observer.observe(element.firstElementChild);
+      }
+    }
+
+    window.addEventListener('resize', updateToolContentScrollState);
+
+    return () => {
+      element.removeEventListener('scroll', updateToolContentScrollState);
+      observer?.disconnect();
+      window.removeEventListener('resize', updateToolContentScrollState);
+    };
+  }, [activeTool, updateToolContentScrollState]);
+
+  React.useEffect(() => {
+    const toolBarElement = toolBarRef.current;
+    const toolPrefixElement = toolLeftPrefixRef.current;
+    const toolRightElement = toolRightRef.current;
+    if (!toolBarElement || !toolPrefixElement || !toolRightElement) return undefined;
+
+    updateToolContentMaxWidth();
+    let observer = null;
+    if (typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(() => {
+        updateToolContentMaxWidth();
+      });
+      observer.observe(toolBarElement);
+      observer.observe(toolPrefixElement);
+      observer.observe(toolRightElement);
+    }
+
+    window.addEventListener('resize', updateToolContentMaxWidth);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateToolContentMaxWidth);
+    };
+  }, [activeTool, model, updateToolContentMaxWidth]);
+
+  const handleToolContentScroll = React.useCallback((direction) => {
+    const element = toolContentScrollRef.current;
+    if (!element) return;
+
+    element.scrollBy({
+      left: direction * TOOL_BAR_SCROLL_STEP,
+      behavior: 'smooth',
+    });
+  }, []);
 
   const fileReferenceExtension = React.useMemo(() => (
     createFileReferenceExtension({
@@ -2736,58 +2857,96 @@ const Composer = ({
             <span />
           </AntUpload>
         ) : null}
-        <div className="chat-panel__tool-bar">
+        <div ref={toolBarRef} className="chat-panel__tool-bar">
           <div className="chat-panel__tool-left">
-            <AntUpload
-              accept="image/*,video/*,audio/*"
-              multiple
-              beforeUpload={handleBeforeUpload}
-              customRequest={handleFileUpload}
-              showUploadList={false}
-              fileList={uploadFileList}
-              onChange={({ fileList }) => handleUploadListChange(fileList)}
-              disabled={sessionSending}
-            >
-              <span
-                ref={toolbarUploadTriggerRef}
-                className="chat-panel__tool-button chat-panel__tool-button--icon-only"
-                aria-label="上传文件"
-                title="上传文件"
-                role="button"
+            <div ref={toolLeftPrefixRef} className="chat-panel__tool-left-prefix">
+              <AntUpload
+                accept="image/*,video/*,audio/*"
+                multiple
+                beforeUpload={handleBeforeUpload}
+                customRequest={handleFileUpload}
+                showUploadList={false}
+                fileList={uploadFileList}
+                onChange={({ fileList }) => handleUploadListChange(fileList)}
+                disabled={sessionSending}
               >
-                <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
-              </span>
-            </AntUpload>
-            <span className="chat-panel__tool-divider" aria-hidden="true" />
-            {activeTool === 'voice-square' ? (
-              <VoiceSquareToolDetail
-                disabled={sessionSending}
-                onBack={handleToolDetailBack}
-                onSelectedVoiceChange={setSelectedVoiceLibraryItem}
-              />
-            ) : activeTool === 'digital-human' ? (
-              <DigitalHumanToolDetail
-                disabled={sessionSending}
-                onBack={handleToolDetailBack}
-                onModeChange={setSelectedDigitalHumanMode}
-                onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
-                onSelectedVoiceChange={setSelectedVoiceLibraryItem}
-              />
-            ) : activeTool === 'ai-write' ? (
-              <AiWriteToolDetail
-                disabled={sessionSending}
-                onBack={handleToolDetailBack}
-                selectedPresetId={selectedAiWritePresetId}
-                onPresetSelect={handleAiWritePresetSelect}
-              />
-            ) : (
-              <ToolArea
-                disabled={sessionSending}
-                onSelect={handleToolSelect}
-              />
-            )}
+                <span
+                  ref={toolbarUploadTriggerRef}
+                  className="chat-panel__tool-button chat-panel__tool-button--icon-only"
+                  aria-label="上传文件"
+                  title="上传文件"
+                  role="button"
+                >
+                  <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
+                </span>
+              </AntUpload>
+              <span className="chat-panel__tool-divider" aria-hidden="true" />
+            </div>
+            <div
+              className="chat-panel__tool-content-shell"
+              style={toolContentMaxWidth !== null ? { maxWidth: `${toolContentMaxWidth}px` } : undefined}
+            >
+              <div
+                className={[
+                  'chat-panel__tool-content-viewport',
+                  toolContentScrollState.isOverflowing ? 'is-overflowing' : '',
+                  toolContentScrollState.canScrollLeft ? 'can-scroll-left' : '',
+                  toolContentScrollState.canScrollRight ? 'can-scroll-right' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <div ref={toolContentScrollRef} className="chat-panel__tool-content-scroll">
+                  {activeTool === 'voice-square' ? (
+                    <VoiceSquareToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+                    />
+                  ) : activeTool === 'digital-human' ? (
+                    <DigitalHumanToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      onModeChange={setSelectedDigitalHumanMode}
+                      onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
+                      onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+                    />
+                  ) : activeTool === 'ai-write' ? (
+                    <AiWriteToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedPresetId={selectedAiWritePresetId}
+                      onPresetSelect={handleAiWritePresetSelect}
+                    />
+                  ) : (
+                    <ToolArea
+                      disabled={sessionSending}
+                      onSelect={handleToolSelect}
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="chat-panel__tool-content-nav-group" aria-hidden={!toolContentScrollState.isOverflowing}>
+                <button
+                  type="button"
+                  className={`chat-panel__tool-content-nav ${toolContentScrollState.canScrollLeft ? 'is-visible' : ''}`}
+                  aria-label="向左查看工具"
+                  onClick={() => handleToolContentScroll(-1)}
+                  disabled={!toolContentScrollState.canScrollLeft}
+                >
+                  <ChevronLeft className="chat-panel__tool-content-nav-icon" />
+                </button>
+                <button
+                  type="button"
+                  className={`chat-panel__tool-content-nav ${toolContentScrollState.canScrollRight ? 'is-visible' : ''}`}
+                  aria-label="向右查看工具"
+                  onClick={() => handleToolContentScroll(1)}
+                  disabled={!toolContentScrollState.canScrollRight}
+                >
+                  <ChevronRight className="chat-panel__tool-content-nav-icon" />
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="chat-panel__tool-right">
+          <div ref={toolRightRef} className="chat-panel__tool-right">
             <Select
               size="small"
               variant="borderless"
