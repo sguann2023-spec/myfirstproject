@@ -37,7 +37,6 @@ async function resolveRuntimeSettings() {
 
 function notifyCount() {
   const queuedCount = state.queue.length + (state.current ? 1 : 0);
-  logger.debug('notifyCount', queuedCount);
   window.dispatchEvent(new CustomEvent('download-queue-count', { detail: { count: queuedCount } }));
 }
 

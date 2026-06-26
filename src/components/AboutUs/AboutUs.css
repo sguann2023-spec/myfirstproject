@@ -5,6 +5,20 @@
   padding-right: 14px;
   display: flex;
   flex-direction: column;
+  gap: 24px;
+}
+
+.about-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.about-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-left: 20px;
 }
 
 .about-card {
@@ -61,6 +75,69 @@
 .about-update-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.about-feedback-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 240px;
+}
+
+.about-feedback-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-feedback-textarea.ant-input {
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.about-feedback-textarea.ant-input:focus,
+.about-feedback-textarea.ant-input-focused {
+  border-color: #111111;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.about-feedback-textarea.ant-input::placeholder {
+  color: #a0a0a0;
+}
+
+.about-feedback-label {
+  font-size: 13px;
+  color: #666666;
+}
+
+.about-feedback-error {
+  font-size: 12px;
+  color: #d93025;
+}
+
+.about-upload-trigger {
+  color: #b5b5b5;
+  font-size: 20px;
+}
+
+.about-feedback-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.about-feedback-status {
+  margin-right: auto;
+  font-size: 12px;
+  color: #666666;
 }
 
 .about-footer {

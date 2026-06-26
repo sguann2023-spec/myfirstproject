@@ -1675,14 +1675,7 @@ class ClaudeCodeService implements AgentServiceInterface {
           } else if (eventType === 'content_block_delta') {
             const deltaType = String(event?.delta?.type || '')
             if (deltaType === 'thinking_delta' || deltaType === 'reasoning_delta') {
-              const text = String(event?.delta?.thinking ?? event?.delta?.reasoning ?? event?.delta?.text ?? '')
               thinkingProbe.streamReasoningDeltaCount += 1
-              logger.info('Detected thinking delta in gateway response', {
-                sessionId,
-                index: event?.index,
-                deltaType,
-                chars: text.length
-              })
             }
           }
         }
@@ -1690,7 +1683,6 @@ class ClaudeCodeService implements AgentServiceInterface {
         if (message.type === 'assistant' && Array.isArray((message as any).message?.content)) {
           toolUseProbe.assistantMessageCount += 1
           const blocks = (message as any).message.content as any[]
-          const blockTypes = blocks.map((block) => String(block?.type || 'unknown'))
           const toolUseBlocks = blocks.filter((block) => String(block?.type || '') === 'tool_use')
           const textBlocks = blocks.filter((block) => String(block?.type || '') === 'text')
           const textChars = textBlocks.reduce((total, block) => total + String((block as any)?.text || '').length, 0)
@@ -1702,15 +1694,6 @@ class ClaudeCodeService implements AgentServiceInterface {
             streamingProbe.assistantSnapshotWithTextCount += 1
             streamingProbe.assistantSnapshotTextChars += textChars
           }
-          logger.info('Assistant snapshot probe', {
-            sessionId,
-            assistantMessageIndex: toolUseProbe.assistantMessageCount,
-            blockTypes,
-            toolUseBlockCount: toolUseBlocks.length,
-            toolUseNames: toolUseBlocks.map((block) => String((block as any)?.name || 'unknown')),
-            textBlockCount: textBlocks.length,
-            textChars
-          })
           for (const block of blocks) {
             const blockType = String(block?.type || '')
             if (blockType === 'thinking' || blockType === 'redacted_thinking' || blockType === 'reasoning') {

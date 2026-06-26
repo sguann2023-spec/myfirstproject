@@ -6,8 +6,6 @@ import AccountSecurityIcon from '../../../public/account_security.svg';
 import GeneralSettingIcon from '../../../public/settings_general.png';
 import PrivacyIcon from '../../../public/privacy.svg';
 import { InfoCircleOutlined } from '@ant-design/icons';
-import { loggerService } from '@logger';
-const logger = loggerService.withContext('SettingPage');
 const GeneralSettings = lazy(() => import('../../components/GeneralSettings/GeneralSettings'));
 const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
 const AboutUs = lazy(() => import('../../components/AboutUs/AboutUs'));
@@ -25,8 +23,6 @@ const SettingPage = () => {
   // 默认选中 'account-security'
   const [selectedKey, setSelectedKey] = useState('account-security');
   const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
-  logger.debug('settingPage');
-
   useEffect(() => {
     document.getElementById('spinner')?.remove();
   }, []);

@@ -49,6 +49,7 @@ import CopilotService from './services/CopilotService'
 import DxtService from './services/DxtService'
 import { ExportService } from './services/ExportService'
 import { externalAppsService } from './services/ExternalAppsService'
+import { feedbackMailService } from './services/FeedbackMailService'
 import { fileStorage as fileManager } from './services/FileStorage'
 import FileService from './services/FileSystemService'
 import { lanTransferClientService } from './services/lanTransfer'
@@ -229,6 +230,24 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     isPortable: isWin && 'PORTABLE_EXECUTABLE_DIR' in process.env,
     installPath: path.dirname(app.getPath('exe'))
   }))
+
+  ipcMain.handle(
+    IpcChannel.App_SendFeedbackEmail,
+    async (
+      _,
+      payload: {
+        message: string
+        version: string
+        platform: string
+        logsPath: string
+        user?: { id?: string; name?: string; email?: string }
+        attachments?: Array<{ filename: string; mimeType?: string; contentBase64: string }>
+      }
+    ) => {
+      await feedbackMailService.sendFeedbackMail(payload)
+      return { success: true }
+    }
+  )
 
   ipcMain.handle(IpcChannel.App_Proxy, async (_, proxy: string, bypassRules?: string) => {
     let proxyConfig: ProxyConfig

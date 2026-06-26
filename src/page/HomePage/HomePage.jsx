@@ -1236,19 +1236,12 @@ const HomePage = () => {
     activeChatNeedsHistoryHydrate,
     activeChatSessionSending
   ]);
-  const setChatSessionSending = (chatId, sending, reason = '') => {
+  const setChatSessionSending = (chatId, sending) => {
     const id = String(chatId || '').trim();
     if (!id) return;
     setChatSessionSendingMap((prev) => {
       const nextValue = Boolean(sending);
       if (prev[id] === nextValue) return prev;
-      logger.info('[HomePage][SessionSending] update', {
-        chatId: id,
-        sending: nextValue,
-        reason,
-        prevValue: Boolean(prev[id]),
-        activeChatId,
-      });
       return { ...prev, [id]: nextValue };
     });
   };
@@ -1262,19 +1255,12 @@ const HomePage = () => {
       return next;
     });
   };
-  const setChatSessionFulfilled = (chatId, fulfilled, reason = '') => {
+  const setChatSessionFulfilled = (chatId, fulfilled) => {
     const id = String(chatId || '').trim();
     if (!id) return;
     setChatSessionFulfilledMap((prev) => {
       const nextValue = Boolean(fulfilled);
       if (prev[id] === nextValue) return prev;
-      logger.info('[HomePage][SessionFulfilled] update', {
-        chatId: id,
-        fulfilled: nextValue,
-        reason,
-        prevValue: Boolean(prev[id]),
-        activeChatId
-      });
       return { ...prev, [id]: nextValue };
     });
   };
@@ -1513,17 +1499,8 @@ const HomePage = () => {
     let cancelled = false;
     void (async () => {
       try {
-        logger.info('[HomePage] prewarm session on page enter', {
-          activeChatId,
-          selectedPane,
-          model: chatModel
-        });
-        const sessionId = await ensureAgentSessionForChat(activeChatId);
+        await ensureAgentSessionForChat(activeChatId);
         if (cancelled) return;
-        logger.info('[HomePage] prewarm session ready', {
-          activeChatId,
-          sessionId
-        });
       } catch (error) {
         if (cancelled) return;
         logger.warn('[HomePage] prewarm session failed', {

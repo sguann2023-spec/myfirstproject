@@ -214,7 +214,6 @@ export async function getDirectorySize(
       }
     }
 
-    logger.debug('Calculated directory size', { dirPath, size: totalSize, depth })
     return totalSize
   } catch (error) {
     logger.error('Failed to calculate directory size', { dirPath, depth, error })

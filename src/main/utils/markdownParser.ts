@@ -387,12 +387,6 @@ export async function parseSkillMetadata(
   const version = toString(data.version)
   const author = toString(data.author)
 
-  logger.debug('Successfully parsed skill metadata', {
-    skillFolderPath,
-    folderName,
-    size: folderSize
-  })
-
   return {
     sourcePath, // e.g., "skills/my-skill"
     filename: folderName, // e.g., "my-skill" (folder name, NO .md extension)

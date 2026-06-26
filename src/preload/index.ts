@@ -136,6 +136,14 @@ const api = {
   resetData: () => ipcRenderer.invoke(IpcChannel.App_ResetData),
   openWebsite: (url: string) => ipcRenderer.invoke(IpcChannel.Open_Website, url),
   openInternalWebsite: (url: string) => ipcRenderer.invoke(IpcChannel.Open_InternalWebsite, url),
+  sendFeedbackEmail: (payload: {
+    message: string
+    version: string
+    platform: string
+    logsPath: string
+    user?: { id?: string; name?: string; email?: string }
+    attachments?: Array<{ filename: string; mimeType?: string; contentBase64: string }>
+  }) => ipcRenderer.invoke(IpcChannel.App_SendFeedbackEmail, payload),
   getCacheSize: () => ipcRenderer.invoke(IpcChannel.App_GetCacheSize),
   clearCache: () => ipcRenderer.invoke(IpcChannel.App_ClearCache),
   logToMain: (source: LogSourceWithContext, level: LogLevel, message: string, data: any[]) =>
