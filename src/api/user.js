@@ -50,3 +50,29 @@ export async function getUserApiKey(userId, loginType = 'authing') {
     return '';
   }
 }
+
+export async function getUserProfile() {
+  try {
+    return await http.getJson(`${BASE_URL}/user_manager/profile`);
+  } catch (err) {
+    logger.warn('get_user_profile failed:', err.data || err.message);
+    return null;
+  }
+}
+
+export async function updateUserProfile({ name, avatar } = {}) {
+  const payload = {};
+  if (typeof name !== 'undefined') {
+    payload.name = name;
+  }
+  if (typeof avatar !== 'undefined') {
+    payload.avatar = avatar;
+  }
+
+  try {
+    return await http.postJson(`${BASE_URL}/user_manager/profile`, payload);
+  } catch (err) {
+    logger.warn('update_user_profile failed:', err.data || err.message);
+    throw err;
+  }
+}

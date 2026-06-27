@@ -1,5 +1,6 @@
 // SettingPage.jsx
 import { Suspense, lazy, useEffect, useState } from 'react';
+import { Spin } from 'antd';
 import './SettingPage.css';
 
 import AccountSecurityIcon from '../../../public/account_security.svg';
@@ -94,7 +95,7 @@ const SettingPage = () => {
                 {settingMenuItems.find(item => item.key === selectedKey)?.title || '通用'}
                 </div>
                 <div className="setting-content-body">
-                <Suspense fallback={<div className="setting-content-loading">加载中...</div>}>
+                <Suspense fallback={<div className="setting-content-loading"><Spin size="large" /></div>}>
                   <SelectedComponent />
                 </Suspense>
                 </div>

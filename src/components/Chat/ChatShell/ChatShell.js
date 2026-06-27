@@ -45,15 +45,6 @@ const ChatShell = ({
     const loadSkills = async () => {
       const api = window?.electronAPI?.agentSkills;
       const cherryChatStream = window?.electronAPI?.cherryChatStream;
-      console.info('[ChatShell] loadSkills start', {
-        agentId,
-        runtimeSessionId,
-        hasElectronAPI: Boolean(window?.electronAPI),
-        hasAgentSkills: Boolean(api),
-        hasListActive: Boolean(api && typeof api.listActive === 'function'),
-        hasListLocal: Boolean(api && typeof api.listLocal === 'function'),
-        hasCherryChatStream: Boolean(cherryChatStream && typeof cherryChatStream.getSession === 'function')
-      });
       if (!runtimeSessionId && !agentId) {
         if (!cancelled) {
           setSkills([]);

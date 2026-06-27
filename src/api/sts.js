@@ -204,6 +204,58 @@ export async function uploadDigitalHumanAvatarCover(file, { userId = '' } = {}) 
   return { objectKey: key, publicUrl };
 }
 
+export async function uploadUserAvatar(file, { userId = '' } = {}) {
+  if (!file) throw new Error('MISSING_FILE');
+  if (file.size > MAX_FILE_SIZE) throw new Error('FILE_TOO_LARGE');
+
+  const resolvedUserId = String(userId || await getCurrentAuthUserId()).trim();
+  if (!resolvedUserId) throw new Error('MISSING_USER_ID');
+
+  const resp = await getCredentials({ bucket_name: 'oss-hangzhou-mp4', folder: 'user/avatar' });
+  const bucket = (resp && resp.bucket_name) || 'oss-hangzhou-mp4';
+  const region = (resp && resp.region) || 'oss-cn-hangzhou';
+  const endpoint = (resp && resp.endpoint) ? String(resp.endpoint).replace(/^https?:\/\//, '') : `${region}.aliyuncs.com`;
+  const uploadHost = `https://${bucket}.${endpoint}`;
+  const creds = resp && resp.credentials ? resp.credentials : {};
+  const ak = creds.AccessKeyId || '';
+  const sk = creds.AccessKeySecret || '';
+  const st = creds.SecurityToken || '';
+
+  if (!ak || !sk) throw new Error('STS_INVALID');
+
+  const basePrefix = buildKeyPrefix(resp && resp.key_prefix ? resp.key_prefix : 'user/avatar');
+  const normalizedUserSuffix = `${resolvedUserId}/`;
+  const keyPrefix = basePrefix.endsWith(normalizedUserSuffix)
+    ? basePrefix
+    : `${basePrefix}${normalizedUserSuffix}`;
+  const { ext, t } = detectExt(file);
+  const randomSuffix = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const key = `${keyPrefix}avatar_${randomSuffix}${ext || '.jpg'}`;
+  const p64 = makePolicyBase64(30, keyPrefix, st);
+  const sig = await hmacSha1Base64(p64, sk);
+  const form = new FormData();
+  form.append('key', key);
+  form.append('policy', p64);
+  form.append('OSSAccessKeyId', ak);
+  form.append('x-oss-security-token', st);
+  form.append('success_action_status', '200');
+  form.append('Signature', sig);
+  form.append('Content-Type', t || 'application/octet-stream');
+  form.append('file', file);
+
+  const res = await fetch(uploadHost, { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`UPLOAD_FAILED:${res.status}:${body}`);
+  }
+
+  const publicEndpoint = await fetchPublicEndpoint();
+  const publicUrl = buildPublicUrl(bucket, publicEndpoint, uploadHost, key);
+  return { objectKey: key, publicUrl };
+}
+
 export async function uploadPresetMaterialsJson(materialsList, { materialsUrl = '', userId = '', presetId = '' } = {}) {
   if (!Array.isArray(materialsList)) throw new Error('MATERIALS_INVALID');
   const normalizedUrl = String(materialsUrl || '').split('?')[0];

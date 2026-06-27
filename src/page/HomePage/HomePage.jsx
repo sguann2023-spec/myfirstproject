@@ -700,9 +700,9 @@ const finalizeLatestTodoWriteInStore = (assistantMessageId) => {
 };
 
 const HomePage = () => {
-  const user = electronStore.get('user') || {};
-  const avatarSrc = user?.avatar || LogoIcon;
-  const userName = user?.name || '';
+  const [headerUser, setHeaderUser] = useState(() => electronStore.get('user') || {});
+  const avatarSrc = headerUser?.avatar || LogoIcon;
+  const userName = headerUser?.name || '';
   const [todayCount, setTodayCount] = useState(null);
   const [creditsBalance, setCreditsBalance] = useState(null);
   const [creditsLoading, setCreditsLoading] = useState(true);
@@ -741,6 +741,22 @@ const HomePage = () => {
   const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
+
+  useEffect(() => {
+    if (typeof electronStore.onDidChange !== 'function') {
+      return undefined;
+    }
+
+    const dispose = electronStore.onDidChange('user', () => {
+      setHeaderUser(electronStore.get('user') || {});
+    });
+
+    return () => {
+      if (typeof dispose === 'function') {
+        dispose();
+      }
+    };
+  }, []);
   const chatTitleRevealTimersRef = useRef(new Map());
   const creditsBalanceRef = useRef(null);
   const chatModelOptionsRef = useRef(chatModelOptions);

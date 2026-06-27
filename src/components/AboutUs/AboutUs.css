@@ -23,7 +23,7 @@
 
 .about-card {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 5px 18px;
   display: inline-flex;
   align-items: center;
@@ -79,7 +79,7 @@
 
 .about-feedback-card {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 18px;
   display: flex;
   flex-direction: column;

@@ -15,7 +15,7 @@ const { ipcRenderer } = window.require('electron');
 const axios = require('axios');
 import { tokenStore } from '../../auth'; // 统一从 index 导入
 import { createDraft } from '../../api/capcut';
-import { addUser } from '../../api/user';
+import { addUser, getUserProfile } from '../../api/user';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('LoginPage');
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -123,6 +123,11 @@ function inferCreationChannelFromClaims(claims = {}, accessToken = '') {
     if (claims.email || accessClaims.email) return 'email';
 
     return 'unknown';
+}
+
+function normalizeProfileText(value) {
+    const normalized = String(value || '').trim();
+    return normalized || '';
 }
 
 // NetworkSettingsView 组件
@@ -261,6 +266,35 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
     // 根据平台决定按钮位置
     const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
 
+    const applyLoggedInUser = (nextUser) => {
+        electronStore.set('user', nextUser);
+        setAvatarUrl(nextUser?.avatar || '');
+        setDisplayName(nextUser?.name || '');
+    };
+
+    const hydrateUserProfileAfterLogin = async (baseUser) => {
+        applyLoggedInUser(baseUser);
+
+        try {
+            const payload = await getUserProfile();
+            const profileUser = payload?.user;
+            if (!profileUser) {
+                return baseUser;
+            }
+
+            const mergedUser = {
+                ...baseUser,
+                name: normalizeProfileText(profileUser.name) || baseUser.name,
+                avatar: normalizeProfileText(profileUser.avatar) || baseUser.avatar || null
+            };
+            applyLoggedInUser(mergedUser);
+            return mergedUser;
+        } catch (error) {
+            logger.warn('hydrate user profile after login failed:', error?.message || error);
+            return baseUser;
+        }
+    };
+
     // **新增：处理设置按钮点击**
     const handleOpenSettings = () => {
         setViewState('settings');
@@ -396,27 +430,26 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     const name = claims.name || claims.preferred_username || claims.nickname || claims.email || '';
                     const agentApiKey = extractAgentApiKeyFromClaims(claims);
                     const creationChannel = inferCreationChannelFromClaims(claims, accessToken);
-                    electronStore.set('user', {
+                    const baseUser = {
                         id: claims.sub,
                         name,
                         email: claims.email,
                         avatar: claims.picture || claims.avatar || claims.photo || null,
                         agentApiKey: agentApiKey || null
-                    });
+                    };
+                    const hydratedUser = await hydrateUserProfileAfterLogin(baseUser);
                     if (agentApiKey) {
                         electronStore.set('auth.vectcut_api_key', agentApiKey);
                     } else {
                         electronStore.delete('auth.vectcut_api_key');
                         void ensureVectcutApiKeyForCurrentSession();
                     }
-                    setAvatarUrl(claims.picture || claims.avatar || claims.photo || null);
-                    setDisplayName(name);
 
                     // 新增：登录成功后写库（静默登录）
                     addUser({
                         id: claims.sub,
-                        name,
-                        avatar: claims.picture || claims.avatar || claims.photo || null,
+                        name: hydratedUser?.name || name,
+                        avatar: hydratedUser?.avatar || claims.picture || claims.avatar || claims.photo || null,
                         creation_channel: creationChannel
                     });
 
@@ -462,28 +495,26 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                 const name = claims.name || claims.preferred_username || claims.nickname || claims.email || '';
                 const agentApiKey = extractAgentApiKeyFromClaims(claims);
                 const creationChannel = inferCreationChannelFromClaims(claims, access_token);
-                electronStore.set('user', {
+                const baseUser = {
                     id: claims.sub,
                     name: name,
                     email: claims.email,
                     avatar: claims.picture || claims.avatar || claims.photo || null,
                     agentApiKey: agentApiKey || null
-                });
+                };
+                const hydratedUser = await hydrateUserProfileAfterLogin(baseUser);
                 if (agentApiKey) {
                     electronStore.set('auth.vectcut_api_key', agentApiKey);
                 } else {
                     electronStore.delete('auth.vectcut_api_key');
                     void ensureVectcutApiKeyForCurrentSession();
                 }
-                // 更新到本地状态以驱动 UI
-                setAvatarUrl(claims.picture || claims.avatar || claims.photo || null);
-                setDisplayName(name);
 
                 // 新增：登录成功后写库（静默登录）
                 addUser({
                     id: claims.sub,
-                    name,
-                    avatar: claims.picture || claims.avatar || claims.photo || null,
+                    name: hydratedUser?.name || name,
+                    avatar: hydratedUser?.avatar || claims.picture || claims.avatar || claims.photo || null,
                     creation_channel: creationChannel
                 });
 
