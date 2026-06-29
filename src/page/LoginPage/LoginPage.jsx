@@ -31,6 +31,49 @@ const AUTHING_CONFIG = {
     REDIRECT_URI: 'https://localhost/authing-guard-callback', 
     CLIENT_SECRET: '16a94e467e927cc09b3c8dc7ec92d420'
 };
+const RENDERER_ENV = import.meta.env || {};
+const CHANNEL_AUTH_PAGE_URL = String(RENDERER_ENV.RENDERER_VITE_AUTH_PAGE_URL || 'https://www.vectcut.com/auth').trim();
+const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
+
+function normalizeInviteCode(value) {
+    return String(value || '').trim();
+}
+
+function buildDirectGuardUrl({ forcePrompt = false } = {}) {
+    const params = new URLSearchParams({
+        app_id: AUTHING_CONFIG.APP_ID,
+        redirect_uri: AUTHING_CONFIG.REDIRECT_URI,
+        response_type: 'code',
+        scope: 'openid profile email',
+        module: 'login_and_register'
+    });
+
+    if (forcePrompt) {
+        params.set('prompt', 'login');
+    }
+
+    return `${AUTHING_CONFIG.DOMAIN}/?${params.toString()}`;
+}
+
+function buildAuthEntryUrl({ forcePrompt = false } = {}) {
+    const inviteCode = normalizeInviteCode(CHANNEL_INVITE_CODE);
+    if (!inviteCode || forcePrompt) {
+        return buildDirectGuardUrl({ forcePrompt });
+    }
+
+    try {
+        const url = new URL(CHANNEL_AUTH_PAGE_URL || 'https://www.vectcut.com/auth');
+        url.searchParams.set('invite_code', inviteCode);
+        url.searchParams.set('redirect_uri', AUTHING_CONFIG.REDIRECT_URI);
+        if (forcePrompt) {
+            url.searchParams.set('prompt', 'login');
+        }
+        return url.toString();
+    } catch (error) {
+        logger.warn('build channel auth page url failed, fallback to direct guard url:', error);
+        return buildDirectGuardUrl({ forcePrompt });
+    }
+}
 
 function parseJwt(token) {
     try {
@@ -405,13 +448,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
     // --- Authing 登录逻辑 ---
     // 打开 Authing Guard 的封装
     const openGuard = () => {
-        const guardUrl = `${AUTHING_CONFIG.DOMAIN}/?` + new URLSearchParams({
-            app_id: AUTHING_CONFIG.APP_ID,
-            redirect_uri: AUTHING_CONFIG.REDIRECT_URI,
-            response_type: 'code',
-            scope: 'openid profile email',
-            module: 'login_and_register'
-        }).toString();
+        const guardUrl = buildAuthEntryUrl();
         ipcRenderer.send('open-auth-guard-window', guardUrl);
     };
 
@@ -450,7 +487,8 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         id: claims.sub,
                         name: hydratedUser?.name || name,
                         avatar: hydratedUser?.avatar || claims.picture || claims.avatar || claims.photo || null,
-                        creation_channel: creationChannel
+                        creation_channel: creationChannel,
+                        invited_by_code: normalizeInviteCode(CHANNEL_INVITE_CODE)
                     });
 
                     if (onLogin) onLogin(idToken);
@@ -515,7 +553,8 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     id: claims.sub,
                     name: hydratedUser?.name || name,
                     avatar: hydratedUser?.avatar || claims.picture || claims.avatar || claims.photo || null,
-                    creation_channel: creationChannel
+                    creation_channel: creationChannel,
+                    invited_by_code: normalizeInviteCode(CHANNEL_INVITE_CODE)
                 });
 
                 if (onLogin) {
@@ -547,14 +586,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
         electronStore.delete('user');
         setDisplayName('');
         setAvatarUrl('');
-        const guardUrl = `${AUTHING_CONFIG.DOMAIN}/?` + new URLSearchParams({
-            app_id: AUTHING_CONFIG.APP_ID,
-            redirect_uri: AUTHING_CONFIG.REDIRECT_URI,
-            response_type: 'code',
-            scope: 'openid profile email',
-            module: 'login_and_register',
-            prompt: 'login',
-        }).toString();
+        const guardUrl = buildAuthEntryUrl({ forcePrompt: true });
 
         ipcRenderer.send('open-auth-guard-window', guardUrl);
     };

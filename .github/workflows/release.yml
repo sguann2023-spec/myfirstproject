@@ -449,16 +449,24 @@ jobs:
           https://player.install-ai-guider.top/client/latest/latest.yml
           https://player.install-ai-guider.top/client/latest/latest-mac.yml
           https://player.install-ai-guider.top/client/latest/latest-mac-arm64.yml
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.dmg
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.dmg
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-universal.dmg
           https://player.install-ai-guider.top/client/latest/VectCut-Setup-latest-x64.exe
           https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.zip
           https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.zip
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-universal.zip
           EOF
           )
 
           preload_urls=$(cat <<'EOF'
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.dmg
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.dmg
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-universal.dmg
           https://player.install-ai-guider.top/client/latest/VectCut-Setup-latest-x64.exe
           https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.zip
           https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.zip
+          https://player.install-ai-guider.top/client/latest/VectCut-latest-universal.zip
           EOF
           )
 

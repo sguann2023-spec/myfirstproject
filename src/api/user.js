@@ -3,8 +3,17 @@ import { loggerService } from '@logger';
 const logger = loggerService.withContext('ApiUser');
 const BASE_URL = 'https://open.vectcut.com';
 
-export async function addUser({ id, name = '', avatar = '', creation_channel = 'client' }) {
+export async function addUser({
+  id,
+  name = '',
+  avatar = '',
+  creation_channel = 'client',
+  invited_by_code = '',
+}) {
   const payload = { user_id: id, name, avatar, creation_channel };
+  if (typeof invited_by_code === 'string' && invited_by_code.trim()) {
+    payload.invited_by_code = invited_by_code.trim();
+  }
   try {
     return await http.postJson(`${BASE_URL}/user_manager/add_user`, payload);
   } catch (err) {
