@@ -600,7 +600,7 @@ jobs:
       - name: Download EVSign CLI
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://mc.evsign.cn/evsign-client-cli-windows-latest" -OutFile "SignClient.exe"
+          Invoke-WebRequest -Uri "https://down.evsign.cn/software/evsign-client-cli-win_v1.0.1.exe" -OutFile "SignClient.exe"
 
       - name: Sign Windows installer
         shell: powershell
