@@ -600,7 +600,11 @@ jobs:
       - name: Download EVSign CLI
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://mc.evsign.cn/evsign-client-cli-windows-latest" -OutFile "SignClient.exe"
+          $url = "https://mc.evsign.cn/evsign-client-cli-windows-latest"
+          curl.exe -fL --retry 3 --retry-delay 2 $url -o SignClient.exe
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download EVSign CLI from $url, exit code: $LASTEXITCODE"
+          }
 
       - name: Sign Windows installer
         shell: powershell
