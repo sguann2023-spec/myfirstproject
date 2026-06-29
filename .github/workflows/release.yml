@@ -355,7 +355,7 @@ jobs:
       - name: Download EVSign CLI
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://down.evsign.cn/software/evsign-client-cli-win_v0.9.0.exe" -OutFile "SignClient.exe"
+          Invoke-WebRequest -Uri "https://down.evsign.cn/software/evsign-client-cli-win_v1.0.1.exe" -OutFile "SignClient.exe"
 
       - name: Sign Windows installer
         shell: powershell
@@ -365,6 +365,22 @@ jobs:
           $exe = Get-ChildItem -Path "build" -Filter "*.exe" | Select-Object -First 1
           if (-not $exe) { throw "No Windows installer (.exe) found in build directory." }
           .\SignClient.exe "$($exe.FullName)" -key "$env:EVSIGN_LICENSE" -sha256
+          $signExit = $LASTEXITCODE
+          Write-Host "EVSign exit code: $signExit"
+
+          $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
+          Write-Host "Signature status after EVSign: $($sig.Status)"
+          if ($sig.SignerCertificate) {
+            Write-Host "Signer subject: $($sig.SignerCertificate.Subject)"
+          }
+
+          if ($sig.Status -ne 'Valid') {
+            throw "Signature verification failed immediately after EVSign: $($sig.Status), EVSign exit code: $signExit"
+          }
+
+          if ($signExit -ne 0) {
+            Write-Warning "EVSign exited with code $signExit, but Authenticode signature is valid."
+          }
 
       - name: Verify signature
         shell: powershell
