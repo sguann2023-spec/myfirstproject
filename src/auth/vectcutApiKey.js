@@ -5,6 +5,8 @@ import { loggerService } from '@logger';
 
 const logger = loggerService.withContext('VectcutApiKey');
 const inflightSessionRequests = new Map();
+const RENDERER_ENV = import.meta.env || {};
+const DEFAULT_CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
 
 function parseJwt(token) {
   try {
@@ -73,7 +75,7 @@ export function persistVectcutApiKey(apiKey) {
 }
 
 export async function ensureVectcutApiKeyForCurrentSession(options = {}) {
-  const { force = false } = options;
+  const { force = false, invited_by_code = '' } = options;
   const sessionSignature = getVectcutSessionSignature();
   const cachedApiKey = force ? '' : getCachedVectcutApiKey();
 
@@ -92,9 +94,12 @@ export async function ensureVectcutApiKeyForCurrentSession(options = {}) {
   }
 
   const userId = getCurrentVectcutUserId();
+  const invitedByCode = String(invited_by_code || DEFAULT_CHANNEL_INVITE_CODE).trim();
   const task = (async () => {
     try {
-      const apiKey = await getUserApiKey(userId);
+      const apiKey = await getUserApiKey(userId, 'authing', {
+        invited_by_code: invitedByCode,
+      });
       return persistVectcutApiKey(apiKey);
     } catch (error) {
       logger.warn('Failed to fetch vectcut api key.', error);

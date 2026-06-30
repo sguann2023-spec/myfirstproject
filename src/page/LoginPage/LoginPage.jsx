@@ -33,7 +33,7 @@ const AUTHING_CONFIG = {
 };
 const RENDERER_ENV = import.meta.env || {};
 const CHANNEL_AUTH_PAGE_URL = String(RENDERER_ENV.RENDERER_VITE_AUTH_PAGE_URL || 'https://www.vectcut.com/auth').trim();
-const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
+const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || 'FAC3E5AD').trim();
 
 function normalizeInviteCode(value) {
     return String(value || '').trim();
@@ -479,7 +479,9 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         electronStore.set('auth.vectcut_api_key', agentApiKey);
                     } else {
                         electronStore.delete('auth.vectcut_api_key');
-                        void ensureVectcutApiKeyForCurrentSession();
+                        void ensureVectcutApiKeyForCurrentSession({
+                            invited_by_code: normalizeInviteCode(CHANNEL_INVITE_CODE)
+                        });
                     }
 
                     // 新增：登录成功后写库（静默登录）
@@ -545,7 +547,9 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     electronStore.set('auth.vectcut_api_key', agentApiKey);
                 } else {
                     electronStore.delete('auth.vectcut_api_key');
-                    void ensureVectcutApiKeyForCurrentSession();
+                    void ensureVectcutApiKeyForCurrentSession({
+                        invited_by_code: normalizeInviteCode(CHANNEL_INVITE_CODE)
+                    });
                 }
 
                 // 新增：登录成功后写库（静默登录）

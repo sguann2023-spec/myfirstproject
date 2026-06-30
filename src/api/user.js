@@ -44,10 +44,15 @@ export async function getUserPoints(userId) {
   }
 }
 
-export async function getUserApiKey(userId, loginType = 'authing') {
+export async function getUserApiKey(userId, loginType = 'authing', options = {}) {
   const payload = { user_id: String(userId || '').trim(), login_type: loginType };
   if (!payload.user_id) {
     return '';
+  }
+
+  const invitedByCode = String(options?.invited_by_code || '').trim();
+  if (invitedByCode) {
+    payload.invited_by_code = invitedByCode;
   }
 
   try {

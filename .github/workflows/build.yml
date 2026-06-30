@@ -40,6 +40,7 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
+        channel_brand: [default, bingo]
 
     steps:
       - uses: actions/checkout@v4
@@ -85,9 +86,10 @@ jobs:
           rm -rf build
           pnpm run build:vite
           pnpm run prepare:portable-ffmpeg:mac
-          pnpm exec electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
+          pnpm exec electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           NODE_OPTIONS: --max-old-space-size=8192
           DEBUG: electron-builder
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -255,7 +257,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: mac-signing-diagnostics-${{ github.run_id }}
+          name: mac-signing-diagnostics-${{ matrix.channel_brand }}-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
             build/builder-debug.yml
@@ -279,7 +281,7 @@ jobs:
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           shopt -s nullglob
-          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/"
           FILES=(build/*-x64.zip build/*-arm64.zip build/*-x64.dmg build/*-arm64.dmg build/latest-mac.yml build/latest-mac-arm64.yml)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No mac artifacts found to upload."
@@ -299,6 +301,7 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
+        channel_brand: [default, bingo]
 
     steps:
       - uses: actions/checkout@v4
@@ -344,9 +347,10 @@ jobs:
           rm -rf build
           pnpm run build:vite
           pnpm run prepare:portable-ffmpeg:mac
-          pnpm exec electron-builder --mac dir --universal --publish never --config.mac.forceCodeSigning=true
+          pnpm exec electron-builder --config electron-builder.config.cjs --mac dir --universal --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           NODE_OPTIONS: --max-old-space-size=8192
           DEBUG: electron-builder
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -493,7 +497,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: mac-signing-diagnostics-universal-${{ github.run_id }}
+          name: mac-signing-diagnostics-universal-${{ matrix.channel_brand }}-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
             build/builder-debug.yml
@@ -516,7 +520,7 @@ jobs:
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           shopt -s nullglob
-          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/"
           FILES=(build/*-universal.zip build/*-universal.dmg)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No universal artifacts found to upload."
@@ -534,6 +538,7 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
+        channel_brand: [default, bingo]
 
     steps:
       - uses: actions/checkout@v4
@@ -589,6 +594,7 @@ jobs:
         run: pnpm run build:win
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           NODE_OPTIONS: --max-old-space-size=8192
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           FEEDBACK_SMTP_HOST: ${{ secrets.FEEDBACK_SMTP_HOST }}
@@ -651,5 +657,5 @@ jobs:
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/" -c /tmp/.ossutilconfig
