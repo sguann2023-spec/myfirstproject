@@ -33,7 +33,7 @@ const AUTHING_CONFIG = {
 };
 const RENDERER_ENV = import.meta.env || {};
 const CHANNEL_AUTH_PAGE_URL = String(RENDERER_ENV.RENDERER_VITE_AUTH_PAGE_URL || 'https://www.vectcut.com/auth').trim();
-const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || 'FAC3E5AD').trim();
+const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
 
 function normalizeInviteCode(value) {
     return String(value || '').trim();

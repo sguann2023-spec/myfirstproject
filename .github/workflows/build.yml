@@ -274,6 +274,7 @@ jobs:
 
       - name: Deploy Mac Assets to OSS
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
@@ -281,7 +282,11 @@ jobs:
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           shopt -s nullglob
-          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/"
+          DEST_ROOT="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          DEST="${DEST_ROOT}"
+          if [ "${CHANNEL_BRAND}" != "default" ]; then
+            DEST="${DEST_ROOT}${CHANNEL_BRAND}/"
+          fi
           FILES=(build/*-x64.zip build/*-arm64.zip build/*-x64.dmg build/*-arm64.dmg build/latest-mac.yml build/latest-mac-arm64.yml)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No mac artifacts found to upload."
@@ -513,6 +518,7 @@ jobs:
 
       - name: Deploy Mac Universal Assets to OSS
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
@@ -520,7 +526,11 @@ jobs:
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           shopt -s nullglob
-          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/"
+          DEST_ROOT="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          DEST="${DEST_ROOT}"
+          if [ "${CHANNEL_BRAND}" != "default" ]; then
+            DEST="${DEST_ROOT}${CHANNEL_BRAND}/"
+          fi
           FILES=(build/*-universal.zip build/*-universal.dmg)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No universal artifacts found to upload."
@@ -651,11 +661,17 @@ jobs:
       - name: Deploy Windows Assets to OSS
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/*.exe "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/" -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}${{ matrix.channel_brand }}/" -c /tmp/.ossutilconfig
+          DEST_ROOT="oss://${MP4_OSS_BUCKET_NAME}/client/${{ needs.vars.outputs.oss_version_path }}"
+          DEST="${DEST_ROOT}"
+          if [ "${CHANNEL_BRAND}" != "default" ]; then
+            DEST="${DEST_ROOT}${CHANNEL_BRAND}/"
+          fi
+          ./ossutil64.exe cp -f build/*.exe "${DEST}" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "${DEST}" -c /tmp/.ossutilconfig

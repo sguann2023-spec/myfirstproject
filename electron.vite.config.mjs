@@ -5,6 +5,12 @@ import { transformWithEsbuild } from 'vite'
 import pkg from './package.json' with { type: 'json' }
 
 const isDev = process.env.NODE_ENV === 'development'
+const channelBrand = String(process.env.CHANNEL_BRAND || '').trim().toLowerCase() || 'default'
+const channelInviteCodeMap = {
+  default: '',
+  bingo: 'FAC3E5AD'
+}
+const rendererChannelInviteCode = channelInviteCodeMap[channelBrand] || ''
 
 export default defineConfig({
   main: {
@@ -61,6 +67,10 @@ export default defineConfig({
     }
   },
   renderer: {
+    define: {
+      'import.meta.env.RENDERER_VITE_CHANNEL_BRAND': JSON.stringify(channelBrand),
+      'import.meta.env.RENDERER_VITE_AUTH_INVITE_CODE': JSON.stringify(rendererChannelInviteCode)
+    },
     plugins: [
       {
         name: 'legacy-jsx-in-src',
