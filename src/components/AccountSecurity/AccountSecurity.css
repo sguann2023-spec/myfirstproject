@@ -93,7 +93,71 @@
   letter-spacing: 0;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   text-align: right;
+}
+
+.account-security-value--metric {
+  gap: 6px;
+}
+
+.account-security-value--metric-action {
+  gap: 12px;
+}
+
+.account-security-label--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.account-security-label--with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-security-label-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.account-security-label-action:hover {
+  color: #666;
+}
+
+.account-security-metric-main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.account-security-metric-subtitle {
+  color: #999;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.account-security-inline-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.account-security-inline-icon--stroke {
+  color: #8c8c8c;
 }
 
 .account-security-value--api-key {
@@ -112,6 +176,45 @@
 
 .account-security-value--api-key:hover:not(:disabled) {
   color: #595959;
+}
+
+.account-security-value--invite-action {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: right;
+  cursor: pointer;
+  color: #1677ff;
+  letter-spacing: 0;
+}
+
+.account-security-value--invite-action:hover {
+  color: #4096ff;
+}
+
+.account-security-value--invite-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: 48px;
+}
+
+.account-security-value--invite-link {
+  margin-left: 0;
+  color: #333;
+}
+
+.account-security-value--invite-link:hover {
+  color: #333;
+}
+
+.account-security-value--invite-status {
+  color: #8c8c8c;
+  letter-spacing: 0;
+  text-align: right;
 }
 
 .account-security-value-text {
@@ -176,6 +279,31 @@
 .account-security-button:disabled {
   color: #b8b8b8;
   cursor: not-allowed;
+}
+
+.account-security-button--compact {
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.account-security-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #8c8c8c;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.account-security-icon-button:hover {
+  background: #f5f5f5;
+  color: #595959;
 }
 
 .account-security-avatar-panel {
@@ -265,6 +393,34 @@
 .account-security-nickname-input .ant-input-show-count-suffix {
   min-width: 42px;
   text-align: right;
+}
+
+.account-security-qr-copy-source {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.account-security-withdraw-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-security-withdraw-tip {
+  color: #666;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.account-security-withdraw-error {
+  color: #ff4d4f;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 @media (max-width: 720px) {

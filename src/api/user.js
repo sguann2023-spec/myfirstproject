@@ -90,3 +90,46 @@ export async function updateUserProfile({ name, avatar } = {}) {
     throw err;
   }
 }
+
+export async function getInviteQualification() {
+  try {
+    return await http.getJson(`${BASE_URL}/user_manager/invite_qualification`);
+  } catch (err) {
+    logger.warn('get_invite_qualification failed:', err.data || err.message);
+    return null;
+  }
+}
+
+export async function getInviteStats() {
+  try {
+    return await http.getJson(`${BASE_URL}/user_manager/invite_stats`);
+  } catch (err) {
+    logger.warn('get_invite_stats failed:', err.data || err.message);
+    return null;
+  }
+}
+
+export async function getInviteRebateSummary() {
+  try {
+    return await http.getJson(`${BASE_URL}/user_manager/invite_rebate_summary`);
+  } catch (err) {
+    logger.warn('get_invite_rebate_summary failed:', err.data || err.message);
+    return null;
+  }
+}
+
+export async function transferInviteRebateToWallet(transferPoints, transferNo) {
+  const payload = {
+    transfer_points: transferPoints,
+  };
+  if (transferNo) {
+    payload.transfer_no = transferNo;
+  }
+
+  try {
+    return await http.postJson(`${BASE_URL}/user_manager/invite_rebate/transfer_to_wallet`, payload);
+  } catch (err) {
+    logger.warn('transfer_invite_rebate_to_wallet failed:', err.data || err.message);
+    throw err;
+  }
+}

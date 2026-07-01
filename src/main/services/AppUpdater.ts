@@ -20,6 +20,27 @@ const logger = loggerService.withContext('AppUpdater')
 
 const PROXY_PREFIX = 'https://gh-proxy.com/';
 const LEGACY_AUTO_UPDATER_FEED_URL = 'https://player.install-ai-guider.top/client/latest'
+const BINGO_CHANNEL_SEGMENT = 'bingo'
+
+function detectChannelKeyFromPath(): 'default' | 'bingo' {
+  try {
+    const exePath = String(app.getPath('exe') || '').trim().toLowerCase()
+    if (exePath.includes('bingocut')) {
+      return 'bingo'
+    }
+  } catch (error) {
+    logger.warn('Failed to detect updater channel from executable path', error as Error)
+  }
+  return 'default'
+}
+
+function getLegacyAutoUpdaterFeedUrl() {
+  const channelKey = detectChannelKeyFromPath()
+  if (channelKey === 'bingo') {
+    return `${LEGACY_AUTO_UPDATER_FEED_URL}/${BINGO_CHANNEL_SEGMENT}`
+  }
+  return LEGACY_AUTO_UPDATER_FEED_URL
+}
 
 function getCommonHeaders() {
   return {
@@ -250,26 +271,29 @@ export default class AppUpdater {
   private async _setFeedUrl() {
     // Use an arch-aware custom provider on macOS because electron-updater's generic
     // provider only reads latest-mac.yml and cannot target latest-mac-arm64.yml.
+    const feedUrl = getLegacyAutoUpdaterFeedUrl()
+    const channelKey = detectChannelKeyFromPath()
     this.autoUpdater.channel = UpgradeChannel.LATEST
     if (isMac) {
       this.autoUpdater.setFeedURL({
         provider: 'custom',
         updateProvider: MacArchUpdateProvider,
-        url: LEGACY_AUTO_UPDATER_FEED_URL,
+        url: feedUrl,
         channel: UpgradeChannel.LATEST
       } as any)
     } else {
       // Keep legacy generic feed behavior for non-mac platforms.
       this.autoUpdater.setFeedURL({
         provider: 'generic',
-        url: LEGACY_AUTO_UPDATER_FEED_URL,
+        url: feedUrl,
         channel: UpgradeChannel.LATEST
       })
     }
     this.autoUpdater.allowDowngrade = false
     this.autoUpdater.disableDifferentialDownload = true
     logger.info('Using legacy auto updater feed URL', {
-      feedUrl: LEGACY_AUTO_UPDATER_FEED_URL,
+      feedUrl,
+      channelKey,
       channel: UpgradeChannel.LATEST,
       provider: isMac ? 'custom-mac-arch' : 'generic'
     })

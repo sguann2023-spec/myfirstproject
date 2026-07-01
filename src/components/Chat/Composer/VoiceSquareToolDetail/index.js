@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   CloseOutlined,
   DeleteOutlined,
@@ -1100,363 +1101,366 @@ const VoiceSquareToolDetail = ({
         </button>
         {children}
       </div>
-      {voiceCloneDialogOpen ? (
-        <div
-          className="chat-panel__clone-dialog-mask"
-          onClick={handleVoiceCloneDialogClose}
-          role="presentation"
-        >
-          <div
-            className="chat-panel__clone-dialog"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="voice-clone-dialog-title"
-          >
-            <button
-              type="button"
-              className={`traffic-btn close chat-panel__clone-dialog-traffic-close ${
-                isWindows ? 'chat-panel__clone-dialog-traffic-close--win' : 'chat-panel__clone-dialog-traffic-close--mac'
-              }`}
-              aria-label="关闭"
+      {voiceCloneDialogOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="chat-panel__clone-dialog-mask"
               onClick={handleVoiceCloneDialogClose}
-            />
-            <audio ref={cloneAudioRef} src={cloneSelectedFile?.url || undefined} preload="metadata" />
-            {cloneRecordingActive ? (
-              <div className="chat-panel__clone-dialog-panel">
-                <div className="chat-panel__clone-dialog-header">
-                  <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-record-title">
-                    请大声朗读下面文案
-                  </h2>
-                  <div className="chat-panel__clone-dialog-script">{VOICE_CLONE_SCRIPT}</div>
-                </div>
-                <div className="chat-panel__clone-dialog-wave">
-                  <div ref={cloneWaveContainerRef} className="chat-panel__clone-dialog-wave-canvas" />
-                </div>
-                <div className="chat-panel__clone-dialog-record-actions">
-                  <button
-                    type="button"
-                    className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--primary"
-                    onClick={handleFinishCloneRecord}
-                  >
-                    <img
-                      className="chat-panel__clone-dialog-action-icon"
-                      src={VoiceCloneRecordIcon}
-                      alt=""
-                      aria-hidden="true"
-                    />
-                    <span>完成录制</span>
-                  </button>
-                </div>
-                <div className="chat-panel__clone-dialog-record-meta">
-                  <span className="chat-panel__clone-dialog-record-time">{cloneRecordTimeText}</span>
-                  <span className="chat-panel__clone-dialog-record-divider" />
-                  <button
-                    type="button"
-                    className="chat-panel__clone-dialog-inline-action"
-                    onClick={() => {
-                      void stopCloneRecord({ keepResult: false });
-                    }}
-                  >
-                    <RedoOutlined />
-                    <span>重新录制</span>
-                  </button>
-                </div>
-              </div>
-            ) : cloneUploadDone ? (
-              <div className="chat-panel__clone-dialog-panel">
-                {cloneSuccess && clonedVoiceItem ? (
-                  <>
+              role="presentation"
+            >
+              <div
+                className="chat-panel__clone-dialog"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="voice-clone-dialog-title"
+              >
+                <button
+                  type="button"
+                  className={`traffic-btn close chat-panel__clone-dialog-traffic-close ${
+                    isWindows ? 'chat-panel__clone-dialog-traffic-close--win' : 'chat-panel__clone-dialog-traffic-close--mac'
+                  }`}
+                  aria-label="关闭"
+                  onClick={handleVoiceCloneDialogClose}
+                />
+                <audio ref={cloneAudioRef} src={cloneSelectedFile?.url || undefined} preload="metadata" />
+                {cloneRecordingActive ? (
+                  <div className="chat-panel__clone-dialog-panel">
                     <div className="chat-panel__clone-dialog-header">
-                      <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-title">
-                        音色已复刻成功
+                      <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-record-title">
+                        请大声朗读下面文案
                       </h2>
-                      <div className="chat-panel__clone-dialog-description">
-                        现在可以直接将该音色用于当前语音生成。
-                      </div>
+                      <div className="chat-panel__clone-dialog-script">{VOICE_CLONE_SCRIPT}</div>
                     </div>
-                    <div className="chat-panel__clone-result-card">
-                      <Dropdown
-                        trigger={['click']}
-                        menu={cloneAvatarMenu}
-                        overlayClassName="chat-panel__clone-avatar-dropdown"
-                        open={cloneAvatarDropdownOpen}
-                        onOpenChange={setCloneAvatarDropdownOpen}
-                        getPopupContainer={() => document.body}
+                    <div className="chat-panel__clone-dialog-wave">
+                      <div ref={cloneWaveContainerRef} className="chat-panel__clone-dialog-wave-canvas" />
+                    </div>
+                    <div className="chat-panel__clone-dialog-record-actions">
+                      <button
+                        type="button"
+                        className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--primary"
+                        onClick={handleFinishCloneRecord}
                       >
-                        <button
-                          type="button"
-                          className="chat-panel__clone-result-avatar-trigger"
-                          aria-label="选择头像"
-                          disabled={cloneProfileSaving}
-                        >
-                          {clonedVoiceItem?.avatar_url ? (
-                            <img
-                              className="chat-panel__clone-result-avatar"
-                              src={clonedVoiceItem.avatar_url}
-                              alt=""
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <span className="chat-panel__clone-result-avatar chat-panel__clone-result-avatar--placeholder">
-                              {String(clonedVoiceItem?.title || clonedVoiceItem?.global_voice_id || '?').slice(0, 1)}
-                            </span>
-                          )}
-                          <span className="chat-panel__clone-result-avatar-caret">
-                            <DownOutlined />
-                          </span>
-                        </button>
-                      </Dropdown>
-                      <div className="chat-panel__clone-result-main">
-                        <div className="chat-panel__clone-result-name-row">
-                          {cloneEditingName ? (
-                            <Input
-                              autoFocus
-                              value={cloneEditNameValue}
-                              maxLength={64}
-                              className="chat-panel__clone-result-name-input"
-                              onChange={(event) => setCloneEditNameValue(event.target.value)}
-                              onPressEnter={(event) => {
-                                event.preventDefault();
-                                event.currentTarget.blur();
-                              }}
-                              onBlur={() => {
-                                if (cloneCancelEditNameRef.current) {
-                                  cloneCancelEditNameRef.current = false;
-                                  setCloneEditingName(false);
-                                  return;
-                                }
-                                void handleCloneEditNameSave();
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Escape') {
-                                  cloneCancelEditNameRef.current = true;
-                                  setCloneEditNameValue(String(clonedVoiceItem?.title || '').trim());
-                                  event.currentTarget.blur();
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="chat-panel__clone-result-name">
-                              {clonedVoiceItem?.title || clonedVoiceItem?.global_voice_id || '我的复刻音色'}
+                        <img
+                          className="chat-panel__clone-dialog-action-icon"
+                          src={VoiceCloneRecordIcon}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                        <span>完成录制</span>
+                      </button>
+                    </div>
+                    <div className="chat-panel__clone-dialog-record-meta">
+                      <span className="chat-panel__clone-dialog-record-time">{cloneRecordTimeText}</span>
+                      <span className="chat-panel__clone-dialog-record-divider" />
+                      <button
+                        type="button"
+                        className="chat-panel__clone-dialog-inline-action"
+                        onClick={() => {
+                          void stopCloneRecord({ keepResult: false });
+                        }}
+                      >
+                        <RedoOutlined />
+                        <span>重新录制</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : cloneUploadDone ? (
+                  <div className="chat-panel__clone-dialog-panel">
+                    {cloneSuccess && clonedVoiceItem ? (
+                      <>
+                        <div className="chat-panel__clone-dialog-header">
+                          <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-title">
+                            音色已复刻成功
+                          </h2>
+                          <div className="chat-panel__clone-dialog-description">
+                            现在可以直接将该音色用于当前语音生成。
+                          </div>
+                        </div>
+                        <div className="chat-panel__clone-result-card">
+                          <Dropdown
+                            trigger={['click']}
+                            menu={cloneAvatarMenu}
+                            overlayClassName="chat-panel__clone-avatar-dropdown"
+                            open={cloneAvatarDropdownOpen}
+                            onOpenChange={setCloneAvatarDropdownOpen}
+                            getPopupContainer={() => document.body}
+                          >
+                            <button
+                              type="button"
+                              className="chat-panel__clone-result-avatar-trigger"
+                              aria-label="选择头像"
+                              disabled={cloneProfileSaving}
+                            >
+                              {clonedVoiceItem?.avatar_url ? (
+                                <img
+                                  className="chat-panel__clone-result-avatar"
+                                  src={clonedVoiceItem.avatar_url}
+                                  alt=""
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                <span className="chat-panel__clone-result-avatar chat-panel__clone-result-avatar--placeholder">
+                                  {String(clonedVoiceItem?.title || clonedVoiceItem?.global_voice_id || '?').slice(0, 1)}
+                                </span>
+                              )}
+                              <span className="chat-panel__clone-result-avatar-caret">
+                                <DownOutlined />
+                              </span>
+                            </button>
+                          </Dropdown>
+                          <div className="chat-panel__clone-result-main">
+                            <div className="chat-panel__clone-result-name-row">
+                              {cloneEditingName ? (
+                                <Input
+                                  autoFocus
+                                  value={cloneEditNameValue}
+                                  maxLength={64}
+                                  className="chat-panel__clone-result-name-input"
+                                  onChange={(event) => setCloneEditNameValue(event.target.value)}
+                                  onPressEnter={(event) => {
+                                    event.preventDefault();
+                                    event.currentTarget.blur();
+                                  }}
+                                  onBlur={() => {
+                                    if (cloneCancelEditNameRef.current) {
+                                      cloneCancelEditNameRef.current = false;
+                                      setCloneEditingName(false);
+                                      return;
+                                    }
+                                    void handleCloneEditNameSave();
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                      cloneCancelEditNameRef.current = true;
+                                      setCloneEditNameValue(String(clonedVoiceItem?.title || '').trim());
+                                      event.currentTarget.blur();
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="chat-panel__clone-result-name">
+                                  {clonedVoiceItem?.title || clonedVoiceItem?.global_voice_id || '我的复刻音色'}
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                className="chat-panel__clone-result-edit-btn"
+                                aria-label="编辑音色名称"
+                                onClick={handleCloneEditNameStart}
+                                disabled={cloneProfileSaving}
+                              >
+                                <EditOutlined />
+                              </button>
                             </div>
-                          )}
+                            <div className="chat-panel__clone-result-meta">
+                              {(clonedVoiceItem?.provider || clonedVoiceItem?.providers || cloneProvider || 'fish').toUpperCase()}
+                            </div>
+                            {clonedVoiceItem?.voice_persona_desc ? (
+                              <div className="chat-panel__clone-result-desc">{clonedVoiceItem.voice_persona_desc}</div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="chat-panel__clone-dialog-actions">
                           <button
                             type="button"
-                            className="chat-panel__clone-result-edit-btn"
-                            aria-label="编辑音色名称"
-                            onClick={handleCloneEditNameStart}
-                            disabled={cloneProfileSaving}
+                            className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--secondary"
+                            onClick={handleCloneAudioDelete}
                           >
-                            <EditOutlined />
+                            <span>重新上传</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--primary"
+                            onClick={handleUseClonedVoice}
+                          >
+                            <span>使用该音色</span>
                           </button>
                         </div>
-                        <div className="chat-panel__clone-result-meta">
-                          {(clonedVoiceItem?.provider || clonedVoiceItem?.providers || cloneProvider || 'fish').toUpperCase()}
+                      </>
+                    ) : (
+                      <>
+                        <div className="chat-panel__clone-dialog-header">
+                          <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-title">
+                            上传完成，
+                            <span className="chat-panel__clone-dialog-title-accent">一键复刻</span>
+                          </h2>
                         </div>
-                        {clonedVoiceItem?.voice_persona_desc ? (
-                          <div className="chat-panel__clone-result-desc">{clonedVoiceItem.voice_persona_desc}</div>
+                        <div className="chat-panel__clone-uploaded-card">
+                          <button
+                            type="button"
+                            className="chat-panel__clone-uploaded-play"
+                            onClick={handleCloneAudioTogglePlay}
+                          >
+                            {cloneIsPlaying ? <PauseCircleFilled /> : <PlayCircleFilled />}
+                          </button>
+                          <div className="chat-panel__clone-uploaded-main">
+                            <div className="chat-panel__clone-uploaded-name">
+                              {cloneSelectedFile?.name || '已上传音频'}
+                            </div>
+                            <div className="chat-panel__clone-uploaded-meta">{clonePlayTimeText}</div>
+                          </div>
+                          <Tooltip title="删除" zIndex={1301}>
+                            <button
+                              type="button"
+                              className="chat-panel__clone-uploaded-icon-btn"
+                              aria-label="删除"
+                              onClick={handleCloneAudioDelete}
+                            >
+                              <DeleteOutlined />
+                            </button>
+                          </Tooltip>
+                          <span className="chat-panel__clone-uploaded-divider" />
+                          <Tooltip title="重新上传" zIndex={1301}>
+                            <button
+                              type="button"
+                              className="chat-panel__clone-uploaded-icon-btn"
+                              aria-label="重新上传"
+                              onClick={handleVoiceCloneUploadClick}
+                            >
+                              <img
+                                className="chat-panel__clone-dialog-action-icon"
+                                src={VoiceCloneUploadIcon}
+                                alt=""
+                                aria-hidden="true"
+                              />
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="重新录制" zIndex={1301}>
+                            <button
+                              type="button"
+                              className="chat-panel__clone-uploaded-icon-btn"
+                              aria-label="重新录制"
+                              onClick={handleCloneAudioReRecord}
+                            >
+                              <img
+                                className="chat-panel__clone-dialog-action-icon"
+                                src={VoiceCloneRecordBlackIcon}
+                                alt=""
+                                aria-hidden="true"
+                              />
+                            </button>
+                          </Tooltip>
+                        </div>
+                        <div className="chat-panel__clone-provider-row">
+                          <span>使用</span>
+                          <Select
+                            value={cloneProvider}
+                            onChange={setCloneProvider}
+                            className="chat-panel__clone-provider-select"
+                            options={VOICE_CLONE_PROVIDER_OPTIONS}
+                            variant="borderless"
+                            popupMatchSelectWidth={false}
+                            getPopupContainer={() => document.body}
+                          />
+                          <span>复刻音色</span>
+                        </div>
+                        <div className="chat-panel__clone-submit-row">
+                          <Button
+                            type="primary"
+                            className={`chat-panel__clone-submit-btn ${
+                              cloneProvider === 'elevenlabs' ? 'chat-panel__clone-submit-btn--member' : ''
+                            }`}
+                            icon={
+                              <img
+                                src={VoiceCloneActionIcon}
+                                alt=""
+                                className="chat-panel__clone-submit-icon"
+                                aria-hidden="true"
+                              />
+                            }
+                            loading={cloningVoice}
+                            onClick={handleCloneVoiceSubmit}
+                            disabled={cloneSubmitDisabled}
+                          >
+                            <span className="chat-panel__clone-submit-label">开始复刻</span>
+                            <span className="chat-panel__clone-submit-price">
+                              {cloneBillingState.billingMode === 'membership_slots' ? null : (
+                                <img
+                                  src={Point3Icon}
+                                  alt=""
+                                  className="chat-panel__clone-submit-price-icon"
+                                  aria-hidden="true"
+                                />
+                              )}
+                              {clonePriceLoading ? <LoadingOutlined spin /> : cloneBillingState.text}
+                            </span>
+                          </Button>
+                        </div>
+                        {showCloneMembershipCta ? (
+                          <div className="chat-panel__clone-membership-cta-row">
+                            <button
+                              type="button"
+                              className="chat-panel__clone-membership-cta"
+                              onClick={handleOpenMembershipPayment}
+                            >
+                              开通会员
+                            </button>
+                          </div>
                         ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="chat-panel__clone-dialog-panel">
+                    <div className="chat-panel__clone-dialog-header">
+                      <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-title">
+                        录制或上传音频，
+                        <span className="chat-panel__clone-dialog-title-accent">轻松复刻</span>
+                      </h2>
+                      <div className="chat-panel__clone-dialog-description">
+                        推荐上传或录制 10-30s 音频，上传支持小于等于10MB 的 wav、mp3、m4a 格式文件
                       </div>
+                      <div className="chat-panel__clone-dialog-description">
+                        避免多人对话、明显杂音、噪音、混响等情况
+                      </div>
+                    </div>
+                    <div className="chat-panel__clone-dialog-wave">
+                      <div ref={cloneWaveContainerRef} className="chat-panel__clone-dialog-wave-canvas" />
                     </div>
                     <div className="chat-panel__clone-dialog-actions">
                       <button
                         type="button"
                         className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--secondary"
-                        onClick={handleCloneAudioDelete}
+                        onClick={handleVoiceCloneUploadClick}
                       >
-                        <span>重新上传</span>
+                        <img
+                          className="chat-panel__clone-dialog-action-icon"
+                          src={VoiceCloneUploadIcon}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                        <span>{cloneUploading ? '上传中...' : '上传音频'}</span>
                       </button>
                       <button
                         type="button"
                         className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--primary"
-                        onClick={handleUseClonedVoice}
+                        onClick={handleVoiceCloneRecordClick}
+                        disabled={cloneUploading}
                       >
-                        <span>使用该音色</span>
+                        <img
+                          className="chat-panel__clone-dialog-action-icon"
+                          src={VoiceCloneRecordIcon}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                        <span>开始录制</span>
                       </button>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="chat-panel__clone-dialog-header">
-                      <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-title">
-                        上传完成，
-                        <span className="chat-panel__clone-dialog-title-accent">一键复刻</span>
-                      </h2>
-                    </div>
-                    <div className="chat-panel__clone-uploaded-card">
-                      <button
-                        type="button"
-                        className="chat-panel__clone-uploaded-play"
-                        onClick={handleCloneAudioTogglePlay}
-                      >
-                        {cloneIsPlaying ? <PauseCircleFilled /> : <PlayCircleFilled />}
-                      </button>
-                      <div className="chat-panel__clone-uploaded-main">
-                        <div className="chat-panel__clone-uploaded-name">
-                          {cloneSelectedFile?.name || '已上传音频'}
-                        </div>
-                        <div className="chat-panel__clone-uploaded-meta">{clonePlayTimeText}</div>
-                      </div>
-                      <Tooltip title="删除" zIndex={1301}>
-                        <button
-                          type="button"
-                          className="chat-panel__clone-uploaded-icon-btn"
-                          aria-label="删除"
-                          onClick={handleCloneAudioDelete}
-                        >
-                          <DeleteOutlined />
-                        </button>
-                      </Tooltip>
-                      <span className="chat-panel__clone-uploaded-divider" />
-                      <Tooltip title="重新上传" zIndex={1301}>
-                        <button
-                          type="button"
-                          className="chat-panel__clone-uploaded-icon-btn"
-                          aria-label="重新上传"
-                          onClick={handleVoiceCloneUploadClick}
-                        >
-                          <img
-                            className="chat-panel__clone-dialog-action-icon"
-                            src={VoiceCloneUploadIcon}
-                            alt=""
-                            aria-hidden="true"
-                          />
-                        </button>
-                      </Tooltip>
-                      <Tooltip title="重新录制" zIndex={1301}>
-                        <button
-                          type="button"
-                          className="chat-panel__clone-uploaded-icon-btn"
-                          aria-label="重新录制"
-                          onClick={handleCloneAudioReRecord}
-                        >
-                          <img
-                            className="chat-panel__clone-dialog-action-icon"
-                            src={VoiceCloneRecordBlackIcon}
-                            alt=""
-                            aria-hidden="true"
-                          />
-                        </button>
-                      </Tooltip>
-                    </div>
-                    <div className="chat-panel__clone-provider-row">
-                      <span>使用</span>
-                      <Select
-                        value={cloneProvider}
-                        onChange={setCloneProvider}
-                        className="chat-panel__clone-provider-select"
-                        options={VOICE_CLONE_PROVIDER_OPTIONS}
-                        variant="borderless"
-                        popupMatchSelectWidth={false}
-                        getPopupContainer={() => document.body}
-                      />
-                      <span>复刻音色</span>
-                    </div>
-                    <div className="chat-panel__clone-submit-row">
-                      <Button
-                        type="primary"
-                        className={`chat-panel__clone-submit-btn ${
-                          cloneProvider === 'elevenlabs' ? 'chat-panel__clone-submit-btn--member' : ''
-                        }`}
-                        icon={
-                          <img
-                            src={VoiceCloneActionIcon}
-                            alt=""
-                            className="chat-panel__clone-submit-icon"
-                            aria-hidden="true"
-                          />
-                        }
-                        loading={cloningVoice}
-                        onClick={handleCloneVoiceSubmit}
-                        disabled={cloneSubmitDisabled}
-                      >
-                        <span className="chat-panel__clone-submit-label">开始复刻</span>
-                        <span className="chat-panel__clone-submit-price">
-                          {cloneBillingState.billingMode === 'membership_slots' ? null : (
-                            <img
-                              src={Point3Icon}
-                              alt=""
-                              className="chat-panel__clone-submit-price-icon"
-                              aria-hidden="true"
-                            />
-                          )}
-                          {clonePriceLoading ? <LoadingOutlined spin /> : cloneBillingState.text}
-                        </span>
-                      </Button>
-                    </div>
-                    {showCloneMembershipCta ? (
-                      <div className="chat-panel__clone-membership-cta-row">
-                        <button
-                          type="button"
-                          className="chat-panel__clone-membership-cta"
-                          onClick={handleOpenMembershipPayment}
-                        >
-                          开通会员
-                        </button>
-                      </div>
-                    ) : null}
-                  </>
+                  </div>
                 )}
+                <input
+                  ref={cloneUploadInputRef}
+                  type="file"
+                  accept={VOICE_CLONE_AUDIO_ACCEPT}
+                  className="chat-panel__clone-dialog-file-input"
+                  onChange={handleVoiceCloneUploadChange}
+                />
               </div>
-            ) : (
-              <div className="chat-panel__clone-dialog-panel">
-                <div className="chat-panel__clone-dialog-header">
-                  <h2 id="voice-clone-dialog-title" className="chat-panel__clone-dialog-title">
-                    录制或上传音频，
-                    <span className="chat-panel__clone-dialog-title-accent">轻松复刻</span>
-                  </h2>
-                  <div className="chat-panel__clone-dialog-description">
-                    推荐上传或录制 10-30s 音频，上传支持小于等于10MB 的 wav、mp3、m4a 格式文件
-                  </div>
-                  <div className="chat-panel__clone-dialog-description">
-                    避免多人对话、明显杂音、噪音、混响等情况
-                  </div>
-                </div>
-                <div className="chat-panel__clone-dialog-wave">
-                  <div ref={cloneWaveContainerRef} className="chat-panel__clone-dialog-wave-canvas" />
-                </div>
-                <div className="chat-panel__clone-dialog-actions">
-                  <button
-                    type="button"
-                    className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--secondary"
-                    onClick={handleVoiceCloneUploadClick}
-                  >
-                    <img
-                      className="chat-panel__clone-dialog-action-icon"
-                      src={VoiceCloneUploadIcon}
-                      alt=""
-                      aria-hidden="true"
-                    />
-                    <span>{cloneUploading ? '上传中...' : '上传音频'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="chat-panel__clone-dialog-action chat-panel__clone-dialog-action--primary"
-                    onClick={handleVoiceCloneRecordClick}
-                    disabled={cloneUploading}
-                  >
-                    <img
-                      className="chat-panel__clone-dialog-action-icon"
-                      src={VoiceCloneRecordIcon}
-                      alt=""
-                      aria-hidden="true"
-                    />
-                    <span>开始录制</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            <input
-              ref={cloneUploadInputRef}
-              type="file"
-              accept={VOICE_CLONE_AUDIO_ACCEPT}
-              className="chat-panel__clone-dialog-file-input"
-              onChange={handleVoiceCloneUploadChange}
-            />
-          </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 };

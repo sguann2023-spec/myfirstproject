@@ -92,7 +92,7 @@ class FeedbackMailService {
         `邮箱：${payload.user?.email || 'unknown'}`,
         `版本：${payload.version || 'unknown'}`,
         `平台：${payload.platform || 'unknown'}`,
-        `日志目录：${payload.logsPath || '未获取到日志目录'}`
+        payload.logsPath ? `日志目录：${payload.logsPath}` : null
       ].join('\n'),
       attachments
     })

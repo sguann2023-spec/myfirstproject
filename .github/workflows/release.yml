@@ -17,6 +17,7 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
+        channel_brand: [default, bingo]
 
     steps:
       - uses: actions/checkout@v4
@@ -62,9 +63,10 @@ jobs:
           rm -rf build
           pnpm run build:vite
           pnpm run prepare:portable-ffmpeg:mac
-          pnpm exec electron-builder --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
+          pnpm exec electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           NODE_OPTIONS: --max-old-space-size=8192
           DEBUG: electron-builder
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -183,11 +185,17 @@ jobs:
 
       - name: Prepare latest macOS artifacts and metadata
         shell: bash
+        env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
         run: |
           set -euo pipefail
           shopt -s nullglob
           VERSION=$(node -p "require('./package.json').version")
           RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+          LATEST_PREFIX="VectCut"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            LATEST_PREFIX="BingoCut"
+          fi
 
           X64_ZIPS=(build/*-x64.zip)
           ARM64_ZIPS=(build/*-arm64.zip)
@@ -209,23 +217,23 @@ jobs:
 
           X64_DMG="${X64_DMGS[0]}"
           ARM64_DMG="${ARM64_DMGS[0]}"
-          cp "$X64_ZIP" build/VectCut-latest-x64.zip
-          cp "$ARM64_ZIP" build/VectCut-latest-arm64.zip
-          cp "$X64_DMG" build/VectCut-latest-x64.dmg
-          cp "$ARM64_DMG" build/VectCut-latest-arm64.dmg
+          cp "$X64_ZIP" "build/${LATEST_PREFIX}-latest-x64.zip"
+          cp "$ARM64_ZIP" "build/${LATEST_PREFIX}-latest-arm64.zip"
+          cp "$X64_DMG" "build/${LATEST_PREFIX}-latest-x64.dmg"
+          cp "$ARM64_DMG" "build/${LATEST_PREFIX}-latest-arm64.dmg"
 
-          X64_SHA512=$(openssl dgst -sha512 -binary build/VectCut-latest-x64.zip | openssl base64 -A)
-          ARM64_SHA512=$(openssl dgst -sha512 -binary build/VectCut-latest-arm64.zip | openssl base64 -A)
-          X64_SIZE=$(stat -f%z build/VectCut-latest-x64.zip)
-          ARM64_SIZE=$(stat -f%z build/VectCut-latest-arm64.zip)
+          X64_SHA512=$(openssl dgst -sha512 -binary "build/${LATEST_PREFIX}-latest-x64.zip" | openssl base64 -A)
+          ARM64_SHA512=$(openssl dgst -sha512 -binary "build/${LATEST_PREFIX}-latest-arm64.zip" | openssl base64 -A)
+          X64_SIZE=$(stat -f%z "build/${LATEST_PREFIX}-latest-x64.zip")
+          ARM64_SIZE=$(stat -f%z "build/${LATEST_PREFIX}-latest-arm64.zip")
 
           cat > build/latest-mac.yml <<EOF
           version: ${VERSION}
           files:
-            - url: VectCut-latest-x64.zip
+            - url: ${LATEST_PREFIX}-latest-x64.zip
               sha512: ${X64_SHA512}
               size: ${X64_SIZE}
-          path: VectCut-latest-x64.zip
+          path: ${LATEST_PREFIX}-latest-x64.zip
           sha512: ${X64_SHA512}
           releaseDate: '${RELEASE_DATE}'
           EOF
@@ -233,10 +241,10 @@ jobs:
           cat > build/latest-mac-arm64.yml <<EOF
           version: ${VERSION}
           files:
-            - url: VectCut-latest-arm64.zip
+            - url: ${LATEST_PREFIX}-latest-arm64.zip
               sha512: ${ARM64_SHA512}
               size: ${ARM64_SIZE}
-          path: VectCut-latest-arm64.zip
+          path: ${LATEST_PREFIX}-latest-arm64.zip
           sha512: ${ARM64_SHA512}
           releaseDate: '${RELEASE_DATE}'
           EOF
@@ -245,7 +253,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: mac-signing-diagnostics-${{ github.run_id }}
+          name: mac-signing-diagnostics-${{ matrix.channel_brand }}-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
             build/builder-debug.yml
@@ -262,24 +270,31 @@ jobs:
 
       - name: Deploy macOS Assets to OSS (Latest Path)
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
           ossutil config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
+          LATEST_PREFIX="VectCut"
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/latest/"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            LATEST_PREFIX="BingoCut"
+            DEST="oss://${MP4_OSS_BUCKET_NAME}/client/latest/bingo/"
+          fi
           FILES=(
-            build/VectCut-latest-x64.zip
-            build/VectCut-latest-arm64.zip
-            build/VectCut-latest-x64.dmg
-            build/VectCut-latest-arm64.dmg
+            build/${LATEST_PREFIX}-latest-x64.zip
+            build/${LATEST_PREFIX}-latest-arm64.zip
+            build/${LATEST_PREFIX}-latest-x64.dmg
+            build/${LATEST_PREFIX}-latest-arm64.dmg
             build/latest-mac.yml
             build/latest-mac-arm64.yml
           )
           for f in "${FILES[@]}"; do
             [ -f "$f" ] || { echo "Missing mac artifact: $f"; exit 1; }
-            echo "Uploading $f to latest path"
-            ossutil cp -f "$f" "oss://${MP4_OSS_BUCKET_NAME}/client/latest/" -c /tmp/.ossutilconfig
+            echo "Uploading $f to $DEST"
+            ossutil cp -f "$f" "$DEST" -c /tmp/.ossutilconfig
           done
 
   # 任务 2B: Windows 构建并上传 Windows 资产到 OSS
@@ -289,6 +304,7 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
+        channel_brand: [default, bingo]
 
     steps:
       - uses: actions/checkout@v4
@@ -344,6 +360,7 @@ jobs:
         run: pnpm run build:win
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           NODE_OPTIONS: --max-old-space-size=8192
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           FEEDBACK_SMTP_HOST: ${{ secrets.FEEDBACK_SMTP_HOST }}
@@ -400,30 +417,37 @@ jobs:
       - name: Deploy Windows Assets to OSS (Latest Path)
         shell: bash
         env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
           MP4_OSS_ENDPOINT: ${{ secrets.MP4_OSS_ENDPOINT }}
           MP4_OSS_ACCESS_KEY_ID: ${{ secrets.MP4_OSS_ACCESS_KEY_ID }}
           MP4_OSS_ACCESS_KEY_SECRET: ${{ secrets.MP4_OSS_ACCESS_KEY_SECRET }}
           MP4_OSS_BUCKET_NAME: ${{ secrets.MP4_OSS_BUCKET_NAME }}
         run: |
           WIN_EXE=$(ls build/*.exe | head -n 1)
-          cp "$WIN_EXE" build/VectCut-Setup-latest-x64.exe
+          LATEST_SETUP_NAME="VectCut-Setup-latest-x64.exe"
+          DEST="oss://${MP4_OSS_BUCKET_NAME}/client/latest/"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            LATEST_SETUP_NAME="BingoCut-Setup-latest-x64.exe"
+            DEST="oss://${MP4_OSS_BUCKET_NAME}/client/latest/bingo/"
+          fi
+          cp "$WIN_EXE" "build/${LATEST_SETUP_NAME}"
           VERSION=$(node -p "require('./package.json').version")
           RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-          WIN_SHA512=$(openssl dgst -sha512 -binary build/VectCut-Setup-latest-x64.exe | openssl base64 -A)
-          WIN_SIZE=$(stat -c%s build/VectCut-Setup-latest-x64.exe)
+          WIN_SHA512=$(openssl dgst -sha512 -binary "build/${LATEST_SETUP_NAME}" | openssl base64 -A)
+          WIN_SIZE=$(stat -c%s "build/${LATEST_SETUP_NAME}")
           cat > build/latest.yml <<EOF
           version: ${VERSION}
           files:
-            - url: VectCut-Setup-latest-x64.exe
+            - url: ${LATEST_SETUP_NAME}
               sha512: ${WIN_SHA512}
               size: ${WIN_SIZE}
-          path: VectCut-Setup-latest-x64.exe
+          path: ${LATEST_SETUP_NAME}
           sha512: ${WIN_SHA512}
           releaseDate: '${RELEASE_DATE}'
           EOF
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/VectCut-Setup-latest-x64.exe "oss://${MP4_OSS_BUCKET_NAME}/client/latest/VectCut-Setup-latest-x64.exe" -c /tmp/.ossutilconfig
-          ./ossutil64.exe cp -f build/latest.yml "oss://${MP4_OSS_BUCKET_NAME}/client/latest/latest.yml" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f "build/${LATEST_SETUP_NAME}" "${DEST}" -c /tmp/.ossutilconfig
+          ./ossutil64.exe cp -f build/latest.yml "${DEST}latest.yml" -c /tmp/.ossutilconfig
 
   refresh-dcdn:
     runs-on: ubuntu-latest
@@ -472,6 +496,14 @@ jobs:
           https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.zip
           https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.zip
           https://player.install-ai-guider.top/client/latest/VectCut-latest-universal.zip
+          https://player.install-ai-guider.top/client/latest/bingo/latest.yml
+          https://player.install-ai-guider.top/client/latest/bingo/latest-mac.yml
+          https://player.install-ai-guider.top/client/latest/bingo/latest-mac-arm64.yml
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-x64.dmg
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-arm64.dmg
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-Setup-latest-x64.exe
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-x64.zip
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-arm64.zip
           EOF
           )
 
@@ -483,6 +515,11 @@ jobs:
           https://player.install-ai-guider.top/client/latest/VectCut-latest-x64.zip
           https://player.install-ai-guider.top/client/latest/VectCut-latest-arm64.zip
           https://player.install-ai-guider.top/client/latest/VectCut-latest-universal.zip
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-x64.dmg
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-arm64.dmg
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-Setup-latest-x64.exe
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-x64.zip
+          https://player.install-ai-guider.top/client/latest/bingo/BingoCut-latest-arm64.zip
           EOF
           )
 

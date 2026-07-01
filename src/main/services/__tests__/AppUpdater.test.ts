@@ -87,6 +87,7 @@ vi.mock('electron-updater', () => ({
 // Import after mocks
 import { UpdateMirror } from '@shared/config/constant'
 import { app, net } from 'electron'
+import { autoUpdater } from 'electron-updater'
 
 import AppUpdater from '../AppUpdater'
 import { configManager } from '../ConfigManager'
@@ -96,7 +97,34 @@ describe('AppUpdater', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(app.getPath).mockReturnValue('/test/path/VectCut.exe')
     appUpdater = new AppUpdater()
+  })
+
+  describe('_setFeedUrl', () => {
+    it('should use default latest feed for default channel package path', async () => {
+      vi.mocked(app.getPath).mockReturnValue('/Applications/VectCut.app/Contents/MacOS/VectCut')
+
+      await (appUpdater as any)._setFeedUrl()
+
+      expect(vi.mocked(autoUpdater.setFeedURL)).toHaveBeenCalledWith({
+        provider: 'generic',
+        url: 'https://player.install-ai-guider.top/client/latest',
+        channel: 'latest'
+      })
+    })
+
+    it('should use bingo latest feed for bingo channel package path', async () => {
+      vi.mocked(app.getPath).mockReturnValue('C:/Program Files/BingoCut/BingoCut.exe')
+
+      await (appUpdater as any)._setFeedUrl()
+
+      expect(vi.mocked(autoUpdater.setFeedURL)).toHaveBeenCalledWith({
+        provider: 'generic',
+        url: 'https://player.install-ai-guider.top/client/latest/bingo',
+        channel: 'latest'
+      })
+    })
   })
 
   describe('parseMultiLangReleaseNotes', () => {
