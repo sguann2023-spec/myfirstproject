@@ -4,6 +4,10 @@ const CHANNEL_BRANDS = {
   default: {
     productName: '流光剪辑',
     displayNameZh: '流光剪辑',
+    winArtifactName: 'VectCut-Setup-${version}-${arch}.exe',
+    winExecutableName: 'VectCut',
+    shortcutName: '流光剪辑',
+    uninstallDisplayName: '流光剪辑',
   },
   bingo: {
     productName: 'BingoCut',
@@ -12,6 +16,10 @@ const CHANNEL_BRANDS = {
     icon: 'build-resources/brands/bingo/logo.png',
     macIcon: 'build-resources/brands/bingo/logo.icns',
     winIcon: 'build-resources/brands/bingo/logo.ico',
+    winArtifactName: 'BingoCut-Setup-${version}-${arch}.exe',
+    winExecutableName: 'BingoCut',
+    shortcutName: 'BINGO流光剪辑',
+    uninstallDisplayName: 'BINGO流光剪辑',
   },
 }
 
@@ -38,6 +46,28 @@ if (channelBrand.macIcon) {
 if (channelBrand.winIcon) {
   buildConfig.win = buildConfig.win || {}
   buildConfig.win.icon = channelBrand.winIcon
+}
+if (channelBrand.winArtifactName) {
+  buildConfig.win = buildConfig.win || {}
+  buildConfig.win.artifactName = channelBrand.winArtifactName
+}
+if (channelBrand.winExecutableName) {
+  buildConfig.win = buildConfig.win || {}
+  buildConfig.win.executableName = channelBrand.winExecutableName
+}
+if (channelBrand.shortcutName || channelBrand.uninstallDisplayName || channelBrand.winIcon) {
+  buildConfig.nsis = buildConfig.nsis || {}
+  if (channelBrand.shortcutName) {
+    buildConfig.nsis.shortcutName = channelBrand.shortcutName
+  }
+  if (channelBrand.uninstallDisplayName) {
+    buildConfig.nsis.uninstallDisplayName = channelBrand.uninstallDisplayName
+  }
+  if (channelBrand.winIcon) {
+    buildConfig.nsis.installerIcon = channelBrand.winIcon
+    buildConfig.nsis.uninstallerIcon = channelBrand.winIcon
+    buildConfig.nsis.installerHeaderIcon = channelBrand.winIcon
+  }
 }
 
 module.exports = buildConfig

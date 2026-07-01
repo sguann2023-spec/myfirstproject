@@ -32,7 +32,6 @@ const AUTHING_CONFIG = {
     CLIENT_SECRET: '16a94e467e927cc09b3c8dc7ec92d420'
 };
 const RENDERER_ENV = import.meta.env || {};
-const CHANNEL_AUTH_PAGE_URL = String(RENDERER_ENV.RENDERER_VITE_AUTH_PAGE_URL || 'https://www.vectcut.com/auth').trim();
 const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
 
 function normalizeInviteCode(value) {
@@ -56,23 +55,7 @@ function buildDirectGuardUrl({ forcePrompt = false } = {}) {
 }
 
 function buildAuthEntryUrl({ forcePrompt = false } = {}) {
-    const inviteCode = normalizeInviteCode(CHANNEL_INVITE_CODE);
-    if (!inviteCode || forcePrompt) {
-        return buildDirectGuardUrl({ forcePrompt });
-    }
-
-    try {
-        const url = new URL(CHANNEL_AUTH_PAGE_URL || 'https://www.vectcut.com/auth');
-        url.searchParams.set('invite_code', inviteCode);
-        url.searchParams.set('redirect_uri', AUTHING_CONFIG.REDIRECT_URI);
-        if (forcePrompt) {
-            url.searchParams.set('prompt', 'login');
-        }
-        return url.toString();
-    } catch (error) {
-        logger.warn('build channel auth page url failed, fallback to direct guard url:', error);
-        return buildDirectGuardUrl({ forcePrompt });
-    }
+    return buildDirectGuardUrl({ forcePrompt });
 }
 
 function parseJwt(token) {
