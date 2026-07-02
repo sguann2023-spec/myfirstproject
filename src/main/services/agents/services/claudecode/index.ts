@@ -1640,6 +1640,32 @@ class ClaudeCodeService implements AgentServiceInterface {
 
         jsonOutput.push(message)
 
+        const messageType = String((message as any)?.type || '')
+        const systemSubtype = messageType === 'system' ? String((message as any)?.subtype || '') : ''
+        const compactProbePreview = JSON.stringify(message).slice(0, 500)
+        const hasCompactSignal = compactProbePreview.toLowerCase().includes('compact')
+
+        if (messageType === 'system') {
+          logger.info('[compact-probe][sdk-system]', {
+            sessionId,
+            subtype: systemSubtype || 'unknown',
+            hasCompactSignal
+          })
+          if (systemSubtype === 'status' && hasCompactSignal) {
+            logger.info('[compact-probe][sdk-status-compact]', {
+              sessionId,
+              keys: Object.keys((message as Record<string, unknown>) || {}),
+              preview: compactProbePreview
+            })
+          }
+        } else if (hasCompactSignal) {
+          logger.info('[compact-probe][sdk-message]', {
+            sessionId,
+            type: messageType || 'unknown',
+            preview: compactProbePreview
+          })
+        }
+
         if (message.type === 'stream_event') {
           const event = (message as any).event
           const eventType = String(event?.type || '')

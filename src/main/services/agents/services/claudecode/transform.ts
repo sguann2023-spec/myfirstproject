@@ -740,6 +740,16 @@ function handleSystemMessage(message: Extract<SDKMessage, { type: 'system' }>): 
         raw: message
       }
     })
+  } else if (message.subtype === 'status' && String((message as any).status || '') === 'compacting') {
+    chunks.push({
+      type: 'raw',
+      rawValue: {
+        type: 'compact_status',
+        session_id: message.session_id,
+        status: 'compacting',
+        raw: message
+      }
+    })
   } else if (message.subtype === 'compact_boundary') {
     chunks.push({
       type: 'raw',

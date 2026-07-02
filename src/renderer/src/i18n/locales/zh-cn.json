@@ -2393,7 +2393,8 @@
     "message": {
       "code_style": "代码风格",
       "compact": {
-        "title": "对话已压缩"
+        "title": "对话已压缩",
+        "processing": "正在压缩上下文..."
       },
       "delete": {
         "content": "确定要删除此消息吗？",

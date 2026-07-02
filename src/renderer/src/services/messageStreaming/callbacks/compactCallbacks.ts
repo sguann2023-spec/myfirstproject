@@ -4,6 +4,7 @@ import { updateOneBlock } from '@renderer/store/messageBlock'
 import { newMessagesActions } from '@renderer/store/newMessage'
 import type { MainTextMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
+import { createCompactBlock } from '@renderer/utils/messageUtils/create'
 import type { ClaudeCodeRawValue } from '@shared/agents/claudecode/types'
 
 import type { BlockManager } from '../BlockManager'
@@ -24,6 +25,7 @@ interface CompactCallbacksDeps {
 
 interface CompactState {
   compactBoundaryDetected: boolean
+  loadingBlockId: string | null
   summaryBlockId: string | null
   isFirstBlockAfterCompact: boolean
   summaryText: string
@@ -35,6 +37,7 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
   // State to track compact command processing
   const compactState: CompactState = {
     compactBoundaryDetected: false,
+    loadingBlockId: null,
     summaryBlockId: null,
     isFirstBlockAfterCompact: false,
     summaryText: ''
@@ -90,6 +93,46 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     }
   }
 
+  const ensureLoadingBlock = () => {
+    if (compactState.loadingBlockId) {
+      return compactState.loadingBlockId
+    }
+
+    const loadingBlock = createCompactBlock(assistantMsgId, '', '', {
+      status: MessageBlockStatus.PROCESSING
+    })
+    compactState.loadingBlockId = loadingBlock.id
+    void blockManager.handleBlockTransition(loadingBlock, MessageBlockType.COMPACT)
+    return loadingBlock.id
+  }
+
+  const resetCompactState = () => {
+    compactState.compactBoundaryDetected = false
+    compactState.loadingBlockId = null
+    compactState.summaryBlockId = null
+    compactState.summaryText = ''
+    compactState.isFirstBlockAfterCompact = false
+  }
+
+  const removeBlockReference = async (blockId: string) => {
+    const currentState = getState()
+    const currentMessage = currentState.messages.entities[assistantMsgId]
+    if (!currentMessage?.blocks?.includes(blockId)) {
+      return
+    }
+
+    const updatedBlocks = currentMessage.blocks.filter((id: string) => id !== blockId)
+    dispatch(
+      newMessagesActions.updateMessage({
+        topicId,
+        messageId: assistantMsgId,
+        updates: { blocks: updatedBlocks }
+      })
+    )
+
+    await saveUpdatesToDB(assistantMsgId, topicId, { blocks: updatedBlocks }, [])
+  }
+
   const convertSummaryBlockToCompact = async (summaryBlockId: string, summaryText: string, compactedContent: string) => {
     dispatch(
       updateOneBlock({
@@ -123,11 +166,19 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     logger.debug('Raw data received', { content, metadata })
 
     const rawValue = content as ClaudeCodeRawValue
+    const compactStatus = (rawValue as { status?: string } | null)?.status || ''
+
+    if (rawValue.type === 'compact_status' && compactStatus === 'compacting') {
+      logger.info('Compact status detected before boundary')
+      ensureLoadingBlock()
+      return
+    }
 
     // Check if this is a compact_boundary message
     if (rawValue.type === 'compact') {
       logger.info('Compact boundary detected')
       compactState.compactBoundaryDetected = true
+      ensureLoadingBlock()
       compactState.summaryBlockId = null
       compactState.isFirstBlockAfterCompact = true
       compactState.summaryText = ''
@@ -170,11 +221,38 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
     // First block after compact_boundary: This is the summary
     if (compactState.isFirstBlockAfterCompact) {
       logger.info('Detected first block after compact boundary (summary)', { fullContent })
+      const compactBlockId = compactState.loadingBlockId || currentMainTextBlockId
+
+      if (isContinuationSummary(fullContent)) {
+        const summaryText = stripContinuationSummaryPreamble(fullContent)
+        resetCompactState()
+        await convertSummaryBlockToCompact(compactBlockId, summaryText, '')
+        if (currentMainTextBlockId !== compactBlockId) {
+          await removeBlockReference(currentMainTextBlockId)
+        }
+        await persistCompactBlock(compactBlockId)
+        return true
+      }
 
       // Store the summary text and block ID
       compactState.summaryText = fullContent
-      compactState.summaryBlockId = currentMainTextBlockId
+      compactState.summaryBlockId = compactBlockId
       compactState.isFirstBlockAfterCompact = false
+
+      if (compactBlockId !== currentMainTextBlockId) {
+        dispatch(
+          updateOneBlock({
+            id: compactBlockId,
+            changes: {
+              content: fullContent,
+              status: MessageBlockStatus.PROCESSING
+            }
+          })
+        )
+        await removeBlockReference(currentMainTextBlockId)
+        await persistCompactBlock(compactBlockId)
+        return true
+      }
 
       // Hide this block by marking it as a placeholder temporarily
       // We'll convert it to compact block when we get the second block
@@ -196,36 +274,21 @@ export const createCompactCallbacks = (deps: CompactCallbacksDeps) => {
 
       const compactedContent = extractCompactedContent(fullContent)
       const summaryBlockId = compactState.summaryBlockId
+      const summaryText = compactState.summaryText
 
       logger.info('Converting summary block to compact block', {
-        summaryText: compactState.summaryText,
+        summaryText,
         compactedContent,
         summaryBlockId
       })
 
-      await convertSummaryBlockToCompact(summaryBlockId, compactState.summaryText, compactedContent)
+      resetCompactState()
+      await convertSummaryBlockToCompact(summaryBlockId, summaryText, compactedContent)
 
       // Remove the current block (the one with XML tags) from message.blocks
-      const currentState = getState()
-      const currentMessage = currentState.messages.entities[assistantMsgId]
-      if (currentMessage && currentMessage.blocks) {
-        const updatedBlocks = currentMessage.blocks.filter((id: string) => id !== currentMainTextBlockId)
-        dispatch(
-          newMessagesActions.updateMessage({
-            topicId,
-            messageId: assistantMsgId,
-            updates: { blocks: updatedBlocks }
-          })
-        )
-      }
+      await removeBlockReference(currentMainTextBlockId)
 
       await persistCompactBlock(summaryBlockId)
-
-      // Reset compact state
-      compactState.compactBoundaryDetected = false
-      compactState.summaryBlockId = null
-      compactState.summaryText = ''
-      compactState.isFirstBlockAfterCompact = false
 
       return true
     }

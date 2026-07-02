@@ -371,13 +371,27 @@ const buildAssistantDisplayContentFromBlocks = (blocks = []) => {
   (Array.isArray(blocks) ? blocks : []).forEach((block) => {
     const type = String(block?.type || '').toLowerCase();
     const content = String(block?.content || '').trim();
-    if (!content && type !== 'tool') return;
+    const compactedContent = String(block?.compactedContent || '').trim();
+    if (!content && !compactedContent && type !== 'tool') return;
     if (type === 'thinking') {
       pieces.push(`<think>\n${content}\n</think>`);
       return;
     }
     if (type === 'main_text' || type === 'code') {
       pieces.push(content);
+      return;
+    }
+    if (type === 'compact') {
+      const compactSections = [];
+      if (content) {
+        compactSections.push(`## Conversation Compacted\n\n${content}`);
+      }
+      if (compactedContent) {
+        compactSections.push(`### Compacted Content\n\n${compactedContent}`);
+      }
+      if (compactSections.length > 0) {
+        pieces.push(compactSections.join('\n\n'));
+      }
       return;
     }
     if (type === 'tool') {

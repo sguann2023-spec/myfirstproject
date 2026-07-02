@@ -9,4 +9,10 @@ export type ClaudeCodeRawValue =
       tools: string[]
       raw: Extract<SDKMessage, { type: 'system' }>
     }
+  | {
+      type: 'compact_status'
+      session_id: string
+      status: string
+      raw: Extract<SDKMessage, { type: 'system' }>
+    }
   | ContentBlockParam

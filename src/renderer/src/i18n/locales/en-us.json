@@ -2393,7 +2393,8 @@
     "message": {
       "code_style": "Code style",
       "compact": {
-        "title": "Conversation Compacted"
+        "title": "Conversation Compacted",
+        "processing": "Compressing conversation context..."
       },
       "delete": {
         "content": "Are you sure you want to delete this message?",
