@@ -1,13 +1,85 @@
 const fs = require('fs');
 const path = require('path');
-const { Worker } = require('worker_threads');
-const { promisify } = require('util');
-const axios = require('axios');
 const downloader = require('./downloader');
-const { log } = require('console');
 const i18next = require('i18next');
 const logger = require('./loggerBridge').withContext('SaveDraftBackground');
 const { parentPort } = require('worker_threads'); // 新增
+
+function shouldUseElectronSessionDownload(source) {
+  return typeof source === 'string' && /^https?:\/\//i.test(source);
+}
+
+function buildSessionDownloadHeaders() {
+  return {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Cache-Control': 'max-age=0',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
+  };
+}
+
+async function downloadViaElectronSession(url, localFilename, progressCallback, timeout = 180000) {
+  if (!parentPort) {
+    throw new Error('parentPort not available for session download');
+  }
+
+  return new Promise((resolve, reject) => {
+    const reqId = `session-download:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    let settled = false;
+
+    const cleanup = () => {
+      parentPort.off('message', onMessage);
+      clearTimeout(timer);
+    };
+
+    const finish = (handler, payload) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      handler(payload);
+    };
+
+    const onMessage = (msg) => {
+      if (!msg || msg.reqId !== reqId) return;
+
+      if (msg.type === 'session-download-progress') {
+        if (typeof progressCallback === 'function') {
+          progressCallback(Number(msg.downloadedBytes || 0), Number(msg.totalBytes || 0));
+        }
+        return;
+      }
+
+      if (msg.type === 'session-download-response') {
+        if (msg.success) {
+          finish(resolve, true);
+        } else {
+          finish(reject, new Error(msg.error || 'session download failed'));
+        }
+      }
+    };
+
+    const timer = setTimeout(() => {
+      finish(reject, new Error(`session download timeout after ${Math.ceil(timeout / 1000)}s`));
+    }, timeout + 15000);
+
+    parentPort.on('message', onMessage);
+    parentPort.postMessage({
+      type: 'session-download-request',
+      reqId,
+      url,
+      localFilename,
+      timeout,
+      headers: buildSessionDownloadHeaders()
+    });
+  });
+}
 
 function loadUpdateMediaMetadata() {
   const candidates = [
@@ -62,7 +134,7 @@ async function copyFolderRecursive(source, destination) {
   }
 }
 
-async function stabilizeLocalRemoteUrls(script, draftId) {
+async function stabilizeLocalRemoteUrls(script) {
   const visited = new WeakSet();
   let normalized = 0;
   let missingLocalFiles = 0;
@@ -270,7 +342,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     script = parsed;
     logger.info(`成功使用前端提供的脚本，草稿 ${draftName}。`);
 
-    const stagedLocal = await stabilizeLocalRemoteUrls(script, draftId);
+    const stagedLocal = await stabilizeLocalRemoteUrls(script);
     if (stagedLocal.normalized > 0) {
       logger.info(`已规范化本地素材路径: ${stagedLocal.normalized} 个`);
     }
@@ -748,21 +820,31 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
                 reportDownloadProgress(30, i18next.t('downloading'), downloadTasks);
               
                 // 2. 执行下载，传入实时回调
-                await downloader.downloadFile(
-                    task.url, 
-                    task.localPath, 
-                    (downloadedBytes, totalBytes) => {
-                        // 进度回调 (频繁触发)
-                        task.downloaded = downloadedBytes;
-                        // 实时更新 total (如果 totalBytes 在回调中更新)
-                        if (totalBytes > 0) task.total = totalBytes; 
-                        task.status = 'downloading';
-                        reportDownloadProgress(30, i18next.t('downloading'), downloadTasks);
-                    },
-                    task.downloadOptions.retry,
-                    task.downloadOptions.timeout,
-                    task.downloadOptions.context
-                );
+                const onTaskProgress = (downloadedBytes, totalBytes) => {
+                    task.downloaded = downloadedBytes;
+                    if (totalBytes > 0) task.total = totalBytes; 
+                    task.status = 'downloading';
+                    reportDownloadProgress(30, i18next.t('downloading'), downloadTasks);
+                };
+
+                if (shouldUseElectronSessionDownload(task.url)) {
+                    logger.info(`[DLTRACE][Worker] 使用 Electron session 下载素材: ${task.url}`);
+                    await downloadViaElectronSession(
+                        task.url,
+                        task.localPath,
+                        onTaskProgress,
+                        task.downloadOptions.timeout
+                    );
+                } else {
+                    await downloader.downloadFile(
+                        task.url, 
+                        task.localPath, 
+                        onTaskProgress,
+                        task.downloadOptions.retry,
+                        task.downloadOptions.timeout,
+                        task.downloadOptions.context
+                    );
+                }
               
               // 3. 下载成功逻辑
               let finalSize = 0;

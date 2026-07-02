@@ -4,6 +4,9 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { Worker } from 'node:worker_threads'
 import fs from 'node:fs'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { configManager } from './ConfigManager'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
@@ -43,6 +46,134 @@ function getMainWindow() {
   const mainWindow = windowService.getMainWindow()
   if (!mainWindow || mainWindow.isDestroyed()) return null
   return mainWindow
+}
+
+async function downloadViaWindowSession(
+  worker: Worker,
+  payload: { reqId?: string; url?: string; localFilename?: string; timeout?: number; headers?: Record<string, string> },
+  draftId: string,
+  jobId: number
+) {
+  const reqId = String(payload?.reqId || '')
+  const url = String(payload?.url || '')
+  const localFilename = String(payload?.localFilename || '')
+  const timeout = Math.max(1000, Number(payload?.timeout || 180000))
+
+  const reply = (message: Record<string, unknown>) => {
+    worker.postMessage({
+      reqId,
+      ...message
+    })
+  }
+
+  if (!reqId || !url || !localFilename) {
+    reply({
+      type: 'session-download-response',
+      success: false,
+      error: 'invalid session download payload'
+    })
+    return
+  }
+
+  const mainWindow = getMainWindow()
+  if (!mainWindow) {
+    reply({
+      type: 'session-download-response',
+      success: false,
+      error: 'mainWindow unavailable for session download'
+    })
+    return
+  }
+
+  const abortController = new AbortController()
+  const timer = setTimeout(() => abortController.abort(new Error(`session download timeout after ${timeout}ms`)), timeout)
+  let completed = false
+
+  try {
+    await fs.promises.mkdir(path.dirname(localFilename), { recursive: true })
+
+    logger.info('[DLTRACE][Main] session download start', {
+      jobId,
+      draftId,
+      reqId,
+      url,
+      localFilename
+    })
+
+    const response = await mainWindow.webContents.session.fetch(url, {
+      method: 'GET',
+      headers: payload?.headers || {},
+      credentials: 'include',
+      signal: abortController.signal
+    })
+
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`)
+    }
+
+    if (!response.body) {
+      throw new Error('empty response body')
+    }
+
+    const totalBytes = Number(response.headers.get('content-length') || 0)
+    let downloadedBytes = 0
+    const source = Readable.fromWeb(response.body as NodeReadableStream)
+    const writer = fs.createWriteStream(localFilename)
+
+    source.on('data', (chunk) => {
+      downloadedBytes += Buffer.byteLength(chunk)
+      reply({
+        type: 'session-download-progress',
+        downloadedBytes,
+        totalBytes
+      })
+    })
+
+    await pipeline(source, writer)
+    completed = true
+
+    reply({
+      type: 'session-download-progress',
+      downloadedBytes,
+      totalBytes: totalBytes || downloadedBytes
+    })
+    reply({
+      type: 'session-download-response',
+      success: true
+    })
+
+    logger.info('[DLTRACE][Main] session download complete', {
+      jobId,
+      draftId,
+      reqId,
+      url,
+      downloadedBytes,
+      totalBytes
+    })
+  } catch (error) {
+    try {
+      await fs.promises.unlink(localFilename)
+    } catch {}
+
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('[DLTRACE][Main] session download failed', {
+      jobId,
+      draftId,
+      reqId,
+      url,
+      error: message
+    })
+    reply({
+      type: 'session-download-response',
+      success: false,
+      error: message
+    })
+  } finally {
+    clearTimeout(timer)
+    if (!completed) {
+      abortController.abort()
+    }
+  }
 }
 
 function resolveWorkerScriptPath() {
@@ -282,6 +413,11 @@ function registerLegacyDownloadChannels() {
             reqId: message.reqId
           })
         }
+        return
+      }
+
+      if (message?.type === 'session-download-request') {
+        void downloadViaWindowSession(worker, message, draftId, jobId)
         return
       }
 
