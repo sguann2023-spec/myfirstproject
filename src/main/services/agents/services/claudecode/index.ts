@@ -816,6 +816,8 @@ class ClaudeCodeService implements AgentServiceInterface {
           }
 
     // Build SDK options from session configuration
+    // Default to adaptive thinking so Claude Code / model can decide when to think.
+    const resolvedThinkingConfig = thinkingOptions?.thinking ?? { type: 'adaptive' as const }
     const options: Options = {
       abortController,
       cwd,
@@ -887,8 +889,11 @@ class ClaudeCodeService implements AgentServiceInterface {
         ...(isAssistant ? ['AskUserQuestion'] : [])
       ],
       ...(thinkingOptions?.effort ? { effort: thinkingOptions.effort } : {}),
-      ...(thinkingOptions?.thinking ? { thinking: thinkingOptions.thinking } : {})
+      thinking: resolvedThinkingConfig
     }
+    // Claude Agent SDK 0.2.81 的运行时代码读取 `thinkingConfig`，而公开类型声明使用 `thinking`。
+    // 两个字段同时赋值，确保自适应 thinking 配置真正传到 CLI 层。
+    ;(options as Options & { thinkingConfig?: typeof resolvedThinkingConfig }).thinkingConfig = resolvedThinkingConfig
     const promptSourceSummary = summarizePromptSource(options.systemPrompt)
 
     if (session.accessible_paths.length > 1) {
@@ -1237,30 +1242,6 @@ class ClaudeCodeService implements AgentServiceInterface {
         autoAllowHasBash: autoAllowTools.has('Bash') || autoAllowTools.has('builtin_Bash'),
         finalAllowedCoversBash: allowsToolByPattern(options.allowedTools, 'Bash')
       }
-    })
-
-    logger.info('Resolved SDK thinking options before query', {
-      sessionId: session.id,
-      modelId: modelInfo.modelId,
-      anthropicBaseUrl,
-      hasEffort: Boolean(thinkingOptions?.effort),
-      effort: thinkingOptions?.effort ?? null,
-      hasThinking: Boolean(thinkingOptions?.thinking),
-      thinkingType: (thinkingOptions?.thinking as any)?.type ?? null,
-      thinkingBudgetTokens: (thinkingOptions?.thinking as any)?.budgetTokens ?? null
-    })
-
-    logger.info('Starting Claude Code SDK query', {
-      prompt,
-      cwd: options.cwd,
-      model: options.model ?? null,
-      anthropicModel: env.ANTHROPIC_MODEL ?? null,
-      effort: (options as any).effort ?? null,
-      thinking: (options as any).thinking ?? null,
-      permissionMode: options.permissionMode,
-      maxTurns: options.maxTurns,
-      allowedTools: options.allowedTools,
-      resume: options.resume
     })
 
     const { stream: userInputStream, enqueue: enqueueUserMessage, close: closeUserStream } = await this.createUserMessageStream(

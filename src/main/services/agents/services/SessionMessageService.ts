@@ -20,11 +20,6 @@ import ClaudeCodeService from './claudecode'
 const claudeCodeService = new ClaudeCodeService()
 
 const logger = loggerService.withContext('SessionMessageService')
-const DEFAULT_AGENT_EFFORT: NonNullable<CreateSessionMessageRequest['effort']> = 'high'
-const DEFAULT_AGENT_THINKING: NonNullable<CreateSessionMessageRequest['thinking']> = {
-  type: 'enabled',
-  budgetTokens: 8000
-}
 
 type SessionStreamResult = {
   stream: ReadableStream<TextStreamPart<Record<string, any>>>
@@ -213,8 +208,8 @@ export class SessionMessageService extends BaseService {
       imageCount: options?.images?.length ?? 0,
       startsWithSlashCommand: /^\/[\w-]+/.test(promptText.trim()),
       contentPreview: promptText.slice(0, 200),
-      effort: req?.effort ?? DEFAULT_AGENT_EFFORT,
-      thinkingType: req?.thinking?.type ?? DEFAULT_AGENT_THINKING.type
+      effort: req?.effort ?? null,
+      thinkingType: req?.thinking?.type ?? null
     })
 
     const invokeStartedAt = Date.now()
@@ -230,8 +225,8 @@ export class SessionMessageService extends BaseService {
       abortController,
       agentSessionId,
       {
-        effort: req.effort ?? DEFAULT_AGENT_EFFORT,
-        thinking: req.thinking ?? DEFAULT_AGENT_THINKING
+        effort: req.effort,
+        thinking: req.thinking
       },
       req.model,
       options?.images
