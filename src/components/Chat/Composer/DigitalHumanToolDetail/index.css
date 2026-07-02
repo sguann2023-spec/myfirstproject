@@ -494,6 +494,11 @@
   text-align: center;
 }
 
+.chat-panel__digital-human-avatar-action-trigger {
+  width: 100%;
+  display: block;
+}
+
 .chat-panel__digital-human-avatar-action {
   width: 100%;
   display: inline-flex;
@@ -512,6 +517,13 @@
 
 .chat-panel__digital-human-avatar-action:hover {
   background: rgba(28, 28, 28, 0.58);
+}
+
+.chat-panel__digital-human-avatar-action:disabled,
+.chat-panel__digital-human-avatar-action:disabled:hover {
+  background: rgba(28, 28, 28, 0.3);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .chat-panel__tool-button--member-locked {

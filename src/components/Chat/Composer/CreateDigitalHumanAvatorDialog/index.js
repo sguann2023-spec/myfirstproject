@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { PlusOutlined } from '@ant-design/icons';
 import { Image, message, Spin, Upload } from 'antd';
 import { createDigitalHumanAvatarLibrary } from '../../../../api/digital_human';
@@ -61,6 +62,10 @@ const CreateDigitalHumanAvatorDialog = ({
     const targetFile = fileList[0]?.originFileObj || fileList[0];
     const title = String(name || '').trim();
     const voiceId = String(voiceLib?.selectedVoiceLibraryItem?.global_voice_id || '').trim();
+    const voiceProvider = String(
+      voiceLib?.selectedVoiceLibraryItem?.provider || voiceLib?.selectedVoiceLibraryItem?.providers || ''
+    ).trim().toLowerCase();
+    const canUseSeedance = voiceProvider === 'elevenlabs';
 
     if (!targetFile || !title || !voiceId) return;
 
@@ -72,12 +77,27 @@ const CreateDigitalHumanAvatorDialog = ({
         cover_url: uploaded.publicUrl,
         demo_url: '',
         voice_id: voiceId,
+        can_use_seedance: canUseSeedance,
       });
-      const createdItem = result?.item || result?.data?.item || {
+      const createdItemBase = result?.item || result?.data?.item || {
         title,
         cover_url: uploaded.publicUrl,
         demo_url: '',
         voice_id: voiceId,
+      };
+      const createdItem = {
+        ...createdItemBase,
+        ...(voiceProvider
+          ? {
+            voice_provider: String(createdItemBase?.voice_provider || voiceProvider).trim().toLowerCase(),
+            provider: String(createdItemBase?.provider || voiceProvider).trim().toLowerCase(),
+            providers: String(createdItemBase?.providers || voiceProvider).trim().toLowerCase(),
+          }
+          : {}),
+        can_use_seedance:
+          typeof createdItemBase?.can_use_seedance === 'boolean'
+            ? createdItemBase.can_use_seedance
+            : canUseSeedance,
       };
 
       setFileList([]);
@@ -102,9 +122,9 @@ const CreateDigitalHumanAvatorDialog = ({
     </button>
   );
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div
       className="chat-panel__digital-human-create-mask"
       onClick={handleClose}
@@ -220,7 +240,8 @@ const CreateDigitalHumanAvatorDialog = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

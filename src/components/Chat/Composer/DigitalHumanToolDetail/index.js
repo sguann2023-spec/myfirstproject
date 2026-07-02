@@ -25,9 +25,12 @@ const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
 const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
 const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
+const DIGITAL_HUMAN_AVATAR_VOICE_PROVIDER_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-provider';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
+const ELEVENLABS_PROVIDER = 'elevenlabs';
+const SEEDANCE_AVATAR_PROVIDER_TIP = '仅支持elevenlabs克隆音色';
 const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
 const DIGITAL_HUMAN_OPTIONS = [
@@ -155,6 +158,8 @@ const normalizeDigitalHumanAvatarVoiceId = (value) => {
   return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID;
 };
 
+const normalizeDigitalHumanAvatarVoiceProvider = (value) => String(value || '').trim().toLowerCase();
+
 const readPersistedDigitalHumanAvatarVoiceId = () => {
   try {
     return normalizeDigitalHumanAvatarVoiceId(localStorage.getItem(DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY));
@@ -172,6 +177,35 @@ const persistDigitalHumanAvatarVoiceId = (value) => {
   } catch (error) {
     // Ignore storage errors so avatar voice id still works in-memory.
   }
+};
+
+const readPersistedDigitalHumanAvatarVoiceProvider = () => {
+  try {
+    return normalizeDigitalHumanAvatarVoiceProvider(localStorage.getItem(DIGITAL_HUMAN_AVATAR_VOICE_PROVIDER_STORAGE_KEY));
+  } catch (error) {
+    return '';
+  }
+};
+
+const persistDigitalHumanAvatarVoiceProvider = (value) => {
+  try {
+    localStorage.setItem(
+      DIGITAL_HUMAN_AVATAR_VOICE_PROVIDER_STORAGE_KEY,
+      normalizeDigitalHumanAvatarVoiceProvider(value)
+    );
+  } catch (error) {
+    // Ignore storage errors so avatar voice provider still works in-memory.
+  }
+};
+
+const normalizeDigitalHumanAvatarSeedanceAvailability = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+  const normalizedValue = String(value || '').trim().toLowerCase();
+  if (['true', 'yes', 'y', 'on'].includes(normalizedValue)) return true;
+  if (['false', 'no', 'n', 'off'].includes(normalizedValue)) return false;
+  return null;
 };
 
 const formatDigitalHumanPriceText = (price) => {
@@ -203,6 +237,22 @@ const getInitialPriceMap = () => {
 
 const isOfficialDigitalHumanAvatar = (avatarId) => String(avatarId || '').trim().startsWith('official_');
 
+const resolveDigitalHumanAvatarVoiceProvider = (item = {}) => {
+  const directProvider = normalizeDigitalHumanAvatarVoiceProvider(
+    item?.voice_provider
+    || item?.provider
+    || item?.providers
+    || item?.voice_provider_type
+    || item?.voice_source_provider
+    || item?.voice_channel
+  );
+  if (directProvider) return directProvider;
+
+  const tags = normalizeDigitalHumanAvatarVoiceProvider(item?.voice_persona_tags);
+  if (tags.includes(ELEVENLABS_PROVIDER)) return ELEVENLABS_PROVIDER;
+  return '';
+};
+
 const normalizeDigitalHumanAvatarExamples = (result) => {
   const sourceItems = Array.isArray(result?.items)
     ? result.items
@@ -216,6 +266,8 @@ const normalizeDigitalHumanAvatarExamples = (result) => {
       avatar_id: String(item?.avatar_id || '').trim(),
       exampleKey: String(item?.avatar_id || item?.voice_id || item?.demo_url || item?.cover_url || `digital-human-example-${index}`),
       voice_id: String(item?.voice_id || ''),
+      voice_provider: resolveDigitalHumanAvatarVoiceProvider(item),
+      can_use_seedance: normalizeDigitalHumanAvatarSeedanceAvailability(item?.can_use_seedance),
       title: String(item?.title || '').trim(),
       cover_url: String(item?.cover_url || '').trim(),
       demo_url: String(item?.demo_url || '').trim(),
@@ -358,6 +410,9 @@ const DigitalHumanToolDetail = ({
   const [selectedAvatarTitle, setSelectedAvatarTitle] = React.useState(() => readPersistedDigitalHumanAvatarTitle());
   const [selectedAvatarCoverUrl, setSelectedAvatarCoverUrl] = React.useState(() => readPersistedDigitalHumanAvatarCoverUrl());
   const [selectedAvatarVoiceId, setSelectedAvatarVoiceId] = React.useState(() => readPersistedDigitalHumanAvatarVoiceId());
+  const [selectedAvatarVoiceProvider, setSelectedAvatarVoiceProvider] = React.useState(
+    () => readPersistedDigitalHumanAvatarVoiceProvider()
+  );
   const [playingAvatarExampleKey, setPlayingAvatarExampleKey] = React.useState('');
   const [deletingAvatarIds, setDeletingAvatarIds] = React.useState([]);
   const [createAvatarDialogOpen, setCreateAvatarDialogOpen] = React.useState(false);
@@ -368,6 +423,42 @@ const DigitalHumanToolDetail = ({
   const selectedAvatarButtonText = `形象 ${selectedAvatarTitle}`;
   const seedanceLocked =
     membershipLoaded && selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE && !membershipSummary.isActive;
+  const knownVoiceProviderById = React.useMemo(() => {
+    const providerMap = new Map();
+    const registerVoiceItem = (item) => {
+      const voiceId = String(item?.global_voice_id || item?.voice_id || '').trim();
+      if (!voiceId) return;
+      const provider = normalizeDigitalHumanAvatarVoiceProvider(
+        item?.price_provider || item?.providers || item?.provider || item?.voice_provider
+      );
+      if (!provider) return;
+      providerMap.set(voiceId, provider);
+    };
+
+    registerVoiceItem(voiceLib?.selectedVoiceLibraryItem);
+    (voiceLib?.myVoiceState?.items || []).forEach(registerVoiceItem);
+    return providerMap;
+  }, [voiceLib?.myVoiceState?.items, voiceLib?.selectedVoiceLibraryItem]);
+
+  const resolveAvatarVoiceProvider = React.useCallback((item = {}) => {
+    const directProvider = resolveDigitalHumanAvatarVoiceProvider(item);
+    if (directProvider) return directProvider;
+
+    const voiceId = String(item?.voice_id || item?.global_voice_id || '').trim();
+    if (!voiceId) return '';
+    return knownVoiceProviderById.get(voiceId) || '';
+  }, [knownVoiceProviderById]);
+
+  const resolveAvatarSeedanceAvailability = React.useCallback((item = {}) => {
+    const explicitAvailability = normalizeDigitalHumanAvatarSeedanceAvailability(item?.can_use_seedance);
+    if (explicitAvailability !== null) return explicitAvailability;
+    return resolveAvatarVoiceProvider(item) === ELEVENLABS_PROVIDER;
+  }, [resolveAvatarVoiceProvider]);
+
+  const isSeedanceSupportedAvatar = React.useCallback(
+    (item = {}) => resolveAvatarSeedanceAvailability(item),
+    [resolveAvatarSeedanceAvailability]
+  );
 
   const refreshMembershipSummary = React.useCallback(async () => {
     try {
@@ -484,8 +575,9 @@ const DigitalHumanToolDetail = ({
       title: selectedAvatarTitle,
       cover_url: selectedAvatarCoverUrl,
       voice_id: selectedAvatarVoiceId,
+      voice_provider: selectedAvatarVoiceProvider,
     });
-  }, [onSelectedAvatarChange, selectedAvatarCoverUrl, selectedAvatarTitle, selectedAvatarVoiceId]);
+  }, [onSelectedAvatarChange, selectedAvatarCoverUrl, selectedAvatarTitle, selectedAvatarVoiceId, selectedAvatarVoiceProvider]);
 
   React.useEffect(() => {
     if (digitalHumanPriceCache) {
@@ -569,15 +661,22 @@ const DigitalHumanToolDetail = ({
     const nextTitle = normalizeDigitalHumanAvatarTitle(item?.title);
     const nextCoverUrl = normalizeDigitalHumanAvatarCoverUrl(item?.cover_url);
     const nextVoiceId = normalizeDigitalHumanAvatarVoiceId(item?.voice_id);
+    const nextVoiceProvider = resolveAvatarVoiceProvider(item);
+    const nextCanUseSeedance = resolveAvatarSeedanceAvailability(item);
     persistDigitalHumanAvatarTitle(nextTitle);
     persistDigitalHumanAvatarCoverUrl(nextCoverUrl);
     persistDigitalHumanAvatarVoiceId(nextVoiceId);
+    persistDigitalHumanAvatarVoiceProvider(nextVoiceProvider);
     setSelectedAvatarTitle(nextTitle);
     setSelectedAvatarCoverUrl(nextCoverUrl);
     setSelectedAvatarVoiceId(nextVoiceId);
+    setSelectedAvatarVoiceProvider(nextVoiceProvider);
+    if (typeof item === 'object' && item !== null) {
+      item.can_use_seedance = nextCanUseSeedance;
+    }
     setAvatarDropdownOpen(false);
     setPlayingAvatarExampleKey('');
-  }, []);
+  }, [resolveAvatarSeedanceAvailability, resolveAvatarVoiceProvider]);
 
   const openCreateAvatarDialog = React.useCallback((event) => {
     event.preventDefault();
@@ -601,6 +700,47 @@ const DigitalHumanToolDetail = ({
     });
     setAvatarExamplesError('');
   }, []);
+
+  React.useEffect(() => {
+    if (selectedMode !== SEEDANCE_DIGITAL_HUMAN_MODE) return;
+    if (selectedAvatarVoiceProvider === ELEVENLABS_PROVIDER) return;
+
+    const knownSelectedAvatarVoiceProvider = resolveAvatarVoiceProvider({ voice_id: selectedAvatarVoiceId });
+    if (knownSelectedAvatarVoiceProvider) {
+      persistDigitalHumanAvatarVoiceProvider(knownSelectedAvatarVoiceProvider);
+      setSelectedAvatarVoiceProvider(knownSelectedAvatarVoiceProvider);
+      return;
+    }
+
+    const normalizedSelectedVoiceId = String(selectedAvatarVoiceId || '').trim();
+    const matchedSelectedAvatar = avatarExamples.find(
+      (item) => String(item?.voice_id || '').trim() === normalizedSelectedVoiceId
+    );
+    if (matchedSelectedAvatar && isSeedanceSupportedAvatar(matchedSelectedAvatar)) {
+      handleAvatarUse(matchedSelectedAvatar);
+      return;
+    }
+
+    const firstSupportedAvatar = avatarExamples.find(isSeedanceSupportedAvatar);
+    if (firstSupportedAvatar) {
+      handleAvatarUse(firstSupportedAvatar);
+      return;
+    }
+
+    if (avatarExamples.length === 0 && !avatarExamplesLoading && !digitalHumanAvatarExampleCache && !digitalHumanAvatarExampleRequest) {
+      void fetchAvatarExamples();
+    }
+  }, [
+    avatarExamples,
+    avatarExamplesLoading,
+    fetchAvatarExamples,
+    handleAvatarUse,
+    isSeedanceSupportedAvatar,
+    resolveAvatarVoiceProvider,
+    selectedAvatarVoiceId,
+    selectedAvatarVoiceProvider,
+    selectedMode,
+  ]);
 
   const handleDeleteAvatar = React.useCallback(async (avatarId, exampleKey) => {
     const normalizedAvatarId = String(avatarId || '').trim();
@@ -708,6 +848,8 @@ const DigitalHumanToolDetail = ({
               const isPlaying = playingAvatarExampleKey === item.exampleKey && item.demo_url;
               const showDeleteButton = Boolean(item.avatar_id) && !isOfficialDigitalHumanAvatar(item.avatar_id);
               const isDeleting = deletingAvatarIds.includes(item.avatar_id);
+              const avatarUseDisabled = selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE
+                && !resolveAvatarSeedanceAvailability(item);
 
               return (
                 <div
@@ -786,18 +928,27 @@ const DigitalHumanToolDetail = ({
                           {item.title}
                         </div>
                       ) : null}
-                      <button
-                        type="button"
-                        className="chat-panel__digital-human-avatar-action"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          handleAvatarUse(item);
-                        }}
+                      <Tooltip
+                        title={avatarUseDisabled ? SEEDANCE_AVATAR_PROVIDER_TIP : null}
+                        placement="top"
                       >
-                        使用
-                      </button>
+                        <span className="chat-panel__digital-human-avatar-action-trigger">
+                          <button
+                            type="button"
+                            className="chat-panel__digital-human-avatar-action"
+                            disabled={avatarUseDisabled}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (avatarUseDisabled) return;
+                              handleAvatarUse(item);
+                            }}
+                          >
+                            使用
+                          </button>
+                        </span>
+                      </Tooltip>
                     </div>
                   </div>
                 </div>
@@ -826,8 +977,12 @@ const DigitalHumanToolDetail = ({
     avatarExamples,
     avatarExamplesError,
     avatarExamplesLoading,
+    deletingAvatarIds,
     fetchAvatarExamples,
+    handleAvatarUse,
+    handleDeleteAvatar,
     playingAvatarExampleKey,
+    selectedMode,
   ]);
 
   return (

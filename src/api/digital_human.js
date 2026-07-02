@@ -16,12 +16,14 @@ export async function createDigitalHumanAvatarLibrary({
   cover_url = '',
   demo_url = '',
   voice_id = '',
+  can_use_seedance = false,
 } = {}) {
   return http.postJson(`${BASE_URL}/avatar/library`, {
     title,
     cover_url,
     demo_url,
     voice_id,
+    can_use_seedance,
   });
 }
 
