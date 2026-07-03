@@ -331,6 +331,33 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       internalWebsiteWindow?.focus()
     })
 
+    internalWebsiteWindow.webContents.on('did-finish-load', () => {
+      void internalWebsiteWindow?.webContents
+        .executeJavaScript(
+          `(() => {
+            if (window.__VECTCUT_INTERNAL_CLOSE_GUARD__) return;
+            const blockedClose = () => undefined;
+            try {
+              Object.defineProperty(window, 'close', {
+                configurable: true,
+                value: blockedClose
+              });
+            } catch {}
+            try {
+              Object.defineProperty(Window.prototype, 'close', {
+                configurable: true,
+                value: blockedClose
+              });
+            } catch {}
+            window.__VECTCUT_INTERNAL_CLOSE_GUARD__ = true;
+          })();`,
+          true
+        )
+        .catch((error) => {
+          logger.warn('Failed to install internal payment close guard.', error)
+        })
+    })
+
     internalWebsiteWindow.webContents.on('will-navigate', (event, nextUrl) => {
       if (isSafeExternalUrl(nextUrl)) return
       event.preventDefault()
@@ -346,7 +373,6 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       void internalWebsiteWindow?.loadURL(nextUrl)
       return { action: 'deny' }
     })
-
     await internalWebsiteWindow.loadURL(url)
   })
 

@@ -135,6 +135,7 @@ const VoiceSquareToolDetail = ({
   const cloneWaveRef = React.useRef(null);
   const cloneUploadInputRef = React.useRef(null);
   const cloneAudioRef = React.useRef(null);
+  const cloneDialogRef = React.useRef(null);
   const cloneRandomPulseTimerRef = React.useRef(0);
   const cloneWaveDriveFrameRef = React.useRef(0);
   const cloneMediaRecorderRef = React.useRef(null);
@@ -231,6 +232,11 @@ const VoiceSquareToolDetail = ({
   const handleVoiceCloneUploadClick = React.useCallback(() => {
     cloneUploadInputRef.current?.click();
   }, []);
+
+  const getCloneDialogPopupContainer = React.useCallback(
+    (trigger) => cloneDialogRef.current || trigger?.parentElement || document.body,
+    []
+  );
 
   const getCloneAudioDurationFromFile = React.useCallback(async (file) => {
     const objectUrl = URL.createObjectURL(file);
@@ -1110,6 +1116,7 @@ const VoiceSquareToolDetail = ({
             >
               <div
                 className="chat-panel__clone-dialog"
+                ref={cloneDialogRef}
                 onClick={(event) => event.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -1184,7 +1191,7 @@ const VoiceSquareToolDetail = ({
                             overlayClassName="chat-panel__clone-avatar-dropdown"
                             open={cloneAvatarDropdownOpen}
                             onOpenChange={setCloneAvatarDropdownOpen}
-                            getPopupContainer={() => document.body}
+                            getPopupContainer={getCloneDialogPopupContainer}
                           >
                             <button
                               type="button"
@@ -1351,7 +1358,7 @@ const VoiceSquareToolDetail = ({
                             options={VOICE_CLONE_PROVIDER_OPTIONS}
                             variant="borderless"
                             popupMatchSelectWidth={false}
-                            getPopupContainer={() => document.body}
+                            getPopupContainer={getCloneDialogPopupContainer}
                           />
                           <span>复刻音色</span>
                         </div>
