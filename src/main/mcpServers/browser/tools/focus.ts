@@ -18,7 +18,7 @@ export const focusToolDefinition = {
       y: { type: 'number', description: 'Viewport Y coordinate' },
       privateMode: { type: 'boolean', description: 'Target private session (default: false)' },
       tabId: { type: 'string', description: 'Target specific tab by ID' },
-      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: true)' }
+      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: false)' }
     }
   }
 }
@@ -26,7 +26,7 @@ export const focusToolDefinition = {
 export async function handleFocus(controller: CdpBrowserController, args: unknown) {
   try {
     const { privateMode, tabId, showWindow, ...target } = FocusSchema.parse(args)
-    const result = await controller.focus(target, privateMode ?? false, tabId, showWindow ?? true)
+    const result = await controller.focus(target, privateMode ?? false, tabId, showWindow ?? false)
     return successResponse(JSON.stringify(result))
   } catch (error) {
     logger.error('Focus failed', { error, args })

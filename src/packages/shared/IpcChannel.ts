@@ -123,6 +123,7 @@ export enum IpcChannel {
   // Cherry chat stream (HomePage bridge)
   CherryChatStream_SessionCreate = 'cherry-chat-stream:session:create',
   CherryChatStream_SessionGet = 'cherry-chat-stream:session:get',
+  CherryChatStream_SessionUpdate = 'cherry-chat-stream:session:update',
   CherryChatStream_SessionList = 'cherry-chat-stream:session:list',
   CherryChatStream_MessageCreate = 'cherry-chat-stream:message:create',
   CherryChatStream_MessageList = 'cherry-chat-stream:message:list',
@@ -188,6 +189,7 @@ export enum IpcChannel {
   Windows_SetMinimumSize = 'window:set-minimum-size',
   Windows_Resize = 'window:resize',
   Windows_GetSize = 'window:get-size',
+  Windows_SetSize = 'window:set-size',
   Windows_Minimize = 'window:minimize',
   Windows_Maximize = 'window:maximize',
   Windows_Unmaximize = 'window:unmaximize',
@@ -438,6 +440,7 @@ export enum IpcChannel {
   Skill_ListFiles = 'skill:list-files',
   Skill_ListLocal = 'skill:list-local',
   Skill_ListActive = 'skill:list-active',
+  Skill_SeedWorkspace = 'skill:seed-workspace',
   Skill_SubscribeChanges = 'skill:subscribe-changes',
   Skill_UnsubscribeChanges = 'skill:unsubscribe-changes',
   Skill_Changed = 'skill:changed',

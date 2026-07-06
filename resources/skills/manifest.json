@@ -1,25 +1,33 @@
 {
-  "updatedAt": "2026-06-24T09:29:20Z",
+  "updatedAt": "2026-07-05T12:00:00Z",
   "skills": {
     "find-skills": {
       "version": "1.0.0",
+      "deleted": true,
+      "tombstoneVersion": "2.0.0",
       "downloadUrl": "https://player.install-ai-guider.top/skills/find-skills/1_0_0/find-skills.zip",
-      "minAppVersion": "1.5.0"
+      "minAppVersion": "1.5.22"
     },
     "skill-creator": {
       "version": "1.0.2",
+      "deleted": true,
+      "tombstoneVersion": "2.0.0",
       "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator/1_0_2/skill-creator.zip",
-      "minAppVersion": "1.5.0"
+      "minAppVersion": "1.5.22"
     },
     "vectcut-skill": {
       "version": "1.5.27",
+      "deleted": true,
+      "tombstoneVersion": "2.0.0",
       "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_5_27/vectcut-skill.zip",
-      "minAppVersion": "1.5.16"
+      "minAppVersion": "1.5.22"
     },
     "vectcut-coze": {
       "version": "1.0.5",
+      "deleted": true,
+      "tombstoneVersion": "2.0.0",
       "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-coze/1_0_5/vectcut-coze.zip",
-      "minAppVersion": "1.5.0"
+      "minAppVersion": "1.5.22"
     },
     "speech-synthesis": {
       "version": "1.0.0",

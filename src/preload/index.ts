@@ -349,7 +349,9 @@ const api = {
     setMinimumSize: (width: number, height: number) =>
       ipcRenderer.invoke(IpcChannel.Windows_SetMinimumSize, width, height),
     resetMinimumSize: () => ipcRenderer.invoke(IpcChannel.Windows_ResetMinimumSize),
-    getSize: (): Promise<[number, number]> => ipcRenderer.invoke(IpcChannel.Windows_GetSize)
+    getSize: (): Promise<[number, number]> => ipcRenderer.invoke(IpcChannel.Windows_GetSize),
+    setSize: (width: number, height: number, animate: boolean = false): Promise<void> =>
+      ipcRenderer.invoke(IpcChannel.Windows_SetSize, width, height, animate)
   },
   fileService: {
     upload: (provider: Provider, file: FileMetadata): Promise<FileUploadResponse> =>
@@ -882,6 +884,7 @@ const legacyElectronAPI = {
   cherryChatStream: {
     createSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionCreate, payload),
     getSession: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionGet, { sessionId }),
+    updateSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionUpdate, payload),
     listSessions: (payload: any = {}) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionList, payload),
     listMessages: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_MessageList, { sessionId }),
     createMessage: ({ sessionId, content, ...extraPayload }: any = {}) =>
@@ -938,6 +941,10 @@ const legacyElectronAPI = {
       const result = await ipcRenderer.invoke(IpcChannel.Skill_ListLocal, workdir)
       const skills = Array.isArray((result as any)?.data) ? (result as any).data : []
       return { ok: Boolean((result as any)?.success), skills }
+    },
+    seedWorkspace: async ({ workspace }: { workspace: string }) => {
+      const result = await ipcRenderer.invoke(IpcChannel.Skill_SeedWorkspace, workspace)
+      return { ok: Boolean((result as any)?.success), error: (result as any)?.error }
     },
     subscribeChanges: ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_SubscribeChanges, agentId),

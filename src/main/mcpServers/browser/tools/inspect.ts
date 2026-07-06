@@ -19,7 +19,7 @@ export const inspectToolDefinition = {
       y: { type: 'number', description: 'Viewport Y coordinate' },
       privateMode: { type: 'boolean', description: 'Target private session (default: false)' },
       tabId: { type: 'string', description: 'Target specific tab by ID' },
-      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: true)' }
+      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: false)' }
     }
   }
 }
@@ -27,7 +27,7 @@ export const inspectToolDefinition = {
 export async function handleInspect(controller: CdpBrowserController, args: unknown) {
   try {
     const { privateMode, tabId, showWindow, ...target } = InspectSchema.parse(args)
-    const result = await controller.inspect(target, privateMode ?? false, tabId, showWindow ?? true)
+    const result = await controller.inspect(target, privateMode ?? false, tabId, showWindow ?? false)
     return successResponse(JSON.stringify(result))
   } catch (error) {
     logger.error('Inspect failed', { error, args })

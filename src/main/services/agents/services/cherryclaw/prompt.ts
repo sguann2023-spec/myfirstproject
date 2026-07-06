@@ -36,6 +36,15 @@ type CacheEntry = {
   content: string
 }
 
+export type ToolGuidanceOptions = {
+  hasClaw?: boolean
+  hasSkills?: boolean
+  hasMemory?: boolean
+  hasWeb?: boolean
+  hasSystem?: boolean
+  hasContentCreation?: boolean
+}
+
 const DEFAULT_BASIC_PROMPT = `You are VectcutClaw, a personal assistant running inside VectCut.
 
 `
@@ -172,7 +181,7 @@ Rules:
 - When adding a WeChat channel, the config tool returns a QR code image. Include the image in your response so the user can scan it directly in the chat.
 - Use \`config status\` to check which channels are actually connected. If a channel shows \`connected: false\`, use \`config reconnect_channel\` to trigger a fresh QR scan.`
 
-const WEB_TOOLS_GUIDANCE = `## Web Search & Browser Strategy
+const WEB_AND_BROWSER_GUIDANCE = `## Web Search & Browser Strategy
 
 You have three complementary web paths: \`mcp__search__web_search\` for structured web search, builtin \`Bash\` with \`curl -sL\` for reading a known URL, and \`mcp__browser__*\` for page interaction.
 
@@ -189,9 +198,9 @@ You have three complementary web paths: \`mcp__search__web_search\` for structur
 
 **Use builtin \`Bash\` with \`curl -sL\`** for documentation pages, blog posts, raw text files, and other static pages where the URL is already known.
 **Use \`mcp__browser__screenshot\`** to visually inspect pages (search results, dashboards, verification). It's far more efficient than full browser extraction.
-**Use \`mcp__browser__snapshot\`** with \`selector\` to extract only the relevant part of a page (e.g., \`selector: "#search"\` for Google results).`
+**Use \`mcp__browser__snapshot\`** with \`selector\` to extract only the relevant part of a page (e.g., \`selector: "#search"\` for Google results).
 
-const BROWSER_ACTION_GUIDANCE = `## Browser Action Rules
+## Browser Action Rules
 
 When using \`mcp__browser__*\` tools, prefer the dedicated browser tool that matches the action instead of injecting JavaScript navigation commands.
 
@@ -240,21 +249,18 @@ Never attempt blind writes to unknown paths.`
 
 /**
  * Compose the tool-strategy guidance for an agent based on which MCP servers
- * have actually been injected. The skills, memory, and web-tools sections are
- * always present (those servers are injected for every agent); the claw
- * section is only included for autonomous (Soul Mode) agents that get the
- * cron / notify / config tools.
+ * have actually been injected. Defaults preserve the historical broad guidance
+ * for callers that have not adopted runtime capability routing yet.
  */
-function composeToolGuidance(opts: { hasClaw: boolean }): string {
+function composeToolGuidance(opts: ToolGuidanceOptions = {}): string {
   const parts: string[] = []
-  if (opts.hasClaw) parts.push(CLAW_GUIDANCE)
-  parts.push(SKILLS_GUIDANCE)
+  if (opts.hasClaw ?? false) parts.push(CLAW_GUIDANCE)
+  if (opts.hasSkills ?? true) parts.push(SKILLS_GUIDANCE)
   parts.push(WORKFLOW_GUIDANCE)
-  parts.push(CONTENT_CREATION_GUIDANCE)
-  parts.push(MEMORY_GUIDANCE)
-  parts.push(WEB_TOOLS_GUIDANCE)
-  parts.push(BROWSER_ACTION_GUIDANCE)
-  parts.push(SYSTEM_GUIDANCE)
+  if (opts.hasContentCreation ?? true) parts.push(CONTENT_CREATION_GUIDANCE)
+  if (opts.hasMemory ?? true) parts.push(MEMORY_GUIDANCE)
+  if (opts.hasWeb ?? true) parts.push(WEB_AND_BROWSER_GUIDANCE)
+  if (opts.hasSystem ?? true) parts.push(SYSTEM_GUIDANCE)
   parts.push(SHELL_GUIDANCE)
   parts.push(FILE_EDITING_GUIDANCE)
   return parts.join('\n\n')
@@ -305,7 +311,11 @@ ${sections}`
 export class PromptBuilder {
   private cache = new Map<string, CacheEntry>()
 
-  async buildSystemPrompt(workspacePath: string, config?: CherryClawConfiguration): Promise<string> {
+  async buildSystemPrompt(
+    workspacePath: string,
+    config?: CherryClawConfiguration,
+    toolGuidance?: ToolGuidanceOptions
+  ): Promise<string> {
     const parts: string[] = []
 
     // Basic prompt: workspace system.md (case-insensitive) > embedded default
@@ -313,8 +323,8 @@ export class PromptBuilder {
     const basicPrompt = systemPath ? await this.readCachedFile(systemPath) : undefined
     parts.push(basicPrompt ?? DEFAULT_BASIC_PROMPT)
 
-    // Tool guidance — Soul Mode gets the full set including claw (cron / notify / config)
-    parts.push(composeToolGuidance({ hasClaw: true }))
+    // Tool guidance mirrors the MCP servers injected for this request.
+    parts.push(composeToolGuidance({ hasClaw: true, ...toolGuidance }))
 
     // Bootstrap detection: inject bootstrap instructions if not completed
     const needsBootstrap = await this.shouldRunBootstrap(workspacePath, config)
@@ -336,13 +346,11 @@ export class PromptBuilder {
    * Build the cross-tool strategy guidance string for a non-Soul agent. The
    * returned text is meant to be APPENDED to the Claude Code SDK preset so
    * the model gets explicit "when to use which tool" guidance on top of the
-   * SDK's built-in instructions. The skills + memory + web sections are
-   * always included (those MCP servers are injected for every agent); the
-   * claw section is excluded by default (non-Soul agents do not get cron /
-   * notify / config).
+   * SDK's built-in instructions. Runtime callers can pass the actually
+   * injected capability set so unavailable MCP tools are not advertised.
    */
-  buildToolGuidance(opts: { hasClaw?: boolean } = {}): string {
-    return composeToolGuidance({ hasClaw: opts.hasClaw ?? false })
+  buildToolGuidance(opts: ToolGuidanceOptions = {}): string {
+    return composeToolGuidance({ hasClaw: opts.hasClaw ?? false, ...opts })
   }
 
   /**

@@ -103,7 +103,6 @@ async function downloadViaWindowSession(
     const response = await mainWindow.webContents.session.fetch(url, {
       method: 'GET',
       headers: payload?.headers || {},
-      credentials: 'include',
       signal: abortController.signal
     })
 

@@ -38,7 +38,7 @@ export const waitForToolDefinition = {
       idleMs: { type: 'number', description: 'Network idle threshold in ms (default: 800)' },
       privateMode: { type: 'boolean', description: 'Target private session (default: false)' },
       tabId: { type: 'string', description: 'Target specific tab by ID' },
-      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: true)' }
+      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: false)' }
     }
   }
 }

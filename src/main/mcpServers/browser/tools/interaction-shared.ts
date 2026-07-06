@@ -14,7 +14,7 @@ const contextFields = {
   showWindow: z
     .boolean()
     .optional()
-    .describe('Show browser window while performing the action (default: true)')
+    .describe('Deprecated and ignored. Separate browser windows are disabled; actions run against the embedded preview tab only.')
 }
 
 export const BrowserTargetSchema = z

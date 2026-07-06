@@ -5,6 +5,8 @@ Usage:
     python3 publish_skill.py vectcut-skill
     python3 publish_skill.py vectcut-skill --version 1.5.15
     python3 publish_skill.py vectcut-skill --version 1.5.15 --dry-run
+    python3 publish_skill.py --manifest-only
+    python3 publish_skill.py --manifest-only --dry-run
 
 Workflow:
 1. Read the target skill version from `manifest.json`, or override it with `--version`
@@ -27,6 +29,7 @@ import os
 import shutil
 import sys
 import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -34,7 +37,7 @@ from email.utils import formatdate
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -54,6 +57,13 @@ class OssConfig:
     public_endpoint: str
 
 
+@dataclass(frozen=True)
+class CdnConfig:
+    access_key_id: str
+    access_key_secret: str
+    endpoint: str
+
+
 def load_oss_config() -> OssConfig:
     return OssConfig(
         bucket_name=os.environ.get("MP4_OSS_BUCKET_NAME", "oss-hangzhou-mp4"),
@@ -66,10 +76,23 @@ def load_oss_config() -> OssConfig:
     )
 
 
+def load_cdn_config() -> CdnConfig:
+    return CdnConfig(
+        access_key_id=os.environ.get("ACCESS_KEY_ID", "") or os.environ.get("MP4_OSS_ACCESS_KEY_ID", ""),
+        access_key_secret=os.environ.get("ACCESS_KEY_SECRET", "")
+        or os.environ.get("MP4_OSS_ACCESS_KEY_SECRET", ""),
+        endpoint=os.environ.get("MP4_CDN_ENDPOINT", "https://cdn.aliyuncs.com"),
+    )
+
+
 def parse_args() -> argparse.Namespace:
     default_root = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description="Publish a builtin skill to OSS and update manifest.json")
-    parser.add_argument("skill_name", help="Skill directory name, for example: vectcut-skill")
+    parser.add_argument(
+        "skill_name",
+        nargs="?",
+        help="Skill directory name, for example: vectcut-skill",
+    )
     parser.add_argument(
         "--skills-root",
         default=str(default_root),
@@ -90,11 +113,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Build files and print upload targets without uploading anything",
     )
+    parser.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help="Upload the local manifest.json only, without packaging or uploading any skill zip",
+    )
     return parser.parse_args()
 
 
 def now_iso8601() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def now_aliyun_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def version_to_path(version: str) -> str:
@@ -104,6 +136,11 @@ def version_to_path(version: str) -> str:
 def build_download_url(config: OssConfig, skill_name: str, version: str) -> str:
     public_endpoint = config.public_endpoint.rstrip("/")
     return f"{public_endpoint}/skills/{skill_name}/{version_to_path(version)}/{skill_name}.zip"
+
+
+def build_manifest_url(config: OssConfig) -> str:
+    public_endpoint = config.public_endpoint.rstrip("/")
+    return f"{public_endpoint}/skills/manifest.json"
 
 
 def should_exclude(rel_path: Path) -> bool:
@@ -182,6 +219,23 @@ def write_manifest_file(manifest_data: dict[str, Any], manifest_path: Path) -> N
     )
 
 
+def percent_encode(value: str) -> str:
+    return quote(value, safe="~")
+
+
+def build_cdn_signature(parameters: dict[str, str], access_key_secret: str) -> str:
+    canonicalized = "&".join(
+        f"{percent_encode(key)}={percent_encode(value)}" for key, value in sorted(parameters.items())
+    )
+    string_to_sign = f"GET&%2F&{percent_encode(canonicalized)}"
+    digest = hmac.new(
+        f"{access_key_secret}&".encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha1,
+    ).digest()
+    return base64.b64encode(digest).decode("utf-8")
+
+
 def guess_content_type(file_path: Path) -> str:
     guessed, _ = mimetypes.guess_type(str(file_path))
     return guessed or "application/octet-stream"
@@ -241,6 +295,55 @@ def upload_file_to_oss(local_path: Path, object_name: str, config: OssConfig) ->
     return f"{public_endpoint}/{object_name}"
 
 
+def refresh_cdn_cache(object_urls: list[str], config: CdnConfig) -> dict[str, Any]:
+    if not config.access_key_id or not config.access_key_secret:
+        raise RuntimeError(
+            "Missing CDN credentials. Set ACCESS_KEY_ID / ACCESS_KEY_SECRET or "
+            "MP4_OSS_ACCESS_KEY_ID / MP4_OSS_ACCESS_KEY_SECRET."
+        )
+
+    normalized_urls: list[str] = []
+    for object_url in object_urls:
+        parsed = urlparse(object_url)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"Invalid CDN object URL: {object_url}")
+        normalized_urls.append(object_url)
+
+    endpoint = config.endpoint.rstrip("/")
+    parameters = {
+        "AccessKeyId": config.access_key_id,
+        "Action": "RefreshObjectCaches",
+        "Format": "JSON",
+        "ObjectPath": "\n".join(normalized_urls),
+        "ObjectType": "File",
+        "SignatureMethod": "HMAC-SHA1",
+        "SignatureNonce": str(uuid.uuid4()),
+        "SignatureVersion": "1.0",
+        "Timestamp": now_aliyun_timestamp(),
+        "Version": "2018-05-10",
+    }
+    parameters["Signature"] = build_cdn_signature(parameters, config.access_key_secret)
+    request_url = f"{endpoint}/?{urlencode(parameters)}"
+    request = Request(request_url, method="GET")
+
+    try:
+        with urlopen(request, timeout=180) as response:
+            status_code = getattr(response, "status", response.getcode())
+            body = response.read().decode("utf-8", errors="replace")
+            if status_code != 200:
+                raise RuntimeError(f"CDN refresh failed: status={status_code}, body={body}")
+            parsed_body = json.loads(body)
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"CDN refresh failed: status={error.code}, body={body}") from error
+    except URLError as error:
+        raise RuntimeError(f"CDN refresh failed: {error}") from error
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"CDN refresh returned invalid JSON: {error}") from error
+
+    return parsed_body
+
+
 def prepare_manifest_for_publish(
     manifest_data: dict[str, Any],
     skill_name: str,
@@ -255,6 +358,28 @@ def prepare_manifest_for_publish(
     return manifest_data
 
 
+def publish_manifest_only(manifest_path: Path, dry_run: bool) -> None:
+    oss_config = load_oss_config()
+    cdn_config = load_cdn_config()
+    manifest_object_name = "skills/manifest.json"
+    load_manifest(manifest_path)
+    manifest_url = build_manifest_url(oss_config)
+
+    print(f"Manifest path: {manifest_path}")
+
+    if dry_run:
+        print("Dry run enabled, skipping upload.")
+        print(f"Would upload manifest to: {manifest_object_name}")
+        print(f"Would refresh CDN cache for: {manifest_url}")
+        return
+
+    uploaded_manifest_url = upload_file_to_oss(manifest_path, manifest_object_name, oss_config)
+    print(f"Uploaded manifest: {uploaded_manifest_url}")
+    refresh_result = refresh_cdn_cache([manifest_url], cdn_config)
+    print(f"Refreshed CDN cache: {refresh_result.get('RequestId', 'unknown-request-id')}")
+    print("Publish completed successfully.")
+
+
 def publish_skill(
     skill_name: str,
     skills_root: Path,
@@ -262,14 +387,16 @@ def publish_skill(
     version_override: str | None,
     dry_run: bool,
 ) -> None:
-    config = load_oss_config()
+    oss_config = load_oss_config()
+    cdn_config = load_cdn_config()
     manifest_data = load_manifest(manifest_path)
     version = resolve_publish_version(manifest_data, skill_name, version_override)
     skill_path = skills_root / skill_name
 
     zip_object_name = f"skills/{skill_name}/{version_to_path(version)}/{skill_name}.zip"
-    zip_download_url = build_download_url(config, skill_name, version)
+    zip_download_url = build_download_url(oss_config, skill_name, version)
     manifest_object_name = "skills/manifest.json"
+    manifest_url = build_manifest_url(oss_config)
 
     print(f"Skill: {skill_name}")
     print(f"Version: {version}")
@@ -296,14 +423,18 @@ def publish_skill(
             print(f"Would upload zip to: {zip_object_name}")
             print(f"Would upload manifest to: {manifest_object_name}")
             print(f"Would set downloadUrl to: {zip_download_url}")
+            print(f"Would refresh CDN cache for: {zip_download_url}")
+            print(f"Would refresh CDN cache for: {manifest_url}")
             return
 
-        uploaded_zip_url = upload_file_to_oss(zip_path, zip_object_name, config)
+        uploaded_zip_url = upload_file_to_oss(zip_path, zip_object_name, oss_config)
         print(f"Uploaded zip: {uploaded_zip_url}")
 
         shutil.copyfile(temp_manifest_path, manifest_path)
-        uploaded_manifest_url = upload_file_to_oss(manifest_path, manifest_object_name, config)
+        uploaded_manifest_url = upload_file_to_oss(manifest_path, manifest_object_name, oss_config)
         print(f"Uploaded manifest: {uploaded_manifest_url}")
+        refresh_result = refresh_cdn_cache([zip_download_url, manifest_url], cdn_config)
+        print(f"Refreshed CDN cache: {refresh_result.get('RequestId', 'unknown-request-id')}")
 
     print("Publish completed successfully.")
 
@@ -314,6 +445,20 @@ def main() -> int:
     manifest_path = Path(args.manifest).resolve() if args.manifest else skills_root / "manifest.json"
 
     try:
+        if args.manifest_only:
+            if args.skill_name:
+                raise ValueError("skill_name cannot be used together with --manifest-only")
+            if args.version:
+                raise ValueError("--version cannot be used together with --manifest-only")
+            publish_manifest_only(
+                manifest_path=manifest_path,
+                dry_run=args.dry_run,
+            )
+            return 0
+
+        if not args.skill_name:
+            raise ValueError("skill_name is required unless --manifest-only is used")
+
         publish_skill(
             skill_name=args.skill_name,
             skills_root=skills_root,

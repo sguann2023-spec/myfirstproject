@@ -219,7 +219,7 @@ export class CdpBrowserController {
     }
   }
 
-  private async getTabContext(privateMode = false, tabId?: string, showWindow = true) {
+  private async getTabContext(privateMode = false, tabId?: string, showWindow = false) {
     const { tabId: actualTabId, tab } = await this.getTab(privateMode, tabId, false, showWindow)
     const windowKey = this.getWindowKey(privateMode)
     this.touchTab(windowKey, actualTabId)
@@ -753,17 +753,13 @@ export class CdpBrowserController {
     return tabBarView
   }
 
-  private async createBrowserWindow(
-    windowKey: string,
-    privateMode: boolean,
-    showWindow = true
-  ): Promise<BrowserWindow> {
+  private async createBrowserWindow(windowKey: string, privateMode: boolean): Promise<BrowserWindow> {
     await this.ensureAppReady()
 
     const partition = this.getPartition(privateMode)
 
     const win = new BrowserWindow({
-      show: showWindow,
+      show: false,
       width: 1200,
       height: 800,
       ...(isMac
@@ -812,7 +808,7 @@ export class CdpBrowserController {
     return win
   }
 
-  private async getOrCreateWindow(privateMode: boolean, showWindow = true): Promise<WindowInfo> {
+  private async getOrCreateWindow(privateMode: boolean, showWindow = false): Promise<WindowInfo> {
     await this.ensureAppReady()
     this.sweepIdle()
 
@@ -821,7 +817,7 @@ export class CdpBrowserController {
     let windowInfo = this.windows.get(windowKey)
     if (!windowInfo) {
       this.evictIfNeeded(windowKey)
-      const window = await this.createBrowserWindow(windowKey, privateMode, showWindow)
+      const window = await this.createBrowserWindow(windowKey, privateMode)
       windowInfo = {
         windowKey,
         privateMode,
@@ -834,7 +830,7 @@ export class CdpBrowserController {
       this.windows.set(windowKey, windowInfo)
       const tabBarView = this.createTabBarView(windowInfo)
       windowInfo.tabBarView = tabBarView
-      this.syncWindowAudioState(windowInfo, showWindow)
+      this.syncWindowAudioState(windowInfo, false)
 
       // Register resize listener once per window (not per tab)
       // Capture windowKey to look up fresh windowInfo on each resize
@@ -844,11 +840,16 @@ export class CdpBrowserController {
       })
 
       logger.info('Created new window', { windowKey, privateMode })
-    } else if (showWindow && !windowInfo.window.isDestroyed()) {
-      windowInfo.window.show()
-      this.syncWindowAudioState(windowInfo, true)
     } else {
-      this.syncWindowAudioState(windowInfo, !windowInfo.window.isDestroyed() && windowInfo.window.isVisible())
+      if (!windowInfo.window.isDestroyed() && windowInfo.window.isVisible()) {
+        logger.info('Hiding standalone browser window because embedded preview mode is enforced', {
+          windowKey,
+          privateMode,
+          requestedShowWindow: showWindow
+        })
+        windowInfo.window.hide()
+      }
+      this.syncWindowAudioState(windowInfo, false)
     }
 
     this.touchWindow(windowKey)
@@ -882,10 +883,10 @@ export class CdpBrowserController {
   /**
    * Creates a new tab in the window
    * @param privateMode - If true, uses private browsing mode (default: false)
-   * @param showWindow - If true, shows the browser window (default: true)
+   * @param showWindow - If true, shows the browser window (default: false)
    * @returns Tab ID and view
    */
-  public async createTab(privateMode = false, showWindow = true): Promise<{ tabId: string; view: BrowserView }> {
+  public async createTab(privateMode = false, showWindow = false): Promise<{ tabId: string; view: BrowserView }> {
     const windowInfo = await this.getOrCreateWindow(privateMode, showWindow)
     const tabId = randomUUID()
     const partition = this.getPartition(privateMode)
@@ -969,7 +970,7 @@ export class CdpBrowserController {
       }
 
       // Create a new tab and navigate to the URL
-      this.createTab(privateMode, true)
+      this.createTab(privateMode, false)
         .then(({ tabId: newTabId }) => {
           return this.switchTab(privateMode, newTabId).then(() => {
             const newTab = windowInfo.tabs.get(newTabId)
@@ -1011,13 +1012,13 @@ export class CdpBrowserController {
    * @param privateMode - Whether to use private browsing mode
    * @param tabId - Optional specific tab ID to use
    * @param newTab - If true, always create a new tab (useful for parallel requests)
-   * @param showWindow - If true, shows the browser window (default: true)
+   * @param showWindow - If true, shows the browser window (default: false)
    */
   private async getTab(
     privateMode: boolean,
     tabId?: string,
     newTab?: boolean,
-    showWindow = true
+    showWindow = false
   ): Promise<{ tabId: string; tab: TabInfo }> {
     const windowInfo = await this.getOrCreateWindow(privateMode, showWindow)
 
@@ -1063,10 +1064,10 @@ export class CdpBrowserController {
    * @param timeout - Navigation timeout in milliseconds (default: 10000)
    * @param privateMode - If true, uses private browsing mode (default: false)
    * @param newTab - If true, always creates a new tab (useful for parallel requests)
-   * @param showWindow - If true, shows the browser window (default: true)
+   * @param showWindow - If true, shows the browser window (default: false)
    * @returns Object containing the current URL, page title, and tab ID after navigation
    */
-  public async open(url: string, timeout = 10000, privateMode = false, newTab = false, showWindow = true) {
+  public async open(url: string, timeout = 10000, privateMode = false, newTab = false, showWindow = false) {
     const { tabId: actualTabId, tab } = await this.getTab(privateMode, undefined, newTab, showWindow)
     const view = tab.view
     const windowKey = this.getWindowKey(privateMode)
@@ -1178,7 +1179,7 @@ export class CdpBrowserController {
     }
   }
 
-  public async inspect(target: BrowserTarget, privateMode = false, tabId?: string, showWindow = true) {
+  public async inspect(target: BrowserTarget, privateMode = false, tabId?: string, showWindow = false) {
     if (!this.isPointTarget(target) && !this.hasLocator(target)) {
       throw new Error('inspect requires selector, text, xpath, or x/y coordinates')
     }
@@ -1202,7 +1203,7 @@ export class CdpBrowserController {
       throw new Error('click requires selector, text, xpath, or x/y coordinates')
     }
 
-    const { actualTabId, dbg } = await this.getTabContext(privateMode, tabId, options.showWindow ?? true)
+    const { actualTabId, dbg } = await this.getTabContext(privateMode, tabId, options.showWindow ?? false)
     const resolved = await this.inspectTarget(dbg, target).catch(() => null)
     const hostFallbackPoint = this.isCoordinateOnlyTarget(target) ? null : this.resolveHostFallbackClickPoint(target, resolved)
     const x = this.isCoordinateOnlyTarget(target) ? target.x : hostFallbackPoint?.x ?? resolved?.centerX
@@ -1237,7 +1238,7 @@ export class CdpBrowserController {
     }
   }
 
-  public async focus(target: BrowserTarget, privateMode = false, tabId?: string, showWindow = true) {
+  public async focus(target: BrowserTarget, privateMode = false, tabId?: string, showWindow = false) {
     if (!this.hasLocator(target) && !this.isPointTarget(target)) {
       throw new Error('focus requires selector, text, xpath, or x/y coordinates')
     }
@@ -1274,7 +1275,7 @@ export class CdpBrowserController {
     }
   }
 
-  public async hover(target: BrowserTarget, privateMode = false, tabId?: string, showWindow = true) {
+  public async hover(target: BrowserTarget, privateMode = false, tabId?: string, showWindow = false) {
     if (!this.hasLocator(target) && !this.isPointTarget(target)) {
       throw new Error('hover requires selector, text, xpath, or x/y coordinates')
     }
@@ -1307,7 +1308,7 @@ export class CdpBrowserController {
     }
   }
 
-  public async press(key: string, privateMode = false, tabId?: string, showWindow = true) {
+  public async press(key: string, privateMode = false, tabId?: string, showWindow = false) {
     const { actualTabId, dbg } = await this.getTabContext(privateMode, tabId, showWindow)
     const parts = key
       .split('+')
@@ -1413,7 +1414,7 @@ export class CdpBrowserController {
     tabId?: string
   ) {
     const timeout = options.timeoutMs ?? BROWSER_COMMAND_TIMEOUT_MS
-    const showWindow = options.showWindow ?? true
+    const showWindow = options.showWindow ?? false
     await this.focus(target, privateMode, tabId, showWindow)
     const { actualTabId, dbg } = await this.getTabContext(privateMode, tabId, showWindow)
 
@@ -1476,7 +1477,7 @@ export class CdpBrowserController {
   }
 
   public async scroll(options: BrowserScrollOptions = {}, privateMode = false, tabId?: string) {
-    const showWindow = options.showWindow ?? true
+    const showWindow = options.showWindow ?? false
     const { actualTabId, dbg } = await this.getTabContext(privateMode, tabId, showWindow)
     let deltaY = options.deltaY
     let deltaX = options.deltaX ?? 0
@@ -1558,7 +1559,7 @@ export class CdpBrowserController {
     const timeoutMs = options.timeoutMs ?? 10000
     const pollIntervalMs = options.pollIntervalMs ?? 250
     const idleMs = options.idleMs ?? 800
-    const showWindow = options.showWindow ?? true
+    const showWindow = options.showWindow ?? false
     const state = options.state ?? 'visible'
 
     const { actualTabId, dbg } = await this.getTabContext(privateMode, tabId, showWindow)
@@ -1777,7 +1778,7 @@ export class CdpBrowserController {
    * @param timeout - Navigation timeout in milliseconds (default: 10000)
    * @param privateMode - If true, uses private browsing mode (default: false)
    * @param newTab - If true, always creates a new tab (useful for parallel requests)
-   * @param showWindow - If true, shows the browser window (default: true)
+   * @param showWindow - If true, shows the browser window (default: false)
    * @returns Object with tabId and content in the requested format. For 'json', content is parsed object or { data: rawContent } if parsing fails
    */
   public async fetch(
@@ -1786,7 +1787,7 @@ export class CdpBrowserController {
     timeout = 10000,
     privateMode = false,
     newTab = false,
-    showWindow = true,
+    showWindow = false,
     selector?: string
   ): Promise<{ tabId: string; content: string | object }> {
     const { tabId } = await this.open(url, timeout, privateMode, newTab, showWindow)

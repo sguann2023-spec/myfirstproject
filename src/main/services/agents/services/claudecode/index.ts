@@ -26,6 +26,7 @@ import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
+import FileSystemServer from '@main/mcpServers/filesystem'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
@@ -65,7 +66,7 @@ import { agentRuntimeAuthService } from '../AgentRuntimeAuthService'
 import { agentService } from '../AgentService'
 import { isProvisioned, provisionBuiltinAgent } from '../builtin/BuiltinAgentProvisioner'
 import { channelService } from '../ChannelService'
-import { PromptBuilder } from '../cherryclaw/prompt'
+import { PromptBuilder, type ToolGuidanceOptions } from '../cherryclaw/prompt'
 import { sessionService } from '../SessionService'
 import { buildNamespacedToolCallId } from './claude-stream-state'
 import { promptForToolApproval } from './tool-permissions'
@@ -91,7 +92,74 @@ const DEFAULT_AUTO_ALLOW_TOOLS = new Set<string>(DEFAULT_ALLOWED_TOOLS)
 const IMAGE_MAX_DIMENSION = 2000
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
 const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
+const shouldMountAllRuntimeMcpTools = process.env.CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS === '1'
 const NO_RESUME_COMMANDS = ['/clear']
+
+type RuntimeCapability =
+  | 'browser'
+  | 'search'
+  | 'image'
+  | 'speech'
+  | 'draftDownload'
+  | 'copylab'
+  | 'digitalHuman'
+  | 'kouboTemplate'
+  | 'system'
+  | 'skills'
+  | 'agentMemory'
+  | 'claw'
+  | 'assistant'
+
+type CapabilityDecision = {
+  turn: number
+  selected: Set<RuntimeCapability>
+  reasons: Record<string, string[]>
+  stickyApplied: string[]
+}
+
+const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
+  'browser',
+  'search',
+  'image',
+  'speech',
+  'draftDownload',
+  'copylab',
+  'digitalHuman',
+  'kouboTemplate',
+  'system',
+  'skills',
+  'agentMemory',
+  'claw',
+  'assistant'
+]
+
+const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
+  'browser',
+  'search',
+  'image',
+  'speech',
+  'draftDownload',
+  'digitalHuman',
+  'kouboTemplate',
+  'copylab'
+])
+const CAPABILITY_STICKY_TURNS = 3
+
+const normalizeCapabilityText = (value: string) => String(value || '').toLowerCase()
+
+const hasAnyKeyword = (text: string, keywords: string[]) => keywords.some((keyword) => text.includes(keyword))
+
+const hasUrlLikeText = (text: string) => /https?:\/\/|localhost:\d+|127\.0\.0\.1:\d+|0\.0\.0\.0:\d+/i.test(text)
+
+const addCapabilityReason = (
+  selected: Set<RuntimeCapability>,
+  reasons: Record<string, string[]>,
+  capability: RuntimeCapability,
+  reason: string
+) => {
+  selected.add(capability)
+  reasons[capability] = [...(reasons[capability] ?? []), reason]
+}
 
 const isVectcutGatewayUrl = (value: string): boolean => {
   const raw = String(value || '').trim()
@@ -133,6 +201,8 @@ class ClaudeCodeService implements AgentServiceInterface {
   private claudeProxyBootstrapPath: string
   private browserServers = new Map<string, BrowserServer>()
   private readonly imageGenerateServer: ImageGenerateServer
+  private capabilityTurnsBySession = new Map<string, number>()
+  private capabilityStickyBySession = new Map<string, Map<RuntimeCapability, number>>()
 
   constructor() {
     // Resolve Claude Code CLI robustly (works in dev and in asar)
@@ -172,6 +242,217 @@ class ClaudeCodeService implements AgentServiceInterface {
     return browserServer
   }
 
+  private selectRuntimeCapabilities(args: {
+    prompt: string
+    sessionId: string
+    imageCount: number
+    isAssistant: boolean
+    soulEnabled: boolean
+    builtinRole?: string
+    hasCustomMcpServers: boolean
+  }): CapabilityDecision {
+    const turn = (this.capabilityTurnsBySession.get(args.sessionId) ?? 0) + 1
+    this.capabilityTurnsBySession.set(args.sessionId, turn)
+
+    const selected = new Set<RuntimeCapability>()
+    const reasons: Record<string, string[]> = {}
+    const stickyApplied: string[] = []
+    const text = normalizeCapabilityText(args.prompt)
+
+    if (shouldMountAllRuntimeMcpTools) {
+      for (const capability of ALL_OPTIONAL_RUNTIME_CAPABILITIES) {
+        addCapabilityReason(selected, reasons, capability, 'env:CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS')
+      }
+    } else {
+      if (args.isAssistant) {
+        addCapabilityReason(selected, reasons, 'assistant', 'assistant-role')
+      }
+
+      if (
+        hasUrlLikeText(args.prompt) ||
+        hasAnyKeyword(text, [
+          '网页',
+          '浏览器',
+          '打开网页',
+          '点击',
+          '页面截图',
+          '调试页面',
+          'localhost',
+          'browser',
+          'web page',
+          'click',
+          'screenshot'
+        ])
+      ) {
+        addCapabilityReason(selected, reasons, 'browser', 'prompt:browser-or-url')
+      }
+
+      if (
+        hasAnyKeyword(text, [
+          '搜索',
+          '查找',
+          '查询',
+          '最新',
+          '联网',
+          '网上',
+          '新闻',
+          '资料',
+          'search',
+          'look up',
+          'google',
+          '百度'
+        ])
+      ) {
+        addCapabilityReason(selected, reasons, 'search', 'prompt:search')
+      }
+
+      if (
+        hasAnyKeyword(text, [
+          '生成图',
+          '生成图片',
+          '画一张',
+          '做张图',
+          '封面',
+          '海报',
+          '配图',
+          '修图',
+          '换背景',
+          '抠图',
+          'image',
+          'cover',
+          'poster'
+        ])
+      ) {
+        addCapabilityReason(
+          selected,
+          reasons,
+          'image',
+          args.imageCount > 0 ? 'prompt:image-with-attachment' : 'prompt:image'
+        )
+      }
+
+      if (
+        hasAnyKeyword(text, [
+          '语音',
+          '配音',
+          '音色',
+          '朗读',
+          '声音',
+          'tts',
+          'voice',
+          'speech',
+          'audio'
+        ])
+      ) {
+        addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
+      }
+
+      if (
+        hasAnyKeyword(text, [
+          '数字人',
+          '口播',
+          '唇形',
+          '唇动',
+          '人像驱动',
+          '形象',
+          'lip sync',
+          'lipsync',
+          'image driven'
+        ])
+      ) {
+        addCapabilityReason(selected, reasons, 'digitalHuman', 'prompt:digital-human')
+      }
+
+      if (
+        hasAnyKeyword(text, ['下载草稿', '草稿下载', '剪映草稿', 'capcut draft', 'draft download'])
+      ) {
+        addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
+      }
+
+      if (hasAnyKeyword(text, ['口播模板', '模板草稿', 'koubo', 'template'])) {
+        addCapabilityReason(selected, reasons, 'kouboTemplate', 'prompt:koubo-template')
+      }
+
+      if (
+        hasAnyKeyword(text, [
+          '文案',
+          '脚本',
+          '标题',
+          '话术',
+          '种草',
+          '广告语',
+          'copywriting',
+          'copy lab'
+        ])
+      ) {
+        addCapabilityReason(selected, reasons, 'copylab', 'prompt:copywriting')
+      }
+
+      if (hasAnyKeyword(text, ['vectcut://', '打开设置', '跳转设置', 'deeplink', '系统设置'])) {
+        addCapabilityReason(selected, reasons, 'system', 'prompt:system-action')
+      }
+
+      if (
+        /(^|\s)@[\p{L}\p{N}_-]+/u.test(args.prompt) ||
+        hasAnyKeyword(text, ['技能', 'skill', '成员', '安装技能', '新建成员'])
+      ) {
+        addCapabilityReason(selected, reasons, 'skills', 'prompt:skills')
+      }
+
+      if (hasAnyKeyword(text, ['记住', '记忆', '忘记', 'remember', 'memory'])) {
+        addCapabilityReason(selected, reasons, 'agentMemory', 'prompt:memory')
+      }
+
+      if (
+        args.soulEnabled &&
+        hasAnyKeyword(text, ['定时', '提醒', '通知', '计划任务', 'cron', 'notify'])
+      ) {
+        addCapabilityReason(selected, reasons, 'claw', 'prompt:soul-schedule')
+      }
+
+      const sticky = this.capabilityStickyBySession.get(args.sessionId) ?? new Map<RuntimeCapability, number>()
+      for (const [capability, expiresAtTurn] of Array.from(sticky.entries())) {
+        if (expiresAtTurn < turn) {
+          sticky.delete(capability)
+          continue
+        }
+
+        if (!selected.has(capability)) {
+          addCapabilityReason(selected, reasons, capability, `sticky:${expiresAtTurn - turn + 1}`)
+          stickyApplied.push(`${capability}:${expiresAtTurn}`)
+        }
+      }
+
+      for (const capability of selected) {
+        if (STICKY_RUNTIME_CAPABILITIES.has(capability)) {
+          sticky.set(capability, turn + CAPABILITY_STICKY_TURNS)
+        }
+      }
+
+      if (sticky.size > 0) {
+        this.capabilityStickyBySession.set(args.sessionId, sticky)
+      } else {
+        this.capabilityStickyBySession.delete(args.sessionId)
+      }
+    }
+
+    if (!args.isAssistant) {
+      selected.delete('assistant')
+      delete reasons.assistant
+    }
+    if (!args.soulEnabled) {
+      selected.delete('claw')
+      delete reasons.claw
+    }
+
+    return {
+      turn,
+      selected,
+      reasons,
+      stickyApplied
+    }
+  }
+
   async invoke(
     prompt: string,
     session: GetAgentSessionResponse,
@@ -183,8 +464,11 @@ class ClaudeCodeService implements AgentServiceInterface {
   ): Promise<AgentStream> {
     const aiStream = new ClaudeCodeStream()
 
-    // Validate session accessible paths and make sure it exists as a directory
-    const cwd = session.accessible_paths[0]
+    const configuredWorkspacePath = String(
+      (session.configuration as Record<string, unknown> | undefined)?.selected_workspace_path || ''
+    ).trim()
+    const cwdCandidate = path.isAbsolute(configuredWorkspacePath) ? configuredWorkspacePath : session.accessible_paths[0] || ''
+    const cwd = cwdCandidate ? path.normalize(path.resolve(cwdCandidate)) : ''
     if (!cwd) {
       aiStream.emit('data', {
         type: 'error',
@@ -193,14 +477,23 @@ class ClaudeCodeService implements AgentServiceInterface {
       return aiStream
     }
 
-    const skillWorkspace = session.accessible_paths[1] || cwd
+    const skillWorkspace = cwd
 
-    // Sync the shared agent-level `.claude/skills` directory before we spin
-    // up the SDK. Session workspaces link their `.claude/skills` entry to the
-    // agent workspace, so reconciling the agent workspace keeps one shared
-    // skills directory aligned with the enabled-skill state.
+    // Refresh the active `.claude/skills` copies before SDK startup. The SDK
+    // auto-discovers this directory, so log the count as a token budget signal.
+    let activeClaudeSkillNames: string[] = []
     try {
       await skillService.reconcileAgentSkills(session.agent_id, skillWorkspace)
+      const activeClaudeSkills = await skillService.listLocal(skillWorkspace)
+      activeClaudeSkillNames = activeClaudeSkills.map((skill) => skill.filename).filter(Boolean).sort()
+      logger.info('[ToolRouter] active Claude skills snapshot', {
+        agentId: session.agent_id,
+        sessionId: session.id,
+        skillWorkspace,
+        activeSkillCount: activeClaudeSkillNames.length,
+        activeSkills: activeClaudeSkillNames.slice(0, 50),
+        omittedSkillCount: Math.max(0, activeClaudeSkillNames.length - 50)
+      })
     } catch (error) {
       logger.warn('Failed to reconcile agent skills before session start', {
         agentId: session.agent_id,
@@ -334,6 +627,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       CLAUDE_CONFIG_DIR: path.join(app.getPath('userData'), '.claude'),
       ENABLE_TOOL_SEARCH: 'auto',
       CHERRY_STUDIO_BUN_PATH: bunPath,
+      WORKSPACE_ROOT: cwd,
       ...(customGitBashPath ? { CLAUDE_CODE_GIT_BASH_PATH: customGitBashPath } : {})
     }
 
@@ -384,48 +678,6 @@ class ClaudeCodeService implements AgentServiceInterface {
     const sessionAllowedTools = new Set<string>(resolvedAllowedTools ?? [])
     const autoAllowTools = new Set<string>([...DEFAULT_AUTO_ALLOW_TOOLS, ...sessionAllowedTools])
     const readFilesInSession = new Set<string>()
-    const summarizeToolList = (tools?: string[]) => {
-      const list = Array.isArray(tools) ? tools.filter(Boolean) : []
-      const unique = Array.from(new Set(list))
-      return {
-        count: unique.length,
-        tools: unique.sort()
-      }
-    }
-    const summarizePromptSource = (
-      promptSource: Options['systemPrompt']
-    ): {
-      mode: 'assistant' | 'soul' | 'preset' | 'custom'
-      preset: string | null
-      length: number
-      appendLength: number | null
-    } => {
-      if (typeof promptSource === 'string') {
-        return {
-          mode: assistantSystemPrompt ? 'assistant' : soulSystemPrompt ? 'soul' : 'custom',
-          preset: null,
-          length: promptSource.length,
-          appendLength: null
-        }
-      }
-
-      if (promptSource && typeof promptSource === 'object' && 'type' in promptSource && promptSource.type === 'preset') {
-        const append = typeof promptSource.append === 'string' ? promptSource.append : ''
-        return {
-          mode: 'preset',
-          preset: promptSource.preset,
-          length: append.length,
-          appendLength: append.length
-        }
-      }
-
-      return {
-        mode: 'custom',
-        preset: null,
-        length: 0,
-        appendLength: null
-      }
-    }
     const normalizeToolName = (name: string) => (name.startsWith('builtin_') ? name.slice('builtin_'.length) : name)
     const requiresInteractiveApproval = (name: string) => normalizeToolName(name) === 'AskUserQuestion'
     const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -459,21 +711,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
       return null
     }
-    const allowsToolByPattern = (patterns: string[] | undefined, tool: string) => {
-      if (!Array.isArray(patterns) || patterns.length === 0) return false
-      const normalizedTool = normalizeToolName(tool)
-      return patterns.some((pattern) => {
-        if (!pattern) return false
-        if (pattern === tool || pattern === normalizedTool) return true
-        if (pattern.includes('*')) {
-          const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*')
-          const re = new RegExp(`^${escaped}$`)
-          return re.test(tool) || re.test(normalizedTool)
-        }
-        return false
-      })
-    }
-
     let plugins: SdkPluginConfig[] | undefined
     try {
       const pluginsDir = path.join(cwd, '.claude', 'plugins')
@@ -749,11 +986,37 @@ class ClaudeCodeService implements AgentServiceInterface {
     const agent = await agentService.getAgent(session.agent_id)
     const agentConfig = agent?.configuration
     const soulEnabled = agentConfig?.soul_enabled !== false
+    const builtinRole = (session.configuration as Record<string, unknown> | undefined)?.builtin_role as
+      | string
+      | undefined
+    const isAssistant = builtinRole === 'assistant'
+    const capabilityDecision = this.selectRuntimeCapabilities({
+      prompt,
+      sessionId: session.id,
+      imageCount: images?.length ?? 0,
+      isAssistant,
+      soulEnabled,
+      builtinRole,
+      hasCustomMcpServers: Boolean(session.mcps?.length)
+    })
+    const selectedRuntimeCapabilities = capabilityDecision.selected
+    const toolGuidanceOptions: ToolGuidanceOptions = {
+      hasClaw: soulEnabled && selectedRuntimeCapabilities.has('claw'),
+      hasSkills: selectedRuntimeCapabilities.has('skills'),
+      hasMemory: selectedRuntimeCapabilities.has('agentMemory'),
+      hasWeb: selectedRuntimeCapabilities.has('search') || selectedRuntimeCapabilities.has('browser'),
+      hasSystem: selectedRuntimeCapabilities.has('system'),
+      hasContentCreation: selectedRuntimeCapabilities.has('copylab')
+    }
     let soulSystemPrompt: string | undefined
 
     if (soulEnabled && cwd) {
-      soulSystemPrompt = await promptBuilder.buildSystemPrompt(cwd, agentConfig)
-      logger.info('Built Soul Mode system prompt', { cwd, promptLength: soulSystemPrompt.length })
+      soulSystemPrompt = await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)
+      logger.info('Built Soul Mode system prompt', {
+        cwd,
+        promptLength: soulSystemPrompt.length,
+        selectedRuntimeCapabilities: Array.from(selectedRuntimeCapabilities).sort()
+      })
     }
 
     // Inject channel security policy into system prompt when session is from an external channel
@@ -761,19 +1024,12 @@ class ClaudeCodeService implements AgentServiceInterface {
     const isChannelSession = !!linkedChannel
     const channelSecurityBlock = isChannelSession ? `\n\n${CHANNEL_SECURITY_PROMPT}` : ''
 
-    // Built-in agent mode: check builtin_role in configuration
-    const builtinRole = (session.configuration as Record<string, unknown> | undefined)?.builtin_role as
-      | string
-      | undefined
-    const isAssistant = builtinRole === 'assistant'
-
-    // For non-Soul, non-Assistant agents we still want the model to know how
-    // to use the skills + memory MCP servers we inject for everyone, plus the
-    // shared web tool strategy. This is a lightweight strategy suffix that
-    // sits on top of the SDK's `claude_code` preset rather than replacing it.
+    // For non-Soul, non-Assistant agents, append only the tool strategy that
+    // matches the runtime MCP servers selected for this turn.
     // Soul agents already get the full guidance via `soulSystemPrompt`, and
     // Cherry Assistant has its own specialized prompt path.
-    const nonSoulToolGuidance = !soulEnabled && !isAssistant ? promptBuilder.buildToolGuidance() : ''
+    const nonSoulToolGuidance =
+      !soulEnabled && !isAssistant ? promptBuilder.buildToolGuidance(toolGuidanceOptions) : ''
 
     // Recall side of the cross-session learning loop for non-Soul agents:
     // load `memory/FACT.md` (written via the memory tool in previous sessions)
@@ -805,8 +1061,15 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const finalSystemPrompt: Options['systemPrompt'] = assistantSystemPrompt
       ? assistantSystemPrompt
-      : soulSystemPrompt
-        ? `${soulSystemPrompt}${session.instructions ? `\n\n${session.instructions}` : ''}${channelSecurityBlock}\n\n${getLanguageInstruction()}`
+      : soulEnabled
+        ? [
+            soulSystemPrompt,
+            session.instructions,
+            isChannelSession ? CHANNEL_SECURITY_PROMPT : '',
+            getLanguageInstruction()
+          ]
+            .filter(Boolean)
+            .join('\n\n')
         : {
             type: 'preset',
             preset: 'claude_code',
@@ -894,10 +1157,17 @@ class ClaudeCodeService implements AgentServiceInterface {
     // Claude Agent SDK 0.2.81 的运行时代码读取 `thinkingConfig`，而公开类型声明使用 `thinking`。
     // 两个字段同时赋值，确保自适应 thinking 配置真正传到 CLI 层。
     ;(options as Options & { thinkingConfig?: typeof resolvedThinkingConfig }).thinkingConfig = resolvedThinkingConfig
-    const promptSourceSummary = summarizePromptSource(options.systemPrompt)
 
-    if (session.accessible_paths.length > 1) {
-      options.additionalDirectories = session.accessible_paths.slice(1)
+    const additionalDirectories = Array.from(
+      new Set(
+        session.accessible_paths
+          .filter(Boolean)
+          .map((p) => path.normalize(path.resolve(p)))
+          .filter((p) => p !== cwd)
+      )
+    )
+    if (additionalDirectories.length > 0) {
+      options.additionalDirectories = additionalDirectories
     }
 
     if (session.mcps && session.mcps.length > 0) {
@@ -916,190 +1186,208 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.strictMcpConfig = true
     }
 
-    // Inject @cherry/browser MCP for all agents to handle interactive browsing.
+    logger.info('[ToolRouter] capability decision', {
+      agentId: session.agent_id,
+      sessionId: session.id,
+      turn: capabilityDecision.turn,
+      selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
+      reasons: capabilityDecision.reasons,
+      stickyApplied: capabilityDecision.stickyApplied,
+      promptLength: prompt.length,
+      imageCount: images?.length ?? 0,
+      builtinRole: builtinRole ?? '',
+      isAssistant,
+      soulEnabled,
+      hasCustomMcpServers: Boolean(session.mcps?.length),
+      forceMountAll: shouldMountAllRuntimeMcpTools
+    })
+
     if (!options.mcpServers) options.mcpServers = {}
-    const browserServer = this.getOrCreateBrowserServer(session.id)
-    options.mcpServers.browser = { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer }
-    autoAllowTools.add('mcp__browser__open')
-    autoAllowTools.add('mcp__browser__click')
-    autoAllowTools.add('mcp__browser__type')
-    autoAllowTools.add('mcp__browser__press')
-    autoAllowTools.add('mcp__browser__scroll')
-    autoAllowTools.add('mcp__browser__focus')
-    autoAllowTools.add('mcp__browser__hover')
-    autoAllowTools.add('mcp__browser__wait_for')
-    autoAllowTools.add('mcp__browser__inspect')
-    autoAllowTools.add('mcp__browser__execute')
-    autoAllowTools.add('mcp__browser__reload')
-    autoAllowTools.add('mcp__browser__screenshot')
-    autoAllowTools.add('mcp__browser__snapshot')
-    autoAllowTools.add('mcp__browser__list_tabs')
-    autoAllowTools.add('mcp__browser__switch_tab')
-    autoAllowTools.add('mcp__browser__close_tab')
-    autoAllowTools.add('mcp__browser__reset')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__browser__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__browser__*']
+    type RuntimeMcpServerConfig = NonNullable<Options['mcpServers']>[string]
+    const mountedRuntimeMcpServers: string[] = []
+    const skippedRuntimeMcpServers: string[] = []
+    const shouldMountCapability = (capability: RuntimeCapability) => capabilityDecision.selected.has(capability)
+    const mountMcpServer = (key: string, config: RuntimeMcpServerConfig) => {
+      options.mcpServers![key] = config
+      mountedRuntimeMcpServers.push(key)
+    }
+    const markSkipped = (key: string) => {
+      skippedRuntimeMcpServers.push(key)
+    }
+    const allowMcpPattern = (pattern: string) => {
+      if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0 && !options.allowedTools.includes(pattern)) {
+        options.allowedTools = [...options.allowedTools, pattern]
       }
     }
 
-    const zhipuSearchServer = new ZhipuSearchServer()
-    options.mcpServers.search = { type: 'sdk', name: 'search', instance: zhipuSearchServer.mcpServer }
-    autoAllowTools.add('mcp__search__web_search')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__search__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__search__*']
-      }
+    const filesystemServer = new FileSystemServer(cwd)
+    mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem', instance: filesystemServer.mcpServer })
+    allowMcpPattern('mcp__filesystem__*')
+
+    if (shouldMountCapability('browser')) {
+      const browserServer = this.getOrCreateBrowserServer(session.id)
+      mountMcpServer('browser', { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer })
+      autoAllowTools.add('mcp__browser__open')
+      autoAllowTools.add('mcp__browser__click')
+      autoAllowTools.add('mcp__browser__type')
+      autoAllowTools.add('mcp__browser__press')
+      autoAllowTools.add('mcp__browser__scroll')
+      autoAllowTools.add('mcp__browser__focus')
+      autoAllowTools.add('mcp__browser__hover')
+      autoAllowTools.add('mcp__browser__wait_for')
+      autoAllowTools.add('mcp__browser__inspect')
+      autoAllowTools.add('mcp__browser__execute')
+      autoAllowTools.add('mcp__browser__reload')
+      autoAllowTools.add('mcp__browser__screenshot')
+      autoAllowTools.add('mcp__browser__snapshot')
+      autoAllowTools.add('mcp__browser__list_tabs')
+      autoAllowTools.add('mcp__browser__switch_tab')
+      autoAllowTools.add('mcp__browser__close_tab')
+      autoAllowTools.add('mcp__browser__reset')
+      allowMcpPattern('mcp__browser__*')
+    } else {
+      markSkipped('browser')
     }
 
-    options.mcpServers.image = { type: 'sdk', name: 'image', instance: this.imageGenerateServer.mcpServer }
-    autoAllowTools.add('mcp__image__generate_or_edit_image')
-    autoAllowTools.add('mcp__image__generate_image')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__image__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__image__*']
-      }
+    if (shouldMountCapability('search')) {
+      const zhipuSearchServer = new ZhipuSearchServer()
+      mountMcpServer('search', { type: 'sdk', name: 'search', instance: zhipuSearchServer.mcpServer })
+      autoAllowTools.add('mcp__search__web_search')
+      allowMcpPattern('mcp__search__*')
+    } else {
+      markSkipped('search')
     }
 
-    const speechGenerateServer = new SpeechGenerateServer()
-    options.mcpServers.speech = { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer }
-    autoAllowTools.add('mcp__speech__generate_speech')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__speech__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__speech__*']
-      }
+    if (shouldMountCapability('image')) {
+      mountMcpServer('image', { type: 'sdk', name: 'image', instance: this.imageGenerateServer.mcpServer })
+      autoAllowTools.add('mcp__image__generate_or_edit_image')
+      autoAllowTools.add('mcp__image__generate_image')
+      allowMcpPattern('mcp__image__*')
+    } else {
+      markSkipped('image')
     }
 
-    const draftDownloadServer = new DraftDownloadServer()
-    options.mcpServers['draft-download'] = { type: 'sdk', name: 'draft-download', instance: draftDownloadServer.mcpServer }
-    autoAllowTools.add('mcp__draft-download__download_draft')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__draft-download__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__draft-download__*']
-      }
+    if (shouldMountCapability('speech')) {
+      const speechGenerateServer = new SpeechGenerateServer()
+      mountMcpServer('speech', { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer })
+      autoAllowTools.add('mcp__speech__generate_speech')
+      allowMcpPattern('mcp__speech__*')
+    } else {
+      markSkipped('speech')
     }
 
-    const socialCopywritingServer = new SocialCopywritingServer()
-    options.mcpServers.copylab = {
-      type: 'sdk',
-      name: 'copylab',
-      instance: socialCopywritingServer.mcpServer
-    }
-    autoAllowTools.add('mcp__copylab__derive_copy_prompt')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__copylab__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__copylab__*']
-      }
-    }
-
-    const digitalHumanServer = new DigitalHumanServer()
-    options.mcpServers['digital-human'] = { type: 'sdk', name: 'digital-human', instance: digitalHumanServer.mcpServer }
-    autoAllowTools.add('mcp__digital-human__create_lip_sync_digital_human')
-    autoAllowTools.add('mcp__digital-human__get_lip_sync_digital_human_status')
-    autoAllowTools.add('mcp__digital-human__create_image_driven_digital_human')
-    autoAllowTools.add('mcp__digital-human__get_image_driven_digital_human_status')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__digital-human__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__digital-human__*']
-      }
+    if (shouldMountCapability('draftDownload')) {
+      const draftDownloadServer = new DraftDownloadServer()
+      mountMcpServer('draft-download', {
+        type: 'sdk',
+        name: 'draft-download',
+        instance: draftDownloadServer.mcpServer
+      })
+      autoAllowTools.add('mcp__draft-download__download_draft')
+      allowMcpPattern('mcp__draft-download__*')
+    } else {
+      markSkipped('draft-download')
     }
 
-    const kouboTemplateServer = new KouboTemplateServer()
-    options.mcpServers['koubo-template'] = { type: 'sdk', name: 'koubo-template', instance: kouboTemplateServer.mcpServer }
-    autoAllowTools.add('mcp__koubo-template__submit_koubo_template_task')
-    autoAllowTools.add('mcp__koubo-template__get_koubo_template_task_status')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__koubo-template__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__koubo-template__*']
-      }
+    if (shouldMountCapability('copylab')) {
+      const socialCopywritingServer = new SocialCopywritingServer()
+      mountMcpServer('copylab', {
+        type: 'sdk',
+        name: 'copylab',
+        instance: socialCopywritingServer.mcpServer
+      })
+      autoAllowTools.add('mcp__copylab__derive_copy_prompt')
+      allowMcpPattern('mcp__copylab__*')
+    } else {
+      markSkipped('copylab')
     }
 
-    // Inject a host-level system MCP for trusted desktop actions that should
-    // not be attempted via sandboxed Bash (for example, opening a vetted
-    // vectcut:// deeplink on the user's OS).
-    const systemServer = new SystemServer()
-    options.mcpServers.system = { type: 'sdk', name: 'system', instance: systemServer.mcpServer }
-    autoAllowTools.add('mcp__system__open_deeplink')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__system__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__system__*']
-      }
+    if (shouldMountCapability('digitalHuman')) {
+      const digitalHumanServer = new DigitalHumanServer()
+      mountMcpServer('digital-human', {
+        type: 'sdk',
+        name: 'digital-human',
+        instance: digitalHumanServer.mcpServer
+      })
+      autoAllowTools.add('mcp__digital-human__create_lip_sync_digital_human')
+      autoAllowTools.add('mcp__digital-human__get_lip_sync_digital_human_status')
+      autoAllowTools.add('mcp__digital-human__create_image_driven_digital_human')
+      autoAllowTools.add('mcp__digital-human__get_image_driven_digital_human_status')
+      allowMcpPattern('mcp__digital-human__*')
+    } else {
+      markSkipped('digital-human')
     }
 
-    // Inject skills MCP for all agents — managing Claude skills (search / install
-    // / list / remove / init / register) is a generally useful capability and is
-    // not coupled to Soul Mode's autonomous-agent semantics.
-    const skillsServer = new SkillsServer(session.agent_id)
-    options.mcpServers.skills = { type: 'sdk', name: 'skills', instance: skillsServer.mcpServer }
-    // Auto-approve via Cherry Studio's own permission gate. The SDK whitelist
-    // (`options.allowedTools`) takes glob patterns, but `canUseTool` checks
-    // `autoAllowTools` with exact string matching, so we have to add the full
-    // tool names there too — otherwise non-Soul agents (which do not run in
-    // bypassPermissions mode) get an approval prompt for every call.
-    autoAllowTools.add('mcp__skills__skills')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__skills__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__skills__*']
-      }
+    if (shouldMountCapability('kouboTemplate')) {
+      const kouboTemplateServer = new KouboTemplateServer()
+      mountMcpServer('koubo-template', {
+        type: 'sdk',
+        name: 'koubo-template',
+        instance: kouboTemplateServer.mcpServer
+      })
+      autoAllowTools.add('mcp__koubo-template__submit_koubo_template_task')
+      autoAllowTools.add('mcp__koubo-template__get_koubo_template_task_status')
+      allowMcpPattern('mcp__koubo-template__*')
+    } else {
+      markSkipped('koubo-template')
     }
 
-    // Inject agent workspace memory MCP for all agents — cross-session FACT.md /
-    // JOURNAL.jsonl in the agent's workspace. Distinct from the user-opt-in
-    // built-in `memory-server` (knowledge graph). Any agent with a stable
-    // workspace benefits from this.
-    const workspaceMemoryServer = new WorkspaceMemoryServer(session.agent_id)
-    options.mcpServers['agent-memory'] = {
-      type: 'sdk',
-      name: 'agent-memory',
-      instance: workspaceMemoryServer.mcpServer
-    }
-    autoAllowTools.add('mcp__agent-memory__memory')
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      if (!options.allowedTools.includes('mcp__agent-memory__*')) {
-        options.allowedTools = [...options.allowedTools, 'mcp__agent-memory__*']
-      }
+    if (shouldMountCapability('system')) {
+      const systemServer = new SystemServer()
+      mountMcpServer('system', { type: 'sdk', name: 'system', instance: systemServer.mcpServer })
+      autoAllowTools.add('mcp__system__open_deeplink')
+      allowMcpPattern('mcp__system__*')
+    } else {
+      markSkipped('system')
     }
 
-    if (soulEnabled) {
-      // Find the channel that owns this session (if any) for context-aware cron defaults
+    if (shouldMountCapability('skills')) {
+      const skillsServer = new SkillsServer(session.agent_id)
+      mountMcpServer('skills', { type: 'sdk', name: 'skills', instance: skillsServer.mcpServer })
+      autoAllowTools.add('mcp__skills__skills')
+      allowMcpPattern('mcp__skills__*')
+    } else {
+      markSkipped('skills')
+    }
+
+    if (shouldMountCapability('agentMemory')) {
+      const workspaceMemoryServer = new WorkspaceMemoryServer(session.agent_id)
+      mountMcpServer('agent-memory', {
+        type: 'sdk',
+        name: 'agent-memory',
+        instance: workspaceMemoryServer.mcpServer
+      })
+      autoAllowTools.add('mcp__agent-memory__memory')
+      allowMcpPattern('mcp__agent-memory__*')
+    } else {
+      markSkipped('agent-memory')
+    }
+
+    if (soulEnabled && shouldMountCapability('claw')) {
       const sourceChannelId = await this.resolveSourceChannel(session.agent_id, session.id)
       const clawServer = new ClawServer(session.agent_id, sourceChannelId)
-      options.mcpServers.claw = { type: 'sdk', name: 'claw', instance: clawServer.mcpServer }
-
-      // Auto-approve claw MCP tools at both layers (see skills/memory above
-      // for the SDK-glob vs canUseTool-exact-match rationale). Soul agents
-      // typically run in bypassPermissions, so this is defense in depth, but
-      // it lets claw also work for any future non-bypass Soul session.
+      mountMcpServer('claw', { type: 'sdk', name: 'claw', instance: clawServer.mcpServer })
       autoAllowTools.add('mcp__claw__cron')
       autoAllowTools.add('mcp__claw__notify')
       autoAllowTools.add('mcp__claw__config')
-      if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-        if (!options.allowedTools.includes('mcp__claw__*')) {
-          options.allowedTools = [...options.allowedTools, 'mcp__claw__*']
-        }
-      }
+      allowMcpPattern('mcp__claw__*')
 
       logger.debug('Soul Mode: injected claw MCP server', {
         agentId: session.agent_id,
         totalMcpServers: Object.keys(options.mcpServers).length
       })
+    } else {
+      markSkipped('claw')
     }
 
-    // Cherry Assistant: inject navigate + diagnose MCP server
-    if (isAssistant) {
+    if (isAssistant && shouldMountCapability('assistant')) {
       const assistantServer = new AssistantServer()
-      options.mcpServers.assistant = { type: 'sdk', name: 'assistant', instance: assistantServer.mcpServer }
-
-      // Auto-approve assistant MCP tools at both layers (see skills/memory
-      // above for the SDK-glob vs canUseTool-exact-match rationale).
+      mountMcpServer('assistant', { type: 'sdk', name: 'assistant', instance: assistantServer.mcpServer })
       autoAllowTools.add('mcp__assistant__navigate')
       autoAllowTools.add('mcp__assistant__diagnose')
       if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-        if (!options.allowedTools.includes('mcp__assistant__*')) {
-          options.allowedTools = [...options.allowedTools, 'mcp__assistant__*']
-        }
+        allowMcpPattern('mcp__assistant__*')
       } else {
-        // When allowed_tools is empty/undefined, set it so assistant MCP tools are auto-approved
         options.allowedTools = ['mcp__assistant__*']
       }
 
@@ -1107,142 +1395,40 @@ class ClaudeCodeService implements AgentServiceInterface {
         agentId: session.agent_id,
         totalMcpServers: Object.keys(options.mcpServers).length
       })
+    } else {
+      markSkipped('assistant')
     }
+
+    logger.info('[ToolRouter] mounted MCP servers', {
+      agentId: session.agent_id,
+      sessionId: session.id,
+      turn: capabilityDecision.turn,
+      requestPromptLength: prompt.length,
+      imageCount: images?.length ?? 0,
+      selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
+      mountedRuntimeMcpServers,
+      skippedRuntimeMcpServers,
+      toolGuidanceOptions,
+      activeClaudeSkillCount: activeClaudeSkillNames.length,
+      customMcpServerCount: session.mcps?.length ?? 0,
+      finalMcpServerNames: Object.keys(options.mcpServers || {}).sort(),
+      allowedToolCount: Array.isArray(options.allowedTools) ? options.allowedTools.length : 0,
+      autoAllowToolCount: autoAllowTools.size,
+      promptLengths: {
+        nonSoulToolGuidance: nonSoulToolGuidance.length,
+        nonSoulFactsRecall: nonSoulFactsRecall?.length ?? 0,
+        soulSystemPrompt: soulSystemPrompt?.length ?? 0,
+        assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
+        sessionInstructions: session.instructions?.length ?? 0
+      },
+      strictMcpConfig: Boolean(options.strictMcpConfig)
+    })
 
     if (lastAgentSessionId && !NO_RESUME_COMMANDS.some((cmd) => prompt.includes(cmd))) {
       options.resume = lastAgentSessionId
       // TODO: use fork session when we support branching sessions
       // options.forkSession = true
     }
-
-    // // Final safeguard: MCP is not supported for Claude Code SDK requests in this app.
-    // // Even if MCP servers/tools were injected earlier, strip them right before query.
-    // const isMcpToolPattern = (tool: string) => tool.trim().toLowerCase().startsWith('mcp__')
-    // const mcpServerNamesBeforeStrip = Object.keys(options.mcpServers || {})
-    // const allowedToolsBeforeStrip = Array.isArray(options.allowedTools) ? [...options.allowedTools] : undefined
-    // const autoAllowToolsBeforeStrip = Array.from(autoAllowTools)
-
-    // if (Array.isArray(options.allowedTools)) {
-    //   options.allowedTools = options.allowedTools.filter((tool) => !isMcpToolPattern(tool))
-    // }
-
-    // for (const toolName of Array.from(autoAllowTools)) {
-    //   if (isMcpToolPattern(toolName)) {
-    //     autoAllowTools.delete(toolName)
-    //   }
-    // }
-
-    // if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
-    //   delete (options as { mcpServers?: unknown }).mcpServers
-    //   delete (options as { strictMcpConfig?: unknown }).strictMcpConfig
-    // }
-
-    // const strippedMcpAllowedTools = (allowedToolsBeforeStrip || []).filter((tool) => isMcpToolPattern(tool))
-    // const strippedMcpAutoAllowTools = autoAllowToolsBeforeStrip.filter((tool) => isMcpToolPattern(tool))
-    // if (
-    //   mcpServerNamesBeforeStrip.length > 0 ||
-    //   strippedMcpAllowedTools.length > 0 ||
-    //   strippedMcpAutoAllowTools.length > 0
-    // ) {
-    //   logger.info('MCP tools are stripped before SDK query', {
-    //     sessionId: session.id,
-    //     removedMcpServers: mcpServerNamesBeforeStrip,
-    //     removedAllowedTools: strippedMcpAllowedTools,
-    //     removedAutoAllowTools: strippedMcpAutoAllowTools
-    //   })
-    // }
-    logger.info('MCP configuration retained for SDK query', {
-      sessionId: session.id,
-      mcpServerNames: Object.keys(options.mcpServers || {}),
-      mcpAllowedTools: (Array.isArray(options.allowedTools) ? options.allowedTools : []).filter((tool) =>
-        tool.trim().toLowerCase().startsWith('mcp__')
-      ),
-      mcpAutoAllowTools: Array.from(autoAllowTools).filter((tool) => tool.trim().toLowerCase().startsWith('mcp__'))
-    })
-
-    logger.info('Claude session visibility probe', {
-      sessionId: session.id,
-      agentId: session.agent_id,
-      modelId: modelInfo.modelId,
-      builtinRole: builtinRole ?? null,
-      isAssistant,
-      soulEnabled,
-      isChannelSession,
-      linkedChannelId: linkedChannel?.id ?? null,
-      permissionMode: session.configuration?.permission_mode ?? null,
-      maxTurns: session.configuration?.max_turns ?? null,
-      rawAllowedToolsState:
-        session.allowed_tools === undefined
-          ? 'undefined'
-          : Array.isArray(session.allowed_tools) && session.allowed_tools.length === 0
-            ? 'empty-array'
-            : 'non-empty-array',
-      rawAllowedTools: summarizeToolList(session.allowed_tools),
-      defaultAllowedTools: summarizeToolList(Array.from(DEFAULT_ALLOWED_TOOLS)),
-      resolvedAllowedToolsState:
-        resolvedAllowedTools === undefined
-          ? 'undefined'
-          : Array.isArray(resolvedAllowedTools) && resolvedAllowedTools.length === 0
-            ? 'empty-array'
-            : 'non-empty-array',
-      resolvedAllowedTools: summarizeToolList(resolvedAllowedTools),
-      finalAllowedToolsState:
-        options.allowedTools === undefined
-          ? 'undefined'
-          : Array.isArray(options.allowedTools) && options.allowedTools.length === 0
-            ? 'empty-array'
-            : 'non-empty-array',
-      finalAllowedTools: summarizeToolList(options.allowedTools),
-      todoProbe: {
-        rawHasTodoWrite: Array.isArray(session.allowed_tools) ? session.allowed_tools.includes('TodoWrite') : null,
-        resolvedHasTodoWrite: Array.isArray(resolvedAllowedTools) ? resolvedAllowedTools.includes('TodoWrite') : null,
-        finalCoversTodoWrite: allowsToolByPattern(options.allowedTools, 'TodoWrite'),
-        autoAllowHasTodoWrite: autoAllowTools.has('TodoWrite') || autoAllowTools.has('builtin_TodoWrite'),
-        disallowedHasTodoWrite: options.disallowedTools?.includes('TodoWrite') ?? false
-      },
-      taskProbe: {
-        rawHasTask: Array.isArray(session.allowed_tools) ? session.allowed_tools.includes('Task') : null,
-        resolvedHasTask: Array.isArray(resolvedAllowedTools) ? resolvedAllowedTools.includes('Task') : null,
-        finalCoversTask: allowsToolByPattern(options.allowedTools, 'Task'),
-        autoAllowHasTask: autoAllowTools.has('Task') || autoAllowTools.has('builtin_Task'),
-        disallowedHasTask: options.disallowedTools?.includes('Task') ?? false
-      },
-      promptSource: {
-        ...promptSourceSummary,
-        sessionInstructionsLength: session.instructions?.length ?? 0,
-        nonSoulToolGuidanceLength: nonSoulToolGuidance.length,
-        nonSoulFactsRecallLength: nonSoulFactsRecall?.length ?? 0,
-        soulSystemPromptLength: soulSystemPrompt?.length ?? 0,
-        assistantSystemPromptLength: assistantSystemPrompt?.length ?? 0,
-        channelSecurityEnabled: Boolean(channelSecurityBlock),
-        settingSources: options.settingSources ?? []
-      }
-    })
-
-    logger.info('AllowedTools probe', {
-      sessionId: session.id,
-      modelId: modelInfo.modelId,
-      finalAllowedToolsState:
-        options.allowedTools === undefined
-          ? 'undefined'
-          : Array.isArray(options.allowedTools) && options.allowedTools.length === 0
-            ? 'empty-array'
-            : 'non-empty-array',
-      sessionAllowedTools: summarizeToolList(resolvedAllowedTools),
-      autoAllowTools: summarizeToolList(Array.from(autoAllowTools)),
-      finalAllowedTools: summarizeToolList(options.allowedTools),
-      mcpServerNames: Object.keys(options.mcpServers || {}),
-      curlProbe: {
-        runtimeModel: runtimeModel || null,
-        providerType: provider.type,
-        builtinRole: builtinRole ?? null,
-        soulEnabled,
-        permissionMode: session.configuration?.permission_mode ?? null,
-        sessionAllowsBash: sessionAllowedTools.has('Bash') || sessionAllowedTools.has('builtin_Bash'),
-        autoAllowHasBash: autoAllowTools.has('Bash') || autoAllowTools.has('builtin_Bash'),
-        finalAllowedCoversBash: allowsToolByPattern(options.allowedTools, 'Bash')
-      }
-    })
 
     const { stream: userInputStream, enqueue: enqueueUserMessage, close: closeUserStream } = await this.createUserMessageStream(
       prompt,
@@ -1786,7 +1972,6 @@ class ClaudeCodeService implements AgentServiceInterface {
               mergedCommands: mergedCommandNames
             })
 
-            // Update session in database
             await sessionService.updateSession(agentId, sessionId, {
               slash_commands: mergedCommands
             })

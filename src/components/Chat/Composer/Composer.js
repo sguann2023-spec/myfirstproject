@@ -1,3 +1,5 @@
+import { useAgent } from '@renderer/hooks/agents/useAgent';
+import { useSession } from '@renderer/hooks/agents/useSession';
 import React from 'react';
 import { mergeAttributes, Node } from '@tiptap/core';
 import Mention from '@tiptap/extension-mention';
@@ -35,6 +37,17 @@ const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
 const TOOL_BAR_SCROLL_STEP = 220;
 const TOOL_BAR_MIN_RIGHT_GAP = 32;
 const TOOL_BAR_NAV_VISIBILITY_THRESHOLD = 24;
+const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
+const getWorkspaceConfig = (session) => {
+  const config = session?.configuration && typeof session.configuration === 'object'
+    ? session.configuration
+    : {};
+  const lockedPath = normalizePath(config?.selected_workspace_path || '');
+  const recentPaths = Array.isArray(config?.recent_workspace_paths)
+    ? config.recent_workspace_paths.map((item) => normalizePath(item)).filter(Boolean)
+    : [];
+  return { lockedPath, recentPaths };
+};
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
@@ -1557,6 +1570,8 @@ const Composer = ({
   onModelChange,
   formatModelDisplayName,
 }) => {
+  const { agent } = useAgent(agentId || null);
+  const { session } = useSession(agentId || null, runtimeSessionId || null);
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [activeTool, setActiveTool] = React.useState(null);
@@ -1610,6 +1625,11 @@ const Composer = ({
     canScrollRight: false,
   });
   const [toolContentMaxWidth, setToolContentMaxWidth] = React.useState(null);
+  const workspaceConfig = React.useMemo(() => getWorkspaceConfig(session), [session]);
+  const primarySkillWorkdir = React.useMemo(
+    () => workspaceConfig.lockedPath,
+    [workspaceConfig.lockedPath]
+  );
   const inputPlaceholder =
     activeTool === 'digital-human'
       ? ''
@@ -1625,7 +1645,6 @@ const Composer = ({
     let removeSkillsChangedListener = null;
     const loadSkills = async () => {
       const api = window?.electronAPI?.agentSkills;
-      const cherryChatStream = window?.electronAPI?.cherryChatStream;
       if (!runtimeSessionId && !agentId) {
         if (!cancelled) {
           setSkills([]);
@@ -1634,7 +1653,15 @@ const Composer = ({
         }
         return;
       }
-      if (!api || typeof api.listActive !== 'function') {
+      if (!primarySkillWorkdir) {
+        if (!cancelled) {
+          setSkills([]);
+          setSkillsError('');
+          setSkillsLoading(false);
+        }
+        return;
+      }
+      if (!api || typeof api.listLocal !== 'function') {
         if (!cancelled) {
           setSkills([]);
           setSkillsError('技能服务不可用');
@@ -1646,23 +1673,7 @@ const Composer = ({
       setSkillsLoading(true);
       setSkillsError('');
       try {
-        let result = null;
-        if (
-          runtimeSessionId &&
-          cherryChatStream &&
-          typeof cherryChatStream.getSession === 'function' &&
-          typeof api.listLocal === 'function'
-        ) {
-          const sessionResult = await cherryChatStream.getSession(runtimeSessionId);
-          const accessiblePaths = sessionResult?.ok ? sessionResult?.session?.accessible_paths : [];
-          const workdir = accessiblePaths?.[1] || '';
-          if (workdir) {
-            result = await api.listLocal({ workdir });
-          }
-        }
-        if (!result) {
-          result = await api.listActive({ agentId });
-        }
+        const result = await api.listLocal({ workdir: primarySkillWorkdir });
         if (cancelled) return;
         if (!result?.ok) {
           setSkills([]);
@@ -1699,7 +1710,7 @@ const Composer = ({
         void api.unsubscribeChanges({ agentId }).catch(() => {});
       }
     };
-  }, [agentId, runtimeSessionId]);
+  }, [agentId, primarySkillWorkdir, runtimeSessionId]);
 
   React.useEffect(() => () => {
     if (mentionCloseTimerRef.current) {

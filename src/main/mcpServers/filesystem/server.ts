@@ -1,4 +1,5 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { app } from 'electron'
 import fs from 'fs/promises'
@@ -23,8 +24,12 @@ import {
 import { expandHome, logger, normalizePath } from './types'
 
 export class FileSystemServer {
-  public server: Server
+  public mcpServer: McpServer
   private baseDir: string
+
+  public get server(): Server {
+    return this.mcpServer.server
+  }
 
   constructor(baseDir?: string) {
     const expandedBaseDir = baseDir ? expandHome(baseDir) : undefined
@@ -38,7 +43,7 @@ export class FileSystemServer {
       logger.info(`Using default workspace for filesystem MCP baseDir: ${this.baseDir}`)
     }
 
-    this.server = new Server(
+    this.mcpServer = new McpServer(
       {
         name: 'filesystem-server',
         version: '2.0.0'
@@ -63,7 +68,7 @@ export class FileSystemServer {
   }
 
   private registerHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
           globToolDefinition,
@@ -78,7 +83,7 @@ export class FileSystemServer {
     })
 
     // Register tool call handler
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         const { name, arguments: args } = request.params
 

@@ -20,7 +20,7 @@ export const pressToolDefinition = {
       key: { type: 'string', description: 'Key to press, e.g. Enter, Escape, Tab, ArrowDown, Control+A' },
       privateMode: { type: 'boolean', description: 'Target private session (default: false)' },
       tabId: { type: 'string', description: 'Target specific tab by ID' },
-      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: true)' }
+      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: false)' }
     },
     required: ['key']
   }
@@ -29,7 +29,7 @@ export const pressToolDefinition = {
 export async function handlePress(controller: CdpBrowserController, args: unknown) {
   try {
     const { key, privateMode, tabId, showWindow } = PressSchema.parse(args)
-    const result = await controller.press(key, privateMode ?? false, tabId, showWindow ?? true)
+    const result = await controller.press(key, privateMode ?? false, tabId, showWindow ?? false)
     return successResponse(JSON.stringify(result))
   } catch (error) {
     logger.error('Press failed', { error, args })

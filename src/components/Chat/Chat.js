@@ -100,17 +100,34 @@ const Chat = ({
   historyVisible = true,
   onToggleHistory,
   onCreateSession,
+  onEnsureRuntimeSession,
+  workspaceStatus = '',
   sessionTitle = '新对话',
   sessionTitleRenaming = false,
   sessionTitleNewlyRenamed = false,
   onRenameSessionTitle,
   userName = '',
   userAvatar = '',
+  webPreview = null,
+  onCloseWebPreview,
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
   const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
+  const currentModelMeta = React.useMemo(() => {
+    const selectedModel = String(model || '').trim();
+    const matchedOption = (Array.isArray(modelOptions) ? modelOptions : []).find((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const candidateValue = String(item?.value || item?.id || item?.name || '').trim();
+      return candidateValue && candidateValue === selectedModel;
+    }) || null;
+
+    return {
+      name: String(matchedOption?.label || matchedOption?.displayText || selectedModel || '').trim(),
+      icon: String(matchedOption?.icon || matchedOption?.iconUrl || matchedOption?.black_icon || '').trim()
+    };
+  }, [model, modelOptions]);
 
   const messages = normalizeMessages(session);
 
@@ -181,12 +198,17 @@ const Chat = ({
       historyVisible={historyVisible}
       onToggleHistory={onToggleHistory}
       onCreateSession={onCreateSession}
+      onEnsureRuntimeSession={onEnsureRuntimeSession}
+      workspaceStatus={workspaceStatus}
       sessionTitle={sessionTitle}
       sessionTitleRenaming={sessionTitleRenaming}
       sessionTitleNewlyRenamed={sessionTitleNewlyRenamed}
+      currentModelMeta={currentModelMeta}
       onRenameSessionTitle={onRenameSessionTitle}
       onSelectSkill={insertSkillMention}
-      onCreateSkill={insertCreateSkillPrompt}>
+      onCreateSkill={insertCreateSkillPrompt}
+      webPreview={webPreview}
+      onCloseWebPreview={onCloseWebPreview}>
       <MessagePane
         messages={messages}
         sending={sending}

@@ -32,7 +32,7 @@ export const scrollToolDefinition = {
       direction: { type: 'string', enum: ['up', 'down'], description: 'Scroll direction when pages is used' },
       privateMode: { type: 'boolean', description: 'Target private session (default: false)' },
       tabId: { type: 'string', description: 'Target specific tab by ID' },
-      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: true)' }
+      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: false)' }
     }
   }
 }

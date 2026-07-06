@@ -26,6 +26,7 @@ import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
+import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 const logger = loggerService.withContext('HomePage');
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
@@ -35,6 +36,64 @@ const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
 const CHAT_SNAPSHOT_THROTTLE_MS = 100;
+const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
+const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
+const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
+const CHAT_BROWSER_PREVIEW_WIDTH = 400;
+
+const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
+const getSessionWorkspacePath = (session) => {
+  const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
+  return normalizeLocalPath(config.selected_workspace_path || session?.accessible_paths?.[0] || '').trim();
+};
+const joinLocalPath = (...segments) => {
+  const joinPath = window?.electronAPI?.path?.join;
+  if (typeof joinPath === 'function') {
+    return normalizeLocalPath(joinPath(...segments));
+  }
+  return normalizeLocalPath(segments.filter(Boolean).join('/')).replace(/\/+/g, '/');
+};
+const dedupeWorkspacePaths = (paths = []) => Array.from(new Set(
+  (Array.isArray(paths) ? paths : []).map((item) => normalizeLocalPath(item).trim()).filter(Boolean)
+));
+const moveWorkspacePathToFront = (paths = [], targetPath = '') => {
+  const normalizedTargetPath = normalizeLocalPath(targetPath).trim();
+  if (!normalizedTargetPath) return dedupeWorkspacePaths(paths);
+  return dedupeWorkspacePaths([normalizedTargetPath, ...paths]);
+};
+const readWorkspaceStore = () => {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return { library: [], recent: [] };
+  }
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_STORE_KEY);
+    if (!raw) return { library: [], recent: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      library: dedupeWorkspacePaths(parsed?.library),
+      recent: dedupeWorkspacePaths(parsed?.recent)
+    };
+  } catch (_error) {
+    return { library: [], recent: [] };
+  }
+};
+const writeWorkspaceStore = (store = {}) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(
+      WORKSPACE_STORE_KEY,
+      JSON.stringify({
+        library: dedupeWorkspacePaths(store?.library),
+        recent: dedupeWorkspacePaths(store?.recent)
+      })
+    );
+  } catch (_error) {
+    // ignore storage failures
+  }
+};
+const buildAutoWorkspaceName = () => (
+  `workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+);
 
 const resolveProviderIdByModel = (modelId = '') => {
   const lower = String(modelId || '').toLowerCase();
@@ -173,6 +232,157 @@ const buildComparableModelMeta = (rawModel) => {
   });
 };
 
+const tryParseJson = (value) => {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const readBrowserToolUrl = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const normalized = String(value || '').trim();
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+    return readBrowserToolUrl(tryParseJson(normalized));
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = readBrowserToolUrl(item);
+      if (hit) return hit;
+    }
+    return '';
+  }
+  if (typeof value !== 'object') return '';
+
+  const directCandidates = [
+    value?.url,
+    value?.currentUrl,
+    value?.href,
+    value?.uri,
+    value?.link,
+    value?.resource?.uri
+  ];
+  for (const candidate of directCandidates) {
+    const normalized = String(candidate || '').trim();
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+  }
+
+  if (typeof value?.text === 'string') {
+    const textHit = readBrowserToolUrl(value.text);
+    if (textHit) return textHit;
+  }
+  if (Array.isArray(value?.content)) {
+    const contentHit = readBrowserToolUrl(value.content);
+    if (contentHit) return contentHit;
+  }
+
+  return '';
+};
+
+const readBrowserToolTitle = (value, fallbackUrl = '') => {
+  if (!value) return fallbackUrl;
+  if (typeof value === 'string') {
+    const normalized = String(value || '').trim();
+    if (!normalized) return fallbackUrl;
+    if (!/^https?:\/\//i.test(normalized)) {
+      const parsed = tryParseJson(normalized);
+      if (parsed) return readBrowserToolTitle(parsed, fallbackUrl);
+      return normalized;
+    }
+    return fallbackUrl || normalized;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = readBrowserToolTitle(item, fallbackUrl);
+      if (hit && hit !== fallbackUrl) return hit;
+    }
+    return fallbackUrl;
+  }
+  if (typeof value !== 'object') return fallbackUrl;
+
+  const directCandidates = [value?.title, value?.pageTitle, value?.name];
+  for (const candidate of directCandidates) {
+    const normalized = String(candidate || '').trim();
+    if (normalized) return normalized;
+  }
+  if (typeof value?.text === 'string') {
+    const textHit = readBrowserToolTitle(value.text, fallbackUrl);
+    if (textHit && textHit !== fallbackUrl) return textHit;
+  }
+  if (Array.isArray(value?.content)) {
+    const contentHit = readBrowserToolTitle(value.content, fallbackUrl);
+    if (contentHit && contentHit !== fallbackUrl) return contentHit;
+  }
+
+  return fallbackUrl;
+};
+
+const isBrowserOpenToolBlock = (block = {}) => {
+  const rawToolResponse = block?.metadata?.rawMcpToolResponse || {};
+  const serverName = String(rawToolResponse?.tool?.serverName || '').trim().toLowerCase();
+  const toolName = String(rawToolResponse?.tool?.name || block?.toolName || '').trim().toLowerCase();
+  return (
+    (serverName.includes('browser') && toolName === 'open')
+    || toolName === 'browser:open'
+    || toolName === 'mcp__browser__open'
+    || toolName === 'browser__open'
+  );
+};
+
+const buildChatBrowserPreviewFromSession = (session) => {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex];
+    if (String(message?.role || '').toLowerCase() !== 'assistant') continue;
+    const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+    for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = blocks[blockIndex];
+      if (!isBrowserOpenToolBlock(block)) continue;
+      const rawToolResponse = block?.metadata?.rawMcpToolResponse || {};
+      const url = readBrowserToolUrl(rawToolResponse?.response) || readBrowserToolUrl(rawToolResponse?.arguments);
+      if (!url) continue;
+      const title =
+        readBrowserToolTitle(rawToolResponse?.response, '')
+        || readBrowserToolTitle(rawToolResponse?.arguments, '')
+        || url;
+      const toolCallId = String(rawToolResponse?.id || block?.id || '').trim() || url;
+      return {
+        key: `${String(session?.id || 'chat').trim()}:${toolCallId}:${url}`,
+        url,
+        title
+      };
+    }
+  }
+  return null;
+};
+
+const buildChatBrowserPreviewFromBlocks = (blocks, scopeKey = 'chat') => {
+  const normalizedBlocks = Array.isArray(blocks) ? blocks : [];
+  for (let blockIndex = normalizedBlocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+    const block = normalizedBlocks[blockIndex];
+    if (!isBrowserOpenToolBlock(block)) continue;
+    const rawToolResponse = block?.metadata?.rawMcpToolResponse || {};
+    const url = readBrowserToolUrl(rawToolResponse?.response) || readBrowserToolUrl(rawToolResponse?.arguments);
+    if (!url) continue;
+    const title =
+      readBrowserToolTitle(rawToolResponse?.response, '')
+      || readBrowserToolTitle(rawToolResponse?.arguments, '')
+      || url;
+    const toolCallId = String(rawToolResponse?.id || block?.id || '').trim() || url;
+    return {
+      key: `${String(scopeKey || 'chat').trim()}:${toolCallId}:${url}`,
+      url,
+      title
+    };
+  }
+  return null;
+};
+
 const createChatId = () => `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const createRequestId = () =>
@@ -190,38 +400,6 @@ const formatCreditsCount = (value) => {
 };
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const summarizeLogValue = (value) => {
-  if (typeof value === 'string') {
-    return {
-      type: 'string',
-      length: value.length,
-      preview: value.slice(0, 240)
-    };
-  }
-  if (value === undefined || value === null) {
-    return {
-      type: String(value),
-      length: 0,
-      preview: ''
-    };
-  }
-  try {
-    const serialized = JSON.stringify(value);
-    return {
-      type: Array.isArray(value) ? 'array' : typeof value,
-      length: serialized.length,
-      preview: serialized.slice(0, 240)
-    };
-  } catch {
-    const fallback = String(value);
-    return {
-      type: typeof value,
-      length: fallback.length,
-      preview: fallback.slice(0, 240)
-    };
-  }
-};
 
 const summarizeMapKeys = (mapLike, limit = 6) => {
   try {
@@ -714,6 +892,7 @@ const finalizeLatestTodoWriteInStore = (assistantMessageId) => {
 };
 
 const HomePage = () => {
+  const isFullscreen = useFullscreen();
   const [headerUser, setHeaderUser] = useState(() => electronStore.get('user') || {});
   const avatarSrc = headerUser?.avatar || LogoIcon;
   const userName = headerUser?.name || '';
@@ -735,6 +914,7 @@ const HomePage = () => {
   const [chatSending, setChatSending] = useState(false);
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
   const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
+  const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
   const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
@@ -755,6 +935,9 @@ const HomePage = () => {
   const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
+  const [chatWebPreview, setChatWebPreview] = useState(null);
+  const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
+  const chatExpandedWindowBaseWidthRef = useRef(null);
 
   useEffect(() => {
     if (typeof electronStore.onDidChange !== 'function') {
@@ -1085,6 +1268,45 @@ const HomePage = () => {
   }, [chatModel]);
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
+  const activeStreamingAssistantMessageId = useMemo(() => {
+    const messages = Array.isArray(activeChatSession?.messages) ? activeChatSession.messages : [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (String(message?.role || '').toLowerCase() !== 'assistant') continue;
+      const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
+      if (storeAssistantMessageId) return storeAssistantMessageId;
+    }
+    return '';
+  }, [activeChatSession]);
+  const [latestStreamingChatBrowserPreview, setLatestStreamingChatBrowserPreview] = useState(null);
+  useEffect(() => {
+    if (!activeStreamingAssistantMessageId) {
+      setLatestStreamingChatBrowserPreview(null);
+      return undefined;
+    }
+
+    const syncStreamingPreview = () => {
+      const snapshot = getAssistantSnapshotFromStore(activeStreamingAssistantMessageId);
+      const nextPreview = buildChatBrowserPreviewFromBlocks(snapshot?.blocks, activeChatSession?.id || 'chat');
+      setLatestStreamingChatBrowserPreview((prev) => {
+        const prevKey = String(prev?.key || '').trim();
+        const nextKey = String(nextPreview?.key || '').trim();
+        if (!prev && !nextPreview) return prev;
+        if (prevKey && prevKey === nextKey) return prev;
+        return nextPreview;
+      });
+    };
+
+    syncStreamingPreview();
+    const unsubscribe = appStore.subscribe(syncStreamingPreview);
+    return () => {
+      unsubscribe?.();
+    };
+  }, [activeStreamingAssistantMessageId, activeChatSession?.id]);
+  const latestChatBrowserPreview = useMemo(
+    () => latestStreamingChatBrowserPreview || buildChatBrowserPreviewFromSession(activeChatSession),
+    [activeChatSession, latestStreamingChatBrowserPreview]
+  );
   const activeChatRuntimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
   const chatModelMeta = useMemo(
     () => buildChatMessageModelMeta(chatModel, chatModelOptions),
@@ -1102,6 +1324,60 @@ const HomePage = () => {
   const activeChatNeedsHistoryHydrate = Boolean(
     activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
   );
+
+  useEffect(() => {
+    if (!latestChatBrowserPreview) {
+      setChatWebPreview(null);
+      return;
+    }
+    if (latestChatBrowserPreview.key === chatWebPreviewDismissedKey) {
+      setChatWebPreview(null);
+      return;
+    }
+    setChatWebPreview((prev) => (
+      prev?.key === latestChatBrowserPreview.key ? prev : latestChatBrowserPreview
+    ));
+  }, [latestChatBrowserPreview, chatWebPreviewDismissedKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const previewVisible = selectedPane === 'chat' && Boolean(chatWebPreview?.url);
+
+    const syncWindowWidth = async () => {
+      if (!window?.api?.window?.getSize || !window?.api?.window?.setSize) return;
+
+      if (previewVisible) {
+        if (isFullscreen || chatExpandedWindowBaseWidthRef.current != null) return;
+        try {
+          const [width, height] = await window.api.window.getSize();
+          if (cancelled) return;
+          chatExpandedWindowBaseWidthRef.current = width;
+          await window.api.window.setSize(width + CHAT_BROWSER_PREVIEW_WIDTH, height, true);
+        } catch (error) {
+          chatExpandedWindowBaseWidthRef.current = null;
+          logger.warn('Failed to expand window for browser preview.', error);
+        }
+        return;
+      }
+
+      if (isFullscreen || chatExpandedWindowBaseWidthRef.current == null) return;
+      try {
+        const [, height] = await window.api.window.getSize();
+        const targetWidth = chatExpandedWindowBaseWidthRef.current;
+        chatExpandedWindowBaseWidthRef.current = null;
+        if (cancelled) return;
+        await window.api.window.setSize(targetWidth, height, true);
+      } catch (error) {
+        chatExpandedWindowBaseWidthRef.current = null;
+        logger.warn('Failed to restore window width after browser preview.', error);
+      }
+    };
+
+    void syncWindowWidth();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatWebPreview?.url, isFullscreen, selectedPane]);
 
   useEffect(() => {
     if (!canUseAgentRuntime) return;
@@ -1304,7 +1580,51 @@ const HomePage = () => {
       return next;
     });
   };
+  const setChatWorkspaceStatus = useCallback((chatId, statusText = '') => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    const nextStatusText = String(statusText || '').trim();
+    setChatWorkspaceStatusMap((prev) => {
+      const prevStatusText = String(prev[id] || '').trim();
+      if (prevStatusText === nextStatusText) return prev;
+      if (!nextStatusText) {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      return {
+        ...prev,
+        [id]: nextStatusText
+      };
+    });
+  }, []);
+  const updateChatAssistantMessage = useCallback((chatId, assistantMessageId, updates) => {
+    if (!chatId || !assistantMessageId || !updates) return;
+    setChatSessions((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id !== chatId) return item;
+        return {
+          ...item,
+          updatedAt: Date.now(),
+          messages: item.messages.map((message) => (
+            message.id === assistantMessageId
+              ? {
+                ...message,
+                ...(typeof updates === 'function' ? updates(message) : updates),
+                updatedAt: Date.now()
+              }
+              : message
+          ))
+        };
+      });
+      return sortChatSessions(updated);
+    });
+  }, []);
   const activeChatSending = Boolean(activeChatId) && Boolean(chatSessionSendingMap[activeChatId]);
+  const activeChatWorkspaceStatus = String(
+    (activeChatId && chatWorkspaceStatusMap[String(activeChatId || '').trim()]) || ''
+  ).trim();
   const isChatSessionSending = (chatId) => Boolean(chatId) && Boolean(chatSessionSendingMap[chatId]);
   const chatSessionsWithStatus = useMemo(
     () =>
@@ -1453,7 +1773,7 @@ const HomePage = () => {
     if (existingEnsure) return existingEnsure;
 
     const ensurePromise = (async () => {
-      const subscribeToSession = async (agentSessionId, reason) => {
+      const subscribeToSession = async (agentSessionId) => {
         await window.electronAPI.cherryChatStream.subscribe(agentSessionId);
         return agentSessionId;
       };
@@ -1478,13 +1798,14 @@ const HomePage = () => {
 
       logger.info('[HomePage] createSession invoke', {
         chatId,
-        agentId: 'vectcut_claw_default',
+        agentId: DEFAULT_RUNTIME_AGENT_ID,
         model: chatModel,
         hasApiKey: Boolean(vectcutApiKey)
       });
       const created = await window.electronAPI.cherryChatStream.createSession({
-        agent_id: 'vectcut_claw_default',
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
         model: chatModel,
+        accessible_paths: [],
         configuration: {
           permission_mode: 'bypassPermissions',
           env_vars: {
@@ -2330,25 +2651,7 @@ const HomePage = () => {
 
     if (!canUseAgentRuntime) {
       const normalizedError = normalizeChatError(new Error('agent runtime unavailable'));
-      setChatSessions((prev) => {
-        const updated = prev.map((item) => {
-          if (item.id !== targetSessionId) return item;
-          return {
-            ...item,
-            updatedAt: Date.now(),
-            messages: item.messages.map((message) => (
-              message.id === assistantMessageId
-                ? {
-                  ...message,
-                  error: normalizedError,
-                  updatedAt: Date.now()
-                }
-                : message
-            ))
-          };
-        });
-        return sortChatSessions(updated);
-      });
+      updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
       return;
     }
 
@@ -2358,31 +2661,70 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      let runtimeSession = ensuredSession?.session || null;
+      if (!getSessionWorkspacePath(runtimeSession)) {
+        setChatWorkspaceStatus(targetSessionId, AUTO_WORKSPACE_STATUS_TEXT);
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: AUTO_WORKSPACE_STATUS_TEXT
+        });
+        try {
+          const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+          const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+          if (!appDataPath) {
+            throw new Error('创建默认工作空间失败');
+          }
+
+          const workspaceParentDir = joinLocalPath(
+            appDataPath,
+            'Data',
+            'Workspaces',
+            DEFAULT_RUNTIME_AGENT_ID
+          );
+          const workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+          await window.api.file.mkdir(workspacePath);
+
+          const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: workspacePath });
+          if (!seedResult?.ok) {
+            throw new Error(seedResult?.error || '同步技能缓存失败');
+          }
+
+          const configuration = runtimeSession?.configuration && typeof runtimeSession.configuration === 'object'
+            ? runtimeSession.configuration
+            : {};
+          const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+            sessionId: agentSessionId,
+            agent_id: DEFAULT_RUNTIME_AGENT_ID,
+            accessible_paths: [workspacePath],
+            configuration: {
+              ...configuration,
+              selected_workspace_path: workspacePath
+            }
+          });
+          if (!updateResult?.ok || !updateResult?.session) {
+            throw new Error(updateResult?.error || '创建默认工作空间失败');
+          }
+
+          const workspaceStore = readWorkspaceStore();
+          writeWorkspaceStore({
+            library: dedupeWorkspacePaths([...(workspaceStore?.library || []), workspacePath]),
+            recent: moveWorkspacePathToFront(workspaceStore?.recent || [], workspacePath)
+          });
+          runtimeSession = updateResult.session;
+        } finally {
+          setChatWorkspaceStatus(targetSessionId, '');
+        }
+      }
+
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
         `home-chat-${targetSessionId}`,
-        'vectcut_claw_default',
+        DEFAULT_RUNTIME_AGENT_ID,
         chatModel
       );
-      setChatSessions((prev) => {
-        const updated = prev.map((item) => {
-          if (item.id !== targetSessionId) return item;
-          return {
-            ...item,
-            updatedAt: Date.now(),
-            messages: item.messages.map((message) => (
-              message.id === assistantMessageId
-                ? {
-                  ...message,
-                  storeAssistantMessageId: streamController.assistantMessageId,
-                  updatedAt: Date.now()
-                }
-                : message
-            ))
-          };
-        });
-        return sortChatSessions(updated);
+      updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+        storeAssistantMessageId: streamController.assistantMessageId
       });
       chatPendingByRequestIdRef.current.set(requestId, {
         chatId: targetSessionId,
@@ -2469,26 +2811,9 @@ const HomePage = () => {
         pendingMapSize: chatPendingByRequestIdRef.current.size,
         knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
       });
+      setChatWorkspaceStatus(targetSessionId, '');
       setChatSessionSending(targetSessionId, false, 'send-catch');
-      setChatSessions((prev) => {
-        const updated = prev.map((item) => {
-          if (item.id !== targetSessionId) return item;
-          return {
-            ...item,
-            updatedAt: Date.now(),
-            messages: item.messages.map((message) => (
-              message.id === assistantMessageId
-                ? {
-                  ...message,
-                  error: normalizedError,
-                  updatedAt: Date.now(),
-                }
-                : message
-            )),
-          };
-        });
-        return sortChatSessions(updated);
-      });
+      updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
       setChatSending(false);
     }
   };
@@ -2527,6 +2852,14 @@ const HomePage = () => {
       return sortChatSessions(updated);
     });
   };
+
+  const handleCloseChatWebPreview = useCallback(() => {
+    const previewKey = String(chatWebPreview?.key || '').trim();
+    if (previewKey) {
+      setChatWebPreviewDismissedKey(previewKey);
+    }
+    setChatWebPreview(null);
+  }, [chatWebPreview?.key]);
 
   const handleRetryAssistantMessage = async (message) => {
     if (!activeChatId || !canUseAgentRuntime || isChatSessionSending(activeChatId)) return;
@@ -2573,7 +2906,7 @@ const HomePage = () => {
         appStore.dispatch,
         appStore.getState,
         `home-chat-${activeChatId}`,
-        'vectcut_claw_default',
+        DEFAULT_RUNTIME_AGENT_ID,
         chatModel
       );
       setChatSessions((prev) => {
@@ -2844,7 +3177,7 @@ const HomePage = () => {
             {selectedPane === 'chat' ? (
               <Chat
                 session={activeChatSession}
-                agentId="vectcut_claw_default"
+                agentId={DEFAULT_RUNTIME_AGENT_ID}
                 runtimeSessionId={activeChatSession?.runtimeSessionId || ''}
                 sessionFulfilled={Boolean(activeChatId && chatSessionFulfilledMap[activeChatId])}
                 input={chatDraftInput}
@@ -2863,6 +3196,8 @@ const HomePage = () => {
                 historyVisible={chatHistoryVisible}
                 onToggleHistory={handleToggleChatHistory}
                 onCreateSession={handleCreateChatSession}
+                onEnsureRuntimeSession={() => activeChatId ? ensureAgentSessionForChat(activeChatId) : Promise.resolve('')}
+                workspaceStatus={activeChatWorkspaceStatus}
                 sessionTitle={activeChatSession?.title || DEFAULT_CHAT_TITLE}
                 sessionTitleRenaming={
                   Boolean(activeChatId) && chatTitleRenamingSessionIds.includes(activeChatId)
@@ -2873,6 +3208,8 @@ const HomePage = () => {
                 onRenameSessionTitle={handleRenameActiveChatTitle}
                 userName={userName}
                 userAvatar={avatarSrc}
+                webPreview={chatWebPreview}
+                onCloseWebPreview={handleCloseChatWebPreview}
               />
             ) : null}
             {/* 已完成视图：仅在选中具体项后展示右侧内容 */}

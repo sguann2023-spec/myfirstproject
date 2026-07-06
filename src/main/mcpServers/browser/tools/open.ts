@@ -28,16 +28,16 @@ export const OpenSchema = z.object({
   showWindow: z
     .boolean()
     .optional()
-    .default(true)
+    .default(false)
     .describe(
-      'Show browser window (default: true). Set false to keep browsing in the background when the user does not need to see the page.'
+      'Deprecated and ignored. Separate browser windows are disabled; pages open only in the embedded preview.'
     )
 })
 
 export const openToolDefinition = {
   name: 'open',
   description:
-    'Navigate to a URL and optionally fetch page content. By default the browser window is shown. If format is specified, returns { tabId, content } with page content in that format. Otherwise, returns { currentUrl, title, tabId } for subsequent operations. Use selector to extract only part of a page (e.g. "#search" for Google results). Set showWindow=false when background browsing is preferred. PARALLEL: Set newTab=true and call this tool multiple times simultaneously when visiting multiple URLs.',
+    'Navigate to a URL and optionally fetch page content. Separate browser windows are disabled; pages open only in the embedded preview. If format is specified, returns { tabId, content } with page content in that format. Otherwise, returns { currentUrl, title, tabId } for subsequent operations. Use selector to extract only part of a page (e.g. "#search" for Google results). PARALLEL: Set newTab=true and call this tool multiple times simultaneously when visiting multiple URLs.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -74,7 +74,7 @@ export const openToolDefinition = {
       showWindow: {
         type: 'boolean',
         description:
-          'Show browser window (default: true). Set false to keep browsing in the background when the user does not need to see the page.'
+          'Deprecated and ignored. Separate browser windows are disabled; pages open only in the embedded preview.'
       }
     },
     required: ['url']
@@ -83,7 +83,7 @@ export const openToolDefinition = {
 
 export async function handleOpen(controller: CdpBrowserController, args: unknown) {
   try {
-    const { url, format, selector, maxChars, timeout, privateMode, newTab, showWindow } = OpenSchema.parse(args)
+    const { url, format, selector, maxChars, timeout, privateMode, newTab } = OpenSchema.parse(args)
 
     if (format) {
       const { tabId, content } = await controller.fetch(
@@ -92,7 +92,7 @@ export async function handleOpen(controller: CdpBrowserController, args: unknown
         timeout ?? 10000,
         privateMode ?? false,
         newTab ?? false,
-        showWindow,
+        false,
         selector
       )
 
@@ -103,7 +103,7 @@ export async function handleOpen(controller: CdpBrowserController, args: unknown
 
       return successResponse(JSON.stringify({ tabId, content: finalContent }))
     } else {
-      const res = await controller.open(url, timeout ?? 10000, privateMode ?? false, newTab ?? false, showWindow)
+      const res = await controller.open(url, timeout ?? 10000, privateMode ?? false, newTab ?? false, false)
       return successResponse(JSON.stringify(res))
     }
   } catch (error) {

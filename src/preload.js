@@ -27,6 +27,7 @@ const AGENT_CHANNELS = Object.freeze({
 const CHERRY_CHAT_CHANNELS = Object.freeze({
     SessionCreate: 'cherry-chat-stream:session:create',
     SessionGet: 'cherry-chat-stream:session:get',
+    SessionUpdate: 'cherry-chat-stream:session:update',
     SessionList: 'cherry-chat-stream:session:list',
     SessionMessageCreate: 'cherry-chat-stream:message:create',
     SessionMessageList: 'cherry-chat-stream:message:list',
@@ -42,6 +43,7 @@ const CHERRY_CHAT_CHANNELS = Object.freeze({
 const createAgentSessionBridge = (channels, { hasSubscription = true } = {}) => ({
     createSession: (payload) => ipcRenderer.invoke(channels.SessionCreate, payload),
     getSession: (sessionId) => ipcRenderer.invoke(channels.SessionGet, { sessionId }),
+    updateSession: (payload) => ipcRenderer.invoke(channels.SessionUpdate, payload),
     listSessions: (payload = {}) => ipcRenderer.invoke(channels.SessionList, payload),
     listMessages: (sessionId) => ipcRenderer.invoke(channels.SessionMessageList, { sessionId }),
     createMessage: ({ sessionId, content, ...extraPayload } = {}) =>
@@ -151,6 +153,10 @@ const electronBridge = {
         installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true } = {}) =>
             ipcRenderer.invoke(AGENT_CHANNELS.SkillInstallFromDirectory, { agentId, skillPath: directoryPath, isEnabled }),
         uninstall: ({ skillId } = {}) => ipcRenderer.invoke(AGENT_CHANNELS.SkillUninstall, skillId),
+        seedWorkspace: async ({ workspace } = {}) => {
+            const result = await ipcRenderer.invoke('skill:seed-workspace', workspace);
+            return { ok: Boolean(result?.success), error: result?.error };
+        },
         rescan: async ({ agentId = 'vectcut_claw_default' } = {}) => {
             const result = await ipcRenderer.invoke(AGENT_CHANNELS.SkillRescan, agentId);
             const skills = Array.isArray(result?.data) ? result.data : [];

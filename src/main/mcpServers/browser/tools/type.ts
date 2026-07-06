@@ -45,7 +45,7 @@ export const typeToolDefinition = {
       timeoutMs: { type: 'number', description: 'Command timeout in ms' },
       privateMode: { type: 'boolean', description: 'Target private session (default: false)' },
       tabId: { type: 'string', description: 'Target specific tab by ID' },
-      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: true)' }
+      showWindow: { type: 'boolean', description: 'Show browser window while performing the action (default: false)' }
     },
     required: ['text']
   }

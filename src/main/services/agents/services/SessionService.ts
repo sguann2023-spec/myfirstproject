@@ -142,21 +142,19 @@ export class SessionService extends BaseService {
       ...req
     }
 
-    // Session-isolated workspace:
-    // each conversation gets its own folder while sharing the agent-level
-    // `.claude/skills` directory instead of copying skills per session.
-    const agentWorkspace =
-      Array.isArray(agent.accessible_paths) && typeof agent.accessible_paths[0] === 'string'
-        ? agent.accessible_paths[0]
-        : undefined
-    const sessionWorkspace = await this.prepareSessionWorkspaceWithSkills(agentId, id, agentWorkspace)
-    const baseAccessiblePaths = Array.isArray(sessionData.accessible_paths) ? sessionData.accessible_paths : []
-    const additionalAccessiblePaths = baseAccessiblePaths.filter((p) => p !== sessionWorkspace && p !== agentWorkspace)
-    sessionData.accessible_paths = [
-      sessionWorkspace,
-      ...(agentWorkspace ? [agentWorkspace] : []),
-      ...additionalAccessiblePaths
-    ]
+    const requestedAccessiblePaths = Array.isArray(req.accessible_paths)
+      ? req.accessible_paths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      : []
+    sessionData.accessible_paths = requestedAccessiblePaths
+    const selectedWorkspacePath = String(
+      ((sessionData.configuration as Record<string, unknown> | undefined)?.selected_workspace_path as string | undefined) || ''
+    ).trim()
+    if (requestedAccessiblePaths.length > 0 && !selectedWorkspacePath) {
+      sessionData.configuration = {
+        ...((sessionData.configuration as Record<string, unknown> | undefined) ?? {}),
+        selected_workspace_path: requestedAccessiblePaths[0]
+      } as unknown as CreateSessionRequest['configuration']
+    }
 
     await this.validateAgentModels(agent.type, {
       model: sessionData.model,

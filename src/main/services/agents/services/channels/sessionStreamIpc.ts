@@ -209,6 +209,7 @@ const LegacyChannels = Object.freeze({
 const CherryChannels = Object.freeze({
   SessionCreate: IpcChannel.CherryChatStream_SessionCreate,
   SessionGet: IpcChannel.CherryChatStream_SessionGet,
+  SessionUpdate: IpcChannel.CherryChatStream_SessionUpdate,
   SessionList: IpcChannel.CherryChatStream_SessionList,
   SessionMessageCreate: IpcChannel.CherryChatStream_MessageCreate,
   SessionMessageList: IpcChannel.CherryChatStream_MessageList,
@@ -329,6 +330,23 @@ export function registerSessionStreamIpc(): void {
       if (!sessionId) return { ok: false, error: 'sessionId is required' }
       const session = await resolveSessionById(sessionId, payload?.agent_id)
       if (!session) return { ok: false, error: 'session not found' }
+      return { ok: true, session }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  const handleSessionUpdate = async (_event: unknown, payload: any = {}) => {
+    try {
+      const sessionId = String(payload?.sessionId || payload?.id || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+      const existing = await resolveSessionById(sessionId, payload?.agent_id)
+      if (!existing) return { ok: false, error: 'session not found' }
+
+      const { sessionId: _sessionId, id: _id, ...updates } = payload || {}
+      const session = await sessionService.updateSession(existing.agent_id, sessionId, updates)
+      if (!session) return { ok: false, error: 'session not found' }
+      broadcastSessionChanged(existing.agent_id, sessionId, true)
       return { ok: true, session }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -518,6 +536,10 @@ export function registerSessionStreamIpc(): void {
         delete normalizedReq.model
       }
 
+      if (!Array.isArray(normalizedReq.accessible_paths)) {
+        normalizedReq.accessible_paths = []
+      }
+
       if (agentId === DEFAULT_RUNTIME_AGENT_ID) {
         const ensured = await ensureDefaultAgentExists(normalizedReq?.model)
         if (!ensured) {
@@ -540,6 +562,7 @@ export function registerSessionStreamIpc(): void {
 
   ipcMain.handle(CherryChannels.SessionCreate, handleSessionCreate)
   ipcMain.handle(CherryChannels.SessionGet, handleSessionGet)
+  ipcMain.handle(CherryChannels.SessionUpdate, handleSessionUpdate)
   ipcMain.handle(CherryChannels.SessionList, handleSessionList)
   ipcMain.handle(CherryChannels.SessionMessageList, handleSessionMessageList)
   ipcMain.handle(CherryChannels.SessionMessageCreate, handleSessionMessageCreate)

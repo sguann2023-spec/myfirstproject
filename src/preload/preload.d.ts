@@ -28,6 +28,7 @@ declare global {
       cherryChatStream: {
         createSession: (payload: any) => Promise<any>
         getSession: (sessionId: string) => Promise<any>
+        updateSession: (payload: any) => Promise<any>
         listSessions: (payload?: any) => Promise<any>
         listMessages: (sessionId: string) => Promise<any>
         createMessage: (payload: any) => Promise<any>
@@ -54,6 +55,7 @@ declare global {
         list: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         listActive: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         listLocal: (payload: { workdir: string }) => Promise<{ ok: boolean; skills: any[] }>
+        seedWorkspace: (payload: { workspace: string }) => Promise<{ ok: boolean; error?: any }>
         subscribeChanges: (payload?: { agentId?: string }) => Promise<any>
         unsubscribeChanges: (payload?: { agentId?: string }) => Promise<any>
         onChanged: (callback: (payload: any) => void) => () => void

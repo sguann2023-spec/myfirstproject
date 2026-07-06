@@ -176,6 +176,24 @@ export class SkillService extends BaseService {
     }
   }
 
+  async seedWorkspaceSkillsFromGlobal(workspace: string): Promise<void> {
+    if (!workspace) return
+    const skills = await this.listGlobalSkills()
+    for (const skill of skills) {
+      try {
+        await this.linkSkill(skill.folderName, workspace)
+      } catch (error) {
+        logger.warn('Failed to seed workspace skill from global cache', {
+          workspace,
+          skillId: skill.id,
+          folderName: skill.folderName,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    logger.info('Seeded workspace skills from global cache', { workspace, count: skills.length })
+  }
+
   async readFile(skillId: string, filename: string): Promise<string | null> {
     const folderName = this.sanitizeFolderName(skillId)
     const skillRoot = this.getSkillStoragePath(folderName)

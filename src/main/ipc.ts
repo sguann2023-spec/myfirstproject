@@ -926,6 +926,13 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     return [width, height]
   })
 
+  ipcMain.handle(IpcChannel.Windows_SetSize, (_, width: number, height: number, animate: boolean = false) => {
+    checkMainWindow()
+    const nextWidth = Math.max(MIN_WINDOW_WIDTH, Number(width) || MIN_WINDOW_WIDTH)
+    const nextHeight = Math.max(MIN_WINDOW_HEIGHT, Number(height) || MIN_WINDOW_HEIGHT)
+    mainWindow.setSize(nextWidth, nextHeight, Boolean(animate))
+  })
+
   // Window Controls
   ipcMain.handle(IpcChannel.Windows_Minimize, () => {
     checkMainWindow()
@@ -1372,6 +1379,19 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       return { success: true, data }
     } catch (error) {
       logger.error('Failed to list local plugins', { workdir, error })
+      return { success: false, error }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Skill_SeedWorkspace, async (_, workspace: string) => {
+    try {
+      if (!workspace || typeof workspace !== 'string') {
+        return { success: false, error: 'Invalid workspace' }
+      }
+      await skillService.seedWorkspaceSkillsFromGlobal(workspace)
+      return { success: true }
+    } catch (error) {
+      logger.error('Failed to seed workspace skills', { workspace, error })
       return { success: false, error }
     }
   })

@@ -43,6 +43,7 @@ const DEFAULT_VOICE_LIBRARY_FILTER_OPTIONS = {
 };
 const VOICE_PROVIDER_LABEL_MAP = {
   volc: '豆包',
+  'volc2.0': '豆包2.0',
 };
 const VOICE_GENDER_LABEL_MAP = {
   female: '女',

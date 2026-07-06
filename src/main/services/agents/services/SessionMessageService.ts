@@ -196,29 +196,8 @@ export class SessionMessageService extends BaseService {
     abortController: AbortController,
     options?: CreateMessageOptions
   ): Promise<SessionStreamResult> {
-    logger.warn(`[TRACE][SessionMessageService] startSessionMessageStream entered sessionId=${session.id}`)
     const agentSessionId = await this.getLastAgentSessionId(session.id)
     logger.debug('Session Message stream message data:', { message: req, session_id: agentSessionId })
-    const promptText = String(req?.content || '')
-    logger.info('SessionMessageService invoke probe', {
-      sessionId: session.id,
-      agentId: session.agent_id,
-      model: String(req?.model || session?.model || ''),
-      contentLength: promptText.length,
-      imageCount: options?.images?.length ?? 0,
-      startsWithSlashCommand: /^\/[\w-]+/.test(promptText.trim()),
-      contentPreview: promptText.slice(0, 200),
-      effort: req?.effort ?? null,
-      thinkingType: req?.thinking?.type ?? null
-    })
-
-    const invokeStartedAt = Date.now()
-    logger.info('[TRACE][SessionMessageService] claudeCodeService.invoke start', {
-      sessionId: session.id,
-      agentId: session.agent_id,
-      requestedModel: String(req?.model || session?.model || ''),
-      contentLength: promptText.length
-    })
     const claudeStream = await claudeCodeService.invoke(
       req.content,
       session,
@@ -231,12 +210,6 @@ export class SessionMessageService extends BaseService {
       req.model,
       options?.images
     )
-    logger.info('[TRACE][SessionMessageService] claudeCodeService.invoke resolved', {
-      sessionId: session.id,
-      agentId: session.agent_id,
-      elapsedMs: Date.now() - invokeStartedAt,
-      hasSdkSessionId: Boolean(claudeStream?.sdkSessionId)
-    })
     const accumulator = new TextStreamAccumulator()
 
     let resolveCompletion!: (value: {
@@ -254,6 +227,7 @@ export class SessionMessageService extends BaseService {
     })
 
     let finished = false
+    let firstStreamEventLogged = false
 
     const cleanup = () => {
       if (finished) return
@@ -261,20 +235,12 @@ export class SessionMessageService extends BaseService {
       claudeStream.removeAllListeners()
     }
 
-    let firstStreamEventLogged = false
     const stream = new ReadableStream<TextStreamPart<Record<string, any>>>({
       start: (controller) => {
         claudeStream.on('data', async (event: AgentStreamEvent) => {
           if (finished) return
           try {
-            if (!firstStreamEventLogged) {
-              firstStreamEventLogged = true
-              logger.info('[TRACE][SessionMessageService] first stream event received', {
-                sessionId: session.id,
-                eventType: event.type,
-                elapsedMsFromInvokeStart: Date.now() - invokeStartedAt
-              })
-            }
+            if (!firstStreamEventLogged) firstStreamEventLogged = true
             switch (event.type) {
               case 'chunk': {
                 const chunk = event.chunk as TextStreamPart<Record<string, any>> | undefined
@@ -314,8 +280,7 @@ export class SessionMessageService extends BaseService {
                     options?.displayContent ?? req.content,
                     accumulator.getText(),
                     resolvedSessionId,
-                    options?.images,
-                    accumulator.getInitSlashCommands()
+                    options?.images
                   )
                     .then(resolveCompletion)
                     .catch((err) => {
@@ -340,8 +305,7 @@ export class SessionMessageService extends BaseService {
                       options?.displayContent ?? req.content,
                       partialText,
                       resolvedSessionId,
-                      options?.images,
-                      accumulator.getInitSlashCommands()
+                      options?.images
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -370,7 +334,7 @@ export class SessionMessageService extends BaseService {
           }
         })
       },
-      cancel: (reason) => {
+      cancel: (reason: unknown) => {
         cleanup()
         abortController.abort(typeof reason === 'string' ? reason : 'stream cancelled')
         resolveCompletion({})
@@ -389,15 +353,13 @@ export class SessionMessageService extends BaseService {
     userContent: string,
     assistantContent: string,
     agentSessionId: string,
-    images?: Array<{ data: string; media_type: string }>,
-    initSlashCommands: string[] = []
+    images?: Array<{ data: string; media_type: string }>
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
     const userMsgId = randomUUID()
     const assistantMsgId = randomUUID()
     const userBlockId = randomUUID()
     const assistantBlockId = randomUUID()
-    const assistantToolBlockId = randomUUID()
     const topicId = `agent-session:${session.id}`
 
     // Build image blocks for user message
