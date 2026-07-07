@@ -61,30 +61,86 @@ const moveWorkspacePathToFront = (paths = [], targetPath = '') => {
   if (!normalizedTargetPath) return dedupeWorkspacePaths(paths);
   return dedupeWorkspacePaths([normalizedTargetPath, ...paths]);
 };
+const getWorkspaceVisitTimestamp = (value) => {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+};
+const normalizeWorkspaceAccessTimes = (accessTimes = {}, knownPaths = []) => {
+  const normalizedKnownPaths = dedupeWorkspacePaths(knownPaths);
+  const normalizedTimes = {};
+
+  if (accessTimes && typeof accessTimes === 'object') {
+    Object.entries(accessTimes).forEach(([workspacePath, value]) => {
+      const normalizedPath = normalizeLocalPath(workspacePath).trim();
+      const timestamp = getWorkspaceVisitTimestamp(value);
+      if (normalizedPath && timestamp > 0) {
+        normalizedTimes[normalizedPath] = timestamp;
+      }
+    });
+  }
+
+  const migrationBase = Date.now();
+  normalizedKnownPaths.forEach((workspacePath, index) => {
+    if (!normalizedTimes[workspacePath]) {
+      normalizedTimes[workspacePath] = migrationBase - index;
+    }
+  });
+
+  return normalizedTimes;
+};
+const markWorkspaceVisited = (store = {}, workspacePath = '', visitedAt = Date.now()) => {
+  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+  if (!normalizedWorkspacePath) {
+    const library = dedupeWorkspacePaths(store?.library);
+    const recent = dedupeWorkspacePaths(store?.recent);
+    return {
+      library,
+      recent,
+      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
+    };
+  }
+
+  const library = dedupeWorkspacePaths([...(store?.library || []), normalizedWorkspacePath]);
+  const recent = moveWorkspacePathToFront(store?.recent || [], normalizedWorkspacePath);
+  const accessTimes = normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent]);
+  accessTimes[normalizedWorkspacePath] = getWorkspaceVisitTimestamp(visitedAt) || Date.now();
+
+  return {
+    library,
+    recent,
+    accessTimes
+  };
+};
 const readWorkspaceStore = () => {
   if (typeof window === 'undefined' || !window.localStorage) {
-    return { library: [], recent: [] };
+    return { library: [], recent: [], accessTimes: {} };
   }
   try {
     const raw = window.localStorage.getItem(WORKSPACE_STORE_KEY);
-    if (!raw) return { library: [], recent: [] };
+    if (!raw) return { library: [], recent: [], accessTimes: {} };
     const parsed = JSON.parse(raw);
+    const library = dedupeWorkspacePaths(parsed?.library);
+    const recent = dedupeWorkspacePaths(parsed?.recent);
     return {
-      library: dedupeWorkspacePaths(parsed?.library),
-      recent: dedupeWorkspacePaths(parsed?.recent)
+      library,
+      recent,
+      accessTimes: normalizeWorkspaceAccessTimes(parsed?.accessTimes, [...library, ...recent])
     };
   } catch (_error) {
-    return { library: [], recent: [] };
+    return { library: [], recent: [], accessTimes: {} };
   }
 };
 const writeWorkspaceStore = (store = {}) => {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
+    const library = dedupeWorkspacePaths(store?.library);
+    const recent = dedupeWorkspacePaths(store?.recent);
     window.localStorage.setItem(
       WORKSPACE_STORE_KEY,
       JSON.stringify({
-        library: dedupeWorkspacePaths(store?.library),
-        recent: dedupeWorkspacePaths(store?.recent)
+        library,
+        recent,
+        accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
       })
     );
   } catch (_error) {
@@ -611,6 +667,14 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
     model: message?.model || undefined
   };
 };
+
+const hasVisibleAssistantOutputBlock = (blocks = []) => (
+  (Array.isArray(blocks) ? blocks : []).some((block) => {
+    const type = String(block?.type || '').toLowerCase();
+    if (!type || type === 'unknown' || type === 'thinking') return false;
+    return true;
+  })
+);
 
 const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
   const nextBlockStatus = aborted ? 'success' : 'error';
@@ -1280,15 +1344,19 @@ const HomePage = () => {
     return '';
   }, [activeChatSession]);
   const [latestStreamingChatBrowserPreview, setLatestStreamingChatBrowserPreview] = useState(null);
+  const [activeStreamingHasVisibleOutput, setActiveStreamingHasVisibleOutput] = useState(false);
   useEffect(() => {
     if (!activeStreamingAssistantMessageId) {
       setLatestStreamingChatBrowserPreview(null);
+      setActiveStreamingHasVisibleOutput(false);
       return undefined;
     }
 
     const syncStreamingPreview = () => {
       const snapshot = getAssistantSnapshotFromStore(activeStreamingAssistantMessageId);
+      const hasVisibleOutput = hasVisibleAssistantOutputBlock(snapshot?.blocks);
       const nextPreview = buildChatBrowserPreviewFromBlocks(snapshot?.blocks, activeChatSession?.id || 'chat');
+      setActiveStreamingHasVisibleOutput(hasVisibleOutput);
       setLatestStreamingChatBrowserPreview((prev) => {
         const prevKey = String(prev?.key || '').trim();
         const nextKey = String(nextPreview?.key || '').trim();
@@ -1321,6 +1389,10 @@ const HomePage = () => {
   }, [chatModelMeta]);
   const activeChatSessionSending = Boolean(
     activeChatId && chatSessionSendingMap[String(activeChatId || '').trim()]
+  );
+  const activeChatMessagePaneSending = Boolean(
+    activeChatSessionSending
+    && (!activeStreamingAssistantMessageId || !activeStreamingHasVisibleOutput)
   );
   const activeChatNeedsHistoryHydrate = Boolean(
     activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
@@ -1962,6 +2034,10 @@ const HomePage = () => {
             if (mappedChatId === activeChatId) setChatSending(true);
           }
         }
+        if (mappedChatId && payloadType === 'stream-finished') {
+          setChatSessionSending(mappedChatId, false, 'chunk.stream-finished.without-pending');
+          if (mappedChatId === activeChatId) setChatSending(false);
+        }
         if (mappedChatId && payloadType === 'complete') {
           setChatSessionSending(mappedChatId, false, 'chunk.complete.without-pending');
           setChatSessionFulfilled(mappedChatId, true, 'chunk.complete.without-pending');
@@ -1973,7 +2049,12 @@ const HomePage = () => {
           if (mappedChatId === activeChatId) setChatSending(false);
         }
         const isToolRelated =
-          chunkType.startsWith('tool-') || payloadType === 'started' || payloadType === 'complete' || payloadType === 'error' || payloadType === 'cancelled';
+          chunkType.startsWith('tool-')
+          || payloadType === 'started'
+          || payloadType === 'stream-finished'
+          || payloadType === 'complete'
+          || payloadType === 'error'
+          || payloadType === 'cancelled';
         if (isToolRelated) {
           logger.warn('[HomePage][StreamTrace] drop payload without pending state', {
             requestId,
@@ -2167,6 +2248,7 @@ const HomePage = () => {
         streamController?.pushChunk(payload.chunk || {});
         const pushChunkDurationMs = Math.round((getPerfTimestamp() - chunkStart) * 100) / 100;
         const chunkType = String(payload?.chunk?.type || '');
+        const isVisibleAssistantTextChunk = chunkType === 'text-start' || chunkType === 'text-delta';
         if (perfEntry) {
           perfEntry.chunkCount += 1;
           perfEntry.totalPushChunkMs += pushChunkDurationMs;
@@ -2176,6 +2258,21 @@ const HomePage = () => {
             perfEntry.firstChunkAt = Date.now();
             perfEntry.firstChunkPerfAt = getPerfTimestamp();
           }
+        }
+        if (isVisibleAssistantTextChunk && !perfEntry?.firstVisibleTextAt) {
+          if (perfEntry) {
+            perfEntry.firstVisibleTextAt = Date.now();
+            perfEntry.firstVisibleTextPerfAt = getPerfTimestamp();
+          }
+          logger.info('[HomePage][Perf] first visible assistant text chunk', {
+            requestId,
+            chatId,
+            sessionId: agentSessionId,
+            assistantMessageId,
+            chunkType
+          });
+          setChatSessionSending(chatId, false, `chunk.${chunkType}`);
+          setChatSending(false);
         }
         if (pushChunkDurationMs >= 16) {
           logger.warn('[HomePage][Perf] slow pushChunk', {
@@ -2190,6 +2287,16 @@ const HomePage = () => {
         if (!useRendererStoreStreaming) {
           scheduleSnapshot(null);
         }
+        return;
+      }
+
+      if (payload.type === 'stream-finished') {
+        clearScheduledSnapshot();
+        if (!useRendererStoreStreaming) {
+          applySnapshot(null);
+        }
+        setChatSessionSending(chatId, false, 'chunk.stream-finished');
+        setChatSending(false);
         return;
       }
 
@@ -2708,10 +2815,7 @@ const HomePage = () => {
           }
 
           const workspaceStore = readWorkspaceStore();
-          writeWorkspaceStore({
-            library: dedupeWorkspacePaths([...(workspaceStore?.library || []), workspacePath]),
-            recent: moveWorkspacePathToFront(workspaceStore?.recent || [], workspacePath)
-          });
+          writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
           runtimeSession = updateResult.session;
         } finally {
           setChatWorkspaceStatus(targetSessionId, '');
@@ -2746,6 +2850,8 @@ const HomePage = () => {
         startedPerfAt: null,
         firstChunkAt: null,
         firstChunkPerfAt: null,
+        firstVisibleTextAt: null,
+        firstVisibleTextPerfAt: null,
         chunkCount: 0,
         snapshotCount: 0,
         totalPushChunkMs: 0,
@@ -3205,7 +3311,7 @@ const HomePage = () => {
                 onCopyAssistantMessage={handleCopyAssistantMessage}
                 onRetryAssistantMessage={handleRetryAssistantMessage}
                 onDeleteAssistantMessage={handleDeleteAssistantMessage}
-                sending={chatSending}
+                sending={activeChatMessagePaneSending || (!activeChatId && chatSending)}
                 sessionSending={activeChatSending}
                 model={chatModel}
                 modelOptions={chatModelOptions}

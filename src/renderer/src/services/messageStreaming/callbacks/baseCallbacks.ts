@@ -131,6 +131,22 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       await blockManager.handleBlockTransition(baseBlock as PlaceholderMessageBlock, MessageBlockType.UNKNOWN)
     },
 
+    onLLMResponseInProgress: (response?: Response) => {
+      if (!response?.usage) return
+      const currentMessage = getState().messages.entities[assistantMsgId]
+      if (!currentMessage) return
+      dispatch(
+        newMessagesActions.updateMessage({
+          topicId,
+          messageId: assistantMsgId,
+          updates: {
+            usage: response.usage,
+            metrics: response.metrics ?? currentMessage.metrics
+          }
+        })
+      )
+    },
+
     onError: async (error: AISDKError) => {
       logger.debug('onError', error)
       if (NoOutputGeneratedError.isInstance(error)) {

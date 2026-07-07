@@ -1,7 +1,29 @@
 import crypto from 'crypto'
 import type { NextFunction, Request, Response } from 'express'
 
+import { loggerService } from '@logger'
 import { config } from '../config'
+
+const logger = loggerService.withContext('ApiServerAuth')
+
+const describeApiKey = (value?: string | null) => {
+  const normalized = String(value || '').trim()
+  if (!normalized) {
+    return {
+      exists: false,
+      length: 0,
+      prefix: '',
+      suffix: ''
+    }
+  }
+
+  return {
+    exists: true,
+    length: normalized.length,
+    prefix: normalized.slice(0, 6),
+    suffix: normalized.slice(-6)
+  }
+}
 
 const isValidToken = (token: string, apiKey: string): boolean => {
   if (token.length !== apiKey.length) {
@@ -23,6 +45,14 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
   const { apiKey } = await config.get()
 
+  logger.info('Loaded API server auth config', {
+    path: req.path,
+    method: req.method,
+    configuredApiKey: describeApiKey(apiKey),
+    hasAuthorizationHeader: Boolean(auth),
+    hasXApiKeyHeader: Boolean(xApiKey)
+  })
+
   if (!apiKey) {
     return res.status(403).json({ error: 'Forbidden' })
   }
@@ -30,6 +60,12 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
   // Check API key first (priority)
   if (xApiKey) {
     const trimmedApiKey = xApiKey.trim()
+    logger.info('Authenticating request with x-api-key', {
+      path: req.path,
+      method: req.method,
+      requestApiKey: describeApiKey(trimmedApiKey),
+      configuredApiKey: describeApiKey(apiKey)
+    })
     if (!trimmedApiKey) {
       return res.status(401).json({ error: 'Unauthorized: empty x-api-key' })
     }
@@ -51,6 +87,12 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     }
 
     const token = trimmed.replace(bearerPrefix, '').trim()
+    logger.info('Authenticating request with bearer token', {
+      path: req.path,
+      method: req.method,
+      requestApiKey: describeApiKey(token),
+      configuredApiKey: describeApiKey(apiKey)
+    })
     if (!token) {
       return res.status(401).json({ error: 'Unauthorized: empty bearer token' })
     }

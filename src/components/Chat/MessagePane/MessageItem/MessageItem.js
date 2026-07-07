@@ -1,10 +1,12 @@
 import React from 'react';
 import { Check, Copy, RefreshCw, Trash2 } from 'lucide-react';
 import { Tooltip, message as antMessage } from 'antd';
+import { Provider, useSelector } from 'react-redux';
 import './MessageItem.css';
 import MessageContent from '../MessageContent/MessageContent';
 import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
+import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
@@ -34,6 +36,26 @@ const buildMetricsSignature = (metrics = null) => JSON.stringify({
   time_first_token_millsec: Number(metrics?.time_first_token_millsec || 0)
 });
 
+const LiveAssistantMessageTokens = ({ fallbackMessage, storeAssistantMessageId }) => {
+  const storeMessage = useSelector((state) => state?.messages?.entities?.[storeAssistantMessageId] || null);
+  const resolvedMessage = storeMessage
+    ? {
+      ...fallbackMessage,
+      ...storeMessage,
+      model: storeMessage?.model || fallbackMessage?.model,
+      modelId: storeMessage?.modelId || fallbackMessage?.modelId,
+      usage: storeMessage?.usage || fallbackMessage?.usage,
+      metrics: storeMessage?.metrics || fallbackMessage?.metrics
+    }
+    : fallbackMessage;
+
+  if (!resolvedMessage?.usage) {
+    return null;
+  }
+
+  return <MessageTokens message={resolvedMessage} />;
+};
+
 const MessageItem = ({
   message,
   role,
@@ -50,6 +72,8 @@ const MessageItem = ({
   userAvatar,
 }) => {
   const isAssistant = role === 'assistant';
+  const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
+  const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
@@ -125,9 +149,18 @@ const MessageItem = ({
                 <Trash2 size={15} className="chat-panel__message-action-icon" />
               </button>
             </Tooltip>
-            {message?.usage ? (
+            {(canUseLiveAssistantTokens || message?.usage) ? (
               <div className="chat-panel__message-tokens">
-                <MessageTokens message={message} />
+                {canUseLiveAssistantTokens ? (
+                  <Provider store={appStore}>
+                    <LiveAssistantMessageTokens
+                      fallbackMessage={message}
+                      storeAssistantMessageId={storeAssistantMessageId}
+                    />
+                  </Provider>
+                ) : (
+                  <MessageTokens message={message} />
+                )}
               </div>
             ) : null}
           </div>

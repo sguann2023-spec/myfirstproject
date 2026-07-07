@@ -620,40 +620,45 @@ export interface RipgrepResult {
   exitCode: number | null
 }
 
-export function getRipgrepAddonPath(): string {
-  const pkgJsonPath = require.resolve('@anthropic-ai/claude-agent-sdk/package.json')
-  const pkgRoot = path.dirname(pkgJsonPath)
+export function getRipgrepBinaryPath(): string {
+  const sdkEntryPath = require.resolve('@anthropic-ai/claude-agent-sdk')
+  const pkgRoot = path.dirname(sdkEntryPath)
   const platform = isMac ? 'darwin' : isWin ? 'win32' : 'linux'
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  return path.join(pkgRoot, 'vendor', 'ripgrep', `${arch}-${platform}`, 'ripgrep.node')
+  const binaryName = isWin ? 'rg.exe' : 'rg'
+  return path.join(pkgRoot, 'vendor', 'ripgrep', `${arch}-${platform}`, binaryName)
 }
 
 export async function runRipgrep(args: string[]): Promise<RipgrepResult> {
-  const addonPath = getRipgrepAddonPath()
-  const childScript = `const { ripgrepMain } = require(process.env.RIPGREP_ADDON_PATH); process.exit(ripgrepMain(process.argv.slice(1)));`
+  const ripgrepBinaryPath = getRipgrepBinaryPath()
 
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--eval', childScript, 'rg', ...args], {
+    const child = spawn(ripgrepBinaryPath, args, {
       cwd: process.cwd(),
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
-        RIPGREP_ADDON_PATH: addonPath
-      },
+      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
     let stdout = ''
+    let stderr = ''
 
     child.stdout?.on('data', (chunk) => {
       stdout += chunk.toString('utf-8')
     })
 
-    child.on('error', () => {
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString('utf-8')
+    })
+
+    child.on('error', (error) => {
+      logger.error('Failed to launch ripgrep binary', { ripgrepBinaryPath, error })
       resolve({ ok: false, stdout: '', exitCode: null })
     })
 
     child.on('close', (code) => {
+      if (code !== 0 && code !== 1 && code !== 2) {
+        logger.warn('Ripgrep exited with unexpected code', { ripgrepBinaryPath, exitCode: code, stderr })
+      }
       resolve({ ok: true, stdout, exitCode: code })
     })
   })

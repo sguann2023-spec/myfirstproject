@@ -13,19 +13,16 @@ import { config } from '../apiServer/config'
 import { loggerService } from './LoggerService'
 const logger = loggerService.withContext('ApiServerService')
 
+const API_SERVER_DISABLED_MESSAGE = 'API Server has been disabled in this build.'
+
 export class ApiServerService {
   constructor() {
     // Use the new clean implementation
   }
 
   async start(): Promise<void> {
-    try {
-      await apiServer.start()
-      logger.info('API Server started successfully')
-    } catch (error: any) {
-      logger.error('Failed to start API Server:', error)
-      throw error
-    }
+    logger.warn(API_SERVER_DISABLED_MESSAGE)
+    throw new Error(API_SERVER_DISABLED_MESSAGE)
   }
 
   async stop(): Promise<void> {
@@ -39,13 +36,8 @@ export class ApiServerService {
   }
 
   async restart(): Promise<void> {
-    try {
-      await apiServer.restart()
-      logger.info('API Server restarted successfully')
-    } catch (error: any) {
-      logger.error('Failed to restart API Server:', error)
-      throw error
-    }
+    logger.warn(API_SERVER_DISABLED_MESSAGE)
+    throw new Error(API_SERVER_DISABLED_MESSAGE)
   }
 
   isRunning(): boolean {
@@ -53,7 +45,11 @@ export class ApiServerService {
   }
 
   async getCurrentConfig(): Promise<ApiServerConfig> {
-    return config.get()
+    const currentConfig = await config.get()
+    return {
+      ...currentConfig,
+      enabled: false
+    }
   }
 
   registerIpcHandlers(): void {

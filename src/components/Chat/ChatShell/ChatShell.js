@@ -145,11 +145,64 @@ const movePathToFront = (paths, targetPath) => {
   const normalizedTarget = normalizePath(targetPath);
   return dedupePaths([normalizedTarget, ...dedupePaths(paths).filter((path) => path !== normalizedTarget)]);
 };
+const getWorkspaceVisitTimestamp = (value) => {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+};
+const normalizeWorkspaceAccessTimes = (accessTimes, knownPaths = []) => {
+  const normalizedKnownPaths = dedupePaths(knownPaths);
+  const normalizedTimes = {};
+  if (accessTimes && typeof accessTimes === 'object') {
+    Object.entries(accessTimes).forEach(([workspacePath, value]) => {
+      const normalizedPath = normalizePath(workspacePath);
+      const timestamp = getWorkspaceVisitTimestamp(value);
+      if (normalizedPath && timestamp > 0) {
+        normalizedTimes[normalizedPath] = timestamp;
+      }
+    });
+  }
+
+  const migrationBase = Date.now();
+  normalizedKnownPaths.forEach((workspacePath, index) => {
+    if (!normalizedTimes[workspacePath]) {
+      normalizedTimes[workspacePath] = migrationBase - index;
+    }
+  });
+
+  return normalizedTimes;
+};
+const markWorkspaceVisited = (store, workspacePath, visitedAt = Date.now()) => {
+  const normalizedWorkspacePath = normalizePath(workspacePath);
+  if (!normalizedWorkspacePath) {
+    return {
+      library: getWorkspaceLibrary(store?.library),
+      recent: dedupePaths(store?.recent),
+      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes)
+    };
+  }
+
+  const nextLibrary = getWorkspaceLibrary([...(store?.library || []), normalizedWorkspacePath]);
+  const nextRecent = movePathToFront(store?.recent || [], normalizedWorkspacePath);
+  const nextAccessTimes = normalizeWorkspaceAccessTimes(store?.accessTimes, [...nextLibrary, ...nextRecent]);
+  nextAccessTimes[normalizedWorkspacePath] = getWorkspaceVisitTimestamp(visitedAt) || Date.now();
+
+  return {
+    library: nextLibrary,
+    recent: nextRecent,
+    accessTimes: nextAccessTimes
+  };
+};
 const getRecentWorkspacePaths = (agent, library) => {
   const normalizedLibrary = getWorkspaceLibrary(library);
   const configuredRecent = dedupePaths(agent?.recent).filter((path) => normalizedLibrary.includes(path));
-  const remaining = normalizedLibrary.filter((path) => !configuredRecent.includes(path));
-  return [...configuredRecent, ...remaining];
+  const fallbackOrder = [...configuredRecent, ...normalizedLibrary.filter((path) => !configuredRecent.includes(path))];
+  const fallbackIndexMap = new Map(fallbackOrder.map((path, index) => [path, index]));
+  const accessTimes = normalizeWorkspaceAccessTimes(agent?.accessTimes, fallbackOrder);
+  return [...normalizedLibrary].sort((left, right) => {
+    const accessDiff = (accessTimes[right] || 0) - (accessTimes[left] || 0);
+    if (accessDiff !== 0) return accessDiff;
+    return (fallbackIndexMap.get(left) ?? Number.MAX_SAFE_INTEGER) - (fallbackIndexMap.get(right) ?? Number.MAX_SAFE_INTEGER);
+  });
 };
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const WORKSPACE_CREATE_PARENT_STORE_KEY = 'chat-workspace-create-parent:v1';
@@ -252,28 +305,34 @@ const writeCreateWorkspaceParentForAgent = (agentId, parentDir) => {
 };
 const readWorkspaceStore = () => {
   if (typeof window === 'undefined' || !window.localStorage) {
-    return { library: [], recent: [] };
+    return { library: [], recent: [], accessTimes: {} };
   }
   try {
     const raw = window.localStorage.getItem(WORKSPACE_STORE_KEY);
-    if (!raw) return { library: [], recent: [] };
+    if (!raw) return { library: [], recent: [], accessTimes: {} };
     const parsed = JSON.parse(raw);
+    const library = getWorkspaceLibrary(parsed?.library);
+    const recent = dedupePaths(parsed?.recent);
     return {
-      library: getWorkspaceLibrary(parsed?.library),
-      recent: dedupePaths(parsed?.recent)
+      library,
+      recent,
+      accessTimes: normalizeWorkspaceAccessTimes(parsed?.accessTimes, [...library, ...recent])
     };
   } catch (_error) {
-    return { library: [], recent: [] };
+    return { library: [], recent: [], accessTimes: {} };
   }
 };
 const writeWorkspaceStore = (store) => {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
+    const library = getWorkspaceLibrary(store?.library);
+    const recent = dedupePaths(store?.recent);
     window.localStorage.setItem(
       WORKSPACE_STORE_KEY,
       JSON.stringify({
-        library: getWorkspaceLibrary(store?.library),
-        recent: dedupePaths(store?.recent)
+        library,
+        recent,
+        accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
       })
     );
   } catch (_error) {
@@ -517,6 +576,8 @@ const ChatShell = ({
   currentModelMeta = null,
   onSelectSkill,
   onCreateSkill,
+  onSubmitFileComment,
+  sessionSending = false,
   webPreview = null,
   onCloseWebPreview,
   onOpenWebPreview,
@@ -575,6 +636,13 @@ const ChatShell = ({
   React.useEffect(() => {
     writeWorkspaceStore(workspaceStore);
   }, [workspaceStore]);
+
+  const persistVisitedWorkspace = React.useCallback((workspacePath, visitedAt = Date.now()) => {
+    const nextStore = markWorkspaceVisited(readWorkspaceStore(), workspacePath, visitedAt);
+    writeWorkspaceStore(nextStore);
+    setWorkspaceStore(nextStore);
+    return nextStore;
+  }, []);
 
   React.useEffect(() => {
     writeMembersPanelWidth(membersPanelWidth);
@@ -668,6 +736,11 @@ const ChatShell = ({
       setTitleDraft(sessionTitle);
     }
   }, [sessionTitle, isEditingTitle]);
+
+  React.useEffect(() => {
+    if (!currentWorkspacePath) return;
+    persistVisitedWorkspace(currentWorkspacePath);
+  }, [currentWorkspacePath, persistVisitedWorkspace]);
 
   React.useEffect(() => {
     if (isEditingTitle) {
@@ -1066,11 +1139,6 @@ const ChatShell = ({
         }
       }
 
-      const nextLibrary = workspaceLibrary.includes(normalizedSelected)
-        ? workspaceLibrary
-        : [...workspaceLibrary, normalizedSelected];
-      const nextRecent = movePathToFront(recentWorkspacePaths, normalizedSelected);
-
       const updateResult = await window.electronAPI.cherryChatStream.updateSession({
         sessionId: nextSessionId,
         agent_id: agentId,
@@ -1084,10 +1152,7 @@ const ChatShell = ({
         throw new Error(updateResult?.error || '绑定工作空间失败');
       }
 
-      setWorkspaceStore({
-        library: nextLibrary,
-        recent: nextRecent
-      });
+      persistVisitedWorkspace(normalizedSelected);
       setRuntimeSession(updateResult.session);
       return true;
     } catch (error) {
@@ -1098,7 +1163,7 @@ const ChatShell = ({
     agentId,
     hasLockedWorkspace,
     onEnsureRuntimeSession,
-    recentWorkspacePaths,
+    persistVisitedWorkspace,
     resolvedSessionId,
     runtimeSessionId,
     runtimeSession?.configuration,
@@ -1561,7 +1626,13 @@ const ChatShell = ({
         </div>
         <div className={`chat-panel__preview-pane chat-panel__preview-pane--leading ${showLeadingFilePreview ? 'is-open' : ''}`.trim()}>
           {showLeadingFilePreview && (
-            <TextFilePreview preview={filePreview} currentModelMeta={currentModelMeta} onClose={closeFilePreview} />
+            <TextFilePreview
+              preview={filePreview}
+              currentModelMeta={currentModelMeta}
+              onClose={closeFilePreview}
+              onSubmitComment={onSubmitFileComment}
+              submittingComment={sessionSending}
+            />
           )}
         </div>
         <div

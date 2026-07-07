@@ -11,14 +11,17 @@ import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import useSWRInfinite from 'swr/infinite'
 
+import { useApiServer } from '../useApiServer'
 import { useAgentClient } from './useAgentClient'
 import { useSessionChanged } from './useSessionChanged'
 
 export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_PAGE_SIZE) => {
   const { t } = useTranslation()
   const client = useAgentClient()
+  const { apiServerConfig, apiServerRunning } = useApiServer()
 
   const getKey = (pageIndex: number, previousPageData: ListAgentSessionsResponse | null) => {
+    if (!apiServerConfig.enabled || !apiServerRunning) return null
     if (!agentId) return null
     if (previousPageData && previousPageData.data.length < pageSize) return null
     return [client.getSessionPaths(agentId).base, pageIndex, pageSize]
@@ -26,6 +29,9 @@ export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_P
 
   const fetcher = async ([, pageIndex, pageLimit]: [string, number, number]) => {
     if (!agentId) throw new Error('No active agent.')
+    if (!apiServerConfig.enabled || !apiServerRunning) {
+      throw new Error(t('apiServer.messages.notEnabled'))
+    }
     return await client.listSessions(agentId, {
       limit: pageLimit,
       offset: pageIndex * pageLimit
@@ -61,6 +67,7 @@ export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_P
 
   const createSession = useCallback(
     async (form: CreateSessionForm): Promise<CreateAgentSessionResponse | null> => {
+      if (!apiServerConfig.enabled || !apiServerRunning) return null
       if (!agentId) return null
       try {
         const result = await client.createSession(agentId, form)
@@ -89,6 +96,7 @@ export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_P
 
   const getSession = useCallback(
     async (id: string): Promise<GetAgentSessionResponse | null> => {
+      if (!apiServerConfig.enabled || !apiServerRunning) return null
       if (!agentId) return null
       try {
         const result = await client.getSession(agentId, id)
@@ -111,6 +119,7 @@ export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_P
 
   const deleteSession = useCallback(
     async (id: string): Promise<boolean> => {
+      if (!apiServerConfig.enabled || !apiServerRunning) return false
       if (!agentId) return false
       try {
         await client.deleteSession(agentId, id)
@@ -137,6 +146,7 @@ export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_P
 
   const reorderSessions = useCallback(
     async (reorderedList: AgentSessionEntity[]) => {
+      if (!apiServerConfig.enabled || !apiServerRunning) return
       if (!agentId) return
       const orderedIds = reorderedList.map((s) => s.id)
       // Optimistic update: replace all pages with single page containing reordered list
@@ -154,7 +164,7 @@ export const useSessions = (agentId: string | null, pageSize = DEFAULT_SESSION_P
         window.toast.error(formatErrorMessageWithPrefix(error, t('agent.session.reorder.error.failed')))
       }
     },
-    [agentId, client, mutate, pageSize, t]
+    [agentId, apiServerConfig.enabled, apiServerRunning, client, mutate, pageSize, t]
   )
 
   return {

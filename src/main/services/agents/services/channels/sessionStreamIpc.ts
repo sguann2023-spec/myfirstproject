@@ -415,7 +415,7 @@ export function registerSessionStreamIpc(): void {
         type: 'started'
       })
       const streamStartedAt = Date.now()
-      const { stream, completion } = await sessionMessageService.createSessionMessage(
+      const { stream, streamFinished, completion } = await sessionMessageService.createSessionMessage(
         session,
         { content, model: effectiveModel || undefined, effort: payload?.effort, thinking: payload?.thinking },
         abortController,
@@ -424,6 +424,20 @@ export function registerSessionStreamIpc(): void {
       logger.info('[SessionStreamIpc][TRACE] createSessionMessage resolved', {
         sessionId,
         elapsedMs: Date.now() - streamStartedAt
+      })
+      void streamFinished.then(() => {
+        logger.info('[SessionStreamIpc] Publishing stream-finished event to session stream bus', {
+          sessionId,
+          requestId,
+          hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
+          subscriberCount: sessionStreamBus.subscriberCount(sessionId)
+        })
+        sessionStreamBus.publish(sessionId, {
+          sessionId,
+          agentId: session.agent_id,
+          requestId,
+          type: 'stream-finished'
+        })
       })
 
       void (async () => {

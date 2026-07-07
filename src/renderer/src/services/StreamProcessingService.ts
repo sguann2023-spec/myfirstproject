@@ -17,6 +17,7 @@ const logger = loggerService.withContext('StreamProcessingService')
 export interface StreamProcessorCallbacks {
   // LLM response created
   onLLMResponseCreated?: () => void
+  onLLMResponseInProgress?: (response?: Response) => void
   // Text content start
   onTextStart?: () => void
   // Text content chunk received
@@ -76,6 +77,10 @@ export function createStreamProcessor(callbacks: StreamProcessorCallbacks = {}) 
         }
         case ChunkType.LLM_RESPONSE_CREATED: {
           if (callbacks.onLLMResponseCreated) callbacks.onLLMResponseCreated()
+          break
+        }
+        case ChunkType.LLM_RESPONSE_IN_PROGRESS: {
+          if (callbacks.onLLMResponseInProgress) callbacks.onLLMResponseInProgress(data.response)
           break
         }
         case ChunkType.TEXT_START: {

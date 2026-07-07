@@ -173,6 +173,26 @@ export class AiSdkToChunkAdapter {
       providerMetadata: ProviderMetadata | undefined
     }
   ) {
+    if ((chunk as { type?: string }).type === 'usage') {
+      const usageChunk = chunk as TextStreamPart<any> & {
+        usage?: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null }
+      }
+      const usage = {
+        completion_tokens: usageChunk.usage?.outputTokens || 0,
+        prompt_tokens: usageChunk.usage?.inputTokens || 0,
+        total_tokens: usageChunk.usage?.totalTokens || 0
+      }
+      const metrics = this.buildMetrics(usageChunk.usage)
+      this.onChunk({
+        type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
+        response: {
+          usage,
+          metrics: metrics ? { ...metrics } : undefined
+        }
+      })
+      return
+    }
+
     logger.silly(`AI SDK chunk type: ${chunk.type}`, chunk)
     switch (chunk.type) {
       case 'raw': {

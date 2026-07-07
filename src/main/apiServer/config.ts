@@ -7,6 +7,25 @@ import { reduxService } from '../services/ReduxService'
 
 const logger = loggerService.withContext('ApiServerConfig')
 
+const describeApiKey = (value?: string | null) => {
+  const normalized = String(value || '').trim()
+  if (!normalized) {
+    return {
+      exists: false,
+      length: 0,
+      prefix: '',
+      suffix: ''
+    }
+  }
+
+  return {
+    exists: true,
+    length: normalized.length,
+    prefix: normalized.slice(0, 6),
+    suffix: normalized.slice(-6)
+  }
+}
+
 class ConfigManager {
   private _config: ApiServerConfig | null = null
 
@@ -32,6 +51,12 @@ class ConfigManager {
         host: serverSettings?.host ?? API_SERVER_DEFAULTS.HOST,
         apiKey: apiKey
       }
+      logger.info('Loaded API server config from Redux', {
+        host: this._config.host,
+        port: this._config.port,
+        enabled: this._config.enabled,
+        apiKey: describeApiKey(this._config.apiKey)
+      })
       return this._config
     } catch (error: any) {
       logger.warn('Failed to load config from Redux, using defaults', { error })
@@ -52,6 +77,13 @@ class ConfigManager {
     if (!this._config) {
       throw new Error('Failed to load API server configuration')
     }
+    logger.info('Returning API server config', {
+      source: 'cache',
+      host: this._config.host,
+      port: this._config.port,
+      enabled: this._config.enabled,
+      apiKey: describeApiKey(this._config.apiKey)
+    })
     return this._config
   }
 

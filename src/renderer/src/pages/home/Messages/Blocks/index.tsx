@@ -115,6 +115,9 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
 
   // Check if message is still processing
   const isProcessing = isMessageProcessing(message)
+  const shouldShowProcessingPlaceholder = isProcessing && !renderedBlocks.some((block) => (
+    block.type !== MessageBlockType.UNKNOWN && block.type !== MessageBlockType.THINKING
+  ))
 
   return (
     <AnimatePresence mode="sync">
@@ -220,7 +223,7 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
           </AnimatedBlockWrapper>
         )
       })}
-      {isProcessing && (
+      {shouldShowProcessingPlaceholder && (
         <AnimatedBlockWrapper key="message-loading-placeholder" enableAnimation={true}>
           <PlaceholderBlock
             block={{

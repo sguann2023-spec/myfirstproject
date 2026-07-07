@@ -93,6 +93,25 @@ const isVectcutGatewayUrl = (value: string): boolean => {
   }
 }
 
+const describeApiKey = (value?: string | null) => {
+  const normalized = String(value || '').trim()
+  if (!normalized) {
+    return {
+      exists: false,
+      length: 0,
+      prefix: '',
+      suffix: ''
+    }
+  }
+
+  return {
+    exists: true,
+    length: normalized.length,
+    prefix: normalized.slice(0, 6),
+    suffix: normalized.slice(-6)
+  }
+}
+
 const getLanguageInstruction = () => {
   const lang = configManager.getLanguage()
   const resolvedLanguageName = languageEnglishNameMap[lang]
@@ -424,6 +443,11 @@ class ClaudeCodeService implements AgentServiceInterface {
     }
 
     const apiConfig = await apiConfigService.get()
+    logger.info('Resolved API server config in ClaudeCodeService', {
+      host: apiConfig.host,
+      port: apiConfig.port,
+      apiKey: describeApiKey(apiConfig.apiKey)
+    })
     const loginShellEnv = await getLoginShellEnvironment()
 
     // Auto-discover Git Bash path on Windows (already logs internally)
@@ -1984,6 +2008,11 @@ class ClaudeCodeService implements AgentServiceInterface {
 
           // Close prompt stream when SDK signals completion or error
           if (chunk.type === 'finish' || chunk.type === 'error') {
+            if (chunk.type === 'finish') {
+              stream.emit('data', {
+                type: 'stream-finished'
+              })
+            }
             logger.info('Closing prompt stream as SDK signaled completion', {
               chunkType: chunk.type,
               reason: chunk.type === 'finish' ? 'finished' : 'error_occurred'

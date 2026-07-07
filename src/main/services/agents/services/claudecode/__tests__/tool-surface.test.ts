@@ -26,7 +26,7 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'NotebookRead', 'Read'])
   })
 
-  it('does not auto-allow write tools merely because the write layer is available', () => {
+  it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {
     const surface = buildToolSurface({
       layer: 'workspace-write',
       sessionAllowedTools: [],
@@ -34,8 +34,10 @@ describe('buildToolSurface', () => {
     })
 
     expect(surface.builtinTools).toContain('Write')
+    expect(surface.builtinTools).toContain('Bash')
     expect(surface.allowedToolsOption).not.toContain('Write')
     expect(surface.allowedToolsOption).not.toContain('Edit')
+    expect(surface.allowedToolsOption).not.toContain('Bash')
   })
 
   it('filters known expensive or unsupported defaults from auto-allow lists', () => {

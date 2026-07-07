@@ -53,6 +53,17 @@ const CREATE_SKILL_PROMPT_TEMPLATE = [
   '',
 ].join('\n');
 const formatModelDisplayName = (value) => String(value || '').trim();
+const buildFileCommentMessage = ({ filePath, fileName, lineNumber, comment }) => {
+  const targetPath = String(filePath || fileName || '').trim();
+  const targetLine = Number(lineNumber || 0);
+  const normalizedComment = String(comment || '').trim();
+  return [
+    '请根据以下代码评论修改文件：',
+    `文件：${targetPath || '未知文件'}`,
+    `行号：${targetLine || '未知行号'}`,
+    `评论内容：${normalizedComment}`
+  ].join('\n');
+};
 const buildHomeChatTopicId = (chatId) => {
   const normalizedChatId = String(chatId || '').trim();
   return normalizedChatId ? `home-chat-${normalizedChatId}` : '';
@@ -187,10 +198,16 @@ const Chat = ({
       ? nextText
       : (nextText && typeof nextText === 'object' ? nextText.text : input);
     const text = String(rawText || '').trim();
-    if (!text || sessionSending || modelListLoading) return;
+    if (!text || sessionSending || modelListLoading) return false;
     onSendMessage && onSendMessage(text, options);
     setInput('');
+    return true;
   };
+
+  const handleSubmitFileComment = React.useCallback((payload = {}) => {
+    const nextMessage = buildFileCommentMessage(payload);
+    return handleSend(nextMessage);
+  }, [handleSend]);
 
   return (
     <ChatShell
@@ -208,6 +225,8 @@ const Chat = ({
       onRenameSessionTitle={onRenameSessionTitle}
       onSelectSkill={insertSkillMention}
       onCreateSkill={insertCreateSkillPrompt}
+      onSubmitFileComment={handleSubmitFileComment}
+      sessionSending={sessionSending}
       webPreview={webPreview}
       onCloseWebPreview={onCloseWebPreview}
       onOpenWebPreview={onOpenWebPreview}>

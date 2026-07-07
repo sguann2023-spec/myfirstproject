@@ -203,7 +203,13 @@ const getKindLabel = (kind) => {
   return 'Text';
 };
 
-const TextFilePreview = ({ preview, currentModelMeta = null, onClose }) => {
+const TextFilePreview = ({
+  preview,
+  currentModelMeta = null,
+  onClose,
+  onSubmitComment,
+  submittingComment = false
+}) => {
   if (!preview) return null;
 
   const {
@@ -242,6 +248,23 @@ const TextFilePreview = ({ preview, currentModelMeta = null, onClose }) => {
   const closeCommentPopover = React.useCallback(() => {
     setCommentPopover((prev) => ({ ...prev, open: false }));
   }, []);
+
+  const handleSubmitComment = React.useCallback(async () => {
+    const comment = String(commentDraft || '').trim();
+    const lineNumber = Number(commentPopover.lineNumber || 0);
+    if (!comment || !lineNumber || typeof onSubmitComment !== 'function') return;
+
+    const result = await onSubmitComment({
+      fileName: name,
+      filePath: path,
+      lineNumber,
+      comment
+    });
+    if (result === false) return;
+
+    setCommentDraft('');
+    setCommentPopover((prev) => ({ ...prev, open: false }));
+  }, [commentDraft, commentPopover.lineNumber, name, onSubmitComment, path]);
 
   const handlePreviewBodyClick = React.useCallback((event) => {
     const trigger = event.target?.closest?.('.chat-file-preview__line-action');
@@ -296,8 +319,10 @@ const TextFilePreview = ({ preview, currentModelMeta = null, onClose }) => {
           autoInsertSpace={false}
           type="primary"
           className="chat-file-preview__comment-btn chat-file-preview__comment-btn--primary"
-          disabled={!canSubmitComment}
-          onClick={() => {}}>
+          disabled={!canSubmitComment || submittingComment}
+          onClick={() => {
+            void handleSubmitComment();
+          }}>
            评论
         </Button>
       </div>

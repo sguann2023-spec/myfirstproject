@@ -9,7 +9,7 @@ import type { TextStreamPart } from 'ai'
 
 // Generic agent stream event that works with any agent type
 export interface AgentStreamEvent {
-  type: 'chunk' | 'error' | 'complete' | 'cancelled'
+  type: 'chunk' | 'stream-finished' | 'error' | 'complete' | 'cancelled'
   chunk?: TextStreamPart<any> // Standard AI SDK chunk for UI consumption
   error?: Error
 }

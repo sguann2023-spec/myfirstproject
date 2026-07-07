@@ -17,7 +17,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { registerIpc } from './ipc'
-import { agentService } from './services/agents'
 import { schedulerService } from './services/agents/services/SchedulerService'
 import { bootstrapBuiltinAgents } from './services/agents/services/builtin/BuiltinAgentBootstrap'
 import { channelManager } from './services/agents/services/channels'
@@ -238,28 +237,11 @@ if (!app.requestSingleInstanceLock()) {
       // TODO: v2 lifecycle
       await bootstrapBuiltinAgents()
 
-      // Start API server if enabled or if agents exist
+      // The API server implementation is kept in the repo, but its runtime entry is disabled.
       try {
         const config = await apiServerService.getCurrentConfig()
         logger.info('API server config:', config)
-
-        // Check if there are any agents
-        let shouldStart = config.enabled
-        if (!shouldStart) {
-          try {
-            const { total } = await agentService.listAgents({ limit: 1 })
-            if (total > 0) {
-              shouldStart = true
-              logger.info(`Detected ${total} agent(s), auto-starting API server`)
-            }
-          } catch (error: any) {
-            logger.warn('Failed to check agent count:', error)
-          }
-        }
-
-        if (shouldStart) {
-          await apiServerService.start()
-        }
+        logger.info('API server startup skipped because the entry is disabled')
 
         // Restore VectcutClaw schedulers after services are ready
         await schedulerService.restoreSchedulers()

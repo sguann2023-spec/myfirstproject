@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef } from 'react'
 type SessionStreamChunk = {
   sessionId: string
   agentId: string
-  type: 'user-message' | 'chunk' | 'complete' | 'error'
+  type: 'user-message' | 'chunk' | 'stream-finished' | 'complete' | 'error'
   chunk?: any
   userMessage?: {
     chatId: string

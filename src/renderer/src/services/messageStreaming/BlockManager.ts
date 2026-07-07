@@ -3,7 +3,7 @@ import type { AppDispatch, RootState } from '@renderer/store'
 import { updateOneBlock, upsertOneBlock } from '@renderer/store/messageBlock'
 import { newMessagesActions } from '@renderer/store/newMessage'
 import type { MessageBlock } from '@renderer/types/newMessage'
-import { MessageBlockType } from '@renderer/types/newMessage'
+import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 
 const logger = loggerService.withContext('BlockManager')
 
@@ -71,6 +71,35 @@ export class BlockManager {
     this._activeBlockInfo = value
   }
 
+  private removeStreamingUnknownPlaceholderReferences() {
+    const currentState = this.deps.getState()
+    const currentMessage = currentState.messages.entities[this.deps.assistantMsgId]
+    const currentBlockIds = Array.isArray(currentMessage?.blocks) ? currentMessage.blocks : []
+    if (currentBlockIds.length === 0) return
+
+    const placeholderIds = currentBlockIds.filter((blockId: string) => {
+      const block = currentState.messageBlocks.entities[blockId]
+      if (!block) return false
+      if (block.type !== MessageBlockType.UNKNOWN) return false
+      return (
+        block.status === MessageBlockStatus.PENDING
+        || block.status === MessageBlockStatus.PROCESSING
+        || block.status === MessageBlockStatus.STREAMING
+      )
+    })
+
+    if (placeholderIds.length === 0) return
+
+    const updatedBlocks = currentBlockIds.filter((blockId: string) => !placeholderIds.includes(blockId))
+    this.deps.dispatch(
+      newMessagesActions.updateMessage({
+        topicId: this.deps.topicId,
+        messageId: this.deps.assistantMsgId,
+        updates: { blocks: updatedBlocks }
+      })
+    )
+  }
+
   /**
    * 智能更新策略：根据块类型连续性自动判断使用节流还是立即更新
    */
@@ -109,6 +138,10 @@ export class BlockManager {
     logger.debug('handleBlockTransition', { newBlock, newBlockType })
     this._lastBlockType = newBlockType
     this._activeBlockInfo = { id: newBlock.id, type: newBlockType } // 设置新的活跃块信息
+
+    if (newBlockType !== MessageBlockType.UNKNOWN) {
+      this.removeStreamingUnknownPlaceholderReferences()
+    }
 
     this.deps.dispatch(
       newMessagesActions.updateMessage({

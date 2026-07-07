@@ -12,7 +12,7 @@
  *   3. `content_block_delta`              → append incremental text / reasoning / tool JSON,
  *        emitting only the delta to minimise UI churn.
  *   4. `content_block_stop`               → emit the matching `*-end` event and release the block.
- *   5. `message_delta`                    → capture usage + stop reason but defer emission.
+ *   5. `message_delta`                    → capture usage + stop reason and emit interim usage updates.
  *   6. `message_stop`                     → emit `finish-step` with cached usage & reason, then reset.
  *   7. Assistant snapshots with `tool_use` finalise the tool block (`tool-call`).
  *   8. User snapshots with `tool_result` emit `tool-result`/`tool-error` using the cached payload.
@@ -561,6 +561,13 @@ function handleStreamEvent(
       const finishReason = mapClaudeCodeStopReason(event.delta.stop_reason)
       const usage = convertClaudeCodeUsage(event.usage)
       state.setPendingUsage(usage, finishReason)
+      if ((usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0 || (usage.totalTokens ?? 0) > 0) {
+        chunks.push({
+          type: 'usage',
+          usage,
+          providerMetadata
+        } as unknown as AgentStreamPart)
+      }
       break
     }
 

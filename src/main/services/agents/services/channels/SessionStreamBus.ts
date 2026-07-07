@@ -6,7 +6,7 @@ export type SessionStreamChunk = {
   sessionId: string
   agentId: string
   requestId?: string
-  type: 'started' | 'user-message' | 'chunk' | 'complete' | 'error' | 'cancelled'
+  type: 'started' | 'user-message' | 'chunk' | 'stream-finished' | 'complete' | 'error' | 'cancelled'
   chunk?: TextStreamPart<Record<string, any>>
   userMessage?: {
     chatId: string

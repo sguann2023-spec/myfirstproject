@@ -23,6 +23,7 @@ const logger = loggerService.withContext('SessionMessageService')
 
 type SessionStreamResult = {
   stream: ReadableStream<TextStreamPart<Record<string, any>>>
+  streamFinished: Promise<void>
   completion: Promise<{
     userMessage?: AgentSessionMessageEntity
     assistantMessage?: AgentSessionMessageEntity
@@ -217,6 +218,8 @@ export class SessionMessageService extends BaseService {
       assistantMessage?: AgentSessionMessageEntity
     }) => void
     let rejectCompletion!: (reason?: unknown) => void
+    let resolveStreamFinished!: () => void
+    let streamFinishedResolved = false
 
     const completion = new Promise<{
       userMessage?: AgentSessionMessageEntity
@@ -224,6 +227,13 @@ export class SessionMessageService extends BaseService {
     }>((resolve, reject) => {
       resolveCompletion = resolve
       rejectCompletion = reject
+    })
+    const streamFinished = new Promise<void>((resolve) => {
+      resolveStreamFinished = () => {
+        if (streamFinishedResolved) return
+        streamFinishedResolved = true
+        resolve()
+      }
     })
 
     let finished = false
@@ -254,9 +264,15 @@ export class SessionMessageService extends BaseService {
                 break
               }
 
+              case 'stream-finished': {
+                resolveStreamFinished()
+                break
+              }
+
               case 'error': {
                 const stderrMessage = (event as any)?.data?.stderr as string | undefined
                 const underlyingError = event.error ?? (stderrMessage ? new Error(stderrMessage) : undefined)
+                resolveStreamFinished()
                 cleanup()
                 const streamError = underlyingError ?? new Error('Stream error')
                 controller.error(streamError)
@@ -265,6 +281,7 @@ export class SessionMessageService extends BaseService {
               }
 
               case 'complete': {
+                resolveStreamFinished()
                 cleanup()
                 controller.close()
                 if (options?.persist) {
@@ -294,6 +311,7 @@ export class SessionMessageService extends BaseService {
               }
 
               case 'cancelled': {
+                resolveStreamFinished()
                 cleanup()
                 controller.close()
                 if (options?.persist) {
@@ -341,7 +359,7 @@ export class SessionMessageService extends BaseService {
       }
     })
 
-    return { stream, completion }
+    return { stream, streamFinished, completion }
   }
 
   /**

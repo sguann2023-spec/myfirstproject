@@ -16,7 +16,6 @@ import {
   PictureInPicture2,
   Radio,
   Search,
-  Server,
   Settings2,
   Sparkles,
   TextCursorInput,
@@ -42,7 +41,6 @@ import SelectionAssistantSettings from './SelectionAssistantSettings/SelectionAs
 import ShortcutSettings from './ShortcutSettings'
 import SkillsSettings from './SkillsSettings'
 import TasksSettings from './TasksSettings'
-import { ApiServerSettings } from './ToolSettings/ApiServerSettings'
 import WebSearchSettings from './WebSearchSettings'
 
 const SettingsPage: FC = () => {
@@ -114,12 +112,6 @@ const SettingsPage: FC = () => {
               {t('memory.title')}
             </MenuItem>
           </MenuItemLink>
-          <MenuItemLink to="/settings/api-server">
-            <MenuItem className={isRoute('/settings/api-server')}>
-              <Server size={18} />
-              {t('apiServer.title')}
-            </MenuItem>
-          </MenuItemLink>
           <MenuItemLink to="/settings/channels">
             <MenuItem className={isRoute('/settings/channels')}>
               <Radio size={18} />
@@ -176,7 +168,6 @@ const SettingsPage: FC = () => {
             <Route path="provider" element={<ProviderList />} />
             <Route path="model" element={<ModelSettings />} />
             <Route path="websearch/*" element={<WebSearchSettings />} />
-            <Route path="api-server" element={<ApiServerSettings />} />
             <Route path="channels" element={<ChannelsSettings />} />
             <Route path="scheduled-tasks" element={<TasksSettings />} />
             <Route path="docprocess" element={<DocProcessSettings />} />

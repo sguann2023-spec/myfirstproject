@@ -164,7 +164,7 @@ export const renameAgentSessionIfNeeded = async (
   try {
     const state = getState()
     const apiServer = state.settings.apiServer
-    if (!apiServer?.apiKey) {
+    if (!apiServer?.enabled || !apiServer.apiKey) {
       return
     }
 
@@ -723,7 +723,7 @@ const fetchAndProcessAgentResponseImpl = async (
         // Refresh session data to get updated slash_commands from backend
         // This happens after the SDK init message updates the session in the database
         const apiServer = stateAfterUpdate.settings.apiServer
-        if (apiServer?.apiKey) {
+        if (apiServer?.enabled && apiServer.apiKey) {
           const baseURL = buildAgentBaseURL(apiServer)
           const client = new AgentApiClient({
             baseURL,
@@ -907,7 +907,7 @@ const fetchAndProcessAssistantResponseImpl = async (
     let allowedTools: string[] | undefined
     const activeAgentId = getState().runtime.chat.activeAgentId
     const apiServer = getState().settings.apiServer
-    if (activeAgentId && apiServer?.apiKey) {
+    if (activeAgentId && apiServer?.enabled && apiServer.apiKey) {
       try {
         const baseURL = buildAgentBaseURL(apiServer)
         const agentClient = new AgentApiClient({

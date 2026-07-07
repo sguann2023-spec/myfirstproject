@@ -4,6 +4,7 @@ import { useAppDispatch } from '@renderer/store'
 import { setActiveSessionIdAction } from '@renderer/store/runtime'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { useApiServer } from '../useApiServer'
 import { useAgentClient } from './useAgentClient'
 
 const logger = loggerService.withContext('useAgentSessionInitializer')
@@ -16,6 +17,7 @@ const logger = loggerService.withContext('useAgentSessionInitializer')
 export const useAgentSessionInitializer = () => {
   const dispatch = useAppDispatch()
   const client = useAgentClient()
+  const { apiServerConfig, apiServerRunning } = useApiServer()
   const { chat } = useRuntime()
   const { activeAgentId, activeSessionIdMap } = chat
 
@@ -29,6 +31,7 @@ export const useAgentSessionInitializer = () => {
    */
   const initializeAgentSession = useCallback(
     async (agentId: string) => {
+      if (!apiServerConfig.enabled || !apiServerRunning) return
       if (!agentId) return
 
       try {
@@ -56,7 +59,7 @@ export const useAgentSessionInitializer = () => {
         logger.error('Failed to initialize agent session:', error as Error)
       }
     },
-    [client, dispatch]
+    [apiServerConfig.enabled, apiServerRunning, client, dispatch]
   )
 
   /**

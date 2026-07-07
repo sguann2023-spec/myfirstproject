@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const logger = loggerService.withContext('useApiServer')
+const API_SERVER_DISABLED_MESSAGE = 'API Server has been disabled in this build.'
 
 // Module-level single instance subscription to prevent EventEmitter memory leak
 // Only one IPC listener will be registered regardless of how many components use this hook
@@ -32,10 +33,14 @@ export const useApiServer = () => {
   // FIXME: We currently store two copies of the config data in both the renderer and the main processes,
   // which carries the risk of data inconsistency. This should be modified so that the main process stores
   // the data, and the renderer retrieves it.
-  const apiServerConfig = useAppSelector((state) => state.settings.apiServer)
+  const storedApiServerConfig = useAppSelector((state) => state.settings.apiServer)
+  const apiServerConfig = {
+    ...storedApiServerConfig,
+    enabled: false
+  }
   const dispatch = useAppDispatch()
 
-  const apiServerRunning = useAppSelector((state) => state.runtime.apiServerRunning)
+  const apiServerRunning = false
   // Is checking the API server status
   const [apiServerLoading, setApiServerLoading] = useState(true)
 
@@ -57,11 +62,8 @@ export const useApiServer = () => {
   const checkApiServerStatus = useCallback(async () => {
     setApiServerLoading(true)
     try {
-      const status = await window.api.apiServer.getStatus()
-      setApiServerRunning(status.running)
-      if (status.running && !apiServerConfig.enabled) {
-        setApiServerEnabled(true)
-      }
+      setApiServerRunning(false)
+      setApiServerEnabled(false)
     } catch (error: any) {
       logger.error('Failed to check API server status:', error)
     } finally {
@@ -73,14 +75,9 @@ export const useApiServer = () => {
     if (apiServerLoading) return
     setApiServerLoading(true)
     try {
-      const result = await window.api.apiServer.start()
-      if (result.success) {
-        setApiServerRunning(true)
-        setApiServerEnabled(true)
-        window.toast.success(t('apiServer.messages.startSuccess'))
-      } else {
-        window.toast.error(t('apiServer.messages.startError') + result.error)
-      }
+      setApiServerRunning(false)
+      setApiServerEnabled(false)
+      window.toast.error(API_SERVER_DISABLED_MESSAGE)
     } catch (error: any) {
       window.toast.error(t('apiServer.messages.startError') + (error.message || error))
     } finally {
@@ -92,14 +89,8 @@ export const useApiServer = () => {
     if (apiServerLoading) return
     setApiServerLoading(true)
     try {
-      const result = await window.api.apiServer.stop()
-      if (result.success) {
-        setApiServerRunning(false)
-        setApiServerEnabled(false)
-        window.toast.success(t('apiServer.messages.stopSuccess'))
-      } else {
-        window.toast.error(t('apiServer.messages.stopError') + result.error)
-      }
+      setApiServerRunning(false)
+      setApiServerEnabled(false)
     } catch (error: any) {
       window.toast.error(t('apiServer.messages.stopError') + (error.message || error))
     } finally {
@@ -111,14 +102,9 @@ export const useApiServer = () => {
     if (apiServerLoading) return
     setApiServerLoading(true)
     try {
-      const result = await window.api.apiServer.restart()
-      setApiServerEnabled(result.success)
-      if (result.success) {
-        await checkApiServerStatus()
-        window.toast.success(t('apiServer.messages.restartSuccess'))
-      } else {
-        window.toast.error(t('apiServer.messages.restartError') + result.error)
-      }
+      setApiServerRunning(false)
+      setApiServerEnabled(false)
+      window.toast.error(API_SERVER_DISABLED_MESSAGE)
     } catch (error) {
       window.toast.error(t('apiServer.messages.restartFailed') + (error as Error).message)
     } finally {
@@ -144,6 +130,16 @@ export const useApiServer = () => {
 
   // Listen for API server ready event using single instance subscription
   useEffect(() => {
+    if (!apiServerConfig.enabled) {
+      dispatch(setApiServerEnabledAction(false))
+      dispatch(setApiServerRunningAction(false))
+    }
+  }, [apiServerConfig.enabled, dispatch])
+
+  useEffect(() => {
+    if (!apiServerConfig.enabled) {
+      return
+    }
     ensureIpcSubscribed()
     onReadyCallbacks.add(handleReady)
 
