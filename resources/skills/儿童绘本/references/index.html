@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>儿童绘本草稿演示</title>
+  <style>
+    :root {
+      --bg: #f7f8fc;
+      --card: #ffffff;
+      --text: #1f2430;
+      --muted: #6b7280;
+      --primary: #4f46e5;
+      --primary-weak: #eef2ff;
+      --border: #e5e7eb;
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --shadow: 0 10px 30px rgba(79, 70, 229, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #f7f8fc 0%, #eef2ff 100%);
+      color: var(--text);
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 40px 20px 56px;
+    }
+
+    .hero {
+      margin-bottom: 24px;
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      line-height: 1.2;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    textarea, input[type="text"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+      background: #fff;
+      color: var(--text);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 120px;
+    }
+
+    textarea:focus, input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.10);
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    .template-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .template-chip {
+      appearance: none;
+      border: 1px solid rgba(79, 70, 229, 0.16);
+      background: rgba(79, 70, 229, 0.08);
+      color: var(--primary);
+      border-radius: 999px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s ease, border-color .15s ease, transform .15s ease;
+    }
+
+    .template-chip:hover {
+      background: rgba(79, 70, 229, 0.14);
+      border-color: rgba(79, 70, 229, 0.3);
+      transform: translateY(-1px);
+    }
+
+    button, .link-btn {
+      appearance: none;
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    button.primary, .link-btn.primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button.secondary {
+      background: var(--primary-weak);
+      color: var(--primary);
+    }
+
+    button:disabled, .link-btn.disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .status {
+      margin-top: 8px;
+      color: var(--success);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.6;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 12px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .meta {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .item {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: #fafafa;
+    }
+
+    .item .k {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+
+    .item .v {
+      font-size: 15px;
+      word-break: break-word;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+
+    .preview {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .preview-box {
+      border-radius: 20px;
+      background: linear-gradient(135deg, #1f2937 0%, #4338ca 100%);
+      color: #fff;
+      padding: 20px;
+      min-height: 260px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .preview-box h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .preview-box p {
+      margin: 0;
+      line-height: 1.65;
+      color: rgba(255,255,255,.88);
+      white-space: pre-wrap;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      border-radius: 999px;
+      background: rgba(255,255,255,.15);
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .note {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: #fafafa;
+    }
+
+    .step-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .step-name {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .step-state {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .step-state.waiting { color: var(--muted); }
+    .step-state.running { color: var(--warning); border-color: rgba(217, 119, 6, 0.25); background: #fffbeb; }
+    .step-state.done { color: var(--success); border-color: rgba(5, 150, 105, 0.25); background: #ecfdf5; }
+    .step-state.error { color: var(--danger); border-color: rgba(220, 38, 38, 0.25); background: #fef2f2; }
+
+    .step-body {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .code-block {
+      margin: 0;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: auto;
+      max-height: 240px;
+    }
+
+    .link-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    @media (max-width: 920px) {
+      .grid { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>儿童绘本故事视频草稿演示</h1>
+      <p>输入一个绘本主题后，页面会先生成分镜文案、句子级映射和每个分镜的配图提示词，再转成配音，随后通过字幕模版拿到精确到句子的时间戳，最后使用 <span class="mono">gpt-image-2-all</span> 逐段生成 9:16 竖屏图片并连续铺满整条时间线。下载始终采用接口返回的 <span class="mono">draft_id</span>。</p>
+    </section>
+
+    <div class="grid">
+      <section class="card stack">
+        <div>
+          <label for="theme">儿童绘本主题</label>
+          <textarea id="theme" placeholder="例如：一只怕黑的小兔子学会勇敢，适合 3-6 岁儿童">一只怕黑的小兔子学会勇敢，适合 3-6 岁儿童</textarea>
+          <div class="note">快速体验模板</div>
+          <div class="template-list" id="templateList"></div>
+        </div>
+
+        <div>
+          <label for="token">API Token</label>
+          <input id="token" type="text" placeholder="请输入 VectCut API Token，只需要 token 本身，不需要填写 Bearer" />
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="createBtn" type="button">生成儿童绘本草稿</button>
+          <button class="secondary" id="resetBtn" type="button">重置</button>
+        </div>
+
+        <div class="status" id="status">等待创建草稿...</div>
+
+        <div class="meta">
+          <div class="item">
+            <span class="k">草稿 ID</span>
+            <div class="v" id="draftId">-</div>
+          </div>
+          <div class="item">
+            <span class="k">下载链接</span>
+            <div class="v" id="downloadUrl">-</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">
+            <h2>处理步骤</h2>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">1. 生成分镜文案</div>
+                <div class="step-state waiting" id="scriptState">等待中</div>
+              </div>
+              <div class="step-body" id="scriptBody">根据主题生成整段口播文案、句子级映射、分镜拆解，以及每个分镜对应的配图提示词。</div>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">2. 转换音频</div>
+                <div class="step-state waiting" id="audioState">等待中</div>
+              </div>
+              <div class="step-body" id="audioBody">使用音色 <span class="mono">gv_2e601fae38484816adf8bf5c38b79393</span> 将文案转为音频。</div>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">3. 生成字幕时间轴</div>
+                <div class="step-state waiting" id="subtitleState">等待中</div>
+              </div>
+              <div class="step-body" id="subtitleBody">使用字幕模板 <span class="mono">asr_42da310c1e4347ddb2c96dd2a5d055c2</span> 根据音频生成字幕，并返回每句话的精确时间戳。</div>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">4. 生成配图并铺满时间线</div>
+                <div class="step-state waiting" id="imageState">等待中</div>
+              </div>
+              <div class="step-body" id="imageBody">使用 <span class="mono">gpt-image-2-all</span> 生成 9:16 竖屏图片，按句子级时间映射连续铺满，并为前面的图片随机添加转场。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="card preview">
+        <div class="preview-box">
+          <div>
+            <span class="tag">分镜视频预览</span>
+            <h2 id="previewTitle">未创建</h2>
+            <p id="previewBody">点击“生成儿童绘本草稿”后，这里会显示本次生成的主题、分镜文案、字幕时间轴和图片素材输出，方便查看整条视频草稿链路。</p>
+          </div>
+          <div id="downloadArea"></div>
+        </div>
+
+        <div class="note">
+          说明：页面会先创建草稿，再依次调用分镜文案、音频、字幕模版和 AI 生图接口。配图时段会先把字幕时间轴对齐到句子，再把句子映射到分镜，最终下载按钮使用接口返回的 <span class="mono">draft_id</span> 拼接 schema。
+        </div>
+
+        <div>
+          <div class="section-title">
+            <h2>生成结果</h2>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">分镜文案</div>
+              </div>
+              <pre class="code-block" id="scriptOutput">-</pre>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">音频</div>
+              </div>
+              <div class="step-body" id="audioOutput">-</div>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">字幕</div>
+              </div>
+              <div class="step-body" id="subtitleOutput">-</div>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">图片素材</div>
+              </div>
+              <div class="step-body" id="imageOutput">-</div>
+            </div>
+            <div class="step">
+              <div class="step-head">
+                <div class="step-name">错误详情</div>
+              </div>
+              <pre class="code-block" id="errorOutput">-</pre>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const API = {
+      createDraft: 'https://open.vectcut.com/cut_jianying/create_draft',
+      submitChat: 'https://open.vectcut.com/llm/chat/submit_task/submit_chat_task',
+      chatStatus: 'https://open.vectcut.com/llm/chat/submit_task/task_status',
+      generateAudio: 'https://open.vectcut.com/llm/tts/seed_audio/generate',
+      generateSubtitle: 'https://open.vectcut.com/cut_jianying/generate_smart_subtitle',
+      subtitleStatus: 'https://open.vectcut.com/cut_jianying/smart_subtitle_task_status',
+      generateImage: 'https://open.vectcut.com/llm/image/submit_task/generate',
+      imageStatus: 'https://open.vectcut.com/llm/image/submit_task/task_status'
+    };
+
+    const TTS_VOICE_ID = 'gv_2e601fae38484816adf8bf5c38b79393';
+    const SUBTITLE_AGENT_ID = 'asr_42da310c1e4347ddb2c96dd2a5d055c2';
+    const CHAT_MODEL = 'qwen3.6-plus';
+    const IMAGE_MODEL = 'gpt-image-2-all';
+    const IMAGE_SIZE = '941x1672';
+    const STORYBOARD_SCENE_COUNT = 6;
+    const POLL_INTERVAL_MS = 1500;
+    const POLL_TIMEOUT_MS = 1200000;
+    const SCRIPT_TARGET_CHARS = 220;
+    const TRANSITION_CHOICES = ['向左', '叠化', '向右', '左移', '右移', '翻页', '眨眼'];
+    const DEFAULT_THEME_TEMPLATES = [
+      '一只怕黑的小兔子在萤火虫和妈妈的陪伴下，学会勇敢面对夜晚，适合 3-6 岁儿童',
+      '一只爱发脾气的小狮子在森林朋友的帮助下学会表达情绪，温暖治愈，适合 4-7 岁儿童',
+      '小海龟第一次离开家去看大海深处，在冒险中学会独立与分享，适合 4-8 岁儿童',
+      '一个爱问为什么的小女孩和会说话的月亮一起夜游城市，充满想象力与安全感，适合 5-8 岁儿童',
+      '森林里胆小的小刺猬参加星光音乐会，在伙伴鼓励下勇敢上台，适合 3-6 岁儿童'
+    ];
+
+    const themeEl = document.getElementById('theme');
+    const tokenEl = document.getElementById('token');
+    const createBtn = document.getElementById('createBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const templateListEl = document.getElementById('templateList');
+    const statusEl = document.getElementById('status');
+    const draftIdEl = document.getElementById('draftId');
+    const downloadUrlEl = document.getElementById('downloadUrl');
+    const previewTitleEl = document.getElementById('previewTitle');
+    const previewBodyEl = document.getElementById('previewBody');
+    const downloadAreaEl = document.getElementById('downloadArea');
+    const scriptStateEl = document.getElementById('scriptState');
+    const scriptBodyEl = document.getElementById('scriptBody');
+    const audioStateEl = document.getElementById('audioState');
+    const audioBodyEl = document.getElementById('audioBody');
+    const subtitleStateEl = document.getElementById('subtitleState');
+    const subtitleBodyEl = document.getElementById('subtitleBody');
+    const imageStateEl = document.getElementById('imageState');
+    const imageBodyEl = document.getElementById('imageBody');
+    const scriptOutputEl = document.getElementById('scriptOutput');
+    const audioOutputEl = document.getElementById('audioOutput');
+    const subtitleOutputEl = document.getElementById('subtitleOutput');
+    const imageOutputEl = document.getElementById('imageOutput');
+    const errorOutputEl = document.getElementById('errorOutput');
+
+    function setState(el, state, text) {
+      el.className = `step-state ${state}`;
+      el.textContent = text;
+    }
+
+    function setStatus(message, color = '#059669') {
+      statusEl.textContent = message;
+      statusEl.style.color = color;
+    }
+
+    function setDownloadLink(id) {
+      const schemaUrl = `vectcut://download?draft_id=${encodeURIComponent(id)}`;
+      downloadUrlEl.textContent = schemaUrl;
+      downloadAreaEl.innerHTML = `<a class="link-btn primary" href="${schemaUrl}">下载草稿</a>`;
+      downloadUrlEl.title = schemaUrl;
+    }
+
+    function resetStepOutputs() {
+      setState(scriptStateEl, 'waiting', '等待中');
+      setState(audioStateEl, 'waiting', '等待中');
+      setState(subtitleStateEl, 'waiting', '等待中');
+      setState(imageStateEl, 'waiting', '等待中');
+      scriptBodyEl.textContent = '根据主题生成整段口播文案、句子级映射、分镜拆解，以及每个分镜对应的配图提示词。';
+      audioBodyEl.textContent = `使用音色 ${TTS_VOICE_ID} 将整段口播文案转为音频。`;
+      subtitleBodyEl.textContent = `使用字幕模板 ${SUBTITLE_AGENT_ID} 根据音频生成字幕，并返回每句话的精确时间戳。`;
+      imageBodyEl.textContent = `使用 ${IMAGE_MODEL} 生成 9:16 竖屏图片，按句子级时间映射连续铺满，并为前面的图片随机添加转场。`;
+      scriptOutputEl.textContent = '-';
+      audioOutputEl.textContent = '-';
+      subtitleOutputEl.textContent = '-';
+      imageOutputEl.innerHTML = '-';
+      errorOutputEl.textContent = '-';
+    }
+
+    async function requestJson(url, token, payload = null, method = 'POST') {
+      const options = {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      };
+
+      if (payload !== null) {
+        options.body = JSON.stringify(payload);
+      }
+
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message = data?.message || data?.Message || data?.error || `请求失败，HTTP 状态码：${response.status}`;
+        const error = new Error(message);
+        error.url = url;
+        error.httpStatus = response.status;
+        error.response = data;
+        throw error;
+      }
+
+      return data;
+    }
+
+    function extractDraftId(data) {
+      return data?.output?.draft_id || data?.data?.draft_id || data?.result?.draft_id || data?.draft_id || null;
+    }
+
+    function extractTaskId(data) {
+      return data?.output?.task_id || data?.data?.task_id || data?.task_id || null;
+    }
+
+    function extractChatText(data) {
+      return data?.output?.content
+        || data?.output?.text
+        || data?.data?.content
+        || data?.data?.text
+        || data?.result?.assistant
+        || data?.result?.content
+        || data?.result?.text
+        || data?.result?.response?.choices?.[0]?.message?.content
+        || data?.choices?.[0]?.message?.content
+        || data?.text
+        || data?.content
+        || '';
+    }
+
+    function extractAudioUrl(data) {
+      return data?.output?.url || data?.output?.audio_url || data?.data?.url || data?.data?.audio_url || data?.url || '';
+    }
+
+    function extractImageUrl(data) {
+      return data?.result?.image || data?.output?.image || data?.data?.image || data?.image || '';
+    }
+
+    function extractSubtitles(data) {
+      return data?.output?.subtitles || data?.data?.subtitles || data?.result?.subtitles || [];
+    }
+
+    function normalizeText(text) {
+      return String(text || '')
+        .toLowerCase()
+        .replace(/[`"'“”‘’]/g, '')
+        .replace(/[，。！？；：、,.!?;:\s\-_\n\r]/g, '');
+    }
+
+    function roundTime(value) {
+      return Math.round(Number(value || 0) * 1000) / 1000;
+    }
+
+    function formatSeconds(value) {
+      const seconds = Math.max(0, Number(value || 0));
+      const ms = Math.round((seconds % 1) * 1000);
+      const totalSeconds = Math.floor(seconds);
+      const s = totalSeconds % 60;
+      const m = Math.floor(totalSeconds / 60) % 60;
+      const h = Math.floor(totalSeconds / 3600);
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+    }
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function safeStringify(value, limit = 8000) {
+      try {
+        const text = JSON.stringify(value, null, 2);
+        if (text.length <= limit) return text;
+        return `${text.slice(0, limit)}\n... (truncated)`;
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    function formatErrorDetail(error, phase) {
+      return safeStringify({
+        phase,
+        message: error?.message || String(error || ''),
+        url: error?.url,
+        httpStatus: error?.httpStatus,
+        response: error?.response,
+        taskId: error?.taskId,
+        taskStatus: error?.taskStatus,
+        taskData: error?.taskData
+      });
+    }
+
+    function extractJsonObject(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return null;
+
+      const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      const candidate = fencedMatch ? fencedMatch[1].trim() : raw;
+
+      try {
+        return JSON.parse(candidate);
+      } catch (error) {
+        const firstBrace = candidate.indexOf('{');
+        const lastBrace = candidate.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
+        }
+        throw error;
+      }
+    }
+
+    function buildStoryboardPrompt(theme) {
+      return [
+        '请为儿童绘本短视频生成一个严格可解析的 JSON 对象，不要输出 markdown，不要输出解释。',
+        `总口播字数控制在约 ${SCRIPT_TARGET_CHARS} 字。`,
+        `分镜数量固定为 ${STORYBOARD_SCENE_COUNT} 个。`,
+        'JSON 结构必须为：{"title":"", "script_text":"", "sentences":[{"id":"s1", "text":""}], "scenes":[{"title":"", "narration":"", "sentence_ids":["s1"], "image_prompt":"", "visual_focus":""}]}',
+        '要求：',
+        '1. script_text 是完整口播文案，适合儿童绘本视频配音，整体要更有声音设计感，同时语速体感要比普通慢读更快一点，更像绘本老师在讲故事。',
+        '2. 你必须先把 script_text 切成若干句子，写入 sentences 数组；每个句子都要有唯一 id，例如 s1、s2、s3。',
+        '3. 每个 scene 必须通过 sentence_ids 明确引用自己包含的句子，不能遗漏，也不能重复引用，所有句子按顺序刚好被覆盖一次。',
+        '4. scenes 数组中的 narration 应由本分镜对应的 sentences 文本顺序拼接而成，内容要一致或高度一致。',
+        '5. image_prompt 必须是适合 gpt-image-2 直接生图的中文提示词，要明确主角、场景、光线、构图、色彩、镜头感，且适合 9:16 竖屏。',
+        '4. 整体视觉需统一，主角形象前后一致，风格温暖、童趣、绘本感。',
+        '6. 文案句子要更短、更顺口，单句尽量控制在 8 到 18 个字，减少过长从句和解释性描述，听起来要轻快、连贯、有推进感。',
+        '7. 尽量少用省略号、破折号、连续感叹词和过多停顿词，避免配音节奏被拉慢。',
+        '8. 文案要自然包含环境音、背景氛围或多人物对白的空间，例如风声、雨声、虫鸣、海浪声、脚步声、轻柔背景音乐提示、人物短对白等，但要保持儿童绘本风格温柔、不嘈杂。',
+        '9. 建议在 narration 中适度加入适合 TTS 演绎的声音提示，例如“妈妈轻声说”“小兔子小声问”“窗外传来沙沙的风声”，让配音更有层次。',
+        '10. 如果场景适合，可加入两到三句简短人物对白，但不要做成复杂广播剧，仍以温柔旁白为主。',
+        '11. 不要出现任何代码块标记。',
+        `主题：${theme}`
+      ].join('\n');
+    }
+
+    function buildTtsText(scriptText) {
+      return String(scriptText || '')
+        .replace(/\r/g, '')
+        .replace(/\n+/g, ' ')
+        .replace(/……+/g, '，')
+        .replace(/\.{3,}/g, '，')
+        .replace(/[—-]{2,}/g, '，')
+        .replace(/([，。！？；])\1+/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
+    function renderThemeTemplates() {
+      templateListEl.innerHTML = DEFAULT_THEME_TEMPLATES.map((theme, index) => {
+        return `<button class="template-chip" type="button" data-template-index="${index}">模板 ${index + 1}</button>`;
+      }).join('');
+    }
+
+    function splitNarrationIntoSentences(text) {
+      const matches = String(text || '').match(/[^。！？!?；;]+[。！？!?；;]?/g) || [];
+      const sentences = matches.map((item) => item.trim()).filter(Boolean);
+      if (sentences.length) {
+        return sentences;
+      }
+      const single = String(text || '').trim();
+      return single ? [single] : [];
+    }
+
+    function buildFallbackSentencesFromScenes(rawScenes) {
+      const sentences = [];
+      rawScenes.forEach((scene, sceneIndex) => {
+        const parts = splitNarrationIntoSentences(scene?.narration || '');
+        parts.forEach((text, partIndex) => {
+          sentences.push({
+            id: `s${sentences.length + 1}`,
+            text,
+            sceneIndex,
+            partIndex
+          });
+        });
+      });
+      return sentences;
+    }
+
+    function allocateSentenceIdsToScenes(scenes, sentences) {
+      const sentenceUnits = sentences.map((sentence) => ({
+        ...sentence,
+        length: Math.max(1, normalizeText(sentence.text).length)
+      }));
+      const validIds = new Set(sentenceUnits.map((sentence) => sentence.id));
+      let cursor = 0;
+
+      return scenes.map((scene, sceneIndex) => {
+        const requestedIds = Array.isArray(scene.sentenceIds) ? scene.sentenceIds.filter((id) => validIds.has(id)) : [];
+        if (requestedIds.length) {
+          return {
+            ...scene,
+            sentenceIds: requestedIds
+          };
+        }
+
+        const isLastScene = sceneIndex === scenes.length - 1;
+        const remainingScenes = scenes.length - sceneIndex - 1;
+        const narrationLength = Math.max(1, normalizeText(scene.narration).length);
+        const assigned = [];
+        let collectedLength = 0;
+
+        if (isLastScene) {
+          assigned.push(...sentenceUnits.slice(cursor).map((sentence) => sentence.id));
+          cursor = sentenceUnits.length;
+        } else {
+          while (cursor < sentenceUnits.length - remainingScenes) {
+            const current = sentenceUnits[cursor];
+            assigned.push(current.id);
+            collectedLength += current.length;
+            cursor += 1;
+            if (collectedLength >= narrationLength) {
+              break;
+            }
+          }
+        }
+
+        if (!assigned.length && cursor < sentenceUnits.length) {
+          assigned.push(sentenceUnits[cursor].id);
+          cursor += 1;
+        }
+
+        return {
+          ...scene,
+          sentenceIds: assigned
+        };
+      });
+    }
+
+    function sanitizeStoryboard(data) {
+      const scriptText = String(data?.script_text || data?.scriptText || '').trim();
+      const title = String(data?.title || '').trim() || '未命名绘本';
+      const rawSentences = Array.isArray(data?.sentences) ? data.sentences : [];
+      const rawScenes = Array.isArray(data?.scenes) ? data.scenes : [];
+
+      const sentences = (rawSentences.length ? rawSentences : buildFallbackSentencesFromScenes(rawScenes))
+        .map((sentence, index) => ({
+          id: String(sentence?.id || `s${index + 1}`).trim() || `s${index + 1}`,
+          text: String(sentence?.text || '').trim()
+        }))
+        .filter((sentence) => sentence.text)
+        .map((sentence) => ({
+          ...sentence,
+          normalized: normalizeText(sentence.text)
+        }));
+
+      let scenes = rawScenes.map((scene, index) => ({
+        index: index + 1,
+        title: String(scene?.title || `分镜 ${index + 1}`).trim(),
+        narration: String(scene?.narration || '').trim(),
+        imagePrompt: String(scene?.image_prompt || scene?.imagePrompt || '').trim(),
+        visualFocus: String(scene?.visual_focus || scene?.visualFocus || '').trim(),
+        sentenceIds: (Array.isArray(scene?.sentence_ids) ? scene.sentence_ids : Array.isArray(scene?.sentenceIds) ? scene.sentenceIds : [])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean)
+      })).filter((scene) => scene.narration && scene.imagePrompt);
+
+      if (!scriptText) {
+        throw new Error('分镜文案生成成功，但没有拿到 script_text');
+      }
+
+      if (!sentences.length) {
+        throw new Error('分镜文案生成成功，但没有拿到有效的 sentences');
+      }
+
+      if (!scenes.length) {
+        throw new Error('分镜文案生成成功，但没有拿到有效的 scenes');
+      }
+
+      scenes = allocateSentenceIdsToScenes(scenes, sentences);
+
+      return { title, scriptText, scenes, sentences };
+    }
+
+    function formatStoryboard(storyboard) {
+      const header = [`标题：${storyboard.title}`, '', '完整口播：', storyboard.scriptText, '', '分镜：'];
+      const sceneLines = storyboard.scenes.flatMap((scene) => ([
+        `${scene.index}. ${scene.title}`,
+        `口播：${scene.narration}`,
+        scene.sentenceIds?.length ? `句子 ID：${scene.sentenceIds.join(', ')}` : null,
+        `配图提示词：${scene.imagePrompt}`,
+        scene.visualFocus ? `画面重点：${scene.visualFocus}` : null,
+        ''
+      ].filter(Boolean)));
+      return header.concat(sceneLines).join('\n');
+    }
+
+    function formatSubtitleTimeline(subtitles) {
+      return subtitles.map((item, index) => (
+        `${String(index + 1).padStart(2, '0')}. ${formatSeconds(item.start_time)} - ${formatSeconds(item.end_time)}  ${item.text}`
+      )).join('\n');
+    }
+
+    function buildPreviewSummary(theme, storyboard, subtitles, images) {
+      const previewLines = [
+        `主题：${theme}`,
+        '',
+        `标题：${storyboard.title}`,
+        `分镜数：${storyboard.scenes.length}`,
+        `字幕句数：${subtitles.length}`
+      ];
+
+      if (images?.length) {
+        previewLines.push(`已生成配图：${images.length}`);
+      }
+
+      previewLines.push('', '完整口播：', storyboard.scriptText);
+      return previewLines.join('\n');
+    }
+
+    function pickRandomTransition() {
+      return TRANSITION_CHOICES[Math.floor(Math.random() * TRANSITION_CHOICES.length)];
+    }
+
+    async function createDraft(theme, token) {
+      const data = await requestJson(API.createDraft, token, {
+        width: 1080,
+        height: 1920,
+        name: `儿童绘本：${theme}`
+      });
+
+      if (!data?.success) {
+        throw new Error(data?.message || data?.Message || data?.error || '创建草稿失败');
+      }
+
+      const draftId = extractDraftId(data);
+      if (!draftId) {
+        throw new Error('创建成功但响应里没有 output.draft_id');
+      }
+
+      return {
+        draftId,
+        draftUrl: data?.output?.draft_url || ''
+      };
+    }
+
+    async function pollTask(taskUrl, token, taskId, isDone) {
+      const startedAt = Date.now();
+      let lastData = null;
+      let lastStatus = '';
+
+      while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+        const url = `${taskUrl}?task_id=${encodeURIComponent(taskId)}`;
+        const data = await requestJson(url, token, null, 'GET');
+        const status = String(data?.status || data?.output?.status || data?.data?.status || '').toLowerCase();
+        lastData = data;
+        lastStatus = status;
+
+        if (status === 'failed' || status === 'error') {
+          const message = data?.message || data?.Message || data?.error || '任务执行失败';
+          const error = new Error(message);
+          error.url = taskUrl;
+          error.taskId = taskId;
+          error.taskStatus = status;
+          error.taskData = data;
+          throw error;
+        }
+
+        if (isDone(data, status)) {
+          return data;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+
+      const error = new Error('任务轮询超时');
+      error.url = taskUrl;
+      error.taskId = taskId;
+      error.taskStatus = lastStatus;
+      error.taskData = lastData;
+      throw error;
+    }
+
+    async function generateStoryboard(theme, token) {
+      const data = await requestJson(API.submitChat, token, {
+        system_prompt: '你是一个擅长儿童绘本视频策划的中文编剧和分镜导演。',
+        user_input: buildStoryboardPrompt(theme),
+        model: CHAT_MODEL,
+        response_format: 'json',
+        stream: false
+      });
+
+      if (!data?.success) {
+        throw new Error(data?.message || data?.Message || data?.error || '分镜文案任务提交失败');
+      }
+
+      const taskId = extractTaskId(data);
+      if (!taskId) {
+        throw new Error('分镜文案任务提交成功，但响应里没有 task_id');
+      }
+
+      const result = await pollTask(API.chatStatus, token, taskId, (statusData, status) => {
+        return status === 'success' || status === 'done' || Boolean(extractChatText(statusData));
+      });
+
+      const rawText = String(extractChatText(result) || '').trim();
+      if (!rawText) {
+        throw new Error('分镜文案生成成功，但没有拿到结果文本');
+      }
+
+      const storyboard = sanitizeStoryboard(extractJsonObject(rawText));
+      return { taskId, storyboard, raw: result, rawText };
+    }
+
+    async function generateAudio(scriptText, token) {
+      const ttsText = buildTtsText(scriptText);
+      const data = await requestJson(API.generateAudio, token, {
+        model: 'seed-audio-1.0',
+        text_prompt: ttsText,
+        voice_id: TTS_VOICE_ID,
+        voiceId: TTS_VOICE_ID,
+        speaker: TTS_VOICE_ID,
+        text: ttsText
+      });
+
+      if (!data?.success) {
+        throw new Error(data?.message || data?.Message || data?.error || '音频任务提交失败');
+      }
+
+      const audioUrl = extractAudioUrl(data);
+      if (!audioUrl) {
+        throw new Error('音频生成成功，但响应里没有可用音频 URL');
+      }
+
+      return { audioUrl, raw: data };
+    }
+
+    async function generateSubtitleTimeline(audioUrl, draftId, scriptText, token) {
+      const data = await requestJson(API.generateSubtitle, token, {
+        draft_id: draftId,
+        url: audioUrl,
+        add_media: true,
+        text_content: scriptText,
+        agent_id: SUBTITLE_AGENT_ID
+      });
+
+      if (data?.success === false) {
+        throw new Error(data?.message || data?.Message || data?.error || '字幕任务提交失败');
+      }
+
+      const taskId = extractTaskId(data);
+      if (!taskId) {
+        throw new Error('字幕任务提交成功，但响应里没有 task_id');
+      }
+
+      const result = await pollTask(API.subtitleStatus, token, taskId, (statusData, status) => {
+        return status === 'success' || status === 'done' || extractSubtitles(statusData).length > 0;
+      });
+
+      const subtitles = extractSubtitles(result)
+        .map((item) => ({
+          id: item?.id || '',
+          text: String(item?.text || '').trim(),
+          start_time: Number(item?.start_time || 0),
+          end_time: Number(item?.end_time || 0),
+          target_track: item?.target_track || ''
+        }))
+        .filter((item) => item.text && item.end_time > item.start_time)
+        .sort((a, b) => a.start_time - b.start_time);
+
+      if (!subtitles.length) {
+        throw new Error('字幕任务成功，但没有返回 output.subtitles 时间轴');
+      }
+
+      return {
+        taskId,
+        subtitles,
+        finalDraftId: extractDraftId(result) || draftId,
+        draftUrl: result?.output?.draft_url || '',
+        raw: result
+      };
+    }
+
+    function buildSentenceTimeline(sentences, subtitles) {
+      if (!sentences.length || !subtitles.length) {
+        throw new Error('缺少句子或字幕时间轴，无法生成句子级时间映射');
+      }
+
+      const units = subtitles.map((item) => ({
+        ...item,
+        normalized: normalizeText(item.text),
+        length: Math.max(1, normalizeText(item.text).length)
+      }));
+      const totalEnd = Number(units[units.length - 1].end_time || 0);
+      const timeline = [];
+      let subtitleIndex = 0;
+
+      sentences.forEach((sentence, sentenceIndex) => {
+        const isLastSentence = sentenceIndex === sentences.length - 1;
+        const remainingSentences = sentences.length - sentenceIndex - 1;
+        const targetLength = Math.max(1, sentence.normalized.length);
+        const matched = [];
+        let collectedLength = 0;
+
+        if (isLastSentence) {
+          matched.push(...units.slice(subtitleIndex));
+          subtitleIndex = units.length;
+        } else {
+          while (subtitleIndex < units.length - remainingSentences) {
+            const current = units[subtitleIndex];
+            matched.push(current);
+            collectedLength += current.length;
+            subtitleIndex += 1;
+            if (collectedLength >= targetLength) {
+              break;
+            }
+          }
+        }
+
+        const firstItem = matched[0];
+        const lastItem = matched[matched.length - 1];
+        timeline.push({
+          ...sentence,
+          subtitleItems: matched,
+          subtitleText: matched.map((item) => item.text).join(''),
+          start: roundTime(Number(firstItem?.start_time || (sentenceIndex === 0 ? 0 : timeline[timeline.length - 1]?.end || 0))),
+          end: roundTime(Number(lastItem?.end_time || (sentenceIndex === sentences.length - 1 ? totalEnd : firstItem?.end_time || 0)))
+        });
+      });
+
+      if (timeline.length) {
+        timeline[0].start = 0;
+        timeline[timeline.length - 1].end = roundTime(totalEnd);
+      }
+
+      return timeline;
+    }
+
+    function buildSceneSegments(storyboard, subtitles) {
+      const scenes = Array.isArray(storyboard?.scenes) ? storyboard.scenes : [];
+      const sentences = Array.isArray(storyboard?.sentences) ? storyboard.sentences : [];
+      if (!scenes.length || !sentences.length || !subtitles.length) {
+        throw new Error('缺少分镜、句子映射或字幕时间轴，无法生成图片时间段');
+      }
+
+      const sentenceTimeline = buildSentenceTimeline(sentences, subtitles);
+      const sentenceMap = new Map(sentenceTimeline.map((sentence) => [sentence.id, sentence]));
+      const totalEnd = Number(subtitles[subtitles.length - 1].end_time || 0);
+
+      const segments = scenes.map((scene, index) => {
+        const matchedSentences = scene.sentenceIds.map((id) => sentenceMap.get(id)).filter(Boolean);
+        const matchedSubtitles = matchedSentences.flatMap((sentence) => sentence.subtitleItems);
+        const firstSentence = matchedSentences[0];
+        const lastSentence = matchedSentences[matchedSentences.length - 1];
+        return {
+          ...scene,
+          start: roundTime(Number(firstSentence?.start || (index === 0 ? 0 : 0))),
+          end: roundTime(Number(lastSentence?.end || (index === scenes.length - 1 ? totalEnd : firstSentence?.end || 0))),
+          sentenceTexts: matchedSentences.map((sentence) => sentence.text),
+          subtitleItems: matchedSubtitles,
+          subtitleText: matchedSubtitles.map((item) => item.text).join('')
+        };
+      });
+
+      if (segments.length) {
+        segments[0].start = 0;
+        segments[segments.length - 1].end = roundTime(totalEnd);
+      }
+
+      for (let i = 1; i < segments.length; i += 1) {
+        segments[i].start = roundTime(segments[i - 1].end);
+      }
+
+      return segments.map((segment, index) => ({
+        ...segment,
+        start: index === 0 ? 0 : roundTime(segment.start),
+        end: index === segments.length - 1 ? roundTime(totalEnd) : roundTime(Math.max(segment.end, segment.start + 0.4))
+      }));
+    }
+
+    async function generateSceneImages(segments, draftId, token) {
+      const imageResults = [];
+      let currentDraftId = draftId;
+
+      for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index];
+        const isLast = index === segments.length - 1;
+        const transition = isLast ? '' : pickRandomTransition();
+
+        setStatus(`正在生成第 ${index + 1}/${segments.length} 张配图...`, '#4f46e5');
+        imageBodyEl.textContent = `正在处理第 ${index + 1} 个分镜：${segment.title}`;
+
+        const submitData = await requestJson(API.generateImage, token, {
+          prompt: segment.imagePrompt,
+          model: IMAGE_MODEL,
+          size: IMAGE_SIZE,
+          compose_draft: true,
+          draft_id: currentDraftId,
+          start: roundTime(segment.start),
+          end: roundTime(segment.end),
+          track_name: 'main',
+          transition: transition || undefined,
+          transition_duration: transition ? 0.45 : undefined
+        });
+
+        if (submitData?.success === false) {
+          throw new Error(submitData?.message || submitData?.Message || submitData?.error || `第 ${index + 1} 张图片任务提交失败`);
+        }
+
+        const taskId = extractTaskId(submitData);
+        if (!taskId) {
+          throw new Error(`第 ${index + 1} 张图片提交成功，但响应里没有 task_id`);
+        }
+
+        const result = await pollTask(API.imageStatus, token, taskId, (statusData, status) => {
+          return status === 'success' || status === 'done' || Boolean(extractImageUrl(statusData));
+        });
+
+        const imageUrl = extractImageUrl(result);
+        if (!imageUrl) {
+          throw new Error(`第 ${index + 1} 张图片生成成功，但没有拿到图片 URL`);
+        }
+
+        currentDraftId = extractDraftId(result) || currentDraftId;
+        imageResults.push({
+          ...segment,
+          taskId,
+          imageUrl,
+          transition,
+          draftId: currentDraftId
+        });
+      }
+
+      return {
+        images: imageResults,
+        finalDraftId: currentDraftId
+      };
+    }
+
+    function renderImageResults(images) {
+      return images.map((item, index) => {
+        const title = escapeHtml(`${index + 1}. ${item.title}`);
+        const time = `${formatSeconds(item.start)} - ${formatSeconds(item.end)}`;
+        const transition = item.transition ? `，转场：${escapeHtml(item.transition)}` : '';
+        const prompt = escapeHtml(item.imagePrompt);
+        const sentenceIds = Array.isArray(item.sentenceIds) && item.sentenceIds.length
+          ? escapeHtml(item.sentenceIds.join(', '))
+          : '';
+        const sentenceTexts = Array.isArray(item.sentenceTexts) && item.sentenceTexts.length
+          ? escapeHtml(item.sentenceTexts.join(' / '))
+          : '';
+        const imageUrl = escapeHtml(item.imageUrl);
+        return [
+          `<strong>${title}</strong>`,
+          `${escapeHtml(time)}${transition}<br>`,
+          sentenceIds ? `句子 ID：${sentenceIds}<br>` : '',
+          sentenceTexts ? `对应句子：${sentenceTexts}<br>` : '',
+          `提示词：${prompt}<br>`,
+          `<a href="${imageUrl}" target="_blank" rel="noreferrer">${imageUrl}</a>`
+        ].join('');
+      }).join('<br><br>');
+    }
+
+    createBtn.addEventListener('click', async () => {
+      const theme = themeEl.value.trim();
+      const token = tokenEl.value.trim();
+      let phase = 'init';
+
+      if (!theme) {
+        setStatus('请先输入一个儿童绘本主题。', '#dc2626');
+        return;
+      }
+
+      if (!token) {
+        setStatus('请先输入 API Token。', '#dc2626');
+        return;
+      }
+
+      createBtn.disabled = true;
+      downloadAreaEl.innerHTML = '';
+      draftIdEl.textContent = '-';
+      previewTitleEl.textContent = theme;
+      previewBodyEl.textContent = '正在生成，请稍候...';
+      resetStepOutputs();
+      setStatus('正在创建草稿，并依次生成分镜文案、音频、字幕时间轴和配图...', '#4f46e5');
+      setState(scriptStateEl, 'running', '进行中');
+
+      try {
+        phase = 'create_draft';
+        const draft = await createDraft(theme, token);
+        let currentDraftId = draft.draftId;
+        draftIdEl.textContent = currentDraftId;
+        setDownloadLink(currentDraftId);
+        setStatus(`草稿已创建：${currentDraftId}，开始生成分镜文案...`, '#4f46e5');
+
+        phase = 'storyboard';
+        const script = await generateStoryboard(theme, token);
+        const storyboard = script.storyboard;
+        setState(scriptStateEl, 'done', '已完成');
+        scriptBodyEl.textContent = `已生成 ${storyboard.scenes.length} 个分镜及配图提示词。`;
+        scriptOutputEl.textContent = formatStoryboard(storyboard);
+        previewBodyEl.textContent = buildPreviewSummary(theme, storyboard, [], []);
+
+        setState(audioStateEl, 'running', '进行中');
+        setStatus('分镜文案已完成，正在转音频...', '#4f46e5');
+        phase = 'tts';
+        const audio = await generateAudio(storyboard.scriptText, token);
+        setState(audioStateEl, 'done', '已完成');
+        audioBodyEl.textContent = '音频已生成。';
+        audioOutputEl.innerHTML = `<a href="${escapeHtml(audio.audioUrl)}" target="_blank" rel="noreferrer">${escapeHtml(audio.audioUrl)}</a>`;
+
+        setState(subtitleStateEl, 'running', '进行中');
+        setStatus('音频已完成，正在生成字幕时间轴...', '#4f46e5');
+        phase = 'subtitle';
+        const subtitle = await generateSubtitleTimeline(audio.audioUrl, currentDraftId, storyboard.scriptText, token);
+        currentDraftId = subtitle.finalDraftId || currentDraftId;
+        draftIdEl.textContent = currentDraftId;
+        setDownloadLink(currentDraftId);
+        setState(subtitleStateEl, 'done', '已完成');
+        subtitleBodyEl.textContent = `已生成 ${subtitle.subtitles.length} 条精确字幕时间。`;
+        subtitleOutputEl.textContent = formatSubtitleTimeline(subtitle.subtitles);
+        previewBodyEl.textContent = buildPreviewSummary(theme, storyboard, subtitle.subtitles, []);
+
+        setState(imageStateEl, 'running', '进行中');
+        setStatus('字幕时间轴已完成，正在生成配图并连续铺满时间线...', '#4f46e5');
+        phase = 'image';
+        const segments = buildSceneSegments(storyboard, subtitle.subtitles);
+        const imageResult = await generateSceneImages(segments, currentDraftId, token);
+        currentDraftId = imageResult.finalDraftId || currentDraftId;
+        draftIdEl.textContent = currentDraftId;
+        setDownloadLink(currentDraftId);
+        setState(imageStateEl, 'done', '已完成');
+        imageBodyEl.textContent = `已生成 ${imageResult.images.length} 张 9:16 图片，并按字幕时间连续铺满。`;
+        imageOutputEl.innerHTML = renderImageResults(imageResult.images);
+        previewBodyEl.textContent = buildPreviewSummary(theme, storyboard, subtitle.subtitles, imageResult.images);
+
+        setStatus('全部完成，可以点击下载草稿。', '#059669');
+      } catch (error) {
+        const message = error?.message || '生成失败。';
+        setStatus(message, '#dc2626');
+        errorOutputEl.textContent = formatErrorDetail(error, phase);
+
+        if (scriptStateEl.className.includes('running')) setState(scriptStateEl, 'error', '失败');
+        if (audioStateEl.className.includes('running')) setState(audioStateEl, 'error', '失败');
+        if (subtitleStateEl.className.includes('running')) setState(subtitleStateEl, 'error', '失败');
+        if (imageStateEl.className.includes('running')) setState(imageStateEl, 'error', '失败');
+      } finally {
+        createBtn.disabled = false;
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      themeEl.value = '';
+      tokenEl.value = '';
+      draftIdEl.textContent = '-';
+      downloadUrlEl.textContent = '-';
+      previewTitleEl.textContent = '未创建';
+      previewBodyEl.textContent = '点击“生成儿童绘本草稿”后，这里会显示本次生成的主题、分镜文案、字幕时间轴和图片素材输出，方便查看整条视频草稿链路。';
+      downloadAreaEl.innerHTML = '';
+      setStatus('等待创建草稿...');
+      resetStepOutputs();
+      themeEl.focus();
+    });
+
+    templateListEl.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-template-index]');
+      if (!button) return;
+      const index = Number(button.dataset.templateIndex);
+      const theme = DEFAULT_THEME_TEMPLATES[index];
+      if (!theme) return;
+      themeEl.value = theme;
+      themeEl.focus();
+      themeEl.setSelectionRange(theme.length, theme.length);
+      setStatus(`已填入模板 ${index + 1}，可以直接体验。`, '#4f46e5');
+    });
+
+    renderThemeTemplates();
+  </script>
+</body>
+</html>

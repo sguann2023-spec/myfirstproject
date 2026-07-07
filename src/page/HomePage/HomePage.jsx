@@ -92,7 +92,7 @@ const writeWorkspaceStore = (store = {}) => {
   }
 };
 const buildAutoWorkspaceName = () => (
-  `workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 );
 
 const resolveProviderIdByModel = (modelId = '') => {
@@ -936,6 +936,7 @@ const HomePage = () => {
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
   const [chatWebPreview, setChatWebPreview] = useState(null);
+  const [manualChatWebPreview, setManualChatWebPreview] = useState(null);
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
   const chatExpandedWindowBaseWidthRef = useRef(null);
 
@@ -1338,10 +1339,11 @@ const HomePage = () => {
       prev?.key === latestChatBrowserPreview.key ? prev : latestChatBrowserPreview
     ));
   }, [latestChatBrowserPreview, chatWebPreviewDismissedKey]);
+  const activeChatWebPreview = manualChatWebPreview || chatWebPreview;
 
   useEffect(() => {
     let cancelled = false;
-    const previewVisible = selectedPane === 'chat' && Boolean(chatWebPreview?.url);
+    const previewVisible = selectedPane === 'chat' && Boolean(activeChatWebPreview?.url);
 
     const syncWindowWidth = async () => {
       if (!window?.api?.window?.getSize || !window?.api?.window?.setSize) return;
@@ -1377,7 +1379,7 @@ const HomePage = () => {
     return () => {
       cancelled = true;
     };
-  }, [chatWebPreview?.url, isFullscreen, selectedPane]);
+  }, [activeChatWebPreview?.url, isFullscreen, selectedPane]);
 
   useEffect(() => {
     if (!canUseAgentRuntime) return;
@@ -2853,13 +2855,29 @@ const HomePage = () => {
     });
   };
 
+  const handleOpenChatWebPreview = useCallback((preview) => {
+    const normalizedKey = String(preview?.key || '').trim();
+    const normalizedUrl = String(preview?.url || '').trim();
+    if (!normalizedKey || !normalizedUrl) return;
+
+    if (chatWebPreview?.key) {
+      setChatWebPreviewDismissedKey(String(chatWebPreview.key));
+    }
+    setManualChatWebPreview(preview);
+  }, [chatWebPreview]);
+
   const handleCloseChatWebPreview = useCallback(() => {
+    if (manualChatWebPreview) {
+      setManualChatWebPreview(null);
+      return;
+    }
+
     const previewKey = String(chatWebPreview?.key || '').trim();
     if (previewKey) {
       setChatWebPreviewDismissedKey(previewKey);
     }
     setChatWebPreview(null);
-  }, [chatWebPreview?.key]);
+  }, [chatWebPreview?.key, manualChatWebPreview]);
 
   const handleRetryAssistantMessage = async (message) => {
     if (!activeChatId || !canUseAgentRuntime || isChatSessionSending(activeChatId)) return;
@@ -3208,8 +3226,9 @@ const HomePage = () => {
                 onRenameSessionTitle={handleRenameActiveChatTitle}
                 userName={userName}
                 userAvatar={avatarSrc}
-                webPreview={chatWebPreview}
+                webPreview={activeChatWebPreview}
                 onCloseWebPreview={handleCloseChatWebPreview}
+                onOpenWebPreview={handleOpenChatWebPreview}
               />
             ) : null}
             {/* 已完成视图：仅在选中具体项后展示右侧内容 */}

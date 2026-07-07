@@ -47,8 +47,7 @@ import { autoDiscoverGitBash, findBundledPython, getBinaryPath, prependPathEntry
 import getLoginShellEnvironment from '@main/utils/shell-env'
 import {
   CHANNEL_SECURITY_PROMPT,
-  GLOBALLY_DISALLOWED_TOOLS,
-  SOUL_MODE_DISALLOWED_TOOLS
+  GLOBALLY_DISALLOWED_TOOLS
 } from '@shared/agents/claudecode/constants'
 import { languageEnglishNameMap } from '@shared/config/languages'
 import { withoutTrailingApiVersion } from '@shared/utils'
@@ -66,100 +65,23 @@ import { agentRuntimeAuthService } from '../AgentRuntimeAuthService'
 import { agentService } from '../AgentService'
 import { isProvisioned, provisionBuiltinAgent } from '../builtin/BuiltinAgentProvisioner'
 import { channelService } from '../ChannelService'
-import { PromptBuilder, type ToolGuidanceOptions } from '../cherryclaw/prompt'
+import { PromptBuilder } from '../cherryclaw/prompt'
+import { CapabilityRouter, buildToolGuidanceOptions, type RuntimeCapability } from './capability-router'
 import { sessionService } from '../SessionService'
 import { buildNamespacedToolCallId } from './claude-stream-state'
+import { logPromptBudgetProbe } from './prompt-budget'
+import { addAutoAllowedTool, buildToolSurface } from './tool-surface'
 import { promptForToolApproval } from './tool-permissions'
 import { ClaudeStreamState, transformSDKMessageToStreamParts } from './transform'
 
 const require_ = require
 const logger = loggerService.withContext('ClaudeCodeService')
 const promptBuilder = new PromptBuilder()
-const DEFAULT_ALLOWED_TOOLS = [
-  'NotebookRead',
-  'Task',
-  'TodoWrite',
-  'Read',
-  'Glob',
-  'Grep',
-  'Bash',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-  'Write'
-] as const
-const DEFAULT_AUTO_ALLOW_TOOLS = new Set<string>(DEFAULT_ALLOWED_TOOLS)
 const IMAGE_MAX_DIMENSION = 2000
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
 const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
 const shouldMountAllRuntimeMcpTools = process.env.CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS === '1'
 const NO_RESUME_COMMANDS = ['/clear']
-
-type RuntimeCapability =
-  | 'browser'
-  | 'search'
-  | 'image'
-  | 'speech'
-  | 'draftDownload'
-  | 'copylab'
-  | 'digitalHuman'
-  | 'kouboTemplate'
-  | 'system'
-  | 'skills'
-  | 'agentMemory'
-  | 'claw'
-  | 'assistant'
-
-type CapabilityDecision = {
-  turn: number
-  selected: Set<RuntimeCapability>
-  reasons: Record<string, string[]>
-  stickyApplied: string[]
-}
-
-const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
-  'browser',
-  'search',
-  'image',
-  'speech',
-  'draftDownload',
-  'copylab',
-  'digitalHuman',
-  'kouboTemplate',
-  'system',
-  'skills',
-  'agentMemory',
-  'claw',
-  'assistant'
-]
-
-const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
-  'browser',
-  'search',
-  'image',
-  'speech',
-  'draftDownload',
-  'digitalHuman',
-  'kouboTemplate',
-  'copylab'
-])
-const CAPABILITY_STICKY_TURNS = 3
-
-const normalizeCapabilityText = (value: string) => String(value || '').toLowerCase()
-
-const hasAnyKeyword = (text: string, keywords: string[]) => keywords.some((keyword) => text.includes(keyword))
-
-const hasUrlLikeText = (text: string) => /https?:\/\/|localhost:\d+|127\.0\.0\.1:\d+|0\.0\.0\.0:\d+/i.test(text)
-
-const addCapabilityReason = (
-  selected: Set<RuntimeCapability>,
-  reasons: Record<string, string[]>,
-  capability: RuntimeCapability,
-  reason: string
-) => {
-  selected.add(capability)
-  reasons[capability] = [...(reasons[capability] ?? []), reason]
-}
 
 const isVectcutGatewayUrl = (value: string): boolean => {
   const raw = String(value || '').trim()
@@ -186,6 +108,121 @@ const getLanguageInstruction = () => {
   `
 }
 
+const getArgValue = (args: string[], flag: string): string | undefined => {
+  const index = args.indexOf(flag)
+  if (index < 0 || index + 1 >= args.length) return undefined
+  return args[index + 1]
+}
+
+const countArg = (args: string[], flag: string): number => args.filter((arg) => arg === flag).length
+
+const splitArgList = (value: string | undefined): string[] =>
+  value === undefined || value === '' ? [] : value.split(',').map((item) => item.trim()).filter(Boolean)
+
+const getMcpServerNamesFromArg = (value: string | undefined): string[] => {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as { mcpServers?: Record<string, unknown> }
+    return Object.keys(parsed.mcpServers ?? {}).sort()
+  } catch {
+    return ['<unparseable>']
+  }
+}
+
+const summarizeClaudeSpawnArgs = (args: string[], cwd: string) => {
+  const toolsArg = getArgValue(args, '--tools')
+  const settingSourcesArg = getArgValue(args, '--setting-sources')
+  const allowedTools = splitArgList(getArgValue(args, '--allowedTools'))
+  const disallowedTools = splitArgList(getArgValue(args, '--disallowedTools'))
+  const mcpServerNames = getMcpServerNamesFromArg(getArgValue(args, '--mcp-config'))
+
+  return {
+    cwd,
+    executable: path.basename(args[0] ?? ''),
+    argCount: args.length,
+    model: getArgValue(args, '--model') ?? null,
+    toolsArg: toolsArg ?? null,
+    toolsDisabled: toolsArg === '',
+    settingSourcesArg: settingSourcesArg ?? null,
+    settingSourcesDisabled: settingSourcesArg === '',
+    allowedToolCount: allowedTools.length,
+    allowedToolsPreview: allowedTools.slice(0, 30),
+    disallowedToolCount: disallowedTools.length,
+    mcpServerCount: mcpServerNames.length,
+    mcpServerNames,
+    pluginDirCount: countArg(args, '--plugin-dir'),
+    additionalDirectoryCount: countArg(args, '--add-dir'),
+    strictMcpConfig: args.includes('--strict-mcp-config'),
+    permissionMode: getArgValue(args, '--permission-mode') ?? null,
+    hasResume: args.includes('--resume'),
+    maxTurns: getArgValue(args, '--max-turns') ?? null
+  }
+}
+
+type WorkspaceSkillSurface = {
+  exists: boolean
+  skillDirCount: number
+  skillMdCount: number
+  skillMdBytes: number
+  largestSkillMdBytes: number
+  skillNamesPreview: string[]
+  error?: string
+}
+
+const scanWorkspaceSkillSurface = async (workspacePath: string): Promise<WorkspaceSkillSurface> => {
+  const skillsDir = path.join(workspacePath, '.claude', 'skills')
+  try {
+    const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
+    const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+    let skillMdCount = 0
+    let skillMdBytes = 0
+    let largestSkillMdBytes = 0
+
+    for (const skillName of skillDirs) {
+      const skillMdPath = path.join(skillsDir, skillName, 'SKILL.md')
+      try {
+        const stats = await fs.promises.stat(skillMdPath)
+        skillMdCount++
+        skillMdBytes += stats.size
+        largestSkillMdBytes = Math.max(largestSkillMdBytes, stats.size)
+      } catch {
+        // A directory without SKILL.md is not loadable as a Claude skill.
+      }
+    }
+
+    return {
+      exists: true,
+      skillDirCount: skillDirs.length,
+      skillMdCount,
+      skillMdBytes,
+      largestSkillMdBytes,
+      skillNamesPreview: skillDirs.slice(0, 30)
+    }
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
+    if (code === 'ENOENT') {
+      return {
+        exists: false,
+        skillDirCount: 0,
+        skillMdCount: 0,
+        skillMdBytes: 0,
+        largestSkillMdBytes: 0,
+        skillNamesPreview: []
+      }
+    }
+
+    return {
+      exists: false,
+      skillDirCount: 0,
+      skillMdCount: 0,
+      skillMdBytes: 0,
+      largestSkillMdBytes: 0,
+      skillNamesPreview: [],
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
 type UserInputMessage = SDKUserMessage
 
 class ClaudeCodeStream extends EventEmitter implements AgentStream {
@@ -201,8 +238,9 @@ class ClaudeCodeService implements AgentServiceInterface {
   private claudeProxyBootstrapPath: string
   private browserServers = new Map<string, BrowserServer>()
   private readonly imageGenerateServer: ImageGenerateServer
-  private capabilityTurnsBySession = new Map<string, number>()
-  private capabilityStickyBySession = new Map<string, Map<RuntimeCapability, number>>()
+  private readonly capabilityRouter = new CapabilityRouter({
+    forceMountAllRuntimeMcpTools: shouldMountAllRuntimeMcpTools
+  })
 
   constructor() {
     // Resolve Claude Code CLI robustly (works in dev and in asar)
@@ -242,217 +280,6 @@ class ClaudeCodeService implements AgentServiceInterface {
     return browserServer
   }
 
-  private selectRuntimeCapabilities(args: {
-    prompt: string
-    sessionId: string
-    imageCount: number
-    isAssistant: boolean
-    soulEnabled: boolean
-    builtinRole?: string
-    hasCustomMcpServers: boolean
-  }): CapabilityDecision {
-    const turn = (this.capabilityTurnsBySession.get(args.sessionId) ?? 0) + 1
-    this.capabilityTurnsBySession.set(args.sessionId, turn)
-
-    const selected = new Set<RuntimeCapability>()
-    const reasons: Record<string, string[]> = {}
-    const stickyApplied: string[] = []
-    const text = normalizeCapabilityText(args.prompt)
-
-    if (shouldMountAllRuntimeMcpTools) {
-      for (const capability of ALL_OPTIONAL_RUNTIME_CAPABILITIES) {
-        addCapabilityReason(selected, reasons, capability, 'env:CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS')
-      }
-    } else {
-      if (args.isAssistant) {
-        addCapabilityReason(selected, reasons, 'assistant', 'assistant-role')
-      }
-
-      if (
-        hasUrlLikeText(args.prompt) ||
-        hasAnyKeyword(text, [
-          '网页',
-          '浏览器',
-          '打开网页',
-          '点击',
-          '页面截图',
-          '调试页面',
-          'localhost',
-          'browser',
-          'web page',
-          'click',
-          'screenshot'
-        ])
-      ) {
-        addCapabilityReason(selected, reasons, 'browser', 'prompt:browser-or-url')
-      }
-
-      if (
-        hasAnyKeyword(text, [
-          '搜索',
-          '查找',
-          '查询',
-          '最新',
-          '联网',
-          '网上',
-          '新闻',
-          '资料',
-          'search',
-          'look up',
-          'google',
-          '百度'
-        ])
-      ) {
-        addCapabilityReason(selected, reasons, 'search', 'prompt:search')
-      }
-
-      if (
-        hasAnyKeyword(text, [
-          '生成图',
-          '生成图片',
-          '画一张',
-          '做张图',
-          '封面',
-          '海报',
-          '配图',
-          '修图',
-          '换背景',
-          '抠图',
-          'image',
-          'cover',
-          'poster'
-        ])
-      ) {
-        addCapabilityReason(
-          selected,
-          reasons,
-          'image',
-          args.imageCount > 0 ? 'prompt:image-with-attachment' : 'prompt:image'
-        )
-      }
-
-      if (
-        hasAnyKeyword(text, [
-          '语音',
-          '配音',
-          '音色',
-          '朗读',
-          '声音',
-          'tts',
-          'voice',
-          'speech',
-          'audio'
-        ])
-      ) {
-        addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
-      }
-
-      if (
-        hasAnyKeyword(text, [
-          '数字人',
-          '口播',
-          '唇形',
-          '唇动',
-          '人像驱动',
-          '形象',
-          'lip sync',
-          'lipsync',
-          'image driven'
-        ])
-      ) {
-        addCapabilityReason(selected, reasons, 'digitalHuman', 'prompt:digital-human')
-      }
-
-      if (
-        hasAnyKeyword(text, ['下载草稿', '草稿下载', '剪映草稿', 'capcut draft', 'draft download'])
-      ) {
-        addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
-      }
-
-      if (hasAnyKeyword(text, ['口播模板', '模板草稿', 'koubo', 'template'])) {
-        addCapabilityReason(selected, reasons, 'kouboTemplate', 'prompt:koubo-template')
-      }
-
-      if (
-        hasAnyKeyword(text, [
-          '文案',
-          '脚本',
-          '标题',
-          '话术',
-          '种草',
-          '广告语',
-          'copywriting',
-          'copy lab'
-        ])
-      ) {
-        addCapabilityReason(selected, reasons, 'copylab', 'prompt:copywriting')
-      }
-
-      if (hasAnyKeyword(text, ['vectcut://', '打开设置', '跳转设置', 'deeplink', '系统设置'])) {
-        addCapabilityReason(selected, reasons, 'system', 'prompt:system-action')
-      }
-
-      if (
-        /(^|\s)@[\p{L}\p{N}_-]+/u.test(args.prompt) ||
-        hasAnyKeyword(text, ['技能', 'skill', '成员', '安装技能', '新建成员'])
-      ) {
-        addCapabilityReason(selected, reasons, 'skills', 'prompt:skills')
-      }
-
-      if (hasAnyKeyword(text, ['记住', '记忆', '忘记', 'remember', 'memory'])) {
-        addCapabilityReason(selected, reasons, 'agentMemory', 'prompt:memory')
-      }
-
-      if (
-        args.soulEnabled &&
-        hasAnyKeyword(text, ['定时', '提醒', '通知', '计划任务', 'cron', 'notify'])
-      ) {
-        addCapabilityReason(selected, reasons, 'claw', 'prompt:soul-schedule')
-      }
-
-      const sticky = this.capabilityStickyBySession.get(args.sessionId) ?? new Map<RuntimeCapability, number>()
-      for (const [capability, expiresAtTurn] of Array.from(sticky.entries())) {
-        if (expiresAtTurn < turn) {
-          sticky.delete(capability)
-          continue
-        }
-
-        if (!selected.has(capability)) {
-          addCapabilityReason(selected, reasons, capability, `sticky:${expiresAtTurn - turn + 1}`)
-          stickyApplied.push(`${capability}:${expiresAtTurn}`)
-        }
-      }
-
-      for (const capability of selected) {
-        if (STICKY_RUNTIME_CAPABILITIES.has(capability)) {
-          sticky.set(capability, turn + CAPABILITY_STICKY_TURNS)
-        }
-      }
-
-      if (sticky.size > 0) {
-        this.capabilityStickyBySession.set(args.sessionId, sticky)
-      } else {
-        this.capabilityStickyBySession.delete(args.sessionId)
-      }
-    }
-
-    if (!args.isAssistant) {
-      selected.delete('assistant')
-      delete reasons.assistant
-    }
-    if (!args.soulEnabled) {
-      selected.delete('claw')
-      delete reasons.claw
-    }
-
-    return {
-      turn,
-      selected,
-      reasons,
-      stickyApplied
-    }
-  }
-
   async invoke(
     prompt: string,
     session: GetAgentSessionResponse,
@@ -477,30 +304,78 @@ class ClaudeCodeService implements AgentServiceInterface {
       return aiStream
     }
 
-    const skillWorkspace = cwd
+    const agent = await agentService.getAgent(session.agent_id)
+    const agentConfig = agent?.configuration
+    const autonomousEnabled = agentConfig?.soul_enabled === true || agentConfig?.scheduler_enabled === true
+    const builtinRole = (session.configuration as Record<string, unknown> | undefined)?.builtin_role as
+      | string
+      | undefined
+    const isAssistant = builtinRole === 'assistant'
+    const capabilityDecision = this.capabilityRouter.select({
+      prompt,
+      sessionId: session.id,
+      imageCount: images?.length ?? 0,
+      isAssistant,
+      autonomousEnabled,
+      builtinRole,
+      hasCustomMcpServers: Boolean(session.mcps?.length)
+    })
+    const selectedRuntimeCapabilities = capabilityDecision.selected
+    const toolGuidanceOptions = buildToolGuidanceOptions({
+      decision: capabilityDecision,
+      autonomousEnabled
+    })
 
-    // Refresh the active `.claude/skills` copies before SDK startup. The SDK
-    // auto-discovers this directory, so log the count as a token budget signal.
+    const skillWorkspace = cwd
+    const shouldReconcileSkills =
+      selectedRuntimeCapabilities.has('skills') || process.env.CHERRY_AGENT_RECONCILE_SKILLS === '1'
+
+    // Refresh active `.claude/skills` only when this turn actually needs skill
+    // management. The SDK auto-discovers project skills, so idle reconciliation
+    // is a token-budget footgun.
     let activeClaudeSkillNames: string[] = []
-    try {
-      await skillService.reconcileAgentSkills(session.agent_id, skillWorkspace)
-      const activeClaudeSkills = await skillService.listLocal(skillWorkspace)
-      activeClaudeSkillNames = activeClaudeSkills.map((skill) => skill.filename).filter(Boolean).sort()
-      logger.info('[ToolRouter] active Claude skills snapshot', {
-        agentId: session.agent_id,
-        sessionId: session.id,
-        skillWorkspace,
-        activeSkillCount: activeClaudeSkillNames.length,
-        activeSkills: activeClaudeSkillNames.slice(0, 50),
-        omittedSkillCount: Math.max(0, activeClaudeSkillNames.length - 50)
-      })
-    } catch (error) {
-      logger.warn('Failed to reconcile agent skills before session start', {
-        agentId: session.agent_id,
-        skillWorkspace,
-        error: error instanceof Error ? error.message : String(error)
-      })
+    if (shouldReconcileSkills) {
+      try {
+        await skillService.reconcileAgentSkills(session.agent_id, skillWorkspace)
+        const activeClaudeSkills = await skillService.listLocal(skillWorkspace)
+        activeClaudeSkillNames = activeClaudeSkills.map((skill) => skill.filename).filter(Boolean).sort()
+      } catch (error) {
+        logger.warn('Failed to reconcile agent skills before session start', {
+          agentId: session.agent_id,
+          skillWorkspace,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
     }
+    const workspaceSkillSurface = await scanWorkspaceSkillSurface(skillWorkspace)
+    logger.info('[ToolRouter] active Claude skills snapshot', {
+      agentId: session.agent_id,
+      sessionId: session.id,
+      skillWorkspace,
+      reconciled: shouldReconcileSkills,
+      activeSkillCount: activeClaudeSkillNames.length,
+      activeSkills: activeClaudeSkillNames.slice(0, 50),
+      omittedSkillCount: Math.max(0, activeClaudeSkillNames.length - 50),
+      workspaceSkillSurface
+    })
+
+    logger.info('[ToolRouter] capability decision', {
+      agentId: session.agent_id,
+      sessionId: session.id,
+      turn: capabilityDecision.turn,
+      selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
+      reasons: capabilityDecision.reasons,
+      stickyApplied: capabilityDecision.stickyApplied,
+      toolLayer: capabilityDecision.toolLayer,
+      toolLayerReasons: capabilityDecision.toolLayerReasons,
+      promptLength: prompt.length,
+      imageCount: images?.length ?? 0,
+      builtinRole: builtinRole ?? '',
+      isAssistant,
+      autonomousEnabled,
+      hasCustomMcpServers: Boolean(session.mcps?.length),
+      forceMountAll: shouldMountAllRuntimeMcpTools
+    })
 
     const runtimeModel = String(modelOverride || session.model || '').trim()
 
@@ -625,7 +500,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       // Per-agent skills live in `<cwd>/.claude/skills/` and are picked up by the SDK's
       // project-level skill loading layer — no need to point CLAUDE_CONFIG_DIR at the workspace.
       CLAUDE_CONFIG_DIR: path.join(app.getPath('userData'), '.claude'),
-      ENABLE_TOOL_SEARCH: 'auto',
+      ENABLE_TOOL_SEARCH: selectedRuntimeCapabilities.has('skills') ? 'auto' : '0',
       CHERRY_STUDIO_BUN_PATH: bunPath,
       WORKSPACE_ROOT: cwd,
       ...(customGitBashPath ? { CLAUDE_CODE_GIT_BASH_PATH: customGitBashPath } : {})
@@ -672,11 +547,13 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const errorChunks: string[] = []
 
-    const resolvedAllowedTools = Array.from(new Set([...(session.allowed_tools ?? []), ...DEFAULT_ALLOWED_TOOLS])).filter(
-      (tool) => !['WebFetch', 'mcp__exa__web_fetch_exa'].includes(tool)
-    )
-    const sessionAllowedTools = new Set<string>(resolvedAllowedTools ?? [])
-    const autoAllowTools = new Set<string>([...DEFAULT_AUTO_ALLOW_TOOLS, ...sessionAllowedTools])
+    const toolSurface = buildToolSurface({
+      layer: capabilityDecision.toolLayer,
+      sessionAllowedTools: session.allowed_tools ?? [],
+      isAssistant
+    })
+    const sessionAllowedTools = new Set<string>(toolSurface.allowedToolsOption)
+    const autoAllowTools = toolSurface.autoAllowedTools
     const readFilesInSession = new Set<string>()
     const normalizeToolName = (name: string) => (name.startsWith('builtin_') ? name.slice('builtin_'.length) : name)
     const requiresInteractiveApproval = (name: string) => normalizeToolName(name) === 'AskUserQuestion'
@@ -712,27 +589,34 @@ class ClaudeCodeService implements AgentServiceInterface {
       return null
     }
     let plugins: SdkPluginConfig[] | undefined
-    try {
-      const pluginsDir = path.join(cwd, '.claude', 'plugins')
-      const entries = await fs.promises.readdir(pluginsDir, { withFileTypes: true }).catch(() => [])
-      const pluginPaths: string[] = []
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const manifestPath = path.join(pluginsDir, entry.name, '.claude-plugin', 'plugin.json')
-        try {
-          await fs.promises.access(manifestPath, fs.constants.R_OK)
-          pluginPaths.push(path.join(pluginsDir, entry.name))
-        } catch {
-          // No manifest, skip
+    if (capabilityDecision.toolLayer !== 'chat') {
+      try {
+        const pluginsDir = path.join(cwd, '.claude', 'plugins')
+        const entries = await fs.promises.readdir(pluginsDir, { withFileTypes: true }).catch(() => [])
+        const pluginPaths: string[] = []
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue
+          const manifestPath = path.join(pluginsDir, entry.name, '.claude-plugin', 'plugin.json')
+          try {
+            await fs.promises.access(manifestPath, fs.constants.R_OK)
+            pluginPaths.push(path.join(pluginsDir, entry.name))
+          } catch {
+            // No manifest, skip
+          }
         }
+        if (pluginPaths.length > 0) {
+          plugins = pluginPaths.map((pluginPath) => ({ type: 'local', path: pluginPath }))
+        }
+      } catch (error) {
+        logger.warn('Failed to load plugin packages for Claude Code', {
+          agentId: session.agent_id,
+          error: error instanceof Error ? error.message : String(error)
+        })
       }
-      if (pluginPaths.length > 0) {
-        plugins = pluginPaths.map((pluginPath) => ({ type: 'local', path: pluginPath }))
-      }
-    } catch (error) {
-      logger.warn('Failed to load plugin packages for Claude Code', {
+    } else {
+      logger.info('[ToolRouter] skipped plugin discovery for chat layer', {
         agentId: session.agent_id,
-        error: error instanceof Error ? error.message : String(error)
+        sessionId: session.id
       })
     }
 
@@ -982,61 +866,10 @@ class ClaudeCodeService implements AgentServiceInterface {
       return {}
     }
 
-    // Soul Mode: read soul_enabled from agent-level configuration (not session)
-    const agent = await agentService.getAgent(session.agent_id)
-    const agentConfig = agent?.configuration
-    const soulEnabled = agentConfig?.soul_enabled !== false
-    const builtinRole = (session.configuration as Record<string, unknown> | undefined)?.builtin_role as
-      | string
-      | undefined
-    const isAssistant = builtinRole === 'assistant'
-    const capabilityDecision = this.selectRuntimeCapabilities({
-      prompt,
-      sessionId: session.id,
-      imageCount: images?.length ?? 0,
-      isAssistant,
-      soulEnabled,
-      builtinRole,
-      hasCustomMcpServers: Boolean(session.mcps?.length)
-    })
-    const selectedRuntimeCapabilities = capabilityDecision.selected
-    const toolGuidanceOptions: ToolGuidanceOptions = {
-      hasClaw: soulEnabled && selectedRuntimeCapabilities.has('claw'),
-      hasSkills: selectedRuntimeCapabilities.has('skills'),
-      hasMemory: selectedRuntimeCapabilities.has('agentMemory'),
-      hasWeb: selectedRuntimeCapabilities.has('search') || selectedRuntimeCapabilities.has('browser'),
-      hasSystem: selectedRuntimeCapabilities.has('system'),
-      hasContentCreation: selectedRuntimeCapabilities.has('copylab')
-    }
-    let soulSystemPrompt: string | undefined
-
-    if (soulEnabled && cwd) {
-      soulSystemPrompt = await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)
-      logger.info('Built Soul Mode system prompt', {
-        cwd,
-        promptLength: soulSystemPrompt.length,
-        selectedRuntimeCapabilities: Array.from(selectedRuntimeCapabilities).sort()
-      })
-    }
-
     // Inject channel security policy into system prompt when session is from an external channel
     const linkedChannel = await channelService.findBySessionId(session.id)
     const isChannelSession = !!linkedChannel
-    const channelSecurityBlock = isChannelSession ? `\n\n${CHANNEL_SECURITY_PROMPT}` : ''
-
-    // For non-Soul, non-Assistant agents, append only the tool strategy that
-    // matches the runtime MCP servers selected for this turn.
-    // Soul agents already get the full guidance via `soulSystemPrompt`, and
-    // Cherry Assistant has its own specialized prompt path.
-    const nonSoulToolGuidance =
-      !soulEnabled && !isAssistant ? promptBuilder.buildToolGuidance(toolGuidanceOptions) : ''
-
-    // Recall side of the cross-session learning loop for non-Soul agents:
-    // load `memory/FACT.md` (written via the memory tool in previous sessions)
-    // back into the system prompt so the agent remembers what it learned.
-    // Soul agents already get this via `soulSystemPrompt`'s memories section.
-    const nonSoulFactsRecall =
-      !soulEnabled && !isAssistant && cwd ? await promptBuilder.buildFactsSection(cwd) : undefined
+    const channelSecurityBlock = isChannelSession ? CHANNEL_SECURITY_PROMPT : ''
 
     // Provision built-in agent workspace (copy skills/plugins to working directory)
     if (builtinRole && cwd && !isProvisioned(cwd)) {
@@ -1059,28 +892,22 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     }
 
+    const clawSystemPrompt = !isAssistant
+      ? await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)
+      : undefined
+    const factsRecall =
+      !isAssistant && toolGuidanceOptions.hasMemory && cwd ? await promptBuilder.buildFactsSection(cwd) : undefined
+
     const finalSystemPrompt: Options['systemPrompt'] = assistantSystemPrompt
       ? assistantSystemPrompt
-      : soulEnabled
-        ? [
-            soulSystemPrompt,
-            session.instructions,
-            isChannelSession ? CHANNEL_SECURITY_PROMPT : '',
-            getLanguageInstruction()
-          ]
-            .filter(Boolean)
-            .join('\n\n')
-        : {
-            type: 'preset',
-            preset: 'claude_code',
-            append:
-              [nonSoulToolGuidance, nonSoulFactsRecall, session.instructions].filter(Boolean).join('\n\n') +
-              `${channelSecurityBlock}\n\n${getLanguageInstruction()}`
-          }
+      : [clawSystemPrompt, factsRecall, session.instructions, channelSecurityBlock, getLanguageInstruction()]
+          .filter(Boolean)
+          .join('\n\n')
 
-    // Build SDK options from session configuration
-    // Default to adaptive thinking so Claude Code / model can decide when to think.
-    const resolvedThinkingConfig = thinkingOptions?.thinking ?? { type: 'adaptive' as const }
+    // Build SDK options from session configuration.
+    // If thinking is not explicitly configured, leave it unset so the runtime
+    // does not force adaptive thinking by default.
+    const resolvedThinkingConfig = thinkingOptions?.thinking
     const options: Options = {
       abortController,
       cwd,
@@ -1110,6 +937,8 @@ class ClaudeCodeService implements AgentServiceInterface {
           execArgv = [...process.execArgv, '--disable-warning=UNDICI-EHPA', '--require', this.claudeProxyBootstrapPath]
         }
 
+        logger.info('[PromptBudget] Claude SDK spawn args', summarizeClaudeSpawnArgs(spawnOptions.args, spawnOptions.cwd))
+
         const child = fork(spawnOptions.args[0], spawnOptions.args.slice(1), {
           cwd: spawnOptions.cwd,
           env: childEnv,
@@ -1125,12 +954,14 @@ class ClaudeCodeService implements AgentServiceInterface {
         return child as unknown as SpawnedProcess
       },
       systemPrompt: finalSystemPrompt,
-      // Built-in agents skip CLAUDE.md loading to save tokens
-      settingSources: builtinRole ? [] : ['project', 'local'],
+      // Claw-style prompt assembly loads capped workspace instructions itself.
+      // Keep SDK project/local settings out of the prompt unless explicitly requested.
+      settingSources: process.env.CHERRY_AGENT_USE_SDK_SETTINGS === '1' ? ['project', 'local'] : [],
       includePartialMessages: true,
       permissionMode: session.configuration?.permission_mode,
       maxTurns: session.configuration?.max_turns,
-      allowedTools: resolvedAllowedTools,
+      allowedTools: toolSurface.allowedToolsOption,
+      tools: toolSurface.toolsOption,
       plugins,
       canUseTool,
       hooks: {
@@ -1147,16 +978,17 @@ class ClaudeCodeService implements AgentServiceInterface {
       },
       disallowedTools: [
         ...GLOBALLY_DISALLOWED_TOOLS,
-        ...(soulEnabled ? SOUL_MODE_DISALLOWED_TOOLS : []),
         // Cherry Assistant is a read-only guide; it should not ask users questions via tool
         ...(isAssistant ? ['AskUserQuestion'] : [])
       ],
       ...(thinkingOptions?.effort ? { effort: thinkingOptions.effort } : {}),
-      thinking: resolvedThinkingConfig
+      ...(resolvedThinkingConfig ? { thinking: resolvedThinkingConfig } : {})
     }
     // Claude Agent SDK 0.2.81 的运行时代码读取 `thinkingConfig`，而公开类型声明使用 `thinking`。
-    // 两个字段同时赋值，确保自适应 thinking 配置真正传到 CLI 层。
-    ;(options as Options & { thinkingConfig?: typeof resolvedThinkingConfig }).thinkingConfig = resolvedThinkingConfig
+    // 仅在显式配置 thinking 时同步两个字段，避免默认触发 adaptive thinking。
+    if (resolvedThinkingConfig) {
+      ;(options as Options & { thinkingConfig?: typeof resolvedThinkingConfig }).thinkingConfig = resolvedThinkingConfig
+    }
 
     const additionalDirectories = Array.from(
       new Set(
@@ -1186,22 +1018,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.strictMcpConfig = true
     }
 
-    logger.info('[ToolRouter] capability decision', {
-      agentId: session.agent_id,
-      sessionId: session.id,
-      turn: capabilityDecision.turn,
-      selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
-      reasons: capabilityDecision.reasons,
-      stickyApplied: capabilityDecision.stickyApplied,
-      promptLength: prompt.length,
-      imageCount: images?.length ?? 0,
-      builtinRole: builtinRole ?? '',
-      isAssistant,
-      soulEnabled,
-      hasCustomMcpServers: Boolean(session.mcps?.length),
-      forceMountAll: shouldMountAllRuntimeMcpTools
-    })
-
     if (!options.mcpServers) options.mcpServers = {}
     type RuntimeMcpServerConfig = NonNullable<Options['mcpServers']>[string]
     const mountedRuntimeMcpServers: string[] = []
@@ -1215,14 +1031,17 @@ class ClaudeCodeService implements AgentServiceInterface {
       skippedRuntimeMcpServers.push(key)
     }
     const allowMcpPattern = (pattern: string) => {
-      if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0 && !options.allowedTools.includes(pattern)) {
-        options.allowedTools = [...options.allowedTools, pattern]
-      }
+      addAutoAllowedTool(toolSurface, pattern)
+      options.allowedTools = toolSurface.allowedToolsOption
     }
 
-    const filesystemServer = new FileSystemServer(cwd)
-    mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem', instance: filesystemServer.mcpServer })
-    allowMcpPattern('mcp__filesystem__*')
+    if (capabilityDecision.toolLayer !== 'chat') {
+      const filesystemServer = new FileSystemServer(cwd)
+      mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem', instance: filesystemServer.mcpServer })
+      allowMcpPattern('mcp__filesystem__*')
+    } else {
+      markSkipped('filesystem')
+    }
 
     if (shouldMountCapability('browser')) {
       const browserServer = this.getOrCreateBrowserServer(session.id)
@@ -1363,7 +1182,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       markSkipped('agent-memory')
     }
 
-    if (soulEnabled && shouldMountCapability('claw')) {
+    if (autonomousEnabled && shouldMountCapability('claw')) {
       const sourceChannelId = await this.resolveSourceChannel(session.agent_id, session.id)
       const clawServer = new ClawServer(session.agent_id, sourceChannelId)
       mountMcpServer('claw', { type: 'sdk', name: 'claw', instance: clawServer.mcpServer })
@@ -1372,7 +1191,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       autoAllowTools.add('mcp__claw__config')
       allowMcpPattern('mcp__claw__*')
 
-      logger.debug('Soul Mode: injected claw MCP server', {
+      logger.debug('Injected autonomous claw MCP server', {
         agentId: session.agent_id,
         totalMcpServers: Object.keys(options.mcpServers).length
       })
@@ -1399,6 +1218,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       markSkipped('assistant')
     }
 
+    options.allowedTools = Array.from(autoAllowTools).sort()
+
     logger.info('[ToolRouter] mounted MCP servers', {
       agentId: session.agent_id,
       sessionId: session.id,
@@ -1412,16 +1233,37 @@ class ClaudeCodeService implements AgentServiceInterface {
       activeClaudeSkillCount: activeClaudeSkillNames.length,
       customMcpServerCount: session.mcps?.length ?? 0,
       finalMcpServerNames: Object.keys(options.mcpServers || {}).sort(),
+      builtinToolLayer: capabilityDecision.toolLayer,
+      builtinTools: toolSurface.builtinTools,
       allowedToolCount: Array.isArray(options.allowedTools) ? options.allowedTools.length : 0,
       autoAllowToolCount: autoAllowTools.size,
       promptLengths: {
-        nonSoulToolGuidance: nonSoulToolGuidance.length,
-        nonSoulFactsRecall: nonSoulFactsRecall?.length ?? 0,
-        soulSystemPrompt: soulSystemPrompt?.length ?? 0,
+        clawSystemPrompt: clawSystemPrompt?.length ?? 0,
+        factsRecall: factsRecall?.length ?? 0,
         assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
         sessionInstructions: session.instructions?.length ?? 0
       },
       strictMcpConfig: Boolean(options.strictMcpConfig)
+    })
+
+    logPromptBudgetProbe({
+      agentId: session.agent_id,
+      sessionId: session.id,
+      model: modelInfo.modelId,
+      toolLayer: capabilityDecision.toolLayer,
+      prompt,
+      systemPrompt: finalSystemPrompt,
+      builtinTools: toolSurface.builtinTools,
+      allowedTools: Array.isArray(options.allowedTools) ? options.allowedTools : [],
+      mcpServerNames: Object.keys(options.mcpServers || {}).sort(),
+      activeSkills: activeClaudeSkillNames,
+      selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
+      promptLengths: {
+        clawSystemPrompt: clawSystemPrompt?.length ?? 0,
+        factsRecall: factsRecall?.length ?? 0,
+        assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
+        sessionInstructions: session.instructions?.length ?? 0
+      }
     })
 
     if (lastAgentSessionId && !NO_RESUME_COMMANDS.some((cmd) => prompt.includes(cmd))) {
@@ -1808,6 +1650,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       assistantReasoningBlockCount: 0,
       assistantReasoningChars: 0
     }
+    let thinkingDetectionReported = false
     const streamingProbe = {
       firstChunkAtMs: null as number | null,
       firstTextDeltaAtMs: null as number | null,
@@ -1864,6 +1707,31 @@ class ClaudeCodeService implements AgentServiceInterface {
                 index: event?.index,
                 blockType
               })
+              if (!thinkingDetectionReported) {
+                thinkingDetectionReported = true
+                // #region debug-point B:thinking-response
+                void fetch('http://127.0.0.1:7777/event', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sessionId: 'claude-thinking-depth',
+                    runId: 'pre-fix',
+                    hypothesisId: 'B',
+                    location: 'src/main/services/agents/services/claudecode/index.ts',
+                    msg: '[DEBUG] ClaudeCode response emitted thinking block',
+                    data: {
+                      agentSessionId: sessionId,
+                      eventType,
+                      blockType,
+                      index: event?.index,
+                      streamReasoningStartCount: thinkingProbe.streamReasoningStartCount,
+                      streamReasoningDeltaCount: thinkingProbe.streamReasoningDeltaCount
+                    },
+                    ts: Date.now()
+                  })
+                }).catch(() => {})
+                // #endregion
+              }
             }
           } else if (eventType === 'content_block_delta') {
             const deltaType = String(event?.delta?.type || '')

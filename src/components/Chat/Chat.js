@@ -110,6 +110,7 @@ const Chat = ({
   userAvatar = '',
   webPreview = null,
   onCloseWebPreview,
+  onOpenWebPreview,
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
@@ -208,7 +209,8 @@ const Chat = ({
       onSelectSkill={insertSkillMention}
       onCreateSkill={insertCreateSkillPrompt}
       webPreview={webPreview}
-      onCloseWebPreview={onCloseWebPreview}>
+      onCloseWebPreview={onCloseWebPreview}
+      onOpenWebPreview={onOpenWebPreview}>
       <MessagePane
         messages={messages}
         sending={sending}

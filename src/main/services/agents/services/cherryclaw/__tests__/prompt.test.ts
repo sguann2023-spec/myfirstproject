@@ -14,23 +14,13 @@ vi.mock('node:fs/promises', () => ({
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 
-import type { CherryClawConfiguration } from '@types'
-
-import { PromptBuilder } from '../prompt'
-
-const baseConfig: CherryClawConfiguration = {
-  permission_mode: 'bypassPermissions',
-  max_turns: 100,
-  env_vars: {},
-  soul_enabled: true
-}
+import { PromptBuilder, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '../prompt'
 
 const mockedStat = vi.mocked(stat)
 const mockedReadFile = vi.mocked(readFile)
 const mockedReaddir = vi.mocked(readdir)
 
 function setupFiles(files: Record<string, string>) {
-  // Build directory listing from file paths
   const dirs = new Map<string, string[]>()
   for (const filePath of Object.keys(files)) {
     const dir = filePath.substring(0, filePath.lastIndexOf('/'))
@@ -67,282 +57,103 @@ describe('PromptBuilder', () => {
     vi.clearAllMocks()
   })
 
-  it('returns default basic prompt when no workspace files exist', async () => {
+  it('builds a claw-style prompt without Soul bootstrap content', async () => {
     setupFiles({})
 
     const result = await builder.buildSystemPrompt('/workspace')
 
     expect(result).toContain('You are VectcutClaw')
-    expect(result).toContain('## VectcutClaw Tools')
+    expect(result).toContain('# System')
+    expect(result).toContain('# Doing tasks')
+    expect(result).toContain('Never write pseudo tool-call markup')
+    expect(result).toContain(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
+    expect(result).toContain('# Environment context')
+    expect(result).not.toContain('## Bootstrap Mode')
     expect(result).not.toContain('## Memories')
+    expect(result).not.toContain('<soul>')
+    expect(result).not.toContain('<user>')
   })
 
-  it('overrides basic prompt with system.md from workspace', async () => {
+  it('loads capped workspace instruction files instead of Soul memory files', async () => {
     setupFiles({
-      '/workspace/system.md': 'You are CustomBot, a specialized assistant.'
+      '/workspace/CLAUDE.md': 'Root project instructions',
+      '/workspace/.claw/instructions.md': 'Claw local instructions',
+      '/workspace/SOUL.md': 'Legacy soul content should not load',
+      '/workspace/USER.md': 'Legacy user content should not load'
     })
 
     const result = await builder.buildSystemPrompt('/workspace')
 
-    expect(result).toContain('You are CustomBot')
-    expect(result).not.toContain('You are VectcutClaw')
+    expect(result).toContain('# Workspace instructions')
+    expect(result).toContain('Root project instructions')
+    expect(result).toContain('Claw local instructions')
+    expect(result).not.toContain('Legacy soul content')
+    expect(result).not.toContain('Legacy user content')
   })
 
-  it('includes soul.md in memories section', async () => {
+  it('resolves instruction filenames case-insensitively', async () => {
     setupFiles({
-      '/workspace/soul.md': 'Warm but direct. Lead with answers.'
+      '/workspace/claude.md': 'lowercase instructions',
+      '/workspace/.claw/Instructions.md': 'mixed instructions'
     })
 
     const result = await builder.buildSystemPrompt('/workspace')
 
-    expect(result).toContain('## Memories')
-    expect(result).toContain('<soul>')
-    expect(result).toContain('Warm but direct. Lead with answers.')
-    expect(result).toContain('</soul>')
-    expect(result).toContain('WHO you are')
+    expect(result).toContain('lowercase instructions')
+    expect(result).toContain('mixed instructions')
   })
 
-  it('includes user.md in memories section', async () => {
+  it('truncates oversized instruction content', async () => {
     setupFiles({
-      '/workspace/user.md': 'Name: V\nTimezone: UTC+8'
+      '/workspace/CLAUDE.md': 'x'.repeat(5000)
     })
 
     const result = await builder.buildSystemPrompt('/workspace')
 
-    expect(result).toContain('<user>')
-    expect(result).toContain('Name: V')
-    expect(result).toContain('</user>')
-    expect(result).toContain('WHO the user is')
-  })
-
-  it('includes memory/FACT.md in memories section', async () => {
-    setupFiles({
-      '/workspace/memory/FACT.md': '# Active Projects\n\n- Cherry Studio'
-    })
-
-    const result = await builder.buildSystemPrompt('/workspace')
-
-    expect(result).toContain('<facts>')
-    expect(result).toContain('Cherry Studio')
-    expect(result).toContain('</facts>')
-    expect(result).toContain('WHAT you know')
-  })
-
-  it('includes all memory files when all exist', async () => {
-    setupFiles({
-      '/workspace/soul.md': 'Be concise.',
-      '/workspace/user.md': 'Name: V',
-      '/workspace/memory/FACT.md': 'Project: VectcutClaw'
-    })
-
-    const result = await builder.buildSystemPrompt('/workspace')
-
-    expect(result).toContain('<soul>')
-    expect(result).toContain('<user>')
-    expect(result).toContain('<facts>')
-    expect(result).toContain('Update them autonomously')
-    expect(result).toContain('exclusive scope')
-  })
-
-  it('combines system.md override with memories', async () => {
-    setupFiles({
-      '/workspace/system.md': 'You are CustomBot.',
-      '/workspace/soul.md': 'Sharp and efficient.'
-    })
-
-    const result = await builder.buildSystemPrompt('/workspace')
-
-    expect(result).toContain('You are CustomBot.')
-    expect(result).toContain('<soul>')
-    expect(result).toContain('Sharp and efficient.')
-  })
-
-  it('resolves filenames case-insensitively', async () => {
-    // Files exist with different casing than the canonical names
-    setupFiles({
-      '/workspace/SOUL.md': 'Uppercase soul',
-      '/workspace/User.md': 'Mixed case user',
-      '/workspace/memory/fact.md': 'Lowercase facts'
-    })
-
-    const result = await builder.buildSystemPrompt('/workspace')
-
-    expect(result).toContain('<soul>')
-    expect(result).toContain('Uppercase soul')
-    expect(result).toContain('<user>')
-    expect(result).toContain('Mixed case user')
-    expect(result).toContain('<facts>')
-    expect(result).toContain('Lowercase facts')
+    expect(result).toContain('[truncated]')
+    expect(result.length).toBeLessThan(7000)
   })
 
   it('uses mtime cache for repeated reads', async () => {
     setupFiles({
-      '/workspace/soul.md': 'Cached soul'
+      '/workspace/CLAUDE.md': 'Cached instructions'
     })
 
     await builder.buildSystemPrompt('/workspace')
     await builder.buildSystemPrompt('/workspace')
 
-    // readFile should only be called once per unique file due to caching
-    const soulReadCalls = mockedReadFile.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].includes('soul.md')
+    const readCalls = mockedReadFile.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('CLAUDE.md')
     )
-    expect(soulReadCalls).toHaveLength(1)
-  })
-
-  describe('bootstrap mode', () => {
-    it('injects bootstrap instructions when no config is provided and SOUL.md is empty', async () => {
-      setupFiles({})
-
-      const result = await builder.buildSystemPrompt('/workspace')
-
-      expect(result).toContain('## Bootstrap Mode')
-      expect(result).toContain('complete_bootstrap')
-    })
-
-    it('injects bootstrap instructions when bootstrap_completed is false', async () => {
-      setupFiles({})
-
-      const result = await builder.buildSystemPrompt('/workspace', { ...baseConfig, bootstrap_completed: false })
-
-      expect(result).toContain('## Bootstrap Mode')
-    })
-
-    it('skips bootstrap when bootstrap_completed is true', async () => {
-      setupFiles({})
-
-      const result = await builder.buildSystemPrompt('/workspace', { ...baseConfig, bootstrap_completed: true })
-
-      expect(result).not.toContain('## Bootstrap Mode')
-    })
-
-    it('skips bootstrap when SOUL.md has substantial content (legacy migration)', async () => {
-      const realContent =
-        'I am a warm, direct assistant. I lead with answers and prefer concise communication. I respect boundaries and always ask before making assumptions.'
-      setupFiles({
-        '/workspace/SOUL.md': `# Soul\n\n> Template header\n\n${realContent}`
-      })
-
-      const result = await builder.buildSystemPrompt('/workspace')
-
-      expect(result).not.toContain('## Bootstrap Mode')
-    })
-
-    it('still shows bootstrap when SOUL.md only has template headings', async () => {
-      setupFiles({
-        '/workspace/SOUL.md':
-          '# Soul\n\n> This file defines who you are. Update it as your personality evolves.\n\n## Personality\n\n\n## Tone\n\n'
-      })
-
-      const result = await builder.buildSystemPrompt('/workspace')
-
-      expect(result).toContain('## Bootstrap Mode')
-    })
-
-    it('includes memories section alongside bootstrap instructions', async () => {
-      setupFiles({
-        '/workspace/SOUL.md': '# Soul\n\n> This file defines who you are.\n\n## Personality\n\n\n## Tone\n\n',
-        '/workspace/user.md': 'Name: V'
-      })
-
-      const result = await builder.buildSystemPrompt('/workspace')
-
-      expect(result).toContain('## Bootstrap Mode')
-      expect(result).toContain('## Memories')
-      expect(result).toContain('<user>')
-    })
+    expect(readCalls).toHaveLength(1)
   })
 
   describe('buildToolGuidance', () => {
-    it('returns skills, memory, and web sections without claw by default', () => {
-      const result = builder.buildToolGuidance()
-
-      expect(result).toContain('## Skills')
-      expect(result).toContain('mcp__skills__skills')
-      expect(result).toContain('## 中文自媒体选题与文案强约束')
-      expect(result).toContain('信息差')
-      expect(result).toContain('## Workspace Memory')
-      expect(result).toContain('mcp__agent-memory__memory')
-      expect(result).toContain('## Web Search & Browser Strategy')
-      expect(result).toContain('mcp__search__web_search')
-      expect(result).not.toContain('mcp__exa__web_search_exa')
-      expect(result).toContain('curl -sL')
-      expect(result).toContain('Do not rely on browser opening as your primary search strategy')
-      expect(result).not.toContain('## VectcutClaw Tools')
-      expect(result).not.toContain('mcp__claw__cron')
-      expect(result).not.toContain('mcp__claw__notify')
-      expect(result).not.toContain('mcp__claw__config')
+    it('returns empty guidance when no capability is selected', () => {
+      expect(builder.buildToolGuidance()).toBe('')
     })
 
-    it('includes claw section when hasClaw is true', () => {
-      const result = builder.buildToolGuidance({ hasClaw: true })
+    it('adds only capability-scoped guidance', () => {
+      const result = builder.buildToolGuidance({
+        hasWeb: true,
+        hasWorkspaceTools: true,
+        hasWriteTools: true
+      })
 
-      expect(result).toContain('## VectcutClaw Tools')
-      expect(result).toContain('mcp__claw__cron')
-      expect(result).toContain('mcp__claw__notify')
-      expect(result).toContain('mcp__claw__config')
-      // Skills, memory, and web are still included
-      expect(result).toContain('mcp__skills__skills')
-      expect(result).toContain('## 中文自媒体选题与文案强约束')
-      expect(result).toContain('mcp__agent-memory__memory')
-      expect(result).toContain('## Web Search & Browser Strategy')
+      expect(result).toContain('## Web and browser')
+      expect(result).toContain('## Workspace work')
+      expect(result).toContain('## File editing')
+      expect(result).not.toContain('## Skills')
+      expect(result).not.toContain('## Workspace memory')
+      expect(result).not.toContain('## Content creation')
     })
 
-    it('places claw guidance before skills/memory when present', () => {
-      const result = builder.buildToolGuidance({ hasClaw: true })
+    it('keeps self-media guidance concise and opt-in', () => {
+      const result = builder.buildToolGuidance({ hasContentCreation: true })
 
-      const clawIdx = result.indexOf('## VectcutClaw Tools')
-      const skillsIdx = result.indexOf('## Skills')
-      const contentIdx = result.indexOf('## 中文自媒体选题与文案强约束')
-      const memoryIdx = result.indexOf('## Workspace Memory')
-      const webIdx = result.indexOf('## Web Search & Browser Strategy')
-
-      expect(clawIdx).toBeGreaterThanOrEqual(0)
-      expect(clawIdx).toBeLessThan(skillsIdx)
-      expect(skillsIdx).toBeLessThan(contentIdx)
-      expect(contentIdx).toBeLessThan(memoryIdx)
-      expect(memoryIdx).toBeLessThan(webIdx)
-    })
-
-    it('teaches when to act for skills (init/register and patching)', () => {
-      const result = builder.buildToolGuidance()
-
-      expect(result).toMatch(/init.*register|register.*init/)
-      expect(result).toMatch(/edit.*in place|patch|outdated/i)
-    })
-
-    it('teaches when to act for memory (search-before-ask, FACT vs JOURNAL)', () => {
-      const result = builder.buildToolGuidance()
-
-      expect(result).toMatch(/search.*before|before.*ask/i)
-      expect(result).toContain('FACT.md')
-      expect(result).toContain('JOURNAL')
-      expect(result).toMatch(/6 months|durable/i)
-    })
-
-    it('enforces topic upgrading for Chinese self-media copywriting', () => {
-      const result = builder.buildToolGuidance()
-
-      expect(result).toContain('必须优先改写成“群体观察 + 结果揭示 + 隐含规则”的题型')
-      expect(result).toContain('从“我的问题”升级成“某类人的真实选择”')
-      expect(result).toContain('禁止直接顺着平庸问题输出标准答案')
-      expect(result).toContain('富人的女儿都嫁给了谁？')
-      expect(result).toContain('私人求助题”升级成“群体观察题”和“现实揭示题')
-    })
-
-    it('returns the same content soul-mode buildSystemPrompt embeds (with claw)', async () => {
-      setupFiles({})
-      const soulPrompt = await builder.buildSystemPrompt('/workspace')
-      const guidance = builder.buildToolGuidance({ hasClaw: true })
-
-      // The Soul prompt should embed every section the with-claw guidance has.
-      expect(soulPrompt).toContain('## VectcutClaw Tools')
-      expect(soulPrompt).toContain('## Skills')
-      expect(soulPrompt).toContain('## 中文自媒体选题与文案强约束')
-      expect(soulPrompt).toContain('## Workspace Memory')
-      expect(soulPrompt).toContain('## Web Search & Browser Strategy')
-      // And the guidance string is a contiguous substring of the soul prompt.
-      expect(soulPrompt).toContain(guidance)
+      expect(result).toContain('## Content creation')
+      expect(result).toContain('distribution strength')
+      expect(result.length).toBeLessThan(500)
     })
   })
 
@@ -355,60 +166,18 @@ describe('PromptBuilder', () => {
       expect(result).toBeUndefined()
     })
 
-    it('wraps memory/FACT.md content in a Workspace Knowledge block', async () => {
+    it('wraps memory/FACT.md content in a capped workspace knowledge block', async () => {
       setupFiles({
-        '/workspace/memory/FACT.md': '- Project: cherry-studio\n- Build tool: pnpm + electron-vite'
+        '/workspace/memory/FACT.md': '- Project: VectCut\n'.repeat(400)
       })
 
       const result = await builder.buildFactsSection('/workspace')
 
       expect(result).toBeDefined()
-      expect(result).toContain('## Workspace Knowledge')
+      expect(result).toContain('## Workspace knowledge')
       expect(result).toContain('<facts>')
-      expect(result).toContain('Project: cherry-studio')
-      expect(result).toContain('Build tool: pnpm + electron-vite')
-      expect(result).toContain('</facts>')
-      // The agent should also be told to keep updating FACT.md
-      expect(result).toContain('mcp__agent-memory__memory')
-      expect(result).toContain('action="update"')
-    })
-
-    it('resolves FACT.md case-insensitively', async () => {
-      setupFiles({
-        '/workspace/memory/fact.md': '- lowercase filename'
-      })
-
-      const result = await builder.buildFactsSection('/workspace')
-
-      expect(result).toBeDefined()
-      expect(result).toContain('lowercase filename')
-    })
-
-    it('returns undefined when FACT.md exists but is empty', async () => {
-      setupFiles({
-        '/workspace/memory/FACT.md': ''
-      })
-
-      const result = await builder.buildFactsSection('/workspace')
-
-      expect(result).toBeUndefined()
-    })
-
-    it('does not include SOUL.md or USER.md content (those are Soul-only)', async () => {
-      setupFiles({
-        '/workspace/SOUL.md': 'Warm but direct.',
-        '/workspace/user.md': 'Name: V',
-        '/workspace/memory/FACT.md': 'Build tool: pnpm'
-      })
-
-      const result = await builder.buildFactsSection('/workspace')
-
-      expect(result).toBeDefined()
-      expect(result).toContain('Build tool: pnpm')
-      expect(result).not.toContain('Warm but direct')
-      expect(result).not.toContain('Name: V')
-      expect(result).not.toContain('<soul>')
-      expect(result).not.toContain('<user>')
+      expect(result).toContain('[truncated]')
+      expect(result!.length).toBeLessThan(4300)
     })
   })
 })

@@ -1,10 +1,12 @@
 import { loggerService } from '@logger'
 import { isWin } from '@main/constant'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import http from 'node:http'
+import https from 'node:https'
+import { Readable } from 'node:stream'
 import { Worker } from 'node:worker_threads'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
@@ -48,6 +50,10 @@ function getMainWindow() {
   return mainWindow
 }
 
+type AbortableDownloadRequest = {
+  abort: () => void
+}
+
 async function downloadViaWindowSession(
   worker: Worker,
   payload: { reqId?: string; url?: string; localFilename?: string; timeout?: number; headers?: Record<string, string> },
@@ -85,9 +91,15 @@ async function downloadViaWindowSession(
     return
   }
 
-  const abortController = new AbortController()
-  const timer = setTimeout(() => abortController.abort(new Error(`session download timeout after ${timeout}ms`)), timeout)
+  let activeRequest: AbortableDownloadRequest | null = null
+  let timeoutError: Error | null = null
+  const timer = setTimeout(() => {
+    timeoutError = new Error(`session download timeout after ${timeout}ms`)
+    activeRequest?.abort()
+  }, timeout)
   let completed = false
+  let downloadedBytes = 0
+  let totalBytes = 0
 
   try {
     await fs.promises.mkdir(path.dirname(localFilename), { recursive: true })
@@ -100,35 +112,175 @@ async function downloadViaWindowSession(
       localFilename
     })
 
-    const response = await mainWindow.webContents.session.fetch(url, {
-      method: 'GET',
-      headers: payload?.headers || {},
-      signal: abortController.signal
-    })
+    const buildRequestHeaders = async (targetUrl: string) => {
+      const headers: Record<string, string> = {
+        ...(payload?.headers || {})
+      }
 
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`)
+      if (!headers.Cookie && !headers.cookie) {
+        try {
+          const cookies = await mainWindow.webContents.session.cookies.get({ url: targetUrl })
+          if (cookies.length > 0) {
+            headers.Cookie = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
+          }
+        } catch (error) {
+          logger.warn('[DLTRACE][Main] read session cookies failed', error as Error)
+        }
+      }
+
+      return headers
     }
 
-    if (!response.body) {
-      throw new Error('empty response body')
-    }
+    const downloadWithSessionFetch = async (targetUrl: string) => {
+      const abortController = new AbortController()
+      activeRequest = {
+        abort: () => {
+          abortController.abort()
+        }
+      }
 
-    const totalBytes = Number(response.headers.get('content-length') || 0)
-    let downloadedBytes = 0
-    const source = Readable.fromWeb(response.body as NodeReadableStream)
-    const writer = fs.createWriteStream(localFilename)
-
-    source.on('data', (chunk) => {
-      downloadedBytes += Buffer.byteLength(chunk)
-      reply({
-        type: 'session-download-progress',
-        downloadedBytes,
-        totalBytes
+      const response = await mainWindow.webContents.session.fetch(targetUrl, {
+        method: 'GET',
+        headers: payload?.headers || {},
+        signal: abortController.signal
       })
-    })
 
-    await pipeline(source, writer)
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`)
+      }
+
+      if (!response.body) {
+        throw new Error('empty response body')
+      }
+
+      totalBytes = Number(response.headers.get('content-length') || 0)
+      const source = Readable.fromWeb(response.body as NodeReadableStream)
+
+      source.on('data', (chunk) => {
+        downloadedBytes += Buffer.byteLength(chunk)
+        reply({
+          type: 'session-download-progress',
+          downloadedBytes,
+          totalBytes
+        })
+      })
+
+      await pipeline(source, fs.createWriteStream(localFilename))
+    }
+
+    const downloadWithNodeRequest = async (targetUrl: string, redirectCount = 0): Promise<void> => {
+      if (redirectCount >= 5) {
+        throw new Error('session download exceeded redirect limit')
+      }
+
+      const requestHeaders = await buildRequestHeaders(targetUrl)
+      const redirectUrl = await new Promise<string | null>((resolve, reject) => {
+        let settled = false
+
+        const finish = (error?: Error, nextUrl?: string | null) => {
+          if (settled) return
+          settled = true
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve(nextUrl || null)
+        }
+
+        const parsedUrl = new URL(targetUrl)
+        const client = parsedUrl.protocol === 'https:' ? https : http
+        const request = client.request(
+          {
+            protocol: parsedUrl.protocol,
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || undefined,
+            path: `${parsedUrl.pathname}${parsedUrl.search}`,
+            method: 'GET',
+            headers: requestHeaders
+          },
+          (response) => {
+            const statusCode = Number(response.statusCode || 0)
+            const locationHeader = response.headers.location
+            const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader
+
+            if (statusCode >= 300 && statusCode < 400 && location) {
+              response.resume()
+              finish(undefined, new URL(location, targetUrl).toString())
+              return
+            }
+
+            if (statusCode < 200 || statusCode >= 300) {
+              response.resume()
+              finish(new Error(`Request failed with status ${statusCode || 'unknown'}`))
+              return
+            }
+
+            const contentLengthHeader = response.headers['content-length']
+            const contentLengthValue = Array.isArray(contentLengthHeader) ? contentLengthHeader[0] : contentLengthHeader
+            totalBytes = Number(contentLengthValue || 0)
+
+            response.on('data', (chunk) => {
+              downloadedBytes += Buffer.byteLength(chunk)
+              reply({
+                type: 'session-download-progress',
+                downloadedBytes,
+                totalBytes
+              })
+            })
+
+            response.on('aborted', () => {
+              finish(new Error('session download aborted'))
+            })
+
+            pipeline(response, fs.createWriteStream(localFilename))
+              .then(() => finish())
+              .catch((error) => finish(error instanceof Error ? error : new Error(String(error))))
+          }
+        )
+
+        activeRequest = {
+          abort: () => {
+            request.destroy(timeoutError || new Error('session download aborted'))
+          }
+        }
+
+        request.on('error', (error) => {
+          finish(timeoutError || (error instanceof Error ? error : new Error(String(error))))
+        })
+
+        request.end()
+      })
+
+      if (redirectUrl) {
+        await downloadWithNodeRequest(redirectUrl, redirectCount + 1)
+      }
+    }
+
+    try {
+      await downloadWithSessionFetch(url)
+    } catch (error) {
+      const message = timeoutError?.message || (error instanceof Error ? error.message : String(error))
+      logger.warn('[DLTRACE][Main] session.fetch failed, fallback to node request', {
+        jobId,
+        draftId,
+        reqId,
+        url,
+        error: message
+      })
+
+      if (timeoutError) {
+        throw timeoutError
+      }
+
+      downloadedBytes = 0
+      totalBytes = 0
+      try {
+        await fs.promises.unlink(localFilename)
+      } catch {}
+
+      await downloadWithNodeRequest(url)
+    }
+
     completed = true
 
     reply({
@@ -170,7 +322,7 @@ async function downloadViaWindowSession(
   } finally {
     clearTimeout(timer)
     if (!completed) {
-      abortController.abort()
+      activeRequest?.abort()
     }
   }
 }

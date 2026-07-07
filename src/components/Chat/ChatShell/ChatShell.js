@@ -15,6 +15,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Play,
   RefreshCw,
   UserPlus
 } from 'lucide-react';
@@ -25,6 +26,10 @@ import TextFilePreview from './TextFilePreview';
 import WebPagePreview from './WebPagePreview';
 
 const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
+const normalizeComparablePath = (value) => {
+  const normalized = normalizePath(value).replace(/\/$/, '');
+  return isWindows ? normalized.toLowerCase() : normalized;
+};
 const resolveListedEntryPath = (rootPath, entryPath) => {
   const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
   const normalizedEntry = normalizePath(entryPath).trim();
@@ -44,6 +49,43 @@ const getParentPath = (value) => {
   if (separatorIndex <= 0) return '';
   return normalized.slice(0, separatorIndex);
 };
+const isPathInsideRoot = (candidatePath, rootPath) => {
+  const normalizedCandidate = normalizeComparablePath(candidatePath);
+  const normalizedRoot = normalizeComparablePath(rootPath);
+  if (!normalizedCandidate || !normalizedRoot) return false;
+  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}/`);
+};
+const WORKSPACE_MUTATION_TOOL_NAMES = new Set([
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'DeleteFile',
+  'Bash',
+  'BashOutput',
+  'RunCommand'
+]);
+const getWorkspaceMutationPaths = (chunk) => {
+  const input = chunk?.input && typeof chunk.input === 'object' ? chunk.input : {};
+  const candidates = [
+    input?.file_path,
+    input?.cwd,
+    ...(Array.isArray(input?.file_paths) ? input.file_paths : [])
+  ];
+  return dedupePaths(candidates);
+};
+const shouldRefreshWorkspaceForChunk = (payload, workspacePath) => {
+  if (payload?.type !== 'chunk') return false;
+  const chunk = payload?.chunk;
+  if (!chunk || (chunk.type !== 'tool-result' && chunk.type !== 'tool-error')) return false;
+  const toolName = String(chunk?.toolName || '').trim();
+  if (!WORKSPACE_MUTATION_TOOL_NAMES.has(toolName)) return false;
+  const mutationPaths = getWorkspaceMutationPaths(chunk);
+  if (mutationPaths.length === 0) {
+    return toolName === 'Bash' || toolName === 'BashOutput' || toolName === 'RunCommand';
+  }
+  return mutationPaths.some((candidatePath) => isPathInsideRoot(candidatePath, workspacePath));
+};
 const CODE_EXTENSIONS = new Set([
   'c', 'cc', 'cpp', 'cs', 'css', 'go', 'h', 'hpp', 'html', 'java', 'js', 'jsx', 'mjs',
   'php', 'py', 'rb', 'rs', 'sass', 'scss', 'sh', 'sql', 'swift', 'ts', 'tsx', 'vue',
@@ -55,6 +97,7 @@ const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
 const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'rar', 'tar', 'tgz', 'xz', 'zip']);
 const SPREADSHEET_EXTENSIONS = new Set(['csv', 'numbers', 'ods', 'tsv', 'xls', 'xlsx']);
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx']);
+const HTML_PREVIEW_EXTENSIONS = new Set(['html', 'htm']);
 const TEXT_PREVIEW_EXTENSIONS = new Set([
   'txt', 'text', 'log', 'conf', 'config', 'env', 'ini', 'toml', 'graphql', 'gql',
   'csv', 'tsv', 'gitignore', 'editorconfig'
@@ -83,6 +126,13 @@ const getPreviewKindForFileName = (fileName = '') => {
   if (TEXT_PREVIEW_EXTENSIONS.has(extension)) return 'text';
   return null;
 };
+const isHtmlPreviewFileName = (fileName = '') => HTML_PREVIEW_EXTENSIONS.has(getFileExtension(fileName));
+const createFilePreviewUrl = (filePath = '') => {
+  const normalizedPath = normalizePath(filePath).trim();
+  if (!normalizedPath) return '';
+  const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+  return encodeURI(`file://${normalizedPathname}`);
+};
 const dedupePaths = (paths) => Array.from(new Set((Array.isArray(paths) ? paths : []).map((path) => normalizePath(path)).filter(Boolean)));
 const getConfigObject = (value) => (value && typeof value === 'object' ? value : {});
 const getSelectedWorkspacePath = (session) => {
@@ -103,9 +153,71 @@ const getRecentWorkspacePaths = (agent, library) => {
 };
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const WORKSPACE_CREATE_PARENT_STORE_KEY = 'chat-workspace-create-parent:v1';
+const WEB_PREVIEW_WIDTH_STORE_KEY = 'chat-web-preview-width:v1';
+const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v1';
 const TREE_LIST_MAX_ENTRIES = 20000;
+const DEFAULT_PREVIEW_PANE_WIDTH = 400;
+const DEFAULT_MEMBERS_PANEL_WIDTH = 180;
+const MIN_MEMBERS_PANEL_WIDTH = 160;
+const MAX_MEMBERS_PANEL_WIDTH = 360;
+const MEMBERS_PANEL_RESIZER_WIDTH = 8;
+const WEB_PREVIEW_RESIZER_WIDTH = 8;
+const MIN_WEB_PREVIEW_WIDTH = 320;
+const MIN_MAIN_PANEL_WIDTH = 260;
+const MAX_WEB_PREVIEW_WIDTH = 880;
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
 const getWorkspaceLibrary = (paths) => dedupePaths(paths);
+const clampMembersPanelWidth = (nextWidth, containerWidth, hasLeadingFilePreview = false, trailingWebPreviewWidth = 0) => {
+  const safeContainerWidth = Number(containerWidth) || 0;
+  const leadingWidth = hasLeadingFilePreview ? DEFAULT_PREVIEW_PANE_WIDTH : 0;
+  const trailingWidth = Math.max(0, Number(trailingWebPreviewWidth) || 0);
+  const computedMaxWidth = safeContainerWidth > 0
+    ? safeContainerWidth - leadingWidth - trailingWidth - MIN_MAIN_PANEL_WIDTH - MEMBERS_PANEL_RESIZER_WIDTH - (trailingWidth > 0 ? WEB_PREVIEW_RESIZER_WIDTH : 0)
+    : MAX_MEMBERS_PANEL_WIDTH;
+  const maxWidth = Math.max(MIN_MEMBERS_PANEL_WIDTH, Math.min(MAX_MEMBERS_PANEL_WIDTH, computedMaxWidth));
+  return Math.min(maxWidth, Math.max(MIN_MEMBERS_PANEL_WIDTH, Math.round(Number(nextWidth) || DEFAULT_MEMBERS_PANEL_WIDTH)));
+};
+const clampWebPreviewWidth = (nextWidth, containerWidth, hasLeadingFilePreview = false, membersPanelWidth = DEFAULT_MEMBERS_PANEL_WIDTH) => {
+  const safeContainerWidth = Number(containerWidth) || 0;
+  const leadingWidth = hasLeadingFilePreview ? DEFAULT_PREVIEW_PANE_WIDTH : 0;
+  const computedMaxWidth = safeContainerWidth > 0
+    ? safeContainerWidth - leadingWidth - Math.max(MIN_MEMBERS_PANEL_WIDTH, Number(membersPanelWidth) || DEFAULT_MEMBERS_PANEL_WIDTH) - MIN_MAIN_PANEL_WIDTH - MEMBERS_PANEL_RESIZER_WIDTH - WEB_PREVIEW_RESIZER_WIDTH
+    : MAX_WEB_PREVIEW_WIDTH;
+  const maxWidth = Math.max(MIN_WEB_PREVIEW_WIDTH, Math.min(MAX_WEB_PREVIEW_WIDTH, computedMaxWidth));
+  return Math.min(maxWidth, Math.max(MIN_WEB_PREVIEW_WIDTH, Math.round(Number(nextWidth) || DEFAULT_PREVIEW_PANE_WIDTH)));
+};
+const readMembersPanelWidth = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return DEFAULT_MEMBERS_PANEL_WIDTH;
+  try {
+    return clampMembersPanelWidth(window.localStorage.getItem(MEMBERS_PANEL_WIDTH_STORE_KEY));
+  } catch (_error) {
+    return DEFAULT_MEMBERS_PANEL_WIDTH;
+  }
+};
+const writeMembersPanelWidth = (width) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(MEMBERS_PANEL_WIDTH_STORE_KEY, String(Math.round(Number(width) || DEFAULT_MEMBERS_PANEL_WIDTH)));
+  } catch (_error) {
+    // ignore storage failures
+  }
+};
+const readWebPreviewWidth = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return DEFAULT_PREVIEW_PANE_WIDTH;
+  try {
+    return clampWebPreviewWidth(window.localStorage.getItem(WEB_PREVIEW_WIDTH_STORE_KEY));
+  } catch (_error) {
+    return DEFAULT_PREVIEW_PANE_WIDTH;
+  }
+};
+const writeWebPreviewWidth = (width) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(WEB_PREVIEW_WIDTH_STORE_KEY, String(Math.round(Number(width) || DEFAULT_PREVIEW_PANE_WIDTH)));
+  } catch (_error) {
+    // ignore storage failures
+  }
+};
 const readCreateWorkspaceParentStore = () => {
   if (typeof window === 'undefined' || !window.localStorage) return {};
   try {
@@ -407,6 +519,7 @@ const ChatShell = ({
   onCreateSkill,
   webPreview = null,
   onCloseWebPreview,
+  onOpenWebPreview,
   children
 }) => {
   const [resolvedSessionId, setResolvedSessionId] = React.useState(runtimeSessionId || '');
@@ -430,8 +543,14 @@ const ChatShell = ({
   const [createWorkspaceName, setCreateWorkspaceName] = React.useState('');
   const [createWorkspaceSubmitting, setCreateWorkspaceSubmitting] = React.useState(false);
   const [filePreview, setFilePreview] = React.useState(null);
+  const [membersPanelWidth, setMembersPanelWidth] = React.useState(() => readMembersPanelWidth());
+  const [webPreviewWidth, setWebPreviewWidth] = React.useState(() => readWebPreviewWidth());
+  const [isResizingMembersPanel, setIsResizingMembersPanel] = React.useState(false);
+  const [isResizingWebPreview, setIsResizingWebPreview] = React.useState(false);
   const titleInputRef = React.useRef(null);
   const filePreviewRequestIdRef = React.useRef(0);
+  const contentRef = React.useRef(null);
+  const workspaceRefreshTimeoutRef = React.useRef(null);
   const workspaceLibrary = React.useMemo(() => getWorkspaceLibrary(workspaceStore?.library), [workspaceStore]);
   const recentWorkspacePaths = React.useMemo(
     () => getRecentWorkspacePaths(workspaceStore, workspaceLibrary),
@@ -443,6 +562,11 @@ const ChatShell = ({
     () => (showAllRecentWorkspaces ? recentWorkspacePaths : recentWorkspacePaths.slice(0, 5)),
     [recentWorkspacePaths, showAllRecentWorkspaces]
   );
+  const hasFilePreview = Boolean(filePreview);
+  const hasWebPreview = Boolean(webPreview);
+  const showLeadingFilePreview = hasFilePreview;
+  const showTrailingWebPreview = hasWebPreview;
+  const isResizingAnyPanel = isResizingMembersPanel || isResizingWebPreview;
 
   React.useEffect(() => {
     setResolvedSessionId(runtimeSessionId || '');
@@ -451,6 +575,49 @@ const ChatShell = ({
   React.useEffect(() => {
     writeWorkspaceStore(workspaceStore);
   }, [workspaceStore]);
+
+  React.useEffect(() => {
+    writeMembersPanelWidth(membersPanelWidth);
+  }, [membersPanelWidth]);
+
+  React.useEffect(() => {
+    writeWebPreviewWidth(webPreviewWidth);
+  }, [webPreviewWidth]);
+
+  React.useEffect(() => {
+    const syncMembersPanelWidth = () => {
+      const containerWidth = contentRef.current?.clientWidth || 0;
+      const trailingWidth = showTrailingWebPreview ? webPreviewWidth : 0;
+      setMembersPanelWidth((prev) => clampMembersPanelWidth(prev, containerWidth, hasFilePreview, trailingWidth));
+    };
+
+    syncMembersPanelWidth();
+    window.addEventListener('resize', syncMembersPanelWidth);
+    return () => window.removeEventListener('resize', syncMembersPanelWidth);
+  }, [hasFilePreview, showTrailingWebPreview, webPreviewWidth]);
+
+  React.useEffect(() => {
+    const syncWebPreviewWidth = () => {
+      const containerWidth = contentRef.current?.clientWidth || 0;
+      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, hasFilePreview, membersPanelWidth));
+    };
+
+    syncWebPreviewWidth();
+    window.addEventListener('resize', syncWebPreviewWidth);
+    return () => window.removeEventListener('resize', syncWebPreviewWidth);
+  }, [hasFilePreview, membersPanelWidth]);
+
+  React.useEffect(() => {
+    if (!isResizingAnyPanel) return undefined;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizingAnyPanel]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -807,6 +974,64 @@ const ChatShell = ({
     void loadWorkspaceTree(currentWorkspacePath);
   }, [currentWorkspacePath, hasLockedWorkspace, loadWorkspaceTree, workspaceExpanded, workspaceTrees]);
 
+  const invalidateWorkspaceTree = React.useCallback((workspacePath) => {
+    const workspaceKey = normalizePath(workspacePath);
+    if (!workspaceKey) return;
+    setWorkspaceTrees((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, workspaceKey)) return prev;
+      const next = { ...prev };
+      delete next[workspaceKey];
+      return next;
+    });
+    setWorkspaceTreeLoading((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, workspaceKey)) return prev;
+      const next = { ...prev };
+      delete next[workspaceKey];
+      return next;
+    });
+  }, []);
+
+  const scheduleWorkspaceTreeRefresh = React.useCallback((workspacePath) => {
+    const workspaceKey = normalizePath(workspacePath);
+    if (!workspaceKey) return;
+    if (workspaceRefreshTimeoutRef.current) {
+      window.clearTimeout(workspaceRefreshTimeoutRef.current);
+    }
+    workspaceRefreshTimeoutRef.current = window.setTimeout(() => {
+      workspaceRefreshTimeoutRef.current = null;
+      void loadWorkspaceTree(workspaceKey);
+    }, 120);
+  }, [loadWorkspaceTree]);
+
+  React.useEffect(() => () => {
+    if (workspaceRefreshTimeoutRef.current) {
+      window.clearTimeout(workspaceRefreshTimeoutRef.current);
+      workspaceRefreshTimeoutRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const api = window?.electronAPI?.cherryChatStream;
+    const targetSessionId = String(resolvedSessionId || '').trim();
+    if (!targetSessionId || !currentWorkspacePath || typeof api?.onChunk !== 'function') return undefined;
+
+    return api.onChunk((payload) => {
+      if (String(payload?.sessionId || '').trim() !== targetSessionId) return;
+      if (!shouldRefreshWorkspaceForChunk(payload, currentWorkspacePath)) return;
+      if (workspaceExpanded) {
+        scheduleWorkspaceTreeRefresh(currentWorkspacePath);
+        return;
+      }
+      invalidateWorkspaceTree(currentWorkspacePath);
+    });
+  }, [
+    currentWorkspacePath,
+    invalidateWorkspaceTree,
+    resolvedSessionId,
+    scheduleWorkspaceTreeRefresh,
+    workspaceExpanded
+  ]);
+
   const bindWorkspaceToSession = React.useCallback(async (workspacePath, options = {}) => {
     const { seedSkills = false } = options;
     if (!agentId) {
@@ -996,11 +1221,120 @@ const ChatShell = ({
     setFilePreview(null);
   }, []);
 
-  const hasFilePreview = Boolean(filePreview);
-  const hasWebPreview = Boolean(webPreview);
-  const showLeadingFilePreview = hasFilePreview && hasWebPreview;
-  const sidePreview = (!showLeadingFilePreview && filePreview) || webPreview || null;
-  const keepSidebarVisible = hasWebPreview;
+  const membersPanelStyle = { width: `${membersPanelWidth}px`, flexBasis: `${membersPanelWidth}px` };
+  const membersSidebarStyle = { width: `${membersPanelWidth}px`, flexBasis: `${membersPanelWidth}px` };
+  const trailingWebPreviewStyle = showTrailingWebPreview
+    ? { width: `${webPreviewWidth}px`, flexBasis: `${webPreviewWidth}px` }
+    : undefined;
+
+  const updateMembersPanelWidth = React.useCallback((nextWidth) => {
+    const containerWidth = contentRef.current?.clientWidth || 0;
+    const trailingWidth = showTrailingWebPreview ? webPreviewWidth : 0;
+    setMembersPanelWidth(clampMembersPanelWidth(nextWidth, containerWidth, showLeadingFilePreview, trailingWidth));
+  }, [showLeadingFilePreview, showTrailingWebPreview, webPreviewWidth]);
+
+  const updateWebPreviewWidth = React.useCallback((nextWidth) => {
+    const containerWidth = contentRef.current?.clientWidth || 0;
+    setWebPreviewWidth(clampWebPreviewWidth(nextWidth, containerWidth, showLeadingFilePreview, membersPanelWidth));
+  }, [membersPanelWidth, showLeadingFilePreview]);
+
+  const handleMembersPanelResizeStart = React.useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = membersPanelWidth;
+    setIsResizingMembersPanel(true);
+
+    const handleMouseMove = (moveEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      updateMembersPanelWidth(startWidth + deltaX);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingMembersPanel(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [membersPanelWidth, updateMembersPanelWidth]);
+
+  const handleWebPreviewResizeStart = React.useCallback((event) => {
+    if (!showTrailingWebPreview) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = webPreviewWidth;
+    setIsResizingWebPreview(true);
+
+    const handleMouseMove = (moveEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      updateWebPreviewWidth(startWidth + deltaX);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingWebPreview(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [showTrailingWebPreview, updateWebPreviewWidth, webPreviewWidth]);
+
+  const handleMembersPanelResizeKeyDown = React.useCallback((event) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      updateMembersPanelWidth(membersPanelWidth + 20);
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      updateMembersPanelWidth(membersPanelWidth - 20);
+      return;
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      updateMembersPanelWidth(MIN_MEMBERS_PANEL_WIDTH);
+      return;
+    }
+    if (event.key === 'End') {
+      event.preventDefault();
+      updateMembersPanelWidth(MAX_MEMBERS_PANEL_WIDTH);
+    }
+  }, [membersPanelWidth, updateMembersPanelWidth]);
+
+  const handleWebPreviewResizeKeyDown = React.useCallback((event) => {
+    if (!showTrailingWebPreview) return;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      updateWebPreviewWidth(webPreviewWidth + 20);
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      updateWebPreviewWidth(webPreviewWidth - 20);
+      return;
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      updateWebPreviewWidth(MIN_WEB_PREVIEW_WIDTH);
+      return;
+    }
+    if (event.key === 'End') {
+      event.preventDefault();
+      updateWebPreviewWidth(MAX_WEB_PREVIEW_WIDTH);
+    }
+  }, [showTrailingWebPreview, updateWebPreviewWidth, webPreviewWidth]);
+
+  const resetWebPreviewWidth = React.useCallback(() => {
+    updateWebPreviewWidth(DEFAULT_PREVIEW_PANE_WIDTH);
+  }, [updateWebPreviewWidth]);
+
+  const resetMembersPanelWidth = React.useCallback(() => {
+    updateMembersPanelWidth(DEFAULT_MEMBERS_PANEL_WIDTH);
+  }, [updateMembersPanelWidth]);
 
   const openFilePreview = React.useCallback(async (rootPath, node) => {
     if (!rootPath || !node?.path || node.type !== 'file') return;
@@ -1075,6 +1409,22 @@ const ChatShell = ({
     }
   }, []);
 
+  const openHtmlWebPreview = React.useCallback((rootPath, node) => {
+    if (typeof onOpenWebPreview !== 'function' || !rootPath || !node?.path || node.type !== 'file') return;
+    if (!isHtmlPreviewFileName(node.name)) return;
+
+    const absolutePath = resolveListedEntryPath(rootPath, node.path);
+    const url = createFilePreviewUrl(absolutePath);
+    if (!absolutePath || !url) return;
+
+    onOpenWebPreview({
+      key: `workspace-html:${absolutePath}`,
+      url,
+      title: node.name || getBaseName(absolutePath) || '网页预览',
+      sourcePath: absolutePath
+    });
+  }, [onOpenWebPreview]);
+
   const renderTreeNodes = React.useCallback((scopeKey, rootPath, nodes, depth = 1) => {
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
 
@@ -1084,6 +1434,7 @@ const ChatShell = ({
       const isExpanded = isDirectory && expandedNodeKeys.has(compositeKey);
       const FileIcon = isDirectory ? null : getFileIcon(node.name);
       const absolutePath = isDirectory ? '' : resolveListedEntryPath(rootPath, node.path);
+      const isHtmlFile = !isDirectory && isHtmlPreviewFileName(node.name);
       const isPreviewSelected = !isDirectory && absolutePath && filePreview?.path === absolutePath;
 
       return (
@@ -1127,12 +1478,25 @@ const ChatShell = ({
               {isDirectory ? (isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />) : <FileIcon size={14} />}
             </span>
             <MarqueeText className="chat-panel__tree-label" text={node.name} />
+            {isHtmlFile && (
+              <button
+                type="button"
+                className="chat-panel__tree-hover-action"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openHtmlWebPreview(rootPath, node);
+                }}
+                title="在内嵌浏览器中打开"
+                aria-label={`在内嵌浏览器中打开 ${node.name}`}>
+                <Play size={32} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+            )}
           </div>
           {isDirectory && isExpanded && Array.isArray(node.children) && renderTreeNodes(scopeKey, rootPath, node.children, depth + 1)}
         </React.Fragment>
       );
     });
-  }, [expandedNodeKeys, filePreview?.path, openFilePreview, toggleNodeExpanded]);
+  }, [expandedNodeKeys, filePreview?.path, openFilePreview, openHtmlWebPreview, toggleNodeExpanded]);
 
   return (
     <div className="chat-panel">
@@ -1190,7 +1554,8 @@ const ChatShell = ({
         )}
       </div>
 
-      <div className="chat-panel__content">
+      <div className={`chat-panel__content ${isResizingAnyPanel ? 'is-resizing-web-preview' : ''}`.trim()} ref={contentRef}>
+        {isResizingAnyPanel && <div className="chat-panel__resize-shield" aria-hidden="true" />}
         <div className="chat-panel__main">
           {children}
         </div>
@@ -1199,8 +1564,18 @@ const ChatShell = ({
             <TextFilePreview preview={filePreview} currentModelMeta={currentModelMeta} onClose={closeFilePreview} />
           )}
         </div>
-        <div className={`chat-panel__members ${sidePreview ? 'has-preview' : ''} ${keepSidebarVisible ? 'has-sidebar-preview' : ''}`.trim()}>
-          <div className={`chat-panel__members-sidebar ${sidePreview && !keepSidebarVisible ? 'is-hidden' : ''}`.trim()}>
+        <div
+          className={`chat-panel__panel-resizer ${isResizingMembersPanel ? 'is-active' : ''}`.trim()}
+          role="separator"
+          tabIndex={0}
+          aria-label="调整工作空间宽度"
+          aria-orientation="vertical"
+          onMouseDown={handleMembersPanelResizeStart}
+          onDoubleClick={resetMembersPanelWidth}
+          onKeyDown={handleMembersPanelResizeKeyDown}
+        />
+        <div className="chat-panel__members" style={membersPanelStyle}>
+          <div className="chat-panel__members-sidebar" style={membersSidebarStyle}>
             <div className="chat-panel__members-list">
             {hasLockedWorkspace && (
               <>
@@ -1402,16 +1777,25 @@ const ChatShell = ({
             )}
             </div>
           </div>
-          <div className={`chat-panel__preview-pane ${sidePreview ? 'is-open' : ''}`.trim()}>
-            {!showLeadingFilePreview && filePreview && (
-              <TextFilePreview preview={filePreview} currentModelMeta={currentModelMeta} onClose={closeFilePreview} />
-            )}
-            {webPreview && (
-              <WebPagePreview preview={webPreview} onClose={onCloseWebPreview} />
-            )}
-          </div>
-          </div>
         </div>
+        {showTrailingWebPreview && (
+          <div
+            className={`chat-panel__panel-resizer ${isResizingWebPreview ? 'is-active' : ''}`.trim()}
+            role="separator"
+            tabIndex={0}
+            aria-label="调整内嵌浏览器宽度"
+            aria-orientation="vertical"
+            onMouseDown={handleWebPreviewResizeStart}
+            onDoubleClick={resetWebPreviewWidth}
+            onKeyDown={handleWebPreviewResizeKeyDown}
+          />
+        )}
+        <div className={`chat-panel__preview-pane chat-panel__preview-pane--trailing ${showTrailingWebPreview ? 'is-open' : ''}`.trim()} style={trailingWebPreviewStyle}>
+          {webPreview && (
+            <WebPagePreview preview={webPreview} onClose={onCloseWebPreview} />
+          )}
+        </div>
+      </div>
       <WorkspaceCreateDialog
         open={createWorkspaceDialogOpen}
         parentDir={createWorkspaceParentDir}
