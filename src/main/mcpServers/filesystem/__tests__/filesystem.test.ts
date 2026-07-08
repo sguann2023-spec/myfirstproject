@@ -3,6 +3,7 @@ import path from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { resolveFilesystemBaseDir } from '../config'
+import { handleDownloadTool } from '../tools/download'
 import { handleGlobTool } from '../tools/glob'
 import { handleLsTool } from '../tools/ls'
 import * as types from '../types'
@@ -130,5 +131,44 @@ describe('filesystem MCP security', () => {
     expect(text).toContain('legit.txt')
     // The symlink entry itself may appear, but its children should not be listed
     expect(text).not.toContain('secret.txt')
+  })
+
+  it('downloads remote files into the configured workspace root', async () => {
+    const workspaceRoot = await createTempDir('download-root-')
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'audio/mpeg' }),
+      arrayBuffer: async () => new TextEncoder().encode('mp3-data').buffer
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await handleDownloadTool(
+      {
+        url: 'https://example.com/audio.mp3',
+        path: 'assets/audio/test.mp3'
+      },
+      workspaceRoot
+    )
+
+    const savedPath = path.join(workspaceRoot, 'assets', 'audio', 'test.mp3')
+    await expect(fs.readFile(savedPath, 'utf-8')).resolves.toBe('mp3-data')
+    expect(result.content[0].text).toContain('assets/audio/test.mp3')
+    expect(result.content[0].text).toContain('audio/mpeg')
+  })
+
+  it('rejects download destinations outside the configured workspace root', async () => {
+    const workspaceRoot = await createTempDir('download-reject-root-')
+
+    await expect(
+      handleDownloadTool(
+        {
+          url: 'https://example.com/audio.mp3',
+          path: '../outside.mp3'
+        },
+        workspaceRoot
+      )
+    ).rejects.toThrow('outside the configured workspace root')
   })
 })

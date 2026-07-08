@@ -142,6 +142,7 @@ export class PromptBuilder {
 - The current workspace absolute path is: ${workspacePath}
 - Treat this absolute path as the workspace root for this turn.
 - Before any file-related action, first confirm the current workspace structure and the relevant target path with available workspace read tools such as Glob, Read, or Grep.
+- For downloaded artifacts such as audio, images, archives, and generated files, save them inside the current workspace by default unless the user explicitly asks for another location.
 - Read relevant files before changing behavior.
 - Keep edits scoped to the user's request and the surrounding ownership boundaries.
 - Report verification honestly, including tests that were skipped or failed.`)
@@ -152,6 +153,7 @@ export class PromptBuilder {
 
 - For existing files, inspect the current content before editing.
 - For creates, moves, renames, deletes, and path selection, do not guess folders or filenames that have not been verified inside the current workspace.
+- Do not default to the user's Downloads folder when a workspace path is available.
 - Avoid broad rewrites when a local change is enough.
 - Do not overwrite user work or unrelated dirty changes.`)
     }

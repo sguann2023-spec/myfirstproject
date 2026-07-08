@@ -7,10 +7,12 @@ import path from 'path'
 
 import {
   deleteToolDefinition,
+  downloadToolDefinition,
   editToolDefinition,
   globToolDefinition,
   grepToolDefinition,
   handleDeleteTool,
+  handleDownloadTool,
   handleEditTool,
   handleGlobTool,
   handleGrepTool,
@@ -75,6 +77,7 @@ export class FileSystemServer {
           lsToolDefinition,
           grepToolDefinition,
           readToolDefinition,
+          downloadToolDefinition,
           editToolDefinition,
           writeToolDefinition,
           deleteToolDefinition
@@ -99,6 +102,9 @@ export class FileSystemServer {
 
           case 'read':
             return await handleReadTool(args, this.baseDir)
+
+          case 'download':
+            return await handleDownloadTool(args, this.baseDir)
 
           case 'edit':
             return await handleEditTool(args, this.baseDir)

@@ -1,5 +1,6 @@
 // Export all tool definitions and handlers
 export { deleteToolDefinition, handleDeleteTool } from './delete'
+export { downloadToolDefinition, handleDownloadTool } from './download'
 export { editToolDefinition, handleEditTool } from './edit'
 export { globToolDefinition, handleGlobTool } from './glob'
 export { grepToolDefinition, handleGrepTool } from './grep'
