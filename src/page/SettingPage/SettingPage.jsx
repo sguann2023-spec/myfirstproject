@@ -6,8 +6,9 @@ import './SettingPage.css';
 import AccountSecurityIcon from '../../../public/account_security.svg';
 import GeneralSettingIcon from '../../../public/settings_general.png';
 import PrivacyIcon from '../../../public/privacy.svg';
-import { InfoCircleOutlined } from '@ant-design/icons';
+import { InfoCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 const GeneralSettings = lazy(() => import('../../components/GeneralSettings/GeneralSettings'));
+const HelpSettings = lazy(() => import('../../components/HelpSettings/HelpSettings'));
 const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
 const AboutUs = lazy(() => import('../../components/AboutUs/AboutUs'));
 const PolicyAgreement = lazy(() => import('../../components/PolicyAgreement/PolicyAgreement'));
@@ -16,6 +17,7 @@ const PolicyAgreement = lazy(() => import('../../components/PolicyAgreement/Poli
 const settingMenuItems = [
   { key: 'account-security', icon: <img src={AccountSecurityIcon} alt="Account Security" className="setting-icon" />, title: '账号与安全', component: AccountSecurity },
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
+  { key: 'help', icon: <QuestionCircleOutlined />, title: '使用帮助', component: HelpSettings },
   { key: 'about', icon: <InfoCircleOutlined />, title: '关于流光剪辑', component: AboutUs },
   { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement }
 ];

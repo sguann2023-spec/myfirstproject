@@ -11,7 +11,11 @@ import DraftCoverDefault from '../DraftCoverDefault/DraftCoverDefault';
 import { toMediaSrc } from '../../shared/mediaSrc.js';
 const logger = loggerService.withContext('DownloadDualList');
 
-function DownloadDualList({ onViewChange, onSelectCompletedItem, selectedCompletedKey }) {
+function DownloadDualList({
+  onViewChange,
+  onSelectCompletedItem,
+  selectedCompletedKey,
+}) {
   const [pending, setPending] = useState(() => {
     const bootQueue = Array.isArray(window.downloadDualQueue) ? [...window.downloadDualQueue] : [];
     // 清空全局暂存，避免重复入队

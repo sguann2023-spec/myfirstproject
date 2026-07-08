@@ -56,11 +56,13 @@ declare global {
         listActive: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         listLocal: (payload: { workdir: string }) => Promise<{ ok: boolean; skills: any[] }>
         seedWorkspace: (payload: { workspace: string }) => Promise<{ ok: boolean; error?: any }>
+        runExample: (payload: { skillPath: string }) => Promise<{ ok: boolean; error?: any; stdout?: string; stderr?: string }>
         subscribeChanges: (payload?: { agentId?: string }) => Promise<any>
         unsubscribeChanges: (payload?: { agentId?: string }) => Promise<any>
         onChanged: (callback: (payload: any) => void) => () => void
         toggle: (payload: { agentId?: string; skillId: string; isEnabled: boolean }) => Promise<any>
         installFromDirectory: (payload: { agentId?: string; directoryPath: string; isEnabled?: boolean }) => Promise<any>
+        copyDirectoryToWorkspace: (payload: { agentId?: string; directoryPath: string; workspace: string }) => Promise<any>
         uninstall: (payload: { skillId: string }) => Promise<any>
         rescan: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         run: (payload: { skillName: string; args?: string[]; envVars?: Record<string, string> }) => Promise<any>

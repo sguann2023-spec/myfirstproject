@@ -25,12 +25,12 @@ const normalizeMessages = (session) => (Array.isArray(session?.messages) ? sessi
 const EMPTY_WELCOME_TEXT = '初次见面，你的剪辑伙伴已就位';
 const QUICK_PROMPTS = [
   {
-    label: '把这条视频的气口去掉',
-    prompt: '请处理这个视频(<https://player.install-ai-guider.top/example/koubo_test3.mp4>)，把气口去掉',
+    label: '儿童绘本',
+    action: 'bootstrap-childrens-picture-book',
   },
   {
-    label: '给我添加一下网感字幕',
-    prompt: '请基于这个视频(<https://player.install-ai-guider.top/example/koubo_test5.mp4>)添加网感字幕',
+    label: '把这条视频的气口去掉',
+    prompt: '请处理这个视频(<https://player.install-ai-guider.top/example/koubo_test3.mp4>)，把气口去掉',
   },
   {
     label: '把这几条视频混剪在一起',
@@ -125,9 +125,13 @@ const Chat = ({
   webPreview = null,
   onCloseWebPreview,
   onOpenWebPreview,
+  onQuickPromptAction,
+  beginnerGuideDownloadPaneRef = null,
+  beginnerGuideSettingsPaneRef = null,
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
+  const childrensBookQuickPromptRef = React.useRef(null);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
   const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
   const currentModelMeta = React.useMemo(() => {
@@ -233,7 +237,11 @@ const Chat = ({
       sessionSending={sessionSending}
       webPreview={webPreview}
       onCloseWebPreview={onCloseWebPreview}
-      onOpenWebPreview={onOpenWebPreview}>
+      onOpenWebPreview={onOpenWebPreview}
+      childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+      beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
+      beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
+      beginnerGuideEligible={messages.length === 0}>
       <MessagePane
         messages={messages}
         sending={sending}
@@ -242,7 +250,11 @@ const Chat = ({
         onDeleteAssistantMessage={onDeleteAssistantMessage}
         messageEndRef={messageEndRef}
         onQuickPrompt={(prompt) => {
-          setInput(prompt);
+          if (prompt && typeof prompt === 'object' && prompt.action) {
+            onQuickPromptAction && onQuickPromptAction(prompt.action);
+            return;
+          }
+          setInput(typeof prompt === 'string' ? prompt : '');
           inputRef.current?.focus();
         }}
         quickPrompts={QUICK_PROMPTS}
@@ -253,6 +265,7 @@ const Chat = ({
         formatModelDisplayName={formatModelDisplayName}
         userName={userName}
         userAvatar={userAvatar}
+        childrensBookQuickPromptRef={childrensBookQuickPromptRef}
       />
       <ChatPinnedTodoPanel topicId={chatTopicId} sessionFulfilled={sessionFulfilled} />
       <Composer

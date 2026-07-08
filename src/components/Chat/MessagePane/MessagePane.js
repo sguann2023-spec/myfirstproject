@@ -5,6 +5,7 @@ import MessageGroup from './MessageGroup/MessageGroup';
 import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessagePane');
+const CHILDRENS_BOOK_TOUR_ACTION = 'bootstrap-childrens-picture-book';
 
 const MessagePane = ({
   messages,
@@ -22,6 +23,7 @@ const MessagePane = ({
   formatModelDisplayName,
   userName,
   userAvatar,
+  childrensBookQuickPromptRef,
 }) => {
   const scrollContainerRef = React.useRef(null);
   const autoScrollEnabledRef = React.useRef(true);
@@ -165,7 +167,8 @@ const MessagePane = ({
                     key={item.label}
                     type="button"
                     className="chat-panel__quick-prompt"
-                    onClick={() => onQuickPrompt(item.prompt)}
+                    ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? childrensBookQuickPromptRef : null}
+                    onClick={() => onQuickPrompt(item.action ? item : item.prompt)}
                   >
                     {item.label}
                   </button>

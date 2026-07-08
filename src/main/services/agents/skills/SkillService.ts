@@ -336,6 +336,37 @@ export class SkillService extends BaseService {
     return this.installSkillDir(directoryPath, 'local', null)
   }
 
+  async copyDirectoryToWorkspace(directoryPath: string, workspace: string): Promise<{
+    folderName: string
+    targetPath: string
+  }> {
+    logger.info('Copying skill directory to workspace', { directoryPath, workspace })
+
+    if (!(await directoryExists(directoryPath))) {
+      throw new Error(`Directory not found: ${directoryPath}`)
+    }
+    if (!workspace || typeof workspace !== 'string') {
+      throw new Error('Invalid workspace')
+    }
+
+    const sourceFolderName = path.basename(path.resolve(directoryPath))
+    const folderName = sourceFolderName
+      .replace(/[/\\]/g, '_')
+      .replace(new RegExp(String.fromCharCode(0), 'g'), '')
+      .trim()
+    if (!folderName) {
+      throw new Error('Invalid skill folder name')
+    }
+
+    const targetPath = path.join(workspace, '.claude', 'skills', folderName)
+    await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
+    await fs.promises.rm(targetPath, { recursive: true, force: true })
+    await fs.promises.cp(directoryPath, targetPath, { recursive: true })
+
+    logger.info('Copied skill directory to workspace', { directoryPath, workspace, folderName, targetPath })
+    return { folderName, targetPath }
+  }
+
   /**
    * List local skills from an agent workdir's .claude/skills/ directory.
    */

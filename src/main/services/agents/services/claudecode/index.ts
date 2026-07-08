@@ -290,11 +290,17 @@ class ClaudeCodeService implements AgentServiceInterface {
     })
   }
 
-  private getOrCreateBrowserServer(sessionId: string): BrowserServer {
+  private async getOrCreateBrowserServer(sessionId: string): Promise<BrowserServer> {
     const existing = this.browserServers.get(sessionId)
     if (existing) {
-      logger.debug('Reusing browser MCP server for session', { sessionId })
-      return existing
+      logger.info('Resetting browser MCP server before session reuse', { sessionId })
+      this.browserServers.delete(sessionId)
+      await existing.close().catch((error: unknown) => {
+        logger.warn('Failed to close browser MCP server before session reuse', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
     }
 
     const browserServer = new BrowserServer()
@@ -1069,7 +1075,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     markSkipped('filesystem')
 
     if (shouldMountCapability('browser')) {
-      const browserServer = this.getOrCreateBrowserServer(session.id)
+      const browserServer = await this.getOrCreateBrowserServer(session.id)
       mountMcpServer('browser', { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer })
       autoAllowTools.add('mcp__browser__open')
       autoAllowTools.add('mcp__browser__click')

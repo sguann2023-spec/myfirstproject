@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>儿童绘本故事视频草稿演示</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,100italic,300,300italic,400,400italic" />
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    article, aside, details, figcaption, figure, footer, header, hgroup, menu, nav, section { display: block; }
+    ol, ul { list-style: none; }
+    blockquote, q { quotes: none; }
+    table { border-collapse: collapse; border-spacing: 0; }
+
+    /* ── Base ── */
+    body {
+      background: #F8F8F8;
+      font-family: 'Roboto', sans-serif;
+      font-weight: 300;
+      font-size: 17px;
+      line-height: 1.75;
+      color: #888;
+      -webkit-text-stroke: 0.1px;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      color: #666;
+      margin: 0 0 1em 0;
+      font-weight: 100;
+      line-height: 1.5;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: dotted 1px rgba(0,0,0,0.25);
+      transition: border-bottom-color 0.25s ease-in-out;
+    }
+    a:hover { border-bottom-color: transparent; }
+
+    p { margin-bottom: 1em; text-align: justify; }
+
+    strong, b { font-weight: 400; }
+    em, i { font-style: italic; }
+
+    input, textarea, select {
+      font-family: 'Roboto', sans-serif;
+      font-weight: 300;
+      font-size: 15px;
+      line-height: 1.75;
+      color: #888;
+      -webkit-text-stroke: 0.1px;
+    }
+
+    /* ── Dark text ── */
+    .dark { color: #aaa; color: rgba(255,255,255,0.65); }
+    .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 { color: #fff; }
+    .dark strong, .dark b { color: rgba(255,255,255,0.85); }
+    .dark a { color: #fff; border-bottom-color: rgba(255,255,255,0.5); }
+    .dark a:hover { border-bottom-color: transparent; }
+
+    /* ── Container ── */
+    .container {
+      margin: 0 auto;
+      max-width: 100%;
+      width: 1200px;
+    }
+    .container.medium { width: 900px; }
+
+    /* ── Row / Grid ── */
+    .row { display: flex; flex-wrap: wrap; box-sizing: border-box; align-items: stretch; }
+    .row > * { box-sizing: border-box; }
+    .row { margin-top: -40px; margin-left: -40px; }
+    .row > * { padding: 40px 0 0 40px; }
+    .col-4 { width: 33.33333%; }
+    .col-6 { width: 50%; }
+    .col-8 { width: 66.66667%; }
+    .col-12 { width: 100%; }
+
+    /* ── Button ── */
+    .button {
+      appearance: none;
+      border: solid 1px #d6d6d6;
+      border-radius: 0;
+      background: transparent;
+      color: #666;
+      cursor: pointer;
+      display: inline-block;
+      font-family: 'Roboto', sans-serif;
+      font-size: 14px;
+      font-weight: 300;
+      letter-spacing: 2px;
+      padding: 12px 32px;
+      text-align: center;
+      text-transform: uppercase;
+      transition: background 0.25s ease-in-out, color 0.25s ease-in-out, border-color 0.25s ease-in-out;
+    }
+    .button:hover { background: rgba(0,0,0,0.04); }
+    .button.alt { background: #666; color: #fff; border-color: #666; }
+    .button.alt:hover { background: #767676; border-color: #767676; }
+    .button:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+
+    .dark .button {
+      background: #fff;
+      color: #333;
+      border-color: #fff;
+    }
+    .dark .button:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: #fff; }
+    .dark .button.alt { background: transparent; color: #fff; border-color: #fff; }
+    .dark .button.alt:hover { background: rgba(255,255,255,0.1); }
+
+    /* ── Form inputs ── */
+    textarea, input[type="text"] {
+      appearance: none;
+      width: 100%;
+      border: solid 1px #d6d6d6;
+      border-radius: 0;
+      padding: 12px 16px;
+      background: transparent;
+      font-family: 'Roboto', sans-serif;
+      transition: border-color 0.25s ease-in-out;
+    }
+    textarea:focus, input[type="text"]:focus { border-color: #666; }
+    textarea { resize: vertical; min-height: 100px; }
+
+    .dark textarea, .dark input[type="text"] {
+      border-color: rgba(255,255,255,0.35);
+      color: #fff;
+    }
+    .dark textarea:focus, .dark input[type="text"]:focus { border-color: #fff; }
+
+    /* ── Header Section ── */
+    #header {
+      position: relative;
+      text-align: center;
+      background: #333;
+      color: #fff;
+      padding: 120px 40px 100px;
+    }
+    #header::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 40px solid transparent;
+      border-right: 40px solid transparent;
+      border-top: 40px solid #F8F8F8;
+    }
+    #header header h1 {
+      color: #fff;
+      font-size: 42px;
+      font-weight: 100;
+      margin-bottom: 16px;
+    }
+    #header header p {
+      font-size: 18px;
+      color: rgba(255,255,255,0.55);
+      max-width: 700px;
+      margin: 0 auto 32px;
+      text-align: center;
+    }
+
+    /* ── Main Sections ── */
+    .main { position: relative; }
+    .main > header {
+      text-align: center;
+      padding: 80px 40px 40px;
+    }
+    .main > header h2 {
+      font-size: 34px;
+      font-weight: 100;
+      margin-bottom: 12px;
+    }
+    .main > header p {
+      font-size: 16px;
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .main > .content {
+      padding: 40px 40px 60px;
+    }
+    .main > .content.dark {
+      background: #444;
+      color: rgba(255,255,255,0.65);
+    }
+    .main > .content.dark h3 { color: #fff; }
+    .main > .content.style1 { background: #e8e8e8; }
+    .main > .content.style2 { background: #555; }
+    .main > .content.style3 { background: #e8e8e8; }
+    .main > .content.style4 { background: #555; }
+
+    /* ── Featured (centered) ── */
+    .featured { text-align: center; }
+    .featured p { text-align: center; }
+
+    /* ── Feature Icon ── */
+    .feature-icon { display: block; margin-bottom: 20px; }
+    .feature-icon .icon-circle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: solid 2px #d6d6d6;
+      font-size: 24px;
+      color: #666;
+      transition: all 0.3s ease;
+    }
+    .dark .feature-icon .icon-circle {
+      border-color: rgba(255,255,255,0.35);
+      color: #fff;
+    }
+
+    /* ── Step Card ── */
+    .step-card {
+      border: solid 1px #d6d6d6;
+      padding: 24px;
+      margin-bottom: 20px;
+      background: #fff;
+      transition: border-color 0.25s ease;
+    }
+    .step-card:hover { border-color: #bbb; }
+    .dark .step-card {
+      border-color: rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.05);
+    }
+    .dark .step-card:hover { border-color: rgba(255,255,255,0.4); }
+
+    .step-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .step-name { font-weight: 400; font-size: 16px; color: #666; }
+    .dark .step-name { color: #fff; }
+
+    .step-state {
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border: solid 1px #d6d6d6;
+    }
+    .step-state.waiting { color: #aaa; border-color: #d6d6d6; }
+    .step-state.running { color: #d97706; border-color: rgba(217,119,6,0.4); }
+    .step-state.done { color: #059669; border-color: rgba(5,150,105,0.4); }
+    .step-state.error { color: #dc2626; border-color: rgba(220,38,38,0.4); }
+    .dark .step-state.waiting { color: rgba(255,255,255,0.5); border-color: rgba(255,255,255,0.3); }
+    .dark .step-state.done { color: #34d399; border-color: rgba(52,211,153,0.4); }
+    .dark .step-state.running { color: #fbbf24; border-color: rgba(251,191,36,0.4); }
+    .dark .step-state.error { color: #f87171; border-color: rgba(248,113,113,0.4); }
+
+    .step-body { font-size: 14px; line-height: 1.75; color: #999; }
+    .dark .step-body { color: rgba(255,255,255,0.55); }
+
+    /* ── Code block ── */
+    .code-block {
+      padding: 16px 20px;
+      background: #2a2a2a;
+      color: #ccc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.75;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow: auto;
+      max-height: 260px;
+      border: solid 1px #3a3a3a;
+    }
+
+    /* ── Meta info ── */
+    .meta-item {
+      border: solid 1px #d6d6d6;
+      padding: 16px 20px;
+      margin-bottom: 12px;
+      background: #fff;
+    }
+    .meta-item .k {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #aaa;
+      margin-bottom: 6px;
+    }
+    .meta-item .v {
+      font-size: 14px;
+      word-break: break-word;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      color: #666;
+    }
+
+    /* ── Template chips ── */
+    .template-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .template-chip {
+      appearance: none;
+      border: solid 1px #d6d6d6;
+      background: transparent;
+      color: #666;
+      padding: 8px 16px;
+      font-family: 'Roboto', sans-serif;
+      font-size: 12px;
+      font-weight: 300;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+    .template-chip:hover {
+      background: rgba(0,0,0,0.04);
+      border-color: #999;
+    }
+
+    /* ── Status ── */
+    .status { font-size: 14px; font-weight: 400; margin: 16px 0; }
+
+    /* ── Section title ── */
+    .section-title { margin-bottom: 24px; }
+    .section-title h2 { margin: 0; font-size: 28px; font-weight: 100; }
+
+    /* ── Preview box ── */
+    .preview-box {
+      background: #333;
+      color: rgba(255,255,255,0.65);
+      padding: 32px;
+      margin-bottom: 20px;
+      min-height: 200px;
+    }
+    .preview-box h2 { color: #fff; font-size: 24px; font-weight: 100; margin-bottom: 12px; }
+    .preview-box p { color: rgba(255,255,255,0.55); font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
+    .preview-tag {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+      margin-bottom: 16px;
+      padding: 4px 12px;
+      border: solid 1px rgba(255,255,255,0.2);
+    }
+
+    /* ── Note ── */
+    .note { font-size: 13px; color: #aaa; line-height: 1.75; margin-top: 12px; }
+    .dark .note { color: rgba(255,255,255,0.45); }
+
+    /* ── Mono ── */
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    /* ── Label ── */
+    label {
+      display: block;
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #999;
+      margin-bottom: 8px;
+    }
+    .dark label { color: rgba(255,255,255,0.55); }
+
+    /* ── Link button ── */
+    .link-btn {
+      display: inline-block;
+      border: solid 1px #d6d6d6;
+      padding: 10px 24px;
+      font-family: 'Roboto', sans-serif;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.25s ease;
+      border-bottom: solid 1px #d6d6d6 !important;
+    }
+    .link-btn.primary { background: #666; color: #fff; border-color: #666; }
+    .link-btn.primary:hover { background: #767676; }
+
+    /* ── Footer ── */
+    #footer {
+      text-align: center;
+      padding: 60px 40px;
+      background: #333;
+      color: rgba(255,255,255,0.45);
+    }
+    #footer .copyright { font-size: 13px; }
+    #footer .copyright a {
+      color: rgba(255,255,255,0.55);
+      border-bottom-color: rgba(255,255,255,0.25);
+    }
+    #footer ul {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    #footer ul li a {
+      color: rgba(255,255,255,0.55);
+      border-bottom: none;
+      font-size: 13px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 1280px) {
+      .container { width: 960px; }
+      .container.medium { width: 720px; }
+    }
+    @media (max-width: 1000px) {
+      .container, .container.medium { width: 100% !important; }
+      .col-4, .col-6, .col-8 { width: 100%; }
+      #header { padding: 80px 20px 60px; }
+      #header header h1 { font-size: 32px; }
+      .main > header h2 { font-size: 26px; }
+      .main > header { padding: 50px 20px 30px; }
+      .main > .content { padding: 30px 20px 40px; }
+      .row { margin-top: -20px; margin-left: -20px; }
+      .row > * { padding: 20px 0 0 20px; }
+    }
+    @media (max-width: 600px) {
+      #header header h1 { font-size: 26px; }
+      .main > header h2 { font-size: 22px; }
+      body { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <section id="header" class="dark">
+    <header>
+      <h1>儿童绘本故事视频草稿演示</h1>
+      <p>输入一个绘本主题后，页面会先生成分镜文案、句子级映射和每个分镜的配图提示词，再转成配音，随后通过字幕模版拿到精确到句子的时间戳，最后使用 <span class="mono">gpt-image-2-all</span> 逐段生成 9:16 竖屏图片并连续铺满整条时间线。</p>
+    </header>
+  </section>
+
+  <!-- First: Input & Config -->
+  <section id="first" class="main">
+    <header>
+      <div class="container">
+        <h2>输入配置</h2>
+        <p>填写绘本主题和 API Key，选择快速体验模板即可开始生成。</p>
+      </div>
+    </header>
+    <div class="content style1">
+      <div class="container">
+        <div class="row">
+          <div class="col-6">
+            <section>
+              <label for="theme">儿童绘本主题</label>
+              <textarea id="theme" placeholder="例如：一只怕黑的小兔子学会勇敢，适合 3-6 岁儿童">一只怕黑的小兔子学会勇敢，适合 3-6 岁儿童</textarea>
+              <div class="note">快速体验模板</div>
+              <div class="template-list" id="templateList"></div>
+            </section>
+          </div>
+          <div class="col-6">
+            <section>
+              <label for="token">API Key</label>
+              <input id="token" type="text" placeholder="请输入 VectCut API Key，只需要 Key 本身" />
+              <div style="margin-top: 24px;">
+                <button class="button alt" id="createBtn" type="button">生成儿童绘本草稿</button>
+                <button class="button" id="resetBtn" type="button" style="margin-left: 12px;">重置</button>
+              </div>
+              <div class="status" id="status" style="color: #059669; font-weight: 400;">等待创建草稿...</div>
+            </section>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 20px;">
+          <div class="col-6">
+            <div class="meta-item">
+              <span class="k">草稿 ID</span>
+              <div class="v" id="draftId">-</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="meta-item">
+              <span class="k">下载链接</span>
+              <div class="v" id="downloadUrl">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Second: Processing Steps -->
+  <section id="second" class="main">
+    <header>
+      <div class="container">
+        <h2>处理步骤</h2>
+        <p>页面会先创建草稿，再依次调用分镜文案、音频、字幕模版和 AI 生图接口。</p>
+      </div>
+    </header>
+    <div class="content dark style2">
+      <div class="container">
+        <div class="row">
+          <div class="col-4">
+            <div class="step-card">
+              <div class="step-head">
+                <div class="step-name">1. 生成分镜文案</div>
+                <div class="step-state waiting" id="scriptState">等待中</div>
+              </div>
+              <div class="step-body" id="scriptBody">根据主题生成整段口播文案、句子级映射、分镜拆解，以及每个分镜对应的配图提示词。</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="step-card">
+              <div class="step-head">
+                <div class="step-name">2. 转换音频</div>
+                <div class="step-state waiting" id="audioState">等待中</div>
+              </div>
+              <div class="step-body" id="audioBody">使用音色 <span class="mono">gv_2e601fae38484816adf8bf5c38b79393</span> 将文案转为音频。</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="step-card">
+              <div class="step-head">
+                <div class="step-name">3. 生成字幕时间轴</div>
+                <div class="step-state waiting" id="subtitleState">等待中</div>
+              </div>
+              <div class="step-body" id="subtitleBody">使用字幕模板 <span class="mono">asr_42da310c1e4347ddb2c96dd2a5d055c2</span> 根据音频生成字幕，并返回每句话的精确时间戳。</div>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-12" style="text-align: center; margin-top: 20px;">
+            <div class="step-card" style="display: inline-block; width: auto; min-width: 400px; text-align: left;">
+              <div class="step-head">
+                <div class="step-name">4. 生成配图并铺满时间线</div>
+                <div class="step-state waiting" id="imageState">等待中</div>
+              </div>
+              <div class="step-body" id="imageBody">使用 <span class="mono">gpt-image-2-all</span> 生成 9:16 竖屏图片，按句子级时间映射连续铺满，并为前面的图片随机添加转场。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Third: Preview -->
+  <section id="third" class="main">
+    <header>
+      <div class="container">
+        <h2>分镜视频预览</h2>
+        <p>生成完成后，这里会显示本次生成的主题、分镜文案、字幕时间轴和图片素材输出。</p>
+      </div>
+    </header>
+    <div class="content style3">
+      <div class="container">
+        <div class="row">
+          <div class="col-6">
+            <div class="preview-box">
+              <span class="preview-tag">分镜视频预览</span>
+              <h2 id="previewTitle">未创建</h2>
+              <p id="previewBody">点击"生成儿童绘本草稿"后，这里会显示本次生成的主题、分镜文案、字幕时间轴和图片素材输出，方便查看整条视频草稿链路。</p>
+              <div id="downloadArea" style="margin-top: 16px;"></div>
+            </div>
+            <div class="note">
+              说明：页面会先创建草稿，再依次调用分镜文案、音频、字幕模版和 AI 生图接口。配图时段会先把字幕时间轴对齐到句子，再把句子映射到分镜，最终下载按钮使用接口返回的 <span class="mono">draft_id</span> 拼接 schema。
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="section-title">
+              <h3>生成结果</h3>
+            </div>
+            <div class="step-card">
+              <div class="step-head"><div class="step-name">分镜文案</div></div>
+              <pre class="code-block" id="scriptOutput">-</pre>
+            </div>
+            <div class="step-card">
+              <div class="step-head"><div class="step-name">音频</div></div>
+              <div class="step-body" id="audioOutput">-</div>
+            </div>
+            <div class="step-card">
+              <div class="step-head"><div class="step-name">字幕</div></div>
+              <div class="step-body" id="subtitleOutput">-</div>
+            </div>
+            <div class="step-card">
+              <div class="step-head"><div class="step-name">图片素材</div></div>
+              <div class="step-body" id="imageOutput">-</div>
+            </div>
+            <div class="step-card">
+              <div class="step-head"><div class="step-name">错误详情</div></div>
+              <pre class="code-block" id="errorOutput">-</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <section id="footer">
+    <div class="copyright">
+      <ul>
+        <li>&copy; 儿童绘本故事视频草稿演示</li>
+        <li>Powered by <a href="https://open.vectcut.com" target="_blank" rel="noreferrer">VectCut API</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <script>
+    /* ── All JS logic preserved exactly ── */
+    const API = {
+      createDraft: 'https://open.vectcut.com/cut_jianying/create_draft',
+      submitChat: 'https://open.vectcut.com/llm/chat/submit_task/submit_chat_task',
+      chatStatus: 'https://open.vectcut.com/llm/chat/submit_task/task_status',
+      generateAudio: 'https://open.vectcut.com/llm/tts/seed_audio/generate',
+      generateSubtitle: 'https://open.vectcut.com/cut_jianying/generate_smart_subtitle',
+      subtitleStatus: 'https://open.vectcut.com/cut_jianying/smart_subtitle_task_status',
+      generateImage: 'https://open.vectcut.com/llm/image/submit_task/generate',
+      imageStatus: 'https://open.vectcut.com/llm/image/submit_task/task_status'
+    };
+
+    const TTS_VOICE_ID = 'gv_2e601fae38484816adf8bf5c38b79393';
+    const SUBTITLE_AGENT_ID = 'asr_42da310c1e4347ddb2c96dd2a5d055c2';
+    const CHAT_MODEL = 'qwen3.6-plus';
+    const IMAGE_MODEL = 'gpt-image-2-all';
+    const IMAGE_SIZE = '941x1672';
+    const STORYBOARD_SCENE_COUNT = 6;
+    const POLL_INTERVAL_MS = 1500;
+    const POLL_TIMEOUT_MS = 1200000;
+    const SCRIPT_TARGET_CHARS = 222;
+    const TRANSITION_CHOICES = ['向左', '叠解', '向右', '左移', '右移', '翻页', '眨眼'];
+    const DEFAULT_THEME_TEMPLATES = [
+      '一只怕黑的小兔子在萤火虫和妈妈的陪伴下，学会勇敢面对夜晚，适合 3-6 岁儿童',
+      '一只爱发脾气的小狮子在森林朋友的帮助下学会表达情绪，温暖治愈，适合 4-7 岁儿童',
+      '小海龟第一次离开家去看大海深处，在冒险中学会独立与分享，适合 4-8 岁儿童',
+      '一个爱问为什么的小女孩和会说话的月亮一起夜游城市，充满想象力与安全感，适合 5-8 岁儿童',
+      '森林里胆小的小刺猬参加星光音乐会，在伙伴鼓励下勇敢上台，适合 3-6 岁儿童'
+    ];
+
+    const themeEl = document.getElementById('theme');
+    const tokenEl = document.getElementById('token');
+    const createBtn = document.getElementById('createBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const templateListEl = document.getElementById('templateList');
+    const statusEl = document.getElementById('status');
+    const draftIdEl = document.getElementById('draftId');
+    const downloadUrlEl = document.getElementById('downloadUrl');
+    const previewTitleEl = document.getElementById('previewTitle');
+    const previewBodyEl = document.getElementById('previewBody');
+    const downloadAreaEl = document.getElementById('downloadArea');
+    const scriptStateEl = document.getElementById('scriptState');
+    const scriptBodyEl = document.getElementById('scriptBody');
+    const audioStateEl = document.getElementById('audioState');
+    const audioBodyEl = document.getElementById('audioBody');
+    const subtitleStateEl = document.getElementById('subtitleState');
+    const subtitleBodyEl = document.getElementById('subtitleBody');
+    const imageStateEl = document.getElementById('imageState');
+    const imageBodyEl = document.getElementById('imageBody');
+    const scriptOutputEl = document.getElementById('scriptOutput');
+    const audioOutputEl = document.getElementById('audioOutput');
+    const subtitleOutputEl = document.getElementById('subtitleOutput');
+    const imageOutputEl = document.getElementById('imageOutput');
+    const errorOutputEl = document.getElementById('errorOutput');
+
+    function setState(el, state, text) {
+      el.className = 'step-state ' + state;
+      el.textContent = text;
+    }
+
+    function setStatus(message, color) {
+      color = color || '#059669';
+      statusEl.textContent = message;
+      statusEl.style.color = color;
+    }
+
+    function setDownloadLink(id) {
+      var schemaUrl = 'vectcut://download?draft_id=' + encodeURIComponent(id);
+      downloadUrlEl.textContent = schemaUrl;
+      downloadAreaEl.innerHTML = '<a class="link-btn primary" href="' + schemaUrl + '">下载草稿</a>';
+      downloadUrlEl.title = schemaUrl;
+    }
+
+    function resetStepOutputs() {
+      setState(scriptStateEl, 'waiting', '等待中');
+      setState(audioStateEl, 'waiting', '等待中');
+      setState(subtitleStateEl, 'waiting', '等待中');
+      setState(imageStateEl, 'waiting', '等待中');
+      scriptBodyEl.textContent = '根据主题生成整段口播文案、句子级映射、分镜拆解，以及每个分镜对应的配图提示词。';
+      audioBodyEl.textContent = '使用音色 ' + TTS_VOICE_ID + ' 将整段口播文案转为音频。';
+      subtitleBodyEl.textContent = '使用字幕模板 ' + SUBTITLE_AGENT_ID + ' 根据音频生成字幕，并返回每句话的精确时间戳。';
+      imageBodyEl.textContent = '使用 ' + IMAGE_MODEL + ' 生成 9:16 竖屏图片，按句子级时间映射连续铺满，并为前面的图片随机添加转场。';
+      scriptOutputEl.textContent = '-';
+      audioOutputEl.textContent = '-';
+      subtitleOutputEl.textContent = '-';
+      imageOutputEl.innerHTML = '-';
+      errorOutputEl.textContent = '-';
+    }
+
+    async function requestJson(url, token, payload, method) {
+      method = method || 'POST';
+      var options = {
+        method: method,
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        }
+      };
+      if (payload !== null && payload !== undefined) {
+        options.body = JSON.stringify(payload);
+      }
+      var response = await fetch(url, options);
+      var data = await response.json().catch(function() { return null; });
+      if (!response.ok) {
+        var message = (data && (data.message || data.Message || data.error)) || '请求失败，HTTP 状态码：' + response.status;
+        var error = new Error(message);
+        error.url = url;
+        error.httpStatus = response.status;
+        error.response = data;
+        throw error;
+      }
+      return data;
+    }
+
+    function extractDraftId(data) {
+      return (data && (data.output && data.output.draft_id || data.data && data.data.draft_id || data.result && data.result.draft_id || data.draft_id)) || null;
+    }
+
+    function extractTaskId(data) {
+      return (data && (data.output && data.output.task_id || data.data && data.data.task_id || data.task_id)) || null;
+    }
+
+    function extractChatText(data) {
+      return (data && (data.output && (data.output.content || data.output.text) ||
+        data.data && (data.data.content || data.data.text) ||
+        data.result && (data.result.assistant || data.result.content || data.result.text || data.result.response && data.result.response.choices && data.result.response.choices[0] && data.result.response.choices[0].message && data.result.response.choices[0].message.content) ||
+        data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content ||
+        data.text || data.content)) || '';
+    }
+
+    function extractAudioUrl(data) {
+      return (data && (data.output && (data.output.url || data.output.audio_url) || data.data && (data.data.url || data.data.audio_url) || data.url)) || '';
+    }
+
+    function extractImageUrl(data) {
+      return (data && (data.result && data.result.image || data.output && data.output.image || data.data && data.data.image || data.image)) || '';
+    }
+
+    function extractSubtitles(data) {
+      return (data && (data.output && data.output.subtitles || data.data && data.data.subtitles || data.result && data.result.subtitles)) || [];
+    }
+
+    function normalizeText(text) {
+      return String(text || '').toLowerCase()
+        .replace(/[`"'"'""]/g, '')
+        .replace(/[，。！？；：、,.!?;:\s\-_\n\r]/g, '');
+    }
+
+    function roundTime(value) {
+      return Math.round(Number(value || 0) * 1000) / 1000;
+    }
+
+    function formatSeconds(value) {
+      var seconds = Math.max(0, Number(value || 0));
+      var ms = Math.round((seconds % 1) * 1000);
+      var totalSeconds = Math.floor(seconds);
+      var s = totalSeconds % 60;
+      var m = Math.floor(totalSeconds / 60) % 60;
+      var h = Math.floor(totalSeconds / 3600);
+      return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(ms).padStart(3, '0');
+    }
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function safeStringify(value, limit) {
+      limit = limit || 8000;
+      try {
+        var text = JSON.stringify(value, null, 2);
+        if (text.length <= limit) return text;
+        return text.slice(0, limit) + '\n... (truncated)';
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    function formatErrorDetail(error, phase) {
+      return safeStringify({
+        phase: phase,
+        message: (error && error.message) || String(error || ''),
+        url: error && error.url,
+        httpStatus: error && error.httpStatus,
+        response: error && error.response,
+        taskId: error && error.taskId,
+        taskStatus: error && error.taskStatus,
+        taskData: error && error.taskData
+      });
+    }
+
+    function extractJsonObject(text) {
+      var raw = String(text || '').trim();
+      if (!raw) return null;
+      var fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      var candidate = fencedMatch ? fencedMatch[1].trim() : raw;
+      try {
+        return JSON.parse(candidate);
+      } catch (error) {
+        var firstBrace = candidate.indexOf('{');
+        var lastBrace = candidate.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
+        }
+        throw error;
+      }
+    }
+
+    function buildStoryboardPrompt(theme) {
+      return [
+        '请为儿童绘本短视频生成一个严格可解析的 JSON 对象，不要输出 markdown，不要输出解释。',
+        '总口播字数控制在约 ' + SCRIPT_TARGET_CHARS + ' 字。',
+        '分镜数量固定为 ' + STORYBOARD_SCENE_COUNT + ' 个。',
+        'JSON 结构必须为：{"title":"", "script_text":"", "sentences":[{"id":"s1", "text":""}], "scenes":[{"title":"", "narration":"", "sentence_ids":["s1"], "image_prompt":"", "visual_focus":""}]}',
+        '要求：',
+        '1. script_text 是完整口播文案，适合儿童绘本视频配音，整体要更有声音设计感，同时语速体感要比普通慢读更快一点，更像绘本老师在讲故事。',
+        '2. 你必须先把 script_text 切成若干句子，写入 sentences 数组；每个句子都要有唯一 id，例如 s1、s2、s3。',
+        '3. 每个 scene 必须通过 sentence_ids 明确引用自己包含的句子，不能遗漏，也不能重复引用，所有句子按顺序刚好被覆盖一次。',
+        '4. scenes 数组中的 narration 应由本分镜对应的 sentences 文本顺序拼接而成，内容要一致或高度一致。',
+        '5. image_prompt 必须是适合 gpt-image-2 直接生图的中文提示词，要明确主角、场景、光线、构图、色彩、镜头感，且适合 9:16 竖屏。',
+        '4. 整体视觉需统一，主角形象前后一致，风格温暖、童趣、绘本感。',
+        '6. 文案句子要更短、更顺口，单句尽量控制在 8 到 18 个字，减少过长从句和解释性描述，听起来要轻快、连贯、有推进感。',
+        '7. 尽量少用省略号、破折号、连续感叹词和过多停顿词，避免配音节奏被拉慢。',
+        '8. 文案要自然包含环境音、背景氛围或多人物对白的空间，例如风声、雨声、虫鸣、海浪声、脚步声、轻柔背景音乐提示、人物短对白等，但要保持儿童绘本风格温柔、不嘈杂。',
+        '9. 建议在 narration 中适度加入适合 TTS 演绎的声音提示，例如"妈妈轻声说""小兔子小声问""窗外传来沙沙的风声"，让配音更有层次。',
+        '10. 如果场景适合，可加入两到三句简短人物对白，但不要做成复杂广播剧，仍以温柔旁白为主。',
+        '11. 不要出现任何代码块标记。',
+        '主题：' + theme
+      ].join('\n');
+    }
+
+    function buildTtsText(scriptText) {
+      return String(scriptText || '')
+        .replace(/\r/g, '')
+        .replace(/\n+/g, ' ')
+        .replace(/……+/g, '，')
+        .replace(/\.{3,}/g, '，')
+        .replace(/[—-]{2,}/g, '，')
+        .replace(/([，。！？；])\1+/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
+    function renderThemeTemplates() {
+      templateListEl.innerHTML = DEFAULT_THEME_TEMPLATES.map(function(theme, index) {
+        return '<button class="template-chip" type="button" data-template-index="' + index + '">模板 ' + (index + 1) + '</button>';
+      }).join('');
+    }
+
+    function splitNarrationIntoSentences(text) {
+      var matches = String(text || '').match(/[^。！？!?；;]+[。！？!?；;]?/g) || [];
+      var sentences = matches.map(function(item) { return item.trim(); }).filter(Boolean);
+      if (sentences.length) return sentences;
+      var single = String(text || '').trim();
+      return single ? [single] : [];
+    }
+
+    function buildFallbackSentencesFromScenes(rawScenes) {
+      var sentences = [];
+      rawScenes.forEach(function(scene, sceneIndex) {
+        var parts = splitNarrationIntoSentences(scene.narration || '');
+        parts.forEach(function(text, partIndex) {
+          sentences.push({ id: 's' + (sentences.length + 1), text: text, sceneIndex: sceneIndex, partIndex: partIndex });
+        });
+      });
+      return sentences;
+    }
+
+    function allocateSentenceIdsToScenes(scenes, sentences) {
+      var sentenceUnits = sentences.map(function(sentence) {
+        return Object.assign({}, sentence, { length: Math.max(1, normalizeText(sentence.text).length) });
+      });
+      var validIds = new Set(sentenceUnits.map(function(s) { return s.id; }));
+      var cursor = 0;
+      return scenes.map(function(scene, sceneIndex) {
+        var requestedIds = Array.isArray(scene.sentenceIds) ? scene.sentenceIds.filter(function(id) { return validIds.has(id); }) : [];
+        if (requestedIds.length) return Object.assign({}, scene, { sentenceIds: requestedIds });
+        var isLastScene = sceneIndex === scenes.length - 1;
+        var remainingScenes = scenes.length - sceneIndex - 1;
+        var narrationLength = Math.max(1, normalizeText(scene.narration).length);
+        var assigned = [];
+        var collectedLength = 0;
+        if (isLastScene) {
+          assigned = assigned.concat(sentenceUnits.slice(cursor).map(function(s) { return s.id; }));
+          cursor = sentenceUnits.length;
+        } else {
+          while (cursor < sentenceUnits.length - remainingScenes) {
+            var current = sentenceUnits[cursor];
+            assigned.push(current.id);
+            collectedLength += current.length;
+            cursor += 1;
+            if (collectedLength >= narrationLength) break;
+          }
+        }
+        if (!assigned.length && cursor < sentenceUnits.length) {
+          assigned.push(sentenceUnits[cursor].id);
+          cursor += 1;
+        }
+        return Object.assign({}, scene, { sentenceIds: assigned });
+      });
+    }
+
+    function sanitizeStoryboard(data) {
+      var scriptText = String((data && data.script_text) || (data && data.scriptText) || '').trim();
+      var title = String((data && data.title) || '').trim() || '未命名绘本';
+      var rawSentences = Array.isArray(data && data.sentences) ? data.sentences : [];
+      var rawScenes = Array.isArray(data && data.scenes) ? data.scenes : [];
+      var sentences = (rawSentences.length ? rawSentences : buildFallbackSentencesFromScenes(rawScenes))
+        .map(function(sentence, index) {
+          return {
+            id: String((sentence && sentence.id) || ('s' + (index + 1))).trim() || ('s' + (index + 1)),
+            text: String((sentence && sentence.text) || '').trim()
+          };
+        })
+        .filter(function(s) { return s.text; })
+        .map(function(s) { return Object.assign({}, s, { normalized: normalizeText(s.text) }); });
+      var scenes = rawScenes.map(function(scene, index) {
+        return {
+          index: index + 1,
+          title: String((scene && scene.title) || ('分镜 ' + (index + 1))).trim(),
+          narration: String((scene && scene.narration) || '').trim(),
+          imagePrompt: String((scene && (scene.image_prompt || scene.imagePrompt)) || '').trim(),
+          visualFocus: String((scene && (scene.visual_focus || scene.visualFocus)) || '').trim(),
+          sentenceIds: (Array.isArray(scene && scene.sentence_ids) ? scene.sentence_ids : Array.isArray(scene && scene.sentenceIds) ? scene.sentenceIds : [])
+            .map(function(id) { return String(id || '').trim(); })
+            .filter(Boolean)
+        };
+      }).filter(function(scene) { return scene.narration && scene.imagePrompt; });
+      if (!scriptText) throw new Error('分镜文案生成成功，但没有拿到 script_text');
+      if (!sentences.length) throw new Error('分镜文案生成成功，但没有拿到有效的 sentences');
+      if (!scenes.length) throw new Error('分镜文案生成成功，但没有拿到有效的 scenes');
+      scenes = allocateSentenceIdsToScenes(scenes, sentences);
+      return { title: title, scriptText: scriptText, scenes: scenes, sentences: sentences };
+    }
+
+    function formatStoryboard(storyboard) {
+      var header = ['标题：' + storyboard.title, '', '完整口播：', storyboard.scriptText, '', '分镜：'];
+      var sceneLines = storyboard.scenes.flatMap(function(scene) {
+        return [
+          scene.index + '. ' + scene.title,
+          '口播：' + scene.narration,
+          scene.sentenceIds && scene.sentenceIds.length ? '句子 ID：' + scene.sentenceIds.join(', ') : null,
+          '配图提示词：' + scene.imagePrompt,
+          scene.visualFocus ? '画面重点：' + scene.visualFocus : null,
+          ''
+        ].filter(Boolean);
+      });
+      return header.concat(sceneLines).join('\n');
+    }
+
+    function formatSubtitleTimeline(subtitles) {
+      return subtitles.map(function(item, index) {
+        return String(index + 1).padStart(2, '0') + '. ' + formatSeconds(item.start_time) + ' - ' + formatSeconds(item.end_time) + '  ' + item.text;
+      }).join('\n');
+    }
+
+    function buildPreviewSummary(theme, storyboard, subtitles, images) {
+      var previewLines = [
+        '主题：' + theme, '',
+        '标题：' + storyboard.title,
+        '分镜数：' + storyboard.scenes.length,
+        '字幕句数：' + subtitles.length
+      ];
+      if (images && images.length) previewLines.push('已生成配图：' + images.length);
+      previewLines.push('', '完整口播：', storyboard.scriptText);
+      return previewLines.join('\n');
+    }
+
+    function pickRandomTransition() {
+      return TRANSITION_CHOICES[Math.floor(Math.random() * TRANSITION_CHOICES.length)];
+    }
+
+    async function createDraft(theme, token) {
+      var data = await requestJson(API.createDraft, token, { width: 1080, height: 1920, name: '儿童绘本：' + theme });
+      if (!data || !data.success) throw new Error((data && (data.message || data.Message || data.error)) || '创建草稿失败');
+      var draftId = extractDraftId(data);
+      if (!draftId) throw new Error('创建成功但响应里没有 output.draft_id');
+      return { draftId: draftId, draftUrl: data.output && data.output.draft_url || '' };
+    }
+
+    async function pollTask(taskUrl, token, taskId, isDone) {
+      var startedAt = Date.now();
+      var lastData = null;
+      var lastStatus = '';
+      while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+        var url = taskUrl + '?task_id=' + encodeURIComponent(taskId);
+        var data = await requestJson(url, token, null, 'GET');
+        var status = String((data && (data.status || data.output && data.output.status || data.data && data.data.status)) || '').toLowerCase();
+        lastData = data;
+        lastStatus = status;
+        if (status === 'failed' || status === 'error') {
+          var message = (data && (data.message || data.Message || data.error)) || '任务执行失败';
+          var error = new Error(message);
+          error.url = taskUrl;
+          error.taskId = taskId;
+          error.taskStatus = status;
+          error.taskData = data;
+          throw error;
+        }
+        if (isDone(data, status)) return data;
+        await new Promise(function(resolve) { setTimeout(resolve, POLL_INTERVAL_MS); });
+      }
+      var timeoutError = new Error('任务轮询超时');
+      timeoutError.url = taskUrl;
+      timeoutError.taskId = taskId;
+      timeoutError.taskStatus = lastStatus;
+      timeoutError.taskData = lastData;
+      throw timeoutError;
+    }
+
+    async function generateStoryboard(theme, token) {
+      var data = await requestJson(API.submitChat, token, {
+        system_prompt: '你是一个擅长儿童绘本视频策划的中文编剧和分镜导演。',
+        user_input: buildStoryboardPrompt(theme),
+        model: CHAT_MODEL,
+        response_format: 'json',
+        stream: false
+      });
+      if (!data || !data.success) throw new Error((data && (data.message || data.Message || data.error)) || '分镜文案任务提交失败');
+      var taskId = extractTaskId(data);
+      if (!taskId) throw new Error('分镜文案任务提交成功，但响应里没有 task_id');
+      var result = await pollTask(API.chatStatus, token, taskId, function(statusData, status) {
+        return status === 'success' || status === 'done' || Boolean(extractChatText(statusData));
+      });
+      var rawText = String(extractChatText(result) || '').trim();
+      if (!rawText) throw new Error('分镜文案生成成功，但没有拿到结果文本');
+      var storyboard = sanitizeStoryboard(extractJsonObject(rawText));
+      return { taskId: taskId, storyboard: storyboard, raw: result, rawText: rawText };
+    }
+
+    async function generateAudio(scriptText, token) {
+      var ttsText = buildTtsText(scriptText);
+      var data = await requestJson(API.generateAudio, token, {
+        model: 'seed-audio-1.0', text_prompt: ttsText, voice_id: TTS_VOICE_ID, voiceId: TTS_VOICE_ID, speaker: TTS_VOICE_ID, text: ttsText
+      });
+      if (!data || !data.success) throw new Error((data && (data.message || data.Message || data.error)) || '音频任务提交失败');
+      var audioUrl = extractAudioUrl(data);
+      if (!audioUrl) throw new Error('音频生成成功，但响应里没有可用音频 URL');
+      return { audioUrl: audioUrl, raw: data };
+    }
+
+    async function generateSubtitleTimeline(audioUrl, draftId, scriptText, token) {
+      var data = await requestJson(API.generateSubtitle, token, {
+        draft_id: draftId, url: audioUrl, add_media: true, text_content: scriptText, agent_id: SUBTITLE_AGENT_ID
+      });
+      if (data && data.success === false) throw new Error((data && (data.message || data.Message || data.error)) || '字幕任务提交失败');
+      var taskId = extractTaskId(data);
+      if (!taskId) throw new Error('字幕任务提交成功，但响应里没有 task_id');
+      var result = await pollTask(API.subtitleStatus, token, taskId, function(statusData, status) {
+        return status === 'success' || status === 'done' || extractSubtitles(statusData).length > 0;
+      });
+      var subtitles = extractSubtitles(result)
+        .map(function(item) {
+          return {
+            id: (item && item.id) || '',
+            text: String((item && item.text) || '').trim(),
+            start_time: Number((item && item.start_time) || 0),
+            end_time: Number((item && item.end_time) || 0),
+            target_track: item && item.target_track || ''
+          };
+        })
+        .filter(function(item) { return item.text && item.end_time > item.start_time; })
+        .sort(function(a, b) { return a.start_time - b.start_time; });
+      if (!subtitles.length) throw new Error('字幕任务成功，但没有返回 output.subtitles 时间轴');
+      return {
+        taskId: taskId, subtitles: subtitles,
+        finalDraftId: extractDraftId(result) || draftId,
+        draftUrl: result && result.output && result.output.draft_url || '',
+        raw: result
+      };
+    }
+
+    function buildSentenceTimeline(sentences, subtitles) {
+      if (!sentences.length || !subtitles.length) throw new Error('缺少句子或字幕时间轴，无法生成句子级时间映射');
+      var units = subtitles.map(function(item) {
+        return Object.assign({}, item, { normalized: normalizeText(item.text), length: Math.max(1, normalizeText(item.text).length) });
+      });
+      var totalEnd = Number(units[units.length - 1].end_time || 0);
+      var timeline = [];
+      var subtitleIndex = 0;
+      sentences.forEach(function(sentence, sentenceIndex) {
+        var isLastSentence = sentenceIndex === sentences.length - 1;
+        var remainingSentences = sentences.length - sentenceIndex - 1;
+        var targetLength = Math.max(1, sentence.normalized.length);
+        var matched = [];
+        var collectedLength = 0;
+        if (isLastSentence) {
+          matched = matched.concat(units.slice(subtitleIndex));
+          subtitleIndex = units.length;
+        } else {
+          while (subtitleIndex < units.length - remainingSentences) {
+            var current = units[subtitleIndex];
+            matched.push(current);
+            collectedLength += current.length;
+            subtitleIndex += 1;
+            if (collectedLength >= targetLength) break;
+          }
+        }
+        var firstItem = matched[0];
+        var lastItem = matched[matched.length - 1];
+        timeline.push(Object.assign({}, sentence, {
+          subtitleItems: matched,
+          subtitleText: matched.map(function(item) { return item.text; }).join(''),
+          start: roundTime(Number((firstItem && firstItem.start_time) || (sentenceIndex === 0 ? 0 : timeline[timeline.length - 1].end || 0))),
+          end: roundTime(Number((lastItem && lastItem.end_time) || (sentenceIndex === sentences.length - 1 ? totalEnd : (firstItem && firstItem.end_time) || 0)))
+        }));
+      });
+      if (timeline.length) {
+        timeline[0].start = 0;
+        timeline[timeline.length - 1].end = roundTime(totalEnd);
+      }
+      return timeline;
+    }
+
+    function buildSceneSegments(storyboard, subtitles) {
+      var scenes = Array.isArray(storyboard && storyboard.scenes) ? storyboard.scenes : [];
+      var sentences = Array.isArray(storyboard && storyboard.sentences) ? storyboard.sentences : [];
+      if (!scenes.length || !sentences.length || !subtitles.length) throw new Error('缺少分镜、句子映射或字幕时间轴，无法生成图片时间段');
+      var sentenceTimeline = buildSentenceTimeline(sentences, subtitles);
+      var sentenceMap = new Map(sentenceTimeline.map(function(s) { return [s.id, s]; }));
+      var totalEnd = Number(subtitles[subtitles.length - 1].end_time || 0);
+      var segments = scenes.map(function(scene, index) {
+        var matchedSentences = scene.sentenceIds.map(function(id) { return sentenceMap.get(id); }).filter(Boolean);
+        var matchedSubtitles = matchedSentences.flatMap(function(s) { return s.subtitleItems; });
+        var firstSentence = matchedSentences[0];
+        var lastSentence = matchedSentences[matchedSentences.length - 1];
+        return Object.assign({}, scene, {
+          start: roundTime(Number((firstSentence && firstSentence.start) || (index === 0 ? 0 : 0))),
+          end: roundTime(Number((lastSentence && lastSentence.end) || (index === scenes.length - 1 ? totalEnd : (firstSentence && firstSentence.end) || 0))),
+          sentenceTexts: matchedSentences.map(function(s) { return s.text; }),
+          subtitleItems: matchedSubtitles,
+          subtitleText: matchedSubtitles.map(function(item) { return item.text; }).join('')
+        });
+      });
+      if (segments.length) {
+        segments[0].start = 0;
+        segments[segments.length - 1].end = roundTime(totalEnd);
+      }
+      for (var i = 1; i < segments.length; i += 1) {
+        segments[i].start = roundTime(segments[i - 1].end);
+      }
+      return segments.map(function(segment, index) {
+        return Object.assign({}, segment, {
+          start: index === 0 ? 0 : roundTime(segment.start),
+          end: index === segments.length - 1 ? roundTime(totalEnd) : roundTime(Math.max(segment.end, segment.start + 0.4))
+        });
+      });
+    }
+
+    async function generateSceneImages(segments, draftId, token) {
+      var imageResults = [];
+      var currentDraftId = draftId;
+      for (var index = 0; index < segments.length; index += 1) {
+        var segment = segments[index];
+        var isLast = index === segments.length - 1;
+        var transition = isLast ? '' : pickRandomTransition();
+        setStatus('正在生成第 ' + (index + 1) + '/' + segments.length + ' 张配图...', '#4f46e5');
+        imageBodyEl.textContent = '正在处理第 ' + (index + 1) + ' 个分镜：' + segment.title;
+        var submitData = await requestJson(API.generateImage, token, {
+          prompt: segment.imagePrompt, model: IMAGE_MODEL, size: IMAGE_SIZE,
+          compose_draft: true, draft_id: currentDraftId,
+          start: roundTime(segment.start), end: roundTime(segment.end),
+          track_name: 'main', transition: transition || undefined,
+          transition_duration: transition ? 0.45 : undefined
+        });
+        if (submitData && submitData.success === false) throw new Error((submitData && (submitData.message || submitData.Message || submitData.error)) || '第 ' + (index + 1) + ' 张图片任务提交失败');
+        var taskId = extractTaskId(submitData);
+        if (!taskId) throw new Error('第 ' + (index + 1) + ' 张图片提交成功，但响应里没有 task_id');
+        var result = await pollTask(API.imageStatus, token, taskId, function(statusData, status) {
+          return status === 'success' || status === 'done' || Boolean(extractImageUrl(statusData));
+        });
+        var imageUrl = extractImageUrl(result);
+        if (!imageUrl) throw new Error('第 ' + (index + 1) + ' 张图片生成成功，但没有拿到图片 URL');
+        currentDraftId = extractDraftId(result) || currentDraftId;
+        imageResults.push(Object.assign({}, segment, { taskId: taskId, imageUrl: imageUrl, transition: transition, draftId: currentDraftId }));
+      }
+      return { images: imageResults, finalDraftId: currentDraftId };
+    }
+
+    function renderImageResults(images) {
+      return images.map(function(item, index) {
+        var title = escapeHtml((index + 1) + '. ' + item.title);
+        var time = formatSeconds(item.start) + ' - ' + formatSeconds(item.end);
+        var transition = item.transition ? '，转场：' + escapeHtml(item.transition) : '';
+        var prompt = escapeHtml(item.imagePrompt);
+        var sentenceIds = Array.isArray(item.sentenceIds) && item.sentenceIds.length ? escapeHtml(item.sentenceIds.join(', ')) : '';
+        var sentenceTexts = Array.isArray(item.sentenceTexts) && item.sentenceTexts.length ? escapeHtml(item.sentenceTexts.join(' / ')) : '';
+        var imageUrl = escapeHtml(item.imageUrl);
+        return [
+          '<strong>' + title + '</strong>',
+          escapeHtml(time) + transition + '<br>',
+          sentenceIds ? '句子 ID：' + sentenceIds + '<br>' : '',
+          sentenceTexts ? '对应句子：' + sentenceTexts + '<br>' : '',
+          '提示词：' + prompt + '<br>',
+          '<a href="' + imageUrl + '" target="_blank" rel="noreferrer">' + imageUrl + '</a>'
+        ].join('');
+      }).join('<br><br>');
+    }
+
+    createBtn.addEventListener('click', async function() {
+      var theme = themeEl.value.trim();
+      var token = tokenEl.value.trim();
+      var phase = 'init';
+      if (!theme) { setStatus('请先输入一个儿童绘本主题。', '#dc2626'); return; }
+      if (!token) { setStatus('请先输入 API Key。', '#dc2626'); return; }
+      createBtn.disabled = true;
+      downloadAreaEl.innerHTML = '';
+      draftIdEl.textContent = '-';
+      previewTitleEl.textContent = theme;
+      previewBodyEl.textContent = '正在生成，请稍候...';
+      resetStepOutputs();
+      setStatus('正在创建草稿，并依次生成分镜文案、音频、字幕时间轴和配图...', '#4f46e5');
+      setState(scriptStateEl, 'running', '进行中');
+      try {
+        phase = 'create_draft';
+        var draft = await createDraft(theme, token);
+        var currentDraftId = draft.draftId;
+        draftIdEl.textContent = currentDraftId;
+        setDownloadLink(currentDraftId);
+        setStatus('草稿已创建：' + currentDraftId + '，开始生成分镜文案...', '#4f46e5');
+        phase = 'storyboard';
+        var script = await generateStoryboard(theme, token);
+        var storyboard = script.storyboard;
+        setState(scriptStateEl, 'done', '已完成');
+        scriptBodyEl.textContent = '已生成 ' + storyboard.scenes.length + ' 个分镜及配图提示词。';
+        scriptOutputEl.textContent = formatStoryboard(storyboard);
+        previewBodyEl.textContent = buildPreviewSummary(theme, storyboard, [], []);
+        setState(audioStateEl, 'running', '进行中');
+        setStatus('分镜文案已完成，正在转音频...', '#4f46e5');
+        phase = 'tts';
+        var audio = await generateAudio(storyboard.scriptText, token);
+        setState(audioStateEl, 'done', '已完成');
+        audioBodyEl.textContent = '音频已生成。';
+        audioOutputEl.innerHTML = '<a href="' + escapeHtml(audio.audioUrl) + '" target="_blank" rel="noreferrer">' + escapeHtml(audio.audioUrl) + '</a>';
+        setState(subtitleStateEl, 'running', '进行中');
+        setStatus('音频已完成，正在生成字幕时间轴...', '#4f46e5');
+        phase = 'subtitle';
+        var subtitle = await generateSubtitleTimeline(audio.audioUrl, currentDraftId, storyboard.scriptText, token);
+        currentDraftId = subtitle.finalDraftId || currentDraftId;
+        draftIdEl.textContent = currentDraftId;
+        setDownloadLink(currentDraftId);
+        setState(subtitleStateEl, 'done', '已完成');
+        subtitleBodyEl.textContent = '已生成 ' + subtitle.subtitles.length + ' 条精确字幕时间。';
+        subtitleOutputEl.textContent = formatSubtitleTimeline(subtitle.subtitles);
+        previewBodyEl.textContent = buildPreviewSummary(theme, storyboard, subtitle.subtitles, []);
+        setState(imageStateEl, 'running', '进行中');
+        setStatus('字幕时间轴已完成，正在生成配图并连续铺满时间线...', '#4f46e5');
+        phase = 'image';
+        var segments = buildSceneSegments(storyboard, subtitle.subtitles);
+        var imageResult = await generateSceneImages(segments, currentDraftId, token);
+        currentDraftId = imageResult.finalDraftId || currentDraftId;
+        draftIdEl.textContent = currentDraftId;
+        setDownloadLink(currentDraftId);
+        setState(imageStateEl, 'done', '已完成');
+        imageBodyEl.textContent = '已生成 ' + imageResult.images.length + ' 张 9:16 图片，并按字幕时间连续铺满。';
+        imageOutputEl.innerHTML = renderImageResults(imageResult.images);
+        previewBodyEl.textContent = buildPreviewSummary(theme, storyboard, subtitle.subtitles, imageResult.images);
+        setStatus('全部完成，可以点击下载草稿。', '#059669');
+      } catch (error) {
+        var message = (error && error.message) || '生成失败。';
+        setStatus(message, '#dc2626');
+        errorOutputEl.textContent = formatErrorDetail(error, phase);
+        if (scriptStateEl.className.includes('running')) setState(scriptStateEl, 'error', '失败');
+        if (audioStateEl.className.includes('running')) setState(audioStateEl, 'error', '失败');
+        if (subtitleStateEl.className.includes('running')) setState(subtitleStateEl, 'error', '失败');
+        if (imageStateEl.className.includes('running')) setState(imageStateEl, 'error', '失败');
+      } finally {
+        createBtn.disabled = false;
+      }
+    });
+
+    resetBtn.addEventListener('click', function() {
+      themeEl.value = '';
+      tokenEl.value = '';
+      draftIdEl.textContent = '-';
+      downloadUrlEl.textContent = '-';
+      previewTitleEl.textContent = '未创建';
+      previewBodyEl.textContent = '点击"生成儿童绘本草稿"后，这里会显示本次生成的主题、分镜文案、字幕时间轴和图片素材输出，方便查看整条视频草稿链路。';
+      downloadAreaEl.innerHTML = '';
+      setStatus('等待创建草稿...');
+      resetStepOutputs();
+      themeEl.focus();
+    });
+
+    templateListEl.addEventListener('click', function(event) {
+      var button = event.target.closest('[data-template-index]');
+      if (!button) return;
+      var index = Number(button.dataset.templateIndex);
+      var theme = DEFAULT_THEME_TEMPLATES[index];
+      if (!theme) return;
+      themeEl.value = theme;
+      themeEl.focus();
+      themeEl.setSelectionRange(theme.length, theme.length);
+      setStatus('已填入模板 ' + (index + 1) + '，可以直接体验。', '#4f46e5');
+    });
+
+    renderThemeTemplates();
+  </script>
+</body>
+</html>

@@ -472,6 +472,42 @@ function registerLegacyWindowChannels() {
       }
     })
   })
+
+  safeHandle('restart-beginner-guide', async (_event) => {
+    const senderWindow = BrowserWindow.fromWebContents(_event.sender)
+    const mainWindow = windowService.createMainWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) return { success: false }
+
+    mainWindow.show()
+    mainWindow.focus()
+
+    const notifyRenderer = () => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('restart-beginner-guide')
+      }
+    }
+
+    if (mainWindow.webContents.isLoadingMainFrame()) {
+      await new Promise<void>((resolve) => {
+        const handleReady = () => {
+          resolve()
+        }
+
+        mainWindow.webContents.once('did-finish-load', handleReady)
+        mainWindow.once('closed', handleReady)
+      })
+    }
+    notifyRenderer()
+
+    const targetWindow = senderWindow && !senderWindow.isDestroyed()
+      ? senderWindow
+      : (settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null)
+
+    if (targetWindow && !targetWindow.isDestroyed()) {
+      targetWindow.close()
+    }
+    return { success: true }
+  })
 }
 
 function registerLegacyUpdaterChannels() {

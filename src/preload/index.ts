@@ -936,6 +936,8 @@ const legacyElectronAPI = {
       ipcRenderer.invoke(IpcChannel.Skill_Toggle, { agentId, skillId, isEnabled }),
     installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true }: any = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, { agentId, skillPath: directoryPath, isEnabled }),
+    copyDirectoryToWorkspace: ({ agentId = 'vectcut_claw_default', directoryPath, workspace }: { agentId?: string; directoryPath: string; workspace: string }) =>
+      ipcRenderer.invoke(IpcChannel.Skill_CopyDirectoryToWorkspace, { agentId, directoryPath, workspace }),
     uninstall: ({ skillId }: { skillId: string }) => ipcRenderer.invoke(IpcChannel.Skill_Uninstall, skillId),
     listLocal: async ({ workdir }: { workdir: string }) => {
       const result = await ipcRenderer.invoke(IpcChannel.Skill_ListLocal, workdir)
@@ -945,6 +947,15 @@ const legacyElectronAPI = {
     seedWorkspace: async ({ workspace }: { workspace: string }) => {
       const result = await ipcRenderer.invoke(IpcChannel.Skill_SeedWorkspace, workspace)
       return { ok: Boolean((result as any)?.success), error: (result as any)?.error }
+    },
+    runExample: async ({ skillPath }: { skillPath: string }) => {
+      const result = await ipcRenderer.invoke(IpcChannel.Skill_RunExample, { skillPath })
+      return {
+        ok: Boolean((result as any)?.success),
+        error: (result as any)?.error,
+        stdout: (result as any)?.data?.stdout,
+        stderr: (result as any)?.data?.stderr
+      }
     },
     subscribeChanges: ({ agentId = 'vectcut_claw_default' }: { agentId?: string } = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_SubscribeChanges, agentId),

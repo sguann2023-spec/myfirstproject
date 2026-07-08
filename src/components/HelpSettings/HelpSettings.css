@@ -1,0 +1,75 @@
+.help-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.help-settings__section {
+  background: transparent;
+}
+
+.help-settings__section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+  margin-left: 20px;
+}
+
+.help-settings__action-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 14px;
+  padding-right: 8px;
+  padding-bottom: 14px;
+  padding-left: 20px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.help-settings__action-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.help-settings__action-title {
+  font-size: 14px;
+  color: #333;
+}
+
+.help-settings__action-subtitle {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #909090;
+  max-width: 520px;
+}
+
+.help-settings__action-status {
+  font-size: 12px;
+  color: #999;
+}
+
+.help-settings__action-button {
+  padding: 4px 12px;
+  border: 1px solid #d9d9dc;
+  background: #fff;
+  color: #000;
+  font-size: 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.help-settings__action-button:hover:not(:disabled) {
+  border-color: #cfd0d3;
+}
+
+.help-settings__action-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}

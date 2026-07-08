@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { spawn } from 'node:child_process'
 import { arch } from 'node:os'
 import path from 'node:path'
 
@@ -32,6 +33,7 @@ import type {
   ThemeMode
 } from '@types'
 import checkDiskSpace from 'check-disk-space'
+import Store from 'electron-store'
 import type { ProxyConfig } from 'electron'
 import { BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, webContents } from 'electron'
 import fontList from 'font-list'
@@ -71,6 +73,7 @@ import { isSafeExternalUrl } from './services/security'
 import { SelectionService } from './services/SelectionService'
 import { registerShortcuts, unregisterAllShortcuts } from './services/ShortcutService'
 import { loggerService as mainLoggerService } from './services/LoggerService'
+import { agentRuntimeAuthService } from './services/agents/services/AgentRuntimeAuthService'
 import {
   addEndMessage,
   addStreamMessage,
@@ -116,6 +119,118 @@ type SkillWatcherEntry = {
 
 const SKILL_WATCH_DEBOUNCE_MS = 150
 const skillWatcherEntries = new Map<string, SkillWatcherEntry>()
+const vectcutStore = new Store({ name: 'vectcut' })
+
+async function resolveCurrentVectcutApiKey(): Promise<string> {
+  try {
+    const accessToken = await agentRuntimeAuthService.ensureValidAccessToken()
+    if (typeof accessToken === 'string' && accessToken.trim()) {
+      return accessToken.trim()
+    }
+  } catch (error) {
+    logger.warn('Failed to refresh vectcut api key for skill example run, falling back to cached key', {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+
+  const cachedToken = String(vectcutStore.get('auth.vectcut_api_key') || '').trim()
+  if (cachedToken) {
+    return cachedToken
+  }
+  throw new Error('未获取到当前 API Key，请先登录')
+}
+
+async function runSkillExampleScript(skillPath: string): Promise<{ stdout: string; stderr: string }> {
+  const resolvedSkillPath = path.resolve(String(skillPath || ''))
+  if (!resolvedSkillPath) {
+    throw new Error('无效的技能路径')
+  }
+
+  const examplePath = path.join(resolvedSkillPath, 'examples', 'main.py')
+  await fs.promises.access(examplePath, fs.constants.R_OK)
+
+  const vectcutApiKey = await resolveCurrentVectcutApiKey()
+  const command = process.platform === 'win32' ? 'python' : 'python3'
+  const cwd = path.dirname(examplePath)
+
+  logger.info('Running skill example script', {
+    skillPath: resolvedSkillPath,
+    examplePath,
+    cwd,
+    command,
+    hasVectcutApiKey: Boolean(vectcutApiKey)
+  })
+
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, ['main.py'], {
+      cwd,
+      env: {
+        ...process.env,
+        VECTCUT_API_KEY: vectcutApiKey
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const timeoutId = setTimeout(() => {
+      if (settled) return
+      settled = true
+      child.kill('SIGTERM')
+      reject(new Error('执行示例超时，请稍后重试'))
+    }, 5 * 60 * 1000)
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString()
+      stdout += text
+      logger.info('Skill example stdout', {
+        skillPath: resolvedSkillPath,
+        chunk: text.trim().slice(0, 2000)
+      })
+    })
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString()
+      stderr += text
+      logger.warn('Skill example stderr', {
+        skillPath: resolvedSkillPath,
+        chunk: text.trim().slice(0, 2000)
+      })
+    })
+    child.on('error', (error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+      logger.error('Skill example process error', {
+        skillPath: resolvedSkillPath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      reject(error)
+    })
+    child.on('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+      logger.info('Skill example process closed', {
+        skillPath: resolvedSkillPath,
+        exitCode: code,
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length
+      })
+      if (code === 0) {
+        const result = { stdout: stdout.trim(), stderr: stderr.trim() }
+        logger.info('Skill example finished successfully', {
+          skillPath: resolvedSkillPath,
+          stdoutPreview: result.stdout.slice(0, 1000),
+          stderrPreview: result.stderr.slice(0, 1000)
+        })
+        resolve(result)
+        return
+      }
+      reject(new Error((stderr || stdout || `示例执行失败，退出码 ${code}`).trim()))
+    })
+  })
+}
 
 function broadcastSkillChanged(agentId: string, payload: { filename?: string; eventType?: string; skillsRoot?: string } = {}): void {
   const currentMainWindow = windowService.getMainWindow()
@@ -1350,6 +1465,24 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     }
   })
 
+  ipcMain.handle(IpcChannel.Skill_CopyDirectoryToWorkspace, async (_, payload) => {
+    try {
+      const agentId = typeof payload?.agentId === 'string' ? payload.agentId : 'vectcut_claw_default'
+      const directoryPath = typeof payload?.directoryPath === 'string' ? payload.directoryPath : ''
+      const workspace = typeof payload?.workspace === 'string' ? payload.workspace : ''
+      const data = await skillService.copyDirectoryToWorkspace(directoryPath, workspace)
+      broadcastSkillChanged(agentId, {
+        filename: data?.folderName,
+        eventType: 'copy-directory-to-workspace',
+        skillsRoot: path.join(workspace, '.claude', 'skills')
+      })
+      return { success: true, data }
+    } catch (error) {
+      logger.error('Failed to copy skill directory to workspace', { payload, error })
+      return { success: false, error }
+    }
+  })
+
   ipcMain.handle(IpcChannel.Skill_ReadFile, async (_, skillId: string, filename: string) => {
     try {
       const data = await skillService.readFile(skillId, filename)
@@ -1393,6 +1526,33 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     } catch (error) {
       logger.error('Failed to seed workspace skills', { workspace, error })
       return { success: false, error }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Skill_RunExample, async (_, payload: { skillPath?: string }) => {
+    try {
+      const skillPath = String(payload?.skillPath || '').trim()
+      if (!skillPath) {
+        return { success: false, error: 'Invalid skill path' }
+      }
+
+      logger.info('IPC received skill example run request', { skillPath })
+      const data = await runSkillExampleScript(skillPath)
+      logger.info('IPC finished skill example run request', {
+        skillPath,
+        stdoutLength: data.stdout.length,
+        stderrLength: data.stderr.length
+      })
+      return { success: true, data }
+    } catch (error) {
+      logger.error('Failed to run skill example', {
+        skillPath: payload?.skillPath,
+        error
+      })
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      }
     }
   })
 

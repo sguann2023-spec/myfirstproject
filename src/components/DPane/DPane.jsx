@@ -24,6 +24,8 @@ const DPane = ({
   className = '',
   selected = 'chat',
   onSelect,
+  downloadItemRef,
+  settingsItemRef,
   credits = '--',
   creditsLoading = false,
   onRefreshCredits,
@@ -144,6 +146,7 @@ const DPane = ({
 
         {/* 新增：下载图标 */}
         <div
+          ref={downloadItemRef}
           className={`d-pane-item ${isDownloadSelected ? 'selected' : ''}`}
           onClick={() => onSelect && onSelect('download')}
         >
@@ -194,6 +197,7 @@ const DPane = ({
           <div className="d-pane-tip">积分</div>
         </button>
       <div 
+        ref={settingsItemRef}
         className={`d-pane-item ${isSettingsSelected ? 'selected' : ''}`}
         onClick={handleOpenSettings}
       >

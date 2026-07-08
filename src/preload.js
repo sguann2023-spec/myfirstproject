@@ -152,10 +152,21 @@ const electronBridge = {
             ipcRenderer.invoke(AGENT_CHANNELS.SkillToggle, { agentId, skillId, isEnabled }),
         installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true } = {}) =>
             ipcRenderer.invoke(AGENT_CHANNELS.SkillInstallFromDirectory, { agentId, skillPath: directoryPath, isEnabled }),
+        copyDirectoryToWorkspace: ({ agentId = 'vectcut_claw_default', directoryPath, workspace } = {}) =>
+            ipcRenderer.invoke('skill:copy-directory-to-workspace', { agentId, directoryPath, workspace }),
         uninstall: ({ skillId } = {}) => ipcRenderer.invoke(AGENT_CHANNELS.SkillUninstall, skillId),
         seedWorkspace: async ({ workspace } = {}) => {
             const result = await ipcRenderer.invoke('skill:seed-workspace', workspace);
             return { ok: Boolean(result?.success), error: result?.error };
+        },
+        runExample: async ({ skillPath } = {}) => {
+            const result = await ipcRenderer.invoke('skill:run-example', { skillPath });
+            return {
+                ok: Boolean(result?.success),
+                error: result?.error,
+                stdout: result?.data?.stdout,
+                stderr: result?.data?.stderr
+            };
         },
         rescan: async ({ agentId = 'vectcut_claw_default' } = {}) => {
             const result = await ipcRenderer.invoke(AGENT_CHANNELS.SkillRescan, agentId);

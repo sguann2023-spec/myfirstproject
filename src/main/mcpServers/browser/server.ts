@@ -9,6 +9,9 @@ import { toolDefinitions, toolHandlers } from './tools'
 export class BrowserServer {
   public mcpServer: McpServer
   private controller = new CdpBrowserController()
+  private readonly handleBeforeQuit = () => {
+    void this.controller.reset()
+  }
 
   /** Low-level Server instance (used by factory / InMemoryTransport) */
   public get server(): Server {
@@ -44,9 +47,13 @@ export class BrowserServer {
       return handler(this.controller, args)
     })
 
-    app.on('before-quit', () => {
-      void this.controller.reset()
-    })
+    app.on('before-quit', this.handleBeforeQuit)
+  }
+
+  public async close(): Promise<void> {
+    app.off('before-quit', this.handleBeforeQuit)
+    await this.controller.reset()
+    await this.mcpServer.close()
   }
 }
 

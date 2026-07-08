@@ -40,6 +40,8 @@ const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
+const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_DIR = '/Users/sunguannan/CapCutHelper/resources/quick/skills/儿童绘本';
+const QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE = '/Users/sunguannan/CapCutHelper/resources/quick/skills/儿童绘本/website/index.html';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const getSessionWorkspacePath = (session) => {
@@ -150,6 +152,12 @@ const writeWorkspaceStore = (store = {}) => {
 const buildAutoWorkspaceName = () => (
   `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 );
+const createLocalFileUrl = (filePath = '') => {
+  const normalizedPath = normalizeLocalPath(filePath).trim();
+  if (!normalizedPath) return '';
+  const pathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+  return encodeURI(`file://${pathname}`);
+};
 
 const resolveProviderIdByModel = (modelId = '') => {
   const lower = String(modelId || '').toLowerCase();
@@ -983,6 +991,8 @@ const HomePage = () => {
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
   const [chatHistoryVisible, setChatHistoryVisible] = useState(false);
+  const beginnerGuideDownloadPaneRef = useRef(null);
+  const beginnerGuideSettingsPaneRef = useRef(null);
   const [chatHistoryAnimated, setChatHistoryAnimated] = useState(false);
   const [chatDraftInput, setChatDraftInput] = useState('');
   const chatHistoryAnimTimerRef = useRef(null);
@@ -1002,6 +1012,7 @@ const HomePage = () => {
   const [chatWebPreview, setChatWebPreview] = useState(null);
   const [manualChatWebPreview, setManualChatWebPreview] = useState(null);
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
+  const activeChatWebPreviewKeyRef = useRef('');
   const chatExpandedWindowBaseWidthRef = useRef(null);
 
   useEffect(() => {
@@ -1164,6 +1175,37 @@ const HomePage = () => {
       return undefined;
     }
   }, [refreshRechargeBalanceAfterPayment]);
+
+  useEffect(() => {
+    activeChatWebPreviewKeyRef.current = String(
+      manualChatWebPreview?.key || chatWebPreview?.key || ''
+    ).trim();
+  }, [chatWebPreview?.key, manualChatWebPreview?.key]);
+
+  useEffect(() => {
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const handleRestartBeginnerGuide = () => {
+        const previewKey = activeChatWebPreviewKeyRef.current;
+        if (previewKey) {
+          setChatWebPreviewDismissedKey(previewKey);
+        }
+        setManualChatWebPreview(null);
+        setChatWebPreview(null);
+        setSelectedPane('chat');
+        setChatHistoryVisible(false);
+        handleCreateChatSession();
+      };
+
+      ipcRenderer.on('restart-beginner-guide', handleRestartBeginnerGuide);
+      return () => {
+        ipcRenderer.removeListener('restart-beginner-guide', handleRestartBeginnerGuide);
+      };
+    } catch (error) {
+      logger.warn('Failed to subscribe restart beginner guide event.', error);
+      return undefined;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2608,6 +2650,88 @@ const HomePage = () => {
     setChatSessionFulfilled(session.id, false, 'create-session');
   };
 
+  const handleBootstrapChildrensPictureBook = useCallback(async () => {
+    const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    const session = createEmptyChatSession();
+    setChatSessions((prev) => [session, ...prev]);
+    setActiveChatId(session.id);
+    setChatSessionSending(session.id, false, 'quick-bootstrap');
+    setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
+    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备儿童绘本技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+
+    try {
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = inheritedWorkspacePath;
+      if (!workspacePath) {
+        const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copyResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: QUICK_CHILDRENS_PICTURE_BOOK_SKILL_DIR,
+        workspace: workspacePath
+      });
+      if (!copyResult?.success) {
+        throw new Error(copyResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      const previewFilePath = joinLocalPath(copyResult?.data?.targetPath || '', 'website', 'index.html');
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? { ...item, runtimeSessionId: agentSessionId, updatedAt: Date.now() }
+            : item
+        ))
+      );
+      setManualChatWebPreview({
+        key: `quick-skill-preview:${session.id}:${previewFilePath || QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE}`,
+        title: '儿童绘本',
+        url: createLocalFileUrl(previewFilePath || QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE)
+      });
+      setChatWebPreviewDismissedKey('');
+      window.toast?.success?.(
+        inheritedWorkspacePath
+          ? '已新建对话，复用当前工作空间并打开儿童绘本预览'
+          : '已新建对话和工作空间，并打开儿童绘本预览'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionSending, setChatWorkspaceStatus]);
+
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
     setChatSessionFulfilled(sessionId, false, 'select-session');
@@ -3227,6 +3351,8 @@ const HomePage = () => {
               <DPane
                 selected={selectedPane}
                 onSelect={setSelectedPane}
+                downloadItemRef={beginnerGuideDownloadPaneRef}
+                settingsItemRef={beginnerGuideSettingsPaneRef}
                 credits={formatCreditsCount(creditsBalance)}
                 creditsLoading={creditsLoading}
                 onRefreshCredits={handleCreditsButtonClick}
@@ -3335,6 +3461,13 @@ const HomePage = () => {
                 webPreview={activeChatWebPreview}
                 onCloseWebPreview={handleCloseChatWebPreview}
                 onOpenWebPreview={handleOpenChatWebPreview}
+                onQuickPromptAction={(action) => {
+                  if (action === 'bootstrap-childrens-picture-book') {
+                    void handleBootstrapChildrensPictureBook();
+                  }
+                }}
+                beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
+                beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
               />
             ) : null}
             {/* 已完成视图：仅在选中具体项后展示右侧内容 */}
