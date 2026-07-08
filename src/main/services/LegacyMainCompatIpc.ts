@@ -257,10 +257,10 @@ async function downloadViaWindowSession(
     }
 
     try {
-      await downloadWithSessionFetch(url)
+      await downloadWithNodeRequest(url)
     } catch (error) {
       const message = timeoutError?.message || (error instanceof Error ? error.message : String(error))
-      logger.warn('[DLTRACE][Main] session.fetch failed, fallback to node request', {
+      logger.warn('[DLTRACE][Main] node request failed, fallback to session.fetch', {
         jobId,
         draftId,
         reqId,
@@ -268,17 +268,13 @@ async function downloadViaWindowSession(
         error: message
       })
 
-      if (timeoutError) {
-        throw timeoutError
-      }
-
       downloadedBytes = 0
       totalBytes = 0
       try {
         await fs.promises.unlink(localFilename)
       } catch {}
 
-      await downloadWithNodeRequest(url)
+      await downloadWithSessionFetch(url)
     }
 
     completed = true

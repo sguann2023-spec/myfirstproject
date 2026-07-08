@@ -130,11 +130,11 @@ describe('PromptBuilder', () => {
 
   describe('buildToolGuidance', () => {
     it('returns empty guidance when no capability is selected', () => {
-      expect(builder.buildToolGuidance()).toBe('')
+      expect(builder.buildToolGuidance('/workspace')).toBe('')
     })
 
     it('adds only capability-scoped guidance', () => {
-      const result = builder.buildToolGuidance({
+      const result = builder.buildToolGuidance('/workspace', {
         hasWeb: true,
         hasWorkspaceTools: true,
         hasWriteTools: true
@@ -149,11 +149,12 @@ describe('PromptBuilder', () => {
     })
 
     it('keeps self-media guidance concise and opt-in', () => {
-      const result = builder.buildToolGuidance({ hasContentCreation: true })
+      const result = builder.buildToolGuidance('/workspace', { hasContentCreation: true })
 
       expect(result).toContain('## Content creation')
       expect(result).toContain('distribution strength')
-      expect(result.length).toBeLessThan(500)
+      expect(result).toContain('prefer the dedicated copylab tool')
+      expect(result.length).toBeLessThan(700)
     })
   })
 

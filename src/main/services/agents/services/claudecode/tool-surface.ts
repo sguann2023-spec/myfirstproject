@@ -4,6 +4,7 @@ import type { RuntimeToolLayer } from './capability-router'
 
 export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
   chat: [],
+  web: [],
   'workspace-read': ['Read', 'Glob', 'Grep', 'NotebookRead'],
   'workspace-write': ['Read', 'Glob', 'Grep', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'],
   agentic: [

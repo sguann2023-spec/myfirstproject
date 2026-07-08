@@ -66,7 +66,12 @@ import { agentService } from '../AgentService'
 import { isProvisioned, provisionBuiltinAgent } from '../builtin/BuiltinAgentProvisioner'
 import { channelService } from '../ChannelService'
 import { PromptBuilder } from '../cherryclaw/prompt'
-import { CapabilityRouter, buildToolGuidanceOptions, type RuntimeCapability } from './capability-router'
+import {
+  CapabilityRouter,
+  buildToolGuidanceOptions,
+  type RuntimeCapability,
+  type RuntimeToolLayer
+} from './capability-router'
 import { sessionService } from '../SessionService'
 import { buildNamespacedToolCallId } from './claude-stream-state'
 import { logPromptBudgetProbe } from './prompt-budget'
@@ -134,6 +139,9 @@ const getArgValue = (args: string[], flag: string): string | undefined => {
 }
 
 const countArg = (args: string[], flag: string): number => args.filter((arg) => arg === flag).length
+
+const hasWorkspaceAccess = (layer: RuntimeToolLayer): boolean =>
+  layer === 'workspace-read' || layer === 'workspace-write' || layer === 'agentic'
 
 const splitArgList = (value: string | undefined): string[] =>
   value === undefined || value === '' ? [] : value.split(',').map((item) => item.trim()).filter(Boolean)
@@ -613,7 +621,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       return null
     }
     let plugins: SdkPluginConfig[] | undefined
-    if (capabilityDecision.toolLayer !== 'chat') {
+    if (hasWorkspaceAccess(capabilityDecision.toolLayer)) {
       try {
         const pluginsDir = path.join(cwd, '.claude', 'plugins')
         const entries = await fs.promises.readdir(pluginsDir, { withFileTypes: true }).catch(() => [])
@@ -638,7 +646,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         })
       }
     } else {
-      logger.info('[ToolRouter] skipped plugin discovery for chat layer', {
+      logger.info('[ToolRouter] skipped plugin discovery without workspace access', {
         agentId: session.agent_id,
         sessionId: session.id
       })
@@ -1059,7 +1067,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.allowedTools = toolSurface.allowedToolsOption
     }
 
-    if (capabilityDecision.toolLayer !== 'chat') {
+    if (hasWorkspaceAccess(capabilityDecision.toolLayer)) {
       const filesystemServer = new FileSystemServer(cwd)
       mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem', instance: filesystemServer.mcpServer })
       allowMcpPattern('mcp__filesystem__*')

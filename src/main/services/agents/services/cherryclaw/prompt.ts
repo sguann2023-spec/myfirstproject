@@ -125,6 +125,7 @@ export class PromptBuilder {
       sections.push(`## Content creation
 
 - For copywriting, scripts, titles, thumbnails, and short-video content, optimize for concrete audience fit, clarity, and distribution strength.
+- When the user provides a supported social-media share link and asks to reverse-engineer, imitate, or derive prompts, prefer the dedicated copylab tool instead of manually browsing first.
 - Improve weak prompts by first reframing the angle, then produce the requested artifact.
 - Avoid fabricated insider claims or low-quality exaggeration.`)
     }

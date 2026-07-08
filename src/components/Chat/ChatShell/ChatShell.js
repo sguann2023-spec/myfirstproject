@@ -26,6 +26,11 @@ import TextFilePreview from './TextFilePreview';
 import WebPagePreview from './WebPagePreview';
 
 const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
+const isAbsoluteEntryPath = (value) => (
+  value.startsWith('/') ||
+  /^[a-zA-Z]:\//.test(value) ||
+  value.startsWith('//')
+);
 const normalizeComparablePath = (value) => {
   const normalized = normalizePath(value).replace(/\/$/, '');
   return isWindows ? normalized.toLowerCase() : normalized;
@@ -34,7 +39,7 @@ const resolveListedEntryPath = (rootPath, entryPath) => {
   const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
   const normalizedEntry = normalizePath(entryPath).trim();
   if (!normalizedEntry) return '';
-  if (normalizedEntry.startsWith('/')) return normalizedEntry;
+  if (isAbsoluteEntryPath(normalizedEntry)) return normalizedEntry;
   return `${normalizedRoot}/${normalizedEntry}`.replace(/\/+/g, '/');
 };
 const getBaseName = (value) => {

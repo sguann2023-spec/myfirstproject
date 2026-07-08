@@ -26,6 +26,18 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'NotebookRead', 'Read'])
   })
 
+  it('keeps the web layer free of built-in workspace tools', () => {
+    const surface = buildToolSurface({
+      layer: 'web',
+      sessionAllowedTools: ['mcp__search__*', 'mcp__browser__*'],
+      isAssistant: false
+    })
+
+    expect(surface.toolsOption).toEqual([])
+    expect(surface.builtinTools).toEqual([])
+    expect(surface.allowedToolsOption).toEqual(['mcp__browser__*', 'mcp__search__*'])
+  })
+
   it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {
     const surface = buildToolSurface({
       layer: 'workspace-write',

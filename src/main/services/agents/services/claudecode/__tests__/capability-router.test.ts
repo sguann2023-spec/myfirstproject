@@ -92,6 +92,40 @@ describe('CapabilityRouter', () => {
     expect(version.toolLayer).toBe('chat')
   })
 
+  it('routes pure web search requests into the agentic layer', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '搜索一下最新资料并总结',
+      sessionId: 'session-web-search',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.toolLayer).toBe('agentic')
+    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+    expect(decision.selected.has('search')).toBe(true)
+  })
+
+  it('routes pure browser tasks into the web layer', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '打开 https://example.com 看看页面结构',
+      sessionId: 'session-web-browser',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.toolLayer).toBe('web')
+    expect(decision.toolLayerReasons).toContain('capability:web')
+    expect(decision.selected.has('browser')).toBe(true)
+  })
+
   it('promotes test/build requests to the agentic layer', () => {
     const router = new CapabilityRouter()
 
@@ -106,6 +140,86 @@ describe('CapabilityRouter', () => {
 
     expect(decision.toolLayer).toBe('agentic')
     expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+  })
+
+  it('promotes analysis-style requests to the agentic layer', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '深入分析这个工作流并反推实现思路',
+      sessionId: 'session-agentic-analysis',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.toolLayer).toBe('agentic')
+    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+  })
+
+  it('promotes creation-style requests to the agentic layer', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '帮我制作一个网页工作流，并做视频和画图',
+      sessionId: 'session-agentic-creation',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.toolLayer).toBe('agentic')
+    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+  })
+
+  it('promotes English workflow and reverse engineering requests to the agentic layer', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: 'Search and reverse engineer this workflow, then develop the web page',
+      sessionId: 'session-agentic-english',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.toolLayer).toBe('agentic')
+    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+  })
+
+  it('enables copylab for reverse-engineering prompt requests from share links', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '根据这个抖音链接反推提示词：https://www.douyin.com/video/123',
+      sessionId: 'session-copylab-link',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('copylab')).toBe(true)
+    expect(decision.reasons.copylab).toContain('prompt:copywriting')
+  })
+
+  it('enables copylab for English prompt derivation requests', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: 'Derive prompt from this TikTok share link and imitate the viral copy style',
+      sessionId: 'session-copylab-english',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('copylab')).toBe(true)
+    expect(decision.reasons.copylab).toContain('prompt:copywriting')
   })
 
   it('only enables autonomous claw capability when the agent is autonomous', () => {
@@ -147,7 +261,8 @@ describe('CapabilityRouter', () => {
     const guidance = buildToolGuidanceOptions({ decision, autonomousEnabled: false })
 
     expect(guidance.hasWeb).toBe(true)
-    expect(guidance.hasWorkspaceTools).toBe(false)
-    expect(guidance.hasAgenticTools).toBe(false)
+    expect(decision.toolLayer).toBe('agentic')
+    expect(guidance.hasWorkspaceTools).toBe(true)
+    expect(guidance.hasAgenticTools).toBe(true)
   })
 })

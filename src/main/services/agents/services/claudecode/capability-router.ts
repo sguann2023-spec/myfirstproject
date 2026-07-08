@@ -13,7 +13,7 @@ export type RuntimeCapability =
   | 'claw'
   | 'assistant'
 
-export type RuntimeToolLayer = 'chat' | 'workspace-read' | 'workspace-write' | 'agentic'
+export type RuntimeToolLayer = 'chat' | 'web' | 'workspace-read' | 'workspace-write' | 'agentic'
 
 export type CapabilityDecision = {
   turn: number
@@ -133,9 +133,12 @@ const addCapabilityReason = (
 }
 
 const maxLayer = (a: RuntimeToolLayer, b: RuntimeToolLayer): RuntimeToolLayer => {
-  const order: RuntimeToolLayer[] = ['chat', 'workspace-read', 'workspace-write', 'agentic']
+  const order: RuntimeToolLayer[] = ['chat', 'web', 'workspace-read', 'workspace-write', 'agentic']
   return order.indexOf(a) >= order.indexOf(b) ? a : b
 }
+
+const hasWorkspaceAccess = (layer: RuntimeToolLayer): boolean =>
+  layer === 'workspace-read' || layer === 'workspace-write' || layer === 'agentic'
 
 export class CapabilityRouter {
   private turnsBySession = new Map<string, number>()
@@ -261,7 +264,32 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'kouboTemplate', 'prompt:koubo-template')
       }
 
-      if (hasAnyKeyword(text, ['文案', '脚本', '标题', '话术', '种草', '广告语', 'copywriting', 'copy lab'])) {
+      if (
+        hasAnyKeyword(text, [
+          '文案',
+          '脚本',
+          '标题',
+          '话术',
+          '种草',
+          '广告语',
+          '反推',
+          '提示词',
+          '爆款',
+          '仿写',
+          '复刻',
+          '拆解',
+          '提炼提示词',
+          '根据链接生成提示词',
+          'copywriting',
+          'copy lab',
+          'prompt',
+          'derive prompt',
+          'reverse engineer',
+          'rewrite in this style',
+          'imitate',
+          'viral copy'
+        ])
+      ) {
         addCapabilityReason(selected, reasons, 'copylab', 'prompt:copywriting')
       }
 
@@ -350,7 +378,7 @@ export function buildToolGuidanceOptions(args: {
     hasWeb: decision.selected.has('search') || decision.selected.has('browser'),
     hasSystem: decision.selected.has('system'),
     hasContentCreation: decision.selected.has('copylab'),
-    hasWorkspaceTools: decision.toolLayer !== 'chat',
+    hasWorkspaceTools: hasWorkspaceAccess(decision.toolLayer),
     hasWriteTools: decision.toolLayer === 'workspace-write' || decision.toolLayer === 'agentic',
     hasAgenticTools: decision.toolLayer === 'agentic'
   }
@@ -367,6 +395,7 @@ function classifyToolLayer(args: {
   let layer: RuntimeToolLayer = 'chat'
 
   const text = args.normalizedPrompt
+  const hasWebCapability = args.selected.has('search') || args.selected.has('browser')
   const hasWorkspaceContextKeyword = hasAnyKeyword(text, [
     '代码',
     '文件',
@@ -403,6 +432,11 @@ function classifyToolLayer(args: {
     reasons.push('prompt:workspace-read')
   }
 
+  if (hasWebCapability) {
+    layer = maxLayer(layer, 'web')
+    reasons.push('capability:web')
+  }
+
   if (
     hasAnyKeyword(text, [
       '修改',
@@ -434,6 +468,17 @@ function classifyToolLayer(args: {
 
   if (
     hasAnyKeyword(text, [
+      '制作',
+      '分析',
+      '反推',
+      '理解',
+      '深入',
+      '搜索',
+      '画图',
+      '做视频',
+      '开发',
+      '网页',
+      '工作流',
       '运行',
       '执行',
       '跑测试',
@@ -443,6 +488,27 @@ function classifyToolLayer(args: {
       '打包',
       '部署',
       '提交',
+      'make',
+      'create',
+      'build out',
+      'analyze',
+      'analysis',
+      'reverse engineer',
+      'reverse-engineer',
+      'understand',
+      'deep dive',
+      'dive deep',
+      'search',
+      'draw',
+      'illustrate',
+      'generate image',
+      'make video',
+      'create video',
+      'develop',
+      'development',
+      'web page',
+      'webpage',
+      'workflow',
       'npm test',
       'pnpm test',
       'yarn test',
@@ -470,7 +536,7 @@ function classifyToolLayer(args: {
   }
 
   const toolLikeCapabilityCount = Array.from(args.selected).filter(
-    (capability) => capability !== 'copylab' && capability !== 'search'
+    (capability) => capability !== 'copylab' && capability !== 'search' && capability !== 'browser'
   ).length
   if (toolLikeCapabilityCount > 0) {
     layer = maxLayer(layer, 'workspace-read')
