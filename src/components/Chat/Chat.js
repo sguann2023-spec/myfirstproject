@@ -52,6 +52,9 @@ const CREATE_SKILL_PROMPT_TEMPLATE = [
   '- 如果需要固定脚本、工具或工作流，也请一起设计',
   '',
 ].join('\n');
+const buildSkillEditPrompt = (mentionLabel) => [
+  `@${mentionLabel} 请帮我修改这个技能的网页：（例如：我想换个背景颜色)`
+].join('\n');
 const formatModelDisplayName = (value) => String(value || '').trim();
 const buildFileCommentMessage = ({ filePath, fileName, lineNumber, comment }) => {
   const targetPath = String(filePath || fileName || '').trim();
@@ -148,7 +151,7 @@ const Chat = ({
   }, []);
 
   const insertSkillMention = React.useCallback((skill) => {
-    const mentionLabel = String(skill?.name || skill?.id || '').trim();
+    const mentionLabel = String(skill?.folderName || skill?.filename || skill?.name || skill?.id || '').trim();
     if (!mentionLabel) return;
 
     const currentText = String(input || '');
@@ -166,10 +169,11 @@ const Chat = ({
     const selectionEnd = selectionRange?.end ?? selectionStart;
     const prefix = currentText.slice(0, selectionStart);
     const suffix = currentText.slice(selectionEnd);
-    const needsLeadingSpace = prefix.length > 0 && !/\s$/.test(prefix);
-    const mentionText = `${needsLeadingSpace ? ' ' : ''}@${mentionLabel} `;
-    const nextText = `${prefix}${mentionText}${suffix}`;
-    const nextCursor = prefix.length + mentionText.length;
+    const promptText = buildSkillEditPrompt(mentionLabel);
+    const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
+    const needsTrailingBreak = suffix.length > 0 && !/^\s/.test(suffix);
+    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${promptText}${needsTrailingBreak ? '\n' : ''}${suffix}`;
+    const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + promptText.length;
 
     setInput(nextText);
     window.requestAnimationFrame(() => {
@@ -254,6 +258,7 @@ const Chat = ({
       <Composer
         agentId={agentId}
         runtimeSessionId={runtimeSessionId}
+        session={session}
         inputRef={inputRef}
         input={input}
         setInput={setInput}

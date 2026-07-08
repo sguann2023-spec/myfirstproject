@@ -11,7 +11,7 @@ import { builtinTools } from './tools'
 const logger = loggerService.withContext('ClaudeCodeService')
 
 const MAX_PREVIEW_LENGTH = 2_000
-const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
+const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS !== '0'
 
 type ToolPermissionBehavior = 'allow' | 'deny'
 

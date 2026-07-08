@@ -6,13 +6,13 @@ describe('buildToolSurface', () => {
   it('disables all built-in tools for chat turns', () => {
     const surface = buildToolSurface({
       layer: 'chat',
-      sessionAllowedTools: ['Bash', 'mcp__filesystem__*'],
+      sessionAllowedTools: ['Bash', 'mcp__skills__*'],
       isAssistant: false
     })
 
     expect(surface.toolsOption).toEqual([])
     expect(surface.builtinTools).toEqual([])
-    expect(surface.allowedToolsOption).toEqual(['mcp__filesystem__*'])
+    expect(surface.allowedToolsOption).toEqual(['mcp__skills__*'])
   })
 
   it('enables only read tools for workspace-read turns', () => {

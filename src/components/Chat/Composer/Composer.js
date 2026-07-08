@@ -1,5 +1,4 @@
 import { useAgent } from '@renderer/hooks/agents/useAgent';
-import { useSession } from '@renderer/hooks/agents/useSession';
 import React from 'react';
 import { mergeAttributes, Node } from '@tiptap/core';
 import Mention from '@tiptap/extension-mention';
@@ -8,7 +7,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { StarterKit } from '@tiptap/starter-kit';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
-import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileImage, FileVideo, Plus, Upload as UploadIcon } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
 import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
@@ -37,12 +36,33 @@ const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
 const TOOL_BAR_SCROLL_STEP = 220;
 const TOOL_BAR_MIN_RIGHT_GAP = 32;
 const TOOL_BAR_NAV_VISIBILITY_THRESHOLD = 24;
+const TREE_LIST_MAX_ENTRIES = 20000;
+const IMAGE_FILE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
+const VIDEO_FILE_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
+const AUDIO_FILE_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']);
 const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
+const isAbsoluteEntryPath = (value) => (
+  value.startsWith('/') ||
+  /^[a-zA-Z]:\//.test(value) ||
+  value.startsWith('//')
+);
+const resolveListedEntryPath = (rootPath, entryPath) => {
+  const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
+  const normalizedEntry = normalizePath(entryPath).trim();
+  if (!normalizedEntry) return '';
+  if (isAbsoluteEntryPath(normalizedEntry)) return normalizedEntry;
+  return `${normalizedRoot}/${normalizedEntry}`.replace(/\/+/g, '/');
+};
+const getBaseName = (value) => {
+  const normalized = normalizePath(value).replace(/\/$/, '');
+  const segments = normalized.split('/').filter(Boolean);
+  return segments[segments.length - 1] || normalized;
+};
 const getWorkspaceConfig = (session) => {
   const config = session?.configuration && typeof session.configuration === 'object'
     ? session.configuration
     : {};
-  const lockedPath = normalizePath(config?.selected_workspace_path || '');
+  const lockedPath = normalizePath(config?.selected_workspace_path || session?.accessible_paths?.[0] || '');
   const recentPaths = Array.isArray(config?.recent_workspace_paths)
     ? config.recent_workspace_paths.map((item) => normalizePath(item)).filter(Boolean)
     : [];
@@ -51,10 +71,176 @@ const getWorkspaceConfig = (session) => {
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
-const getSkillMentionLabel = (skill) => String(skill?.name || skill?.id || '').trim();
+const getSkillMentionLabel = (skill) => String(
+  skill?.folderName || skill?.filename || skill?.name || skill?.id || ''
+).trim();
 const getMentionText = (attrs = {}) => `@${attrs.label || attrs.id || ''}`;
 const getFileReferenceText = (attrs = {}) => `#${attrs.name || '文件'}`;
 const getFileDisplayName = (file = {}) => file.name || '文件';
+const isBlobLike = (value) => (
+  Boolean(value)
+  && typeof value === 'object'
+  && typeof value.size === 'number'
+  && typeof value.type === 'string'
+  && typeof value.slice === 'function'
+);
+const isFileLike = (value) => (
+  isBlobLike(value)
+  && typeof value.name === 'string'
+);
+const getFileExtension = (fileName = '') => {
+  const normalized = String(fileName || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized.startsWith('.') && !normalized.slice(1).includes('.')) return normalized.slice(1);
+  const segments = normalized.split('.');
+  return segments.length > 1 ? segments.pop() || '' : '';
+};
+const createLocalFileUrl = (filePath = '') => {
+  const normalizedPath = normalizePath(filePath).trim();
+  if (!normalizedPath) return '';
+  const pathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+  return encodeURI(`file://${pathname}`);
+};
+const guessFileTypeFromName = (fileName = '') => {
+  const extension = getFileExtension(fileName);
+  if (IMAGE_FILE_EXTENSIONS.has(extension)) return extension === 'svg' ? 'image/svg+xml' : 'image/png';
+  if (VIDEO_FILE_EXTENSIONS.has(extension)) return 'video/mp4';
+  if (AUDIO_FILE_EXTENSIONS.has(extension)) return 'audio/mpeg';
+  return 'text/plain';
+};
+const sortTreeNodes = (nodes) => (
+  [...nodes].sort((left, right) => {
+    if (left.type !== right.type) {
+      return left.type === 'directory' ? -1 : 1;
+    }
+    return String(left.name || '').localeCompare(String(right.name || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  })
+);
+const sortTreeRecursively = (nodes) => (
+  sortTreeNodes(nodes).map((node) => (
+    node.type === 'directory' && Array.isArray(node.children)
+      ? { ...node, children: sortTreeRecursively(node.children) }
+      : node
+  ))
+);
+const buildTreeFromEntries = (rootPath, entries, directoryFlags) => {
+  const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
+  const nodeMap = new Map();
+  const rootNodes = [];
+
+  entries
+    .map((entryPath) => normalizePath(entryPath))
+    .filter((entryPath) => entryPath && entryPath.startsWith(`${normalizedRoot}/`))
+    .sort((left, right) => left.length - right.length)
+    .forEach((entryPath) => {
+      const relativePath = entryPath.slice(normalizedRoot.length + 1);
+      if (!relativePath) return;
+
+      const segments = relativePath.split('/').filter(Boolean);
+      if (segments.length === 0) return;
+
+      const nodePath = segments.join('/');
+      const parentPath = segments.slice(0, -1).join('/');
+      const node = {
+        name: segments[segments.length - 1],
+        path: nodePath,
+        type: directoryFlags.get(entryPath) ? 'directory' : 'file',
+      };
+
+      if (node.type === 'directory') {
+        node.children = [];
+      }
+
+      nodeMap.set(nodePath, node);
+
+      if (parentPath && nodeMap.has(parentPath)) {
+        const parentNode = nodeMap.get(parentPath);
+        if (!Array.isArray(parentNode.children)) {
+          parentNode.children = [];
+        }
+        parentNode.children.push(node);
+      } else {
+        rootNodes.push(node);
+      }
+    });
+
+  return sortTreeRecursively(rootNodes);
+};
+const filterTreeNodesByQuery = (nodes, query) => {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  if (!normalizedQuery) return Array.isArray(nodes) ? nodes : [];
+
+  return (Array.isArray(nodes) ? nodes : []).reduce((accumulator, node) => {
+    const matchesSelf = String(node?.name || '').toLowerCase().includes(normalizedQuery);
+    if (node?.type === 'directory') {
+      const matchedChildren = filterTreeNodesByQuery(node.children, normalizedQuery);
+      if (matchesSelf || matchedChildren.length > 0) {
+        accumulator.push({
+          ...node,
+          children: matchedChildren,
+        });
+      }
+      return accumulator;
+    }
+
+    if (matchesSelf) {
+      accumulator.push(node);
+    }
+    return accumulator;
+  }, []);
+};
+const createLocalReferenceFile = ({ rootPath, node, sourceType = 'workspace', sourceLabel = '' }) => {
+  const sourcePath = resolveListedEntryPath(rootPath, node?.path);
+  const fileUrl = createLocalFileUrl(sourcePath);
+  const fileType = guessFileTypeFromName(node?.name || '');
+  const isMediaFile = /^image\/|^video\/|^audio\//.test(fileType);
+
+  return {
+    uid: `local:${sourcePath}`,
+    name: node?.name || getBaseName(sourcePath) || '文件',
+    url: fileUrl,
+    fileType,
+    thumbnailUrl: isMediaFile ? fileUrl : '',
+    previewUrl: isMediaFile ? fileUrl : '',
+    localThumbUrl: isMediaFile ? fileUrl : '',
+    localPreviewUrl: isMediaFile ? fileUrl : '',
+    sourcePath,
+    sourceType,
+    sourceLabel,
+  };
+};
+const collectVisibleTreeFiles = (
+  nodes,
+  rootPath,
+  scopeKey,
+  expandedKeys,
+  { forceExpanded = false, sourceType = 'workspace', sourceLabel = '' } = {}
+) => {
+  const results = [];
+
+  (Array.isArray(nodes) ? nodes : []).forEach((node) => {
+    const compositeKey = `${scopeKey}:${node.path}`;
+    if (node?.type === 'file') {
+      results.push(createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel }));
+      return;
+    }
+
+    if (node?.type === 'directory' && (forceExpanded || expandedKeys.has(compositeKey))) {
+      results.push(
+        ...collectVisibleTreeFiles(node.children, rootPath, compositeKey, expandedKeys, {
+          forceExpanded,
+          sourceType,
+          sourceLabel,
+        })
+      );
+    }
+  });
+
+  return results;
+};
 const DIGITAL_HUMAN_VIDEO_SLOT_ID = 'digital-human-video';
 const DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID = 'digital-human-selected-voice-id';
 const VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID = 'voice-square-selected-voice-id';
@@ -129,6 +315,9 @@ const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   slotLabel: overrides.slotLabel ?? file.slotLabel ?? '',
   acceptedKind: overrides.acceptedKind ?? file.acceptedKind ?? '',
   placeholderText: overrides.placeholderText ?? file.placeholderText ?? FILE_SLOT_PLACEHOLDER,
+  sourcePath: overrides.sourcePath ?? file.sourcePath ?? '',
+  sourceType: overrides.sourceType ?? file.sourceType ?? '',
+  sourceLabel: overrides.sourceLabel ?? file.sourceLabel ?? '',
 });
 const createDigitalHumanSelectedVoiceReferenceAttrs = (
   selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
@@ -165,7 +354,7 @@ const createVoiceSquareSelectedVoiceReferenceAttrs = (selectedVoiceLibraryItem =
     placeholderText: selectedVoiceLibraryItem?.title || '音色',
   });
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
-  if (!(file instanceof Blob)) {
+  if (!isBlobLike(file)) {
     reject(new Error('INVALID_FILE'));
     return;
   }
@@ -583,7 +772,7 @@ const formatMediaDuration = (durationInSeconds) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 const createLocalObjectUrl = (file) => {
-  if (!(file instanceof File) || typeof URL?.createObjectURL !== 'function') return '';
+  if (!isFileLike(file) || typeof URL?.createObjectURL !== 'function') return '';
   try {
     return URL.createObjectURL(file);
   } catch (error) {
@@ -629,7 +818,6 @@ const getFileKindFromType = (fileType = '') => {
   if (String(fileType).startsWith('audio/')) return 'audio';
   return 'file';
 };
-const isPreviewableFile = (fileType = '') => ['image', 'video', 'audio'].includes(getFileKindFromType(fileType));
 const renderFilePreviewContent = (file = {}, className = '') => {
   const previewUrl = file.localPreviewUrl || file.localThumbUrl || file.previewUrl || file.thumbnailUrl || file.url;
   const kind = getFileKindFromType(file.fileType);
@@ -709,7 +897,7 @@ const renderFileThumb = (file = {}, options = {}) => {
     return <FileAudio className="chat-panel__file-ref-thumb-icon" />;
   }
 
-  return <FileImage className="chat-panel__file-ref-thumb-icon" />;
+  return <File className="chat-panel__file-ref-thumb-icon" />;
 };
 const getEditorPlainText = (editor) => {
   if (!editor || editor.isDestroyed) return '';
@@ -1182,6 +1370,9 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
         slotLabel: { default: '' },
         acceptedKind: { default: '' },
         placeholderText: { default: FILE_SLOT_PLACEHOLDER },
+        sourcePath: { default: '' },
+        sourceType: { default: '' },
+        sourceLabel: { default: '' },
       };
     },
 
@@ -1557,6 +1748,7 @@ const mapTextOffsetToDocPosition = (editor, targetOffset) => {
 const Composer = ({
   agentId,
   runtimeSessionId,
+  session: sessionProp = null,
   inputRef,
   input,
   setInput,
@@ -1571,7 +1763,8 @@ const Composer = ({
   formatModelDisplayName,
 }) => {
   const { agent } = useAgent(agentId || null);
-  const { session } = useSession(agentId || null, runtimeSessionId || null);
+  const [runtimeSession, setRuntimeSession] = React.useState(null);
+  const session = runtimeSession || sessionProp;
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [activeTool, setActiveTool] = React.useState(null);
@@ -1586,6 +1779,11 @@ const Composer = ({
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
   const [skills, setSkills] = React.useState([]);
+  const [skillReferenceTrees, setSkillReferenceTrees] = React.useState({});
+  const [workspaceReferenceTrees, setWorkspaceReferenceTrees] = React.useState({});
+  const [referenceTreesLoading, setReferenceTreesLoading] = React.useState(false);
+  const [referenceTreesError, setReferenceTreesError] = React.useState('');
+  const [expandedReferenceNodeKeys, setExpandedReferenceNodeKeys] = React.useState(() => new Set());
   const [mentionState, setMentionState] = React.useState({
     open: false,
     symbol: '',
@@ -1606,6 +1804,7 @@ const Composer = ({
   const latestFilteredSkillsRef = React.useRef([]);
   const latestSkillsRef = React.useRef(skills);
   const latestUploadedFileMetaRef = React.useRef(uploadedFileMeta);
+  const latestReferenceSuggestionItemsRef = React.useRef([]);
   const handleSendWithAttachmentsRef = React.useRef(() => {});
   const mentionPanelPointerDownRef = React.useRef(false);
   const requestUploadPickerRef = React.useRef(() => {});
@@ -1630,6 +1829,10 @@ const Composer = ({
     () => workspaceConfig.lockedPath,
     [workspaceConfig.lockedPath]
   );
+  const workspaceReferenceRootLabel = React.useMemo(
+    () => getBaseName(primarySkillWorkdir) || '工作空间',
+    [primarySkillWorkdir]
+  );
   const inputPlaceholder =
     activeTool === 'digital-human'
       ? ''
@@ -1639,6 +1842,50 @@ const Composer = ({
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
     toolbarUploadTriggerRef.current?.click?.();
   };
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadRuntimeSession = async () => {
+      const targetSessionId = String(runtimeSessionId || '').trim();
+      if (!targetSessionId || typeof window?.electronAPI?.cherryChatStream?.getSession !== 'function') {
+        setRuntimeSession(null);
+        return;
+      }
+      try {
+        const result = await window.electronAPI.cherryChatStream.getSession(targetSessionId);
+        if (cancelled) return;
+        setRuntimeSession(result?.ok ? result.session || null : null);
+      } catch (_error) {
+        if (!cancelled) {
+          setRuntimeSession(null);
+        }
+      }
+    };
+
+    void loadRuntimeSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [runtimeSessionId]);
+
+  React.useEffect(() => {
+    const api = window?.electronAPI?.agentSessionStream;
+    const targetSessionId = String(runtimeSessionId || '').trim();
+    if (!targetSessionId || typeof api?.onSessionChanged !== 'function') return undefined;
+
+    return api.onSessionChanged((payload) => {
+      if (String(payload?.sessionId || '').trim() !== targetSessionId) return;
+      void (async () => {
+        try {
+          const result = await window.electronAPI.cherryChatStream.getSession(targetSessionId);
+          setRuntimeSession(result?.ok ? result.session || null : null);
+        } catch (_error) {
+          setRuntimeSession(null);
+        }
+      })();
+    });
+  }, [runtimeSessionId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1680,7 +1927,22 @@ const Composer = ({
           setSkillsError(result?.error || '加载技能失败');
           return;
         }
-        setSkills(Array.isArray(result.skills) ? result.skills : []);
+        const nextSkills = Array.isArray(result.skills) ? result.skills : [];
+        const joinPath = window?.electronAPI?.path?.join;
+        const normalizedSkills = nextSkills.map((skill) => {
+          const folderName = getSkillMentionLabel(skill);
+          const localSkillRoot =
+            primarySkillWorkdir && folderName
+              ? normalizePath(
+                typeof joinPath === 'function'
+                  ? joinPath(primarySkillWorkdir, '.claude', 'skills', folderName)
+                  : `${primarySkillWorkdir}/.claude/skills/${folderName}`
+              )
+              : '';
+
+          return localSkillRoot ? { ...skill, __skillRoot: localSkillRoot } : skill;
+        });
+        setSkills(normalizedSkills);
       } catch (error) {
         if (!cancelled) {
           setSkills([]);
@@ -1777,7 +2039,7 @@ const Composer = ({
     if (mentionState.symbol !== '@') return skills;
     const query = String(mentionState.query || '').trim().toLowerCase();
     if (!query) return skills;
-    return skills.filter((skill) => String(skill?.name || '').toLowerCase().startsWith(query));
+    return skills.filter((skill) => getSkillMentionLabel(skill).toLowerCase().startsWith(query));
   }, [mentionState.query, mentionState.symbol, skills]);
 
   const filteredUploadedFiles = React.useMemo(() => {
@@ -1805,6 +2067,120 @@ const Composer = ({
   React.useEffect(() => {
     latestUploadedFileMetaRef.current = uploadedFileMeta;
   }, [uploadedFileMeta]);
+
+  const loadLocalReferenceTree = React.useCallback(async (rootPath, options = {}) => {
+    if (!rootPath || !window?.api?.file?.listDirectory || !window?.api?.file?.isDirectory) {
+      return [];
+    }
+
+    const { excludeClaude = false } = options;
+    const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
+    const entries = await window.api.file.listDirectory(normalizedRoot, {
+      recursive: true,
+      maxDepth: 10,
+      includeHidden: false,
+      includeFiles: true,
+      includeDirectories: true,
+      maxEntries: TREE_LIST_MAX_ENTRIES,
+      searchPattern: '.'
+    });
+
+    const normalizedEntries = Array.isArray(entries)
+      ? Array.from(
+          new Set(
+            entries
+              .map((entryPath) => resolveListedEntryPath(normalizedRoot, entryPath))
+              .filter((entryPath) => {
+                if (!entryPath.startsWith(`${normalizedRoot}/`)) return false;
+                if (!excludeClaude) return true;
+                const relativePath = entryPath.slice(normalizedRoot.length + 1);
+                return relativePath && !relativePath.split('/').includes('.claude');
+              })
+          )
+        )
+      : [];
+
+    const directoryChecks = await Promise.all(
+      normalizedEntries.map(async (entryPath) => {
+        try {
+          const isDirectory = await window.api.file.isDirectory(entryPath);
+          return [entryPath, Boolean(isDirectory)];
+        } catch (_error) {
+          return [entryPath, false];
+        }
+      })
+    );
+
+    return buildTreeFromEntries(normalizedRoot, normalizedEntries, new Map(directoryChecks));
+  }, []);
+
+  React.useEffect(() => {
+    if (!mentionState.open || mentionState.symbol !== '#') return undefined;
+
+    let cancelled = false;
+
+    const loadReferenceTrees = async () => {
+      const skillRootsToLoad = skills.filter((skill) => {
+        const skillKey = getSkillMentionLabel(skill);
+        return skill?.__skillRoot && skillKey && !Object.prototype.hasOwnProperty.call(skillReferenceTrees, skillKey);
+      });
+      const shouldLoadWorkspace = primarySkillWorkdir
+        && !Object.prototype.hasOwnProperty.call(workspaceReferenceTrees, primarySkillWorkdir);
+
+      if (!shouldLoadWorkspace && skillRootsToLoad.length === 0) {
+        setReferenceTreesError('');
+        return;
+      }
+
+      setReferenceTreesLoading(true);
+      setReferenceTreesError('');
+
+      try {
+        const [workspaceNodes, skillTreeEntries] = await Promise.all([
+          shouldLoadWorkspace
+            ? loadLocalReferenceTree(primarySkillWorkdir, { excludeClaude: true })
+            : Promise.resolve(null),
+          Promise.all(
+            skillRootsToLoad.map(async (skill) => {
+              const skillKey = getSkillMentionLabel(skill);
+              const nodes = await loadLocalReferenceTree(skill.__skillRoot);
+              return [skillKey, nodes];
+            })
+          )
+        ]);
+
+        if (cancelled) return;
+
+        if (shouldLoadWorkspace) {
+          setWorkspaceReferenceTrees((prev) => ({
+            ...prev,
+            [primarySkillWorkdir]: Array.isArray(workspaceNodes) ? workspaceNodes : []
+          }));
+        }
+
+        if (skillTreeEntries.length > 0) {
+          setSkillReferenceTrees((prev) => ({
+            ...prev,
+            ...Object.fromEntries(skillTreeEntries.map(([skillKey, nodes]) => [skillKey, Array.isArray(nodes) ? nodes : []]))
+          }));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setReferenceTreesError(error?.message || '加载引用文件失败');
+        }
+      } finally {
+        if (!cancelled) {
+          setReferenceTreesLoading(false);
+        }
+      }
+    };
+
+    void loadReferenceTrees();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, primarySkillWorkdir, skillReferenceTrees, skills, workspaceReferenceTrees]);
 
   const updateToolContentScrollState = React.useCallback(() => {
     const element = toolContentScrollRef.current;
@@ -1939,9 +2315,73 @@ const Composer = ({
     });
   }, []);
 
+  const referenceQuery = React.useMemo(
+    () => String(mentionState.query || '').trim().toLowerCase(),
+    [mentionState.query]
+  );
+  const filteredSkillReferenceGroups = React.useMemo(() => (
+    skills
+      .map((skill) => {
+        const skillKey = getSkillMentionLabel(skill);
+        const nodes = skillReferenceTrees[skillKey] || [];
+        return {
+          skill,
+          skillKey,
+          label: skillKey,
+          rootPath: normalizePath(skill?.__skillRoot || ''),
+          nodes: filterTreeNodesByQuery(nodes, referenceQuery),
+        };
+      })
+      .filter((group) => group.label && group.rootPath && group.nodes.length > 0)
+  ), [referenceQuery, skillReferenceTrees, skills]);
+  const filteredWorkspaceReferenceNodes = React.useMemo(
+    () => filterTreeNodesByQuery(workspaceReferenceTrees[primarySkillWorkdir] || [], referenceQuery),
+    [primarySkillWorkdir, referenceQuery, workspaceReferenceTrees]
+  );
+  const filteredLocalReferenceFiles = React.useMemo(() => {
+    const forceExpanded = Boolean(referenceQuery);
+    const localFiles = [];
+
+    filteredSkillReferenceGroups.forEach((group) => {
+      const rootNodeKey = `skill-root:${group.skillKey}`;
+      if (forceExpanded || expandedReferenceNodeKeys.has(rootNodeKey)) {
+        localFiles.push(
+          ...collectVisibleTreeFiles(group.nodes, group.rootPath, rootNodeKey, expandedReferenceNodeKeys, {
+            forceExpanded,
+            sourceType: 'skill',
+            sourceLabel: group.label,
+          })
+        );
+      }
+    });
+
+    const workspaceRootNodeKey = `workspace-root:${primarySkillWorkdir}`;
+    if (primarySkillWorkdir && (forceExpanded || expandedReferenceNodeKeys.has(workspaceRootNodeKey))) {
+      localFiles.push(
+        ...collectVisibleTreeFiles(filteredWorkspaceReferenceNodes, primarySkillWorkdir, workspaceRootNodeKey, expandedReferenceNodeKeys, {
+          forceExpanded,
+          sourceType: 'workspace',
+          sourceLabel: workspaceReferenceRootLabel,
+        })
+      );
+    }
+
+    return localFiles;
+  }, [
+    expandedReferenceNodeKeys,
+    filteredSkillReferenceGroups,
+    filteredWorkspaceReferenceNodes,
+    primarySkillWorkdir,
+    referenceQuery,
+    workspaceReferenceRootLabel,
+  ]);
   const activeSuggestionItems = mentionState.symbol === '#'
-    ? filteredUploadedFiles
+    ? [...filteredLocalReferenceFiles, ...filteredUploadedFiles]
     : filteredSkills;
+
+  React.useEffect(() => {
+    latestReferenceSuggestionItemsRef.current = filteredLocalReferenceFiles;
+  }, [filteredLocalReferenceFiles]);
 
   React.useEffect(() => {
     if (!mentionState.open) return;
@@ -1970,11 +2410,18 @@ const Composer = ({
           return getMentionText(node.attrs);
         },
         renderHTML({ node, HTMLAttributes }) {
-          return ['span', mergeAttributes(HTMLAttributes, { class: 'chat-panel__input-mention-token' }), getMentionText(node.attrs)];
+          return [
+            'span',
+            mergeAttributes(HTMLAttributes, {
+              'data-type': 'mention',
+              class: 'chat-panel__input-mention-token chat-panel__input-mention-token--skill',
+            }),
+            getMentionText(node.attrs),
+          ];
         },
       }).configure({
         HTMLAttributes: {
-          class: 'chat-panel__input-mention-token',
+          class: 'chat-panel__input-mention-token chat-panel__input-mention-token--skill',
         },
       }),
       aiWriteFieldPlaceholderExtension,
@@ -1992,18 +2439,15 @@ const Composer = ({
           ? latestSkillsRef.current.filter((skill) => {
             const liveQuery = String(liveMentionState.query || '').trim().toLowerCase();
             if (!liveQuery) return true;
-            return String(skill?.name || '').toLowerCase().startsWith(liveQuery);
-          })
-          : [];
-        const liveFilteredFiles = liveMentionState?.symbol === '#'
-          ? latestUploadedFileMetaRef.current.filter((file) => {
-            const liveQuery = String(liveMentionState.query || '').trim().toLowerCase();
-            if (!liveQuery) return true;
-            return String(file?.name || '').toLowerCase().includes(liveQuery);
+            return getSkillMentionLabel(skill).toLowerCase().startsWith(liveQuery);
           })
           : [];
         const liveSuggestionItems = liveMentionState?.symbol === '#'
-          ? liveFilteredFiles
+          ? [...latestReferenceSuggestionItemsRef.current, ...latestUploadedFileMetaRef.current.filter((file) => {
+            const liveQuery = String(liveMentionState.query || '').trim().toLowerCase();
+            if (!liveQuery) return true;
+            return String(file?.name || '').toLowerCase().includes(liveQuery);
+          })]
           : liveFilteredSkills;
 
         if (liveMentionState?.open) {
@@ -2237,6 +2681,126 @@ const Composer = ({
       .run();
     closeMentionPanel();
   }, [closeMentionPanel, editor, mentionState.end, mentionState.start]);
+
+  const toggleReferenceNodeExpanded = React.useCallback((nodeKey) => {
+    if (!nodeKey || referenceQuery) return;
+    setExpandedReferenceNodeKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeKey)) {
+        next.delete(nodeKey);
+      } else {
+        next.add(nodeKey);
+      }
+      return next;
+    });
+  }, [referenceQuery]);
+
+  const activeSuggestionUid = mentionState.symbol === '#'
+    ? activeSuggestionItems[mentionState.activeIndex]?.uid || ''
+    : '';
+
+  const renderReferenceTreeNodes = React.useCallback((
+    nodes,
+    rootPath,
+    scopeKey,
+    depth = 1,
+    sourceType = 'workspace',
+    sourceLabel = ''
+  ) => {
+    if (!Array.isArray(nodes) || nodes.length === 0) return null;
+
+    const forceExpanded = Boolean(referenceQuery);
+
+    return nodes.map((node) => {
+      const compositeKey = `${scopeKey}:${node.path}`;
+      const isDirectory = node.type === 'directory';
+      const isExpanded = forceExpanded || expandedReferenceNodeKeys.has(compositeKey);
+      const localFile = !isDirectory
+        ? createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel })
+        : null;
+      const isActive = !isDirectory && localFile?.uid && activeSuggestionUid === localFile.uid;
+
+      return (
+        <React.Fragment key={compositeKey}>
+          <button
+            type="button"
+            className={`chat-panel__reference-tree-item ${isDirectory ? 'is-directory' : 'is-file'} ${isActive ? 'active' : ''}`.trim()}
+            style={{ '--reference-depth': depth }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              if (isDirectory) {
+                toggleReferenceNodeExpanded(compositeKey);
+                return;
+              }
+              insertFileReference(localFile);
+            }}
+          >
+            <span
+              className={`chat-panel__reference-tree-toggle ${isExpanded ? 'is-expanded' : ''}`.trim()}
+              aria-hidden="true"
+            >
+              {isDirectory ? <ChevronRight size={12} /> : null}
+            </span>
+            <span className="chat-panel__reference-tree-icon" aria-hidden="true">
+              {isDirectory
+                ? (isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />)
+                : <File size={14} />}
+            </span>
+            <span className="chat-panel__reference-tree-label">{node.name}</span>
+          </button>
+          {isDirectory && isExpanded && Array.isArray(node.children)
+            ? renderReferenceTreeNodes(
+              node.children,
+              rootPath,
+              compositeKey,
+              depth + 1,
+              sourceType,
+              sourceLabel
+            )
+            : null}
+        </React.Fragment>
+      );
+    });
+  }, [activeSuggestionUid, expandedReferenceNodeKeys, insertFileReference, referenceQuery, toggleReferenceNodeExpanded]);
+
+  const renderReferenceSection = React.useCallback((title, rootNodeKey, label, nodes, rootPath, sourceType) => {
+    const hasNodes = Array.isArray(nodes) && nodes.length > 0;
+    const forceExpanded = Boolean(referenceQuery);
+    const isExpanded = forceExpanded || expandedReferenceNodeKeys.has(rootNodeKey);
+
+    return (
+      <div key={rootNodeKey} className="chat-panel__reference-section">
+        <div className="chat-panel__reference-section-title">{title}</div>
+        <button
+          type="button"
+          className="chat-panel__reference-tree-item chat-panel__reference-tree-item--root"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            toggleReferenceNodeExpanded(rootNodeKey);
+          }}
+        >
+          <span
+            className={`chat-panel__reference-tree-toggle ${isExpanded ? 'is-expanded' : ''}`.trim()}
+            aria-hidden="true"
+          >
+            <ChevronRight size={12} />
+          </span>
+          <span className="chat-panel__reference-tree-icon" aria-hidden="true">
+            {isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />}
+          </span>
+          <span className="chat-panel__reference-tree-label">{label}</span>
+        </button>
+        {isExpanded && hasNodes ? (
+          <div className="chat-panel__reference-tree-children">
+            {renderReferenceTreeNodes(nodes, rootPath, rootNodeKey, 1, sourceType, label)}
+          </div>
+        ) : null}
+        {isExpanded && !hasNodes ? (
+          <div className="chat-panel__reference-empty">没有可引用的文件</div>
+        ) : null}
+      </div>
+    );
+  }, [expandedReferenceNodeKeys, referenceQuery, renderReferenceTreeNodes, toggleReferenceNodeExpanded]);
 
   const handleOpenPricingDoc = (event) => {
     event.preventDefault();
@@ -2525,7 +3089,7 @@ const Composer = ({
   }, []);
 
   const handleFileUpload = async ({ file, onProgress, onSuccess, onError }) => {
-    const targetFile = file instanceof File ? file : file?.originFileObj;
+    const targetFile = isFileLike(file) ? file : file?.originFileObj;
     const uid = file?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const localThumbUrl = createLocalObjectUrl(targetFile);
     if (!targetFile) {
@@ -2582,7 +3146,7 @@ const Composer = ({
   const queueFilesForUpload = React.useCallback((files = []) => {
     if (sessionSending) return;
     const fileList = files
-      .filter((item) => item instanceof File)
+      .filter((item) => isFileLike(item))
       .map((file, index) => {
         const uid = file.uid || `paste_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
         return {
@@ -2704,7 +3268,7 @@ const Composer = ({
     const imageFiles = uploadFileList
       .filter((item) => item?.status !== 'removed')
       .map((item) => item?.originFileObj || item)
-      .filter((file) => file instanceof File)
+      .filter((file) => isFileLike(file))
       .filter((file) => {
         const uid = String(file?.uid || '').trim();
         const mimeType = uploadedImageTypesByUid.get(uid) || String(file?.type || '').trim();
@@ -3026,14 +3590,14 @@ const Composer = ({
           onDrop={handleInputDrop}
         >
           {mentionState.open && (
-            (mentionState.symbol === '@' && (skillsLoading || skillsError || filteredSkills.length > 0))
-            || (mentionState.symbol === '#' && (uploadedFileMeta.length > 0 || mentionState.query.length >= 0))
+            (mentionState.symbol === '@')
+            || (mentionState.symbol === '#')
           ) ? (
             <div
               ref={mentionPanelRef}
               className={`chat-panel__skill-mention-panel ${
-                mentionState.symbol === '#' && uploadedFileMeta.length === 0
-                  ? 'chat-panel__skill-mention-panel--empty-upload'
+                mentionState.symbol === '#'
+                  ? 'chat-panel__skill-mention-panel--file-tree'
                   : ''
               }`}
               style={{
@@ -3053,42 +3617,15 @@ const Composer = ({
                 {mentionState.symbol === '@' && !skillsLoading && skillsError ? (
                   <div className="chat-panel__skill-mention-empty">{skillsError}</div>
                 ) : null}
-                {mentionState.symbol === '#' && uploadedFileMeta.length === 0 ? (
-                  <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
-                    <Empty
-                      description="你还没有创建过引用"
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      className="chat-panel__skill-mention-empty-state"
-                    />
-                    <AntUpload
-                      accept="image/*,video/*,audio/*"
-                      multiple
-                      beforeUpload={handleBeforeUpload}
-                      customRequest={handleFileUpload}
-                      showUploadList={false}
-                      fileList={uploadFileList}
-                      onChange={({ fileList }) => handleUploadListChange(fileList)}
-                      disabled={sessionSending}
-                    >
-                      <Button
-                        type="default"
-                        className="chat-panel__skill-mention-empty-action"
-                        icon={<Plus className="chat-panel__skill-mention-empty-action-icon" />}
-                      >
-                        上传引用
-                      </Button>
-                    </AntUpload>
-                  </div>
-                ) : null}
-                {mentionState.symbol === '#' && uploadedFileMeta.length > 0 && filteredUploadedFiles.length === 0 ? (
-                  <div className="chat-panel__skill-mention-empty">没有匹配的文件</div>
+                {mentionState.symbol === '@' && !skillsLoading && !skillsError && filteredSkills.length === 0 ? (
+                  <div className="chat-panel__skill-mention-empty">没有匹配的技能</div>
                 ) : null}
                 {mentionState.symbol === '@' && !skillsLoading && !skillsError && filteredSkills.map((skill, index) => {
-                  const label = skill?.name || '';
+                  const label = getSkillMentionLabel(skill);
                   const isActive = index === mentionState.activeIndex;
                   return (
                     <button
-                      key={skill.id || skill.name}
+                      key={skill.id || skill.folderName || skill.filename || skill.name}
                       type="button"
                       className={`chat-panel__skill-mention-item ${isActive ? 'active' : ''}`}
                       onMouseDown={(event) => {
@@ -3100,36 +3637,99 @@ const Composer = ({
                     </button>
                   );
                 })}
-                {mentionState.symbol === '#' && filteredUploadedFiles.map((file, index) => {
-                  const isActive = index === mentionState.activeIndex;
-                  return (
-                    <button
-                      key={file.uid || file.url || file.name}
-                      type="button"
-                      className={`chat-panel__skill-mention-item chat-panel__file-reference-item ${isActive ? 'active' : ''}`}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        insertFileReference(file);
-                      }}
-                    >
-                      <span className="chat-panel__file-reference-item-thumb">
-                        {renderFileThumb(file)}
-                      </span>
-                      <span className="chat-panel__file-reference-item-main">
-                        <span className="chat-panel__skill-mention-name">{getFileDisplayName(file)}</span>
-                      </span>
-                      {isPreviewableFile(file?.fileType) ? (
-                        <Popover
-                          trigger="hover"
-                          placement="rightTop"
-                          classNames={{ root: 'chat-panel__file-ref-preview-popover' }}
-                          content={renderFilePreviewContent(file, 'chat-panel__file-ref-preview--panel')}
-                        >
-                        </Popover>
+                {mentionState.symbol === '#' && (
+                  <>
+                    {referenceTreesLoading ? <div className="chat-panel__skill-mention-empty">加载文件中...</div> : null}
+                    {!referenceTreesLoading && referenceTreesError ? (
+                      <div className="chat-panel__skill-mention-empty">{referenceTreesError}</div>
+                    ) : null}
+                    {!referenceTreesLoading && !referenceTreesError && filteredSkillReferenceGroups.map((group) => (
+                      renderReferenceSection(
+                        '技能成员',
+                        `skill-root:${group.skillKey}`,
+                        group.label,
+                        group.nodes,
+                        group.rootPath,
+                        'skill'
+                      )
+                    ))}
+                    {!referenceTreesLoading && !referenceTreesError && primarySkillWorkdir ? (
+                      renderReferenceSection(
+                        '工作空间',
+                        `workspace-root:${primarySkillWorkdir}`,
+                        workspaceReferenceRootLabel,
+                        filteredWorkspaceReferenceNodes,
+                        primarySkillWorkdir,
+                        'workspace'
+                      )
+                    ) : null}
+                    {!referenceTreesLoading
+                    && !referenceTreesError
+                    && filteredSkillReferenceGroups.length === 0
+                    && filteredWorkspaceReferenceNodes.length === 0
+                    && filteredUploadedFiles.length === 0 ? (
+                      <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
+                        <Empty
+                          description={referenceQuery ? '没有匹配的文件' : '你还没有可引用的文件'}
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          className="chat-panel__skill-mention-empty-state"
+                        />
+                      </div>
                       ) : null}
-                    </button>
-                  );
-                })}
+                    <div className="chat-panel__reference-section">
+                      <div className="chat-panel__reference-section-header">
+                        <span className="chat-panel__reference-section-title">上传引用</span>
+                        <AntUpload
+                          accept="image/*,video/*,audio/*"
+                          multiple
+                          beforeUpload={handleBeforeUpload}
+                          customRequest={handleFileUpload}
+                          showUploadList={false}
+                          fileList={uploadFileList}
+                          onChange={({ fileList }) => handleUploadListChange(fileList)}
+                          disabled={sessionSending}
+                        >
+                          <Button
+                            type="default"
+                            size="small"
+                            className="chat-panel__reference-upload-action"
+                            icon={<Plus className="chat-panel__skill-mention-empty-action-icon" />}
+                          >
+                            上传
+                          </Button>
+                        </AntUpload>
+                      </div>
+                      {filteredUploadedFiles.length === 0 ? (
+                        <div className="chat-panel__reference-empty">
+                          {uploadedFileMeta.length === 0 ? '暂无上传引用' : '没有匹配的上传文件'}
+                        </div>
+                      ) : null}
+                      {filteredUploadedFiles.map((file, index) => {
+                        const isActive = activeSuggestionUid
+                          ? activeSuggestionUid === file.uid
+                          : index === mentionState.activeIndex;
+                        return (
+                          <button
+                            key={file.uid || file.url || file.name}
+                            type="button"
+                            className={`chat-panel__skill-mention-item chat-panel__file-reference-item ${isActive ? 'active' : ''}`}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              insertFileReference(file);
+                            }}
+                          >
+                            <span className="chat-panel__file-reference-item-thumb">
+                              {renderFileThumb(file)}
+                            </span>
+                            <span className="chat-panel__file-reference-item-main">
+                              <span className="chat-panel__skill-mention-name">{getFileDisplayName(file)}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ) : null}

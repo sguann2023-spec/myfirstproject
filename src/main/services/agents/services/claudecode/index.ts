@@ -26,7 +26,6 @@ import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
-import FileSystemServer from '@main/mcpServers/filesystem'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
@@ -84,7 +83,7 @@ const logger = loggerService.withContext('ClaudeCodeService')
 const promptBuilder = new PromptBuilder()
 const IMAGE_MAX_DIMENSION = 2000
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
-const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS === '1'
+const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS !== '0'
 const shouldMountAllRuntimeMcpTools = process.env.CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS === '1'
 const NO_RESUME_COMMANDS = ['/clear']
 
@@ -1067,13 +1066,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.allowedTools = toolSurface.allowedToolsOption
     }
 
-    if (hasWorkspaceAccess(capabilityDecision.toolLayer)) {
-      const filesystemServer = new FileSystemServer(cwd)
-      mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem', instance: filesystemServer.mcpServer })
-      allowMcpPattern('mcp__filesystem__*')
-    } else {
-      markSkipped('filesystem')
-    }
+    markSkipped('filesystem')
 
     if (shouldMountCapability('browser')) {
       const browserServer = this.getOrCreateBrowserServer(session.id)

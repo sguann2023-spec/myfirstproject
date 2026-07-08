@@ -3427,6 +3427,18 @@ const migrateConfig = {
       logger.error('migrate 207 error', error as Error)
       return state
     }
+  },
+  '208': (state: RootState) => {
+    try {
+      if (Array.isArray(state.mcp?.servers)) {
+        state.mcp.servers = state.mcp.servers.filter((server: any) => server?.name !== '@cherry/filesystem')
+      }
+      logger.info('migrate 208 success')
+      return state
+    } catch (error) {
+      logger.error('migrate 208 error', error as Error)
+      return state
+    }
   }
 }
 

@@ -2,7 +2,6 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Empty, Tooltip } from 'antd';
 import {
-  AtSign,
   ChevronRight,
   ExternalLink,
   FileArchive,
@@ -15,6 +14,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Pencil,
   Play,
   RefreshCw,
   UserPlus
@@ -596,6 +596,7 @@ const ChatShell = ({
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
   const [skills, setSkills] = React.useState([]);
+  const [skillPreviewPaths, setSkillPreviewPaths] = React.useState({});
   const [expandedSkillKeys, setExpandedSkillKeys] = React.useState(() => new Set());
   const [expandedNodeKeys, setExpandedNodeKeys] = React.useState(() => new Set());
   const [skillTrees, setSkillTrees] = React.useState({});
@@ -754,6 +755,31 @@ const ChatShell = ({
     }
   }, [isEditingTitle]);
 
+  const resolveSkillPreviewPath = React.useCallback(async (skill) => {
+    const rootPath = normalizePath(skill?.__skillRoot || '').trim();
+    if (!rootPath || !window?.api?.file?.listDirectory) return '';
+
+    try {
+      const entries = await window.api.file.listDirectory(rootPath, {
+        recursive: true,
+        maxDepth: 3,
+        includeHidden: false,
+        includeFiles: true,
+        includeDirectories: false,
+        maxEntries: 50,
+        searchPattern: 'index.html'
+      });
+
+      const targetPath = (Array.isArray(entries) ? entries : [])
+        .map((entryPath) => resolveListedEntryPath(rootPath, entryPath))
+        .find((entryPath) => normalizePath(entryPath).endsWith('/website/index.html'));
+
+      return normalizePath(targetPath || '');
+    } catch (_error) {
+      return '';
+    }
+  }, []);
+
   React.useEffect(() => {
     let cancelled = false;
     let removeSkillsChangedListener = null;
@@ -762,6 +788,7 @@ const ChatShell = ({
       if (!runtimeSessionId && !agentId) {
         if (!cancelled) {
           setSkills([]);
+          setSkillPreviewPaths({});
           setSkillsError('');
           setSkillsLoading(false);
         }
@@ -770,6 +797,7 @@ const ChatShell = ({
       if (!currentWorkspacePath) {
         if (!cancelled) {
           setSkills([]);
+          setSkillPreviewPaths({});
           setSkillsError('');
           setSkillsLoading(false);
         }
@@ -778,6 +806,7 @@ const ChatShell = ({
       if (!api || typeof api.listLocal !== 'function') {
         if (!cancelled) {
           setSkills([]);
+          setSkillPreviewPaths({});
           setSkillsError('技能服务不可用');
           setSkillsLoading(false);
         }
@@ -791,6 +820,7 @@ const ChatShell = ({
         if (cancelled) return;
         if (!result?.ok) {
           setSkills([]);
+          setSkillPreviewPaths({});
           setSkillsError(result?.error || '加载技能失败');
           return;
         }
@@ -810,10 +840,17 @@ const ChatShell = ({
           return localSkillRoot ? { ...skill, __skillRoot: localSkillRoot } : skill;
         });
 
+        const previewEntries = await Promise.all(
+          normalizedSkills.map(async (skill) => [getSkillKey(skill), await resolveSkillPreviewPath(skill)])
+        );
+        if (cancelled) return;
+
         setSkills(normalizedSkills);
+        setSkillPreviewPaths(Object.fromEntries(previewEntries.filter(([skillKey]) => Boolean(skillKey))));
       } catch (error) {
         if (!cancelled) {
           setSkills([]);
+          setSkillPreviewPaths({});
           setSkillsError(error?.message || '加载技能失败');
         }
       } finally {
@@ -842,7 +879,7 @@ const ChatShell = ({
         void api.unsubscribeChanges({ agentId }).catch(() => {});
       }
     };
-  }, [agentId, currentWorkspacePath, runtimeSessionId]);
+  }, [agentId, currentWorkspacePath, resolveSkillPreviewPath, runtimeSessionId]);
 
   React.useEffect(() => {
     setExpandedSkillKeys(new Set());
@@ -1495,6 +1532,20 @@ const ChatShell = ({
     });
   }, [onOpenWebPreview]);
 
+  const openSkillWebPreview = React.useCallback((skill) => {
+    const skillKey = getSkillKey(skill);
+    const sourcePath = skillPreviewPaths[skillKey];
+    const url = createFilePreviewUrl(sourcePath);
+    if (typeof onOpenWebPreview !== 'function' || !skillKey || !sourcePath || !url) return;
+
+    onOpenWebPreview({
+      key: `skill-html:${sourcePath}`,
+      url,
+      title: getSkillFolderLabel(skill) || getSkillDisplayName(skill) || getBaseName(sourcePath) || '网页预览',
+      sourcePath
+    });
+  }, [onOpenWebPreview, skillPreviewPaths]);
+
   const renderTreeNodes = React.useCallback((scopeKey, rootPath, nodes, depth = 1) => {
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
 
@@ -1672,6 +1723,7 @@ const ChatShell = ({
                   const skillKey = getSkillKey(skill);
                   const folderLabel = getSkillFolderLabel(skill);
                   const displayName = getSkillDisplayName(skill);
+                  const skillPreviewPath = skillPreviewPaths[skillKey] || '';
                   const isExpanded = expandedSkillKeys.has(skillKey);
                   const treeNodes = skillTrees[skillKey] || [];
                   const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
@@ -1707,16 +1759,30 @@ const ChatShell = ({
                               )}
                             </span>
                           </button>
+                          {skillPreviewPath && (
+                            <button
+                              type="button"
+                              className="chat-panel__member-action chat-panel__member-action--hover-reveal"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openSkillWebPreview(skill);
+                              }}
+                              title="在内嵌浏览器中打开技能页面"
+                              aria-label={`在内嵌浏览器中打开 ${folderLabel || displayName}`}>
+                              <Play size={12} aria-hidden="true" />
+                            </button>
+                          )}
                           {typeof onSelectSkill === 'function' && (
                             <button
                               type="button"
-                              className="chat-panel__member-action"
+                              className="chat-panel__member-action chat-panel__member-action--hover-reveal"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 onSelectSkill(skill);
                               }}
-                              title="插入到输入框">
-                              <AtSign size={12} aria-hidden="true" />
+                              title="编辑这个技能网页"
+                              aria-label={`编辑 ${folderLabel || displayName} 的技能网页`}>
+                              <Pencil size={12} aria-hidden="true" />
                             </button>
                           )}
                         </div>

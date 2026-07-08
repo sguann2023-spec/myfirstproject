@@ -16,10 +16,10 @@
  */
 import { loggerService } from '@logger'
 import { createSlice, nanoid, type PayloadAction } from '@reduxjs/toolkit'
-import { type BuiltinMCPServer, BuiltinMCPServerNames, type MCPConfig, type MCPServer } from '@renderer/types'
+import { type BuiltinMCPServer, BuiltinMCPServerNames, type MCPConfig, type MCPServer } from '../types'
 
 const logger = loggerService.withContext('Store:MCP')
-const filesystemManualApprovalTools = ['write', 'edit', 'delete'] as const
+const isDeprecatedFilesystemServer = (server: Pick<MCPServer, 'name'>) => server.name === BuiltinMCPServerNames.filesystem
 
 export const initialState: MCPConfig = {
   servers: [],
@@ -32,12 +32,19 @@ const mcpSlice = createSlice({
   initialState,
   reducers: {
     setMCPServers: (state, action: PayloadAction<MCPServer[]>) => {
-      state.servers = action.payload
+      state.servers = action.payload.filter((server) => !isDeprecatedFilesystemServer(server))
     },
     addMCPServer: (state, action: PayloadAction<MCPServer>) => {
+      if (isDeprecatedFilesystemServer(action.payload)) {
+        return
+      }
       state.servers.unshift(action.payload)
     },
     updateMCPServer: (state, action: PayloadAction<MCPServer>) => {
+      if (isDeprecatedFilesystemServer(action.payload)) {
+        state.servers = state.servers.filter((server) => server.id !== action.payload.id)
+        return
+      }
       const index = state.servers.findIndex((server) => server.id === action.payload.id)
       if (index !== -1) {
         state.servers[index] = action.payload
@@ -179,18 +186,6 @@ export const builtinMCPServers: BuiltinMCPServer[] = [
   },
   {
     id: nanoid(),
-    name: BuiltinMCPServerNames.filesystem,
-    type: 'inMemory',
-    args: ['/Users/username/Desktop'],
-    disabledAutoApproveTools: [...filesystemManualApprovalTools],
-    shouldConfig: true,
-    isActive: false,
-    provider: 'CherryAI',
-    installSource: 'builtin',
-    isTrusted: true
-  },
-  {
-    id: nanoid(),
     name: BuiltinMCPServerNames.difyKnowledge,
     type: 'inMemory',
     isActive: false,
@@ -253,7 +248,9 @@ export const builtinMCPServers: BuiltinMCPServer[] = [
  */
 export const initializeMCPServers = (existingServers: MCPServer[], dispatch: (action: any) => void): void => {
   // Check if the existing servers already contain the built-in servers
-  const serverIds = new Set(existingServers.map((server) => server.name))
+  const serverIds = new Set(
+    existingServers.filter((server) => !isDeprecatedFilesystemServer(server)).map((server) => server.name)
+  )
 
   // Filter out any built-in servers that are already present
   const newServers = builtinMCPServers.filter((server) => !serverIds.has(server.name))
