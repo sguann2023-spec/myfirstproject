@@ -42,6 +42,8 @@ const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_DIR = '/Users/sunguannan/CapCutHelper/resources/quick/skills/儿童绘本';
 const QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE = '/Users/sunguannan/CapCutHelper/resources/quick/skills/儿童绘本/website/index.html';
+const QUICK_TRAVEL_MONTAGE_SKILL_DIR = '/Users/sunguannan/CapCutHelper/resources/quick/skills/旅游混剪';
+const QUICK_TRAVEL_MONTAGE_PREVIEW_FILE = '/Users/sunguannan/CapCutHelper/resources/quick/skills/旅游混剪/website/index.html';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const getSessionWorkspacePath = (session) => {
@@ -2732,6 +2734,88 @@ const HomePage = () => {
     }
   }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionSending, setChatWorkspaceStatus]);
 
+  const handleBootstrapTravelMontage = useCallback(async () => {
+    const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    const session = createEmptyChatSession();
+    setChatSessions((prev) => [session, ...prev]);
+    setActiveChatId(session.id);
+    setChatSessionSending(session.id, false, 'quick-bootstrap');
+    setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
+    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备旅游混剪技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+
+    try {
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = inheritedWorkspacePath;
+      if (!workspacePath) {
+        const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copyResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: QUICK_TRAVEL_MONTAGE_SKILL_DIR,
+        workspace: workspacePath
+      });
+      if (!copyResult?.success) {
+        throw new Error(copyResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      const previewFilePath = joinLocalPath(copyResult?.data?.targetPath || '', 'website', 'index.html');
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? { ...item, runtimeSessionId: agentSessionId, updatedAt: Date.now() }
+            : item
+        ))
+      );
+      setManualChatWebPreview({
+        key: `quick-skill-preview:${session.id}:${previewFilePath || QUICK_TRAVEL_MONTAGE_PREVIEW_FILE}`,
+        title: '旅游混剪',
+        url: createLocalFileUrl(previewFilePath || QUICK_TRAVEL_MONTAGE_PREVIEW_FILE)
+      });
+      setChatWebPreviewDismissedKey('');
+      window.toast?.success?.(
+        inheritedWorkspacePath
+          ? '已新建对话，复用当前工作空间并打开旅游混剪预览'
+          : '已新建对话和工作空间，并打开旅游混剪预览'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionSending, setChatWorkspaceStatus]);
+
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
     setChatSessionFulfilled(sessionId, false, 'select-session');
@@ -3464,6 +3548,9 @@ const HomePage = () => {
                 onQuickPromptAction={(action) => {
                   if (action === 'bootstrap-childrens-picture-book') {
                     void handleBootstrapChildrensPictureBook();
+                  }
+                  if (action === 'bootstrap-travel-montage') {
+                    void handleBootstrapTravelMontage();
                   }
                 }}
                 beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}

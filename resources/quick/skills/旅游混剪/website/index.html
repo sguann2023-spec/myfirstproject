@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>旅游混剪视频</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-top: #fbf4ec;
+      --bg-bottom: #edf4f7;
+      --surface: rgba(255, 253, 250, 0.8);
+      --surface-strong: rgba(18, 37, 60, 0.94);
+      --line: rgba(22, 49, 76, 0.1);
+      --text: #17324d;
+      --muted: #6d7c8e;
+      --accent: #eb7548;
+      --accent-strong: #d95e33;
+      --success: #1f9265;
+      --warning: #ce8224;
+      --danger: #cb5252;
+      --shadow: 0 28px 72px rgba(23, 50, 77, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --mono: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Outfit", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(235, 117, 72, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(35, 110, 168, 0.12), transparent 24%),
+        linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+    }
+
+    body {
+      padding: 24px;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    .page {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 40px;
+      border-radius: 34px;
+      background:
+        linear-gradient(135deg, rgba(18, 39, 63, 0.96), rgba(28, 72, 112, 0.84)),
+        linear-gradient(180deg, rgba(235, 117, 72, 0.14), transparent);
+      box-shadow: var(--shadow);
+      color: #fcfaf6;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -70px;
+      bottom: -70px;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(235, 117, 72, 0.34), transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .hero h1 {
+      margin: 0;
+      max-width: 860px;
+      font-family: "Noto Serif SC", serif;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+
+    .hero p {
+      max-width: 880px;
+      margin: 18px 0 0;
+      color: rgba(252, 250, 246, 0.82);
+      font-size: 16px;
+      line-height: 1.85;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .hero-card {
+      padding: 18px 20px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .hero-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(252, 250, 246, 0.62);
+    }
+
+    .hero-card span {
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
+      gap: 24px;
+      margin-top: 24px;
+    }
+
+    .panel {
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+    }
+
+    .section {
+      padding: 28px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section:last-child {
+      border-bottom: 0;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .section-head h2,
+    .section-head h3 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .section-head p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(23, 50, 77, 0.06);
+      border-color: #888;
+      border-width: 1px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      border: 1px solid rgba(23, 50, 77, 0.12);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--text);
+      padding: 15px 16px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .field input:focus,
+    .field textarea:focus {
+      outline: none;
+      border-color: rgba(235, 117, 72, 0.7);
+      box-shadow: 0 0 0 4px rgba(235, 117, 72, 0.12);
+    }
+
+    .field textarea {
+      min-height: 150px;
+      resize: vertical;
+      line-height: 1.75;
+    }
+
+    .note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .switch-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .switch-btn {
+      border: 1px solid rgba(23, 50, 77, 0.1);
+      border-radius: 999px;
+      background: rgba(23, 50, 77, 0.06);
+      color: var(--text);
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .switch-btn.active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 12px 24px rgba(217, 94, 51, 0.22);
+    }
+
+    .material-board {
+      border: 1px dashed rgba(23, 50, 77, 0.16);
+      border-radius: 22px;
+      padding: 18px;
+      background: rgba(255, 255, 255, 0.52);
+    }
+
+    .material-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .summary-card {
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(23, 50, 77, 0.08);
+    }
+
+    .summary-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .summary-card span {
+      display: block;
+      word-break: break-word;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .bulk-import {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 16px;
+    }
+
+    .bulk-import textarea {
+      min-height: 100px;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .btn {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 14px 20px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #fff;
+      box-shadow: 0 14px 28px rgba(217, 94, 51, 0.25);
+    }
+
+    .btn-secondary {
+      background: rgba(23, 50, 77, 0.08);
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .btn-link {
+      background: transparent;
+      color: var(--accent-strong);
+      padding: 8px 0;
+    }
+
+    .actions-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-top: 12px;
+    }
+
+    .mini-status {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    details {
+      border: 1px solid rgba(23, 50, 77, 0.1);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.54);
+      padding: 16px 18px;
+    }
+
+    details summary {
+      cursor: pointer;
+      font-weight: 600;
+      list-style: none;
+    }
+
+    details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .status-banner {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(23, 50, 77, 0.06);
+    }
+
+    .status-banner strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .status-banner span {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--warning);
+      box-shadow: 0 0 0 10px rgba(206, 130, 36, 0.12);
+      flex-shrink: 0;
+    }
+
+    .dot.success {
+      background: var(--success);
+      box-shadow: 0 0 0 10px rgba(31, 146, 101, 0.12);
+    }
+
+    .dot.error {
+      background: var(--danger);
+      box-shadow: 0 0 0 10px rgba(203, 82, 82, 0.12);
+    }
+
+    .steps {
+      display: grid;
+      gap: 14px;
+    }
+
+    .step {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 18px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(23, 50, 77, 0.08);
+    }
+
+    .step-index {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(23, 50, 77, 0.08);
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .step-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .step-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .step-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .step-state {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(23, 50, 77, 0.08);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .step-state.running {
+      background: rgba(206, 130, 36, 0.14);
+      color: var(--warning);
+    }
+
+    .step-state.success {
+      background: rgba(31, 146, 101, 0.14);
+      color: var(--success);
+    }
+
+    .step-state.error {
+      background: rgba(203, 82, 82, 0.14);
+      color: var(--danger);
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.75;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .stat-card {
+      padding: 18px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(23, 50, 77, 0.08);
+      min-height: 122px;
+    }
+
+    .stat-card strong {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .value,
+    .value a {
+      color: inherit;
+      word-break: break-word;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .value a {
+      color: var(--accent-strong);
+    }
+
+    .code-card {
+      border-radius: 22px;
+      overflow: hidden;
+      background: var(--surface-strong);
+      color: #e8f0fb;
+    }
+
+    .code-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 18px;
+      background: rgba(255, 255, 255, 0.05);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px 20px;
+      max-height: 300px;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.75;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .footnote {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.75;
+    }
+
+    @media (max-width: 1180px) {
+      .layout,
+      .hero-grid,
+      .stats,
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        padding: 16px;
+      }
+
+      .hero,
+      .section {
+        padding: 22px;
+      }
+
+      .bulk-import {
+        grid-template-columns: 1fr;
+      }
+      .material-summary {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-top">
+        <span class="tag">旅游混剪助手</span>
+        <span class="tag">不会剪辑也能做</span>
+        <span class="tag">填表单直接生成</span>
+      </div>
+      <h1>旅游混剪视频</h1>
+      <p>当你睡觉的时候，VectCut也在给你制作视频！</p>
+      <div class="hero-grid">
+        <div class="hero-card">
+          <strong>第一步</strong>
+          <span>先套用示例内容，快速进入制作状态。</span>
+        </div>
+        <div class="hero-card">
+          <strong>第二步</strong>
+          <span>改成你的目的地、素材和旁白内容，不会写可让 AI 帮你生成。</span>
+        </div>
+        <div class="hero-card">
+          <strong>第三步</strong>
+          <span>点击开始生成，VectCut 会自动帮你制作旅游混剪视频。</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="panel">
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2>接口凭证</h2>
+            </div>
+          </div>
+
+          <details style="margin-top: 18px;">
+            <summary>展开填写 API Key</summary>
+            <div class="field" style="margin-top: 14px;">
+              <label for="token">API Key</label>
+              <input id="token" type="text" placeholder="请输入 VectCut API Key，只填 Bearer 后面的内容" />
+            </div>
+          </details>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h3>素材上传清单</h3>
+              <p>把你已经上传好的素材链接批量贴进来即可</p>
+            </div>
+            <button class="eyebrow" type="button" id="chaoshanTemplateBtn">示例</button>
+          </div>
+
+          <div class="material-board">
+            <div class="bulk-import">
+              <div class="field">
+                <label for="bulkUrls">批量导入素材链接</label>
+                <textarea id="bulkUrls" placeholder="每行一条素材链接，直接粘贴到这里即可"></textarea>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h3>旁白和字幕</h3>
+              <p>这里填想说的话；如果暂时不会写，可以先让 AI 帮你生成一版。</p>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="videoTitle">视频主题</label>
+              <input id="videoTitle" type="text" placeholder="例如：潮汕亲子游五天四晚" />
+            </div>
+            <div class="field">
+              <label for="destination">目的地</label>
+              <input id="destination" type="text" placeholder="例如：潮汕 / 厦门 / 三亚" />
+            </div>
+          </div>
+
+          <div class="field" style="margin-top: 16px;">
+            <label for="narrationText">旁白文案</label>
+            <div class="inline-actions">
+              <button class="btn btn-secondary" type="button" id="generateNarrationBtn">AI 帮我生成文案</button>
+              <span class="mini-status" id="narrationStatus">你可以自己写，也可以让 AI 先生成一版旅游口播。</span>
+            </div>
+            <textarea id="narrationText" placeholder="例如：潮汕什么时候最好玩？当然是现在！收藏好这份攻略，人均八百玩转五天四晚……"></textarea>
+          </div>
+
+          <input id="provider" type="hidden" />
+          <input id="voiceId" type="hidden" />
+          <input id="subtitleTemplates" type="hidden" />
+
+          <div class="actions-row">
+            <button class="btn btn-primary" type="button" id="submitBtn">开始生成旅游混剪视频</button>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2>进度看板</h2>
+              <p>系统会自动跟进任务状态，不需要你手动刷新。</p>
+            </div>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-index">1</div>
+              <div class="step-content">
+                <div class="step-top">
+                  <div class="step-title">检查资料是否填完整</div>
+                  <div class="step-state" id="validateState">等待中</div>
+                </div>
+                <p id="validateDesc">检查主题、素材链接、旁白和必要字段是否完整。</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-index">2</div>
+              <div class="step-content">
+                <div class="step-top">
+                  <div class="step-title">提交生成任务</div>
+                  <div class="step-state" id="submitState">等待中</div>
+                </div>
+                <p id="submitDesc">把表单自动整理成系统参数，然后发起任务。</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-index">3</div>
+              <div class="step-content">
+                <div class="step-top">
+                  <div class="step-title">持续跟进制作进度</div>
+                  <div class="step-state" id="pollState">等待中</div>
+                </div>
+                <p id="pollDesc">系统每 1.5 秒查看一次处理状态，最长等待 20 分钟。</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-index">4</div>
+              <div class="step-content">
+                <div class="step-top">
+                  <div class="step-title">展示草稿和结果</div>
+                  <div class="step-state" id="resultState">等待中</div>
+                </div>
+                <p id="resultDesc">完成后会显示草稿链接、视频链接和结果摘要。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h3>结果概览</h3>
+              <p>这里只展示用户最关心的信息。</p>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="stat-card">
+              <strong>任务编号</strong>
+              <div class="value" id="taskIdValue">-</div>
+            </div>
+            <div class="stat-card">
+              <strong>当前状态</strong>
+              <div class="value" id="finalStatusValue">idle</div>
+            </div>
+            <div class="stat-card">
+              <strong>草稿编号</strong>
+              <div class="value" id="draftIdValue">-</div>
+            </div>
+            <div class="stat-card">
+              <strong>系统提示</strong>
+              <div class="value" id="messageValue">-</div>
+            </div>
+            <div class="stat-card">
+              <strong>草稿链接</strong>
+              <div class="value" id="draftUrlValue">-</div>
+            </div>
+            <div class="stat-card">
+              <strong>视频链接</strong>
+              <div class="value" id="videoUrlValue">-</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="code-card">
+            <div class="code-head">
+              <span>错误详情</span>
+              <span id="errorHint">无错误</span>
+            </div>
+            <pre id="errorOutput">-</pre>
+          </div>
+
+          <div style="height: 16px;"></div>
+
+          <div class="code-card">
+            <div class="code-head">
+              <span>系统回执</span>
+              <span id="responseHint">等待请求</span>
+            </div>
+            <pre id="responseOutput">-</pre>
+          </div>
+
+          <div class="footnote">如果结果里暂时没有 `video_url`，但已经有 `draft_id` 或 `draft_url`，通常说明草稿已经生成，可以继续走后续导出视频流程。</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const SUBMIT_URL = "https://open.vectcut.com/cut_jianying/agent/submit_agent_task";
+    const STATUS_URL = "https://open.vectcut.com/cut_jianying/agent/task_status";
+    const CHAT_SUBMIT_URL = "https://open.vectcut.com/llm/chat/submit_task/submit_chat_task";
+    const CHAT_STATUS_URL = "https://open.vectcut.com/llm/chat/submit_task/task_status";
+    const AGENT_ID = "hunjian_7c2e9f4a1b8d4c6f9a0e3d5b2f718c94";
+    const CHAT_MODEL = "qwen3.6-plus";
+    const POLL_INTERVAL_MS = 1500;
+    const POLL_TIMEOUT_MS = 1200000;
+
+    const DEFAULT_FORM = {
+      title: "潮汕亲子游五天四晚",
+      destination: "潮汕",
+      mixMode: "narration_mix",
+      materialUrls: [
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/1.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/2.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/3.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/4.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/5.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/6.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/7.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/8.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/9.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/10.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/11.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/12.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/13.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/14.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/15.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/16.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/17.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/18.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/19.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/20.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/21.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/22.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/23.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/24.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/25.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/26.mp4",
+        "https://player.install-ai-guider.top/example/hunjian/chaoshan/27.mp4"
+      ],
+      narrationText: "潮汕什么时候最好玩？当然是现在！收藏好这份攻略，人均八百玩转五天四晚！今天带的是李哥一家三口，他们是刷到视频直接私信来的。我安排的行程不赶不累，吃住全包，景点全打卡。来看看我们怎么玩的。第一站，菩提禅寺，潮汕版布达拉宫，门票停车全免费。第二站，南澳跨海大桥，海上巨龙，一眼望不到头。第三站，长山尾灯塔。新人扎堆拍婚纱的高颜值打卡地。第四站自然之门，全国唯一海岛北回归线标志塔。第五站青澳湾，2400米金色沙滩。踩上去软的像彩云。如果你也想来潮汕，评论区扣攻略，我发你详细行程。",
+      provider: "volc",
+      voiceId: "gv_989402eaac7b421ca713864f2da2aeb8",
+      subtitleTemplates: ["asr_1f9c8d7e6a2b4c0d9e8f123456789abc"]
+    };
+
+    const videoTitleEl = document.getElementById("videoTitle");
+    const destinationEl = document.getElementById("destination");
+    const tokenEl = document.getElementById("token");
+    const bulkUrlsEl = document.getElementById("bulkUrls");
+    const narrationTextEl = document.getElementById("narrationText");
+    const providerEl = document.getElementById("provider");
+    const voiceIdEl = document.getElementById("voiceId");
+    const subtitleTemplatesEl = document.getElementById("subtitleTemplates");
+    const chaoshanTemplateBtn = document.getElementById("chaoshanTemplateBtn");
+    const generateNarrationBtn = document.getElementById("generateNarrationBtn");
+    const narrationStatusEl = document.getElementById("narrationStatus");
+    const submitBtn = document.getElementById("submitBtn");
+
+    const validateStateEl = document.getElementById("validateState");
+    const submitStateEl = document.getElementById("submitState");
+    const pollStateEl = document.getElementById("pollState");
+    const resultStateEl = document.getElementById("resultState");
+    const validateDescEl = document.getElementById("validateDesc");
+    const submitDescEl = document.getElementById("submitDesc");
+    const pollDescEl = document.getElementById("pollDesc");
+    const resultDescEl = document.getElementById("resultDesc");
+
+    const taskIdValueEl = document.getElementById("taskIdValue");
+    const finalStatusValueEl = document.getElementById("finalStatusValue");
+    const draftIdValueEl = document.getElementById("draftIdValue");
+    const messageValueEl = document.getElementById("messageValue");
+    const draftUrlValueEl = document.getElementById("draftUrlValue");
+    const videoUrlValueEl = document.getElementById("videoUrlValue");
+    const errorHintEl = document.getElementById("errorHint");
+    const errorOutputEl = document.getElementById("errorOutput");
+    const responseHintEl = document.getElementById("responseHint");
+    const responseOutputEl = document.getElementById("responseOutput");
+
+    let currentMode = DEFAULT_FORM.mixMode;
+    let materialUrls = [];
+
+    function safeStringify(value) {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function buildLink(url) {
+      if (!url) {
+        return "-";
+      }
+      const escaped = escapeHtml(url);
+      return `<a href="${escaped}" target="_blank" rel="noreferrer">${escaped}</a>`;
+    }
+
+    function setBanner(type, title, text) {
+      if (!document.getElementById("statusTitle") || !document.getElementById("statusText") || !document.getElementById("statusDot")) {
+        return;
+      }
+      const statusTitleEl = document.getElementById("statusTitle");
+      const statusTextEl = document.getElementById("statusText");
+      const statusDotEl = document.getElementById("statusDot");
+      statusTitleEl.textContent = title;
+      statusTextEl.textContent = text;
+      statusDotEl.className = "dot";
+      if (type === "success") {
+        statusDotEl.classList.add("success");
+      } else if (type === "error") {
+        statusDotEl.classList.add("error");
+      }
+    }
+
+    function setStepState(element, state, text) {
+      element.className = "step-state";
+      if (state) {
+        element.classList.add(state);
+      }
+      element.textContent = text;
+    }
+
+    function resetSteps() {
+      setStepState(validateStateEl, "", "等待中");
+      setStepState(submitStateEl, "", "等待中");
+      setStepState(pollStateEl, "", "等待中");
+      setStepState(resultStateEl, "", "等待中");
+      validateDescEl.textContent = "检查主题、素材链接、旁白和必要字段是否完整。";
+      submitDescEl.textContent = "把表单自动整理成系统参数，然后发起任务。";
+      pollDescEl.textContent = "系统每 1.5 秒查看一次处理状态，最长等待 20 分钟。";
+      resultDescEl.textContent = "完成后会显示草稿链接、视频链接和结果摘要。";
+    }
+
+    function resetOutputs() {
+      taskIdValueEl.textContent = "-";
+      finalStatusValueEl.textContent = "idle";
+      draftIdValueEl.textContent = "-";
+      messageValueEl.textContent = "-";
+      draftUrlValueEl.innerHTML = "-";
+      videoUrlValueEl.innerHTML = "-";
+      errorHintEl.textContent = "无错误";
+      errorOutputEl.textContent = "-";
+      responseHintEl.textContent = "等待请求";
+      responseOutputEl.textContent = "-";
+    }
+
+    function renderMaterials() {}
+
+    function applyDefaultForm() {
+      videoTitleEl.value = DEFAULT_FORM.title;
+      destinationEl.value = DEFAULT_FORM.destination;
+      narrationTextEl.value = DEFAULT_FORM.narrationText;
+      providerEl.value = DEFAULT_FORM.provider;
+      voiceIdEl.value = DEFAULT_FORM.voiceId;
+      subtitleTemplatesEl.value = DEFAULT_FORM.subtitleTemplates.join(", ");
+      currentMode = DEFAULT_FORM.mixMode;
+      materialUrls = DEFAULT_FORM.materialUrls.slice();
+      bulkUrlsEl.value = DEFAULT_FORM.materialUrls.join("\n");
+      narrationStatusEl.textContent = "你可以自己写，也可以让 AI 先生成一版旅游口播。";
+      renderMaterials();
+    }
+
+    function applyChaoshanTemplate() {
+      videoTitleEl.value = DEFAULT_FORM.title;
+      destinationEl.value = DEFAULT_FORM.destination;
+      narrationTextEl.value = DEFAULT_FORM.narrationText;
+      materialUrls = DEFAULT_FORM.materialUrls.slice();
+      bulkUrlsEl.value = DEFAULT_FORM.materialUrls.join("\n");
+      renderMaterials();
+      chaoshanTemplateBtn.textContent = "示例";
+      window.clearTimeout(applyChaoshanTemplate.timer);
+      applyChaoshanTemplate.timer = window.setTimeout(function() {
+        chaoshanTemplateBtn.textContent = "示例";
+      }, 1600);
+      setBanner("info", "已套用模版", "已自动填入示例的素材库、视频主题、目的地和旁白文案。");
+    }
+
+    function extractUrlsFromText(text) {
+      const matches = String(text || "").match(/https?:\/\/[^\s]+/g);
+      return (matches || []).map(function(item) {
+        return item.trim();
+      }).filter(Boolean);
+    }
+
+    function importBulkUrls() {
+      const urls = extractUrlsFromText(bulkUrlsEl.value);
+      if (!urls.length) {
+        setBanner("error", "还没有素材链接", "请先在批量导入框里每行粘贴一条素材链接。");
+        return;
+      }
+      materialUrls = urls;
+      renderMaterials();
+      setBanner("info", "导入完成", "素材清单已经更新为 " + urls.length + " 条。");
+    }
+
+    function extractTaskId(data) {
+      return (data && (
+        data.output && data.output.task_id ||
+        data.data && data.data.task_id ||
+        data.task_id
+      )) || "";
+    }
+
+    function extractChatText(data) {
+      return (data && (
+        data.output && (data.output.content || data.output.text) ||
+        data.data && (data.data.content || data.data.text) ||
+        data.result && (
+          data.result.assistant ||
+          data.result.content ||
+          data.result.text ||
+          data.result.response && data.result.response.choices &&
+          data.result.response.choices[0] &&
+          data.result.response.choices[0].message &&
+          data.result.response.choices[0].message.content
+        ) ||
+        data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content ||
+        data.text ||
+        data.content
+      )) || "";
+    }
+
+    function buildNarrationPrompt(form) {
+      return [
+        "请你为旅游混剪短视频写一段可直接用于口播的中文文案。",
+        "目标用户是普通旅游商家，用于短视频平台引流和咨询转化。",
+        "要求：",
+        "1. 文案自然、接地气、有带看感，像熟悉当地玩法的旅游老板在推荐路线。",
+        "2. 开头抓人，中间突出行程亮点，结尾有明确引导。",
+        "3. 适合中文 TTS 配音，句子顺口，不要太绕。",
+        "4. 不要输出标题，不要分点，不要 markdown。",
+        "5. 总长度控制在 180 到 260 字左右。",
+        "6. 输出纯文案正文。",
+        "视频主题：" + form.title,
+        "目的地：" + form.destination,
+        "素材数量：" + form.materialUrls.length + " 条"
+      ].join("\n");
+    }
+
+    async function pollGenericTask(taskUrl, token, taskId, isDone) {
+      const startedAt = Date.now();
+      let lastData = null;
+      while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+        const url = taskUrl + "?task_id=" + encodeURIComponent(taskId);
+        const data = await requestJson(url, token, { method: "GET" });
+        lastData = data;
+        const status = String((data && (data.status || data.output && data.output.status || data.data && data.data.status)) || "").toLowerCase();
+        if (status === "failed" || status === "error") {
+          const error = new Error((data && (data.message || data.error)) || "AI 文案生成失败");
+          error.phase = "ai_narration";
+          error.url = taskUrl;
+          error.taskId = taskId;
+          error.taskData = data;
+          throw error;
+        }
+        if (isDone(data, status)) {
+          return data;
+        }
+        await new Promise(function(resolve) {
+          setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+      }
+      const error = new Error("AI 文案生成超时");
+      error.phase = "ai_narration";
+      error.url = taskUrl;
+      error.taskId = taskId;
+      error.taskData = lastData;
+      throw error;
+    }
+
+    async function generateNarrationWithAi() {
+      try {
+        const token = tokenEl.value.trim();
+        const title = videoTitleEl.value.trim();
+        const destination = destinationEl.value.trim();
+        const urls = extractUrlsFromText(bulkUrlsEl.value);
+        if (!token) {
+          setBanner("error", "缺少接口凭证", "请先填写 API Key，再让 AI 帮你生成文案。");
+          return;
+        }
+        if (!title) {
+          setBanner("error", "缺少视频主题", "请先填写视频主题，再让 AI 帮你生成文案。");
+          return;
+        }
+        generateNarrationBtn.disabled = true;
+        narrationStatusEl.textContent = "AI 正在根据你的主题和目的地生成旁白文案...";
+        const submitData = await requestJson(CHAT_SUBMIT_URL, token, {
+          method: "POST",
+          body: JSON.stringify({
+            system_prompt: "你是一个擅长旅游种草短视频文案的中文策划。",
+            user_input: buildNarrationPrompt({
+              title: title,
+              destination: destination,
+              materialUrls: urls
+            }),
+            model: CHAT_MODEL,
+            stream: false
+          })
+        });
+        const taskId = extractTaskId(submitData);
+        if (!taskId) {
+          const error = new Error("AI 文案任务创建成功，但没有返回任务编号");
+          error.phase = "ai_narration";
+          error.response = submitData;
+          throw error;
+        }
+        const result = await pollGenericTask(CHAT_STATUS_URL, token, taskId, function(data, status) {
+          return status === "success" || status === "done" || Boolean(extractChatText(data));
+        });
+        const narrationText = String(extractChatText(result) || "").trim();
+        if (!narrationText) {
+          const error = new Error("AI 已完成生成，但没有返回可用文案");
+          error.phase = "ai_narration";
+          error.response = result;
+          throw error;
+        }
+        narrationTextEl.value = narrationText;
+        narrationStatusEl.textContent = "AI 文案已生成，你可以直接用，也可以再手动改一下。";
+        setBanner("success", "文案已生成", "AI 已帮你写好一版旁白文案。");
+      } catch (error) {
+        narrationStatusEl.textContent = "AI 生成失败，请手动填写，或稍后再试。";
+        errorOutputEl.textContent = formatError(error, error.phase || "ai_narration");
+        errorHintEl.textContent = error.phase || "ai_narration";
+        setBanner("error", "AI 生成失败", error.message || "请稍后再试。");
+      } finally {
+        generateNarrationBtn.disabled = false;
+      }
+    }
+
+    function readForm() {
+      const token = tokenEl.value.trim();
+      const title = videoTitleEl.value.trim();
+      const destination = destinationEl.value.trim();
+      const materialUrls = extractUrlsFromText(bulkUrlsEl.value);
+      const narrationText = narrationTextEl.value.trim();
+      const provider = providerEl.value.trim();
+      const voiceId = voiceIdEl.value.trim();
+      const subtitleTemplates = subtitleTemplatesEl.value
+        .split(",")
+        .map(function(item) { return item.trim(); })
+        .filter(Boolean);
+
+      if (!token) {
+        const error = new Error("请先填写接口凭证 API Key。");
+        error.phase = "validate_form";
+        throw error;
+      }
+      if (!title) {
+        const error = new Error("请先填写视频主题。");
+        error.phase = "validate_form";
+        throw error;
+      }
+      if (!materialUrls.length) {
+        const error = new Error("请至少填写一条素材链接。");
+        error.phase = "validate_form";
+        throw error;
+      }
+
+      if (currentMode === "narration_mix") {
+        if (!narrationText) {
+          const error = new Error("有旁白模式下，请填写旁白文案。");
+          error.phase = "validate_form";
+          throw error;
+        }
+        if (!provider) {
+          const error = new Error("有旁白模式下，请填写配音服务商。");
+          error.phase = "validate_form";
+          throw error;
+        }
+        if (!voiceId) {
+          const error = new Error("有旁白模式下，请填写音色 ID。");
+          error.phase = "validate_form";
+          throw error;
+        }
+        if (!subtitleTemplates.length) {
+          const error = new Error("有旁白模式下，请至少填写一个字幕模板。");
+          error.phase = "validate_form";
+          throw error;
+        }
+      }
+
+      return {
+        token: token,
+        title: title,
+        destination: destination,
+        materialUrls: materialUrls,
+        narrationText: narrationText,
+        provider: provider,
+        voiceId: voiceId,
+        subtitleTemplates: subtitleTemplates
+      };
+    }
+
+    function buildPayload(form) {
+      const payload = {
+        agent_id: AGENT_ID,
+        params: {
+          mix_mode: currentMode,
+          kongjing_urls: form.materialUrls
+        }
+      };
+
+      if (currentMode === "narration_mix") {
+        payload.params.text_contents = [
+          {
+            text: form.narrationText,
+            provider: form.provider,
+            voice_id: form.voiceId
+          }
+        ];
+        payload.params.subtitle_templates = form.subtitleTemplates;
+      }
+
+      return payload;
+    }
+
+    async function requestJson(url, token, options) {
+      const requestOptions = Object.assign({}, options || {});
+      requestOptions.headers = Object.assign(
+        {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        },
+        (options && options.headers) || {}
+      );
+
+      const response = await fetch(url, requestOptions);
+      const data = await response.json().catch(function() {
+        return null;
+      });
+
+      if (!response.ok) {
+        const error = new Error((data && (data.message || data.error)) || ("请求失败，HTTP 状态码：" + response.status));
+        error.phase = "http_error";
+        error.url = url;
+        error.httpStatus = response.status;
+        error.response = data;
+        throw error;
+      }
+
+      return data;
+    }
+
+    function formatError(error, phase) {
+      return safeStringify({
+        phase: phase || error.phase || "unknown",
+        message: error.message || String(error),
+        url: error.url,
+        httpStatus: error.httpStatus,
+        taskId: error.taskId,
+        response: error.response,
+        taskData: error.taskData
+      });
+    }
+
+    function renderStatusResponse(data) {
+      const output = (data && data.output) || {};
+      finalStatusValueEl.textContent = String((data && data.status) || "unknown");
+      draftIdValueEl.textContent = output.draft_id || "-";
+      messageValueEl.textContent = (data && (data.message || data.error)) || "-";
+      draftUrlValueEl.innerHTML = buildLink(output.draft_url);
+      videoUrlValueEl.innerHTML = buildLink(output.video_url);
+    }
+
+    async function submitTask(payload, token) {
+      const data = await requestJson(SUBMIT_URL, token, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      if (!data || !data.task_id) {
+        const error = new Error("任务已提交，但系统没有返回任务编号。");
+        error.phase = "submit";
+        error.url = SUBMIT_URL;
+        error.response = data;
+        throw error;
+      }
+      return data;
+    }
+
+    async function pollTask(token, taskId) {
+      const startedAt = Date.now();
+      let lastData = null;
+
+      while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+        const url = STATUS_URL + "?task_id=" + encodeURIComponent(taskId);
+        const data = await requestJson(url, token, { method: "GET" });
+        lastData = data;
+        renderStatusResponse(data);
+        responseOutputEl.textContent = safeStringify(data);
+        responseHintEl.textContent = "最近一次进度回执";
+
+        const status = String((data && data.status) || "").toLowerCase();
+        const message = (data && (data.message || data.error)) || "系统正在处理";
+        pollDescEl.textContent = message;
+
+        if (status === "success") {
+          return data;
+        }
+
+        if (status === "failed") {
+          const error = new Error(message || "任务执行失败");
+          error.phase = "poll";
+          error.url = STATUS_URL;
+          error.taskId = taskId;
+          error.taskData = data;
+          throw error;
+        }
+
+        await new Promise(function(resolve) {
+          setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+      }
+
+      const error = new Error("等待时间过长，超过 20 分钟仍未完成。");
+      error.phase = "poll_timeout";
+      error.url = STATUS_URL;
+      error.taskId = taskId;
+      error.taskData = lastData;
+      throw error;
+    }
+
+    async function runTask() {
+      submitBtn.disabled = true;
+      resetSteps();
+      resetOutputs();
+      setBanner("info", "开始检查", "正在检查你填写的资料是否齐全。");
+
+      try {
+        setStepState(validateStateEl, "running", "检查中");
+        const form = readForm();
+        const payload = buildPayload(form);
+        setStepState(validateStateEl, "success", "已通过");
+        validateDescEl.textContent = "已准备好 " + form.materialUrls.length + " 条素材，当前主题是“" + form.title + "”。";
+
+        setStepState(submitStateEl, "running", "提交中");
+        setBanner("info", "正在提交", "系统正在创建旅游混剪任务，请稍候。");
+        responseOutputEl.textContent = safeStringify(payload);
+        responseHintEl.textContent = "本次提交参数";
+        const submitResult = await submitTask(payload, form.token);
+        taskIdValueEl.textContent = submitResult.task_id;
+        responseOutputEl.textContent = safeStringify(submitResult);
+        responseHintEl.textContent = "提交成功回执";
+        setStepState(submitStateEl, "success", "已提交");
+        submitDescEl.textContent = "任务已经创建成功，任务编号：" + submitResult.task_id;
+
+        setStepState(pollStateEl, "running", "处理中");
+        setBanner("info", "正在制作", "系统正在自动跟进制作进度。");
+        const result = await pollTask(form.token, submitResult.task_id);
+        setStepState(pollStateEl, "success", "已完成");
+        pollDescEl.textContent = "系统已经确认任务完成。";
+
+        setStepState(resultStateEl, "success", "已显示");
+        resultDescEl.textContent = "草稿和结果链接已经展示在右侧。";
+        renderStatusResponse(result);
+        responseOutputEl.textContent = safeStringify(result);
+        responseHintEl.textContent = "最终结果回执";
+        setBanner("success", "制作完成", "旅游混剪任务已经完成，可以查看草稿或视频结果。");
+      } catch (error) {
+        const phase = error.phase || "unknown";
+        errorOutputEl.textContent = formatError(error, phase);
+        errorHintEl.textContent = phase;
+
+        if (validateStateEl.textContent === "检查中") {
+          setStepState(validateStateEl, "error", "失败");
+        } else if (submitStateEl.textContent === "提交中") {
+          setStepState(submitStateEl, "error", "失败");
+        } else if (pollStateEl.textContent === "处理中") {
+          setStepState(pollStateEl, "error", "失败");
+        } else {
+          setStepState(resultStateEl, "error", "失败");
+        }
+
+        setBanner("error", "执行失败", error.message || "请查看右侧错误详情。");
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    function resetPageResult() {
+      resetSteps();
+      resetOutputs();
+      setBanner("info", "等待开始", "左侧填好信息后，点击“开始生成旅游混剪视频”。");
+    }
+
+    chaoshanTemplateBtn.addEventListener("click", applyChaoshanTemplate);
+
+    bulkUrlsEl.addEventListener("input", function() {
+      materialUrls = extractUrlsFromText(bulkUrlsEl.value);
+      renderMaterials();
+    });
+
+    generateNarrationBtn.addEventListener("click", generateNarrationWithAi);
+    submitBtn.addEventListener("click", runTask);
+
+    applyDefaultForm();
+    resetPageResult();
+  </script>
+</body>
+</html>
