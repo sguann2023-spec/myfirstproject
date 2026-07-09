@@ -256,25 +256,56 @@ async function downloadViaWindowSession(
       }
     }
 
-    try {
-      await downloadWithNodeRequest(url)
-    } catch (error) {
-      const message = timeoutError?.message || (error instanceof Error ? error.message : String(error))
-      logger.warn('[DLTRACE][Main] node request failed, fallback to session.fetch', {
-        jobId,
-        draftId,
-        reqId,
-        url,
-        error: message
-      })
+    const nodeMaxAttempts = 3
+    let nodeAttempt = 0
+    let nodeError: unknown = null
 
-      downloadedBytes = 0
-      totalBytes = 0
+    while (nodeAttempt < nodeMaxAttempts) {
+      nodeAttempt += 1
       try {
-        await fs.promises.unlink(localFilename)
-      } catch {}
+        await downloadWithNodeRequest(url)
+        nodeError = null
+        break
+      } catch (error) {
+        nodeError = error
+        const message = timeoutError?.message || (error instanceof Error ? error.message : String(error))
 
-      await downloadWithSessionFetch(url)
+        downloadedBytes = 0
+        totalBytes = 0
+        try {
+          await fs.promises.unlink(localFilename)
+        } catch {}
+
+        if (nodeAttempt < nodeMaxAttempts && !timeoutError) {
+          logger.warn('[DLTRACE][Main] node request failed, retrying node request', {
+            jobId,
+            draftId,
+            reqId,
+            url,
+            attempt: nodeAttempt,
+            maxAttempts: nodeMaxAttempts,
+            error: message
+          })
+          continue
+        }
+
+        logger.warn('[DLTRACE][Main] node request failed, fallback to session.fetch', {
+          jobId,
+          draftId,
+          reqId,
+          url,
+          attempts: nodeAttempt,
+          error: message
+        })
+
+        await downloadWithSessionFetch(url)
+        nodeError = null
+        break
+      }
+    }
+
+    if (nodeError) {
+      throw nodeError
     }
 
     completed = true
