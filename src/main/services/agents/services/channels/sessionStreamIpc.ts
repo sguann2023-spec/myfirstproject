@@ -137,15 +137,27 @@ async function ensureDefaultAgentExists(modelHint?: string): Promise<boolean> {
   const existing = await agentService.getAgent(DEFAULT_RUNTIME_AGENT_ID)
   if (existing) {
     const hasPath = Array.isArray((existing as any).accessible_paths) && (existing as any).accessible_paths.length > 0
-    if (!hasPath) {
+    const normalizedExistingModel = await normalizeProviderModelId(String((existing as any).model || '').trim())
+    const shouldRepairModel = !normalizedExistingModel || !normalizedExistingModel.startsWith('anthropic:')
+    const repairedModelId = shouldRepairModel
+      ? String((await modelsService.getModels({ providerType: 'anthropic', limit: 1 }))?.data?.[0]?.id || '').trim()
+      : ''
+
+    if (!hasPath || (shouldRepairModel && repairedModelId)) {
       try {
         const database = await (agentService as any).getDatabase()
+        const updatePayload: Record<string, unknown> = {
+          updated_at: new Date().toISOString()
+        }
+        if (!hasPath) {
+          updatePayload.accessible_paths = JSON.stringify([workspacePath])
+        }
+        if (shouldRepairModel && repairedModelId) {
+          updatePayload.model = repairedModelId
+        }
         await database
           .update(agentsTable)
-          .set({
-            accessible_paths: JSON.stringify([workspacePath]),
-            updated_at: new Date().toISOString()
-          })
+          .set(updatePayload)
           .where(sql`${agentsTable.id} = ${DEFAULT_RUNTIME_AGENT_ID}`)
       } catch {
         // ignore race / transient DB issues
@@ -344,6 +356,16 @@ export function registerSessionStreamIpc(): void {
       if (!existing) return { ok: false, error: 'session not found' }
 
       const { sessionId: _sessionId, id: _id, ...updates } = payload || {}
+      if (existing.agent_id === DEFAULT_RUNTIME_AGENT_ID) {
+        const ensured = await ensureDefaultAgentExists()
+        if (!ensured) return { ok: false, error: 'Agent not found' }
+
+        const agentService = await getAgentService()
+        const defaultAgent = await agentService?.getAgent(DEFAULT_RUNTIME_AGENT_ID)
+        if (defaultAgent?.model) {
+          updates.model = defaultAgent.model
+        }
+      }
       const session = await sessionService.updateSession(existing.agent_id, sessionId, updates)
       if (!session) return { ok: false, error: 'session not found' }
       broadcastSessionChanged(existing.agent_id, sessionId, true)
@@ -555,9 +577,16 @@ export function registerSessionStreamIpc(): void {
       }
 
       if (agentId === DEFAULT_RUNTIME_AGENT_ID) {
-        const ensured = await ensureDefaultAgentExists(normalizedReq?.model)
+        const ensured = await ensureDefaultAgentExists()
         if (!ensured) {
           return { ok: false, error: 'Agent not found' }
+        }
+        const agentService = await getAgentService()
+        const defaultAgent = await agentService?.getAgent(DEFAULT_RUNTIME_AGENT_ID)
+        if (defaultAgent?.model) {
+          normalizedReq.model = defaultAgent.model
+        } else {
+          delete normalizedReq.model
         }
       }
 

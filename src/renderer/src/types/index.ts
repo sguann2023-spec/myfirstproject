@@ -267,6 +267,10 @@ export type Topic = {
   id: string
   type?: TopicType
   assistantId: string
+  linkedAgentSession?: {
+    agentId: string
+    sessionId: string
+  }
   name: string
   createdAt: string
   updatedAt: string

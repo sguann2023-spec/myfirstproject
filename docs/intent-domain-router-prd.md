@@ -1,0 +1,445 @@
+# 意图域路由 PRD
+
+## 背景
+
+当前 Agent 工具数量较多，如果在每个请求里一次性向模型暴露完整工具面，会带来几个问题：
+
+- token 开销过高
+- 模型更容易被无关工具干扰
+- 简单任务也会看到过大的工具选择空间
+- 工具命中不稳定，容易出现“本该写文件却只拿到读工具”这类问题
+
+本方案不讨论工具权限管理，重点解决：
+
+1. 如何先做意图识别
+2. 如何只挂载当前任务真正需要的工具域
+3. 如何支持一个任务同时命中多个域
+4. 如何在低置信度时逐步扩展，而不是一次性暴露全部工具
+
+## 目标
+
+- 建立一套面向 Agent 的意图域路由系统
+- 将工具组织为“主域 + 子能力”的结构，而不是单一线性层级
+- 支持多域组合，例如 `workspace.read + web.search`
+- 默认只暴露最小必要工具面
+- 在需要时按域逐步展开工具，而不是全量挂载
+
+## 非目标
+
+- 不在本期处理 tool permission / allow / deny 规则
+- 不在本期设计具体 MCP 协议细节
+- 不在本期处理模型侧复杂推理链优化
+
+## 核心思路
+
+系统先根据用户请求识别一个 **主域**，再补充若干 **子能力** 和 **伴随域**。
+
+路由输出不是单一层级，而是一个可组合结构：
+
+```ts
+type IntentRoute = {
+  primaryDomain: 'chat' | 'workspace' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
+  subdomains: string[]
+  companionDomains: string[]
+  confidence: number
+}
+```
+
+其中：
+
+- `primaryDomain`：当前任务的主处理域
+- `subdomains`：主域下的细分能力
+- `companionDomains`：需要同时挂载的伴随域
+- `confidence`：当前路由置信度
+
+## 一级意图域
+
+### 1. `chat`
+
+适用于：
+
+- 普通问答
+- 总结、解释、改写
+- 不需要外部工具的轻量任务
+
+默认特征：
+
+- 不挂或只挂极小工具面
+- 优先保证回复速度和上下文稳定性
+
+### 2. `workspace`
+
+适用于本地工程、文件、代码、日志、命令相关任务。
+
+建议子能力：
+
+- `read`
+- `write`
+- `execute`
+- `find`
+- `notebook`
+- `task`
+
+已接入工具：
+
+- `read` -> `Read` / `Glob` / `Grep`
+- `write` -> `Write` / `Edit` / `MultiEdit`
+- `execute` -> `Bash`
+- `find` -> `Glob` / `Grep`
+- `notebook` -> `NotebookRead` / `NotebookEdit`
+- `task` -> `Task` / `TodoWrite`
+
+### 3. `web`
+
+适用于联网信息获取和页面交互。
+
+建议子能力：
+
+- `search`
+- `fetch`
+- `browser`
+- `execute`
+- `screenshot`
+
+已接入工具：
+
+- `search` -> `WebSearch` / `mcp__search__web_search`
+- `fetch` -> `WebFetch`
+- `browser` -> `mcp__browser__open` / `mcp__browser__click` / `mcp__browser__type` / `mcp__browser__press` / `mcp__browser__scroll` / `mcp__browser__focus` / `mcp__browser__hover` / `mcp__browser__wait_for` / `mcp__browser__inspect` / `mcp__browser__reload` / `mcp__browser__list_tabs` / `mcp__browser__switch_tab` / `mcp__browser__close_tab` / `mcp__browser__reset`
+- `execute` -> `mcp__browser__execute`
+- `screenshot` -> `mcp__browser__screenshot` / `mcp__browser__snapshot`
+
+
+### 4. `ai_media`
+
+适用于 AI 媒体生成相关任务。
+
+建议子能力：
+- `image`
+- `speech`
+- `digital_human`
+
+已接入工具：
+
+- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`
+- `speech` -> `mcp__speech__generate_speech`
+- `digital_human` -> `mcp__digital-human__create_lip_sync_digital_human` / `mcp__digital-human__get_lip_sync_digital_human_status` / `mcp__digital-human__create_image_driven_digital_human` / `mcp__digital-human__get_image_driven_digital_human_status` / `mcp__digital-human__create_omni_image_driven_digital_human` / `mcp__digital-human__get_omni_image_driven_digital_human_status` / `mcp__digital-human__create_seedance_digital_human` / `mcp__digital-human__get_seedance_digital_human_status`
+
+### 5. `skills`
+
+适用于技能发现、创建、安装、调用。
+
+建议子能力：
+
+- `find_skill`
+- `create_skill`
+
+已接入工具：
+
+- `find_skill` -> `mcp__skills__skills`
+- `create_skill` -> `mcp__skills__skills`
+
+说明：
+
+- `find_skill`：用户想找现成能力
+- `create_skill`：用户想把流程沉淀成技能
+- `run_skill`：后续如需显式路由到技能执行，可补
+
+### 6. `auxiliary`
+
+适用于辅助型 Agent 能力，不直接归属技能发现或媒体生成。
+
+建议子能力：
+
+- `memory`
+- `assistant`
+- `automation`
+- `system`
+
+已接入工具：
+
+- `memory` -> `mcp__agent-memory__memory`
+- `assistant` -> `mcp__assistant__navigate` / `mcp__assistant__diagnose`
+- `automation` -> `mcp__claw__cron` / `mcp__claw__notify` / `mcp__claw__config`
+- `system` -> `mcp__system__open_deeplink`
+
+### 7. `scrapt`
+
+适用于爬虫反推提示词任务。
+
+建议子能力：
+
+- `derive_prompt`
+
+已接入工具：
+
+- `derive_prompt` -> `mcp__copylab__derive_copy_prompt`
+
+
+### 8. `cut`
+
+适用于剪辑任务。
+
+建议子能力：
+
+- `draft_download`
+- `template`
+
+已接入工具：
+
+- `draft_download` -> `mcp__draft-download__download_draft`
+- `template` -> `mcp__koubo-template__submit_koubo_template_task` / `mcp__koubo-template__get_koubo_template_task_status`
+
+## 多域组合原则
+
+一个任务不强制只能落在一个域。
+
+典型组合：
+
+- `workspace.read + web.search`
+- `workspace.write + web.browser`
+- `workspace.read + ai_media.image`
+- `skills.find_skill + workspace.read`
+
+建议规则：
+
+1. 必须有一个 `primaryDomain`
+2. `companionDomains` 最多挂 2 个，避免工具面再次膨胀
+3. 先挂主域工具，再补伴随域工具
+
+## 工具挂载策略
+
+### 默认原则
+
+- 不全量暴露工具
+- 先暴露主域最小工具集
+- 仅在子能力明确后继续扩展
+
+### 例子
+
+#### `workspace.read`
+
+默认挂：
+
+- `Read`
+- `Glob`
+- `Grep`
+
+#### `workspace.write`
+
+在 `workspace.read` 基础上追加：
+
+- `Write`
+- `Edit`
+- `MultiEdit`
+
+#### `workspace.execute`
+
+在 `workspace.read` 基础上追加：
+
+- `Bash`
+- 测试/构建相关 runtime 工具
+
+#### `web.search`
+
+默认挂：
+
+- `WebSearch`
+
+#### `web.browser`
+
+追加：
+
+- `browser` MCP 相关工具
+
+#### `ai_media.image`
+
+只挂图片生成相关 MCP / runtime 工具
+
+#### `skills.find_skill`
+
+只挂技能发现相关工具，不直接挂技能执行全量工具
+
+## 路由流程
+
+建议分三步：
+
+### 第一步：主域判断
+
+先只判断任务主要属于哪一类：
+
+- `chat`
+- `workspace`
+- `web`
+- `ai_media`
+- `skills`
+- `auxiliary`
+- `scrapt`
+- `cut`
+
+### 第二步：子能力判断
+
+例如：
+
+- `workspace.read`
+- `workspace.write`
+- `web.search`
+- `ai_media.speech`
+
+### 第三步：伴随域补充
+
+如果请求明显跨域，再挂伴随域：
+
+- 先主域
+- 后伴随域
+- 控制最大展开范围
+
+## 低置信度兜底
+
+当路由不够确定时，不要一次性暴露所有工具。
+
+建议兜底方式：
+
+1. 回退到 `chat`
+2. 仅补最安全的发现型工具
+3. 通过一次工具调用或一次补充判断，再进入更具体的域
+
+可选兜底工具：
+
+- `workspace.read/find`
+- `web.search`
+- `skills.find_skill`
+
+## 示例
+
+### 通用用户示例
+
+| 用户输入 | 预期主域 | 预期子能力 | 备注 |
+| --- | --- | --- | --- |
+| `你好` | `chat` | `[]` | 基础对话 |
+| `看下今天热点` | `web` | `["search"]` | 网络搜索 |
+| `反推 xx 链接的提示词` | `scrapt` | `["derive_prompt"]` | 爬虫反推提示词 |
+| `将一段声音合成语音` | `ai_media` | `["speech"]` | AI 媒体 |
+| `生成数字人` | `ai_media` | `["digital_human"]` | AI 媒体 |
+| `写文案` | `chat` | `[]` | 基础对话 |
+| `看看有没有文件` | `workspace` | `["find", "read"]` | 工作空间 |
+| `写文件` | `workspace` | `["write"]` | 工作空间 |
+| `写网页` | `workspace` | `["write"]` | 默认按生成/修改项目文件理解 |
+| `查一下有没有 xxx 文字` | `workspace` | `["find", "read"]` | 工作空间文本检索 |
+| `打开网页` | `web` | `["browser"]` | 网络搜索 / 浏览器交互 |
+| `生成图片` | `ai_media` | `["image"]` | AI 媒体 |
+| `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
+| `剪一下口播` | `cut` | `["template"]` | 剪辑任务，后续可再细分 |
+| `模版剪辑` | `cut` | `["template"]` | 剪辑任务 |
+
+### 示例 1
+
+用户输入：
+
+`看下这个报错在哪个文件，再帮我修一下`
+
+路由结果：
+
+```json
+{
+  "primaryDomain": "workspace",
+  "subdomains": ["find", "read", "write"],
+  "companionDomains": [],
+  "confidence": 0.93
+}
+```
+
+### 示例 2
+
+用户输入：
+
+`查一下 React 19 的官方变更，再看下我们项目哪里要改`
+
+路由结果：
+
+```json
+{
+  "primaryDomain": "web",
+  "subdomains": ["search"],
+  "companionDomains": ["workspace"],
+  "confidence": 0.91
+}
+```
+
+### 示例 3
+
+用户输入：
+
+`给这段文案生成配音，再做一个数字人口播`
+
+路由结果：
+
+```json
+{
+  "primaryDomain": "ai_media",
+  "subdomains": ["speech", "digital_human"],
+  "companionDomains": [],
+  "confidence": 0.96
+}
+```
+
+### 示例 4
+
+用户输入：
+
+`有没有现成技能能做这个流程，没有就帮我创建一个`
+
+路由结果：
+
+```json
+{
+  "primaryDomain": "skills",
+  "subdomains": ["find_skill", "create_skill"],
+  "companionDomains": [],
+  "confidence": 0.95
+}
+```
+
+## 与当前实现的主要差异
+
+当前实现更偏向：
+
+- 按关键词直接推断最终工具层
+- 一次性决定本轮要挂哪些 builtin / MCP
+
+目标实现应改为：
+
+- 先识别意图域
+- 再按域装配工具面
+- 支持多域组合
+- 支持低置信度渐进展开
+
+## 后续实现建议
+
+### Phase 1
+
+- 固化一级域与二级子能力枚举
+- 建立“域 -> 默认工具集”映射
+
+### Phase 2
+
+- 替换当前单轴 `toolLayer` 判定
+- 输出 `primaryDomain + subdomains + companionDomains`
+
+### Phase 3
+
+- 接入渐进展开机制
+- 低置信度时只挂发现型工具
+
+### Phase 4
+
+- 为每个域补路由测试样例
+- 为跨域组合补回归测试
+
+## 验收标准
+
+- 简单聊天任务不再挂载大工具面
+- 写文件请求能够稳定命中 `workspace.write`
+- 联网 + 本地分析任务能够同时挂载 `web + workspace`
+- AI 媒体任务不会误挂大量无关工具
+- 技能相关任务优先走 `skills` 域，而不是混入普通工具路由

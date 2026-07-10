@@ -1,6 +1,6 @@
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 
-import type { RuntimeToolLayer } from './capability-router'
+import type { CapabilityDecision, IntentDomain, RuntimeToolLayer } from './capability-router'
 
 export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
   chat: [],
@@ -34,12 +34,52 @@ export type ToolSurface = {
   layer: RuntimeToolLayer
 }
 
+const DOMAIN_SUBDOMAIN_BUILTINS: Partial<Record<IntentDomain, Record<string, string[]>>> = {
+  workspace: {
+    read: ['Read', 'Glob', 'Grep'],
+    write: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit'],
+    execute: ['Read', 'Glob', 'Grep', 'Bash'],
+    find: ['Glob', 'Grep'],
+    notebook: ['NotebookRead', 'NotebookEdit'],
+    task: ['Task', 'TodoWrite']
+  },
+  web: {
+    search: ['WebSearch'],
+    fetch: ['WebFetch']
+  }
+}
+
+const collectDomainBuiltinTools = (decision: CapabilityDecision): string[] => {
+  const tools = new Set<string>()
+  const applyDomain = (domain: IntentDomain, subdomains: string[]) => {
+    const domainMap = DOMAIN_SUBDOMAIN_BUILTINS[domain]
+    if (!domainMap) return
+    for (const subdomain of subdomains) {
+      for (const tool of domainMap[subdomain] ?? []) {
+        tools.add(tool)
+      }
+    }
+  }
+
+  for (const activeDomain of decision.activeDomains) {
+    applyDomain(activeDomain.domain, activeDomain.subdomains)
+  }
+
+  return Array.from(tools)
+}
+
 export function buildToolSurface(args: {
-  layer: RuntimeToolLayer
+  decision: CapabilityDecision
   sessionAllowedTools?: string[]
   isAssistant: boolean
 }): ToolSurface {
-  const builtinTools = Array.from(new Set(BUILTIN_TOOL_LAYERS[args.layer] ?? []))
+  const domainBuiltinTools = collectDomainBuiltinTools(args.decision)
+  const fallbackLayerTools = BUILTIN_TOOL_LAYERS[args.decision.toolLayer] ?? []
+  const shouldUseFallbackLayerTools =
+    domainBuiltinTools.length === 0 &&
+    (args.decision.activeDomains.length === 0 ||
+      args.decision.activeDomains.every((domainEntry) => ['chat', 'workspace', 'web'].includes(domainEntry.domain)))
+  const builtinTools = Array.from(new Set(shouldUseFallbackLayerTools ? fallbackLayerTools : domainBuiltinTools))
   const availableBuiltinSet = new Set(builtinTools)
   const sessionAllowedTools = (args.sessionAllowedTools ?? []).filter((tool) => !FILTERED_TOOLS.has(tool))
   const autoAllowedTools = new Set<string>()
@@ -67,7 +107,7 @@ export function buildToolSurface(args: {
     autoAllowedTools,
     allowedToolsOption: Array.from(autoAllowedTools).sort(),
     toolsOption: builtinTools,
-    layer: args.layer
+    layer: args.decision.toolLayer
   }
 }
 

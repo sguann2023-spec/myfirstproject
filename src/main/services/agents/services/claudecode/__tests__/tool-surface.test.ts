@@ -1,11 +1,28 @@
 import { describe, expect, it } from 'vitest'
 
+import type { CapabilityDecision } from '../capability-router'
 import { addAutoAllowedTool, buildToolSurface } from '../tool-surface'
+
+const makeDecision = (args: Partial<CapabilityDecision> & Pick<CapabilityDecision, 'toolLayer'>): CapabilityDecision => ({
+  turn: 1,
+  selected: new Set(),
+  reasons: {},
+  stickyApplied: [],
+  activeDomains: [],
+  primaryDomain: 'chat',
+  subdomains: [],
+  companionDomains: [],
+  domainReasons: ['chat:default'],
+  preferredMcpTools: [],
+  toolLayer: args.toolLayer,
+  toolLayerReasons: ['prompt:chat'],
+  ...args
+})
 
 describe('buildToolSurface', () => {
   it('disables all built-in tools for chat turns', () => {
     const surface = buildToolSurface({
-      layer: 'chat',
+      decision: makeDecision({ toolLayer: 'chat' }),
       sessionAllowedTools: ['Bash', 'mcp__skills__*'],
       isAssistant: false
     })
@@ -17,18 +34,28 @@ describe('buildToolSurface', () => {
 
   it('enables only read tools for workspace-read turns', () => {
     const surface = buildToolSurface({
-      layer: 'workspace-read',
+      decision: makeDecision({
+        toolLayer: 'workspace-read',
+        activeDomains: [{ domain: 'workspace', subdomains: ['read'], role: 'primary', score: 2 }],
+        primaryDomain: 'workspace',
+        subdomains: ['read']
+      }),
       sessionAllowedTools: [],
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['Read', 'Glob', 'Grep', 'NotebookRead'])
-    expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'NotebookRead', 'Read'])
+    expect(surface.toolsOption).toEqual(['Read', 'Glob', 'Grep'])
+    expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'Read'])
   })
 
   it('keeps the web layer free of built-in workspace tools', () => {
     const surface = buildToolSurface({
-      layer: 'web',
+      decision: makeDecision({
+        toolLayer: 'web',
+        activeDomains: [{ domain: 'web', subdomains: ['browser'], role: 'primary', score: 3 }],
+        primaryDomain: 'web',
+        subdomains: ['browser']
+      }),
       sessionAllowedTools: ['mcp__search__*', 'mcp__browser__*'],
       isAssistant: false
     })
@@ -40,7 +67,12 @@ describe('buildToolSurface', () => {
 
   it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {
     const surface = buildToolSurface({
-      layer: 'workspace-write',
+      decision: makeDecision({
+        toolLayer: 'workspace-write',
+        activeDomains: [{ domain: 'workspace', subdomains: ['write', 'execute'], role: 'primary', score: 8 }],
+        primaryDomain: 'workspace',
+        subdomains: ['execute', 'write']
+      }),
       sessionAllowedTools: [],
       isAssistant: false
     })
@@ -54,7 +86,12 @@ describe('buildToolSurface', () => {
 
   it('filters known expensive or unsupported defaults from auto-allow lists', () => {
     const surface = buildToolSurface({
-      layer: 'agentic',
+      decision: makeDecision({
+        toolLayer: 'agentic',
+        activeDomains: [{ domain: 'workspace', subdomains: ['task'], role: 'primary', score: 3 }],
+        primaryDomain: 'workspace',
+        subdomains: ['task']
+      }),
       sessionAllowedTools: ['WebFetch', 'mcp__exa__web_fetch_exa', 'mcp__search__*'],
       isAssistant: false
     })
@@ -66,7 +103,7 @@ describe('buildToolSurface', () => {
 
   it('updates the sorted auto-allow option when MCP patterns are added', () => {
     const surface = buildToolSurface({
-      layer: 'chat',
+      decision: makeDecision({ toolLayer: 'chat' }),
       sessionAllowedTools: [],
       isAssistant: false
     })

@@ -336,11 +336,15 @@ export class SkillService extends BaseService {
     return this.installSkillDir(directoryPath, 'local', null)
   }
 
-  async copyDirectoryToWorkspace(directoryPath: string, workspace: string): Promise<{
+  async copyDirectoryToWorkspace(
+    directoryPath: string,
+    workspace: string,
+    options: { sourceSubdir?: string; targetRelativePath?: string; excludeSubdirs?: string[] } = {}
+  ): Promise<{
     folderName: string
     targetPath: string
   }> {
-    logger.info('Copying skill directory to workspace', { directoryPath, workspace })
+    logger.info('Copying skill directory to workspace', { directoryPath, workspace, options })
 
     if (!(await directoryExists(directoryPath))) {
       throw new Error(`Directory not found: ${directoryPath}`)
@@ -358,12 +362,56 @@ export class SkillService extends BaseService {
       throw new Error('Invalid skill folder name')
     }
 
+    const normalizedSourceSubdir = typeof options.sourceSubdir === 'string' ? options.sourceSubdir.trim() : ''
+    const normalizedTargetRelativePath = typeof options.targetRelativePath === 'string' ? options.targetRelativePath.trim() : ''
+    const normalizedExcludeSubdirs = Array.isArray(options.excludeSubdirs)
+      ? options.excludeSubdirs.map((item) => String(item || '').trim()).filter(Boolean)
+      : []
+
+    if (normalizedSourceSubdir) {
+      const sourcePath = path.join(directoryPath, normalizedSourceSubdir)
+      if (!(await directoryExists(sourcePath))) {
+        throw new Error(`Directory not found: ${sourcePath}`)
+      }
+
+      const targetPath = normalizedTargetRelativePath
+        ? path.join(workspace, normalizedTargetRelativePath)
+        : workspace
+      await fs.promises.mkdir(targetPath, { recursive: true })
+
+      const entries = await fs.promises.readdir(sourcePath, { withFileTypes: true })
+      for (const entry of entries) {
+        const sourceEntryPath = path.join(sourcePath, entry.name)
+        const targetEntryPath = path.join(targetPath, entry.name)
+        await fs.promises.rm(targetEntryPath, { recursive: true, force: true })
+        await fs.promises.cp(sourceEntryPath, targetEntryPath, { recursive: true })
+      }
+
+      logger.info('Copied skill subdirectory contents to workspace', {
+        directoryPath,
+        workspace,
+        sourcePath,
+        targetPath
+      })
+      return { folderName, targetPath }
+    }
+
     const targetPath = path.join(workspace, '.claude', 'skills', folderName)
     await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
     await fs.promises.rm(targetPath, { recursive: true, force: true })
     await fs.promises.cp(directoryPath, targetPath, { recursive: true })
 
-    logger.info('Copied skill directory to workspace', { directoryPath, workspace, folderName, targetPath })
+    for (const excludedSubdir of normalizedExcludeSubdirs) {
+      await fs.promises.rm(path.join(targetPath, excludedSubdir), { recursive: true, force: true })
+    }
+
+    logger.info('Copied skill directory to workspace', {
+      directoryPath,
+      workspace,
+      folderName,
+      targetPath,
+      excludeSubdirs: normalizedExcludeSubdirs
+    })
     return { folderName, targetPath }
   }
 

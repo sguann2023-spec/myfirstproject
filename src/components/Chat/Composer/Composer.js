@@ -253,8 +253,9 @@ const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
 const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
 const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
-const DEFAULT_DIGITAL_HUMAN_MODE = 'lips';
+const DEFAULT_DIGITAL_HUMAN_MODE = 'seedance-avatar';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
+const DIGITAL_HUMAN_OPTION_VALUES = new Set(['seedance-avatar', 'jimeng-avatar', 'lips']);
 const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
@@ -262,7 +263,7 @@ const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
   const normalizedValue = String(value || '').trim();
-  return DIGITAL_HUMAN_IMAGE_DRIVE_MODES.has(normalizedValue) ? normalizedValue : DEFAULT_DIGITAL_HUMAN_MODE;
+  return DIGITAL_HUMAN_OPTION_VALUES.has(normalizedValue) ? normalizedValue : DEFAULT_DIGITAL_HUMAN_MODE;
 };
 const isDigitalHumanImageDriveMode = (value) => DIGITAL_HUMAN_IMAGE_DRIVE_MODES.has(String(value || '').trim());
 const isSeedanceDigitalHumanMode = (value) => String(value || '').trim() === 'seedance-avatar';
@@ -389,24 +390,60 @@ const createDigitalHumanMediaReferenceAttrs = (
     slotId: DIGITAL_HUMAN_VIDEO_SLOT_ID,
     slotLabel: isDigitalHumanImageDriveMode(selectedMode) ? '人物照片' : '人物视频',
     acceptedKind: isDigitalHumanImageDriveMode(selectedMode) ? 'image' : 'video',
-    placeholderText: isDigitalHumanImageDriveMode(selectedMode) ? '选择的形象照片' : '人物视频',
+    placeholderText: isDigitalHumanImageDriveMode(selectedMode) ? '选择的形象照片' : '请上传人物视频',
   });
+const createDigitalHumanScriptNode = (scriptText = '') => {
+  const normalizedScriptText = String(scriptText || '');
+  if (normalizedScriptText.trim()) {
+    return {
+      type: 'text',
+      text: normalizedScriptText,
+    };
+  }
+
+  return {
+    type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
+    attrs: {
+      text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
+    },
+  };
+};
+const normalizeDigitalHumanMotionText = (value) => {
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT;
+
+  const bracketMatchedValue = normalizedValue.match(/^\[(.*)\]$/s);
+  const cleanedValue = bracketMatchedValue ? String(bracketMatchedValue[1] || '').trim() : normalizedValue;
+  return cleanedValue || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT;
+};
+const createDigitalHumanMotionNode = (motionText = DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT) => ({
+  type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
+  attrs: {
+    text: normalizeDigitalHumanMotionText(motionText),
+  },
+});
+const isVideoDigitalHumanMediaReference = (attrs = {}) => {
+  const fileType = String(attrs?.fileType || '').trim().toLowerCase();
+  const acceptedKind = String(attrs?.acceptedKind || '').trim().toLowerCase();
+  return fileType.startsWith('video/') || acceptedKind === 'video';
+};
+const getReusableDigitalHumanMediaReferenceAttrs = (selectedMode = DEFAULT_DIGITAL_HUMAN_MODE, attrs = {}) => {
+  if (isDigitalHumanImageDriveMode(selectedMode)) return {};
+  return isVideoDigitalHumanMediaReference(attrs) ? attrs : {};
+};
 const buildDigitalHumanMediaParagraph = (
   selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
   currentFile = {},
-  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
+  selectedAvatar = readPersistedDigitalHumanAvatarSelection(),
+  motionText = DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
+  scriptText = ''
 ) => {
   if (isSeedanceDigitalHumanMode(selectedMode)) {
     return {
       type: 'paragraph',
       content: [
         { type: 'text', text: '将说话内容：[' },
-        {
-          type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
-          attrs: {
-            text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
-          },
-        },
+        createDigitalHumanScriptNode(scriptText),
         { type: 'text', text: '] 利用音色 ' },
         {
           type: 'fileReference',
@@ -418,12 +455,7 @@ const buildDigitalHumanMediaParagraph = (
           attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
         },
         { type: 'text', text: ' 合并成一个seedance数字人视频，视频中人物的动作是' },
-        {
-          type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
-          attrs: {
-            text: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
-          },
-        },
+        createDigitalHumanMotionNode(motionText),
       ],
     };
   }
@@ -438,12 +470,7 @@ const buildDigitalHumanMediaParagraph = (
           attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
         },
         { type: 'text', text: ' 合并成一个即梦数字人视频，视频中的人物动作是' },
-        {
-          type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
-          attrs: {
-            text: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
-          },
-        },
+        createDigitalHumanMotionNode(motionText),
       ],
     };
   }
@@ -673,7 +700,12 @@ const createAiWriteFieldPlaceholderExtension = () => {
 const buildDigitalHumanEditorDocument = (
   selectedVoiceLibraryItem = null,
   selectedMode = readPersistedDigitalHumanMode(),
-  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
+  selectedAvatar = readPersistedDigitalHumanAvatarSelection(),
+  {
+    scriptText = '',
+    motionText = DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
+    mediaReferenceAttrs = {},
+  } = {}
 ) => {
   const content = [
     {
@@ -689,12 +721,7 @@ const buildDigitalHumanEditorDocument = (
       type: 'paragraph',
       content: [
         { type: 'text', text: '第一步: 将说话内容：[' },
-        {
-          type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
-          attrs: {
-            text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
-          },
-        },
+        createDigitalHumanScriptNode(scriptText),
         { type: 'text', text: '] 利用音色 ' },
         {
           type: 'fileReference',
@@ -705,7 +732,15 @@ const buildDigitalHumanEditorDocument = (
     });
   }
 
-  content.push(buildDigitalHumanMediaParagraph(selectedMode, {}, selectedAvatar));
+  content.push(
+    buildDigitalHumanMediaParagraph(
+      selectedMode,
+      mediaReferenceAttrs,
+      selectedAvatar,
+      motionText,
+      scriptText
+    )
+  );
 
   return {
     type: 'doc',
@@ -1115,38 +1150,6 @@ const getVoiceSquareComposeParts = (editor) => {
     extraText,
   };
 };
-const syncDigitalHumanVoiceReferenceNode = (
-  editorInstance,
-  selectedMode,
-  selectedVoiceLibraryItem,
-  selectedAvatar
-) => {
-  if (!editorInstance || editorInstance.isDestroyed) return;
-
-  const nextAttrs = createDigitalHumanSelectedVoiceReferenceAttrs(
-    selectedMode,
-    selectedVoiceLibraryItem,
-    selectedAvatar
-  );
-  let changed = false;
-  const transaction = editorInstance.state.tr;
-
-  editorInstance.state.doc.descendants((node, pos) => {
-    if (node.type?.name !== 'fileReference') return true;
-    if (node.attrs?.slotId !== DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID) return true;
-
-    transaction.setNodeMarkup(pos, undefined, {
-      ...node.attrs,
-      ...nextAttrs,
-    });
-    changed = true;
-    return true;
-  });
-
-  if (changed) {
-    editorInstance.view.dispatch(transaction);
-  }
-};
 const syncVoiceSquareReferenceNode = (editorInstance, selectedVoiceLibraryItem) => {
   if (!editorInstance || editorInstance.isDestroyed) return;
 
@@ -1170,41 +1173,6 @@ const syncVoiceSquareReferenceNode = (editorInstance, selectedVoiceLibraryItem) 
     editorInstance.view.dispatch(transaction);
   }
 };
-const syncDigitalHumanMediaParagraph = (editorInstance, selectedMode, selectedAvatar) => {
-  if (!editorInstance || editorInstance.isDestroyed) return;
-
-  const currentDocument = editorInstance.getJSON();
-  if (!Array.isArray(currentDocument?.content)) return;
-
-  const mediaParagraphIndex = currentDocument.content.findIndex(
-    (node) => node?.type === 'paragraph' && Array.isArray(node?.content) && node.content.some(
-      (child) => child?.type === 'fileReference' && child?.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
-    )
-  );
-  if (mediaParagraphIndex < 0) return;
-
-  const currentParagraph = currentDocument.content[mediaParagraphIndex];
-  const currentFileReferenceNode = Array.isArray(currentParagraph?.content)
-    ? currentParagraph.content.find(
-      (child) => child?.type === 'fileReference' && child?.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
-    )
-    : null;
-  const nextParagraph = buildDigitalHumanMediaParagraph(
-    selectedMode,
-    currentFileReferenceNode?.attrs || {},
-    selectedAvatar
-  );
-
-  if (JSON.stringify(currentParagraph) === JSON.stringify(nextParagraph)) return;
-
-  const nextDocument = {
-    ...currentDocument,
-    content: [...currentDocument.content],
-  };
-  nextDocument.content[mediaParagraphIndex] = nextParagraph;
-  editorInstance.commands.setContent(nextDocument, false);
-};
-
 const getInlineNodeText = (node) => {
   if (!node) return '';
   if (node.type?.name === 'mention') {
@@ -1216,6 +1184,126 @@ const getInlineNodeText = (node) => {
     return getFileReferenceNodeText(node.attrs);
   }
   return node.text || node.textContent || '';
+};
+const extractDigitalHumanTemplateState = (editorInstance) => {
+  if (!editorInstance || editorInstance.isDestroyed) {
+    return {
+      scriptText: '',
+      motionText: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
+      mediaReferenceAttrs: {},
+    };
+  }
+
+  const paragraphs = [];
+  editorInstance.state.doc.forEach((node) => {
+    if (node.type?.name === 'paragraph') {
+      paragraphs.push(node);
+    }
+  });
+
+  let hasScriptPlaceholder = false;
+  let scriptText = '';
+  let motionText = '';
+  let mediaReferenceAttrs = {};
+
+  paragraphs.forEach((paragraph) => {
+    let reachedVoiceReference = false;
+    let reachedMediaReference = false;
+    let beforeVoiceReferenceText = '';
+    let afterMediaReferenceText = '';
+
+    paragraph.forEach((child) => {
+      if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
+        hasScriptPlaceholder = true;
+        return;
+      }
+
+      if (
+        child.type?.name === 'fileReference'
+        && child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID
+      ) {
+        reachedVoiceReference = true;
+        return true;
+      }
+
+      if (
+        child.type?.name === 'fileReference'
+        && child.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
+      ) {
+        mediaReferenceAttrs = { ...child.attrs };
+        reachedMediaReference = true;
+        return true;
+      }
+
+      const childText = getInlineNodeText(child);
+      if (!childText) return true;
+
+      if (!reachedVoiceReference) {
+        beforeVoiceReferenceText += childText;
+      }
+
+      if (reachedMediaReference) {
+        afterMediaReferenceText += childText;
+      }
+
+      return true;
+    });
+
+    if (!hasScriptPlaceholder && reachedVoiceReference && beforeVoiceReferenceText) {
+      const normalizedScriptText = beforeVoiceReferenceText
+        .replace(/^第一步:\s*将说话内容[:：]\s*\[/, '')
+        .replace(/^将说话内容[:：]\s*\[/, '')
+        .replace(/\]\s*利用音色\s*$/, '')
+        .trim();
+
+      if (normalizedScriptText) {
+        scriptText = normalizedScriptText;
+      }
+    }
+
+    if (!motionText && afterMediaReferenceText.includes('动作是')) {
+      const normalizedMotionText = afterMediaReferenceText
+        .replace(/^.*动作是/, '')
+        .trim();
+
+      if (normalizedMotionText) {
+        motionText = normalizeDigitalHumanMotionText(normalizedMotionText);
+      }
+    }
+  });
+
+  return {
+    scriptText: hasScriptPlaceholder ? '' : scriptText,
+    motionText: normalizeDigitalHumanMotionText(motionText),
+    mediaReferenceAttrs,
+  };
+};
+const syncDigitalHumanTemplateDocument = (
+  editorInstance,
+  selectedMode,
+  selectedVoiceLibraryItem,
+  selectedAvatar
+) => {
+  if (!editorInstance || editorInstance.isDestroyed) return;
+
+  const currentDocument = editorInstance.getJSON();
+  const currentTemplateState = extractDigitalHumanTemplateState(editorInstance);
+  const nextDocument = buildDigitalHumanEditorDocument(
+    selectedVoiceLibraryItem,
+    selectedMode,
+    selectedAvatar,
+    {
+      scriptText: currentTemplateState.scriptText,
+      motionText: currentTemplateState.motionText,
+      mediaReferenceAttrs: getReusableDigitalHumanMediaReferenceAttrs(
+        selectedMode,
+        currentTemplateState.mediaReferenceAttrs
+      ),
+    }
+  );
+
+  if (JSON.stringify(currentDocument) === JSON.stringify(nextDocument)) return;
+  editorInstance.commands.setContent(nextDocument, false);
 };
 const syncTemplateFileReferenceNode = (editorInstance, slotId, targetFile) => {
   if (!editorInstance || editorInstance.isDestroyed || !slotId || !targetFile?.uid) return false;
@@ -3346,7 +3434,7 @@ const Composer = ({
 
   React.useEffect(() => {
     if (activeTool !== 'digital-human') return;
-    syncDigitalHumanVoiceReferenceNode(
+    syncDigitalHumanTemplateDocument(
       editor,
       selectedDigitalHumanMode,
       selectedVoiceLibraryItem,
@@ -3358,11 +3446,6 @@ const Composer = ({
     if (activeTool !== 'voice-square') return;
     syncVoiceSquareReferenceNode(editor, selectedVoiceLibraryItem);
   }, [activeTool, editor, selectedVoiceLibraryItem]);
-
-  React.useEffect(() => {
-    if (activeTool !== 'digital-human') return;
-    syncDigitalHumanMediaParagraph(editor, selectedDigitalHumanMode, selectedDigitalHumanAvatar);
-  }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode]);
 
   const applyAiWriteTemplate = React.useCallback((presetId) => {
     if (!editor || editor.isDestroyed) return;

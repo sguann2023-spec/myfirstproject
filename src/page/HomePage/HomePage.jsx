@@ -40,10 +40,8 @@ const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
-const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_DIR = '/Users/sunguannan/CapCutHelper/resources/quick/skills/儿童绘本';
-const QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE = '/Users/sunguannan/CapCutHelper/resources/quick/skills/儿童绘本/website/index.html';
-const QUICK_TRAVEL_MONTAGE_SKILL_DIR = '/Users/sunguannan/CapCutHelper/resources/quick/skills/旅游混剪';
-const QUICK_TRAVEL_MONTAGE_PREVIEW_FILE = '/Users/sunguannan/CapCutHelper/resources/quick/skills/旅游混剪/website/index.html';
+const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
+const QUICK_TRAVEL_MONTAGE_SKILL_NAME = '旅游混剪';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const getSessionWorkspacePath = (session) => {
@@ -159,6 +157,23 @@ const createLocalFileUrl = (filePath = '') => {
   if (!normalizedPath) return '';
   const pathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
   return encodeURI(`file://${pathname}`);
+};
+const seedWorkspaceSkeleton = async (workspacePath) => {
+  const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: workspacePath });
+  if (!seedResult?.ok) {
+    throw new Error(seedResult?.error || '初始化工作空间失败');
+  }
+};
+const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
+  const resourcesPath = normalizeLocalPath(appInfo?.resourcesPath || '').trim();
+  const normalizedSkillName = String(skillName || '').trim();
+  if (!resourcesPath || !normalizedSkillName) return '';
+  return joinLocalPath(resourcesPath, 'quick', 'skills', normalizedSkillName);
+};
+const resolveWorkspacePreviewFile = (workspacePath = '') => {
+  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+  if (!normalizedWorkspacePath) return '';
+  return joinLocalPath(normalizedWorkspacePath, 'index.html');
 };
 
 const resolveProviderIdByModel = (modelId = '') => {
@@ -2662,10 +2677,15 @@ const HomePage = () => {
     setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备儿童绘本技能...' : AUTO_WORKSPACE_STATUS_TEXT);
 
     try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位儿童绘本技能目录失败');
+      }
+
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = inheritedWorkspacePath;
       if (!workspacePath) {
-        const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
         const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
         if (!appDataPath) {
           throw new Error('创建新工作空间失败');
@@ -2679,6 +2699,7 @@ const HomePage = () => {
         );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
       }
 
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
@@ -2698,17 +2719,27 @@ const HomePage = () => {
         throw new Error(updateResult?.error || '绑定新工作空间失败');
       }
 
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath,
+        excludeSubdirs: ['website']
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
       const copyResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
-        directoryPath: QUICK_CHILDRENS_PICTURE_BOOK_SKILL_DIR,
-        workspace: workspacePath
+        directoryPath: quickSkillDir,
+        workspace: workspacePath,
+        sourceSubdir: 'website'
       });
       if (!copyResult?.success) {
-        throw new Error(copyResult?.error || '复制技能到工作空间失败');
+        throw new Error(copyResult?.error || '复制网页模板到工作空间失败');
       }
 
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
-      const previewFilePath = joinLocalPath(copyResult?.data?.targetPath || '', 'website', 'index.html');
+      const previewFilePath = resolveWorkspacePreviewFile(workspacePath);
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
@@ -2717,9 +2748,9 @@ const HomePage = () => {
         ))
       );
       setManualChatWebPreview({
-        key: `quick-skill-preview:${session.id}:${previewFilePath || QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE}`,
+        key: `quick-skill-preview:${session.id}:${previewFilePath}`,
         title: '儿童绘本',
-        url: createLocalFileUrl(previewFilePath || QUICK_CHILDRENS_PICTURE_BOOK_PREVIEW_FILE)
+        url: createLocalFileUrl(previewFilePath)
       });
       setChatWebPreviewDismissedKey('');
       window.toast?.success?.(
@@ -2744,10 +2775,15 @@ const HomePage = () => {
     setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备旅游混剪技能...' : AUTO_WORKSPACE_STATUS_TEXT);
 
     try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_TRAVEL_MONTAGE_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位旅游混剪技能目录失败');
+      }
+
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = inheritedWorkspacePath;
       if (!workspacePath) {
-        const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
         const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
         if (!appDataPath) {
           throw new Error('创建新工作空间失败');
@@ -2761,6 +2797,7 @@ const HomePage = () => {
         );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
       }
 
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
@@ -2780,17 +2817,27 @@ const HomePage = () => {
         throw new Error(updateResult?.error || '绑定新工作空间失败');
       }
 
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath,
+        excludeSubdirs: ['website']
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
       const copyResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
-        directoryPath: QUICK_TRAVEL_MONTAGE_SKILL_DIR,
-        workspace: workspacePath
+        directoryPath: quickSkillDir,
+        workspace: workspacePath,
+        sourceSubdir: 'website'
       });
       if (!copyResult?.success) {
-        throw new Error(copyResult?.error || '复制技能到工作空间失败');
+        throw new Error(copyResult?.error || '复制网页模板到工作空间失败');
       }
 
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
-      const previewFilePath = joinLocalPath(copyResult?.data?.targetPath || '', 'website', 'index.html');
+      const previewFilePath = resolveWorkspacePreviewFile(workspacePath);
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
@@ -2799,9 +2846,9 @@ const HomePage = () => {
         ))
       );
       setManualChatWebPreview({
-        key: `quick-skill-preview:${session.id}:${previewFilePath || QUICK_TRAVEL_MONTAGE_PREVIEW_FILE}`,
+        key: `quick-skill-preview:${session.id}:${previewFilePath}`,
         title: '旅游混剪',
-        url: createLocalFileUrl(previewFilePath || QUICK_TRAVEL_MONTAGE_PREVIEW_FILE)
+        url: createLocalFileUrl(previewFilePath)
       });
       setChatWebPreviewDismissedKey('');
       window.toast?.success?.(
@@ -3000,11 +3047,7 @@ const HomePage = () => {
           );
           const workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
           await window.api.file.mkdir(workspacePath);
-
-          const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: workspacePath });
-          if (!seedResult?.ok) {
-            throw new Error(seedResult?.error || '同步技能缓存失败');
-          }
+          await seedWorkspaceSkeleton(workspacePath);
 
           const configuration = runtimeSession?.configuration && typeof runtimeSession.configuration === 'object'
             ? runtimeSession.configuration

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Empty, Tooltip, Tour } from 'antd';
 import {
   ChevronRight,
+  Eye,
   ExternalLink,
   FileArchive,
   FileCode,
@@ -19,7 +20,6 @@ import {
   SquarePen,
   Play,
   RefreshCw,
-  UserPlus
 } from 'lucide-react';
 import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
@@ -112,7 +112,6 @@ const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
 const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'rar', 'tar', 'tgz', 'xz', 'zip']);
 const SPREADSHEET_EXTENSIONS = new Set(['csv', 'numbers', 'ods', 'tsv', 'xls', 'xlsx']);
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx']);
-const HTML_PREVIEW_EXTENSIONS = new Set(['html', 'htm']);
 const TEXT_PREVIEW_EXTENSIONS = new Set([
   'txt', 'text', 'log', 'conf', 'config', 'env', 'ini', 'toml', 'graphql', 'gql',
   'csv', 'tsv', 'gitignore', 'editorconfig'
@@ -143,7 +142,6 @@ const getPreviewKindForFileName = (fileName = '') => {
   if (TEXT_PREVIEW_EXTENSIONS.has(extension)) return 'text';
   return null;
 };
-const isHtmlPreviewFileName = (fileName = '') => HTML_PREVIEW_EXTENSIONS.has(getFileExtension(fileName));
 const createFilePreviewUrl = (filePath = '') => {
   const normalizedPath = normalizePath(filePath).trim();
   if (!normalizedPath) return '';
@@ -579,6 +577,7 @@ const WorkspaceCreateDialog = ({
   open = false,
   parentDir = '',
   workspaceName = '',
+  workspaceNameError = '',
   submitting = false,
   dialogRef = null,
   workspaceNameInputRef = null,
@@ -641,22 +640,28 @@ const WorkspaceCreateDialog = ({
                 </button>
               </div>
             </div>
-            <input
-              ref={workspaceNameInputRef}
-              type="text"
-              maxLength={50}
-              className="chat-panel__workspace-create-input chat-panel__workspace-create-input--name"
-              placeholder="空间名称"
-              value={workspaceName}
-              disabled={submitting}
-              onChange={(event) => onWorkspaceNameChange?.(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && canConfirm) {
-                  event.preventDefault();
-                  onConfirm?.();
-                }
-              }}
-            />
+            <div className="chat-panel__workspace-create-name-field">
+              <input
+                ref={workspaceNameInputRef}
+                type="text"
+                maxLength={50}
+                className={`chat-panel__workspace-create-input chat-panel__workspace-create-input--name ${workspaceNameError ? 'chat-panel__workspace-create-input--error' : ''}`.trim()}
+                placeholder="空间名称"
+                value={workspaceName}
+                disabled={submitting}
+                aria-invalid={workspaceNameError ? 'true' : 'false'}
+                onChange={(event) => onWorkspaceNameChange?.(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && canConfirm) {
+                    event.preventDefault();
+                    onConfirm?.();
+                  }
+                }}
+              />
+              {workspaceNameError ? (
+                <div className="chat-panel__workspace-create-error">{workspaceNameError}</div>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="chat-panel__workspace-create-footer">
@@ -695,7 +700,6 @@ const ChatShell = ({
   workspaceStatus = '',
   currentModelMeta = null,
   onSelectSkill,
-  onCreateSkill,
   onSubmitFileComment,
   sessionSending = false,
   webPreview = null,
@@ -729,6 +733,7 @@ const ChatShell = ({
   const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] = React.useState(false);
   const [createWorkspaceParentDir, setCreateWorkspaceParentDir] = React.useState('');
   const [createWorkspaceName, setCreateWorkspaceName] = React.useState('');
+  const [createWorkspaceNameError, setCreateWorkspaceNameError] = React.useState('');
   const [createWorkspaceSubmitting, setCreateWorkspaceSubmitting] = React.useState(false);
   const [filePreview, setFilePreview] = React.useState(null);
   const [membersPanelWidth, setMembersPanelWidth] = React.useState(() => readMembersPanelWidth());
@@ -1167,6 +1172,7 @@ const ChatShell = ({
     if (createWorkspaceDialogOpen) return;
     setCreateWorkspaceSubmitting(false);
     setCreateWorkspaceName('');
+    setCreateWorkspaceNameError('');
   }, [createWorkspaceDialogOpen]);
 
   React.useEffect(() => {
@@ -1499,6 +1505,7 @@ const ChatShell = ({
       if (rememberedParentDir) {
         setCreateWorkspaceParentDir(rememberedParentDir);
         setCreateWorkspaceName('');
+        setCreateWorkspaceNameError('');
         setCreateWorkspaceDialogOpen(true);
         if (beginnerGuideOpen && beginnerGuideCurrent === 0) {
           setBeginnerGuideCurrent(1);
@@ -1528,6 +1535,7 @@ const ChatShell = ({
 
       setCreateWorkspaceParentDir(nextParentDir);
       setCreateWorkspaceName('');
+      setCreateWorkspaceNameError('');
       setCreateWorkspaceDialogOpen(true);
       if (beginnerGuideOpen && beginnerGuideCurrent === 0) {
         setBeginnerGuideCurrent(1);
@@ -1543,6 +1551,7 @@ const ChatShell = ({
       if (!parentDir) return;
       const normalizedParentDir = normalizePath(parentDir);
       setCreateWorkspaceParentDir(normalizedParentDir);
+      setCreateWorkspaceNameError('');
       writeCreateWorkspaceParentForAgent(agentId, normalizedParentDir);
     } catch (_error) {
       window.toast.error('选择目录失败');
@@ -1556,12 +1565,17 @@ const ChatShell = ({
 
     try {
       setCreateWorkspaceSubmitting(true);
+      setCreateWorkspaceNameError('');
 
       const checkResult = await window.api.file.checkFileName(parentDir, normalizedName, false);
       const folderName = String(checkResult?.safeName || normalizedName).trim();
       if (!folderName) {
         window.toast.error('工作空间名称无效');
         setCreateWorkspaceSubmitting(false);
+        return;
+      }
+      if (checkResult?.requestedExists) {
+        setCreateWorkspaceNameError(`名称“${normalizedName}”已被占用`);
         return;
       }
 
@@ -1579,8 +1593,14 @@ const ChatShell = ({
         }
         setCreateWorkspaceDialogOpen(false);
         setCreateWorkspaceName('');
+        setCreateWorkspaceNameError('');
       }
-    } catch (_error) {
+    } catch (error) {
+      const message = String(error?.message || '');
+      if (message.includes('exists') || message.includes('already exists')) {
+        setCreateWorkspaceNameError(`名称“${normalizedName}”已被占用`);
+        return;
+      }
       window.toast.error('新建工作空间失败');
     } finally {
       setCreateWorkspaceSubmitting(false);
@@ -1799,21 +1819,31 @@ const ChatShell = ({
     }
   }, []);
 
-  const openHtmlWebPreview = React.useCallback((rootPath, node) => {
-    if (typeof onOpenWebPreview !== 'function' || !rootPath || !node?.path || node.type !== 'file') return;
-    if (!isHtmlPreviewFileName(node.name)) return;
+  const previewWorkspaceHtml = React.useCallback(async () => {
+    if (typeof onOpenWebPreview !== 'function' || !currentWorkspacePath) return;
 
-    const absolutePath = resolveListedEntryPath(rootPath, node.path);
-    const url = createFilePreviewUrl(absolutePath);
-    if (!absolutePath || !url) return;
+    const joinPath = window?.electronAPI?.path?.join;
+    const indexPath = normalizePath(
+      typeof joinPath === 'function' ? joinPath(currentWorkspacePath, 'index.html') : `${currentWorkspacePath}/index.html`
+    );
+
+    try {
+      await window.api.file.readExternal(indexPath, true);
+    } catch (_error) {
+      window.toast.error('当前工作空间未找到可预览的 index.html');
+      return;
+    }
+
+    const url = createFilePreviewUrl(indexPath);
+    if (!url) return;
 
     onOpenWebPreview({
-      key: `workspace-html:${absolutePath}`,
+      key: `workspace-root-html:${indexPath}`,
       url,
-      title: node.name || getBaseName(absolutePath) || '网页预览',
-      sourcePath: absolutePath
+      title: `${getBaseName(currentWorkspacePath) || '工作空间'} 预览`,
+      sourcePath: indexPath
     });
-  }, [onOpenWebPreview]);
+  }, [currentWorkspacePath, onOpenWebPreview]);
 
   const openSkillWebPreview = React.useCallback((skill) => {
     const skillKey = getSkillKey(skill);
@@ -1882,7 +1912,6 @@ const ChatShell = ({
       const isExpanded = isDirectory && expandedNodeKeys.has(compositeKey);
       const FileIcon = isDirectory ? null : getFileIcon(node.name);
       const absolutePath = isDirectory ? '' : resolveListedEntryPath(rootPath, node.path);
-      const isHtmlFile = !isDirectory && isHtmlPreviewFileName(node.name);
       const isPreviewSelected = !isDirectory && absolutePath && filePreview?.path === absolutePath;
 
       return (
@@ -1926,25 +1955,12 @@ const ChatShell = ({
               {isDirectory ? (isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />) : <FileIcon size={14} />}
             </span>
             <MarqueeText className="chat-panel__tree-label" text={node.name} />
-            {isHtmlFile && (
-              <button
-                type="button"
-                className="chat-panel__tree-hover-action"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openHtmlWebPreview(rootPath, node);
-                }}
-                title="在内嵌浏览器中打开"
-                aria-label={`在内嵌浏览器中打开 ${node.name}`}>
-                <Play size={32} strokeWidth={2.2} aria-hidden="true" />
-              </button>
-            )}
           </div>
           {isDirectory && isExpanded && Array.isArray(node.children) && renderTreeNodes(scopeKey, rootPath, node.children, depth + 1)}
         </React.Fragment>
       );
     });
-  }, [expandedNodeKeys, filePreview?.path, openFilePreview, openHtmlWebPreview, toggleNodeExpanded]);
+  }, [expandedNodeKeys, filePreview?.path, openFilePreview, toggleNodeExpanded]);
 
   return (
     <div className="chat-panel">
@@ -2156,13 +2172,6 @@ const ChatShell = ({
                     </Tooltip>
                   );
                 })}
-                <button
-                  type="button"
-                  className="chat-panel__members-create-btn"
-                  onClick={() => onCreateSkill && onCreateSkill()}>
-                  <UserPlus className="chat-panel__members-create-icon" aria-hidden="true" />
-                  <span>新建成员</span>
-                </button>
                 <div className="chat-panel__section-divider" aria-hidden="true" />
               </>
             )}
@@ -2276,6 +2285,17 @@ const ChatShell = ({
               </div>
             )}
             </div>
+            {hasLockedWorkspace && (
+              <div className="chat-panel__members-footer">
+                <button
+                  type="button"
+                  className="chat-panel__members-create-btn chat-panel__members-create-btn--stacked"
+                  onClick={() => void previewWorkspaceHtml()}>
+                  <Eye size={14} aria-hidden="true" />
+                  <span>预览</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {showTrailingWebPreview && (
@@ -2303,6 +2323,7 @@ const ChatShell = ({
         open={createWorkspaceDialogOpen}
         parentDir={createWorkspaceParentDir}
         workspaceName={createWorkspaceName}
+        workspaceNameError={createWorkspaceNameError}
         submitting={createWorkspaceSubmitting}
         dialogRef={beginnerGuideWorkspaceDialogRef}
         workspaceNameInputRef={beginnerGuideWorkspaceNameInputRef}
@@ -2311,7 +2332,12 @@ const ChatShell = ({
           setCreateWorkspaceDialogOpen(false);
         }}
         onPickParentDir={handlePickWorkspaceParentDir}
-        onWorkspaceNameChange={setCreateWorkspaceName}
+        onWorkspaceNameChange={(value) => {
+          setCreateWorkspaceName(value);
+          if (createWorkspaceNameError) {
+            setCreateWorkspaceNameError('');
+          }
+        }}
         onConfirm={() => void handleCreateWorkspace()}
       />
       <Tour

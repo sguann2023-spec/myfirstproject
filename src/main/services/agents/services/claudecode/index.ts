@@ -20,6 +20,7 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/mes
 import { loggerService } from '@logger'
 import { config as apiConfigService } from '@main/apiServer/config'
 import { validateModelId } from '@main/apiServer/utils'
+import { modelsService } from '@main/apiServer/services/models'
 import { isWin } from '@main/constant'
 import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
@@ -60,9 +61,11 @@ import type {
   AgentThinkingOptions
 } from '../../interfaces/AgentStreamInterface'
 import { skillService } from '../../skills/SkillService'
+import { agentMessageRepository } from '../../database/sessionMessageRepository'
 import { agentRuntimeAuthService } from '../AgentRuntimeAuthService'
 import { agentService } from '../AgentService'
 import { isProvisioned, provisionBuiltinAgent } from '../builtin/BuiltinAgentProvisioner'
+import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { channelService } from '../ChannelService'
 import { PromptBuilder } from '../cherryclaw/prompt'
 import {
@@ -86,6 +89,10 @@ const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5MB API limit
 const shouldAutoApproveTools = process.env.CHERRY_AUTO_ALLOW_TOOLS !== '0'
 const shouldMountAllRuntimeMcpTools = process.env.CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS === '1'
 const NO_RESUME_COMMANDS = ['/clear']
+const ROUTING_CONTEXT_MAX_TURNS = 10
+const ROUTING_CONTEXT_MAX_MESSAGES = ROUTING_CONTEXT_MAX_TURNS * 2
+const ROUTING_CONTEXT_MAX_CHARS = 6000
+const ROUTING_CONTEXT_MAX_MESSAGE_CHARS = 500
 
 const isVectcutGatewayUrl = (value: string): boolean => {
   const raw = String(value || '').trim()
@@ -129,6 +136,87 @@ const getLanguageInstruction = () => {
   (1) text responses, (2) tool call parameters like "description" fields, and (3) any user-facing content.
   ${lang === 'en-US' ? '' : 'Never use English unless the content is code, file paths, or technical identifiers.'}
   `
+}
+
+const extractMainTextFromPersistedMessage = (message: unknown): string => {
+  const blocks = Array.isArray((message as { blocks?: unknown[] } | null)?.blocks)
+    ? ((message as { blocks: unknown[] }).blocks ?? [])
+    : []
+
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue
+    const candidate = block as { type?: unknown; content?: unknown }
+    if (candidate.type !== 'main_text') continue
+    if (typeof candidate.content === 'string' && candidate.content.trim()) {
+      return candidate.content.trim()
+    }
+  }
+
+  return ''
+}
+
+const normalizeRoutingText = (value: string): string => String(value || '').replace(/\s+/g, ' ').trim()
+
+const truncateRoutingText = (value: string, maxChars: number): string => {
+  if (value.length <= maxChars) return value
+  return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`
+}
+
+const resolveCapabilityRoutingPrompt = async (sessionId: string, prompt: string): Promise<string | undefined> => {
+  const currentPrompt = normalizeRoutingText(prompt)
+  if (!currentPrompt) {
+    return undefined
+  }
+
+  try {
+    const history = await agentMessageRepository.getSessionHistory(sessionId)
+    const recentMessages = history
+      .map((item) => {
+        const role = (item as { message?: { role?: unknown } } | null)?.message?.role
+        if (role !== 'user' && role !== 'assistant') return null
+
+        const text = normalizeRoutingText(extractMainTextFromPersistedMessage(item))
+        if (!text) return null
+
+        return {
+          role,
+          text: truncateRoutingText(text, ROUTING_CONTEXT_MAX_MESSAGE_CHARS)
+        }
+      })
+      .filter((item): item is { role: 'user' | 'assistant'; text: string } => item !== null)
+
+    const dedupedRecentMessages =
+      recentMessages.length > 0 &&
+      recentMessages[recentMessages.length - 1]?.role === 'user' &&
+      recentMessages[recentMessages.length - 1]?.text === currentPrompt
+        ? recentMessages.slice(0, -1)
+        : recentMessages
+
+    const boundedMessages = dedupedRecentMessages.slice(-ROUTING_CONTEXT_MAX_MESSAGES)
+    const selectedParts: string[] = []
+    let totalChars = currentPrompt.length
+
+    for (let index = boundedMessages.length - 1; index >= 0; index -= 1) {
+      const item = boundedMessages[index]
+      const line = `${item.role === 'user' ? '用户' : 'AI'}: ${item.text}`
+      if (selectedParts.length > 0 && totalChars + line.length + 1 > ROUTING_CONTEXT_MAX_CHARS) {
+        break
+      }
+
+      selectedParts.unshift(line)
+      totalChars += line.length + 1
+    }
+
+    selectedParts.push(`用户: ${currentPrompt}`)
+    return selectedParts.join('\n')
+  } catch (error) {
+    logger.warn('Failed to resolve conversation context for capability routing', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+
+  return undefined
 }
 
 const getArgValue = (args: string[], flag: string): string | undefined => {
@@ -343,8 +431,10 @@ class ClaudeCodeService implements AgentServiceInterface {
       | string
       | undefined
     const isAssistant = builtinRole === 'assistant'
+    const intentPrompt = await resolveCapabilityRoutingPrompt(session.id, prompt)
     const capabilityDecision = this.capabilityRouter.select({
       prompt,
+      intentPrompt,
       sessionId: session.id,
       imageCount: images?.length ?? 0,
       isAssistant,
@@ -395,12 +485,19 @@ class ClaudeCodeService implements AgentServiceInterface {
       agentId: session.agent_id,
       sessionId: session.id,
       turn: capabilityDecision.turn,
+      activeDomains: capabilityDecision.activeDomains,
+      primaryDomain: capabilityDecision.primaryDomain,
+      subdomains: capabilityDecision.subdomains,
+      companionDomains: capabilityDecision.companionDomains,
+      domainReasons: capabilityDecision.domainReasons,
       selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
       reasons: capabilityDecision.reasons,
       stickyApplied: capabilityDecision.stickyApplied,
       toolLayer: capabilityDecision.toolLayer,
       toolLayerReasons: capabilityDecision.toolLayerReasons,
       promptLength: prompt.length,
+      routingPromptLength: intentPrompt?.length ?? prompt.length,
+      routingContextUsed: Boolean(intentPrompt && intentPrompt !== prompt),
       imageCount: images?.length ?? 0,
       builtinRole: builtinRole ?? '',
       isAssistant,
@@ -409,7 +506,17 @@ class ClaudeCodeService implements AgentServiceInterface {
       forceMountAll: shouldMountAllRuntimeMcpTools
     })
 
-    const runtimeModel = String(modelOverride || session.model || '').trim()
+    let runtimeModel = String(modelOverride || session.model || '').trim()
+    if (session.agent_id === CHERRY_CLAW_AGENT_ID) {
+      let defaultRuntimeModel = String(agent?.model || '').trim()
+      if (!defaultRuntimeModel.startsWith('anthropic:')) {
+        const preferredAnthropic = await modelsService.getModels({ providerType: 'anthropic', limit: 1 })
+        defaultRuntimeModel = String(preferredAnthropic?.data?.[0]?.id || defaultRuntimeModel).trim()
+      }
+      if (defaultRuntimeModel) {
+        runtimeModel = defaultRuntimeModel
+      }
+    }
 
     // Validate model info
     const modelInfo = await validateModelId(runtimeModel)
@@ -585,7 +692,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     const errorChunks: string[] = []
 
     const toolSurface = buildToolSurface({
-      layer: capabilityDecision.toolLayer,
+      decision: capabilityDecision,
       sessionAllowedTools: session.allowed_tools ?? [],
       isAssistant
     })
@@ -1256,7 +1363,13 @@ class ClaudeCodeService implements AgentServiceInterface {
       sessionId: session.id,
       turn: capabilityDecision.turn,
       requestPromptLength: prompt.length,
+      routingPromptLength: intentPrompt?.length ?? prompt.length,
+      routingContextUsed: Boolean(intentPrompt && intentPrompt !== prompt),
       imageCount: images?.length ?? 0,
+      activeDomains: capabilityDecision.activeDomains,
+      primaryDomain: capabilityDecision.primaryDomain,
+      subdomains: capabilityDecision.subdomains,
+      companionDomains: capabilityDecision.companionDomains,
       selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
       mountedRuntimeMcpServers,
       skippedRuntimeMcpServers,
@@ -1272,7 +1385,8 @@ class ClaudeCodeService implements AgentServiceInterface {
         clawSystemPrompt: clawSystemPrompt?.length ?? 0,
         factsRecall: factsRecall?.length ?? 0,
         assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
-        sessionInstructions: session.instructions?.length ?? 0
+        sessionInstructions: session.instructions?.length ?? 0,
+        routingPrompt: intentPrompt?.length ?? prompt.length
       },
       strictMcpConfig: Boolean(options.strictMcpConfig)
     })
@@ -1282,6 +1396,10 @@ class ClaudeCodeService implements AgentServiceInterface {
       sessionId: session.id,
       model: modelInfo.modelId,
       toolLayer: capabilityDecision.toolLayer,
+      activeDomains: capabilityDecision.activeDomains,
+      primaryDomain: capabilityDecision.primaryDomain,
+      subdomains: capabilityDecision.subdomains,
+      companionDomains: capabilityDecision.companionDomains,
       prompt,
       systemPrompt: finalSystemPrompt,
       builtinTools: toolSurface.builtinTools,
@@ -1293,7 +1411,8 @@ class ClaudeCodeService implements AgentServiceInterface {
         clawSystemPrompt: clawSystemPrompt?.length ?? 0,
         factsRecall: factsRecall?.length ?? 0,
         assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
-        sessionInstructions: session.instructions?.length ?? 0
+        sessionInstructions: session.instructions?.length ?? 0,
+        routingPrompt: intentPrompt?.length ?? prompt.length
       }
     })
 

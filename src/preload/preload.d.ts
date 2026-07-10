@@ -62,7 +62,14 @@ declare global {
         onChanged: (callback: (payload: any) => void) => () => void
         toggle: (payload: { agentId?: string; skillId: string; isEnabled: boolean }) => Promise<any>
         installFromDirectory: (payload: { agentId?: string; directoryPath: string; isEnabled?: boolean }) => Promise<any>
-        copyDirectoryToWorkspace: (payload: { agentId?: string; directoryPath: string; workspace: string }) => Promise<any>
+        copyDirectoryToWorkspace: (payload: {
+          agentId?: string
+          directoryPath: string
+          workspace: string
+          sourceSubdir?: string
+          targetRelativePath?: string
+          excludeSubdirs?: string[]
+        }) => Promise<any>
         uninstall: (payload: { skillId: string }) => Promise<any>
         rescan: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         run: (payload: { skillName: string; args?: string[]; envVars?: Record<string, string> }) => Promise<any>

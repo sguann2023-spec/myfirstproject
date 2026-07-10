@@ -68,6 +68,8 @@ describe('PromptBuilder', () => {
     expect(result).toContain('Never write pseudo tool-call markup')
     expect(result).toContain(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
     expect(result).toContain('# Environment context')
+    expect(result).toContain('# Workspace root')
+    expect(result).toContain('This workspace root applies to every turn and every domain')
     expect(result).not.toContain('## Bootstrap Mode')
     expect(result).not.toContain('## Memories')
     expect(result).not.toContain('<soul>')
@@ -89,6 +91,18 @@ describe('PromptBuilder', () => {
     expect(result).toContain('Claw local instructions')
     expect(result).not.toContain('Legacy soul content')
     expect(result).not.toContain('Legacy user content')
+  })
+
+  it('makes the workspace root a global prompt rule instead of capability-scoped guidance', async () => {
+    setupFiles({})
+
+    const result = await builder.buildSystemPrompt('/workspace')
+
+    expect(result).toContain('The current workspace root for this session is: /workspace')
+    expect(result).toContain('including chat, skills, web, and workspace tasks')
+    expect(result).toContain('answer with this exact path verbatim: /workspace')
+    expect(result).toContain('Do not answer workspace-location questions with a remembered path from another project or session')
+    expect(result).toContain('Do not invent alternate roots such as app install folders')
   })
 
   it('resolves instruction filenames case-insensitively', async () => {

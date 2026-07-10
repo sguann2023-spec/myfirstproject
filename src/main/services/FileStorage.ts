@@ -626,14 +626,16 @@ class FileStorage {
     dirPath: string,
     fileName: string,
     isFile: boolean
-  ): Promise<{ safeName: string; exists: boolean }> => {
+  ): Promise<{ safeName: string; exists: boolean; requestedExists: boolean }> => {
     const safeName = checkName(fileName)
+    const requestedPath = path.join(dirPath, safeName + (isFile ? '.md' : ''))
+    const requestedExists = fs.existsSync(requestedPath)
     const finalName = getName(dirPath, safeName, isFile)
     const fullPath = path.join(dirPath, finalName + (isFile ? '.md' : ''))
     const exists = fs.existsSync(fullPath)
 
-    logger.debug(`File name guard: ${fileName} -> ${finalName}, exists: ${exists}`)
-    return { safeName: finalName, exists }
+    logger.debug(`File name guard: ${fileName} -> ${finalName}, exists: ${exists}, requestedExists: ${requestedExists}`)
+    return { safeName: finalName, exists, requestedExists }
   }
 
   public mkdir = async (_: Electron.IpcMainInvokeEvent, dirPath: string): Promise<string> => {

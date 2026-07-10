@@ -28,7 +28,7 @@ import { createCallbacks } from '@renderer/services/messageStreaming/callbacks'
 import { endSpan } from '@renderer/services/SpanManagerService'
 import { createStreamProcessor, type StreamProcessorCallbacks } from '@renderer/services/StreamProcessingService'
 import store from '@renderer/store'
-import { updateTopicUpdatedAt } from '@renderer/store/assistants'
+import { updateTopic, updateTopicUpdatedAt } from '@renderer/store/assistants'
 import { type ApiServerConfig, type Assistant, type FileMetadata, type Model, type Topic } from '@renderer/types'
 import type {
   AgentEffort,
@@ -83,6 +83,9 @@ import { newMessagesActions, selectMessagesForTopic } from '../newMessage'
 // } from './messageThunk.v2'
 
 const logger = loggerService.withContext('MessageThunk')
+const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default'
+
+type LinkedAgentSession = NonNullable<Topic['linkedAgentSession']>
 
 const finishTopicLoading = async (topicId: string) => {
   await waitForTopicQueue(topicId)
@@ -144,11 +147,189 @@ const findExistingAgentSessionContext = (
   }
 }
 
+const getLinkedAgentSessionFromTopic = async (
+  state: RootState,
+  assistantId: string,
+  topicId: string
+): Promise<LinkedAgentSession | undefined> => {
+  const assistant = state.assistants.assistants.find((item) => item.id === assistantId)
+  const topicFromState = assistant?.topics?.find((topic) => topic.id === topicId)
+  if (topicFromState?.linkedAgentSession) {
+    return topicFromState.linkedAgentSession
+  }
+
+  const topicFromDb = await db.topics.get(topicId)
+  return topicFromDb?.linkedAgentSession
+}
+
+const getLatestSdkSessionIdForTopic = (state: RootState, topicId: string, assistantId: string): string | undefined => {
+  const messageIds = state.messages.messageIdsByTopic[topicId]
+  if (!messageIds?.length) {
+    return undefined
+  }
+
+  for (let index = messageIds.length - 1; index >= 0; index -= 1) {
+    const message = state.messages.entities[messageIds[index]]
+    const candidate = message?.agentSessionId?.trim()
+
+    if (!candidate || message.assistantId !== assistantId) {
+      continue
+    }
+
+    return candidate
+  }
+
+  return undefined
+}
+
+const persistLinkedAgentSession = async (
+  dispatch: AppDispatch,
+  getState: () => RootState,
+  assistantId: string,
+  topicId: string,
+  linkedAgentSession: LinkedAgentSession
+) => {
+  const state = getState()
+  const assistant = state.assistants.assistants.find((item) => item.id === assistantId)
+  const topic = assistant?.topics?.find((item) => item.id === topicId)
+
+  if (topic) {
+    dispatch(
+      updateTopic({
+        assistantId,
+        topic: {
+          ...topic,
+          linkedAgentSession
+        }
+      })
+    )
+  }
+
+  await db.topics.update(topicId, { linkedAgentSession })
+}
+
 const buildAgentBaseURL = (apiServer: ApiServerConfig) => {
   const hasProtocol = apiServer.host.startsWith('http://') || apiServer.host.startsWith('https://')
   const baseHost = hasProtocol ? apiServer.host : `http://${apiServer.host}`
   const portSegment = apiServer.port ? `:${apiServer.port}` : ''
   return `${baseHost}${portSegment}`
+}
+
+const createDefaultRuntimeAgentSession = async (
+  dispatch: AppDispatch,
+  getState: () => RootState,
+  assistant: Assistant,
+  topicId: string
+): Promise<AgentSessionContext> => {
+  const state = getState()
+  const apiServer = state.settings.apiServer
+
+  if (!apiServer?.enabled || !apiServer.apiKey) {
+    throw new Error('Agent API server is disabled')
+  }
+
+  const baseURL = buildAgentBaseURL(apiServer)
+  const client = new AgentApiClient({
+    baseURL,
+    headers: {
+      Authorization: `Bearer ${apiServer.apiKey}`
+    }
+  })
+
+  const agent = await client.getAgent(DEFAULT_RUNTIME_AGENT_ID)
+  const topic = assistant.topics.find((item) => item.id === topicId)
+  const created = await client.createSession(DEFAULT_RUNTIME_AGENT_ID, {
+    name: topic?.name || t('common.unnamed'),
+    description: agent.description,
+    instructions: assistant.prompt || agent.instructions,
+    // Keep the runtime agent on its own default model. Arbitrary UI-selected
+    // chat models can expose provider-native tool names that do not match our
+    // local MCP execution surface.
+    model: agent.model,
+    plan_model: agent.plan_model,
+    small_model: agent.small_model,
+    mcps: agent.mcps,
+    allowed_tools: agent.allowed_tools,
+    accessible_paths: agent.accessible_paths,
+    configuration: agent.configuration
+  })
+
+  const linkedAgentSession = {
+    agentId: DEFAULT_RUNTIME_AGENT_ID,
+    sessionId: created.id
+  } satisfies LinkedAgentSession
+
+  await persistLinkedAgentSession(dispatch, getState, assistant.id, topicId, linkedAgentSession)
+
+  return {
+    ...linkedAgentSession,
+    agentSessionId: getLatestSdkSessionIdForTopic(getState(), topicId, assistant.id)
+  }
+}
+
+const ensureAgentSessionContext = async (
+  dispatch: AppDispatch,
+  getState: () => RootState,
+  assistant: Assistant,
+  topicId: string,
+  providedAgentSession?: AgentSessionContext
+): Promise<AgentSessionContext> => {
+  if (providedAgentSession) {
+    return providedAgentSession
+  }
+
+  const state = getState()
+  const existingAgentTopicSession = findExistingAgentSessionContext(state, topicId, assistant.id)
+  if (existingAgentTopicSession) {
+    return existingAgentTopicSession
+  }
+
+  const linkedAgentSession = await getLinkedAgentSessionFromTopic(state, assistant.id, topicId)
+  if (linkedAgentSession) {
+    return {
+      ...linkedAgentSession,
+      agentSessionId: getLatestSdkSessionIdForTopic(getState(), topicId, assistant.id)
+    }
+  }
+
+  return await createDefaultRuntimeAgentSession(dispatch, getState, assistant, topicId)
+}
+
+const syncAgentSessionWithAssistant = async (
+  getState: () => RootState,
+  agentSession: AgentSessionContext,
+  assistant: Assistant
+): Promise<AgentSessionContext> => {
+  const apiServer = getState().settings.apiServer
+  if (!apiServer?.enabled || !apiServer.apiKey) {
+    return agentSession
+  }
+
+  const baseURL = buildAgentBaseURL(apiServer)
+  const client = new AgentApiClient({
+    baseURL,
+    headers: {
+      Authorization: `Bearer ${apiServer.apiKey}`
+    }
+  })
+
+  const updatePayload: {
+    id: string
+    instructions?: string
+    model?: string
+  } = {
+    id: agentSession.sessionId,
+    instructions: assistant.prompt || undefined
+  }
+
+  if (agentSession.agentId === DEFAULT_RUNTIME_AGENT_ID) {
+    const agent = await client.getAgent(DEFAULT_RUNTIME_AGENT_ID)
+    updatePayload.model = agent.model
+  }
+
+  await client.updateSession(agentSession.agentId, updatePayload)
+
+  return agentSession
 }
 
 export const renameAgentSessionIfNeeded = async (
@@ -980,17 +1161,8 @@ export const sendMessage =
         return
       }
 
-      const stateBeforeSend = getState()
-      let activeAgentSession = agentSession ?? findExistingAgentSessionContext(stateBeforeSend, topicId, assistant.id)
-      if (activeAgentSession) {
-        const derivedSession = findExistingAgentSessionContext(stateBeforeSend, topicId, assistant.id)
-        if (derivedSession?.agentSessionId && derivedSession.agentSessionId !== activeAgentSession.agentSessionId) {
-          activeAgentSession = {
-            ...activeAgentSession,
-            agentSessionId: derivedSession.agentSessionId
-          }
-        }
-      }
+      let activeAgentSession = await ensureAgentSessionContext(dispatch, getState, assistant, topicId, agentSession)
+      activeAgentSession = await syncAgentSessionWithAssistant(getState, activeAgentSession, assistant)
       if (activeAgentSession?.agentSessionId && !userMessage.agentSessionId) {
         userMessage.agentSessionId = activeAgentSession.agentSessionId
       }
@@ -1004,51 +1176,26 @@ export const sendMessage =
 
       const queue = getTopicQueue(topicId)
 
-      if (activeAgentSession) {
-        const assistantMessage = createAssistantMessage(assistant.id, topicId, {
-          askId: userMessage.id,
-          model: assistant.model,
-          traceId: userMessage.traceId
-        })
-        if (activeAgentSession.agentSessionId && !assistantMessage.agentSessionId) {
-          assistantMessage.agentSessionId = activeAgentSession.agentSessionId
-        }
-        await saveMessageAndBlocksToDB(topicId, assistantMessage, [])
-        dispatch(newMessagesActions.addMessage({ topicId, message: assistantMessage }))
-
-        void queue.add(async () => {
-          await fetchAndProcessAgentResponseImpl(dispatch, getState, {
-            topicId,
-            assistant,
-            assistantMessage,
-            agentSession: activeAgentSession,
-            userMessageId: userMessage.id
-          })
-        })
-      } else {
-        const mentionedModels = userMessage.mentions
-
-        if (mentionedModels && mentionedModels.length > 0) {
-          await dispatchMultiModelResponses(dispatch, getState, topicId, userMessage, assistant, mentionedModels)
-        } else {
-          const assistantMessage = createAssistantMessage(assistant.id, topicId, {
-            askId: userMessage.id,
-            model: assistant.model,
-            traceId: userMessage.traceId
-          })
-          await saveMessageAndBlocksToDB(topicId, assistantMessage, [])
-          dispatch(
-            newMessagesActions.addMessage({
-              topicId,
-              message: assistantMessage
-            })
-          )
-
-          void queue.add(async () => {
-            await fetchAndProcessAssistantResponseImpl(dispatch, getState, topicId, assistant, assistantMessage)
-          })
-        }
+      const assistantMessage = createAssistantMessage(assistant.id, topicId, {
+        askId: userMessage.id,
+        model: assistant.model,
+        traceId: userMessage.traceId
+      })
+      if (activeAgentSession.agentSessionId && !assistantMessage.agentSessionId) {
+        assistantMessage.agentSessionId = activeAgentSession.agentSessionId
       }
+      await saveMessageAndBlocksToDB(topicId, assistantMessage, [])
+      dispatch(newMessagesActions.addMessage({ topicId, message: assistantMessage }))
+
+      void queue.add(async () => {
+        await fetchAndProcessAgentResponseImpl(dispatch, getState, {
+          topicId,
+          assistant,
+          assistantMessage,
+          agentSession: activeAgentSession,
+          userMessageId: userMessage.id
+        })
+      })
     } catch (error) {
       logger.error('Error in sendMessage thunk:', error as Error)
     } finally {
@@ -1209,6 +1356,7 @@ export const resendMessageThunk =
   (topicId: Topic['id'], userMessageToResend: Message, assistant: Assistant) =>
   async (dispatch: AppDispatch, getState: () => RootState) => {
     try {
+      const activeAgentSession = await ensureAgentSessionContext(dispatch, getState, assistant, topicId)
       const state = getState()
       // Use selector to get all messages for the topic
       const allMessagesForTopic = selectMessagesForTopic(state, topicId)
@@ -1275,9 +1423,13 @@ export const resendMessageThunk =
       }
 
       // 再处理新的重传（用户消息提及，但是现有助手消息中不存在提及的模型）
-      const originModelSet = new Set(assistantMessagesToReset.map((m) => m.model).filter((m) => m !== undefined))
-      const mentionedModelSet = new Set(userMessageToResend.mentions ?? [])
-      const newModelSet = new Set([...mentionedModelSet].filter((m) => !originModelSet.has(m)))
+      const originModelSet = new Set<Model>(
+        assistantMessagesToReset.map((m) => m.model).filter((m: Model | undefined): m is Model => !!m)
+      )
+      const mentionedModelSet = new Set<Model>(
+        (userMessageToResend.mentions ?? []).filter((m: Model | undefined): m is Model => !!m)
+      )
+      const newModelSet = new Set<Model>([...mentionedModelSet].filter((m) => !originModelSet.has(m)))
       for (const model of newModelSet) {
         const assistantMessage = createAssistantMessage(assistant.id, topicId, {
           askId: userMessageToResend.id,
@@ -1307,8 +1459,18 @@ export const resendMessageThunk =
           ...assistant,
           ...(resetMsg.model ? { model: resetMsg.model } : {})
         }
+        if (activeAgentSession.agentSessionId && !resetMsg.agentSessionId) {
+          resetMsg.agentSessionId = activeAgentSession.agentSessionId
+        }
         void queue.add(async () => {
-          await fetchAndProcessAssistantResponseImpl(dispatch, getState, topicId, assistantConfigForThisRegen, resetMsg)
+          await syncAgentSessionWithAssistant(getState, activeAgentSession, assistantConfigForThisRegen)
+          await fetchAndProcessAgentResponseImpl(dispatch, getState, {
+            topicId,
+            assistant: assistantConfigForThisRegen,
+            assistantMessage: resetMsg,
+            agentSession: activeAgentSession,
+            userMessageId: userMessageToResend.id
+          })
         })
       }
     } catch (error) {
@@ -1336,6 +1498,7 @@ export const regenerateAssistantResponseThunk =
   (topicId: Topic['id'], assistantMessageToRegenerate: Message, assistant: Assistant) =>
   async (dispatch: AppDispatch, getState: () => RootState) => {
     try {
+      const activeAgentSession = await ensureAgentSessionContext(dispatch, getState, assistant, topicId)
       const state = getState()
 
       // 1. Use selector to get all messages for the topic
@@ -1429,14 +1592,18 @@ export const regenerateAssistantResponseThunk =
         ...assistant,
         ...(resetAssistantMsg.model ? { model: resetAssistantMsg.model } : {})
       }
+      if (activeAgentSession.agentSessionId && !resetAssistantMsg.agentSessionId) {
+        resetAssistantMsg.agentSessionId = activeAgentSession.agentSessionId
+      }
       void queue.add(async () => {
-        await fetchAndProcessAssistantResponseImpl(
-          dispatch,
-          getState,
+        await syncAgentSessionWithAssistant(getState, activeAgentSession, assistantConfigForRegen)
+        await fetchAndProcessAgentResponseImpl(dispatch, getState, {
           topicId,
-          assistantConfigForRegen,
-          resetAssistantMsg
-        )
+          assistant: assistantConfigForRegen,
+          assistantMessage: resetAssistantMsg,
+          agentSession: activeAgentSession,
+          userMessageId: originalUserQuery.id
+        })
       })
     } catch (error) {
       logger.error(
@@ -1544,6 +1711,7 @@ export const appendAssistantResponseThunk =
   ) =>
   async (dispatch: AppDispatch, getState: () => RootState) => {
     try {
+      const activeAgentSession = await ensureAgentSessionContext(dispatch, getState, assistant, topicId)
       const state = getState()
 
       // 1. Find the existing assistant message to get the original askId
@@ -1612,15 +1780,19 @@ export const appendAssistantResponseThunk =
         ...assistant,
         model: newModel
       }
+      if (activeAgentSession.agentSessionId && !newAssistantMessageStub.agentSessionId) {
+        newAssistantMessageStub.agentSessionId = activeAgentSession.agentSessionId
+      }
       const queue = getTopicQueue(topicId)
       void queue.add(async () => {
-        await fetchAndProcessAssistantResponseImpl(
-          dispatch,
-          getState,
+        await syncAgentSessionWithAssistant(getState, activeAgentSession, assistantConfigForThisCall)
+        await fetchAndProcessAgentResponseImpl(dispatch, getState, {
           topicId,
-          assistantConfigForThisCall,
-          newAssistantMessageStub // Pass the newly created stub
-        )
+          assistant: assistantConfigForThisCall,
+          assistantMessage: newAssistantMessageStub,
+          agentSession: activeAgentSession,
+          userMessageId: askId
+        })
       })
     } catch (error) {
       logger.error(`[appendAssistantResponseThunk] Error appending assistant response:`, error as Error)

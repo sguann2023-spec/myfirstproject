@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { CapabilityRouter, buildToolGuidanceOptions } from '../capability-router'
+import { buildToolSurface } from '../tool-surface'
 
 describe('CapabilityRouter', () => {
-  it('keeps casual chat in the chat layer with no runtime capabilities', () => {
+  it('keeps casual chat in the chat domain with no runtime capabilities', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -15,12 +16,14 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
 
+    expect(decision.primaryDomain).toBe('chat')
+    expect(decision.subdomains).toEqual([])
+    expect(decision.activeDomains).toEqual([])
     expect(decision.toolLayer).toBe('chat')
     expect(Array.from(decision.selected)).toEqual([])
-    expect(decision.toolLayerReasons).toEqual(['prompt:chat'])
   })
 
-  it('promotes file creation requests to the workspace-write layer', () => {
+  it('routes file creation requests to workspace.write', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -32,11 +35,12 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
 
+    expect(decision.primaryDomain).toBe('workspace')
+    expect(decision.subdomains).toContain('write')
     expect(decision.toolLayer).toBe('workspace-write')
-    expect(decision.toolLayerReasons).toContain('prompt:workspace-write')
   })
 
-  it('promotes direct document filename reads to the workspace-read layer', () => {
+  it('routes direct document filename reads to workspace.read', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -48,24 +52,9 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
 
+    expect(decision.primaryDomain).toBe('workspace')
+    expect(decision.subdomains).toContain('read')
     expect(decision.toolLayer).toBe('workspace-read')
-    expect(decision.toolLayerReasons).toContain('prompt:workspace-read')
-  })
-
-  it('promotes unknown dotted document filenames when the user asks to read them', () => {
-    const router = new CapabilityRouter()
-
-    const decision = router.select({
-      prompt: '查看 notes.customdoc 里的内容',
-      sessionId: 'session-customdoc-read',
-      imageCount: 0,
-      isAssistant: false,
-      autonomousEnabled: false,
-      hasCustomMcpServers: false
-    })
-
-    expect(decision.toolLayer).toBe('workspace-read')
-    expect(decision.toolLayerReasons).toContain('prompt:workspace-read')
   })
 
   it('does not treat plain domains or version numbers as workspace files', () => {
@@ -88,113 +77,105 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
 
-    expect(domain.toolLayer).toBe('chat')
-    expect(version.toolLayer).toBe('chat')
+    expect(domain.primaryDomain).toBe('chat')
+    expect(version.primaryDomain).toBe('chat')
   })
 
-  it('routes pure web search requests into the agentic layer', () => {
+  it('routes hot topic requests to web.search', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
-      prompt: '搜索一下最新资料并总结',
-      sessionId: 'session-web-search',
+      prompt: '看下今天热点',
+      sessionId: 'session-hot-topics',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
-    expect(decision.toolLayer).toBe('agentic')
-    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+    expect(decision.primaryDomain).toBe('web')
+    expect(decision.subdomains).toContain('search')
+    expect(decision.toolLayer).toBe('web')
     expect(decision.selected.has('search')).toBe(true)
   })
 
-  it('routes pure browser tasks into the web layer', () => {
+  it('routes page opening requests to web.browser', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
-      prompt: '打开 https://example.com 看看页面结构',
-      sessionId: 'session-web-browser',
+      prompt: '打开网页 https://example.com',
+      sessionId: 'session-open-page',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
+    expect(decision.primaryDomain).toBe('web')
+    expect(decision.subdomains).toContain('browser')
+    expect(decision.activeDomains).toEqual([
+      expect.objectContaining({
+        domain: 'web',
+        role: 'primary',
+        subdomains: expect.arrayContaining(['browser'])
+      })
+    ])
+    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
     expect(decision.toolLayer).toBe('web')
-    expect(decision.toolLayerReasons).toContain('capability:web')
     expect(decision.selected.has('browser')).toBe(true)
   })
 
-  it('promotes test/build requests to the agentic layer', () => {
+  it('treats open website phrasing as browser intent', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
-      prompt: '运行测试并修复失败',
-      sessionId: 'session-agentic',
+      prompt: '打开一下百度网页',
+      sessionId: 'session-open-baidu',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
-    expect(decision.toolLayer).toBe('agentic')
-    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+    expect(decision.primaryDomain).toBe('web')
+    expect(decision.subdomains).toContain('browser')
+    expect(decision.selected.has('browser')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
   })
 
-  it('promotes analysis-style requests to the agentic layer', () => {
+  it('keeps multiple active domains for mixed workspace and web tasks', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
-      prompt: '深入分析这个工作流并反推实现思路',
-      sessionId: 'session-agentic-analysis',
+      prompt: '查一下 React 19 的官方变更，再看下我们项目哪里要改',
+      sessionId: 'session-mixed-domains',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
-    expect(decision.toolLayer).toBe('agentic')
-    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'web',
+          subdomains: expect.arrayContaining(['search'])
+        }),
+        expect.objectContaining({
+          domain: 'workspace',
+          subdomains: expect.arrayContaining(['read'])
+        })
+      ])
+    )
+    expect(decision.companionDomains).toContain('web')
+    expect(decision.toolLayer).toBe('workspace-read')
   })
 
-  it('promotes creation-style requests to the agentic layer', () => {
+  it('routes reverse prompt requests to scrapt instead of plain chat', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
-      prompt: '帮我制作一个网页工作流，并做视频和画图',
-      sessionId: 'session-agentic-creation',
-      imageCount: 0,
-      isAssistant: false,
-      autonomousEnabled: false,
-      hasCustomMcpServers: false
-    })
-
-    expect(decision.toolLayer).toBe('agentic')
-    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
-  })
-
-  it('promotes English workflow and reverse engineering requests to the agentic layer', () => {
-    const router = new CapabilityRouter()
-
-    const decision = router.select({
-      prompt: 'Search and reverse engineer this workflow, then develop the web page',
-      sessionId: 'session-agentic-english',
-      imageCount: 0,
-      isAssistant: false,
-      autonomousEnabled: false,
-      hasCustomMcpServers: false
-    })
-
-    expect(decision.toolLayer).toBe('agentic')
-    expect(decision.toolLayerReasons).toContain('prompt:agentic-execution')
-  })
-
-  it('enables copylab for reverse-engineering prompt requests from share links', () => {
-    const router = new CapabilityRouter()
-
-    const decision = router.select({
-      prompt: '根据这个抖音链接反推提示词：https://www.douyin.com/video/123',
+      prompt: '反推这个链接的提示词：https://www.douyin.com/video/123',
       sessionId: 'session-copylab-link',
       imageCount: 0,
       isAssistant: false,
@@ -202,67 +183,298 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
 
+    expect(decision.primaryDomain).toBe('scrapt')
+    expect(decision.subdomains).toEqual(['derive_prompt'])
     expect(decision.selected.has('copylab')).toBe(true)
-    expect(decision.reasons.copylab).toContain('prompt:copywriting')
   })
 
-  it('enables copylab for English prompt derivation requests', () => {
+  it('keeps plain copywriting requests in chat', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
-      prompt: 'Derive prompt from this TikTok share link and imitate the viral copy style',
-      sessionId: 'session-copylab-english',
+      prompt: '写文案',
+      sessionId: 'session-copywriting-chat',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
-    expect(decision.selected.has('copylab')).toBe(true)
-    expect(decision.reasons.copylab).toContain('prompt:copywriting')
+    expect(decision.primaryDomain).toBe('chat')
+    expect(decision.selected.has('copylab')).toBe(false)
   })
 
-  it('only enables autonomous claw capability when the agent is autonomous', () => {
+  it('routes workspace lookup requests to workspace.find + workspace.read', () => {
     const router = new CapabilityRouter()
 
-    const disabled = router.select({
-      prompt: '明天提醒我复查日志',
-      sessionId: 'session-claw-disabled',
+    const fileDecision = router.select({
+      prompt: '看看有没有文件',
+      sessionId: 'session-find-file',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
-    const enabled = router.select({
-      prompt: '明天提醒我复查日志',
-      sessionId: 'session-claw-enabled',
+    const textDecision = router.select({
+      prompt: '查一下有没有 xxx 文字',
+      sessionId: 'session-find-text',
       imageCount: 0,
       isAssistant: false,
-      autonomousEnabled: true,
+      autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
-    expect(disabled.selected.has('claw')).toBe(false)
-    expect(enabled.selected.has('claw')).toBe(true)
-    expect(enabled.toolLayer).toBe('agentic')
+    expect(fileDecision.primaryDomain).toBe('workspace')
+    expect(fileDecision.subdomains).toEqual(expect.arrayContaining(['find', 'read']))
+    expect(fileDecision.toolLayer).toBe('workspace-read')
+    expect(textDecision.primaryDomain).toBe('workspace')
+    expect(textDecision.subdomains).toEqual(expect.arrayContaining(['find', 'read']))
   })
 
-  it('derives capability-scoped prompt guidance from the selected layer', () => {
+  it('routes webpage generation to workspace.write instead of web.browser', () => {
     const router = new CapabilityRouter()
+
     const decision = router.select({
-      prompt: '搜索一下最新资料并总结',
-      sessionId: 'session-guidance',
+      prompt: '写网页',
+      sessionId: 'session-build-page',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
 
-    const guidance = buildToolGuidanceOptions({ decision, autonomousEnabled: false })
+    expect(decision.primaryDomain).toBe('workspace')
+    expect(decision.subdomains).toContain('write')
+    expect(decision.selected.has('browser')).toBe(false)
+    expect(decision.toolLayer).toBe('workspace-write')
+  })
 
-    expect(guidance.hasWeb).toBe(true)
-    expect(decision.toolLayer).toBe('agentic')
-    expect(guidance.hasWorkspaceTools).toBe(true)
-    expect(guidance.hasAgenticTools).toBe(true)
+  it('routes speech, image, and digital human requests to ai_media', () => {
+    const router = new CapabilityRouter()
+
+    const speechDecision = router.select({
+      prompt: '将一段声音合成语音',
+      sessionId: 'session-speech',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const digitalHumanDecision = router.select({
+      prompt: '生成数字人',
+      sessionId: 'session-digital-human',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const imageDecision = router.select({
+      prompt: '生成图片',
+      sessionId: 'session-image',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(speechDecision.primaryDomain).toBe('ai_media')
+    expect(speechDecision.subdomains).toEqual(['speech'])
+    expect(speechDecision.selected.has('speech')).toBe(true)
+    expect(digitalHumanDecision.primaryDomain).toBe('ai_media')
+    expect(digitalHumanDecision.subdomains).toEqual(['digital_human'])
+    expect(digitalHumanDecision.selected.has('digitalHuman')).toBe(true)
+    expect(imageDecision.primaryDomain).toBe('ai_media')
+    expect(imageDecision.subdomains).toEqual(['image'])
+    expect(imageDecision.selected.has('image')).toBe(true)
+  })
+
+  it('routes cut tasks into the cut domain', () => {
+    const router = new CapabilityRouter()
+
+    const draftDecision = router.select({
+      prompt: '下载草稿',
+      sessionId: 'session-draft-download',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const templateDecision = router.select({
+      prompt: '模版剪辑',
+      sessionId: 'session-template-cut',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(draftDecision.primaryDomain).toBe('cut')
+    expect(draftDecision.subdomains).toEqual(['draft_download'])
+    expect(draftDecision.selected.has('draftDownload')).toBe(true)
+    expect(templateDecision.primaryDomain).toBe('cut')
+    expect(templateDecision.subdomains).toEqual(['template'])
+    expect(templateDecision.selected.has('kouboTemplate')).toBe(true)
+  })
+
+  it('routes skill and auxiliary requests to their own domains', () => {
+    const router = new CapabilityRouter()
+
+    const skillsDecision = router.select({
+      prompt: '新建成员',
+      sessionId: 'session-skills',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const memoryDecision = router.select({
+      prompt: '记住这个偏好',
+      sessionId: 'session-memory',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(skillsDecision.primaryDomain).toBe('skills')
+    expect(skillsDecision.subdomains).toEqual(['create_skill'])
+    expect(skillsDecision.selected.has('skills')).toBe(true)
+    expect(memoryDecision.primaryDomain).toBe('auxiliary')
+    expect(memoryDecision.subdomains).toEqual(['memory'])
+    expect(memoryDecision.selected.has('agentMemory')).toBe(true)
+    expect(memoryDecision.toolLayer).toBe('agentic')
+    expect(buildToolSurface({ decision: skillsDecision, isAssistant: false }).builtinTools).toEqual([])
+    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual([])
+  })
+
+  it('backfills capability selection from non-web routed domains', () => {
+    const router = new CapabilityRouter()
+
+    const scraptDecision = router.select({
+      prompt: '反推这个爆款视频链接的提示词',
+      sessionId: 'session-sync-scrapt',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const imageDecision = router.select({
+      prompt: '帮我生成一张海报图',
+      sessionId: 'session-sync-image',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(scraptDecision.activeDomains).toEqual([
+      expect.objectContaining({
+        domain: 'scrapt',
+        subdomains: ['derive_prompt']
+      })
+    ])
+    expect(scraptDecision.selected.has('copylab')).toBe(true)
+    expect(imageDecision.activeDomains).toEqual([
+      expect.objectContaining({
+        domain: 'ai_media',
+        subdomains: ['image']
+      })
+    ])
+    expect(imageDecision.selected.has('image')).toBe(true)
+  })
+
+  it('routes from bounded conversation context instead of only the latest short prompt', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '继续',
+      intentPrompt: [
+        '用户: 帮我生成一张海报图',
+        'AI: 我先帮你整理海报需求和风格。',
+        '用户: 主题改成混剪视频制作流程',
+        'AI: 好的，我会按竖版信息图方向继续。',
+        '用户: 继续'
+      ].join('\n'),
+      sessionId: 'session-retry-image',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('ai_media')
+    expect(decision.subdomains).toEqual(['image'])
+    expect(decision.activeDomains).toEqual([
+      expect.objectContaining({
+        domain: 'ai_media',
+        subdomains: ['image']
+      })
+    ])
+    expect(decision.selected.has('image')).toBe(true)
+  })
+
+  it('derives tool guidance from the selected intent surface', () => {
+    const router = new CapabilityRouter()
+    const webDecision = router.select({
+      prompt: '看下今天热点',
+      sessionId: 'session-guidance-web',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const workspaceDecision = router.select({
+      prompt: '写文件',
+      sessionId: 'session-guidance-workspace',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    const webGuidance = buildToolGuidanceOptions({ decision: webDecision, autonomousEnabled: false })
+    const workspaceGuidance = buildToolGuidanceOptions({ decision: workspaceDecision, autonomousEnabled: false })
+
+    expect(webGuidance.hasWeb).toBe(true)
+    expect(webGuidance.hasWorkspaceTools).toBe(false)
+    expect(webGuidance.hasAgenticTools).toBe(false)
+    expect(workspaceGuidance.hasWorkspaceTools).toBe(true)
+    expect(workspaceGuidance.hasWriteTools).toBe(true)
+  })
+
+  it('builds builtin tool surfaces from routed domains', () => {
+    const router = new CapabilityRouter()
+    const webDecision = router.select({
+      prompt: '看下今天热点',
+      sessionId: 'session-tools-web',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const workspaceDecision = router.select({
+      prompt: '写文件',
+      sessionId: 'session-tools-workspace',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const mixedDecision = router.select({
+      prompt: '查一下 React 19 的官方变更，再看下我们项目哪里要改',
+      sessionId: 'session-tools-mixed',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    const webSurface = buildToolSurface({ decision: webDecision, isAssistant: false })
+    const workspaceSurface = buildToolSurface({ decision: workspaceDecision, isAssistant: false })
+    const mixedSurface = buildToolSurface({ decision: mixedDecision, isAssistant: false })
+
+    expect(webSurface.builtinTools).toEqual(['WebSearch'])
+    expect(workspaceSurface.builtinTools).toEqual(expect.arrayContaining(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit']))
+    expect(mixedSurface.builtinTools).toEqual(expect.arrayContaining(['Read', 'Glob', 'Grep', 'WebSearch']))
   })
 })

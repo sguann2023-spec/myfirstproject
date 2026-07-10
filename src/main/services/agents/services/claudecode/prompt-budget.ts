@@ -1,6 +1,6 @@
 import { loggerService } from '@logger'
 
-import type { RuntimeToolLayer } from './capability-router'
+import type { ActiveIntentDomain, IntentDomain, RuntimeToolLayer } from './capability-router'
 
 const logger = loggerService.withContext('PromptBudgetProbe')
 const previousFingerprintsBySession = new Map<string, RequestFingerprints>()
@@ -26,6 +26,10 @@ export function logPromptBudgetProbe(args: {
   sessionId: string
   model: string
   toolLayer: RuntimeToolLayer
+  activeDomains?: ActiveIntentDomain[]
+  primaryDomain?: IntentDomain
+  subdomains?: string[]
+  companionDomains?: IntentDomain[]
   prompt: string
   systemPrompt: unknown
   builtinTools: string[]
@@ -75,6 +79,10 @@ export function logPromptBudgetProbe(args: {
     sessionId: args.sessionId,
     model: args.model,
     toolLayer: args.toolLayer,
+    activeDomains: args.activeDomains ?? [],
+    primaryDomain: args.primaryDomain,
+    subdomains: args.subdomains ?? [],
+    companionDomains: args.companionDomains ?? [],
     selectedCapabilities: args.selectedCapabilities,
     segments,
     approxTotalTokens: segments.reduce((total, item) => total + item.approxTokens, 0),

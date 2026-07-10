@@ -71,6 +71,7 @@ export class PromptBuilder {
       getActionsSection(),
       SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
       getEnvironmentSection(workspacePath),
+      getWorkspaceRootSection(workspacePath),
       getProjectContextSection(workspacePath, instructionFiles.length),
       instructionFiles.length > 0 ? renderInstructionFiles(instructionFiles) : '',
       this.buildToolGuidance(workspacePath, toolGuidance)
@@ -117,6 +118,8 @@ export class PromptBuilder {
       sections.push(`## Web and browser
 
 - Use search for discovery, direct fetch for known static URLs, and browser tools only for interaction, visual inspection, login, or JavaScript-rendered pages.
+- When the user asks to open or visit an external webpage, prefer \`mcp__browser__open\` as the first tool.
+- Do not use host navigation tools such as \`mcp__assistant__navigate\` for normal external websites.
 - Prefer targeted reads over dumping full pages into context.
 - Cite or summarize source-specific facts carefully.`)
     }
@@ -165,6 +168,13 @@ export class PromptBuilder {
 - Use task lists, shell commands, and sub-agents only for genuinely multi-step or verification-heavy work.
 - Diagnose failed commands before changing approach.
 - Prefer deterministic scripts and tests for repeatable work.`)
+    }
+
+    if (opts.preferredMcpTools?.includes('mcp__browser__open')) {
+      sections.push(`## Tool selection for this turn
+
+- This request includes opening an external webpage.
+- Prefer \`mcp__browser__open\` before other web or navigation tools.`)
     }
 
     return sections.join('\n\n')
@@ -292,6 +302,19 @@ function getEnvironmentSection(workspacePath: string): string {
     `- Working directory (absolute): ${workspacePath}`,
     `- Date: ${date}`,
     `- Platform: ${os.platform()} ${os.release()}`
+  ].join('\n')
+}
+
+function getWorkspaceRootSection(workspacePath: string): string {
+  return [
+    '# Workspace root',
+    `- The current workspace root for this session is: ${workspacePath}`,
+    '- This workspace root applies to every turn and every domain, including chat, skills, web, and workspace tasks.',
+    `- If the user asks what the current folder, working directory, current path, or workspace root is, answer with this exact path verbatim: ${workspacePath}`,
+    '- Do not answer workspace-location questions with a remembered path from another project or session.',
+    '- When the user refers to the current project, local files, generated output, examples, skills, or the workspace, resolve those references from this workspace root unless the user explicitly provides another path.',
+    '- Treat .claude/skills, .claude/plugins, temporary outputs, and generated artifacts as children of the current workspace root unless tools prove otherwise.',
+    '- Do not invent alternate roots such as app install folders, agent data folders, Desktop, Downloads, or other absolute paths unless the user asked for them or a tool result verified them.'
   ].join('\n')
 }
 

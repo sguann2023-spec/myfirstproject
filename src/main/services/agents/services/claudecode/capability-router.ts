@@ -15,11 +15,26 @@ export type RuntimeCapability =
 
 export type RuntimeToolLayer = 'chat' | 'web' | 'workspace-read' | 'workspace-write' | 'agentic'
 
+export type IntentDomain = 'chat' | 'workspace' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
+
+export type ActiveIntentDomain = {
+  domain: IntentDomain
+  subdomains: string[]
+  role: 'primary' | 'support'
+  score: number
+}
+
 export type CapabilityDecision = {
   turn: number
   selected: Set<RuntimeCapability>
   reasons: Record<string, string[]>
   stickyApplied: string[]
+  activeDomains: ActiveIntentDomain[]
+  primaryDomain: IntentDomain
+  subdomains: string[]
+  companionDomains: IntentDomain[]
+  domainReasons: string[]
+  preferredMcpTools: string[]
   toolLayer: RuntimeToolLayer
   toolLayerReasons: string[]
 }
@@ -34,6 +49,77 @@ export type ToolGuidanceOptions = {
   hasWorkspaceTools?: boolean
   hasWriteTools?: boolean
   hasAgenticTools?: boolean
+  preferredMcpTools?: string[]
+}
+
+const syncSelectedCapabilitiesFromActiveDomains = (
+  activeDomains: ActiveIntentDomain[],
+  selected: Set<RuntimeCapability>,
+  reasons: Record<string, string[]>
+) => {
+  for (const activeDomain of activeDomains) {
+    if (activeDomain.domain === 'web') {
+      if (activeDomain.subdomains.includes('browser') && !selected.has('browser')) {
+        addCapabilityReason(selected, reasons, 'browser', 'intent:web.browser')
+      }
+      if (activeDomain.subdomains.includes('search') && !selected.has('search')) {
+        addCapabilityReason(selected, reasons, 'search', 'intent:web.search')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'ai_media') {
+      if (activeDomain.subdomains.includes('image') && !selected.has('image')) {
+        addCapabilityReason(selected, reasons, 'image', 'intent:ai_media.image')
+      }
+      if (activeDomain.subdomains.includes('speech') && !selected.has('speech')) {
+        addCapabilityReason(selected, reasons, 'speech', 'intent:ai_media.speech')
+      }
+      if (activeDomain.subdomains.includes('digital_human') && !selected.has('digitalHuman')) {
+        addCapabilityReason(selected, reasons, 'digitalHuman', 'intent:ai_media.digital_human')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'scrapt') {
+      if (activeDomain.subdomains.includes('derive_prompt') && !selected.has('copylab')) {
+        addCapabilityReason(selected, reasons, 'copylab', 'intent:scrapt.derive_prompt')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'cut') {
+      if (activeDomain.subdomains.includes('draft_download') && !selected.has('draftDownload')) {
+        addCapabilityReason(selected, reasons, 'draftDownload', 'intent:cut.draft_download')
+      }
+      if (activeDomain.subdomains.includes('template') && !selected.has('kouboTemplate')) {
+        addCapabilityReason(selected, reasons, 'kouboTemplate', 'intent:cut.template')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'skills') {
+      if (activeDomain.subdomains.some((subdomain) => ['find_skill', 'create_skill'].includes(subdomain)) && !selected.has('skills')) {
+        addCapabilityReason(selected, reasons, 'skills', 'intent:skills')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'auxiliary') {
+      if (activeDomain.subdomains.includes('memory') && !selected.has('agentMemory')) {
+        addCapabilityReason(selected, reasons, 'agentMemory', 'intent:auxiliary.memory')
+      }
+      if (activeDomain.subdomains.includes('system') && !selected.has('system')) {
+        addCapabilityReason(selected, reasons, 'system', 'intent:auxiliary.system')
+      }
+      if (activeDomain.subdomains.includes('assistant') && !selected.has('assistant')) {
+        addCapabilityReason(selected, reasons, 'assistant', 'intent:auxiliary.assistant')
+      }
+      if (activeDomain.subdomains.includes('automation') && !selected.has('claw')) {
+        addCapabilityReason(selected, reasons, 'claw', 'intent:auxiliary.automation')
+      }
+    }
+  }
 }
 
 const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
@@ -140,6 +226,170 @@ const maxLayer = (a: RuntimeToolLayer, b: RuntimeToolLayer): RuntimeToolLayer =>
 const hasWorkspaceAccess = (layer: RuntimeToolLayer): boolean =>
   layer === 'workspace-read' || layer === 'workspace-write' || layer === 'agentic'
 
+const WORKSPACE_CONTEXT_KEYWORDS = [
+  '代码',
+  '文件',
+  '文档',
+  '目录',
+  '工程',
+  '项目',
+  '日志',
+  '仓库',
+  'repo',
+  'repository',
+  'workspace',
+  'source'
+]
+
+const WORKSPACE_READ_ACTION_KEYWORDS = [
+  '阅读',
+  '读取',
+  '查看',
+  '看下',
+  '看一下',
+  '检查',
+  '分析',
+  'review',
+  'explain this code'
+]
+
+const WORKSPACE_FIND_KEYWORDS = [
+  '查一下有没有',
+  '找一下有没有',
+  '有没有文件',
+  '有没有这个文件',
+  '有没有这个字',
+  '有没有这段文字',
+  '搜索文件',
+  '搜索代码',
+  '查找文件',
+  '查找文字',
+  '定位文件',
+  '定位代码',
+  'grep',
+  'glob',
+  '搜索工程',
+  '搜索项目',
+  '全文检索'
+]
+
+const WORKSPACE_WRITE_KEYWORDS = [
+  '修改',
+  '改动',
+  '修复',
+  '实现',
+  '新增',
+  '创建',
+  '删除',
+  '重构',
+  '写入',
+  '保存',
+  '补充',
+  '替换',
+  '创建文件',
+  '新增文件',
+  '写文件',
+  '写个文件',
+  '写个测试文件',
+  '写网页',
+  '写一个网页',
+  '写一个页面',
+  '生成页面',
+  '生成网页'
+]
+
+const WORKSPACE_EXECUTE_KEYWORDS = [
+  '运行',
+  '执行',
+  '跑测试',
+  '运行测试',
+  '执行测试',
+  '构建',
+  '打包',
+  '部署',
+  '启动服务',
+  'npm test',
+  'pnpm test',
+  'yarn test',
+  'bun test',
+  'pytest',
+  'vitest',
+  'jest',
+  'playwright'
+]
+
+const WORKSPACE_TASK_KEYWORDS = ['待办', 'todo', '任务拆解', '任务列表', 'task list', 'todo list']
+
+const WEB_SEARCH_KEYWORDS = [
+  '搜索',
+  '查询',
+  '最新',
+  '联网',
+  '网上',
+  '新闻',
+  '资料',
+  '热点',
+  '热搜',
+  '官网',
+  '官方文档',
+  'search',
+  'look up',
+  'google',
+  '百度'
+]
+
+const WEB_BROWSER_KEYWORDS = [
+  '浏览器',
+  '打开网页',
+  '打开页面',
+  '打开网站',
+  '访问网页',
+  '访问页面',
+  '点击',
+  '页面截图',
+  '调试页面',
+  'browser',
+  'open page',
+  'web page',
+  'click',
+  'screenshot'
+]
+
+const WEB_FETCH_KEYWORDS = ['抓取网页', '抓网页', '读取网页', '获取网页内容', 'fetch url', 'fetch page', 'webfetch']
+
+const WEB_SCREENSHOT_KEYWORDS = ['截图', '页面截图', '网页截图', '快照', 'snapshot']
+const WEB_OPEN_KEYWORDS = [
+  '打开网页',
+  '打开页面',
+  '打开网站',
+  '访问网页',
+  '访问页面',
+  '打开百度',
+  'open page',
+  'open url',
+  'open website',
+  'visit page',
+  'visit website'
+]
+
+const CUT_TEMPLATE_KEYWORDS = ['口播模板', '模板草稿', 'koubo', 'template', '模板剪辑', '模版剪辑', '剪一下口播']
+
+const COPYLAB_EXPLICIT_KEYWORDS = [
+  '反推',
+  '提示词',
+  '爆款',
+  '仿写',
+  '复刻',
+  '拆解',
+  '提炼提示词',
+  '根据链接生成提示词',
+  'derive prompt',
+  'reverse engineer',
+  'reverse-engineer',
+  'imitate',
+  'viral copy'
+]
+
 export class CapabilityRouter {
   private turnsBySession = new Map<string, number>()
   private stickyBySession = new Map<string, Map<RuntimeCapability, number>>()
@@ -148,6 +398,7 @@ export class CapabilityRouter {
 
   select(args: {
     prompt: string
+    intentPrompt?: string
     sessionId: string
     imageCount: number
     isAssistant: boolean
@@ -161,7 +412,8 @@ export class CapabilityRouter {
     const selected = new Set<RuntimeCapability>()
     const reasons: Record<string, string[]> = {}
     const stickyApplied: string[] = []
-    const text = normalizeCapabilityText(args.prompt)
+    const intentPrompt = String(args.intentPrompt || args.prompt || '')
+    const text = normalizeCapabilityText(intentPrompt)
 
     if (this.opts.forceMountAllRuntimeMcpTools) {
       for (const capability of ALL_OPTIONAL_RUNTIME_CAPABILITIES) {
@@ -174,39 +426,12 @@ export class CapabilityRouter {
 
       if (
         hasUrlLikeText(args.prompt) ||
-        hasAnyKeyword(text, [
-          '网页',
-          '浏览器',
-          '打开网页',
-          '点击',
-          '页面截图',
-          '调试页面',
-          'localhost',
-          'browser',
-          'web page',
-          'click',
-          'screenshot'
-        ])
+        hasAnyKeyword(text, [...WEB_BROWSER_KEYWORDS, 'localhost'])
       ) {
         addCapabilityReason(selected, reasons, 'browser', 'prompt:browser-or-url')
       }
 
-      if (
-        hasAnyKeyword(text, [
-          '搜索',
-          '查找',
-          '查询',
-          '最新',
-          '联网',
-          '网上',
-          '新闻',
-          '资料',
-          'search',
-          'look up',
-          'google',
-          '百度'
-        ])
-      ) {
+      if (hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'search', 'prompt:search')
       }
 
@@ -260,36 +485,11 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
       }
 
-      if (hasAnyKeyword(text, ['口播模板', '模板草稿', 'koubo', 'template'])) {
+      if (hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'kouboTemplate', 'prompt:koubo-template')
       }
 
-      if (
-        hasAnyKeyword(text, [
-          '文案',
-          '脚本',
-          '标题',
-          '话术',
-          '种草',
-          '广告语',
-          '反推',
-          '提示词',
-          '爆款',
-          '仿写',
-          '复刻',
-          '拆解',
-          '提炼提示词',
-          '根据链接生成提示词',
-          'copywriting',
-          'copy lab',
-          'prompt',
-          'derive prompt',
-          'reverse engineer',
-          'rewrite in this style',
-          'imitate',
-          'viral copy'
-        ])
-      ) {
+      if (hasAnyKeyword(text, COPYLAB_EXPLICIT_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'copylab', 'prompt:copywriting')
       }
 
@@ -347,19 +547,36 @@ export class CapabilityRouter {
       delete reasons.claw
     }
 
-    const { toolLayer, toolLayerReasons } = classifyToolLayer({
-      prompt: args.prompt,
+    const {
+      activeDomains,
+      primaryDomain,
+      subdomains,
+      companionDomains,
+      domainReasons,
+      preferredMcpTools,
+      toolLayer,
+      toolLayerReasons
+    } = classifyIntent({
+      prompt: intentPrompt,
       normalizedPrompt: text,
       selected,
       hasCustomMcpServers: args.hasCustomMcpServers,
       isAssistant: args.isAssistant
     })
 
+    syncSelectedCapabilitiesFromActiveDomains(activeDomains, selected, reasons)
+
     return {
       turn,
       selected,
       reasons,
       stickyApplied,
+      activeDomains,
+      primaryDomain,
+      subdomains,
+      companionDomains,
+      domainReasons,
+      preferredMcpTools,
       toolLayer,
       toolLayerReasons
     }
@@ -380,176 +597,225 @@ export function buildToolGuidanceOptions(args: {
     hasContentCreation: decision.selected.has('copylab'),
     hasWorkspaceTools: hasWorkspaceAccess(decision.toolLayer),
     hasWriteTools: decision.toolLayer === 'workspace-write' || decision.toolLayer === 'agentic',
-    hasAgenticTools: decision.toolLayer === 'agentic'
+    hasAgenticTools: decision.toolLayer === 'agentic',
+    preferredMcpTools: decision.preferredMcpTools
   }
 }
 
-function classifyToolLayer(args: {
+function classifyIntent(args: {
   prompt: string
   normalizedPrompt: string
   selected: Set<RuntimeCapability>
   hasCustomMcpServers: boolean
   isAssistant: boolean
-}): { toolLayer: RuntimeToolLayer; toolLayerReasons: string[] } {
-  const reasons: string[] = []
-  let layer: RuntimeToolLayer = 'chat'
-
+}): {
+  activeDomains: ActiveIntentDomain[]
+  primaryDomain: IntentDomain
+  subdomains: string[]
+  companionDomains: IntentDomain[]
+  domainReasons: string[]
+  preferredMcpTools: string[]
+  toolLayer: RuntimeToolLayer
+  toolLayerReasons: string[]
+} {
+  const domainReasons: string[] = []
+  const preferredMcpTools = new Set<string>()
   const text = args.normalizedPrompt
-  const hasWebCapability = args.selected.has('search') || args.selected.has('browser')
-  const hasWorkspaceContextKeyword = hasAnyKeyword(text, [
-    '代码',
-    '文件',
-    '文档',
-    '目录',
-    '工程',
-    '项目',
-    '日志',
-    'log',
-    'repo',
-    'repository',
-    'workspace',
-    'source'
-  ])
-  const hasReadActionKeyword = hasAnyKeyword(text, [
-    '阅读',
-    '读取',
-    '查看',
-    '看下',
-    '看一下',
-    '检查',
-    '分析',
-    'review',
-    'explain this code'
-  ])
+  const domainSubdomains = new Map<IntentDomain, Set<string>>()
+  const addDomainSubdomain = (domain: IntentDomain, subdomain: string, reason: string) => {
+    const current = domainSubdomains.get(domain) ?? new Set<string>()
+    current.add(subdomain)
+    domainSubdomains.set(domain, current)
+    domainReasons.push(`${domain}.${subdomain}:${reason}`)
+  }
+
+  const hasWorkspaceContextKeyword = hasAnyKeyword(text, WORKSPACE_CONTEXT_KEYWORDS)
+  const hasReadActionKeyword = hasAnyKeyword(text, WORKSPACE_READ_ACTION_KEYWORDS)
   const hasWorkspaceReadIntent =
     hasWorkspaceContextKeyword ||
     hasFileReference(args.prompt) ||
     (hasReadActionKeyword && hasFileReference(args.prompt, { allowUnknownExtensions: true })) ||
     /(^|\s)(src|package\.json|tsconfig|vite|webpack|electron)\b/i.test(args.prompt)
 
-  if (hasWorkspaceReadIntent) {
-    layer = maxLayer(layer, 'workspace-read')
-    reasons.push('prompt:workspace-read')
-  }
-
-  if (hasWebCapability) {
-    layer = maxLayer(layer, 'web')
-    reasons.push('capability:web')
-  }
-
-  if (
-    hasAnyKeyword(text, [
-      '修改',
-      '改动',
-      '修复',
-      '实现',
-      '新增',
-      '创建',
-      '删除',
-      '重构',
-      '写入',
-      '保存',
-      '补充',
-      '替换',
-      'edit',
-      'fix',
-      'implement',
-      'create',
-      'delete',
-      'write',
-      'refactor',
-      'patch',
-      'change'
-    ])
-  ) {
-    layer = maxLayer(layer, 'workspace-write')
-    reasons.push('prompt:workspace-write')
-  }
-
-  if (
-    hasAnyKeyword(text, [
-      '制作',
-      '分析',
-      '反推',
-      '理解',
-      '深入',
-      '搜索',
-      '画图',
-      '做视频',
-      '开发',
-      '网页',
-      '工作流',
-      '运行',
-      '执行',
-      '跑测试',
-      '运行测试',
-      '执行测试',
-      '构建',
-      '打包',
-      '部署',
-      '提交',
-      'make',
-      'create',
-      'build out',
-      'analyze',
-      'analysis',
-      'reverse engineer',
-      'reverse-engineer',
-      'understand',
-      'deep dive',
-      'dive deep',
-      'search',
-      'draw',
-      'illustrate',
-      'generate image',
-      'make video',
-      'create video',
-      'develop',
-      'development',
-      'web page',
-      'webpage',
-      'workflow',
-      'npm test',
-      'pnpm test',
-      'yarn test',
-      'bun test',
-      'pytest',
-      'vitest',
-      'jest',
-      'playwright'
-    ]) ||
+  const hasWorkspaceFindIntent =
+    hasAnyKeyword(text, WORKSPACE_FIND_KEYWORDS) ||
+    (/有没有/.test(text) && (text.includes('文件') || text.includes('文字') || text.includes('内容')))
+  const hasWorkspaceWriteIntent =
+    hasAnyKeyword(text, WORKSPACE_WRITE_KEYWORDS) ||
+    /(?:^|[\s，。,])写个[^，。\s]*文件/.test(text) ||
+    /\b(edit|fix|implement|create|delete|write|refactor|patch|change)\b/i.test(args.prompt)
+  const hasWorkspaceExecuteIntent =
+    hasAnyKeyword(text, WORKSPACE_EXECUTE_KEYWORDS) ||
     /\b(run|execute|build|deploy|commit)\b/i.test(args.prompt) ||
     /\b(cargo|go)\s+test\b/i.test(args.prompt)
+  const hasWorkspaceTaskIntent = hasAnyKeyword(text, WORKSPACE_TASK_KEYWORDS)
+  const hasNotebookIntent = text.includes('notebook') || text.includes('ipynb')
+  const hasWebOpenIntent =
+    hasUrlLikeText(args.prompt) ||
+    hasAnyKeyword(text, WEB_OPEN_KEYWORDS) ||
+    /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,20}(网页|页面|网站|百度)/.test(text)
+  const hasWebSearchIntent =
+    args.selected.has('search') ||
+    hasAnyKeyword(text, WEB_SEARCH_KEYWORDS) ||
+    /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text)
+
+  if (hasWorkspaceReadIntent) {
+    addDomainSubdomain('workspace', 'read', 'prompt:workspace-read')
+  }
+  if (hasWorkspaceFindIntent) {
+    addDomainSubdomain('workspace', 'find', 'prompt:workspace-find')
+    addDomainSubdomain('workspace', 'read', 'prompt:workspace-find-implies-read')
+  }
+  if (hasWorkspaceWriteIntent) addDomainSubdomain('workspace', 'write', 'prompt:workspace-write')
+  if (hasWorkspaceExecuteIntent) addDomainSubdomain('workspace', 'execute', 'prompt:workspace-execute')
+  if (hasWorkspaceTaskIntent) addDomainSubdomain('workspace', 'task', 'prompt:workspace-task')
+  if (hasNotebookIntent) addDomainSubdomain('workspace', 'notebook', 'prompt:workspace-notebook')
+
+  if (hasWebSearchIntent) {
+    addDomainSubdomain('web', 'search', 'prompt:web-search')
+  }
+  if (args.selected.has('browser') || hasAnyKeyword(text, WEB_BROWSER_KEYWORDS) || hasUrlLikeText(args.prompt) || hasWebOpenIntent) {
+    addDomainSubdomain('web', 'browser', 'prompt:web-browser')
+  }
+  if (hasWebOpenIntent) preferredMcpTools.add('mcp__browser__open')
+  if (hasAnyKeyword(text, WEB_FETCH_KEYWORDS)) addDomainSubdomain('web', 'fetch', 'prompt:web-fetch')
+  if (hasAnyKeyword(text, WEB_SCREENSHOT_KEYWORDS)) addDomainSubdomain('web', 'screenshot', 'prompt:web-screenshot')
+  if (hasAnyKeyword(text, ['浏览器自动化', '自动操作页面', '网页执行', 'browser execute'])) {
+    addDomainSubdomain('web', 'execute', 'prompt:web-execute')
+  }
+
+  if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
+  if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')
+  if (args.selected.has('digitalHuman')) addDomainSubdomain('ai_media', 'digital_human', 'capability:digital-human')
+
+  if (args.selected.has('skills')) {
+    addDomainSubdomain('skills', text.includes('创建') || text.includes('新建') ? 'create_skill' : 'find_skill', 'capability:skills')
+  }
+
+  if (args.selected.has('agentMemory')) addDomainSubdomain('auxiliary', 'memory', 'capability:memory')
+  if (args.selected.has('assistant')) addDomainSubdomain('auxiliary', 'assistant', 'capability:assistant')
+  if (args.selected.has('claw')) addDomainSubdomain('auxiliary', 'automation', 'capability:automation')
+  if (args.selected.has('system')) addDomainSubdomain('auxiliary', 'system', 'capability:system')
+
+  if (args.selected.has('copylab')) addDomainSubdomain('scrapt', 'derive_prompt', 'capability:copylab')
+
+  if (args.selected.has('draftDownload')) addDomainSubdomain('cut', 'draft_download', 'capability:draft-download')
+  if (args.selected.has('kouboTemplate')) addDomainSubdomain('cut', 'template', 'capability:koubo-template')
+
+  const getSubdomains = (domain: IntentDomain) => Array.from(domainSubdomains.get(domain) ?? []).sort()
+  const workspaceSubdomains = getSubdomains('workspace')
+  const webSubdomains = getSubdomains('web')
+  const aiMediaSubdomains = getSubdomains('ai_media')
+  const skillsSubdomains = getSubdomains('skills')
+  const auxiliarySubdomains = getSubdomains('auxiliary')
+  const scraptSubdomains = getSubdomains('scrapt')
+  const cutSubdomains = getSubdomains('cut')
+  const domainPriority: Record<IntentDomain, number> = {
+    cut: 0,
+    ai_media: 1,
+    scrapt: 2,
+    skills: 3,
+    workspace: 4,
+    web: 5,
+    auxiliary: 6,
+    chat: 7
+  }
+
+  const workspaceScore =
+    (workspaceSubdomains.includes('write') ? 4 : 0) +
+    (workspaceSubdomains.includes('execute') ? 4 : 0) +
+    (workspaceSubdomains.includes('task') ? 3 : 0) +
+    (workspaceSubdomains.includes('find') ? 2 : 0) +
+    (workspaceSubdomains.includes('read') ? 2 : 0)
+  const webScore =
+    (webSubdomains.includes('browser') ? 3 : 0) +
+    (webSubdomains.includes('search') ? 2 : 0) +
+    (webSubdomains.includes('fetch') ? 2 : 0) +
+    (webSubdomains.includes('execute') ? 2 : 0) +
+    (webSubdomains.includes('screenshot') ? 1 : 0)
+  const domainScoreMap: Record<IntentDomain, number> = {
+    chat: 0,
+    workspace: workspaceScore,
+    web: webScore,
+    ai_media: aiMediaSubdomains.length > 0 ? 6 + aiMediaSubdomains.length : 0,
+    skills: skillsSubdomains.length > 0 ? 5 + skillsSubdomains.length : 0,
+    auxiliary: auxiliarySubdomains.length > 0 ? 2 + auxiliarySubdomains.length : 0,
+    scrapt: scraptSubdomains.length > 0 ? 6 + scraptSubdomains.length : 0,
+    cut: cutSubdomains.length > 0 ? 7 + cutSubdomains.length : 0
+  }
+
+  let primaryDomain: IntentDomain = 'chat'
+  if (cutSubdomains.length > 0) primaryDomain = 'cut'
+  else if (aiMediaSubdomains.length > 0) primaryDomain = 'ai_media'
+  else if (scraptSubdomains.length > 0) primaryDomain = 'scrapt'
+  else if (skillsSubdomains.length > 0) primaryDomain = 'skills'
+  else if (workspaceScore > 0 || webScore > 0) primaryDomain = workspaceScore >= webScore ? 'workspace' : 'web'
+  else if (auxiliarySubdomains.length > 0) primaryDomain = 'auxiliary'
+
+  const allDomains: IntentDomain[] = ['chat', 'workspace', 'web', 'ai_media', 'skills', 'auxiliary', 'scrapt', 'cut']
+  const companionDomains = allDomains.filter((domain) => {
+    if (domain === 'chat' || domain === primaryDomain) return false
+    return getSubdomains(domain).length > 0
+  })
+  const activeDomains = allDomains
+    .filter((domain) => domain !== 'chat' && getSubdomains(domain).length > 0)
+    .sort((left, right) => {
+      if (left === primaryDomain) return -1
+      if (right === primaryDomain) return 1
+      const scoreDelta = domainScoreMap[right] - domainScoreMap[left]
+      if (scoreDelta !== 0) return scoreDelta
+      return domainPriority[left] - domainPriority[right]
+    })
+    .map((domain): ActiveIntentDomain => ({
+      domain,
+      subdomains: getSubdomains(domain),
+      role: domain === primaryDomain ? 'primary' : 'support',
+      score: domainScoreMap[domain]
+    }))
+
+  const subdomains = getSubdomains(primaryDomain)
+  const toolLayerReasons: string[] = []
+  let toolLayer: RuntimeToolLayer = 'chat'
+
+  if (webSubdomains.length > 0) {
+    toolLayer = maxLayer(toolLayer, 'web')
+    toolLayerReasons.push('domain:web')
+  }
+  if (workspaceSubdomains.some((subdomain) => ['read', 'find', 'notebook'].includes(subdomain))) {
+    toolLayer = maxLayer(toolLayer, 'workspace-read')
+    toolLayerReasons.push('domain:workspace-read')
+  }
+  if (workspaceSubdomains.includes('write')) {
+    toolLayer = maxLayer(toolLayer, 'workspace-write')
+    toolLayerReasons.push('domain:workspace-write')
+  }
+  if (
+    workspaceSubdomains.includes('execute') ||
+    workspaceSubdomains.includes('task') ||
+    args.selected.has('skills') ||
+    args.selected.has('agentMemory') ||
+    args.selected.has('claw')
   ) {
-    layer = maxLayer(layer, 'agentic')
-    reasons.push('prompt:agentic-execution')
+    toolLayer = maxLayer(toolLayer, 'agentic')
+    toolLayerReasons.push('domain:agentic-management')
   }
-
   if (args.hasCustomMcpServers) {
-    layer = maxLayer(layer, 'agentic')
-    reasons.push('session:custom-mcp')
+    toolLayer = maxLayer(toolLayer, 'agentic')
+    toolLayerReasons.push('session:custom-mcp')
   }
-
   if (args.isAssistant) {
-    layer = maxLayer(layer, 'workspace-read')
-    reasons.push('assistant:read-context')
-  }
-
-  const toolLikeCapabilityCount = Array.from(args.selected).filter(
-    (capability) => capability !== 'copylab' && capability !== 'search' && capability !== 'browser'
-  ).length
-  if (toolLikeCapabilityCount > 0) {
-    layer = maxLayer(layer, 'workspace-read')
-    reasons.push('capability:runtime-tool')
-  }
-
-  if (args.selected.has('skills') || args.selected.has('agentMemory') || args.selected.has('claw')) {
-    layer = maxLayer(layer, 'agentic')
-    reasons.push('capability:stateful-management')
+    toolLayer = maxLayer(toolLayer, 'workspace-read')
+    toolLayerReasons.push('assistant:read-context')
   }
 
   return {
-    toolLayer: layer,
-    toolLayerReasons: reasons.length ? reasons : ['prompt:chat']
+    activeDomains,
+    primaryDomain,
+    subdomains,
+    companionDomains,
+    domainReasons: domainReasons.length ? domainReasons : ['chat:default'],
+    preferredMcpTools: Array.from(preferredMcpTools).sort(),
+    toolLayer,
+    toolLayerReasons: toolLayerReasons.length ? toolLayerReasons : ['prompt:chat']
   }
 }

@@ -33,21 +33,21 @@ describe('seedWorkspaceTemplates', () => {
     await seedWorkspaceTemplates('/workspace')
 
     expect(mockedMkdir).toHaveBeenCalledWith('/workspace', { recursive: true })
-    expect(mockedMkdir).toHaveBeenCalledWith('/workspace/memory', { recursive: true })
+    expect(mockedMkdir).toHaveBeenCalledWith('/workspace/images', { recursive: true })
+    expect(mockedMkdir).toHaveBeenCalledWith('/workspace/assets', { recursive: true })
+    expect(mockedMkdir).toHaveBeenCalledWith('/workspace/assets/css', { recursive: true })
+    expect(mockedMkdir).toHaveBeenCalledWith('/workspace/assets/js', { recursive: true })
 
-    expect(mockedWriteFile).toHaveBeenCalledTimes(2)
+    expect(mockedWriteFile).toHaveBeenCalledTimes(3)
     const writeCalls = mockedWriteFile.mock.calls.map((c) => c[0])
-    expect(writeCalls).toContain('/workspace/SOUL.md')
-    expect(writeCalls).toContain('/workspace/USER.md')
+    expect(writeCalls).toContain('/workspace/index.html')
+    expect(writeCalls).toContain('/workspace/assets/css/main.css')
+    expect(writeCalls).toContain('/workspace/assets/js/main.js')
 
     // Verify template content
-    const soulCall = mockedWriteFile.mock.calls.find((c) => c[0] === '/workspace/SOUL.md')
-    expect(soulCall![1]).toContain('# Soul')
-    expect(soulCall![1]).toContain('## Personality')
-
-    const userCall = mockedWriteFile.mock.calls.find((c) => c[0] === '/workspace/USER.md')
-    expect(userCall![1]).toContain('# User Profile')
-    expect(userCall![1]).toContain('## Name')
+    const htmlCall = mockedWriteFile.mock.calls.find((c) => c[0] === '/workspace/index.html')
+    expect(htmlCall![1]).toContain('<!DOCTYPE html>')
+    expect(htmlCall![1]).toContain('欢迎来到你的新工作空间')
   })
 
   it('skips writing files that already exist (idempotent)', async () => {
@@ -61,7 +61,7 @@ describe('seedWorkspaceTemplates', () => {
   it('writes only missing files', async () => {
     mockedStat.mockImplementation(async (filePath) => {
       const p = typeof filePath === 'string' ? filePath : filePath.toString()
-      if (p.includes('SOUL.md')) {
+      if (p.includes('index.html') || p.includes('main.css')) {
         return { mtimeMs: 1000 } as any
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -70,6 +70,6 @@ describe('seedWorkspaceTemplates', () => {
     await seedWorkspaceTemplates('/workspace')
 
     expect(mockedWriteFile).toHaveBeenCalledTimes(1)
-    expect(mockedWriteFile.mock.calls[0][0]).toBe('/workspace/USER.md')
+    expect(mockedWriteFile.mock.calls[0][0]).toBe('/workspace/assets/js/main.js')
   })
 })

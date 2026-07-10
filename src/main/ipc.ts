@@ -74,6 +74,7 @@ import { SelectionService } from './services/SelectionService'
 import { registerShortcuts, unregisterAllShortcuts } from './services/ShortcutService'
 import { loggerService as mainLoggerService } from './services/LoggerService'
 import { agentRuntimeAuthService } from './services/agents/services/AgentRuntimeAuthService'
+import { seedWorkspaceTemplates } from './services/agents/services/cherryclaw/seedWorkspace'
 import {
   addEndMessage,
   addStreamMessage,
@@ -1470,12 +1471,23 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       const agentId = typeof payload?.agentId === 'string' ? payload.agentId : 'vectcut_claw_default'
       const directoryPath = typeof payload?.directoryPath === 'string' ? payload.directoryPath : ''
       const workspace = typeof payload?.workspace === 'string' ? payload.workspace : ''
-      const data = await skillService.copyDirectoryToWorkspace(directoryPath, workspace)
-      broadcastSkillChanged(agentId, {
-        filename: data?.folderName,
-        eventType: 'copy-directory-to-workspace',
-        skillsRoot: path.join(workspace, '.claude', 'skills')
+      const sourceSubdir = typeof payload?.sourceSubdir === 'string' ? payload.sourceSubdir : ''
+      const targetRelativePath = typeof payload?.targetRelativePath === 'string' ? payload.targetRelativePath : ''
+      const excludeSubdirs = Array.isArray(payload?.excludeSubdirs)
+        ? payload.excludeSubdirs.map((item: unknown) => String(item || '')).filter(Boolean)
+        : []
+      const data = await skillService.copyDirectoryToWorkspace(directoryPath, workspace, {
+        sourceSubdir,
+        targetRelativePath,
+        excludeSubdirs
       })
+      if (!sourceSubdir && !targetRelativePath) {
+        broadcastSkillChanged(agentId, {
+          filename: data?.folderName,
+          eventType: 'copy-directory-to-workspace',
+          skillsRoot: path.join(workspace, '.claude', 'skills')
+        })
+      }
       return { success: true, data }
     } catch (error) {
       logger.error('Failed to copy skill directory to workspace', { payload, error })
@@ -1521,6 +1533,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       if (!workspace || typeof workspace !== 'string') {
         return { success: false, error: 'Invalid workspace' }
       }
+      await seedWorkspaceTemplates(workspace)
       await skillService.seedWorkspaceSkillsFromGlobal(workspace)
       return { success: true }
     } catch (error) {
