@@ -19,12 +19,16 @@ export const editToolDefinition = {
 
 - You must use the 'read' tool at least once before editing
 - The file_path must resolve within the configured workspace root
+- Copy old_string exactly from the latest file content you just read; do not reconstruct, normalize, or simplify it
 - Preserve exact indentation from read output (after the line number prefix)
+- Preserve every character exactly, including whitespace, emojis, quotes, and escape sequences
 - Never include line number prefixes in old_string or new_string
 - ALWAYS prefer editing existing files over creating new ones
 - The edit will FAIL if old_string is not found in the file
 - The edit will FAIL if old_string appears multiple times (provide more context or use replace_all)
 - The edit will FAIL if old_string equals new_string
+- Prefer the smallest unique old_string that can anchor the change instead of replacing a large block
+- If the edit fails because old_string is not found or the file changed after reading, use read again and retry with a freshly copied, smaller snippet
 - Use replace_all to rename variables or replace all occurrences`,
   inputSchema: z.toJSONSchema(EditToolSchema)
 }

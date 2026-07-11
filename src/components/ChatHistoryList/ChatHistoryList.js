@@ -77,8 +77,11 @@ const ChatHistoryList = ({
               >
                 <div className="chat-history-list__item-top">
                   <span className="chat-history-list__status-slot">
-                    {session.isPending && !isActive && (
-                      <span className="chat-history-list__status-dot is-pending" aria-label="生成中" />
+                    {session.isPending && (
+                      <span
+                        className={`chat-history-list__status-dot is-pending ${isActive ? 'is-active-session' : ''}`}
+                        aria-label="对话中"
+                      />
                     )}
                     {session.isFulfilled && !session.isPending && !isActive && (
                       <span className="chat-history-list__status-dot is-fulfilled" aria-label="已完成" />

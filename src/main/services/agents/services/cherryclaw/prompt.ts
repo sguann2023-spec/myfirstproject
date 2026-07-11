@@ -156,6 +156,10 @@ export class PromptBuilder {
       sections.push(`## File editing
 
 - For existing files, inspect the current content before editing.
+- For Edit and MultiEdit, copy \`old_string\` exactly from the latest Read or Grep output instead of reconstructing it from memory.
+- Preserve every character exactly as read, including whitespace, indentation, emojis, quotes, and escape sequences.
+- Prefer the smallest unique snippet that can anchor the change instead of replacing a large block or whole function.
+- If an edit fails because the string was not found or the file changed after reading, read the file again and retry with a freshly copied, smaller snippet.
 - For creates, moves, renames, deletes, and path selection, do not guess folders or filenames that have not been verified inside the current workspace.
 - Do not default to the user's Downloads folder when a workspace path is available.
 - Avoid broad rewrites when a local change is enough.

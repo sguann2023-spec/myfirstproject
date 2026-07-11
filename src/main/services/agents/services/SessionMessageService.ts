@@ -198,7 +198,6 @@ export class SessionMessageService extends BaseService {
     options?: CreateMessageOptions
   ): Promise<SessionStreamResult> {
     const agentSessionId = await this.getLastAgentSessionId(session.id)
-    logger.debug('Session Message stream message data:', { message: req, session_id: agentSessionId })
     const claudeStream = await claudeCodeService.invoke(
       req.content,
       session,
@@ -297,7 +296,8 @@ export class SessionMessageService extends BaseService {
                     options?.displayContent ?? req.content,
                     accumulator.getText(),
                     resolvedSessionId,
-                    options?.images
+                    options?.images,
+                    req.model
                   )
                     .then(resolveCompletion)
                     .catch((err) => {
@@ -323,7 +323,8 @@ export class SessionMessageService extends BaseService {
                       options?.displayContent ?? req.content,
                       partialText,
                       resolvedSessionId,
-                      options?.images
+                      options?.images,
+                      req.model
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -371,7 +372,8 @@ export class SessionMessageService extends BaseService {
     userContent: string,
     assistantContent: string,
     agentSessionId: string,
-    images?: Array<{ data: string; media_type: string }>
+    images?: Array<{ data: string; media_type: string }>,
+    modelId?: string
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
     const userMsgId = randomUUID()
@@ -434,7 +436,7 @@ export class SessionMessageService extends BaseService {
         createdAt: now,
         status: 'success',
         blocks: [assistantBlockId],
-        modelId: session.model
+        modelId: modelId || session.model
       },
       blocks: [
         {

@@ -31,7 +31,7 @@ import { ClaudeStreamState } from './claude-stream-state'
 import { convertClaudeCodeUsage, mapClaudeCodeFinishReason, mapClaudeCodeStopReason } from './utils'
 
 const logger = loggerService.withContext('ClaudeCodeTransform')
-
+const TOOL_EVENT_PREVIEW_LIMIT = 400
 type AgentStreamPart = TextStreamPart<Record<string, any>>
 
 type ToolUseContent = {
@@ -73,6 +73,19 @@ const emptyUsage: LanguageModelUsage = {
  * our own to ensure the downstream renderer can stitch chunks together.
  */
 const generateMessageId = (): string => `msg_${uuidv4().replace(/-/g, '')}`
+
+const summarizeForLog = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value.length > TOOL_EVENT_PREVIEW_LIMIT ? `${value.slice(0, TOOL_EVENT_PREVIEW_LIMIT)}...` : value
+  }
+  try {
+    const serialized = JSON.stringify(value)
+    if (!serialized) return ''
+    return serialized.length > TOOL_EVENT_PREVIEW_LIMIT ? `${serialized.slice(0, TOOL_EVENT_PREVIEW_LIMIT)}...` : serialized
+  } catch {
+    return String(value ?? '')
+  }
+}
 
 /**
  * Converts Anthropic API tool_result content into MCP CallToolResult format.
@@ -321,6 +334,13 @@ function handleAssistantToolUse(
   chunks: AgentStreamPart[]
 ): void {
   const toolCallId = state.getNamespacedToolCallId(block.id)
+  logger.info('Claude assistant tool_use snapshot emitted', {
+    sessionId: (providerMetadata?.anthropic as Record<string, unknown> | undefined)?.session_id || '',
+    toolCallId,
+    rawToolCallId: block.id,
+    toolName: block.name,
+    inputPreview: summarizeForLog(block.input)
+  })
   chunks.push({
     type: 'tool-call',
     toolCallId,
@@ -392,6 +412,15 @@ function handleUserMessage(
         const toolResult = block as ToolResultContent
         const pendingCall = state.consumePendingToolCall(toolResult.tool_use_id)
         const toolCallId = pendingCall?.toolCallId ?? state.getNamespacedToolCallId(toolResult.tool_use_id)
+        logger.info('Claude user tool_result snapshot emitted', {
+          sessionId: message.session_id,
+          toolCallId,
+          rawToolCallId: toolResult.tool_use_id,
+          toolName: pendingCall?.toolName ?? 'unknown',
+          isError: Boolean(toolResult.is_error),
+          inputPreview: summarizeForLog(pendingCall?.input),
+          outputPreview: summarizeForLog(toolResult.content)
+        })
         if (toolResult.is_error) {
           chunks.push({
             type: 'tool-error',
@@ -545,6 +574,13 @@ function handleStreamEvent(
           })
           break
         case 'tool':
+          logger.info('Claude tool input block stopped', {
+            sessionId: (providerMetadata?.anthropic as Record<string, unknown> | undefined)?.session_id || '',
+            toolCallId: block.toolCallId,
+            toolName: block.toolName,
+            index: event.index,
+            resolvedInputPreview: summarizeForLog(block.resolvedInput)
+          })
           chunks.push({
             type: 'tool-input-end',
             id: block.toolCallId,

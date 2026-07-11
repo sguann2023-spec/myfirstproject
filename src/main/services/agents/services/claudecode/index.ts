@@ -20,7 +20,6 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/mes
 import { loggerService } from '@logger'
 import { config as apiConfigService } from '@main/apiServer/config'
 import { validateModelId } from '@main/apiServer/utils'
-import { modelsService } from '@main/apiServer/services/models'
 import { isWin } from '@main/constant'
 import AssistantServer from '@main/mcpServers/assistant'
 import BrowserServer from '@main/mcpServers/browser/server'
@@ -65,7 +64,6 @@ import { agentMessageRepository } from '../../database/sessionMessageRepository'
 import { agentRuntimeAuthService } from '../AgentRuntimeAuthService'
 import { agentService } from '../AgentService'
 import { isProvisioned, provisionBuiltinAgent } from '../builtin/BuiltinAgentProvisioner'
-import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { channelService } from '../ChannelService'
 import { PromptBuilder } from '../cherryclaw/prompt'
 import {
@@ -506,17 +504,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       forceMountAll: shouldMountAllRuntimeMcpTools
     })
 
-    let runtimeModel = String(modelOverride || session.model || '').trim()
-    if (session.agent_id === CHERRY_CLAW_AGENT_ID) {
-      let defaultRuntimeModel = String(agent?.model || '').trim()
-      if (!defaultRuntimeModel.startsWith('anthropic:')) {
-        const preferredAnthropic = await modelsService.getModels({ providerType: 'anthropic', limit: 1 })
-        defaultRuntimeModel = String(preferredAnthropic?.data?.[0]?.id || defaultRuntimeModel).trim()
-      }
-      if (defaultRuntimeModel) {
-        runtimeModel = defaultRuntimeModel
-      }
-    }
+    const runtimeModel = String(modelOverride || session.model || '').trim()
 
     // Validate model info
     const modelInfo = await validateModelId(runtimeModel)
@@ -2140,6 +2128,7 @@ class ClaudeCodeService implements AgentServiceInterface {
               })
             }
             logger.info('Closing prompt stream as SDK signaled completion', {
+              elapsedMs,
               chunkType: chunk.type,
               reason: chunk.type === 'finish' ? 'finished' : 'error_occurred'
             })

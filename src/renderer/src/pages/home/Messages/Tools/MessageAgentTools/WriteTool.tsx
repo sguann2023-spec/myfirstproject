@@ -2,6 +2,7 @@ import CodeViewer from '@renderer/components/CodeViewer'
 import { getLanguageByFilePath } from '@renderer/utils/code-language'
 import type { CollapseProps } from 'antd'
 
+import { renderToolChangeStats } from './changeStats'
 import { ClickableFilePath } from './ClickableFilePath'
 import { SkeletonValue, ToolHeader } from './GenericTools'
 import { AgentToolsType, type WriteToolInput, type WriteToolOutput } from './types'
@@ -26,6 +27,7 @@ export function WriteTool({
             width="200px"
           />
         }
+        stats={renderToolChangeStats(AgentToolsType.Write, input)}
         variant="collapse-label"
         showStatus={false}
       />

@@ -115,9 +115,9 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
 
   // Check if message is still processing
   const isProcessing = isMessageProcessing(message)
-  const shouldShowProcessingPlaceholder = isProcessing && !renderedBlocks.some((block) => (
-    block.type !== MessageBlockType.UNKNOWN && block.type !== MessageBlockType.THINKING
-  ))
+  // Keep the trailing loading indicator visible for the whole processing window,
+  // even after main text or tool blocks have already rendered.
+  const shouldShowProcessingPlaceholder = isProcessing
 
   return (
     <AnimatePresence mode="sync">

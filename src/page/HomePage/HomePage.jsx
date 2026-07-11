@@ -693,14 +693,6 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
   };
 };
 
-const hasVisibleAssistantOutputBlock = (blocks = []) => (
-  (Array.isArray(blocks) ? blocks : []).some((block) => {
-    const type = String(block?.type || '').toLowerCase();
-    if (!type || type === 'unknown' || type === 'thinking') return false;
-    return true;
-  })
-);
-
 const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
   const nextBlockStatus = aborted ? 'success' : 'error';
   return (Array.isArray(blocks) ? blocks : []).map((block) => {
@@ -857,6 +849,35 @@ const countMissingVisibleAssistantMessages = (messages = []) => (
   }, 0)
 );
 
+const countStructuredAssistantBlocks = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+    return count + blocks.filter((block) => isStructuredBlockObject(block)).length;
+  }, 0)
+);
+
+const shouldApplyHydratedMessages = ({
+  currentMessages = [],
+  hydratedMessages = []
+}) => {
+  const beforeMessageCount = Array.isArray(currentMessages) ? currentMessages.length : 0;
+  const beforeVisibleAssistantCount = countVisibleAssistantMessages(currentMessages);
+  const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
+  const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
+  const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
+  const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
+  const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
+
+  return (
+    beforeMessageCount === 0
+    || beforeVisibleAssistantCount === 0
+    || afterMissingAssistantCount < beforeMissingAssistantCount
+    || afterVisibleAssistantCount > beforeVisibleAssistantCount
+    || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
+  );
+};
+
 const buildMessageContentFromBlocks = (blocks = []) => {
   const pieces = [];
   (Array.isArray(blocks) ? blocks : []).forEach((block) => {
@@ -1002,6 +1023,7 @@ const HomePage = () => {
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatSending, setChatSending] = useState(false);
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
+  const [chatSessionInFlightMap, setChatSessionInFlightMap] = useState({});
   const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
   const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
   const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
@@ -1023,6 +1045,7 @@ const HomePage = () => {
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const chatHistoryHydratingRef = useRef(new Set());
   const chatHistoryHydrateSettledRef = useRef(new Set());
+  const chatDeferredSessionChangeHydrateRef = useRef(new Map());
   const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -1056,8 +1079,99 @@ const HomePage = () => {
     && typeof window.electronAPI.cherryChatStream.createSession === 'function'
   );
 
-  const logPendingState = useCallback((action, payload = {}) => {
-    logger.info(`[HomePage][Pending] ${action}`, payload);
+  const hydratePersistedChatSessionFromHistory = useCallback(async ({
+    chatId,
+    sessionId,
+    reason = 'session-changed'
+  }) => {
+    const normalizedChatId = String(chatId || '').trim();
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedChatId || !normalizedSessionId) return;
+    if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
+      logger.warn('[HomePage][HistoryHydrate] bridge unavailable for persisted sync', {
+        chatId: normalizedChatId,
+        sessionId: normalizedSessionId,
+        reason
+      });
+      return;
+    }
+
+    const hydrateKey = `${normalizedChatId}:${normalizedSessionId}`;
+    if (chatHistoryHydratingRef.current.has(hydrateKey)) return;
+
+    chatHistoryHydrateSettledRef.current.delete(hydrateKey);
+    chatHistoryHydratingRef.current.add(hydrateKey);
+    try {
+      const invoke = window?.ipc?.invoke
+        ? (channel, payload) => window.ipc.invoke(channel, payload)
+        : (channel, payload) => window.electron.ipcRenderer.invoke(channel, payload);
+      const historicalMessages = await invoke(IpcChannel.AgentMessage_GetHistory, {
+        sessionId: normalizedSessionId
+      });
+      if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
+        logger.warn('[HomePage][HistoryHydrate] skipped empty persisted sync', {
+          chatId: normalizedChatId,
+          sessionId: normalizedSessionId,
+          reason
+        });
+        return;
+      }
+
+      const hydratedMessages = historicalMessages
+        .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptionsRef.current))
+        .filter((message) => message?.id);
+      const hasAssistantContent = hydratedMessages.some((message) => (
+        message.role === 'assistant' && String(message.content || '').trim()
+      ));
+      if (!hasAssistantContent) {
+        logger.warn('[HomePage][HistoryHydrate] skipped persisted sync without assistant content', {
+          chatId: normalizedChatId,
+          sessionId: normalizedSessionId,
+          reason,
+          messageCount: hydratedMessages.length
+        });
+        return;
+      }
+
+      const currentSession = chatSessionsRef.current.find((item) => item.id === normalizedChatId);
+      const currentMessages = Array.isArray(currentSession?.messages) ? currentSession.messages : [];
+      if (!shouldApplyHydratedMessages({ currentMessages, hydratedMessages })) {
+        logger.warn('[HomePage][HistoryHydrate] skipped persisted sync without improvement', {
+          chatId: normalizedChatId,
+          sessionId: normalizedSessionId,
+          reason,
+          currentMessageCount: currentMessages.length,
+          hydratedMessageCount: hydratedMessages.length,
+          currentStructuredAssistantBlockCount: countStructuredAssistantBlocks(currentMessages),
+          hydratedStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages)
+        });
+        chatHistoryHydrateSettledRef.current.add(hydrateKey);
+        return;
+      }
+
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => (
+          item.id === normalizedChatId
+            ? {
+              ...item,
+              updatedAt: Date.now(),
+              messages: hydratedMessages
+            }
+            : item
+        ));
+        return sortChatSessions(updated);
+      });
+      chatHistoryHydrateSettledRef.current.add(hydrateKey);
+    } catch (error) {
+      logger.warn('[HomePage][HistoryHydrate] failed persisted sync', {
+        chatId: normalizedChatId,
+        sessionId: normalizedSessionId,
+        reason,
+        error: error?.message || String(error)
+      });
+    } finally {
+      chatHistoryHydratingRef.current.delete(hydrateKey);
+    }
   }, []);
 
   // 暴露一个可复用的计数刷新方法
@@ -1403,19 +1517,15 @@ const HomePage = () => {
     return '';
   }, [activeChatSession]);
   const [latestStreamingChatBrowserPreview, setLatestStreamingChatBrowserPreview] = useState(null);
-  const [activeStreamingHasVisibleOutput, setActiveStreamingHasVisibleOutput] = useState(false);
   useEffect(() => {
     if (!activeStreamingAssistantMessageId) {
       setLatestStreamingChatBrowserPreview(null);
-      setActiveStreamingHasVisibleOutput(false);
       return undefined;
     }
 
     const syncStreamingPreview = () => {
       const snapshot = getAssistantSnapshotFromStore(activeStreamingAssistantMessageId);
-      const hasVisibleOutput = hasVisibleAssistantOutputBlock(snapshot?.blocks);
       const nextPreview = buildChatBrowserPreviewFromBlocks(snapshot?.blocks, activeChatSession?.id || 'chat');
-      setActiveStreamingHasVisibleOutput(hasVisibleOutput);
       setLatestStreamingChatBrowserPreview((prev) => {
         const prevKey = String(prev?.key || '').trim();
         const nextKey = String(nextPreview?.key || '').trim();
@@ -1449,9 +1559,11 @@ const HomePage = () => {
   const activeChatSessionSending = Boolean(
     activeChatId && chatSessionSendingMap[String(activeChatId || '').trim()]
   );
+  const activeChatSessionInFlight = Boolean(
+    activeChatId && chatSessionInFlightMap[String(activeChatId || '').trim()]
+  );
   const activeChatMessagePaneSending = Boolean(
-    activeChatSessionSending
-    && (!activeStreamingAssistantMessageId || !activeStreamingHasVisibleOutput)
+    activeChatSessionInFlight
   );
   const activeChatNeedsHistoryHydrate = Boolean(
     activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
@@ -1513,16 +1625,41 @@ const HomePage = () => {
   }, [activeChatWebPreview?.url, isFullscreen, selectedPane]);
 
   useEffect(() => {
+    const api = window?.electronAPI?.agentSessionStream;
+    if (!canUseAgentRuntime || typeof api?.onSessionChanged !== 'function') return undefined;
+
+    return api.onSessionChanged((payload) => {
+      const runtimeSessionId = String(payload?.sessionId || '').trim();
+      if (!runtimeSessionId) return;
+      const chatId = chatIdByAgentSessionIdRef.current.get(runtimeSessionId);
+      if (!chatId) return;
+
+      const hasPendingForSession = Array.from(chatPendingByRequestIdRef.current.values()).some(
+        (entry) => String(entry?.agentSessionId || '').trim() === runtimeSessionId
+      );
+      if (hasPendingForSession) {
+        chatDeferredSessionChangeHydrateRef.current.set(chatId, {
+          chatId,
+          sessionId: runtimeSessionId,
+          reason: payload?.headless ? 'session-changed.headless.deferred' : 'session-changed.deferred'
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${chatId}:${runtimeSessionId}`);
+        return;
+      }
+
+      void hydratePersistedChatSessionFromHistory({
+        chatId,
+        sessionId: runtimeSessionId,
+        reason: payload?.headless ? 'session-changed.headless' : 'session-changed'
+      });
+    });
+  }, [canUseAgentRuntime, hydratePersistedChatSessionFromHistory]);
+
+  useEffect(() => {
     if (!canUseAgentRuntime) return;
     if (selectedPane !== 'chat') return;
     if (!activeChatSession || !activeChatNeedsHistoryHydrate) return;
-    if (activeChatSessionSending) {
-      logger.info('[HomePage][HistoryHydrate] skipped while session sending', {
-        chatId: activeChatSession?.id || '',
-        sessionId: activeChatRuntimeSessionId
-      });
-      return;
-    }
+    if (activeChatSessionSending) return;
     if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
       logger.warn('[HomePage][HistoryHydrate] bridge unavailable', {
         chatId: activeChatSession?.id || '',
@@ -1552,13 +1689,6 @@ const HomePage = () => {
         );
         const beforeVisibleAssistantCount = countVisibleAssistantMessages(activeChatSession.messages);
         const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(activeChatSession.messages);
-        logger.info('[HomePage][HistoryHydrate] start', {
-          chatId: activeChatSession.id,
-          sessionId: runtimeSessionId,
-          beforeMessageCount,
-          beforeVisibleAssistantCount,
-          beforeMissingAssistantCount
-        });
         const invoke = window?.ipc?.invoke
           ? (channel, payload) => window.ipc.invoke(channel, payload)
           : (channel, payload) => window.electron.ipcRenderer.invoke(channel, payload);
@@ -1582,8 +1712,6 @@ const HomePage = () => {
         const hasAssistantContent = hydratedMessages.some((message) => (
           message.role === 'assistant' && String(message.content || '').trim()
         ));
-        const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
-        const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
         if (!hasAssistantContent) {
           chatHistoryHydrateSettledRef.current.add(hydrateKey);
           logger.warn('[HomePage][HistoryHydrate] skipped missing assistant content', {
@@ -1592,16 +1720,15 @@ const HomePage = () => {
             beforeMessageCount,
             beforeVisibleAssistantCount,
             beforeMissingAssistantCount,
-            afterVisibleAssistantCount,
-            afterMissingAssistantCount
+            afterVisibleAssistantCount: countVisibleAssistantMessages(hydratedMessages),
+            afterMissingAssistantCount: countMissingVisibleAssistantMessages(hydratedMessages)
           });
           return;
         }
-        const shouldApplyHydration = (
-          beforeMessageCount === 0
-          || beforeVisibleAssistantCount === 0
-          || afterMissingAssistantCount < beforeMissingAssistantCount
-        );
+        const shouldApplyHydration = shouldApplyHydratedMessages({
+          currentMessages: activeChatSession.messages,
+          hydratedMessages
+        });
         if (!shouldApplyHydration) {
           chatHistoryHydrateSettledRef.current.add(hydrateKey);
           logger.warn('[HomePage][HistoryHydrate] skipped no improvement', {
@@ -1610,8 +1737,10 @@ const HomePage = () => {
             beforeMessageCount,
             beforeVisibleAssistantCount,
             beforeMissingAssistantCount,
-            afterVisibleAssistantCount,
-            afterMissingAssistantCount,
+            afterVisibleAssistantCount: countVisibleAssistantMessages(hydratedMessages),
+            afterMissingAssistantCount: countMissingVisibleAssistantMessages(hydratedMessages),
+            beforeStructuredAssistantBlockCount: countStructuredAssistantBlocks(activeChatSession.messages),
+            afterStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages),
             messageCount: hydratedMessages.length
           });
           return;
@@ -1642,16 +1771,6 @@ const HomePage = () => {
           return sortChatSessions(updated);
         });
         chatHistoryHydrateSettledRef.current.add(hydrateKey);
-        logger.info('[HomePage][HistoryHydrate] applied', {
-          chatId: activeChatSession.id,
-          sessionId: runtimeSessionId,
-          messageCount: hydratedMessages.length,
-          beforeMessageCount,
-          beforeVisibleAssistantCount,
-          beforeMissingAssistantCount,
-          afterVisibleAssistantCount,
-          afterMissingAssistantCount
-        });
       } catch (error) {
         if (cancelled) return;
         logger.warn('[HomePage][HistoryHydrate] failed', {
@@ -1688,6 +1807,25 @@ const HomePage = () => {
     const id = String(chatId || '').trim();
     if (!id) return;
     setChatSessionSendingMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+  const setChatSessionInFlight = (chatId, inFlight) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionInFlightMap((prev) => {
+      const nextValue = Boolean(inFlight);
+      if (prev[id] === nextValue) return prev;
+      return { ...prev, [id]: nextValue };
+    });
+  };
+  const removeChatSessionInFlight = (chatId) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionInFlightMap((prev) => {
       if (!(id in prev)) return prev;
       const next = { ...prev };
       delete next[id];
@@ -1763,10 +1901,10 @@ const HomePage = () => {
     () =>
       chatSessions.map((session) => ({
         ...session,
-        isPending: Boolean(chatSessionSendingMap[session.id]),
+        isPending: Boolean(chatSessionInFlightMap[session.id]),
         isFulfilled: Boolean(chatSessionFulfilledMap[session.id]),
       })),
-    [chatSessions, chatSessionSendingMap, chatSessionFulfilledMap]
+    [chatSessions, chatSessionInFlightMap, chatSessionFulfilledMap]
   );
 
   useEffect(() => {
@@ -2090,20 +2228,22 @@ const HomePage = () => {
         if (payloadType === 'started') {
           if (mappedChatId) {
             setChatSessionSending(mappedChatId, true, 'chunk.started.without-pending');
+            setChatSessionInFlight(mappedChatId, true, 'chunk.started.without-pending');
             if (mappedChatId === activeChatId) setChatSending(true);
           }
         }
         if (mappedChatId && payloadType === 'stream-finished') {
-          setChatSessionSending(mappedChatId, false, 'chunk.stream-finished.without-pending');
-          if (mappedChatId === activeChatId) setChatSending(false);
+          setChatSessionInFlight(mappedChatId, false, 'chunk.stream-finished.without-pending');
         }
         if (mappedChatId && payloadType === 'complete') {
           setChatSessionSending(mappedChatId, false, 'chunk.complete.without-pending');
+          setChatSessionInFlight(mappedChatId, false, 'chunk.complete.without-pending');
           setChatSessionFulfilled(mappedChatId, true, 'chunk.complete.without-pending');
           if (mappedChatId === activeChatId) setChatSending(false);
         }
         if (mappedChatId && (payloadType === 'error' || payloadType === 'cancelled')) {
           setChatSessionSending(mappedChatId, false, `chunk.${payloadType}.without-pending`);
+          setChatSessionInFlight(mappedChatId, false, `chunk.${payloadType}.without-pending`);
           setChatSessionFulfilled(mappedChatId, false, `chunk.${payloadType}.without-pending`);
           if (mappedChatId === activeChatId) setChatSending(false);
         }
@@ -2144,6 +2284,7 @@ const HomePage = () => {
           });
         }
         setChatSessionSending(chatId, true, 'chunk.started');
+        setChatSessionInFlight(chatId, true, 'chunk.started');
         setChatSending(true);
         return;
       }
@@ -2354,8 +2495,7 @@ const HomePage = () => {
         if (!useRendererStoreStreaming) {
           applySnapshot(null);
         }
-        setChatSessionSending(chatId, false, 'chunk.stream-finished');
-        setChatSending(false);
+        setChatSessionInFlight(chatId, false, 'chunk.stream-finished');
         return;
       }
 
@@ -2368,16 +2508,9 @@ const HomePage = () => {
           finalizeAssistantMessage({ error: null, aborted: true });
           if (requestId) {
             chatPendingByRequestIdRef.current.delete(requestId);
-            logPendingState('delete', {
-              reason: 'chunk.error.aborted',
-              chatId,
-              sessionId: agentSessionId,
-              requestId,
-              pendingMapSize: chatPendingByRequestIdRef.current.size,
-              knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-            });
           }
           setChatSessionSending(chatId, false, 'chunk.error.aborted');
+          setChatSessionInFlight(chatId, false, 'chunk.error.aborted');
           setChatSessionFulfilled(chatId, false, 'chunk.error.aborted');
           setChatSending(false);
           if (requestId) {
@@ -2408,14 +2541,6 @@ const HomePage = () => {
         if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
           if (requestId) {
             chatPendingByRequestIdRef.current.delete(requestId);
-            logPendingState('delete', {
-              reason: 'chunk.error.jwt',
-              chatId,
-              sessionId: agentSessionId,
-              requestId,
-              pendingMapSize: chatPendingByRequestIdRef.current.size,
-              knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-            });
           }
           chatIdByAgentSessionIdRef.current.delete(agentSessionId);
           chatAgentSessionIdByChatIdRef.current.delete(chatId);
@@ -2426,16 +2551,9 @@ const HomePage = () => {
         finalizeAssistantMessage({ error: normalizedError, aborted: false });
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
-          logPendingState('delete', {
-            reason: 'chunk.error',
-            chatId,
-            sessionId: agentSessionId,
-            requestId,
-            pendingMapSize: chatPendingByRequestIdRef.current.size,
-            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-          });
         }
         setChatSessionSending(chatId, false, 'chunk.error');
+        setChatSessionInFlight(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
         setChatSending(false);
         if (requestId) {
@@ -2470,16 +2588,9 @@ const HomePage = () => {
         finalizeAssistantMessage({ error: null, aborted: true });
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
-          logPendingState('delete', {
-            reason: 'chunk.cancelled',
-            chatId,
-            sessionId: agentSessionId,
-            requestId,
-            pendingMapSize: chatPendingByRequestIdRef.current.size,
-            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-          });
         }
         setChatSessionSending(chatId, false, 'chunk.cancelled');
+        setChatSessionInFlight(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
         setChatSending(false);
         if (requestId) {
@@ -2606,16 +2717,18 @@ const HomePage = () => {
         streamController?.complete();
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
-          logPendingState('delete', {
-            reason: 'chunk.complete',
+        }
+        const deferredHydrate = chatDeferredSessionChangeHydrateRef.current.get(chatId);
+        if (deferredHydrate && String(deferredHydrate?.sessionId || '').trim() === String(agentSessionId || '').trim()) {
+          chatDeferredSessionChangeHydrateRef.current.delete(chatId);
+          void hydratePersistedChatSessionFromHistory({
             chatId,
             sessionId: agentSessionId,
-            requestId,
-            pendingMapSize: chatPendingByRequestIdRef.current.size,
-            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
+            reason: deferredHydrate.reason || 'session-changed.deferred'
           });
         }
         setChatSessionSending(chatId, false, 'chunk.complete');
+        setChatSessionInFlight(chatId, false, 'chunk.complete');
         setChatSessionFulfilled(chatId, true, 'chunk.complete');
         setChatSending(false);
         if (requestId) {
@@ -2664,6 +2777,7 @@ const HomePage = () => {
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'create-session');
+    setChatSessionInFlight(session.id, false, 'create-session');
     setChatSessionFulfilled(session.id, false, 'create-session');
   };
 
@@ -2673,6 +2787,7 @@ const HomePage = () => {
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'quick-bootstrap');
+    setChatSessionInFlight(session.id, false, 'quick-bootstrap');
     setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
     setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备儿童绘本技能...' : AUTO_WORKSPACE_STATUS_TEXT);
 
@@ -2763,7 +2878,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleBootstrapTravelMontage = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
@@ -2771,6 +2886,7 @@ const HomePage = () => {
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'quick-bootstrap');
+    setChatSessionInFlight(session.id, false, 'quick-bootstrap');
     setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
     setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备旅游混剪技能...' : AUTO_WORKSPACE_STATUS_TEXT);
 
@@ -2861,7 +2977,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
@@ -2880,6 +2996,7 @@ const HomePage = () => {
     setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
     setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
     removeChatSessionSending(sessionId);
+    removeChatSessionInFlight(sessionId);
     removeChatSessionFulfilled(sessionId);
     chatAgentSessionIdByChatIdRef.current.delete(sessionId);
     if (runtimeSessionId) {
@@ -3020,6 +3137,7 @@ const HomePage = () => {
     }
 
     setChatSessionSending(targetSessionId, true, 'send-start');
+    setChatSessionInFlight(targetSessionId, true, 'send-start');
     setChatSessionFulfilled(targetSessionId, false, 'send-start');
     setChatSending(true);
     const requestId = createRequestId();
@@ -3112,15 +3230,6 @@ const HomePage = () => {
         maxBlockCount: 0,
         lastChunkType: ''
       });
-      logPendingState('set', {
-        reason: 'send-start',
-        chatId: targetSessionId,
-        sessionId: agentSessionId,
-        requestId,
-        assistantMessageId,
-        pendingMapSize: chatPendingByRequestIdRef.current.size,
-        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-      });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: text,
@@ -3163,15 +3272,9 @@ const HomePage = () => {
         });
         chatPerfByRequestIdRef.current.delete(requestId);
       }
-      logPendingState('delete', {
-        reason: 'send-catch',
-        chatId: targetSessionId,
-        requestId,
-        pendingMapSize: chatPendingByRequestIdRef.current.size,
-        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-      });
       setChatWorkspaceStatus(targetSessionId, '');
       setChatSessionSending(targetSessionId, false, 'send-catch');
+      setChatSessionInFlight(targetSessionId, false, 'send-catch');
       updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
       setChatSending(false);
     }
@@ -3272,6 +3375,7 @@ const HomePage = () => {
     });
 
     setChatSessionSending(activeChatId, true, 'retry-start');
+    setChatSessionInFlight(activeChatId, true, 'retry-start');
     setChatSessionFulfilled(activeChatId, false, 'retry-start');
     setChatSending(true);
     const requestId = createRequestId();
@@ -3312,15 +3416,6 @@ const HomePage = () => {
         storeAssistantMessageId: streamController.assistantMessageId,
         streamController
       });
-      logPendingState('set', {
-        reason: 'retry-start',
-        chatId: activeChatId,
-        sessionId: agentSessionId,
-        requestId,
-        assistantMessageId: messageId,
-        pendingMapSize: chatPendingByRequestIdRef.current.size,
-        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-      });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: String(prevUser.content || ''),
@@ -3330,13 +3425,6 @@ const HomePage = () => {
       if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
     } catch (error) {
       chatPendingByRequestIdRef.current.delete(requestId);
-      logPendingState('delete', {
-        reason: 'retry-catch',
-        chatId: activeChatId,
-        requestId,
-        pendingMapSize: chatPendingByRequestIdRef.current.size,
-        knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-      });
       const normalizedError = normalizeChatError(error);
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
@@ -3360,6 +3448,7 @@ const HomePage = () => {
         return sortChatSessions(updated);
       });
       setChatSessionSending(activeChatId, false, 'retry-catch');
+      setChatSessionInFlight(activeChatId, false, 'retry-catch');
       setChatSending(false);
     }
   };

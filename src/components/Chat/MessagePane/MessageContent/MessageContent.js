@@ -141,6 +141,7 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
       status: MessageBlockStatus.PROCESSING,
       createdAt
     };
+    blockIds.push(loadingId);
   }
 
   return {
@@ -170,17 +171,24 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
   );
 
   React.useEffect(() => {
-    if (storeMessage) return;
     const fallbackBlocks = fallbackAssistantState.blockIds
       .map((id) => fallbackAssistantState.entities[id])
       .filter(Boolean);
     if (fallbackBlocks.length === 0) return;
-    appStore.dispatch(upsertManyBlocks(fallbackBlocks));
+    if (!storeMessage) {
+      appStore.dispatch(upsertManyBlocks(fallbackBlocks));
+      return;
+    }
+    const placeholderBlocks = fallbackBlocks.filter((block) => block?.type === MessageBlockType.UNKNOWN);
+    if (placeholderBlocks.length > 0) {
+      appStore.dispatch(upsertManyBlocks(placeholderBlocks));
+    }
   }, [storeMessage, fallbackAssistantState]);
 
   const resolvedMessage = storeMessage
     ? {
       ...storeMessage,
+      status: isLoading ? fallbackAssistantStatus : (storeMessage?.status || fallbackAssistantStatus),
       error: fallbackMessage?.error || storeMessage?.error || null
     }
     : {
@@ -193,7 +201,16 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
       blocks: fallbackAssistantState.blockIds,
       error: fallbackMessage?.error || null
     };
-  const blocks = Array.isArray(resolvedMessage?.blocks) ? resolvedMessage.blocks : [];
+  const blocks = React.useMemo(() => {
+    const resolvedBlockIds = Array.isArray(resolvedMessage?.blocks) ? resolvedMessage.blocks : [];
+    const placeholderBlockIds = fallbackAssistantState.blockIds.filter((id) => {
+      const block = fallbackAssistantState.entities[id];
+      return block?.type === MessageBlockType.UNKNOWN;
+    });
+    return isLoading
+      ? [...resolvedBlockIds, ...placeholderBlockIds.filter((id) => !resolvedBlockIds.includes(id))]
+      : resolvedBlockIds;
+  }, [resolvedMessage?.blocks, fallbackAssistantState, isLoading]);
 
   return (
     <div className="chat-message-content tw-scope chat-tool-layout-fix">

@@ -2,6 +2,7 @@ import type { MCPTool, MCPToolResponse, NormalToolResponse } from '@renderer/typ
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
 import { isToolAutoApproved } from '@renderer/utils/mcp-tools'
 import { Flex, Tooltip } from 'antd'
+import { parse as parsePartialJson } from 'partial-json'
 import {
   Bot,
   DoorOpen,
@@ -19,10 +20,11 @@ import {
   Wrench
 } from 'lucide-react'
 import type { FC, ReactNode } from 'react'
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
+import { renderToolChangeStats } from './MessageAgentTools/changeStats'
 import { type ToolStatus, ToolStatusIndicator } from './MessageAgentTools/GenericTools'
 import { AgentToolsType } from './MessageAgentTools/types'
 
@@ -233,6 +235,22 @@ const ToolHeader: FC<ToolHeaderProps> = ({
   const hasError = propHasError ?? toolResponse?.response?.isError === true
 
   const description = params ?? getToolDescription(toolResponse)
+  const parsedPartialArgs = useMemo(() => {
+    const partialArguments = toolResponse?.partialArguments
+    if (!partialArguments) return undefined
+
+    try {
+      return parsePartialJson(partialArguments)
+    } catch {
+      return undefined
+    }
+  }, [toolResponse?.partialArguments])
+  const derivedStats = useMemo(() => {
+    if (stats !== undefined) return stats
+
+    const toolInput = toolResponse?.arguments ?? parsedPartialArgs
+    return renderToolChangeStats(toolName, toolInput)
+  }, [stats, toolName, toolResponse?.arguments, parsedPartialArgs])
 
   const Container = variant === 'standalone' ? HeaderContainer : LabelContainer
 
@@ -252,7 +270,7 @@ const ToolHeader: FC<ToolHeaderProps> = ({
           )}
         </ToolName>
         {description && <Description>{description}</Description>}
-        {stats && <Stats>{stats}</Stats>}
+        {derivedStats && <Stats>{derivedStats}</Stats>}
         {showStatus && status && (
           <StatusWrapper>
             <ToolStatusIndicator status={status} hasError={hasError} />
@@ -269,7 +287,7 @@ const ToolHeader: FC<ToolHeaderProps> = ({
         <span className="name">{getAgentToolLabel(toolName, t)}</span>
       </ToolName>
       {description && <Description>{description}</Description>}
-      {stats && <Stats>{stats}</Stats>}
+      {derivedStats && <Stats>{derivedStats}</Stats>}
       {showStatus && status && (
         <StatusWrapper>
           <ToolStatusIndicator status={status} hasError={hasError} />

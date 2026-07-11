@@ -13,6 +13,8 @@ import { ChunkType } from '@renderer/types/chunk'
 import type { ProviderMetadata, ToolSet, TypedToolCall, TypedToolError, TypedToolResult } from 'ai'
 
 const logger = loggerService.withContext('ToolCallChunkHandler')
+const TOOL_CALL_WATCHDOG_MS = 15_000
+const TOOL_CALL_PREVIEW_LIMIT = 400
 
 export type ToolcallsMap = {
   toolCallId: string
@@ -22,6 +24,24 @@ export type ToolcallsMap = {
   tool: BaseTool
   // Streaming arguments buffer
   streamingArgs?: string
+  streamingDeltaCount?: number
+  streamingStartedAt?: number
+  lastEventAt?: number
+  lastStage?: 'input-start' | 'input-delta' | 'input-end' | 'tool-call'
+  watchdogTimer?: ReturnType<typeof setTimeout>
+}
+
+const summarizeForLog = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value.length > TOOL_CALL_PREVIEW_LIMIT ? `${value.slice(0, TOOL_CALL_PREVIEW_LIMIT)}...` : value
+  }
+  try {
+    const serialized = JSON.stringify(value)
+    if (!serialized) return ''
+    return serialized.length > TOOL_CALL_PREVIEW_LIMIT ? `${serialized.slice(0, TOOL_CALL_PREVIEW_LIMIT)}...` : serialized
+  } catch {
+    return String(value ?? '')
+  }
 }
 /**
  * 工具调用处理器类
@@ -34,6 +54,43 @@ export class ToolCallChunkHandler {
     private onChunk: (chunk: Chunk) => void,
     private mcpTools: MCPTool[]
   ) {}
+
+  private clearToolCallWatchdog(toolCallId: string): void {
+    const toolCall = this.activeToolCalls.get(toolCallId)
+    if (!toolCall?.watchdogTimer) return
+    clearTimeout(toolCall.watchdogTimer)
+    toolCall.watchdogTimer = undefined
+  }
+
+  private scheduleToolCallWatchdog(toolCallId: string): void {
+    const toolCall = this.activeToolCalls.get(toolCallId)
+    if (!toolCall) return
+
+    this.clearToolCallWatchdog(toolCallId)
+    toolCall.watchdogTimer = setTimeout(() => {
+      const latest = this.activeToolCalls.get(toolCallId)
+      if (!latest) return
+      const now = Date.now()
+      logger.warn('🔧 [ToolCallChunkHandler] Tool call appears stalled', {
+        toolCallId,
+        toolName: latest.toolName,
+        stage: latest.lastStage || 'unknown',
+        msSinceStart: latest.streamingStartedAt ? now - latest.streamingStartedAt : null,
+        msSinceLastEvent: latest.lastEventAt ? now - latest.lastEventAt : null,
+        streamingDeltaCount: latest.streamingDeltaCount ?? 0,
+        partialArgumentsLength: String(latest.streamingArgs || '').length,
+        partialArgumentsPreview: summarizeForLog(latest.streamingArgs || ''),
+        argsPreview: summarizeForLog(latest.args),
+        activeToolCallCount: this.activeToolCalls.size,
+        activeToolCalls: [...this.activeToolCalls.values()].map((entry) => ({
+          toolCallId: entry.toolCallId,
+          toolName: entry.toolName,
+          stage: entry.lastStage || 'unknown',
+          partialArgumentsLength: String(entry.streamingArgs || '').length
+        }))
+      })
+    }, TOOL_CALL_WATCHDOG_MS)
+  }
 
   /**
    * 内部静态方法：添加活跃工具调用的核心逻辑
@@ -110,6 +167,10 @@ export class ToolCallChunkHandler {
 
     // 如果已存在，跳过
     if (this.activeToolCalls.has(toolCallId)) {
+      logger.warn('🔧 [ToolCallChunkHandler] Duplicate tool-input-start ignored', {
+        toolCallId,
+        toolName
+      })
       return
     }
 
@@ -131,10 +192,13 @@ export class ToolCallChunkHandler {
       toolName,
       args: undefined,
       tool,
-      streamingArgs: ''
+      streamingArgs: '',
+      streamingDeltaCount: 0,
+      streamingStartedAt: Date.now(),
+      lastEventAt: Date.now(),
+      lastStage: 'input-start'
     })
-
-    logger.info(`🔧 [ToolCallChunkHandler] Tool input streaming started: ${toolName} (${toolCallId})`)
+    this.scheduleToolCallWatchdog(toolCallId)
 
     // 发送初始 streaming chunk
     const toolResponse: MCPToolResponse | NormalToolResponse = {
@@ -171,6 +235,10 @@ export class ToolCallChunkHandler {
 
     // 累积流式参数
     toolCall.streamingArgs = (toolCall.streamingArgs || '') + delta
+    toolCall.streamingDeltaCount = (toolCall.streamingDeltaCount || 0) + 1
+    toolCall.lastEventAt = Date.now()
+    toolCall.lastStage = 'input-delta'
+    this.scheduleToolCallWatchdog(toolCallId)
 
     // 发送 streaming chunk 更新
     const toolResponse: MCPToolResponse | NormalToolResponse = {
@@ -212,6 +280,9 @@ export class ToolCallChunkHandler {
         toolCall.args = toolCall.streamingArgs
       }
     }
+    toolCall.lastEventAt = Date.now()
+    toolCall.lastStage = 'input-end'
+    this.scheduleToolCallWatchdog(toolCallId)
 
     logger.info(`🔧 [ToolCallChunkHandler] Tool input streaming completed: ${toolCall.toolName} (${toolCallId})`)
 
@@ -252,6 +323,14 @@ export class ToolCallChunkHandler {
       // Tool call was already processed via streaming events (tool-input-start/delta/end)
       // Update args if needed, but don't emit duplicate pending chunk
       existingToolCall.args = args
+      existingToolCall.lastEventAt = Date.now()
+      existingToolCall.lastStage = 'tool-call'
+      this.scheduleToolCallWatchdog(toolCallId)
+      logger.info('🔧 [ToolCallChunkHandler] Tool call finalized after streaming input', {
+        toolCallId,
+        toolName,
+        argsPreview: summarizeForLog(args)
+      })
       return
     }
 
@@ -294,7 +373,16 @@ export class ToolCallChunkHandler {
       toolCallId,
       toolName,
       args,
-      tool
+      tool,
+      streamingStartedAt: Date.now(),
+      lastEventAt: Date.now(),
+      lastStage: 'tool-call'
+    })
+    this.scheduleToolCallWatchdog(toolCallId)
+    logger.info('🔧 [ToolCallChunkHandler] Tool call received without streaming input', {
+      toolCallId,
+      toolName,
+      argsPreview: summarizeForLog(args)
     })
     // 创建 MCPToolResponse 格式
     const toolResponse: MCPToolResponse | NormalToolResponse = {
@@ -359,7 +447,14 @@ export class ToolCallChunkHandler {
     }
 
     // 从活跃调用中移除（交互结束后整个实例会被丢弃）
+    this.clearToolCallWatchdog(toolCallId)
     this.activeToolCalls.delete(toolCallId)
+    logger.info('🔧 [ToolCallChunkHandler] Tool result received', {
+      toolCallId,
+      toolName: toolCallInfo.toolName,
+      inputPreview: summarizeForLog(input),
+      outputPreview: summarizeForLog(output)
+    })
 
     // 调用 onChunk
     if (this.onChunk) {
@@ -404,7 +499,14 @@ export class ToolCallChunkHandler {
       response: error,
       toolCallId: toolCallId
     }
+    this.clearToolCallWatchdog(toolCallId)
     this.activeToolCalls.delete(toolCallId)
+    logger.warn('🔧 [ToolCallChunkHandler] Tool error received', {
+      toolCallId,
+      toolName: toolCallInfo.toolName,
+      inputPreview: summarizeForLog(input),
+      errorPreview: summarizeForLog(error)
+    })
     if (this.onChunk) {
       this.onChunk({
         type: ChunkType.MCP_TOOL_COMPLETE,

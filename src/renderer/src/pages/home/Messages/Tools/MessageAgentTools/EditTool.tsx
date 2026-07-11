@@ -4,6 +4,7 @@ import { useCodeStyle } from '@renderer/context/CodeStyleProvider'
 import type { CollapseProps } from 'antd'
 import { useMemo } from 'react'
 
+import { renderToolChangeStats } from './changeStats'
 import { ClickableFilePath } from './ClickableFilePath'
 import { DiffStyleToggle, useDiffStyle } from './DiffStyleToggle'
 import { ToolHeader } from './GenericTools'
@@ -58,6 +59,7 @@ export function EditTool({
       <ToolHeader
         toolName={AgentToolsType.Edit}
         params={input?.file_path ? <ClickableFilePath path={input.file_path} displayName={filename} /> : undefined}
+        stats={renderToolChangeStats(AgentToolsType.Edit, input)}
         variant="collapse-label"
         showStatus={false}
       />

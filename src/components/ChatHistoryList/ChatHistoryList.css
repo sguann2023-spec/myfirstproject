@@ -114,6 +114,11 @@
 .chat-history-list__status-dot.is-pending {
   background-color: var(--color-status-warning, #faad14);
   animation: chat-history-pulse 1.5s infinite;
+  box-shadow: 0 0 0 0 rgba(250, 173, 20, 0.32);
+}
+
+.chat-history-list__status-dot.is-pending.is-active-session {
+  background-color: #f5c542;
 }
 
 .chat-history-list__status-dot.is-fulfilled {
