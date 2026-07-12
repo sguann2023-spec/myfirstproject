@@ -131,6 +131,39 @@ function matchesTask(item, target = {}) {
   return Boolean(target.draft_id) && item.draft_id === target.draft_id;
 }
 
+function matchesFileItem(item, target = {}) {
+  if (!item || !target) return false;
+  if (target.id && item.id) return String(item.id) === String(target.id);
+  return (
+    String(item.url || '') === String(target.url || '') &&
+    String(item.name || '') === String(target.name || '') &&
+    String(item.folderPath || '') === String(target.folderPath || '')
+  );
+}
+
+function getFailedFileList(item) {
+  if (Array.isArray(item?.flatList)) return [...item.flatList];
+  if (Array.isArray(item?.fileList)) return [...item.fileList];
+  return [];
+}
+
+function buildCompletedItemWithFileList(item, nextFileList = []) {
+  const unresolvedFileList = Array.isArray(nextFileList)
+    ? nextFileList.filter(file => file?.status === 'failed' || file?.status === 'downloading' || file?.status === 'queued')
+    : [];
+  const hasUnresolvedFiles = unresolvedFileList.length > 0;
+
+  return {
+    ...item,
+    status: hasUnresolvedFiles ? 'failed' : 'success',
+    progress: hasUnresolvedFiles ? Math.max(0, Number(item?.progress) || 0) : 100,
+    message: hasUnresolvedFiles ? (item?.message || '下载失败') : '下载完成',
+    completedAt: Date.now(),
+    fileList: unresolvedFileList,
+    flatList: unresolvedFileList
+  };
+}
+
 function markFileListPaused(fileList = []) {
   return Array.isArray(fileList)
     ? fileList.map(file => (
@@ -256,7 +289,8 @@ async function launchCurrentDownload() {
     const failedItem = {
       ...state.current,
       status: 'failed',
-      message: buildFailedMessage({ error: err?.message }, state.current)
+      message: buildFailedMessage({ error: err?.message }, state.current),
+      completedAt: Date.now()
     };
     state.completed = [failedItem, ...state.completed];
     state.current = null;
@@ -417,7 +451,8 @@ function attachIpcListenersOnce() {
       status: 'success', 
       progress: 100, 
       message: '下载完成',
-      fileList: data?.fileList
+      fileList: data?.fileList,
+      completedAt: Date.now()
     };
     state.completed = [doneItem, ...state.completed];
     persistCompletedToStore(); // 持久化成功项（不含列表）
@@ -458,7 +493,8 @@ function attachIpcListenersOnce() {
       progress: state.current.progress || 0, 
       message: msg,
       fileList,
-      flatList
+      flatList,
+      completedAt: Date.now()
     };
     state.completed = [failedItem, ...state.completed];
     persistCompletedToStore(); // 持久化失败项（含完整 flatList）
@@ -597,6 +633,80 @@ async function retryTask(target = {}) {
   return true;
 }
 
+async function retryFailedFile(target = {}, file = {}) {
+  const url = String(file?.url || '').trim();
+  const folderPath = String(file?.folderPath || '').trim();
+  const fileName = String(file?.name || '').trim();
+  const fileApi = window.api?.file;
+
+  if (!url || !folderPath || !fileName) {
+    throw new Error('缺少素材链接或目标路径，无法重试该素材');
+  }
+  if (!fileApi?.download || !fileApi?.copy || !fileApi?.delete || !path) {
+    throw new Error('当前环境不支持单素材重试');
+  }
+
+  const completedIndex = state.completed.findIndex(item => matchesTask(item, target));
+  if (completedIndex === -1) return false;
+
+  const completedItem = state.completed[completedIndex];
+  const sourceList = getFailedFileList(completedItem);
+  const originalFile = sourceList.find(item => matchesFileItem(item, file));
+  if (!originalFile) return false;
+
+  const downloadingList = sourceList.map(item => (
+    matchesFileItem(item, file)
+      ? { ...item, status: 'downloading', downloaded: 0 }
+      : item
+  ));
+
+  state.completed[completedIndex] = {
+    ...buildCompletedItemWithFileList(completedItem, downloadingList),
+    message: '正在重试素材…'
+  };
+  persistCompletedToStore();
+  notifyAll();
+
+  let downloadedFile = null;
+
+  try {
+    downloadedFile = await fileApi.download(url);
+    const targetPath = path.join(folderPath, fileName);
+    await fileApi.copy(downloadedFile.id, targetPath);
+    await fileApi.delete(downloadedFile.id);
+
+    const latestItem = state.completed[completedIndex];
+    const latestList = getFailedFileList(latestItem).filter(item => !matchesFileItem(item, file));
+    const nextItem = buildCompletedItemWithFileList(latestItem, latestList);
+    nextItem.message = nextItem.status === 'success' ? '下载完成' : '仍有素材下载失败';
+    state.completed[completedIndex] = nextItem;
+    persistCompletedToStore();
+    notifyAll();
+    return true;
+  } catch (error) {
+    if (downloadedFile?.id) {
+      try {
+        await fileApi.delete(downloadedFile.id);
+      } catch (cleanupError) {
+        logger.warn('[DLTRACE] cleanup temp file after single retry failed', cleanupError);
+      }
+    }
+
+    const latestItem = state.completed[completedIndex];
+    const latestList = getFailedFileList(latestItem).map(item => (
+      matchesFileItem(item, file)
+        ? { ...originalFile, status: 'failed' }
+        : item
+    ));
+    const nextItem = buildCompletedItemWithFileList(latestItem, latestList);
+    nextItem.message = error?.message || '单个素材重试失败';
+    state.completed[completedIndex] = nextItem;
+    persistCompletedToStore();
+    notifyAll();
+    throw error;
+  }
+}
+
 function clearCompleted() {
   state.completed = [];
   persistCompletedToStore(); // 新增：保存空列表
@@ -645,6 +755,7 @@ export const DownloadController = {
   pauseCurrent,
   resumeCurrent,
   retryTask,
+  retryFailedFile,
   cancelCurrent,
   subscribeProgress,
   subscribeFileList,

@@ -145,6 +145,7 @@ function DownloadDualList({
     if (item.status === 'failed') return '下载失败';
     return '下载中';
   };
+  const getCompletedItemKey = (item, idx) => item?.jobId ?? item?.createdAt ?? item?.completedAt ?? `${item?.draft_id}-${idx}`;
   const getCoverSrc = (cover) => toMediaSrc(cover);
 
   return (
@@ -270,8 +271,8 @@ function DownloadDualList({
             ) : (
               completed.map((item, idx) => (
                 <div
-                  key={item.jobId || `${item.draft_id}-${idx}`}
-                  className={`draftlist-item ${selectedCompletedKey === (item.jobId || `${item.draft_id}-${idx}`) ? 'selected' : ''}`}
+                  key={getCompletedItemKey(item, idx)}
+                  className={`draftlist-item ${selectedCompletedKey === getCompletedItemKey(item, idx) ? 'selected' : ''}`}
                   onClick={() => {
                     logger.info('select completed item', item);
                     if (typeof onSelectCompletedItem === 'function') onSelectCompletedItem(item, idx);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Typography, List, Row, Col, Space, Progress, Tooltip, Button, Modal } from 'antd';
 import { CaretRightOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { Square, X } from 'lucide-react';
+import { RefreshCw, Square, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import './DownloadList.css'; // 引入外部 CSS 文件
 import RightArrowIcon from '../../../public/right_arrow.svg'
@@ -35,6 +35,7 @@ const DownloadList = ({
     const { t } = useTranslation('legacy');
     const hasActiveDraft = typeof draftName === 'string' && draftName.trim().length > 0;
     const [pendingAction, setPendingAction] = useState('');
+    const [retryingFileKey, setRetryingFileKey] = useState('');
 
     const handleQueueAction = async (action) => {
         if (action === 'cancel') {
@@ -111,6 +112,9 @@ const DownloadList = ({
         const downloaded = Number(item.downloaded) || 0;
         const percent = total > 0 ? Math.round((downloaded / total) * 100) : 0;
         let statusContent;
+        const fileRetryKey = String(item.id || `${item.url || ''}-${item.name || ''}-${item.folderPath || ''}`);
+        const isRetryingFile = retryingFileKey === fileRetryKey;
+        const canRetryFile = Boolean(item.url && item.folderPath && item.name);
 
         const handleOpenExternalUrl = (e, url) => {
             e.preventDefault(); // 阻止在 Electron 窗口内部打开链接
@@ -147,6 +151,25 @@ const DownloadList = ({
                 logger.error("IPC Renderer not available. Check main.js for contextIsolation/nodeIntegration.");
             }
         };
+
+        const handleRetryFile = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (!canRetryFile || isRetryingFile) return;
+
+            setRetryingFileKey(fileRetryKey);
+            try {
+                await DownloadController.retryFailedFile({ draft_id: draftId, jobId }, item);
+                window.toast?.success?.(`已重新下载素材「${item.name}」`);
+            } catch (error) {
+                logger.error('Failed to retry single download file', error);
+                window.toast?.error?.(error?.message || `重新下载素材「${item.name}」失败`);
+            } finally {
+                setRetryingFileKey((current) => (current === fileRetryKey ? '' : current));
+            }
+        };
+
         // ⚡️ Tooltip 内容的 JSX 渲染
         // 注意：这里的点击事件需要是真实的回调函数，但为了演示，我们先使用 #
         const failedTooltipTitle = (
@@ -169,6 +192,21 @@ const DownloadList = ({
             statusContent = (
                 <Space size={4} className='status-failed-container' align="center">
                     <Text className='file-list-item-status-failed'>下载失败</Text>
+                    <Tooltip title="重新下载该资源" placement="top">
+                        <button
+                            type="button"
+                            className='status-icon-button'
+                            onClick={handleRetryFile}
+                            disabled={!canRetryFile || isRetryingFile}
+                            aria-label='重新下载该资源'
+                        >
+                            <RefreshCw
+                                size={12}
+                                strokeWidth={2.2}
+                                className={`status-action-icon ${isRetryingFile ? 'status-action-icon-spinning' : ''}`}
+                            />
+                        </button>
+                    </Tooltip>
                     {/* ⚡️ 使用 Tooltip 包裹 SearchOutlined */}
                     <Tooltip 
                         title={failedTooltipTitle} 

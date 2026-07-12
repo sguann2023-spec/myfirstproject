@@ -163,8 +163,13 @@
 /* ⚡️ 新增：失败状态的容器样式 (确保文本和图标垂直居中) */
 .status-failed-container {
     display: flex;
-    align-items: center; 
+    align-items: center;
     /* 由于 Row align="middle" 已经在 Col 级别做了垂直居中，这个容器可以保证其内部元素对齐 */
+}
+
+.status-failed-container .ant-space-item {
+    display: inline-flex;
+    align-items: center;
 }
 
 /* 失败状态的文本样式 (红色) */
@@ -180,12 +185,51 @@
 .status-action-icon {
     font-size: 12px;
     color: #EC3C3C; /* 保持与文本一致的红色 */
-    cursor: pointer; 
-    margin: 0 2px; /* 图标之间的微小间距 */
+    cursor: pointer;
+    margin: 0px 3px 0px 5px;
+    line-height: 1;
+    vertical-align: middle;
     /* 确保图标与文本垂直对齐 */
     display: inline-flex;
     align-items: center;
+    justify-content: center;
 }
+
+.status-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.status-icon-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.status-icon-button:hover .status-action-icon,
+.status-icon-button:focus-visible .status-action-icon {
+    color: #ff5c5c;
+}
+
+.status-action-icon-spinning {
+    animation: download-list-spin 1s linear infinite;
+}
+
+@keyframes download-list-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .file-list-item-url{
     font-size: 12px;
     color: #bababa;

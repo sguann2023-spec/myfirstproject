@@ -3485,6 +3485,23 @@ const HomePage = () => {
     return () => { typeof unsubscribe === 'function' && unsubscribe(); };
   }, []);
 
+  const getCompletedItemKey = (item, idx) => item?.jobId ?? item?.createdAt ?? item?.completedAt ?? `${item?.draft_id}-${idx}`;
+
+  useEffect(() => {
+    if (!selectedCompletedKey) return;
+
+    const unsubscribe = DownloadController.subscribeProgress((snapshot) => {
+      const nextCompleted = Array.isArray(snapshot?.completed) ? snapshot.completed : [];
+      const matched = nextCompleted.find((item, idx) => getCompletedItemKey(item, idx) === selectedCompletedKey);
+      setSelectedCompleted(matched || null);
+      if (!matched) {
+        setSelectedCompletedKey(null);
+      }
+    });
+
+    return () => { typeof unsubscribe === 'function' && unsubscribe(); };
+  }, [selectedCompletedKey]);
+
   // 构建“已完成”记录为 DownloadList 的 project（仅失败项需要列表）
   const buildProjectFromCompleted = (item) => {
     if (!item) return { draftName: '', overallProgress: 0, overallStatusText: '', downloadFiles: [], errorMessage: '' };
@@ -3605,7 +3622,7 @@ const HomePage = () => {
                 selectedCompletedKey={selectedCompletedKey}
                 onSelectCompletedItem={(item, idx) => {
                   setSelectedCompleted(item);
-                  setSelectedCompletedKey(item?.jobId ?? `${item.draft_id}-${idx}`);
+                  setSelectedCompletedKey(getCompletedItemKey(item, idx));
                 }}
               />
             )}
