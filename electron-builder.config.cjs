@@ -4,6 +4,8 @@ const CHANNEL_BRANDS = {
   default: {
     productName: '流光剪辑',
     displayNameZh: '流光剪辑',
+    icon: 'build-resources/brands/default/logo.png',
+    winIcon: 'build-resources/brands/default/logo.ico',
     winArtifactName: 'VectCut-Setup-${version}-${arch}.exe',
     winExecutableName: 'VectCut',
     shortcutName: '流光剪辑',

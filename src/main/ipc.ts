@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import { spawn } from 'node:child_process'
 import { arch } from 'node:os'
 import path from 'node:path'
 
@@ -9,6 +8,9 @@ import anthropicService from '@main/services/AnthropicService'
 import { getIpCountry } from '@main/utils/ipService'
 import {
   autoDiscoverGitBash,
+  crossPlatformSpawn,
+  findExecutableInEnv,
+  findBundledPython,
   getBinaryPath,
   getGitBashPathInfo,
   isBinaryExists,
@@ -141,6 +143,39 @@ async function resolveCurrentVectcutApiKey(): Promise<string> {
   throw new Error('未获取到当前 API Key，请先登录')
 }
 
+async function resolveSkillExamplePythonRuntime(): Promise<{ command: string; argsPrefix: string[] }> {
+  if (process.platform === 'win32') {
+    const bundledPythonPath = findBundledPython()
+    if (bundledPythonPath) {
+      return { command: bundledPythonPath, argsPrefix: [] }
+    }
+
+    logger.warn('Bundled Python runtime not found for skill example, falling back to system Python lookup')
+  }
+
+  const candidates = process.platform === 'win32'
+    ? [
+        { commandName: 'python', argsPrefix: [] as string[] },
+        { commandName: 'py', argsPrefix: ['-3'] }
+      ]
+    : [
+        { commandName: 'python3', argsPrefix: [] as string[] },
+        { commandName: 'python', argsPrefix: [] as string[] }
+      ]
+
+  for (const candidate of candidates) {
+    const resolvedCommand = await findExecutableInEnv(candidate.commandName)
+    if (resolvedCommand) {
+      return {
+        command: resolvedCommand,
+        argsPrefix: candidate.argsPrefix
+      }
+    }
+  }
+
+  throw new Error('未找到可用的 Python 3 解释器，请先安装 Python，并确保 `python` 或 `py` 命令可用')
+}
+
 async function runSkillExampleScript(skillPath: string): Promise<{ stdout: string; stderr: string }> {
   const resolvedSkillPath = path.resolve(String(skillPath || ''))
   if (!resolvedSkillPath) {
@@ -151,7 +186,8 @@ async function runSkillExampleScript(skillPath: string): Promise<{ stdout: strin
   await fs.promises.access(examplePath, fs.constants.R_OK)
 
   const vectcutApiKey = await resolveCurrentVectcutApiKey()
-  const command = process.platform === 'win32' ? 'python' : 'python3'
+  const { command, argsPrefix } = await resolveSkillExamplePythonRuntime()
+  const commandArgs = [...argsPrefix, 'main.py']
   const cwd = path.dirname(examplePath)
 
   logger.info('Running skill example script', {
@@ -159,11 +195,12 @@ async function runSkillExampleScript(skillPath: string): Promise<{ stdout: strin
     examplePath,
     cwd,
     command,
+    commandArgs,
     hasVectcutApiKey: Boolean(vectcutApiKey)
   })
 
   return await new Promise((resolve, reject) => {
-    const child = spawn(command, ['main.py'], {
+    const child = crossPlatformSpawn(command, commandArgs, {
       cwd,
       env: {
         ...process.env,
