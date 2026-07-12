@@ -91,6 +91,7 @@ const ROUTING_CONTEXT_MAX_TURNS = 10
 const ROUTING_CONTEXT_MAX_MESSAGES = ROUTING_CONTEXT_MAX_TURNS * 2
 const ROUTING_CONTEXT_MAX_CHARS = 6000
 const ROUTING_CONTEXT_MAX_MESSAGE_CHARS = 500
+const GIT_BASH_PATH_ERROR_SIGNATURE = 'CLAUDE_CODE_GIT_BASH_PATH path'
 
 const isVectcutGatewayUrl = (value: string): boolean => {
   const raw = String(value || '').trim()
@@ -118,6 +119,56 @@ const describeApiKey = (value?: string | null) => {
     length: normalized.length,
     prefix: normalized.slice(0, 6),
     suffix: normalized.slice(-6)
+  }
+}
+
+const summarizePathSnapshot = (targetPath?: string | null) => {
+  const resolvedPath = String(targetPath || '').trim()
+  if (!resolvedPath) {
+    return {
+      path: '',
+      exists: false,
+      parentPath: '',
+      parentExists: false,
+      isFile: false,
+      size: null,
+      parentEntriesPreview: []
+    }
+  }
+
+  const parentPath = path.dirname(resolvedPath)
+  const exists = fs.existsSync(resolvedPath)
+  const parentExists = fs.existsSync(parentPath)
+  let isFile = false
+  let size: number | null = null
+  let parentEntriesPreview: string[] = []
+
+  try {
+    if (exists) {
+      const stat = fs.statSync(resolvedPath)
+      isFile = stat.isFile()
+      size = stat.size
+    }
+  } catch {
+    // best-effort logging only
+  }
+
+  try {
+    if (parentExists) {
+      parentEntriesPreview = fs.readdirSync(parentPath).slice(0, 8)
+    }
+  } catch {
+    // best-effort logging only
+  }
+
+  return {
+    path: resolvedPath,
+    exists,
+    parentPath,
+    parentExists,
+    isFile,
+    size,
+    parentEntriesPreview
   }
 }
 
@@ -638,6 +689,16 @@ class ClaudeCodeService implements AgentServiceInterface {
       ...(customGitBashPath ? { CLAUDE_CODE_GIT_BASH_PATH: customGitBashPath } : {})
     }
 
+    if (customGitBashPath) {
+      logger.info('Prepared Claude Git Bash env', {
+        sessionId: session.id,
+        cwd,
+        resourcesPath: process.resourcesPath,
+        gitBashPath: customGitBashPath,
+        gitBashDir: path.dirname(customGitBashPath)
+      })
+    }
+
     if (bundledPythonPath) {
       prependPathEntry(env, path.dirname(bundledPythonPath))
       env.CHERRY_STUDIO_PYTHON_PATH = bundledPythonPath
@@ -1070,6 +1131,14 @@ class ClaudeCodeService implements AgentServiceInterface {
         }
 
         logger.info('[PromptBudget] Claude SDK spawn args', summarizeClaudeSpawnArgs(spawnOptions.args, spawnOptions.cwd))
+        if (childEnv.CLAUDE_CODE_GIT_BASH_PATH) {
+          logger.info('Spawning Claude Code with Git Bash env', {
+            cwd: spawnOptions.cwd,
+            resourcesPath: process.resourcesPath,
+            gitBashPath: childEnv.CLAUDE_CODE_GIT_BASH_PATH,
+            gitBashDir: path.dirname(childEnv.CLAUDE_CODE_GIT_BASH_PATH)
+          })
+        }
 
         const child = fork(spawnOptions.args[0], spawnOptions.args.slice(1), {
           cwd: spawnOptions.cwd,
@@ -1081,6 +1150,13 @@ class ClaudeCodeService implements AgentServiceInterface {
         child.stderr?.on('data', (data: Buffer) => {
           const text = data.toString()
           logger.warn('claude stderr', { chunk: text })
+          if (text.includes(GIT_BASH_PATH_ERROR_SIGNATURE)) {
+            logger.warn('Claude Git Bash path failure snapshot', {
+              cwd: spawnOptions.cwd,
+              resourcesPath: process.resourcesPath,
+              gitBash: summarizePathSnapshot(childEnv.CLAUDE_CODE_GIT_BASH_PATH)
+            })
+          }
           errorChunks.push(text)
         })
         return child as unknown as SpawnedProcess
