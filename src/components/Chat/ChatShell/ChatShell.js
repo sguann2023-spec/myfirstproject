@@ -786,7 +786,7 @@ const ChatShell = ({
   const beginnerGuideSteps = React.useMemo(() => ([
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '点击这里新建工作空间',
+      description: '点击这里新建工作空间。（你可以随时关闭新手引导，在设置页面再次打开。）',
       target: () => beginnerGuideCreateWorkspaceButtonRef.current,
       nextButtonProps: { style: { display: 'none' } }
     },
