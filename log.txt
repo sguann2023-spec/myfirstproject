@@ -1,0 +1,257 @@
+(base) sunguannan@MacBookPro CapCutHelper % pnpm run dev
+
+> @sun-guannan/vectcut@1.5.22 dev /Users/sunguannan/CapCutHelper
+> electron-vite
+
+vite v7.3.3 building ssr environment for development...
+✓ 330 modules transformed.
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/ConfigManager.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/mcpServers/assistant.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/assistant.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/assistant.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/assistant.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/index.ts, /Users/sunguannan/CapCutHelper/src/main/ipc.ts, /Users/sunguannan/CapCutHelper/src/main/services/AppMenuService.ts, /Users/sunguannan/CapCutHelper/src/main/services/AppUpdater.ts, /Users/sunguannan/CapCutHelper/src/main/services/ContextMenu.ts, /Users/sunguannan/CapCutHelper/src/main/services/LegacyMainCompatIpc.ts, /Users/sunguannan/CapCutHelper/src/main/services/NodeTraceService.ts, /Users/sunguannan/CapCutHelper/src/main/services/SelectionService.ts, /Users/sunguannan/CapCutHelper/src/main/services/ShortcutService.ts, /Users/sunguannan/CapCutHelper/src/main/services/SpanCacheService.ts, /Users/sunguannan/CapCutHelper/src/main/services/ThemeService.ts, /Users/sunguannan/CapCutHelper/src/main/services/WebviewService.ts, /Users/sunguannan/CapCutHelper/src/main/services/WindowService.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/builtin/BuiltinAgentProvisioner.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/claudecode/index.ts, /Users/sunguannan/CapCutHelper/src/main/services/mcp/oauth/callback.ts, /Users/sunguannan/CapCutHelper/src/main/utils/locales.ts, /Users/sunguannan/CapCutHelper/src/main/utils/process.ts, /Users/sunguannan/CapCutHelper/src/main/utils/zoom.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/WebviewService.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/ipc.ts, /Users/sunguannan/CapCutHelper/src/main/ipc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/index.ts, /Users/sunguannan/CapCutHelper/src/main/ipc.ts, /Users/sunguannan/CapCutHelper/src/main/services/WindowService.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/mcpServers/hub/mcp-bridge.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/ipc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/mcpServers/hub/index.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/hub/runtime.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/agents/services/AgentService.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/sessionStreamIpc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/mcpServers/claw.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/workspaceMemory.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/SchedulerService.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/builtin/BuiltinAgentBootstrap.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelMessageHandler.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/claudecode/index.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/index.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/agents/services/ChannelService.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/services/agents/services/claudecode/index.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/apiServer/routes/channels/handlers.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/claw.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/SchedulerService.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelManager.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelMessageHandler.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/claudecode/index.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelMessageHandler.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/sessionStreamIpc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelManager.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/index.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelManager.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/ipc.ts, /Users/sunguannan/CapCutHelper/src/main/ipc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/apiServer/routes/channels/handlers.ts, /Users/sunguannan/CapCutHelper/src/main/mcpServers/claw.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/SchedulerService.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/adapters/discord/DiscordAdapter.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/adapters/feishu/FeishuAdapter.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/adapters/qq/QQAdapter.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/adapters/slack/SlackAdapter.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/adapters/telegram/TelegramAdapter.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/adapters/wechat/WeChatAdapter.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/index.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/agents/services/SessionMessageService.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/sessionStreamIpc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/services/agents/services/SchedulerService.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/channels/ChannelMessageHandler.ts, /Users/sunguannan/CapCutHelper/src/main/services/agents/services/index.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/BackupManager.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/index.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/ipc.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /Users/sunguannan/CapCutHelper/src/main/services/OvmsManager.ts is dynamically imported by /Users/sunguannan/CapCutHelper/src/main/index.ts, /Users/sunguannan/CapCutHelper/src/main/ipc.ts but also statically imported by /Users/sunguannan/CapCutHelper/src/main/index.ts, /Users/sunguannan/CapCutHelper/src/main/ipc.ts, dynamic import will not move module into another chunk.
+
+out/main/chunks/FlushController-Dm-LUQOp.js             3.18 kB │ map:     6.19 kB
+out/main/chunks/migrateBlockReferences-DImvFXsI.js      6.08 kB │ map:     6.49 kB
+out/main/chunks/TelegramAdapter-DLTEJPtd.js            10.94 kB │ map:    15.55 kB
+out/main/chunks/QQAdapter-tBuCHVN7.js                  19.50 kB │ map:    31.93 kB
+out/main/chunks/SlackAdapter-DwaIZtuZ.js               23.31 kB │ map:    40.38 kB
+out/main/chunks/DiscordAdapter-CPcBaUiG.js             24.91 kB │ map:    41.25 kB
+out/main/chunks/FeishuAdapter-CGHolDNI.js              26.27 kB │ map:    46.39 kB
+out/main/chunks/WeChatAdapter-Bc_3eEH4.js              35.72 kB │ map:    62.78 kB
+out/main/index.js                                   4,673.02 kB │ map: 3,701.22 kB
+✓ built in 3.63s
+
+electron main process built successfully
+
+-----
+
+vite v7.3.3 building ssr environment for development...
+✓ 3 modules transformed.
+out/preload/payment.js   0.33 kB │ map:   0.76 kB
+out/preload/index.js    69.00 kB │ map: 114.57 kB
+✓ built in 80ms
+
+electron preload scripts built successfully
+
+-----
+
+dev server running for the electron renderer process at:
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+
+starting electron app...
+
+21:46:35.778 <DEBUG> [MCPApiService] MCPApiService initialized
+21:46:35.790 <INFO> [SkillService] SkillService initialized
+21:46:35.808 <INFO> [OpenAPIMiddleware] OpenAPI documentation ready { docsPath: '/api-docs', specPath: '/api-docs.json' }
+21:46:35.840 <INFO> [MainEntry] Chromium lang switch set { chromiumLang: 'zh-CN' }
+21:46:36.160 <INFO> [MainEntry] Resource path resolved {
+  isPackaged: false,
+  appPath: '/Users/sunguannan/CapCutHelper',
+  processResourcesPath: '/Users/sunguannan/CapCutHelper/node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/Resources',
+  resourcePath: '/Users/sunguannan/CapCutHelper/resources',
+  resourcePathExists: true,
+  builtinSkillsExists: true,
+  migrationDirExists: true
+}
+21:46:36.162 <DEBUG> [VersionService] Version information not changed, skip recording
+21:46:36.221 <INFO> [BackupManager] [handleStartupRestore] Restoration completed successfully
+21:46:36.294 <INFO> [PowerMonitorService] Shutdown handler registered { totalHandlers: 1 }
+21:46:36.295 <INFO> [PowerMonitorService] Shutdown handler registered { totalHandlers: 2 }
+21:46:36.300 <INFO> [PowerMonitorService] Electron powerMonitor shutdown listener registered
+21:46:36.300 <INFO> [PowerMonitorService] PowerMonitorService initialized { platform: 'darwin' }
+21:46:36.300 <DEBUG> [Utils:Rtk] No bundled rtk binaries found for this platform {
+  dir: '/Users/sunguannan/CapCutHelper/resources/binaries/darwin-arm64'
+}
+(node:45868) UnhandledPromiseRejectionWarning: TypeError: Bonjour is not a constructor
+    at LocalTransferService.getBonjour (/Users/sunguannan/CapCutHelper/out/main/index.js:43324:22)
+    at LocalTransferService.restartBrowser (/Users/sunguannan/CapCutHelper/out/main/index.js:43346:26)
+    at LocalTransferService.startDiscovery (/Users/sunguannan/CapCutHelper/out/main/index.js:43278:10)
+    at /Users/sunguannan/CapCutHelper/out/main/index.js:52554:26
+(Use `Electron --trace-warnings ...` to show where the warning was created)
+(node:45868) UnhandledPromiseRejectionWarning: Unhandled promise rejection. This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). To terminate the node process on unhandled promise rejection, use the CLI flag `--unhandled-rejections=strict` (see https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode). (rejection id: 4)
+21:46:36.991 <INFO> [ClaudeCodeService] Preloaded image model list { count: 11 }
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+1  |  @config '../../../../../tailwind.config.js';
+2  |  @layer theme, base, components, utilities;
+3  |  @import 'tailwindcss/theme.css' layer(theme);
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+4  |  @import 'tailwindcss/utilities.css' layer(utilities);
+5  |  @import 'tw-animate-css';
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+2  |  @layer theme, base, components, utilities;
+3  |  @import 'tailwindcss/theme.css' layer(theme);
+4  |  @import 'tailwindcss/utilities.css' layer(utilities);
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+5  |  @import 'tw-animate-css';
+6  |  
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+3  |  @import 'tailwindcss/theme.css' layer(theme);
+4  |  @import 'tailwindcss/utilities.css' layer(utilities);
+5  |  @import 'tw-animate-css';
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^
+6  |  
+7  |  @custom-variant dark (&:is(.dark *));
+21:46:43.474 <INFO> [mainWindow::LoginPage] [LoginPage] Injected fallback window.store before redux-store-ready notify
+21:46:43.478 <INFO> [mainWindow::LoginPage] [LoginPage] Notifying redux-store-ready from login pre-init...
+21:46:43.478 <INFO> [ReduxService] Received redux-store-ready IPC signal
+21:46:43.487 <INFO> [mainWindow::LoginPage] [LoginPage] redux-store-ready notify acknowledged { result: { ok: true } }
+21:46:43.488 <INFO> [AppUpdater] Using legacy auto updater feed URL {
+  feedUrl: 'https://player.install-ai-guider.top/client/latest',
+  channelKey: 'default',
+  channel: 'latest',
+  provider: 'custom-mac-arch'
+}
+21:46:43.489 <INFO> [AppUpdater] Checking for update
+21:46:43.512 <INFO> [MacArchUpdateProvider] Checking mac update manifest: latest-mac-arm64.yml
+21:46:43.913 <INFO> [AppUpdater] Update for version 1.5.22 is not available (latest version: 1.5.21, downgrade is disallowed).
+21:46:43.914 <INFO> [AppUpdater] update check result: false, channel: latest, currentVersion: 1.5.22
+21:46:43.917 <INFO> [mainWindow::LoginPage] [LoginPage] Background check for update finished {
+  hasUpdate: false,
+  currentVersion: {
+    options: {},
+    loose: false,
+    includePrerelease: false,
+    raw: '1.5.22',
+    major: 1,
+    minor: 5,
+    patch: 22,
+    prerelease: [],
+    build: [],
+    version: '1.5.22'
+  }
+}
+21:46:44.302 <INFO> [ReduxService] Received redux-store-ready IPC signal
+21:46:44.303 <INFO> [mainWindow::Store] Redux store ready, notified main process
+21:46:44.895 <INFO> [SessionStreamIpc] [SessionStreamIpc] IPC registration completed
+21:46:44.916 <INFO> [builtinSkills] Starting builtin skill sync {
+  resourceSkillsPath: '/Users/sunguannan/CapCutHelper/resources/skills',
+  globalSkillsPath: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Skills',
+  distributeToAgents: true,
+  waitForRemoteSync: false
+}
+21:46:44.921 <DEBUG> [builtinSkills] Skipping bundled builtin skill because a global version is already installed {
+  skillName: '__pycache__',
+  installedVersion: '1.5.22',
+  bundledVersion: '1.5.22'
+}
+21:46:44.922 <INFO> [DatabaseManager] Initializing database at: /Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/agents.db
+21:46:44.947 <INFO> [MigrationService] Starting migration check...
+21:46:44.956 <INFO> [MigrationService] Latest applied migration: v10001, latest available: v7
+21:46:44.957 <INFO> [MigrationService] Database is up to date
+21:46:44.958 <INFO> [DataMigrationService] Starting data migration check...
+21:46:44.960 <INFO> [DataMigrationService] No pending data migrations
+21:46:44.960 <INFO> [DatabaseManager] Database initialized successfully
+21:46:44.968 <INFO> [SkillService] Skill copy skipped (up-to-date) {
+  folderName: '__pycache__',
+  target: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Skills/__pycache__',
+  linkPath: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Agents/vectcut_claw_default/.claude/skills/__pycache__'
+}
+21:46:44.969 <INFO> [SkillService] Enabled skill for all agents (filesystem only) { skillId: '__pycache__', folderName: '__pycache__', agentCount: 1 }
+21:46:44.976 <DEBUG> [builtinSkills] Skipping bundled builtin skill because a global version is already installed {
+  skillName: '儿童绘本',
+  installedVersion: '1.5.22',
+  bundledVersion: '1.5.22'
+}
+21:46:44.986 <INFO> [SkillService] Skill copy skipped (up-to-date) {
+  folderName: '儿童绘本',
+  target: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Skills/儿童绘本',
+  linkPath: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Agents/vectcut_claw_default/.claude/skills/儿童绘本'
+}
+21:46:44.987 <INFO> [SkillService] Enabled skill for all agents (filesystem only) { skillId: '儿童绘本', folderName: '儿童绘本', agentCount: 1 }
+21:46:44.991 <INFO> [builtinSkills] Starting remote builtin skill sync {
+  manifestUrl: 'https://player.install-ai-guider.top/skills/manifest.json',
+  distributeToAgents: true
+}
+21:46:45.017 <INFO> [builtinSkills] Fetched remote builtin skills manifest successfully {
+  url: 'https://player.install-ai-guider.top/skills/manifest.json',
+  updatedAt: '2026-07-05T12:00:00Z',
+  skillCount: 5
+}
+21:46:45.018 <DEBUG> [builtinSkills] Skipping remote builtin skill deletion because tombstone is already applied {
+  skillName: 'find-skills',
+  previousTombstone: '2.0.0',
+  tombstoneVersion: '2.0.0'
+}
+21:46:45.018 <DEBUG> [builtinSkills] Skipping remote builtin skill deletion because tombstone is already applied {
+  skillName: 'skill-creator',
+  previousTombstone: '2.0.0',
+  tombstoneVersion: '2.0.0'
+}
+21:46:45.018 <DEBUG> [builtinSkills] Skipping remote builtin skill deletion because tombstone is already applied {
+  skillName: 'vectcut-skill',
+  previousTombstone: '2.0.0',
+  tombstoneVersion: '2.0.0'
+}
+21:46:45.018 <DEBUG> [builtinSkills] Skipping remote builtin skill deletion because tombstone is already applied {
+  skillName: 'vectcut-coze',
+  previousTombstone: '2.0.0',
+  tombstoneVersion: '2.0.0'
+}
+21:46:45.018 <DEBUG> [builtinSkills] Skipping remote builtin skill deletion because tombstone is already applied {
+  skillName: 'speech-synthesis',
+  previousTombstone: '1.0.0',
+  tombstoneVersion: '1.0.0'
+}
+21:46:45.020 <INFO> [builtinSkills] Completed remote builtin skill sync {
+  updatedAt: '2026-07-05T12:00:00Z',
+  updatedCount: 0,
+  deletedCount: 5,
+  skippedCount: 0
+}
+21:46:47.638 <DEBUG> [mainWindow::TokenStore] set refreshToken -S7LFgiPcB0nYJ8rR8AtGlQmjluOD57ti-6DybY6RTr
+21:46:47.834 <DEBUG> [mainWindow::App] login success
+21:46:47.834 <DEBUG> [mainWindow::App] id_token: eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6ImM0TzNVNHc0Y0s0WHhHR0hsTXVPZHMzV3FpQ1E5S2hqUUw4Q3lsdU96WjQifQ.eyJzdWIiOiI2OTIxODEwYmFiOGJmYWQ2NTE2ZWNjZDEiLCJhdWQiOiI2OTAxZGQxNDVkYWZjNmYxZjMxNDM5MzgiLCJpYXQiOjE3ODM4NjQwMDcsImV4cCI6MTc4NTA3MzYwNywiaXNzIjoiaHR0cHM6Ly9tbGJkOGw2dmdpMTMtZGVtby5hdXRoaW5nLmNuL29pZGMiLCJuYW1lIjpudWxsLCJnaXZlbl9uYW1lIjpudWxsLCJtaWRkbGVfbmFtZSI6bnVsbCwiZmFtaWx5X25hbWUiOm51bGwsIm5pY2tuYW1lIjoi5a2Z6KeC5qWgIiwicHJlZmVycmVkX3VzZXJuYW1lIjpudWxsLCJwcm9maWxlIjpudWxsLCJwaWN0dXJlIjoiaHR0cHM6Ly90aGlyZHd4LnFsb2dvLmNuL21tb3Blbi92aV8zMi9EWUFJT2dxODNlb1g4alZucDdTV1ZRSlVQaks5YWpjcWV0bE5wUTZGUFVIN1pWdEMwSTRGT2liQ1dZU1NpYWFRVFNYNk5ROEFYemxvaWNMS1cxQ0tUOHpwZy8xMzIiLCJ3ZWJzaXRlIjpudWxsLCJiaXJ0aGRhdGUiOm51bGwsImdlbmRlciI6IlUiLCJ6b25laW5mbyI6bnVsbCwibG9jYWxlIjoiIiwidXBkYXRlZF9hdCI6IjIwMjYtMDctMTJUMDM6NDM6MDcuNDk3WiIsImVtYWlsIjpudWxsLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsInBob25lX251bWJlciI6bnVsbCwicGhvbmVfbnVtYmVyX3ZlcmlmaWVkIjpmYWxzZX0.IFVAcvqp61r1Xhxi6p5iJ7teoJ7UtBdFJdrZ2jh6E_T3F5XU_fscRor8aH2aQjarzKroQtlFAmaE2cznGzcsddg0QthAvo-ulm6AZLc-YbLqd-TcS7YI1OvvVam1vrtHbvYhmNA2OtCJfaKuc6ogLfNaFZIYGwIT3XNC5KiuyPGY-YS2F3vFfqE8I9aBQi3Ql0mWs5odkYVrZaPsJS9357hm0ixFBLg0M5XyNMYirVkxfIsAoK-FPzuRRtYx_B3lBEh4cBZjoEuSCR5qiXiJVGUS383PulWfQvJkltckXwjywufbO1qXVG2ytilvK3KC2pL79NOlQ3IhGMxJcjjxJQ
+21:46:48.172 <INFO> [mainWindow::useAgentClient] AgentApiClient disabled because API Server entry is turned off { host: '127.0.0.1', port: 23333 }
+21:46:48.424 <INFO> [AgentMessageRepository] Loaded 0 messages for session session_1783846441588_7ld35em4m
+21:46:48.425 <INFO> [SessionStreamIpc] [SessionStreamIpc] Registered stream subscription {
+  sessionId: 'session_1783846441588_7ld35em4m',
+  subscribeChannel: 'cherry-chat-stream:subscribe',
+  chunkChannel: 'cherry-chat-stream:chunk',
+  hasSubscribers: true,
+  subscriberCount: 1
+}
+21:46:48.482 <WARN> [mainWindow::HomePage] [HomePage][HistoryHydrate] skipped empty history {
+  chatId: 'chat-1783846441144-b2qvbx',
+  sessionId: 'session_1783846441588_7ld35em4m',
+  beforeMissingAssistantCount: 0
+}
+21:46:48.518 <DEBUG> [FileStorage] Searching by filename pattern {
+  pattern: '.',
+  path: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Workspaces/vectcut_claw_default/ws-mrh6umh1-r9qj67'
+}
+21:46:48.535 <DEBUG> [FileStorage] Searching by filename pattern {
+  pattern: '.',
+  path: '/Users/sunguannan/Library/Application Support/@sun-guannan/vectcutDev/Data/Workspaces/vectcut_claw_default/ws-mrh6umh1-r9qj67'
+}
+21:46:48.567 <DEBUG> [FileStorage] Found matches by filename { count: 8 }
+21:46:48.568 <DEBUG> [FileStorage] Found matches by filename { count: 8 }
+21:46:48.601 <DEBUG> [FileStorage] Fuzzy glob returned no results, falling back to greedy substring match
+21:46:48.629 <DEBUG> [FileStorage] Fuzzy glob returned no results, falling back to greedy substring match
+2026-07-12 21:46:53.969 Electron[45868:61964175] error messaging the mach port for IMKCFRunLoopWakeUpReliable

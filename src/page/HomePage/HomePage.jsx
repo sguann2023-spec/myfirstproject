@@ -21,6 +21,7 @@ import Chat from '../../components/Chat/Chat';
 import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { normalizeChatError } from '../../shared/chatError';
+import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
@@ -602,6 +603,16 @@ const createEmptyChatSession = () => {
     runtimeSessionId: '',
     messages: [],
   };
+};
+
+const shouldRestoreBeginnerGuideInFreshChat = () => (
+  !isBeginnerGuideCompleted() || isBeginnerGuideReopenPending()
+);
+
+const isFreshBeginnerGuideChatSession = (session) => {
+  const messageCount = Array.isArray(session?.messages) ? session.messages.length : 0;
+  const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+  return messageCount === 0 && !runtimeSessionId;
 };
 
 const sortChatSessions = (sessions) => {
@@ -1438,10 +1449,26 @@ const HomePage = () => {
               : [],
           }));
         if (normalized.length > 0) {
-          const sorted = sortChatSessions(normalized);
-          setChatSessions(sorted);
-          const activeExists = sorted.some((item) => item.id === rawActiveId);
-          setActiveChatId(activeExists ? rawActiveId : sorted[0].id);
+          let nextSessions = sortChatSessions(normalized);
+          let nextActiveChatId = nextSessions.some((item) => item.id === rawActiveId)
+            ? rawActiveId
+            : nextSessions[0].id;
+
+          if (shouldRestoreBeginnerGuideInFreshChat()) {
+            const freshGuideSession = nextSessions.find((item) => isFreshBeginnerGuideChatSession(item));
+            if (freshGuideSession) {
+              nextActiveChatId = freshGuideSession.id;
+            } else {
+              const nextFreshSession = createEmptyChatSession();
+              nextSessions = [nextFreshSession, ...nextSessions];
+              nextActiveChatId = nextFreshSession.id;
+            }
+            setSelectedPane('chat');
+            setChatHistoryVisible(false);
+          }
+
+          setChatSessions(nextSessions);
+          setActiveChatId(nextActiveChatId);
           return;
         }
       }
