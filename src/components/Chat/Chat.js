@@ -132,6 +132,7 @@ const Chat = ({
   onQuickPromptAction,
   beginnerGuideDownloadPaneRef = null,
   beginnerGuideSettingsPaneRef = null,
+  onRefreshCredits,
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
@@ -245,6 +246,7 @@ const Chat = ({
       childrensBookQuickPromptRef={childrensBookQuickPromptRef}
       beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
       beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
+      onRefreshCredits={onRefreshCredits}
       beginnerGuideEligible={messages.length === 0}>
       <MessagePane
         messages={messages}

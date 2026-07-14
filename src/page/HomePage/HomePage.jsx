@@ -3729,6 +3729,7 @@ const HomePage = () => {
                     void handleBootstrapTravelMontage();
                   }
                 }}
+                onRefreshCredits={refreshRechargeBalance}
                 beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
                 beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
               />

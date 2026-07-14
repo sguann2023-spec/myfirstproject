@@ -31,15 +31,34 @@
   background: #fff;
 }
 
+.help-settings__action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+}
+
 .help-settings__action-desc {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+.help-settings__action-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .help-settings__action-title {
   font-size: 14px;
   color: #333;
+}
+
+.help-settings__reward-tag {
+  margin-inline-end: 0;
+  white-space: nowrap;
+  margin-left: 2px;
 }
 
 .help-settings__action-subtitle {

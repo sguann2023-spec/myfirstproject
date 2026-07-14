@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Empty, Tooltip, Tour } from 'antd';
+import { Empty, Tooltip, Tour, message } from 'antd';
 import {
   ChevronRight,
   Eye,
@@ -26,6 +26,8 @@ import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
 import TextFilePreview from './TextFilePreview';
 import WebPagePreview from './WebPagePreview';
+import { claimNewguiderReward } from '../../../api/newguiderReward';
+import { loggerService } from '@logger';
 import {
   BEGINNER_GUIDE_COMPLETED_KEY,
   BEGINNER_GUIDE_REOPEN_PENDING_KEY,
@@ -34,6 +36,8 @@ import {
   isBeginnerGuideReopenPending,
   setBeginnerGuideCompleted
 } from '../../../shared/beginnerGuide';
+
+const logger = loggerService.withContext('ChatShell');
 
 const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
 const isAbsoluteEntryPath = (value) => (
@@ -116,7 +120,7 @@ const TEXT_PREVIEW_EXTENSIONS = new Set([
   'txt', 'text', 'log', 'conf', 'config', 'env', 'ini', 'toml', 'graphql', 'gql',
   'csv', 'tsv', 'gitignore', 'editorconfig'
 ]);
-const BEGINNER_GUIDE_TITLE = '新手引导';
+const BEGINNER_GUIDE_TITLE = '新手引导，完成获赠100积分';
 const CHILDRENS_BOOK_SKILL_LABEL = '儿童绘本';
 const getFileExtension = (fileName = '') => {
   const normalized = String(fileName || '').trim().toLowerCase();
@@ -709,6 +713,7 @@ const ChatShell = ({
   beginnerGuideDownloadPaneRef = null,
   beginnerGuideSettingsPaneRef = null,
   beginnerGuideEligible = false,
+  onRefreshCredits,
   children
 }) => {
   const [resolvedSessionId, setResolvedSessionId] = React.useState(runtimeSessionId || '');
@@ -753,6 +758,7 @@ const ChatShell = ({
   const beginnerGuideWebPreviewPaneRef = React.useRef(null);
   const beginnerGuideChildrensBookRunButtonRef = React.useRef(null);
   const beginnerGuideChildrensBookEditButtonRef = React.useRef(null);
+  const beginnerGuideRewardClaimingRef = React.useRef(false);
   const workspaceRefreshTimeoutRef = React.useRef(null);
   const workspaceLibrary = React.useMemo(() => getWorkspaceLibrary(workspaceStore?.library), [workspaceStore]);
   const recentWorkspacePaths = React.useMemo(
@@ -775,7 +781,7 @@ const ChatShell = ({
     (!beginnerGuideDone || beginnerGuideReopenPending) &&
     !hasLockedWorkspace
   );
-  const completeBeginnerGuide = React.useCallback(() => {
+  const dismissBeginnerGuide = React.useCallback(() => {
     setBeginnerGuideOpen(false);
     setBeginnerGuideCurrent(0);
     setBeginnerGuideDone(true);
@@ -783,6 +789,71 @@ const ChatShell = ({
     setBeginnerGuideCompleted(true);
     clearBeginnerGuideReopen();
   }, []);
+  const completeBeginnerGuide = React.useCallback(async () => {
+    logger.info('beginner guide finish triggered', {
+      beginnerGuideDone,
+      beginnerGuideReopenPending,
+    });
+    dismissBeginnerGuide();
+
+    if (beginnerGuideRewardClaimingRef.current) {
+      logger.info('skip beginner guide reward claim', {
+        reason: 'already_claiming',
+        isClaiming: beginnerGuideRewardClaimingRef.current,
+      });
+      return;
+    }
+
+    beginnerGuideRewardClaimingRef.current = true;
+    try {
+      logger.info('start beginner guide reward claim');
+      const payload = await claimNewguiderReward();
+      logger.info('beginner guide reward claim result', payload || {});
+      const claimResult = String(payload?.claim_result || '').trim().toLowerCase();
+
+      if (claimResult === 'claimed_now' || payload?.claimed_now) {
+        await Promise.resolve(onRefreshCredits?.()).catch((error) => {
+          logger.warn('Failed to refresh credits after beginner guide reward claim.', error);
+        });
+        logger.info('beginner guide reward claimed now');
+        message.success('新手引导已完成，100 积分已到账');
+        return;
+      }
+
+      if (claimResult === 'processing' || payload?.in_progress) {
+        logger.info('beginner guide reward still in progress');
+        message.info('新手引导已完成，奖励领取中，请稍后查看积分');
+        return;
+      }
+
+      if (claimResult === 'already_rewarded') {
+        await Promise.resolve(onRefreshCredits?.()).catch((error) => {
+          logger.warn('Failed to refresh credits after beginner guide reward sync.', error);
+        });
+        logger.info('beginner guide reward already rewarded', {
+          already_rewarded: Boolean(payload?.already_rewarded),
+        });
+        message.info('该奖励已领取过');
+        return;
+      }
+
+      if (payload?.rewarded) {
+        await Promise.resolve(onRefreshCredits?.()).catch((error) => {
+          logger.warn('Failed to refresh credits after beginner guide reward sync.', error);
+        });
+        logger.info('beginner guide reward fallback rewarded branch');
+        message.info(payload?.already_rewarded ? '该奖励已领取过' : '新手引导奖励已领取');
+        return;
+      }
+
+      logger.warn('beginner guide reward claim returned unexpected payload', payload || {});
+    } catch (error) {
+      logger.warn('Failed to claim beginner guide reward.', error);
+      message.warning('新手引导已完成，奖励可能稍后到账，请稍后查看积分');
+    } finally {
+      beginnerGuideRewardClaimingRef.current = false;
+    }
+  }, [beginnerGuideDone, beginnerGuideReopenPending, dismissBeginnerGuide, onRefreshCredits]);
   const beginnerGuideSteps = React.useMemo(() => ([
     {
       title: BEGINNER_GUIDE_TITLE,
@@ -828,11 +899,16 @@ const ChatShell = ({
       title: BEGINNER_GUIDE_TITLE,
       description: '你可以随时在设置里再次查看新手引导。',
       target: () => beginnerGuideSettingsPaneRef?.current || null,
+      nextButtonProps: {
+        onClick: () => {
+          void completeBeginnerGuide();
+        }
+      }
     }
   ].map((step) => ({
     ...step,
     prevButtonProps: { style: { display: 'none' } }
-  }))), [beginnerGuideDownloadPaneRef, beginnerGuideSettingsPaneRef, childrensBookQuickPromptRef]);
+  }))), [beginnerGuideDownloadPaneRef, beginnerGuideSettingsPaneRef, childrensBookQuickPromptRef, completeBeginnerGuide]);
 
   React.useEffect(() => {
     setResolvedSessionId(runtimeSessionId || '');
@@ -2344,7 +2420,7 @@ const ChatShell = ({
         open={beginnerGuideOpen}
         current={beginnerGuideCurrent}
         onChange={setBeginnerGuideCurrent}
-        onClose={completeBeginnerGuide}
+        onClose={dismissBeginnerGuide}
         steps={beginnerGuideSteps}
         placement="bottom"
         locale={{ Finish: '结束引导', finish: '结束引导' }}
