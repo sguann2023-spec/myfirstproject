@@ -4,6 +4,11 @@ import { Input, Upload, message } from 'antd';
 import './AboutUs.css';
 import { electronStore } from '../../shared/electronStore';
 import AppLogo from '../../logo.png';
+import BingoAppLogo from '../../../build-resources/brands/bingo/logo.png';
+
+const RENDERER_ENV = import.meta.env || {};
+const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase();
+const ABOUT_APP_LOGO = CHANNEL_BRAND === 'bingo' ? BingoAppLogo : AppLogo;
 
 const UPDATE_TEXT = {
   idle: '检查更新',
@@ -182,7 +187,7 @@ const AboutUs = () => {
       <div className="about-section">
         <div className="about-section-title">检查更新</div>
         <div className="about-card">
-          <img src={AppLogo} alt="App Logo" className="about-logo" />
+          <img src={ABOUT_APP_LOGO} alt="App Logo" className="about-logo" />
           <div className="about-content">
             <div className="about-version">版本:{versionDisplay}</div>
             {statusText ? <div className="about-status">{statusText}</div> : null}

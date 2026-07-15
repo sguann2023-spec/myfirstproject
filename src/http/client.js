@@ -1,6 +1,11 @@
 import { authFetch } from '../auth/authFetch';
 import { tokenStore } from '../auth'; // 统一从 index 导入
 import { loggerService } from '@logger';
+
+const RENDERER_ENV = import.meta.env || {};
+const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase() || 'default';
+const CHANNEL_BRAND_HEADER = 'X-Channel-Brand';
+
 const logger = loggerService.withContext('HttpClient');
 let authFailureHandler = null;
 
@@ -11,9 +16,19 @@ export function setAuthFailureHandler(handler) {
   authFailureHandler = handler;
 }
 
+function withChannelHeaders(options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (!headers.has(CHANNEL_BRAND_HEADER)) {
+    headers.set(CHANNEL_BRAND_HEADER, CHANNEL_BRAND);
+  }
+  return { ...options, headers };
+}
+
 async function request(url, options = {}, retryOn401 = true) {
+  const requestOptions = withChannelHeaders(options);
+
   // 首次请求（会自动附加 access_token）
-  let res = await authFetch(url, options);
+  let res = await authFetch(url, requestOptions);
 
   // 非 401 或400 或不重试，直接返回
   if ((res.status !== 401 && res.status !== 400) || !retryOn401) return res;
@@ -29,7 +44,7 @@ async function request(url, options = {}, retryOn401 = true) {
     throw err;
   }
 
-  const retryRes = await authFetch(url, options);
+  const retryRes = await authFetch(url, requestOptions);
   if (retryRes.status === 401 || retryRes.status === 400) {
     // 刷新后仍 401，则通知登录
     if (authFailureHandler) authFailureHandler(new Error('Unauthorized after refresh'));

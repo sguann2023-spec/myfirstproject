@@ -32,7 +32,11 @@ const AUTHING_CONFIG = {
     CLIENT_SECRET: '16a94e467e927cc09b3c8dc7ec92d420'
 };
 const RENDERER_ENV = import.meta.env || {};
+const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase();
 const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
+const CHANNEL_LOGO_TITLE_MAP = {
+    bingo: 'BINGO流光剪辑'
+};
 
 function normalizeInviteCode(value) {
     return String(value || '').trim();
@@ -105,6 +109,10 @@ function normalizeCreationChannel(value) {
     if (s.includes('email')) return 'email';
     if (s.includes('username')) return 'username';
     return s;
+}
+
+function getLogoTitle(trans) {
+    return CHANNEL_LOGO_TITLE_MAP[CHANNEL_BRAND] || trans('logo_title');
 }
 
 function inferCreationChannelFromClaims(claims = {}, accessToken = '') {
@@ -600,7 +608,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     className="qq-logo"
                     style={{ WebkitAppRegion: 'drag' }}
                 >
-                    {i18n('logo_title')}
+                    {getLogoTitle(i18n)}
                 </Typography.Title>
 
                 <div className="avatar-section">

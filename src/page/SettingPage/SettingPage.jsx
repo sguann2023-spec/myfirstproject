@@ -12,13 +12,16 @@ const HelpSettings = lazy(() => import('../../components/HelpSettings/HelpSettin
 const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
 const AboutUs = lazy(() => import('../../components/AboutUs/AboutUs'));
 const PolicyAgreement = lazy(() => import('../../components/PolicyAgreement/PolicyAgreement'));
+const RENDERER_ENV = import.meta.env || {};
+const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase();
+const ABOUT_TITLE = CHANNEL_BRAND === 'bingo' ? '关于BINGO流光剪辑' : '关于流光剪辑';
 
 // 菜单项数据
 const settingMenuItems = [
   { key: 'account-security', icon: <img src={AccountSecurityIcon} alt="Account Security" className="setting-icon" />, title: '账号与安全', component: AccountSecurity },
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
   { key: 'help', icon: <QuestionCircleOutlined />, title: '使用帮助', component: HelpSettings },
-  { key: 'about', icon: <InfoCircleOutlined />, title: '关于流光剪辑', component: AboutUs },
+  { key: 'about', icon: <InfoCircleOutlined />, title: ABOUT_TITLE, component: AboutUs },
   { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement }
 ];
 
