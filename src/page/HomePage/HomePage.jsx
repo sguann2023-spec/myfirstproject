@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import LogoIcon from '../../../public/logo-circle.png';
+import VipIcon from '../../../public/vip_icon.png';
 import { countTodayDrafts } from '../../api/capcut';
 import { fetchMessagesSummary, getChatModelList } from '../../api/chat';
 import DPane from '../../components/DPane/DPane';
@@ -18,8 +19,10 @@ import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
+import { getMembershipSummary } from '../../api/membership';
 import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
+import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import appStore from '../../renderer/src/store';
@@ -254,6 +257,14 @@ const buildChatMessageModelMeta = (modelId, options = []) => {
     provider: String(matched?.provider_id || matched?.provider_type || inferredProvider || 'vectcut').trim() || 'vectcut',
     pricing: matched?.pricing && typeof matched.pricing === 'object' ? { ...matched.pricing } : undefined,
     description: String(matched?.description || '').trim() || undefined,
+  };
+};
+
+const normalizeMembershipSummary = (payload = {}) => {
+  const membershipLevel = String(payload?.membership_level || '').trim().toLowerCase() || 'none';
+  return {
+    membershipLevel,
+    isActive: Boolean(payload?.is_active) && membershipLevel !== 'none',
   };
 };
 
@@ -1017,6 +1028,7 @@ const HomePage = () => {
   const [headerUser, setHeaderUser] = useState(() => electronStore.get('user') || {});
   const avatarSrc = headerUser?.avatar || LogoIcon;
   const userName = headerUser?.name || '';
+  const [headerMembership, setHeaderMembership] = useState(() => normalizeMembershipSummary());
   const [todayCount, setTodayCount] = useState(null);
   const [creditsBalance, setCreditsBalance] = useState(null);
   const [creditsLoading, setCreditsLoading] = useState(true);
@@ -1065,6 +1077,19 @@ const HomePage = () => {
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
   const activeChatWebPreviewKeyRef = useRef('');
   const chatExpandedWindowBaseWidthRef = useRef(null);
+  const refreshHeaderMembership = useCallback(async () => {
+    try {
+      const payload = await getMembershipSummary();
+      const normalized = normalizeMembershipSummary(payload);
+      setHeaderMembership(normalized);
+      return normalized;
+    } catch (error) {
+      logger.warn('Failed to load membership summary for header.', error);
+      const fallback = normalizeMembershipSummary();
+      setHeaderMembership(fallback);
+      return fallback;
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof electronStore.onDidChange !== 'function') {
@@ -1073,6 +1098,7 @@ const HomePage = () => {
 
     const dispose = electronStore.onDidChange('user', () => {
       setHeaderUser(electronStore.get('user') || {});
+      void refreshHeaderMembership();
     });
 
     return () => {
@@ -1080,7 +1106,7 @@ const HomePage = () => {
         dispose();
       }
     };
-  }, []);
+  }, [refreshHeaderMembership]);
   const chatTitleRevealTimersRef = useRef(new Map());
   const creditsBalanceRef = useRef(null);
   const chatModelOptionsRef = useRef(chatModelOptions);
@@ -1300,10 +1326,15 @@ const HomePage = () => {
   }, [refreshRechargeBalance]);
 
   useEffect(() => {
+    void refreshHeaderMembership();
+  }, [refreshHeaderMembership]);
+
+  useEffect(() => {
     try {
       const { ipcRenderer } = window.require('electron');
       const handlePaymentSuccess = async () => {
         const nextBalance = await refreshRechargeBalanceAfterPayment();
+        await refreshHeaderMembership();
         const nextBalanceText = formatCreditsCount(nextBalance);
         window.toast?.success?.(`支付成功，当前积分 ${nextBalanceText}`);
       };
@@ -1316,7 +1347,7 @@ const HomePage = () => {
       logger.warn('Failed to subscribe payment success events.', error);
       return undefined;
     }
-  }, [refreshRechargeBalanceAfterPayment]);
+  }, [refreshHeaderMembership, refreshRechargeBalanceAfterPayment]);
 
   useEffect(() => {
     activeChatWebPreviewKeyRef.current = String(
@@ -3599,8 +3630,22 @@ const HomePage = () => {
   return (
     <div className="home-container" style={{ WebkitAppRegion: 'no-drag' }}>
         <div className="home-header">
-            <img src={avatarSrc} alt="avatar" className="header-avatar" />
-            <span className="header-username">{userName}</span>
+            <div className="header-avatar-wrapper">
+              <img
+                src={avatarSrc}
+                alt="avatar"
+                className="header-avatar"
+                style={headerMembership.isActive ? { borderColor: MEMBER_COLOR } : undefined}
+              />
+              {headerMembership.isActive && (
+                <img src={VipIcon} alt="vip" className="header-vip-badge" />
+              )}
+            </div>
+            <span
+              className="header-username"
+              style={headerMembership.isActive ? { color: MEMBER_COLOR } : undefined}>
+              {userName}
+            </span>
             <span className="header-welcome">
               今天你创作了{todayCount != null ? todayCount : '…'}条视频
             </span>

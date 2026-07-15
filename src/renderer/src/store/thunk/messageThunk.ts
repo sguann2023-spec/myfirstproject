@@ -650,6 +650,7 @@ const blockUpdateThrottlers = new LRUCache<string, ReturnType<typeof throttle>>(
   updateAgeOnGet: true,
   dispose: (throttler, id) => {
     throttler.cancel()
+    pendingBlockUpdates.delete(id)
     const rafId = blockUpdateRafs.get(id)
     if (rafId) {
       cancelAnimationFrame(rafId)
@@ -672,11 +673,27 @@ const blockUpdateRafs = new LRUCache<string, number>({
 })
 
 /**
+ * 缓存每个消息块最后一次待提交的变更。
+ * 这样在用户主动中断时，可以先把最后一拍内容同步进 store，
+ * 避免因为节流取消而丢失半截回复。
+ */
+const pendingBlockUpdates = new LRUCache<string, any>({
+  max: 100,
+  ttl: 1000 * 60 * 5,
+  updateAgeOnGet: true
+})
+
+/**
  * 获取或创建消息块专用的节流函数。
  */
 const getBlockThrottler = (id: string) => {
   if (!blockUpdateThrottlers.has(id)) {
-    const throttler = throttle(async (blockUpdate: any) => {
+    const throttler = throttle(async () => {
+      const blockUpdate = pendingBlockUpdates.get(id)
+      if (!blockUpdate) {
+        return
+      }
+
       const existingRAF = blockUpdateRafs.get(id)
       if (existingRAF) {
         cancelAnimationFrame(existingRAF)
@@ -685,6 +702,9 @@ const getBlockThrottler = (id: string) => {
       const rafId = requestAnimationFrame(() => {
         store.dispatch(updateOneBlock({ id, changes: blockUpdate }))
         blockUpdateRafs.delete(id)
+        if (pendingBlockUpdates.get(id) === blockUpdate) {
+          pendingBlockUpdates.delete(id)
+        }
       })
 
       blockUpdateRafs.set(id, rafId)
@@ -701,19 +721,28 @@ const getBlockThrottler = (id: string) => {
  * 更新单个消息块。
  */
 export const throttledBlockUpdate = (id: string, blockUpdate: any) => {
+  pendingBlockUpdates.set(id, blockUpdate)
   const throttler = getBlockThrottler(id)
   // store.dispatch(updateOneBlock({ id, changes: blockUpdate }))
-  throttler(blockUpdate)
+  throttler()
 }
 
 /**
  * 取消单个块的节流更新，移除节流器和 RAF。
  */
 export const cancelThrottledBlockUpdate = (id: string) => {
+  const pendingUpdate = pendingBlockUpdates.get(id)
+
   const rafId = blockUpdateRafs.get(id)
   if (rafId) {
     cancelAnimationFrame(rafId)
     blockUpdateRafs.delete(id)
+  }
+
+  if (pendingUpdate) {
+    store.dispatch(updateOneBlock({ id, changes: pendingUpdate }))
+    void updateSingleBlock(id, pendingUpdate)
+    pendingBlockUpdates.delete(id)
   }
 
   const throttler = blockUpdateThrottlers.get(id)

@@ -3,6 +3,7 @@ import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { ProviderMetadata } from '@renderer/types/chunk'
 import type { CitationMessageBlock, MessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
+import { isAgentSessionTopicId } from '@renderer/utils/agentSession'
 import { createMainTextBlock } from '@renderer/utils/messageUtils/create'
 
 import type { BlockManager } from '../BlockManager'
@@ -12,6 +13,7 @@ const logger = loggerService.withContext('TextCallbacks')
 interface TextCallbacksDependencies {
   blockManager: BlockManager
   getState: any
+  topicId: string
   assistantMsgId: string
   getCitationBlockId: () => string | null
   getCitationBlockIdFromTool: () => string | null
@@ -22,6 +24,7 @@ export const createTextCallbacks = (deps: TextCallbacksDependencies) => {
   const {
     blockManager,
     getState,
+    topicId,
     assistantMsgId,
     getCitationBlockId,
     getCitationBlockIdFromTool,
@@ -64,7 +67,11 @@ export const createTextCallbacks = (deps: TextCallbacksDependencies) => {
           status: MessageBlockStatus.STREAMING,
           citationReferences: citationBlockId ? [{ citationBlockId, citationBlockSource }] : []
         }
-        blockManager.smartBlockUpdate(mainTextBlockId!, blockChanges, MessageBlockType.MAIN_TEXT)
+        if (isAgentSessionTopicId(topicId)) {
+          blockManager.persistBlockUpdateImmediately(mainTextBlockId!, blockChanges, MessageBlockType.MAIN_TEXT)
+        } else {
+          blockManager.smartBlockUpdate(mainTextBlockId!, blockChanges, MessageBlockType.MAIN_TEXT)
+        }
       }
       // Collect thoughtSignature from providerMetadata for Gemini
       if (providerMetadata?.google?.thoughtSignature) {

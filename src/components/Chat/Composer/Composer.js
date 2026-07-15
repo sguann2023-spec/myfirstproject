@@ -454,8 +454,7 @@ const buildDigitalHumanMediaParagraph = (
           type: 'fileReference',
           attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
         },
-        { type: 'text', text: ' 合并成一个seedance数字人视频，视频中人物的动作是' },
-        createDigitalHumanMotionNode(motionText),
+        { type: 'text', text: ' 合并成一个seedance数字人视频。' }
       ],
     };
   }

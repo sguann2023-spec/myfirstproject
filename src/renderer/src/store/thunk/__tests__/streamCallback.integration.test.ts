@@ -34,18 +34,23 @@ const createMockCallbacks = (
   mockTopicId: string,
   mockAssistant: Assistant,
   dispatch: AppDispatch,
-  getState: () => ReturnType<typeof reducer> & RootState
+  getState: () => ReturnType<typeof reducer> & RootState,
+  options?: {
+    throttledBlockUpdate?: (id: string, update: any) => void
+    cancelThrottledBlockUpdate?: (id: string) => void
+    saveUpdatedBlockToDB?: any
+  }
 ) =>
   createCallbacks({
     blockManager: new BlockManager({
       dispatch,
       getState,
-      saveUpdatedBlockToDB: vi.fn(),
+      saveUpdatedBlockToDB: options?.saveUpdatedBlockToDB ?? vi.fn(),
       saveUpdatesToDB: vi.fn(),
       assistantMsgId: mockAssistantMsgId,
       topicId: mockTopicId,
-      throttledBlockUpdate: vi.fn(),
-      cancelThrottledBlockUpdate: vi.fn()
+      throttledBlockUpdate: options?.throttledBlockUpdate ?? vi.fn(),
+      cancelThrottledBlockUpdate: options?.cancelThrottledBlockUpdate ?? vi.fn()
     }),
     dispatch,
     getState,
@@ -288,6 +293,18 @@ vi.mock('@renderer/utils', () => ({
   uuid: vi.fn(() => 'mock-uuid-' + Math.random().toString(36).slice(2, 11))
 }))
 
+vi.mock('@renderer/services/db/DbService', () => ({
+  dbService: {
+    appendMessage: vi.fn().mockResolvedValue(undefined),
+    updateMessage: vi.fn().mockResolvedValue(undefined),
+    updateSingleBlock: vi.fn().mockResolvedValue(undefined),
+    bulkAddBlocks: vi.fn().mockResolvedValue(undefined),
+    updateMessageAndBlocks: vi.fn().mockResolvedValue(undefined),
+    deleteMessages: vi.fn().mockResolvedValue(undefined),
+    clearMessages: vi.fn().mockResolvedValue(undefined)
+  }
+}))
+
 interface MockTopicsState {
   entities: Record<string, unknown>
 }
@@ -442,6 +459,104 @@ describe('streamCallback Integration Tests', () => {
     const message = state.messages.entities[mockAssistantMsgId]
     expect(message?.status).toBe(AssistantMessageStatus.SUCCESS)
     expect(message?.usage?.total_tokens).toBe(150)
+  })
+
+  it('should flush pending text block updates when stream is aborted', async () => {
+    const pendingUpdates = new Map<string, any>()
+    const throttledBlockUpdate = (id: string, update: any) => {
+      pendingUpdates.set(id, update)
+    }
+    const cancelThrottledBlockUpdate = (id: string) => {
+      const pendingUpdate = pendingUpdates.get(id)
+      if (!pendingUpdate) {
+        return
+      }
+      dispatch(
+        messageBlocksSlice.actions.updateOneBlock({
+          id,
+          changes: pendingUpdate
+        })
+      )
+      pendingUpdates.delete(id)
+    }
+
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState, {
+      throttledBlockUpdate,
+      cancelThrottledBlockUpdate
+    })
+    const abortError = Object.assign(new Error('Request aborted by user'), { name: 'AbortError' })
+
+    const chunks: Chunk[] = [
+      { type: ChunkType.LLM_RESPONSE_CREATED },
+      { type: ChunkType.TEXT_START },
+      { type: ChunkType.TEXT_DELTA, text: '半截回复内容' },
+      { type: ChunkType.ERROR, error: abortError }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const blocks = Object.values(state.messageBlocks.entities)
+    const textBlock = blocks.find((block) => block.type === MessageBlockType.MAIN_TEXT)
+    const errorBlock = blocks.find((block) => block.type === MessageBlockType.ERROR)
+
+    expect(textBlock).toBeDefined()
+    expect(textBlock?.content).toBe('半截回复内容')
+    expect(textBlock?.status).toBe(MessageBlockStatus.PAUSED)
+    expect(errorBlock).toBeDefined()
+
+    const message = state.messages.entities[mockAssistantMsgId]
+    expect(message?.status).toBe(AssistantMessageStatus.SUCCESS)
+  })
+
+  it('should persist agent text chunks immediately instead of waiting for throttling', async () => {
+    const agentTopicId = 'agent-session:test-session'
+    const agentAssistantMsgId = 'agent-assistant-msg-id'
+    const saveUpdatedBlockToDB = vi.fn()
+
+    store.dispatch(
+      messagesSlice.actions.addMessage({
+        topicId: agentTopicId,
+        message: {
+          id: agentAssistantMsgId,
+          assistantId: mockAssistant.id,
+          role: 'assistant',
+          topicId: agentTopicId,
+          blocks: [],
+          status: AssistantMessageStatus.PENDING,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      })
+    )
+
+    const callbacks = createMockCallbacks(agentAssistantMsgId, agentTopicId, mockAssistant, dispatch, getState, {
+      throttledBlockUpdate: vi.fn(),
+      cancelThrottledBlockUpdate: vi.fn(),
+      saveUpdatedBlockToDB
+    })
+
+    const chunks: Chunk[] = [
+      { type: ChunkType.LLM_RESPONSE_CREATED },
+      { type: ChunkType.TEXT_START },
+      { type: ChunkType.TEXT_DELTA, text: '实时保存的半截内容' }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const agentMessage = getState().messages.entities[agentAssistantMsgId]
+    const agentBlocks = Object.values(getState().messageBlocks.entities).filter((block) => block?.messageId === agentAssistantMsgId)
+    const textBlock = agentBlocks.find((block) => block?.type === MessageBlockType.MAIN_TEXT)
+
+    expect(textBlock?.content).toBe('实时保存的半截内容')
+    expect(saveUpdatedBlockToDB).toHaveBeenCalled()
+    expect(saveUpdatedBlockToDB).toHaveBeenLastCalledWith(
+      textBlock?.id,
+      agentAssistantMsgId,
+      agentTopicId,
+      expect.any(Function)
+    )
+    expect(agentMessage?.blocks).toContain(textBlock?.id)
   })
 
   it('should handle thinking flow', async () => {

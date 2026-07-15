@@ -132,6 +132,17 @@ export class BlockManager {
   }
 
   /**
+   * 立即更新并持久化当前块。
+   * 用于 agent 文本流这类“窗口被直接关闭也要尽量保留已到达内容”的场景。
+   */
+  persistBlockUpdateImmediately(blockId: string, changes: Partial<MessageBlock>, blockType: MessageBlockType) {
+    this._activeBlockInfo = { id: blockId, type: blockType }
+    this._lastBlockType = blockType
+    this.deps.dispatch(updateOneBlock({ id: blockId, changes }))
+    void this.deps.saveUpdatedBlockToDB(blockId, this.deps.assistantMsgId, this.deps.topicId, this.deps.getState)
+  }
+
+  /**
    * 处理块转换
    */
   async handleBlockTransition(newBlock: MessageBlock, newBlockType: MessageBlockType) {

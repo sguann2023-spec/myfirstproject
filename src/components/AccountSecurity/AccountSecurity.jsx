@@ -7,6 +7,8 @@ import { QRCodeCanvas } from 'qrcode.react';
 import AppLogo from '../../../public/logo.png';
 import Point2Icon from '../../../public/point2.svg';
 import './AccountSecurity.css';
+import { getMembershipSummary } from '../../api/membership';
+import { MEMBER_COLOR } from '../../constants/member';
 import { electronStore } from '../../shared/electronStore';
 import {
   ensureVectcutApiKeyForCurrentSession,
@@ -25,11 +27,39 @@ import {
 } from '../../api/user';
 import { uploadUserAvatar } from '../../api/sts';
 import { maskApiKey } from '@renderer/utils/api';
+import { IpcChannel } from '../../packages/shared/IpcChannel';
 
 const AVATAR_MAX_SIZE = 2000 * 1000;
 const INVITE_RULES_URL = 'https://www.vectcut.com/invite';
 const WITHDRAW_MIN_POINTS = 1000;
+const MEMBERSHIP_LEVEL_LABEL_MAP = {
+  basic: '基础会员',
+  medium: '标准会员',
+  high: '高级会员',
+};
 const normalizeProfileText = (value) => String(value || '').trim();
+const normalizeMembershipSummary = (payload = {}) => {
+  const membershipLevel = String(payload?.membership_level || '').trim().toLowerCase() || 'none';
+  return {
+    membershipLevel,
+    isActive: Boolean(payload?.is_active) && membershipLevel !== 'none',
+    membershipExpiresAt: String(payload?.membership_expires_at || '').trim(),
+  };
+};
+const formatMembershipExpiresAt = (value) => {
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return '';
+  const date = new Date(normalizedValue.replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) {
+    return normalizedValue;
+  }
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+};
 const normalizeInviteCode = (value) => String(value || '').trim().toUpperCase();
 const normalizeInviteCount = (value) => {
   const nextValue = Number(value);
@@ -67,6 +97,7 @@ const AccountSecurity = () => {
   const [syncing, setSyncing] = useState(false);
   const [copying, setCopying] = useState(false);
   const [sessionSignature, setSessionSignature] = useState(() => getVectcutSessionSignature());
+  const [membershipSummary, setMembershipSummary] = useState(() => normalizeMembershipSummary());
   const [profileLoading, setProfileLoading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(() => normalizeProfileText(electronStore.get('user')?.avatar));
   const [nickname, setNickname] = useState(() => normalizeProfileText(electronStore.get('user')?.name));
@@ -226,11 +257,32 @@ const AccountSecurity = () => {
       }
     };
 
+    const syncMembership = async (nextSessionSignature) => {
+      if (!nextSessionSignature) {
+        if (!disposed) {
+          setMembershipSummary(normalizeMembershipSummary());
+        }
+        return;
+      }
+
+      try {
+        const payload = await getMembershipSummary();
+        if (!disposed) {
+          setMembershipSummary(normalizeMembershipSummary(payload));
+        }
+      } catch {
+        if (!disposed) {
+          setMembershipSummary(normalizeMembershipSummary());
+        }
+      }
+    };
+
     const syncApiKey = async () => {
       const nextSessionSignature = getVectcutSessionSignature();
       setSessionSignature(nextSessionSignature);
       void syncProfile(nextSessionSignature);
       void syncInviteInfo(nextSessionSignature);
+      void syncMembership(nextSessionSignature);
 
       if (!nextSessionSignature) {
         persistVectcutApiKey('');
@@ -314,6 +366,33 @@ const AccountSecurity = () => {
       });
     }
   }, [editingNickname]);
+
+  useEffect(() => {
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const handlePaymentSuccess = () => {
+        const nextSessionSignature = getVectcutSessionSignature();
+        if (!nextSessionSignature) {
+          setMembershipSummary(normalizeMembershipSummary());
+          return;
+        }
+        void getMembershipSummary()
+          .then((payload) => {
+            setMembershipSummary(normalizeMembershipSummary(payload));
+          })
+          .catch(() => {
+            setMembershipSummary(normalizeMembershipSummary());
+          });
+      };
+
+      ipcRenderer.on(IpcChannel.Payment_Success, handlePaymentSuccess);
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.Payment_Success, handlePaymentSuccess);
+      };
+    } catch (_error) {
+      return undefined;
+    }
+  }, []);
 
   const isLoggedIn = Boolean(sessionSignature);
   const canCopy = Boolean(isLoggedIn && apiKey && !copying);
@@ -663,6 +742,13 @@ const AccountSecurity = () => {
   const withdrawDisabledTooltip = withdrawDisabledByThreshold
     ? `待使用收益满 ${WITHDRAW_MIN_POINTS} 积分后才可提现`
     : null;
+  const membershipLevelLabel = MEMBERSHIP_LEVEL_LABEL_MAP[membershipSummary.membershipLevel] || '会员';
+  const membershipExpiresAtText = formatMembershipExpiresAt(membershipSummary.membershipExpiresAt);
+  const membershipStatusText = !isLoggedIn
+    ? '登录后查看'
+    : membershipSummary.isActive
+      ? `${membershipLevelLabel}${membershipExpiresAtText ? ` · ${membershipExpiresAtText} 到期` : ''}`
+      : '免费会员';
 
   return (
     <div className="account-security">
@@ -739,13 +825,25 @@ const AccountSecurity = () => {
                   disabled={!isLoggedIn || savingNickname}
                 >
                   <span className="account-security-value-button-content">
-                    <Typography.Text ellipsis={{ tooltip: nicknameDisplayValue }}>
+                    <Typography.Text
+                      ellipsis={{ tooltip: nicknameDisplayValue }}
+                      style={membershipSummary.isActive ? { color: MEMBER_COLOR } : undefined}>
                       {nicknameDisplayValue}
                     </Typography.Text>
                     <SquarePen size={12} strokeWidth={2} className="account-security-value-edit-icon" aria-hidden="true" />
                   </span>
                 </button>
               )}
+            </div>
+          </div>
+          <div className="account-security-row account-security-row--grouped">
+            <div className="account-security-label">会员状态</div>
+            <div className="account-security-value account-security-value--profile">
+              <Typography.Text
+                ellipsis={{ tooltip: membershipStatusText }}
+                style={membershipSummary.isActive ? { color: MEMBER_COLOR } : undefined}>
+                {membershipStatusText}
+              </Typography.Text>
             </div>
           </div>
           <div className="account-security-row account-security-row--grouped">
