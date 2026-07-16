@@ -39,7 +39,8 @@
       "aboutTitle": "关于BINGO流光剪辑"
     },
     "assets": {
-      "aboutLogo": "bingo_logo"
+      "aboutLogo": "bingo_logo",
+      "emptyClawImage": "bingoai_claw"
     }
   },
   "bingoai": {

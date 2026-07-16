@@ -62,7 +62,7 @@ const VOICE_CLONE_PROVIDER_OPTIONS = [
   },
 ];
 const ELEVENLABS_MEMBERSHIP_LEVEL_TEXT_MAP = {
-  none: '非会员',
+  none: '免费会员',
   basic: '基础会员',
   medium: '标准会员',
   high: '高级会员',
