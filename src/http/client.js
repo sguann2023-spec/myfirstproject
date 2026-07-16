@@ -1,10 +1,9 @@
 import { authFetch } from '../auth/authFetch';
 import { tokenStore } from '../auth'; // 统一从 index 导入
 import { loggerService } from '@logger';
+import { CHANNEL_BRAND_HEADER_NAME, getCurrentChannelBrand } from '../../channel-branding/runtime';
 
-const RENDERER_ENV = import.meta.env || {};
-const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase() || 'default';
-const CHANNEL_BRAND_HEADER = 'X-Channel-Brand';
+const CHANNEL_BRAND = getCurrentChannelBrand();
 
 const logger = loggerService.withContext('HttpClient');
 let authFailureHandler = null;
@@ -18,8 +17,8 @@ export function setAuthFailureHandler(handler) {
 
 function withChannelHeaders(options = {}) {
   const headers = new Headers(options.headers || {});
-  if (!headers.has(CHANNEL_BRAND_HEADER)) {
-    headers.set(CHANNEL_BRAND_HEADER, CHANNEL_BRAND);
+  if (!headers.has(CHANNEL_BRAND_HEADER_NAME)) {
+    headers.set(CHANNEL_BRAND_HEADER_NAME, CHANNEL_BRAND);
   }
   return { ...options, headers };
 }

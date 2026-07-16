@@ -1,16 +1,15 @@
 import react from '@vitejs/plugin-react-swc'
 import { defineConfig } from 'electron-vite'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { transformWithEsbuild } from 'vite'
 import pkg from './package.json' with { type: 'json' }
 
+const require = createRequire(import.meta.url)
+const { getChannelBrandConfig, getChannelBrandKey } = require('./channel-branding/index.cjs')
 const isDev = process.env.NODE_ENV === 'development'
-const channelBrand = String(process.env.CHANNEL_BRAND || '').trim().toLowerCase() || 'default'
-const channelInviteCodeMap = {
-  default: '',
-  bingo: 'FAC3E5AD'
-}
-const rendererChannelInviteCode = channelInviteCodeMap[channelBrand] || ''
+const channelBrand = getChannelBrandKey()
+const rendererChannelInviteCode = getChannelBrandConfig(channelBrand).inviteCode || ''
 
 export default defineConfig({
   main: {

@@ -1,0 +1,50 @@
+{
+  "default": {
+    "productName": "流光剪辑",
+    "displayNameZh": "流光剪辑",
+    "inviteCode": "",
+    "build": {
+      "icon": "build-resources/brands/default/logo.png",
+      "macIcon": "build-resources/brands/default/logo.icns",
+      "winIcon": "build-resources/brands/default/logo.ico",
+      "winArtifactName": "VectCut-Setup-${version}-${arch}.exe",
+      "winExecutableName": "VectCut",
+      "shortcutName": "流光剪辑",
+      "uninstallDisplayName": "流光剪辑"
+    },
+    "ui": {
+      "loginTitle": "",
+      "aboutTitle": "关于流光剪辑"
+    },
+    "assets": {
+      "aboutLogo": "default_logo",
+      "emptyClawImage": "vectcut_claw"
+    }
+  },
+  "bingo": {
+    "productName": "BingoCut",
+    "displayNameZh": "BINGO流光剪辑",
+    "inviteCode": "FAC3E5AD",
+    "build": {
+      "icon": "build-resources/brands/bingo/logo.png",
+      "macIcon": "build-resources/brands/bingo/logo.icns",
+      "winIcon": "build-resources/brands/bingo/logo.ico",
+      "winArtifactName": "BingoCut-Setup-${version}-${arch}.exe",
+      "winExecutableName": "BingoCut",
+      "shortcutName": "BINGO流光剪辑",
+      "uninstallDisplayName": "BINGO流光剪辑"
+    },
+    "ui": {
+      "loginTitle": "BINGO流光剪辑",
+      "aboutTitle": "关于BINGO流光剪辑"
+    },
+    "assets": {
+      "aboutLogo": "bingo_logo"
+    }
+  },
+  "bingoai": {
+    "assets": {
+      "emptyClawImage": "bingoai_claw"
+    }
+  }
+}

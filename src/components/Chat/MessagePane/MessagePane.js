@@ -1,8 +1,12 @@
 import React from 'react';
 import './MessagePane.css';
-import VectcutClawImage from '../../../../public/vectcut_claw.png';
 import MessageGroup from './MessageGroup/MessageGroup';
 import { loggerService } from '@logger';
+import { getCurrentChannelBrandConfig } from '../../../../channel-branding/runtime';
+
+const CURRENT_CHANNEL_BRAND_CONFIG = getCurrentChannelBrandConfig();
+const EMPTY_CLAW_IMAGE = CURRENT_CHANNEL_BRAND_CONFIG.runtimeAssets.emptyClawImage;
+
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessagePane');
 const CHILDRENS_BOOK_TOUR_ACTION = 'bootstrap-childrens-picture-book';
@@ -149,7 +153,7 @@ const MessagePane = ({
         {visibleMessages.length === 0 ? (
           messages.length === 0 ? (
             <div className="chat-panel__empty chat-panel__empty--image">
-              <img className="chat-panel__empty-image" src={VectcutClawImage} alt="开始对话" />
+              <img className="chat-panel__empty-image" src={EMPTY_CLAW_IMAGE} alt="开始对话" />
               <div className="chat-panel__empty-welcome" aria-label={emptyWelcomeText}>
                 {Array.from(emptyWelcomeText).map((char, index) => (
                   <span

@@ -7,14 +7,14 @@ import AccountSecurityIcon from '../../../public/account_security.svg';
 import GeneralSettingIcon from '../../../public/settings_general.png';
 import PrivacyIcon from '../../../public/privacy.svg';
 import { InfoCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 const GeneralSettings = lazy(() => import('../../components/GeneralSettings/GeneralSettings'));
 const HelpSettings = lazy(() => import('../../components/HelpSettings/HelpSettings'));
 const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
 const AboutUs = lazy(() => import('../../components/AboutUs/AboutUs'));
 const PolicyAgreement = lazy(() => import('../../components/PolicyAgreement/PolicyAgreement'));
-const RENDERER_ENV = import.meta.env || {};
-const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase();
-const ABOUT_TITLE = CHANNEL_BRAND === 'bingo' ? '关于BINGO流光剪辑' : '关于流光剪辑';
+const CURRENT_CHANNEL_BRAND_CONFIG = getCurrentChannelBrandConfig();
+const ABOUT_TITLE = CURRENT_CHANNEL_BRAND_CONFIG.ui.aboutTitle;
 
 // 菜单项数据
 const settingMenuItems = [

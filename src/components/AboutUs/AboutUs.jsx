@@ -3,12 +3,10 @@ import { PlusOutlined } from '@ant-design/icons';
 import { Input, Upload, message } from 'antd';
 import './AboutUs.css';
 import { electronStore } from '../../shared/electronStore';
-import AppLogo from '../../logo.png';
-import BingoAppLogo from '../../../build-resources/brands/bingo/logo.png';
+import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 
-const RENDERER_ENV = import.meta.env || {};
-const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase();
-const ABOUT_APP_LOGO = CHANNEL_BRAND === 'bingo' ? BingoAppLogo : AppLogo;
+const CURRENT_CHANNEL_BRAND_CONFIG = getCurrentChannelBrandConfig();
+const ABOUT_APP_LOGO = CURRENT_CHANNEL_BRAND_CONFIG.runtimeAssets.aboutLogo;
 
 const UPDATE_TEXT = {
   idle: '检查更新',

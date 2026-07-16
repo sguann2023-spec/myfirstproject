@@ -39,10 +39,10 @@ const HtmlArtifactsCard: FC<Props> = ({ html, onSave, isStreaming = false }) => 
   const handleOpenExternal = async () => {
     const path = await window.api.file.createTempFile('artifacts-preview.html')
     await window.api.file.write(path, htmlContent)
-    const filePath = `file://${path}`
+    const filePath = encodeURI(`file://${path}`)
 
-    if (window.api.shell?.openExternal) {
-      void window.api.shell.openExternal(filePath)
+    if (window.api.openLocalHtmlInBrowser) {
+      void window.api.openLocalHtmlInBrowser(filePath)
     } else {
       logger.error(t('chat.artifacts.preview.openExternal.error.content'))
     }

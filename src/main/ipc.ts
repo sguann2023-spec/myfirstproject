@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { arch } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { loggerService } from '@logger'
 import { isLinux, isMac, isPortable, isWin } from '@main/constant'
@@ -425,6 +426,33 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       return
     }
     return shell.openExternal(url)
+  })
+  ipcMain.handle(IpcChannel.Open_LocalHtmlInBrowser, async (_, url: string) => {
+    let filePath = ''
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'file:') {
+        logger.warn(`Blocked non-file URL for local html browser open: ${url}`)
+        return
+      }
+      filePath = fileURLToPath(parsed)
+    } catch {
+      logger.warn(`Blocked invalid file URL for local html browser open: ${url}`)
+      return
+    }
+
+    const extension = path.extname(filePath).toLowerCase()
+    if (!['.html', '.htm'].includes(extension)) {
+      logger.warn(`Blocked non-html file for browser open: ${filePath}`)
+      return
+    }
+
+    if (!fs.existsSync(filePath)) {
+      logger.warn(`Blocked missing html file for browser open: ${filePath}`)
+      return
+    }
+
+    return shell.openExternal(pathToFileURL(filePath).toString())
   })
   ipcMain.on(IpcChannel.Payment_NotifySuccess, (event, payload: Record<string, unknown> = {}) => {
     if (!internalWebsiteWindow || internalWebsiteWindow.isDestroyed()) {

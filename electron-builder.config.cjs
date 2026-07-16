@@ -1,75 +1,45 @@
 const pkg = require('./package.json')
-
-const CHANNEL_BRANDS = {
-  default: {
-    productName: '流光剪辑',
-    displayNameZh: '流光剪辑',
-    icon: 'build-resources/brands/default/logo.png',
-    macIcon: 'build-resources/brands/default/logo.icns',
-    winIcon: 'build-resources/brands/default/logo.ico',
-    winArtifactName: 'VectCut-Setup-${version}-${arch}.exe',
-    winExecutableName: 'VectCut',
-    shortcutName: '流光剪辑',
-    uninstallDisplayName: '流光剪辑',
-  },
-  bingo: {
-    productName: 'BingoCut',
-    displayNameZh: 'BINGO流光剪辑',
-    inviteCode: 'FAC3E5AD',
-    icon: 'build-resources/brands/bingo/logo.png',
-    macIcon: 'build-resources/brands/bingo/logo.icns',
-    winIcon: 'build-resources/brands/bingo/logo.ico',
-    winArtifactName: 'BingoCut-Setup-${version}-${arch}.exe',
-    winExecutableName: 'BingoCut',
-    shortcutName: 'BINGO流光剪辑',
-    uninstallDisplayName: 'BINGO流光剪辑',
-  },
-}
-
-function getChannelBrandKey() {
-  const raw = String(process.env.CHANNEL_BRAND || '').trim().toLowerCase()
-  return raw || 'default'
-}
+const { getChannelBrandConfig, getChannelBrandKey } = require('./channel-branding/index.cjs')
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
 const buildConfig = clone(pkg.build || {})
-const channelBrand = CHANNEL_BRANDS[getChannelBrandKey()] || CHANNEL_BRANDS.default
+const channelBrand = getChannelBrandConfig(getChannelBrandKey())
 
 buildConfig.productName = channelBrand.productName
-if (channelBrand.icon) {
-  buildConfig.icon = channelBrand.icon
+if (channelBrand.build.icon) {
+  buildConfig.icon = channelBrand.build.icon
 }
-if (channelBrand.macIcon) {
+if (channelBrand.build.macIcon) {
   buildConfig.mac = buildConfig.mac || {}
-  buildConfig.mac.icon = channelBrand.macIcon
+  buildConfig.mac.icon = channelBrand.build.macIcon
 }
-if (channelBrand.winIcon) {
+if (channelBrand.build.winIcon) {
   buildConfig.win = buildConfig.win || {}
-  buildConfig.win.icon = channelBrand.winIcon
+  buildConfig.win.icon = channelBrand.build.winIcon
 }
-if (channelBrand.winArtifactName) {
+if (channelBrand.build.winArtifactName) {
   buildConfig.win = buildConfig.win || {}
-  buildConfig.win.artifactName = channelBrand.winArtifactName
+  buildConfig.win.artifactName = channelBrand.build.winArtifactName
 }
-if (channelBrand.winExecutableName) {
+if (channelBrand.build.winExecutableName) {
   buildConfig.win = buildConfig.win || {}
-  buildConfig.win.executableName = channelBrand.winExecutableName
+  buildConfig.win.executableName = channelBrand.build.winExecutableName
 }
-if (channelBrand.shortcutName || channelBrand.uninstallDisplayName || channelBrand.winIcon) {
+if (channelBrand.build.shortcutName || channelBrand.build.uninstallDisplayName || channelBrand.build.winIcon) {
   buildConfig.nsis = buildConfig.nsis || {}
-  if (channelBrand.shortcutName) {
-    buildConfig.nsis.shortcutName = channelBrand.shortcutName
+  if (channelBrand.build.shortcutName) {
+    buildConfig.nsis.shortcutName = channelBrand.build.shortcutName
   }
-  if (channelBrand.uninstallDisplayName) {
-    buildConfig.nsis.uninstallDisplayName = channelBrand.uninstallDisplayName
+  if (channelBrand.build.uninstallDisplayName) {
+    buildConfig.nsis.uninstallDisplayName = channelBrand.build.uninstallDisplayName
   }
-  if (channelBrand.winIcon) {
-    buildConfig.nsis.installerIcon = channelBrand.winIcon
-    buildConfig.nsis.uninstallerIcon = channelBrand.winIcon
-    buildConfig.nsis.installerHeaderIcon = channelBrand.winIcon
+  if (channelBrand.build.winIcon) {
+    buildConfig.nsis.installerIcon = channelBrand.build.winIcon
+    buildConfig.nsis.uninstallerIcon = channelBrand.build.winIcon
+    buildConfig.nsis.installerHeaderIcon = channelBrand.build.winIcon
   }
 }
 

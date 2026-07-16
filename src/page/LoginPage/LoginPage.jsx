@@ -9,6 +9,7 @@ import LogoIcon from '../../../public/logo.png'
 import './LoginPage.css';
 import { electronStore } from '../../shared/electronStore'; // 从共享模块导入
 import { ensureVectcutApiKeyForCurrentSession } from '../../auth/vectcutApiKey';
+import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 const { Title, Text } = Typography;
 
 const { ipcRenderer } = window.require('electron');
@@ -32,11 +33,8 @@ const AUTHING_CONFIG = {
     CLIENT_SECRET: '16a94e467e927cc09b3c8dc7ec92d420'
 };
 const RENDERER_ENV = import.meta.env || {};
-const CHANNEL_BRAND = String(RENDERER_ENV.RENDERER_VITE_CHANNEL_BRAND || 'default').trim().toLowerCase();
+const CURRENT_CHANNEL_BRAND_CONFIG = getCurrentChannelBrandConfig();
 const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
-const CHANNEL_LOGO_TITLE_MAP = {
-    bingo: 'BINGO流光剪辑'
-};
 
 function normalizeInviteCode(value) {
     return String(value || '').trim();
@@ -112,7 +110,7 @@ function normalizeCreationChannel(value) {
 }
 
 function getLogoTitle(trans) {
-    return CHANNEL_LOGO_TITLE_MAP[CHANNEL_BRAND] || trans('logo_title');
+    return CURRENT_CHANNEL_BRAND_CONFIG.ui.loginTitle || trans('logo_title');
 }
 
 function inferCreationChannelFromClaims(claims = {}, accessToken = '') {

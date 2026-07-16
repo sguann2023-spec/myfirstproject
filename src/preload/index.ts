@@ -135,6 +135,7 @@ const api = {
   relaunchApp: (options?: Electron.RelaunchOptions) => ipcRenderer.invoke(IpcChannel.App_RelaunchApp, options),
   resetData: () => ipcRenderer.invoke(IpcChannel.App_ResetData),
   openWebsite: (url: string) => ipcRenderer.invoke(IpcChannel.Open_Website, url),
+  openLocalHtmlInBrowser: (url: string) => ipcRenderer.invoke(IpcChannel.Open_LocalHtmlInBrowser, url),
   openInternalWebsite: (url: string) => ipcRenderer.invoke(IpcChannel.Open_InternalWebsite, url),
   sendFeedbackEmail: (payload: {
     message: string

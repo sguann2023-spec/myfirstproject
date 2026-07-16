@@ -41,6 +41,16 @@ const normalizeAddressInput = (value = '') => {
   if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(normalized)) return normalized;
   return `https://${normalized}`;
 };
+const isLocalHtmlPreviewUrl = (value = '') => {
+  const normalized = normalizeUrl(value);
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    return parsed.protocol === 'file:' && /\.(html?|HTML?)($|[?#])/.test(parsed.pathname || '');
+  } catch (_error) {
+    return false;
+  }
+};
 
 const WebPagePreview = ({ preview, onClose }) => {
   const webviewRef = React.useRef(null);
@@ -306,6 +316,15 @@ const WebPagePreview = ({ preview, onClose }) => {
     });
   }, [activeTabId, onClose]);
 
+  const handleOpenInExternalBrowser = React.useCallback(() => {
+    if (!targetUrl || targetUrl === BLANK_TAB_URL) return;
+    if (isLocalHtmlPreviewUrl(targetUrl)) {
+      void window.api?.openLocalHtmlInBrowser?.(targetUrl);
+      return;
+    }
+    void window.api?.openWebsite?.(targetUrl);
+  }, [targetUrl]);
+
   return (
     <div className="chat-web-preview">
       <div className="chat-web-preview__tabbar">
@@ -412,7 +431,7 @@ const WebPagePreview = ({ preview, onClose }) => {
           <button
             type="button"
             className="chat-web-preview__action"
-            onClick={() => targetUrl && targetUrl !== BLANK_TAB_URL && window.api?.openWebsite?.(targetUrl)}
+            onClick={handleOpenInExternalBrowser}
             title="外部浏览器打开">
             <ExternalLink size={14} />
           </button>

@@ -66,6 +66,7 @@ export enum IpcChannel {
   // Open
   Open_Path = 'open:path',
   Open_Website = 'open:website',
+  Open_LocalHtmlInBrowser = 'open:local-html-in-browser',
   Open_InternalWebsite = 'open:internal-website',
   Payment_NotifySuccess = 'payment:notify-success',
   Payment_Success = 'payment:success',
