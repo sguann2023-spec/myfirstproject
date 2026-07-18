@@ -516,6 +516,7 @@ const api = {
       ipcRenderer.invoke(IpcChannel.Webview_SetSpellCheckEnabled, webviewId, isEnable),
     printToPDF: (webviewId: number) => ipcRenderer.invoke(IpcChannel.Webview_PrintToPDF, webviewId),
     saveAsHTML: (webviewId: number) => ipcRenderer.invoke(IpcChannel.Webview_SaveAsHTML, webviewId),
+    primeRuntimeEnv: () => ipcRenderer.invoke(IpcChannel.Webview_PrimeRuntimeEnv),
     onFindShortcut: (callback: (payload: WebviewKeyEvent) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: WebviewKeyEvent) => {
         callback(payload)

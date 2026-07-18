@@ -59,6 +59,15 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
       if (data.sessionId !== sessionId || !data.headless) {
         return
       }
+      const msSinceLocalCompletion = Date.now() - lastLocalCompletionAtRef.current
+      if (msSinceLocalCompletion >= 0 && msSinceLocalCompletion < 3000) {
+        logger.info('Skipping headless session reload because local stream just completed', {
+          sessionId,
+          sessionTopicId,
+          msSinceLocalCompletion
+        })
+        return
+      }
       logger.info('Session changed event received in AgentSessionMessages, force reloading topic', {
         sessionId,
         sessionTopicId,
@@ -78,6 +87,7 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
   const streamCtrlRef = useRef<ChannelStreamController | null>(null)
   const sessionRef = useRef(session)
   sessionRef.current = session
+  const lastLocalCompletionAtRef = useRef(0)
 
   // Guard flag: once the current exchange is done (complete/error), prevent
   // getOrCreateStream() from creating a second assistant message if any
@@ -129,15 +139,16 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
           getOrCreateStream()?.pushChunk(event.chunk)
         } else if (event.type === 'complete') {
           exchangeDoneRef.current = true
+          lastLocalCompletionAtRef.current = Date.now()
           streamCtrlRef.current?.complete()
           streamCtrlRef.current = null
-          logger.info('Channel stream complete, force reloading topic from DB', {
+          logger.info('Channel stream complete, keeping local renderer state', {
             sessionId,
             sessionTopicId
           })
-          void dispatch(loadTopicMessagesThunk(sessionTopicId, true))
         } else if (event.type === 'error') {
           exchangeDoneRef.current = true
+          lastLocalCompletionAtRef.current = Date.now()
           // Push the error as a data chunk so the adapter can render it via
           // onError, then close the stream normally. Using complete() instead
           // of error() preserves any previously-enqueued chunks that the

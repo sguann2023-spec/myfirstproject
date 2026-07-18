@@ -184,10 +184,49 @@ const WebPagePreview = ({ preview, onClose }) => {
 
     const handleDomReady = () => {
       webviewReadyRef.current = true;
+      void (async () => {
+        try {
+          const runtimeEnv = await window.api?.webview?.primeRuntimeEnv?.();
+          const vectcutApiKey = String(runtimeEnv?.VECTCUT_API_KEY || '').trim();
+          await webview.executeJavaScript(
+            `(() => {
+              const apiKey = ${JSON.stringify(vectcutApiKey)};
+              const env = Object.freeze({ VECTCUT_API_KEY: apiKey });
+              const processShim = Object.freeze({
+                env: Object.freeze({ VECTCUT_API_KEY: apiKey })
+              });
+              window.VECTCUT_API_KEY = apiKey;
+              window.__VECTCUT_ENV__ = env;
+              window.ENV = env;
+              window.process = processShim;
+
+              const tokenEl = document.getElementById('token');
+              if (tokenEl && apiKey) {
+                tokenEl.value = apiKey;
+                const tokenDetails = tokenEl.closest('details');
+                if (tokenDetails) {
+                  tokenDetails.style.display = 'none';
+                }
+              }
+
+              window.dispatchEvent(new CustomEvent('vectcut-runtime-env-ready', {
+                detail: { VECTCUT_API_KEY: apiKey }
+              }));
+
+              return {
+                hasApiKey: Boolean(apiKey),
+                tokenInputFound: Boolean(tokenEl)
+              };
+            })()`,
+            true
+          );
+        } catch (_error) {
+          // ignore runtime env injection failures
+        }
+      })();
       try {
         const webviewId = webview.getWebContentsId?.();
         if (webviewId) {
-          void window.api?.webview?.setOpenLinkExternal?.(webviewId, false);
           void window.api?.webview?.setSpellCheckEnabled?.(webviewId, false);
         }
       } catch (_error) {

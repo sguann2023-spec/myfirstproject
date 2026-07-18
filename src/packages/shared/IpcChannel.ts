@@ -62,6 +62,8 @@ export enum IpcChannel {
   Webview_SearchHotkey = 'webview:search-hotkey',
   Webview_PrintToPDF = 'webview:print-to-pdf',
   Webview_SaveAsHTML = 'webview:save-as-html',
+  Webview_PrimeRuntimeEnv = 'webview:prime-runtime-env',
+  Webview_GetRuntimeEnv = 'webview:get-runtime-env',
 
   // Open
   Open_Path = 'open:path',

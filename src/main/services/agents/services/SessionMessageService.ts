@@ -30,6 +30,22 @@ type SessionStreamResult = {
   }>
 }
 
+type HeadlessPersistedBlock = {
+  id: string
+  messageId: string
+  type: string
+  createdAt: string
+  updatedAt?: string
+  status: string
+  [key: string]: any
+}
+
+type PersistedUsage = {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
 export type CreateMessageOptions = {
   /** When true, persist user+assistant messages to DB on stream complete. Use for headless callers (channels, scheduler) where no UI handles persistence. */
   persist?: boolean
@@ -63,20 +79,24 @@ class TextStreamAccumulator {
   private totalText = ''
   private readonly toolCalls = new Map<string, { toolName?: string; input?: unknown }>()
   private readonly toolResults = new Map<string, unknown>()
+  private readonly toolCallOrder: string[] = []
   private initSlashCommands: string[] = []
+  private latestUsage?: PersistedUsage
 
   add(part: TextStreamPart<Record<string, any>>): void {
-    switch (part.type) {
+    const chunk = part as any
+    const partType = chunk.type as string | undefined
+    switch (partType) {
       case 'text-start':
         this.textBuffer = ''
         break
       case 'text-delta':
-        if (part.text) {
-          this.textBuffer = part.text
+        if (chunk.text) {
+          this.textBuffer = chunk.text
         }
         break
       case 'text-end': {
-        const blockText = (part.providerMetadata?.text?.value as string | undefined) ?? this.textBuffer
+        const blockText = (chunk.providerMetadata?.text?.value as string | undefined) ?? this.textBuffer
         if (blockText) {
           this.totalText += blockText
         }
@@ -84,28 +104,31 @@ class TextStreamAccumulator {
         break
       }
       case 'tool-call':
-        if (part.toolCallId) {
-          const legacyPart = part as typeof part & {
+        if (chunk.toolCallId) {
+          if (!this.toolCalls.has(chunk.toolCallId)) {
+            this.toolCallOrder.push(chunk.toolCallId)
+          }
+          const legacyPart = chunk as {
             args?: unknown
             providerMetadata?: { raw?: { input?: unknown } }
           }
-          this.toolCalls.set(part.toolCallId, {
-            toolName: part.toolName,
-            input: part.input ?? legacyPart.args ?? legacyPart.providerMetadata?.raw?.input
+          this.toolCalls.set(chunk.toolCallId, {
+            toolName: chunk.toolName,
+            input: chunk.input ?? legacyPart.args ?? legacyPart.providerMetadata?.raw?.input
           })
         }
         break
       case 'tool-result':
-        if (part.toolCallId) {
-          const legacyPart = part as typeof part & {
+        if (chunk.toolCallId) {
+          const legacyPart = chunk as {
             result?: unknown
             providerMetadata?: { raw?: unknown }
           }
-          this.toolResults.set(part.toolCallId, part.output ?? legacyPart.result ?? legacyPart.providerMetadata?.raw)
+          this.toolResults.set(chunk.toolCallId, chunk.output ?? legacyPart.result ?? legacyPart.providerMetadata?.raw)
         }
         break
       case 'raw': {
-        const rawPart = part as typeof part & {
+        const rawPart = chunk as {
           rawValue?: { type?: string; slash_commands?: unknown }
         }
         const rawValue = rawPart.rawValue
@@ -114,8 +137,54 @@ class TextStreamAccumulator {
         }
         break
       }
+      case 'usage': {
+        const usagePart = chunk as {
+          usage?: {
+            inputTokens?: number | null
+            outputTokens?: number | null
+            totalTokens?: number | null
+          }
+        }
+        this.setUsageFromSdk(usagePart.usage)
+        break
+      }
+      case 'finish': {
+        const finishPart = chunk as {
+          totalUsage?: {
+            inputTokens?: number | null
+            outputTokens?: number | null
+            totalTokens?: number | null
+          }
+        }
+        this.setUsageFromSdk(finishPart.totalUsage)
+        break
+      }
       default:
         break
+    }
+  }
+
+  private setUsageFromSdk(usage?: {
+    inputTokens?: number | null
+    outputTokens?: number | null
+    totalTokens?: number | null
+  }): void {
+    if (!usage) {
+      return
+    }
+
+    const promptTokens = Number(usage.inputTokens ?? 0)
+    const completionTokens = Number(usage.outputTokens ?? 0)
+    const totalTokens = Number(usage.totalTokens ?? promptTokens + completionTokens)
+
+    if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
+      return
+    }
+
+    this.latestUsage = {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens
     }
   }
 
@@ -125,6 +194,70 @@ class TextStreamAccumulator {
 
   getInitSlashCommands(): string[] {
     return [...this.initSlashCommands]
+  }
+
+  getUsage(): PersistedUsage | undefined {
+    return this.latestUsage ? { ...this.latestUsage } : undefined
+  }
+
+  getAssistantBlocks(
+    messageId: string,
+    modelId?: string
+  ): HeadlessPersistedBlock[] {
+    const now = new Date().toISOString()
+    const blocks: HeadlessPersistedBlock[] = []
+
+    for (const toolCallId of this.toolCallOrder) {
+      const toolCall = this.toolCalls.get(toolCallId)
+      if (!toolCall) continue
+      const toolResult = this.toolResults.get(toolCallId)
+      blocks.push({
+        id: randomUUID(),
+        messageId,
+        type: 'tool',
+        createdAt: now,
+        updatedAt: now,
+        status: toolResult !== undefined ? 'success' : 'processing',
+        model: modelId,
+        toolId: toolCallId,
+        toolName: toolCall.toolName,
+        arguments: toolCall.input && typeof toolCall.input === 'object' ? toolCall.input : undefined,
+        content: toolResult,
+        metadata: {
+          rawMcpToolResponse: {
+            id: toolCallId,
+            tool: {
+              id: toolCall.toolName || toolCallId,
+              name: toolCall.toolName || toolCallId
+            },
+            arguments:
+              toolCall.input && typeof toolCall.input === 'object'
+                ? toolCall.input
+                : toolCall.input !== undefined
+                  ? String(toolCall.input)
+                  : undefined,
+            status: toolResult !== undefined ? 'done' : 'pending',
+            response: toolResult
+          }
+        }
+      })
+    }
+
+    const text = this.getText()
+    if (text) {
+      blocks.push({
+        id: randomUUID(),
+        messageId,
+        type: 'main_text',
+        createdAt: now,
+        updatedAt: now,
+        status: 'success',
+        modelId,
+        content: text
+      })
+    }
+
+    return blocks
   }
 }
 
@@ -211,6 +344,7 @@ export class SessionMessageService extends BaseService {
       options?.images
     )
     const accumulator = new TextStreamAccumulator()
+    const headlessAssistantMsgId = randomUUID()
 
     let resolveCompletion!: (value: {
       userMessage?: AgentSessionMessageEntity
@@ -294,10 +428,12 @@ export class SessionMessageService extends BaseService {
                   this.persistHeadlessExchange(
                     session,
                     options?.displayContent ?? req.content,
-                    accumulator.getText(),
+                    accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
                     resolvedSessionId,
+                    headlessAssistantMsgId,
                     options?.images,
-                    req.model
+                    req.model,
+                    accumulator.getUsage()
                   )
                     .then(resolveCompletion)
                     .catch((err) => {
@@ -321,10 +457,12 @@ export class SessionMessageService extends BaseService {
                     this.persistHeadlessExchange(
                       session,
                       options?.displayContent ?? req.content,
-                      partialText,
+                      accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
                       resolvedSessionId,
+                      headlessAssistantMsgId,
                       options?.images,
-                      req.model
+                      req.model,
+                      accumulator.getUsage()
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -370,16 +508,16 @@ export class SessionMessageService extends BaseService {
   private async persistHeadlessExchange(
     session: GetAgentSessionResponse,
     userContent: string,
-    assistantContent: string,
+    assistantBlocksInput: HeadlessPersistedBlock[],
     agentSessionId: string,
+    assistantMsgId: string,
     images?: Array<{ data: string; media_type: string }>,
-    modelId?: string
+    modelId?: string,
+    usage?: PersistedUsage
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
     const userMsgId = randomUUID()
-    const assistantMsgId = randomUUID()
     const userBlockId = randomUUID()
-    const assistantBlockId = randomUUID()
     const topicId = `agent-session:${session.id}`
 
     // Build image blocks for user message
@@ -427,6 +565,11 @@ export class SessionMessageService extends BaseService {
       ]
     } as AgentPersistedMessage
 
+    const assistantBlocks: HeadlessPersistedBlock[] = assistantBlocksInput.map((block) => ({
+      ...block,
+      messageId: assistantMsgId
+    }))
+
     const assistantPayload = {
       message: {
         id: assistantMsgId,
@@ -435,19 +578,11 @@ export class SessionMessageService extends BaseService {
         topicId,
         createdAt: now,
         status: 'success',
-        blocks: [assistantBlockId],
-        modelId: modelId || session.model
+        blocks: assistantBlocks.map((block) => block.id),
+        modelId: modelId || session.model,
+        usage
       },
-      blocks: [
-        {
-          id: assistantBlockId,
-          messageId: assistantMsgId,
-          type: 'main_text',
-          createdAt: now,
-          status: 'success',
-          content: assistantContent
-        }
-      ]
+      blocks: assistantBlocks
     } as AgentPersistedMessage
 
     const result = await agentMessageRepository.persistExchange({
@@ -460,7 +595,10 @@ export class SessionMessageService extends BaseService {
     logger.info('Persisted headless exchange', {
       sessionId: session.id,
       userMessageId: userMsgId,
-      assistantMessageId: assistantMsgId
+      assistantMessageId: assistantMsgId,
+      assistantBlockCount: assistantBlocks.length,
+      assistantToolBlockCount: assistantBlocks.filter((block) => block.type === 'tool').length,
+      assistantUsage: usage
     })
 
     return result

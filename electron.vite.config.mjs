@@ -57,7 +57,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/preload/index.ts'),
-          payment: resolve('src/preload/payment.ts')
+          payment: resolve('src/preload/payment.ts'),
+          webviewEnv: resolve('src/preload/webviewEnv.ts')
         },
         output: {
           entryFileNames: '[name].js'

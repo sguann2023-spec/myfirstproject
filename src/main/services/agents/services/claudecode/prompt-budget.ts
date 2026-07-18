@@ -24,6 +24,9 @@ type RequestFingerprints = {
 export function logPromptBudgetProbe(args: {
   agentId: string
   sessionId: string
+  traceId?: string
+  segmentId?: string
+  parentSegmentId?: string
   model: string
   toolLayer: RuntimeToolLayer
   activeDomains?: ActiveIntentDomain[]
@@ -38,6 +41,11 @@ export function logPromptBudgetProbe(args: {
   activeSkills: string[]
   selectedCapabilities: string[]
   promptLengths?: Record<string, number>
+  systemPromptVersion?: string
+  systemPromptHash?: string
+  continuationSummaryChars?: number
+  recentTurnsCount?: number
+  referencedArtifactsCount?: number
 }): void {
   const segments: Segment[] = [
     segment('userPrompt', args.prompt),
@@ -77,6 +85,9 @@ export function logPromptBudgetProbe(args: {
   logger.info('[PromptBudget] request surface', {
     agentId: args.agentId,
     sessionId: args.sessionId,
+    traceId: args.traceId,
+    segmentId: args.segmentId,
+    parentSegmentId: args.parentSegmentId,
     model: args.model,
     toolLayer: args.toolLayer,
     activeDomains: args.activeDomains ?? [],
@@ -84,12 +95,39 @@ export function logPromptBudgetProbe(args: {
     subdomains: args.subdomains ?? [],
     companionDomains: args.companionDomains ?? [],
     selectedCapabilities: args.selectedCapabilities,
+    systemPromptVersion: args.systemPromptVersion,
+    systemPromptHash: args.systemPromptHash,
+    continuationSummaryChars: args.continuationSummaryChars ?? 0,
+    recentTurnsCount: args.recentTurnsCount ?? 0,
+    referencedArtifactsCount: args.referencedArtifactsCount ?? 0,
     segments,
     approxTotalTokens: segments.reduce((total, item) => total + item.approxTokens, 0),
     fingerprints,
     fingerprintChanged: previous ? changed : ['first-request'],
     cacheRisk: classifyCacheRisk(changed)
   })
+
+  logger.info('[PromptCache] fingerprint', {
+    sessionId: args.sessionId,
+    traceId: args.traceId,
+    segmentId: args.segmentId,
+    modelHash: fingerprints.model,
+    systemHash: fingerprints.system,
+    toolsHash: fingerprints.tools,
+    messagesHash: fingerprints.messages,
+    fingerprintChanged: previous ? changed : ['first-request']
+  })
+
+  if (previous && changed.some((item) => item !== 'messages')) {
+    logger.warn('[PromptCache] break-detected', {
+      sessionId: args.sessionId,
+      traceId: args.traceId,
+      segmentId: args.segmentId,
+      changed,
+      cacheRisk: classifyCacheRisk(changed),
+      expectedInvalidation: true
+    })
+  }
 }
 
 function segment(name: string, value: unknown): Segment {

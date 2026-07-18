@@ -25,10 +25,22 @@ async function downloadViaElectronSession(url, localFilename, progressCallback, 
   return new Promise((resolve, reject) => {
     const reqId = `session-download:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     let settled = false;
+    let timer = null;
+
+    const resetTimeout = () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => {
+        finish(reject, new Error(`session download timeout after ${Math.ceil(timeout / 1000)}s without progress`));
+      }, timeout + 15000);
+    };
 
     const cleanup = () => {
       parentPort.off('message', onMessage);
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
     };
 
     const finish = (handler, payload) => {
@@ -42,6 +54,7 @@ async function downloadViaElectronSession(url, localFilename, progressCallback, 
       if (!msg || msg.reqId !== reqId) return;
 
       if (msg.type === 'session-download-progress') {
+        resetTimeout();
         if (typeof progressCallback === 'function') {
           progressCallback(Number(msg.downloadedBytes || 0), Number(msg.totalBytes || 0));
         }
@@ -57,11 +70,8 @@ async function downloadViaElectronSession(url, localFilename, progressCallback, 
       }
     };
 
-    const timer = setTimeout(() => {
-      finish(reject, new Error(`session download timeout after ${Math.ceil(timeout / 1000)}s`));
-    }, timeout + 15000);
-
     parentPort.on('message', onMessage);
+    resetTimeout();
     parentPort.postMessage({
       type: 'session-download-request',
       reqId,

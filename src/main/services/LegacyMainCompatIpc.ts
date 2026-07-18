@@ -93,10 +93,16 @@ async function downloadViaWindowSession(
 
   let activeRequest: AbortableDownloadRequest | null = null
   let timeoutError: Error | null = null
-  const timer = setTimeout(() => {
-    timeoutError = new Error(`session download timeout after ${timeout}ms`)
-    activeRequest?.abort()
-  }, timeout)
+  let timer: NodeJS.Timeout | null = null
+  const resetTimeout = () => {
+    if (timer) {
+      clearTimeout(timer)
+    }
+    timer = setTimeout(() => {
+      timeoutError = new Error(`session download timeout after ${timeout}ms without progress`)
+      activeRequest?.abort()
+    }, timeout)
+  }
   let completed = false
   let downloadedBytes = 0
   let totalBytes = 0
@@ -111,6 +117,7 @@ async function downloadViaWindowSession(
       url,
       localFilename
     })
+    resetTimeout()
 
     const buildRequestHeaders = async (targetUrl: string) => {
       const headers: Record<string, string> = {
@@ -157,6 +164,7 @@ async function downloadViaWindowSession(
       const source = Readable.fromWeb(response.body as NodeReadableStream)
 
       source.on('data', (chunk) => {
+        resetTimeout()
         downloadedBytes += Buffer.byteLength(chunk)
         reply({
           type: 'session-download-progress',
@@ -220,6 +228,7 @@ async function downloadViaWindowSession(
             totalBytes = Number(contentLengthValue || 0)
 
             response.on('data', (chunk) => {
+              resetTimeout()
               downloadedBytes += Buffer.byteLength(chunk)
               reply({
                 type: 'session-download-progress',
@@ -347,7 +356,9 @@ async function downloadViaWindowSession(
       error: message
     })
   } finally {
-    clearTimeout(timer)
+    if (timer) {
+      clearTimeout(timer)
+    }
     if (!completed) {
       activeRequest?.abort()
     }

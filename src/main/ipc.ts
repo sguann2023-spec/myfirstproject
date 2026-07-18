@@ -24,6 +24,7 @@ import type { UpgradeChannel } from '@shared/config/constant'
 import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/config/constant'
 import type { LocalTransferConnectPayload } from '@shared/config/types'
 import { IpcChannel } from '@shared/IpcChannel'
+import { normalizeWebviewRuntimeEnv } from '@shared/webview/runtimeEnv'
 import { extractPdfText } from '@shared/utils/pdf'
 import type {
   AgentPersistedMessage,
@@ -1302,6 +1303,14 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.Webview_SaveAsHTML, async (_, webviewId: number) => {
     const { saveWebviewAsHTML } = await import('./services/WebviewService')
     return await saveWebviewAsHTML(webviewId)
+  })
+  ipcMain.handle(IpcChannel.Webview_PrimeRuntimeEnv, async () => {
+    const vectcutApiKey = await resolveCurrentVectcutApiKey()
+    return normalizeWebviewRuntimeEnv({ VECTCUT_API_KEY: vectcutApiKey })
+  })
+  ipcMain.on(IpcChannel.Webview_GetRuntimeEnv, (event) => {
+    const vectcutApiKey = String(vectcutStore.get('auth.vectcut_api_key') || '').trim()
+    event.returnValue = normalizeWebviewRuntimeEnv({ VECTCUT_API_KEY: vectcutApiKey })
   })
 
   // store sync

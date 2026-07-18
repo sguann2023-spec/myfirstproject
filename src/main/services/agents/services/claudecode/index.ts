@@ -1,4 +1,5 @@
 // src/main/services/agents/services/claudecode/index.ts
+import { randomUUID } from 'node:crypto'
 import { fork } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
@@ -73,10 +74,25 @@ import {
   type RuntimeToolLayer
 } from './capability-router'
 import { sessionService } from '../SessionService'
+import { agentArtifactRepository } from '../../database/repositories/agentArtifactRepository'
 import { buildNamespacedToolCallId } from './claude-stream-state'
 import { logPromptBudgetProbe } from './prompt-budget'
+import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
 import { addAutoAllowedTool, buildToolSurface } from './tool-surface'
 import { promptForToolApproval } from './tool-permissions'
+import { artifactStoreService, buildArtifactHash } from './session-architecture/ArtifactStoreService'
+import { conversationCompactionService } from './session-architecture/ConversationCompactionService'
+import { conversationSegmentService } from './session-architecture/ConversationSegmentService'
+import { conversationSummaryService } from './session-architecture/ConversationSummaryService'
+import { fileChangeJournalService } from './session-architecture/FileChangeJournalService'
+import { promptViewBuilder } from './session-architecture/PromptViewBuilder'
+import { segmentPromptService } from './session-architecture/SegmentPromptService'
+import type {
+  AgentConversationSegment,
+  AgentTurn,
+  PromptView,
+  SegmentPromptEnvelope
+} from './session-architecture/types'
 import { ClaudeStreamState, transformSDKMessageToStreamParts } from './transform'
 
 const require_ = require
@@ -91,7 +107,32 @@ const ROUTING_CONTEXT_MAX_TURNS = 10
 const ROUTING_CONTEXT_MAX_MESSAGES = ROUTING_CONTEXT_MAX_TURNS * 2
 const ROUTING_CONTEXT_MAX_CHARS = 6000
 const ROUTING_CONTEXT_MAX_MESSAGE_CHARS = 500
+const MAX_PROMPT_REFERENCE_ARTIFACTS = 6
 const GIT_BASH_PATH_ERROR_SIGNATURE = 'CLAUDE_CODE_GIT_BASH_PATH path'
+
+type SessionArchitectureContext = {
+  traceId: string
+  topicId: string
+  currentPrompt: string
+  activeSegment: AgentConversationSegment | null
+  currentTurn: AgentTurn | null
+  promptEnvelope: SegmentPromptEnvelope
+  pendingFileChanges: Map<
+    string,
+    Array<{
+      filePath: string
+      operation: 'create' | 'update' | 'delete'
+      existedBefore: boolean
+      beforeSnapshot?: string
+      beforeHash?: string
+    }>
+  >
+}
+
+type PendingToolCall = {
+  toolName: string
+  input?: unknown
+}
 
 const isVectcutGatewayUrl = (value: string): boolean => {
   const raw = String(value || '').trim()
@@ -120,6 +161,67 @@ const describeApiKey = (value?: string | null) => {
     prefix: normalized.slice(0, 6),
     suffix: normalized.slice(-6)
   }
+}
+
+const buildTraceId = () => `trace_${randomUUID()}`
+
+const composePromptViewText = (promptView: PromptView): string => {
+  const sections: string[] = []
+  if (promptView.continuationSummary) {
+    sections.push(['[Continuation Summary]', promptView.continuationSummary].join('\n'))
+  }
+  if (promptView.recentTurns.length > 0) {
+    sections.push(
+      ['[Recent Turns]', ...promptView.recentTurns.map((turn) => `${turn.role}: ${turn.text}`)].join('\n')
+    )
+  }
+  if ((promptView.referencedArtifacts?.length ?? 0) > 0) {
+    sections.push(
+      [
+        '[Referenced Artifacts]',
+        ...((promptView.referencedArtifacts ?? []).map((artifact) => {
+          const source = artifact.toolSubtype || artifact.sourceType
+          const location = artifact.filePath ? ` ${artifact.filePath}` : ''
+          return `- (${source})${location}\n${artifact.summary}`
+        }) ?? [])
+      ].join('\n')
+    )
+  }
+  sections.push(promptView.currentPrompt)
+  return sections.filter(Boolean).join('\n\n')
+}
+
+const getArtifactSourceType = (toolName: string): 'read' | 'grep' | 'webfetch' | 'tool_result' => {
+  const lower = toolName.toLowerCase()
+  if (lower.includes('read')) return 'read'
+  if (lower.includes('grep') || lower.includes('search')) return 'grep'
+  if (lower.includes('webfetch') || lower.includes('fetch') || lower.includes('browser_snapshot')) return 'webfetch'
+  return 'tool_result'
+}
+
+const shouldOffloadToolResult = (toolName: string, outputText: string): boolean => {
+  const lower = toolName.toLowerCase()
+  return (
+    outputText.length >= 1500 ||
+    lower.includes('browser__screenshot') ||
+    lower.includes('browser__snapshot') ||
+    lower.includes('read') ||
+    lower.includes('grep') ||
+    lower.includes('webfetch')
+  )
+}
+
+const tryExtractFilePath = (input: unknown): string | undefined => {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  for (const key of ['file_path', 'path', 'target_path', 'new_path']) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  if (Array.isArray(record.paths) && typeof record.paths[0] === 'string') {
+    return record.paths[0]
+  }
+  return undefined
 }
 
 const summarizePathSnapshot = (targetPath?: string | null) => {
@@ -748,6 +850,16 @@ class ClaudeCodeService implements AgentServiceInterface {
     const sessionAllowedTools = new Set<string>(toolSurface.allowedToolsOption)
     const autoAllowTools = toolSurface.autoAllowedTools
     const readFilesInSession = new Set<string>()
+    const pendingFileChanges = new Map<
+      string,
+      Array<{
+        filePath: string
+        operation: 'create' | 'update' | 'delete'
+        existedBefore: boolean
+        beforeSnapshot?: string
+        beforeHash?: string
+      }>
+    >()
     const normalizeToolName = (name: string) => (name.startsWith('builtin_') ? name.slice('builtin_'.length) : name)
     const requiresInteractiveApproval = (name: string) => normalizeToolName(name) === 'AskUserQuestion'
     const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -780,6 +892,69 @@ class ClaudeCodeService implements AgentServiceInterface {
         return path.normalize(path.isAbsolute(trimmed) ? trimmed : path.resolve(defaultCwd, trimmed))
       }
       return null
+    }
+    const resolveAbsoluteToolPath = (rawPath: string, defaultCwd: string) =>
+      path.normalize(path.isAbsolute(rawPath) ? rawPath : path.resolve(defaultCwd, rawPath))
+    const resolveToolFileTargets = (
+      toolName: string,
+      toolInput: unknown,
+      defaultCwd: string
+    ): Array<{ filePath: string; operation: 'create' | 'update' | 'delete' }> => {
+      const normalizedToolName = normalizeToolName(toolName)
+      const input = isRecord(toolInput) ? toolInput : null
+      if (!input) return []
+
+      if (normalizedToolName === 'DeleteFile') {
+        const rawPaths = Array.isArray(input.file_paths)
+          ? input.file_paths
+          : Array.isArray(input.paths)
+            ? input.paths
+            : typeof input.file_path === 'string'
+              ? [input.file_path]
+              : []
+        return rawPaths
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .map((rawPath) => ({
+            filePath: resolveAbsoluteToolPath(rawPath.trim(), defaultCwd),
+            operation: 'delete' as const
+          }))
+      }
+
+      const filePath = resolveToolFilePath(toolInput, defaultCwd)
+      if (!filePath) {
+        return []
+      }
+
+      if (normalizedToolName === 'Edit' || normalizedToolName === 'MultiEdit') {
+        return [{ filePath, operation: 'update' }]
+      }
+
+      if (normalizedToolName === 'Write') {
+        return [{ filePath, operation: fs.existsSync(filePath) ? 'update' : 'create' }]
+      }
+
+      return []
+    }
+    const capturePendingFileChanges = async (toolName: string, toolInput: unknown, toolCallId: string) => {
+      const targets = resolveToolFileTargets(toolName, toolInput, cwd)
+      if (targets.length === 0) {
+        return
+      }
+
+      const snapshots = await Promise.all(
+        targets.map(async (target) => {
+          const before = await fileChangeJournalService.readSnapshot(target.filePath)
+          return {
+            filePath: target.filePath,
+            operation: target.operation,
+            existedBefore: before.exists,
+            beforeSnapshot: before.content,
+            beforeHash: before.hash
+          }
+        })
+      )
+
+      pendingFileChanges.set(toolCallId, snapshots)
     }
     let plugins: SdkPluginConfig[] | undefined
     if (hasWorkspaceAccess(capabilityDecision.toolLayer)) {
@@ -956,6 +1131,9 @@ class ClaudeCodeService implements AgentServiceInterface {
         const autoAllowed = autoAllowTools.has(toolName) || autoAllowTools.has(normalizedToolName)
         const needsInteractiveApproval = requiresInteractiveApproval(toolName)
         const namespacedToolCallId = buildNamespacedToolCallId(session.id, toolUseID)
+
+        await capturePendingFileChanges(toolName, hookInput.tool_input, namespacedToolCallId)
+
         if (needsInteractiveApproval && (bypassAll || autoAllowed)) {
           logger.info('Forcing interactive PreToolUse approval for tool', {
             toolName,
@@ -1097,6 +1275,87 @@ class ClaudeCodeService implements AgentServiceInterface {
           .filter(Boolean)
           .join('\n\n')
 
+    const traceId = buildTraceId()
+    let activeSegment = await conversationSegmentService.getActiveSegment(session.id)
+    if (!activeSegment && lastAgentSessionId) {
+      activeSegment = await conversationSegmentService.createRootSegment({
+        topicId: session.id,
+        sdkSessionId: lastAgentSessionId,
+        systemPromptVersion: 'v1',
+        systemPromptHash: 'bootstrap_pending',
+        basePromptSnapshot: String(finalSystemPrompt || '')
+      })
+    }
+
+    const recentTurns = activeSegment ? await agentTurnRepository.listBySegmentId(activeSegment.id, 4) : []
+    let artifactSourceSegmentId = activeSegment?.id
+    let referencedArtifacts = (
+      await Promise.all(recentTurns.map(async (turn) => artifactStoreService.listByTurnId(turn.id)))
+    )
+      .flat()
+      .slice(-MAX_PROMPT_REFERENCE_ARTIFACTS)
+
+    if (
+      referencedArtifacts.length === 0 &&
+      activeSegment?.parentSegmentId &&
+      activeSegment.parentSegmentId !== activeSegment.id
+    ) {
+      const parentRecentTurns = await agentTurnRepository.listBySegmentId(activeSegment.parentSegmentId, 4)
+      referencedArtifacts = (
+        await Promise.all(parentRecentTurns.map(async (turn) => artifactStoreService.listByTurnId(turn.id)))
+      )
+        .flat()
+        .slice(-MAX_PROMPT_REFERENCE_ARTIFACTS)
+      if (referencedArtifacts.length > 0) {
+        artifactSourceSegmentId = activeSegment.parentSegmentId
+      }
+    }
+
+    logger.info('[SegmentCompose] start', {
+      topicId: session.id,
+      traceId,
+      activeSegmentId: activeSegment?.id ?? '',
+      sdkSessionId: activeSegment ? activeSegment.sdkSessionId : lastAgentSessionId ?? '',
+      hasContinuationSummary: Boolean(activeSegment?.continuationSummary),
+      hasPriorArtifacts: referencedArtifacts.length > 0,
+      artifactSourceSegmentId: artifactSourceSegmentId ?? ''
+    })
+    const promptView = await promptViewBuilder.build({
+      continuationSummary: activeSegment?.continuationSummary,
+      recentTurns,
+      currentPrompt: prompt,
+      referencedArtifacts
+    })
+    const promptEnvelope = await segmentPromptService.build({
+      stableBasePrompt: assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || ''),
+      dynamicContextPrompt: assistantSystemPrompt
+        ? ''
+        : [factsRecall, session.instructions, channelSecurityBlock, getLanguageInstruction()].filter(Boolean).join('\n\n'),
+      promptView,
+      modelId: modelInfo.modelId,
+      builtinTools: toolSurface.builtinTools,
+      allowedTools: toolSurface.allowedToolsOption
+    })
+    const composedPrompt = composePromptViewText(promptEnvelope.promptView)
+
+    logger.info('[SegmentCompose] prompt-envelope', {
+      topicId: session.id,
+      traceId,
+      segmentId: activeSegment?.id ?? '',
+      systemPromptHash: promptEnvelope.systemPromptHash,
+      systemPromptVersion: promptEnvelope.systemPromptVersion,
+      stableBasePromptChars: (assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || '')).length,
+      dynamicContextPromptChars: (
+        assistantSystemPrompt
+          ? ''
+          : [factsRecall, session.instructions, channelSecurityBlock, getLanguageInstruction()].filter(Boolean).join('\n\n')
+      ).length,
+      systemPromptChars: promptEnvelope.systemPrompt.length,
+      continuationSummaryChars: promptEnvelope.promptView.continuationSummary?.length ?? 0,
+      recentTurnsCount: promptEnvelope.promptView.recentTurns.length,
+      referencedArtifactsCount: promptEnvelope.promptView.referencedArtifacts?.length ?? 0
+    })
+
     // Build SDK options from session configuration.
     // If thinking is not explicitly configured, leave it unset so the runtime
     // does not force adaptive thinking by default.
@@ -1161,7 +1420,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         })
         return child as unknown as SpawnedProcess
       },
-      systemPrompt: finalSystemPrompt,
+      systemPrompt: promptEnvelope.systemPrompt,
       // Claw-style prompt assembly loads capped workspace instructions itself.
       // Keep SDK project/local settings out of the prompt unless explicitly requested.
       settingSources: process.env.CHERRY_AGENT_USE_SDK_SETTINGS === '1' ? ['project', 'local'] : [],
@@ -1464,8 +1723,11 @@ class ClaudeCodeService implements AgentServiceInterface {
       primaryDomain: capabilityDecision.primaryDomain,
       subdomains: capabilityDecision.subdomains,
       companionDomains: capabilityDecision.companionDomains,
-      prompt,
-      systemPrompt: finalSystemPrompt,
+      traceId,
+      segmentId: activeSegment?.id,
+      parentSegmentId: activeSegment?.parentSegmentId,
+      prompt: composedPrompt,
+      systemPrompt: promptEnvelope.systemPrompt,
       builtinTools: toolSurface.builtinTools,
       allowedTools: Array.isArray(options.allowedTools) ? options.allowedTools : [],
       mcpServerNames: Object.keys(options.mcpServers || {}).sort(),
@@ -1477,17 +1739,49 @@ class ClaudeCodeService implements AgentServiceInterface {
         assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
         sessionInstructions: session.instructions?.length ?? 0,
         routingPrompt: intentPrompt?.length ?? prompt.length
-      }
+      },
+      systemPromptVersion: promptEnvelope.systemPromptVersion,
+      systemPromptHash: promptEnvelope.systemPromptHash,
+      continuationSummaryChars: promptEnvelope.promptView.continuationSummary?.length ?? 0,
+      recentTurnsCount: promptEnvelope.promptView.recentTurns.length,
+      referencedArtifactsCount: promptEnvelope.promptView.referencedArtifacts?.length ?? 0
     })
 
-    if (lastAgentSessionId && !NO_RESUME_COMMANDS.some((cmd) => prompt.includes(cmd))) {
+    const shouldResumeExistingSession = !NO_RESUME_COMMANDS.some((cmd) => composedPrompt.includes(cmd))
+
+    if (activeSegment?.sdkSessionId && shouldResumeExistingSession) {
+      options.resume = activeSegment.sdkSessionId
+      // TODO: use fork session when we support branching sessions
+      // options.forkSession = true
+    } else if (!activeSegment && lastAgentSessionId && shouldResumeExistingSession) {
       options.resume = lastAgentSessionId
       // TODO: use fork session when we support branching sessions
       // options.forkSession = true
+    } else if (activeSegment && !activeSegment.sdkSessionId && shouldResumeExistingSession) {
+      logger.info('[ForkContinuation] start-child-with-fresh-session', {
+        topicId: session.id,
+        traceId,
+        segmentId: activeSegment.id,
+        parentSegmentId: activeSegment.parentSegmentId ?? '',
+        forkFromSdkSessionId: activeSegment.forkFromSdkSessionId ?? ''
+      })
     }
 
+    const currentTurn = activeSegment
+      ? await agentTurnRepository.save({
+          id: `turn_${randomUUID()}`,
+          topicId: session.id,
+          segmentId: activeSegment.id,
+          traceId,
+          userMessageId: '',
+          userText: prompt,
+          startedAt: new Date().toISOString(),
+          status: 'running'
+        })
+      : null
+
     const { stream: userInputStream, enqueue: enqueueUserMessage, close: closeUserStream } = await this.createUserMessageStream(
-      prompt,
+      composedPrompt,
       abortController.signal,
       images
     )
@@ -1502,7 +1796,16 @@ class ClaudeCodeService implements AgentServiceInterface {
         aiStream,
         errorChunks,
         session.agent_id,
-        session.id
+        session.id,
+        {
+          traceId,
+          topicId: session.id,
+          currentPrompt: prompt,
+          activeSegment,
+          currentTurn,
+          promptEnvelope,
+          pendingFileChanges
+        }
       ).catch((error) => {
         logger.error('Unhandled Claude Code stream error', {
           error: error instanceof Error ? { name: error.name, message: error.message } : String(error)
@@ -1844,7 +2147,8 @@ class ClaudeCodeService implements AgentServiceInterface {
     stream: ClaudeCodeStream,
     errorChunks: string[],
     agentId: string,
-    sessionId: string
+    sessionId: string,
+    architectureContext: SessionArchitectureContext
   ): Promise<void> {
     const jsonOutput: SDKMessage[] = []
     let hasCompleted = false
@@ -1865,6 +2169,10 @@ class ClaudeCodeService implements AgentServiceInterface {
       assistantReasoningChars: 0
     }
     let thinkingDetectionReported = false
+    let currentSegment = architectureContext.activeSegment
+    let currentTurn = architectureContext.currentTurn
+    let finalInputTokens = 0
+    const pendingToolCalls = new Map<string, PendingToolCall>()
     const streamingProbe = {
       firstChunkAtMs: null as number | null,
       firstTextDeltaAtMs: null as number | null,
@@ -1994,6 +2302,43 @@ class ClaudeCodeService implements AgentServiceInterface {
               sdkSessionId: message.session_id,
               sessionId
             })
+
+            if (!currentSegment) {
+              currentSegment = await conversationSegmentService.createRootSegment({
+                topicId: architectureContext.topicId,
+                sdkSessionId: message.session_id,
+                systemPromptVersion: architectureContext.promptEnvelope.systemPromptVersion,
+                systemPromptHash: architectureContext.promptEnvelope.systemPromptHash,
+                basePromptSnapshot: architectureContext.promptEnvelope.systemPrompt
+              })
+            } else if (!currentSegment.sdkSessionId) {
+              await conversationSegmentService.bindSdkSession(currentSegment.id, message.session_id)
+              currentSegment = {
+                ...currentSegment,
+                sdkSessionId: message.session_id,
+                updatedAt: new Date().toISOString()
+              }
+              logger.info('[ForkContinuation] bind-child-session', {
+                topicId: architectureContext.topicId,
+                traceId: architectureContext.traceId,
+                segmentId: currentSegment.id,
+                sdkSessionId: message.session_id,
+                forkFromSdkSessionId: currentSegment.forkFromSdkSessionId ?? ''
+              })
+            }
+
+            if (!currentTurn && currentSegment) {
+              currentTurn = await agentTurnRepository.save({
+                id: `turn_${randomUUID()}`,
+                topicId: architectureContext.topicId,
+                segmentId: currentSegment.id,
+                traceId: architectureContext.traceId,
+                userMessageId: '',
+                userText: architectureContext.currentPrompt,
+                startedAt: new Date().toISOString(),
+                status: 'running'
+              })
+            }
           }
 
           const sdkSlashCommands = message.slash_commands || []
@@ -2144,6 +2489,13 @@ class ClaudeCodeService implements AgentServiceInterface {
             })
           }
 
+          if (chunk.type === 'tool-call') {
+            pendingToolCalls.set(String((chunk as any).toolCallId || ''), {
+              toolName: String((chunk as any).toolName || ''),
+              input: (chunk as any).input
+            })
+          }
+
           if ((chunk.type === 'tool-result' || chunk.type === 'tool-error') && streamingProbe.firstToolResultAtMs === null) {
             streamingProbe.firstToolResultAtMs = elapsedMs
             logger.info('Streaming probe: first tool result emitted', {
@@ -2155,7 +2507,79 @@ class ClaudeCodeService implements AgentServiceInterface {
             })
           }
 
+          if (chunk.type === 'tool-result') {
+            const toolCallId = String((chunk as any).toolCallId || '')
+            const toolName = String((chunk as any).toolName || '')
+            const pendingToolCall = pendingToolCalls.get(toolCallId)
+            const outputText = summarizeChunkField((chunk as any).output)
+
+            if (currentTurn && currentSegment && shouldOffloadToolResult(toolName, outputText)) {
+              const artifact = await artifactStoreService.save({
+                topicId: architectureContext.topicId,
+                segmentId: currentSegment.id,
+                turnId: currentTurn.id,
+                sourceType: getArtifactSourceType(toolName),
+                toolSubtype: toolName,
+                toolCallId,
+                filePath: tryExtractFilePath(pendingToolCall?.input),
+                content: outputText,
+                contentHash: buildArtifactHash(outputText),
+                summary: outputText.slice(0, 500)
+              })
+              logger.info('[ArtifactStore] offload', {
+                topicId: architectureContext.topicId,
+                turnId: currentTurn.id,
+                segmentId: currentSegment.id,
+                toolCallId,
+                sourceType: artifact.sourceType,
+                toolSubtype: artifact.toolSubtype,
+                contentChars: outputText.length,
+                storedAsArtifact: true,
+                artifactId: artifact.id,
+                contentHash: artifact.contentHash
+              })
+            }
+
+            const pendingChanges = architectureContext.pendingFileChanges.get(toolCallId) ?? []
+            if (currentTurn && currentSegment && pendingChanges.length > 0) {
+              for (const pendingChange of pendingChanges) {
+                const after = await fileChangeJournalService.readSnapshot(pendingChange.filePath)
+                const operation =
+                  pendingChange.operation === 'create' && pendingChange.existedBefore ? 'update' : pendingChange.operation
+                await fileChangeJournalService.record({
+                  topicId: architectureContext.topicId,
+                  segmentId: currentSegment.id,
+                  turnId: currentTurn.id,
+                  toolCallId,
+                  filePath: pendingChange.filePath,
+                  operation,
+                  beforeSnapshot: pendingChange.beforeSnapshot,
+                  afterSnapshot: after.content,
+                  beforeHash: pendingChange.beforeHash,
+                  afterHash: after.hash,
+                  patch: fileChangeJournalService.buildPatch(pendingChange.beforeSnapshot, after.content)
+                })
+              }
+              logger.info('[FileChangeJournal] recorded', {
+                topicId: architectureContext.topicId,
+                traceId: architectureContext.traceId,
+                turnId: currentTurn.id,
+                segmentId: currentSegment.id,
+                toolCallId,
+                count: pendingChanges.length,
+                paths: pendingChanges.map((item) => item.filePath)
+              })
+            }
+
+            architectureContext.pendingFileChanges.delete(toolCallId)
+          }
+
+          if (chunk.type === 'finish') {
+            finalInputTokens = Number((chunk as any).totalUsage?.inputTokens ?? finalInputTokens ?? 0)
+          }
+
           if (chunk.type === 'tool-error') {
+            architectureContext.pendingFileChanges.delete(String((chunk as any).toolCallId || ''))
             logger.warn('Tool execution failed in stream chunk', {
               sessionId,
               toolCallId: (chunk as any).toolCallId ?? '',
@@ -2273,6 +2697,119 @@ class ClaudeCodeService implements AgentServiceInterface {
       //   })
       // }
 
+      if (currentTurn) {
+        await agentTurnRepository.update(currentTurn.id, {
+          completedAt: new Date().toISOString(),
+          status: 'completed',
+          cumulativeInputTokens: finalInputTokens
+        })
+        currentTurn = {
+          ...currentTurn,
+          completedAt: new Date().toISOString(),
+          status: 'completed',
+          cumulativeInputTokens: finalInputTokens
+        }
+      }
+
+      if (currentSegment && currentTurn) {
+        const decision = await conversationCompactionService.evaluate({
+          segment: currentSegment,
+          completedTurn: currentTurn,
+          cumulativeInputTokens: finalInputTokens
+        })
+        logger.info('[SegmentCompact] decision', {
+          topicId: architectureContext.topicId,
+          traceId: architectureContext.traceId,
+          turnId: currentTurn.id,
+          segmentId: currentSegment.id,
+          cumulativeInputTokens: finalInputTokens,
+          decision: decision.shouldCompact,
+          reason: decision.reason ?? '',
+          preserveRecentMessages: 4
+        })
+
+        if (decision.shouldCompact) {
+          const recentTurns = await agentTurnRepository.listBySegmentId(currentSegment.id, 4)
+          const artifacts = await agentArtifactRepository.listByTurnId(currentTurn.id)
+          const fileChanges = await fileChangeJournalService.listByTurn(currentTurn.id)
+          const rawSummary = await conversationSummaryService.buildRawSummary({
+            segment: currentSegment,
+            recentTurns,
+            artifacts,
+            fileChanges
+          })
+          const continuationSummary = await conversationSummaryService.compressSummary({
+            rawSummary,
+            maxChars: 1_200,
+            maxLines: 24,
+            maxLineChars: 160
+          })
+
+          logger.info('[SummaryCompose] raw-summary', {
+            topicId: architectureContext.topicId,
+            traceId: architectureContext.traceId,
+            turnId: currentTurn.id,
+            segmentId: currentSegment.id,
+            rawSummaryChars: rawSummary.length,
+            rawSummaryLines: rawSummary.split('\n').length
+          })
+          logger.info('[SummaryCompose] compressed-summary', {
+            topicId: architectureContext.topicId,
+            traceId: architectureContext.traceId,
+            turnId: currentTurn.id,
+            segmentId: currentSegment.id,
+            rawSummaryChars: rawSummary.length,
+            compressedSummaryChars: continuationSummary.length,
+            rawSummaryLines: rawSummary.split('\n').length,
+            compressedSummaryLines: continuationSummary.split('\n').length,
+            compressionRatio: rawSummary.length > 0 ? continuationSummary.length / rawSummary.length : 1,
+            maxChars: 1200,
+            maxLines: 24,
+            maxLineChars: 160
+          })
+
+          await conversationSegmentService.markSegmentCompacted(currentSegment.id, {
+            rawSummary,
+            continuationSummary,
+            compactReason: decision.reason,
+            summaryVersion: 'v1'
+          })
+          const childSegment = await conversationSegmentService.createChildSegment({
+            topicId: currentSegment.topicId,
+            parentSegmentId: currentSegment.id,
+            forkFromSdkSessionId: currentSegment.sdkSessionId,
+            systemPromptVersion: architectureContext.promptEnvelope.systemPromptVersion,
+            systemPromptHash: architectureContext.promptEnvelope.systemPromptHash,
+            basePromptSnapshot: architectureContext.promptEnvelope.systemPrompt,
+            continuationSummary,
+            summaryVersion: 'v1'
+          })
+          logger.info('[SegmentCompact] applied', {
+            topicId: architectureContext.topicId,
+            traceId: architectureContext.traceId,
+            turnId: currentTurn.id,
+            segmentId: currentSegment.id,
+            childSegmentId: childSegment.id,
+            rawSummaryChars: rawSummary.length,
+            continuationSummaryChars: continuationSummary.length,
+            preservedRecentMessages: 4,
+            compactedMessageCount: recentTurns.length
+          })
+          logger.info('[ForkContinuation] create-child', {
+            topicId: architectureContext.topicId,
+            traceId: architectureContext.traceId,
+            turnId: currentTurn.id,
+            parentSegmentId: currentSegment.id,
+            childSegmentId: childSegment.id,
+            parentSdkSessionId: currentSegment.sdkSessionId,
+            childSdkSessionId: childSegment.sdkSessionId,
+            forkMode: 'new-session',
+            systemPromptHash: architectureContext.promptEnvelope.systemPromptHash,
+            continuationSummaryChars: continuationSummary.length
+          })
+        }
+      }
+
       stream.emit('data', {
         type: 'complete'
       })
@@ -2288,6 +2825,13 @@ class ClaudeCodeService implements AgentServiceInterface {
         options.abortController?.signal.aborted
 
       if (isAborted) {
+        if (currentTurn) {
+          await agentTurnRepository.update(currentTurn.id, {
+            completedAt: new Date().toISOString(),
+            status: 'cancelled',
+            cumulativeInputTokens: finalInputTokens
+          })
+        }
         logger.info('SDK query aborted by client disconnect', { duration })
         stream.emit('data', {
           type: 'cancelled',
@@ -2303,6 +2847,14 @@ class ClaudeCodeService implements AgentServiceInterface {
         error: errorObj instanceof Error ? { name: errorObj.name, message: errorObj.message } : String(errorObj),
         stderr: errorChunks
       })
+
+      if (currentTurn) {
+        await agentTurnRepository.update(currentTurn.id, {
+          completedAt: new Date().toISOString(),
+          status: 'failed',
+          cumulativeInputTokens: finalInputTokens
+        })
+      }
 
       stream.emit('data', {
         type: 'error',

@@ -3,13 +3,14 @@ import './ThemeService'
 
 import { is } from '@electron-toolkit/utils'
 import { loggerService } from '@logger'
-import { isDev, isLinux, isMac, isWin } from '@main/constant'
+import { isLinux, isMac, isWin } from '@main/constant'
 import { getFilesDir } from '@main/utils/file'
 import { IpcChannel } from '@shared/IpcChannel'
 import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell } from 'electron'
 import windowStateKeeper from 'electron-window-state'
 import fs from 'node:fs'
 import path, { join } from 'path'
+import { pathToFileURL } from 'node:url'
 
 import { configManager } from './ConfigManager'
 import { contextMenu } from './ContextMenu'
@@ -177,12 +178,17 @@ export class WindowService {
       contextMenu.contextMenu(webContents)
     })
 
-    // Dangerous API
-    if (isDev) {
-      mainWindow.webContents.on('will-attach-webview', (_, webPreferences) => {
-        webPreferences.preload = join(__dirname, '../preload/index.js')
-      })
-    }
+    mainWindow.webContents.on('will-attach-webview', (_, webPreferences, params) => {
+      // Use a dedicated preload for guest webviews instead of exposing the full app bridge.
+      const guestPreloadPath = join(__dirname, '../preload/webviewEnv.js')
+      webPreferences.preload = guestPreloadPath
+      ;(webPreferences as typeof webPreferences & { preloadURL?: string }).preloadURL =
+        pathToFileURL(guestPreloadPath).toString()
+      webPreferences.additionalArguments = [
+        ...(webPreferences.additionalArguments || []),
+        `--vectcut-webview-src=${encodeURIComponent(String(params?.src || ''))}`
+      ]
+    })
   }
 
   private setupWindowEvents(mainWindow: BrowserWindow) {

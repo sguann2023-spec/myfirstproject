@@ -33,6 +33,7 @@ import { sendMessage as dispatchSendMessage } from '@renderer/store/thunk/messag
 import type { Assistant, Message, ThinkingOption } from '@renderer/types'
 import type { FileMetadata } from '@renderer/types'
 import type { MessageBlock } from '@renderer/types/newMessage'
+import { AssistantMessageStatus } from '@renderer/types/newMessage'
 import { MessageBlockStatus } from '@renderer/types/newMessage'
 import { abortCompletion } from '@renderer/utils/abortController'
 import { buildAgentSessionTopicId } from '@renderer/utils/agentSession'
@@ -336,46 +337,49 @@ const AgentSessionInputbarInner: FC<InnerProps> = ({ assistant, agentId, session
 
   const sendDisabled = (inputEmpty && files.length === 0) || !apiServer.enabled
 
-  const streamingAskIds = useMemo(() => {
+  const activeAbortIds = useMemo(() => {
     if (!topicMessages) {
       return []
     }
 
-    const askIdSet = new Set<string>()
+    const abortIdSet = new Set<string>()
     for (const message of topicMessages) {
       if (!message) continue
-      if (message.status === 'processing' || message.status === 'pending') {
+      if (
+        message.role === 'assistant' &&
+        (message.status === AssistantMessageStatus.PROCESSING ||
+          message.status === AssistantMessageStatus.PENDING ||
+          message.status === AssistantMessageStatus.SEARCHING)
+      ) {
         if (message.askId) {
-          askIdSet.add(message.askId)
-        } else if (message.id) {
-          askIdSet.add(message.id)
+          abortIdSet.add(message.askId)
+        }
+        if (message.id) {
+          abortIdSet.add(message.id)
         }
       }
     }
 
-    return Array.from(askIdSet)
+    return Array.from(abortIdSet)
   }, [topicMessages])
 
-  const canAbort = loading && streamingAskIds.length > 0
+  const canAbort = loading
 
   const abortAgentSession = useCallback(async () => {
-    if (!streamingAskIds.length) {
-      logger.debug('No active agent session streams to abort', { sessionTopicId })
-      return
-    }
-
     logger.info('Aborting agent session message generation', {
       sessionTopicId,
-      askIds: streamingAskIds
+      abortIds: activeAbortIds,
+      loading
     })
 
-    for (const askId of streamingAskIds) {
-      abortCompletion(askId)
+    for (const abortId of activeAbortIds) {
+      abortCompletion(abortId)
     }
 
+    await window.api.agentSessionStream.abort(sessionId)
     void pauseTrace(sessionTopicId)
     dispatch(newMessagesActions.setTopicLoading({ topicId: sessionTopicId, loading: false }))
-  }, [dispatch, sessionTopicId, streamingAskIds])
+  }, [activeAbortIds, dispatch, loading, sessionId, sessionTopicId])
 
   const sendMessage = useCallback(async () => {
     if (sendDisabled) {

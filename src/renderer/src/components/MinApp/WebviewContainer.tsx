@@ -1,4 +1,5 @@
 import { loggerService } from '@logger'
+import { shouldExposeWebviewRuntimeEnv } from '@shared/webview/runtimeEnv'
 import { useSettings } from '@renderer/hooks/useSettings'
 import type { WebviewTag } from 'electron'
 import { memo, useEffect, useRef } from 'react'
@@ -44,6 +45,7 @@ const WebviewContainer = memo(
       if (!webviewRef.current) return
 
       let loadCallbackFired = false
+      let disposed = false
 
       const handleLoaded = () => {
         logger.debug(`WebView did-finish-load for app: ${appid}`)
@@ -92,10 +94,25 @@ const WebviewContainer = memo(
       webviewRef.current.addEventListener('ready-to-show', handleReadyToShow)
       webviewRef.current.addEventListener('did-navigate-in-page', handleNavigate)
 
-      // we set the url when the webview is ready
-      webviewRef.current.src = url
+      const startLoad = async () => {
+        if (shouldExposeWebviewRuntimeEnv(url)) {
+          try {
+            await window.api?.webview?.primeRuntimeEnv?.()
+          } catch (error) {
+            logger.warn(`Failed to prime webview runtime env for app: ${appid}`, error as Error)
+          }
+        }
+
+        if (!disposed && webviewRef.current) {
+          // Set the target URL only after the runtime env is primed.
+          webviewRef.current.src = url
+        }
+      }
+
+      void startLoad()
 
       return () => {
+        disposed = true
         webviewRef.current?.removeEventListener('did-start-loading', handleStartLoading)
         webviewRef.current?.removeEventListener('dom-ready', handleDomReady)
         webviewRef.current?.removeEventListener('did-finish-load', handleLoaded)
