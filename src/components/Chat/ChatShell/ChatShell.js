@@ -930,7 +930,7 @@ const ChatShell = ({
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '点这里可以编辑网页与视频工作流。',
+      description: '点这里可以编辑这个技能',
       target: () => beginnerGuideChildrensBookEditButtonRef.current
     },
     {
@@ -2348,7 +2348,7 @@ const ChatShell = ({
                                     event.stopPropagation();
                                     onSelectSkill(skill);
                                   }}
-                                  title="编辑这个技能网页"
+                                  title="编辑这个技能"
                                   aria-label={`编辑 ${folderLabel || displayName} 的技能网页`}>
                                   <SquarePen size={12} aria-hidden="true" />
                                 </button>

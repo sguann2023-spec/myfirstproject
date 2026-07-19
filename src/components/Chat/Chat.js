@@ -57,7 +57,7 @@ const CREATE_SKILL_PROMPT_TEMPLATE = [
   '',
 ].join('\n');
 const buildSkillEditPrompt = (mentionLabel) => [
-  `@${mentionLabel} 请帮我修改这个技能的网页：（例如：我想换个背景颜色)`
+  `@${mentionLabel} 执行这个技能：（例如：生成一个儿童绘本主题是勇敢的小狮子)。或者@${mentionLabel} 修改这个技能：（例如：修改这个技能的分镜数量，我想改到8个)。`
 ].join('\n');
 const formatModelDisplayName = (value) => String(value || '').trim();
 const buildFileCommentMessage = ({ filePath, fileName, lineNumber, comment }) => {
