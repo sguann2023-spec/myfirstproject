@@ -1,8 +1,14 @@
 export type RuntimeCapability =
   | 'browser'
   | 'search'
+  | 'uploadFile'
   | 'image'
   | 'speech'
+  | 'seedAudio'
+  | 'subtitleTemplate'
+  | 'draftCreate'
+  | 'draftUpdateMeta'
+  | 'draftInspect'
   | 'draftDownload'
   | 'copylab'
   | 'digitalHuman'
@@ -75,6 +81,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('speech') && !selected.has('speech')) {
         addCapabilityReason(selected, reasons, 'speech', 'intent:ai_media.speech')
       }
+      if (activeDomain.subdomains.includes('seed_audio') && !selected.has('seedAudio')) {
+        addCapabilityReason(selected, reasons, 'seedAudio', 'intent:ai_media.seed_audio')
+      }
       if (activeDomain.subdomains.includes('digital_human') && !selected.has('digitalHuman')) {
         addCapabilityReason(selected, reasons, 'digitalHuman', 'intent:ai_media.digital_human')
       }
@@ -89,11 +98,30 @@ const syncSelectedCapabilitiesFromActiveDomains = (
     }
 
     if (activeDomain.domain === 'cut') {
+      if (activeDomain.subdomains.includes('draft_create') && !selected.has('draftCreate')) {
+        addCapabilityReason(selected, reasons, 'draftCreate', 'intent:cut.draft_create')
+      }
+      if (activeDomain.subdomains.includes('draft_update_meta') && !selected.has('draftUpdateMeta')) {
+        addCapabilityReason(selected, reasons, 'draftUpdateMeta', 'intent:cut.draft_update_meta')
+      }
+      if (activeDomain.subdomains.includes('draft_inspect') && !selected.has('draftInspect')) {
+        addCapabilityReason(selected, reasons, 'draftInspect', 'intent:cut.draft_inspect')
+      }
       if (activeDomain.subdomains.includes('draft_download') && !selected.has('draftDownload')) {
         addCapabilityReason(selected, reasons, 'draftDownload', 'intent:cut.draft_download')
       }
+      if (activeDomain.subdomains.includes('subtitle_template') && !selected.has('subtitleTemplate')) {
+        addCapabilityReason(selected, reasons, 'subtitleTemplate', 'intent:cut.subtitle_template')
+      }
       if (activeDomain.subdomains.includes('template') && !selected.has('kouboTemplate')) {
         addCapabilityReason(selected, reasons, 'kouboTemplate', 'intent:cut.template')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'workspace') {
+      if (activeDomain.subdomains.includes('upload') && !selected.has('uploadFile')) {
+        addCapabilityReason(selected, reasons, 'uploadFile', 'intent:workspace.upload')
       }
       continue
     }
@@ -125,8 +153,14 @@ const syncSelectedCapabilitiesFromActiveDomains = (
 const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'browser',
   'search',
+  'uploadFile',
   'image',
   'speech',
+  'seedAudio',
+  'subtitleTemplate',
+  'draftCreate',
+  'draftUpdateMeta',
+  'draftInspect',
   'draftDownload',
   'copylab',
   'digitalHuman',
@@ -141,8 +175,14 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
 const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'browser',
   'search',
+  'uploadFile',
   'image',
   'speech',
+  'seedAudio',
+  'subtitleTemplate',
+  'draftCreate',
+  'draftUpdateMeta',
+  'draftInspect',
   'draftDownload',
   'digitalHuman',
   'kouboTemplate',
@@ -319,6 +359,18 @@ const WORKSPACE_EXECUTE_KEYWORDS = [
 ]
 
 const WORKSPACE_TASK_KEYWORDS = ['待办', 'todo', '任务拆解', '任务列表', 'task list', 'todo list']
+const WORKSPACE_UPLOAD_KEYWORDS = [
+  '上传文件',
+  '上传这个文件',
+  '上传该文件',
+  '上传到oss',
+  '上传到 oss',
+  '传到oss',
+  '传到 oss',
+  '上传到对象存储',
+  'upload file',
+  'upload to oss'
+]
 
 const WEB_SEARCH_KEYWORDS = [
   '搜索',
@@ -372,7 +424,43 @@ const WEB_OPEN_KEYWORDS = [
   'visit website'
 ]
 
+const CUT_CREATE_KEYWORDS = ['创建草稿', '新建草稿', 'create draft', 'new draft', 'start draft']
 const CUT_TEMPLATE_KEYWORDS = ['口播模板', '模板草稿', 'koubo', 'template', '模板剪辑', '模版剪辑', '剪一下口播']
+const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
+
+const hasDraftMetaUpdateIntent = (text: string) =>
+  (text.includes('草稿') || text.includes('draft')) &&
+  ((/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(封面|名称|名字|标题)/.test(text) ||
+    /(封面|名称|名字|标题).{0,12}(修改|更改|改一下|改下|更新|设置|替换)/.test(text)))
+
+const hasDraftInspectIntent = (text: string) =>
+  hasAnyKeyword(text, ['query script', 'query_script']) ||
+  ((text.includes('草稿') || text.includes('draft')) &&
+    ((/(查看|查询|检查|确认|校验|核对|核查|看下|看一下).{0,16}(内容|脚本|元素|轨道|字幕|素材|对不对|是否正确|有没有加对|是否添加正确)/.test(text) ||
+      /(内容|脚本|元素|轨道|字幕|素材).{0,8}(对不对|正确|是否正确|有没有加对|是否添加正确)/.test(text) ||
+      /复杂修改|很多元素|多个元素/.test(text) && /(确认|检查|校验|核对|核查|看下|看一下)/.test(text))))
+
+const hasDraftDownloadIntent = (text: string) =>
+  hasAnyKeyword(text, ['下载草稿', '草稿下载', '剪映草稿', 'capcut draft', 'draft download']) ||
+  /下载.{0,8}草稿/.test(text) ||
+  /草稿.{0,8}下载/.test(text) ||
+  /\bdownload\b.{0,12}\bdraft\b/i.test(text) ||
+  /\bdraft\b.{0,12}\bdownload\b/i.test(text)
+
+const hasSubtitleTemplateIntent = (text: string) =>
+  hasAnyKeyword(text, CUT_SUBTITLE_TEMPLATE_KEYWORDS) ||
+  ((/(给|帮|把|为|对).{0,8}(音频|视频|音轨|素材|录音)/.test(text) ||
+    /(音频|视频|音轨|素材|录音).{0,8}(加上|添加|套用|应用|生成|做一个|上一段)/.test(text)) &&
+    /(字幕|字幕模板|字幕模版)/.test(text)) ||
+  (/(字幕|字幕模板|字幕模版)/.test(text) && /(音频|视频|audio|video)/.test(text))
+
+const hasSeedAudioIntent = (text: string) =>
+  /豆包.{0,8}(语音|音频)/.test(text) ||
+  /(语音|音频).{0,8}豆包/.test(text) ||
+  text.includes('seed-audio') ||
+  text.includes('seed audio') ||
+  ((text.includes('语音') || text.includes('音频')) &&
+    /(参考图片|参考音频|参考图|参考声音|音色|多人|背景音乐|音效)/.test(text))
 
 const COPYLAB_EXPLICIT_KEYWORDS = [
   '反推',
@@ -420,19 +508,43 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, capability, 'env:CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS')
       }
     } else {
+      const hasDraftCreateIntent =
+        hasAnyKeyword(text, CUT_CREATE_KEYWORDS) ||
+        /(?:创建|新建|开始).{0,8}草稿/.test(text) ||
+        /draft.{0,8}(create|new|start)/.test(text)
+      const hasDraftUpdateIntent = hasDraftMetaUpdateIntent(text)
+      const shouldInspectDraft = hasDraftInspectIntent(text)
+      const shouldDownloadDraft = hasDraftDownloadIntent(text)
+      const shouldApplySubtitleTemplate = hasSubtitleTemplateIntent(text)
+      const hasTemplateIntent = hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS)
+      const hasCutSpecificIntent =
+        hasDraftCreateIntent ||
+        hasDraftUpdateIntent ||
+        shouldInspectDraft ||
+        shouldDownloadDraft ||
+        shouldApplySubtitleTemplate ||
+        hasTemplateIntent
+      const hasImplicitBrowserUrlIntent = hasUrlLikeText(args.prompt) && !hasCutSpecificIntent
+
       if (args.isAssistant) {
         addCapabilityReason(selected, reasons, 'assistant', 'assistant-role')
       }
 
-      if (
-        hasUrlLikeText(args.prompt) ||
-        hasAnyKeyword(text, [...WEB_BROWSER_KEYWORDS, 'localhost'])
-      ) {
+      if (hasImplicitBrowserUrlIntent || hasAnyKeyword(text, [...WEB_BROWSER_KEYWORDS, 'localhost'])) {
         addCapabilityReason(selected, reasons, 'browser', 'prompt:browser-or-url')
       }
 
       if (hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'search', 'prompt:search')
+      }
+
+      if (
+        hasAnyKeyword(text, WORKSPACE_UPLOAD_KEYWORDS) ||
+        /(?:上传|传).{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
+        /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
+        /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text)
+      ) {
+        addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
 
       if (
@@ -442,7 +554,6 @@ export class CapabilityRouter {
           '生成图片',
           '画一张',
           '做张图',
-          '封面',
           '海报',
           '配图',
           '修图',
@@ -451,7 +562,8 @@ export class CapabilityRouter {
           'image',
           'cover',
           'poster'
-        ])
+        ]) ||
+        (text.includes('封面') && !hasDraftUpdateIntent)
       ) {
         addCapabilityReason(
           selected,
@@ -461,8 +573,14 @@ export class CapabilityRouter {
         )
       }
 
-      if (hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio'])) {
+      const shouldGenerateSeedAudio = hasSeedAudioIntent(text)
+
+      if (hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio']) && !shouldGenerateSeedAudio) {
         addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
+      }
+
+      if (shouldGenerateSeedAudio) {
+        addCapabilityReason(selected, reasons, 'seedAudio', 'prompt:seed-audio')
       }
 
       if (
@@ -481,11 +599,27 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'digitalHuman', 'prompt:digital-human')
       }
 
-      if (hasAnyKeyword(text, ['下载草稿', '草稿下载', '剪映草稿', 'capcut draft', 'draft download'])) {
+      if (hasDraftCreateIntent) {
+        addCapabilityReason(selected, reasons, 'draftCreate', 'prompt:draft-create')
+      }
+
+      if (hasDraftUpdateIntent) {
+        addCapabilityReason(selected, reasons, 'draftUpdateMeta', 'prompt:draft-update-meta')
+      }
+
+      if (shouldInspectDraft) {
+        addCapabilityReason(selected, reasons, 'draftInspect', 'prompt:draft-inspect')
+      }
+
+      if (shouldDownloadDraft) {
         addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
       }
 
-      if (hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS)) {
+      if (shouldApplySubtitleTemplate) {
+        addCapabilityReason(selected, reasons, 'subtitleTemplate', 'prompt:subtitle-template')
+      }
+
+      if (hasTemplateIntent) {
         addCapabilityReason(selected, reasons, 'kouboTemplate', 'prompt:koubo-template')
       }
 
@@ -649,11 +783,21 @@ function classifyIntent(args: {
     /\b(run|execute|build|deploy|commit)\b/i.test(args.prompt) ||
     /\b(cargo|go)\s+test\b/i.test(args.prompt)
   const hasWorkspaceTaskIntent = hasAnyKeyword(text, WORKSPACE_TASK_KEYWORDS)
+  const hasWorkspaceUploadIntent = args.selected.has('uploadFile')
   const hasNotebookIntent = text.includes('notebook') || text.includes('ipynb')
-  const hasWebOpenIntent =
-    hasUrlLikeText(args.prompt) ||
+  const hasCutSpecificIntent =
+    args.selected.has('draftCreate') ||
+    args.selected.has('draftUpdateMeta') ||
+    args.selected.has('draftInspect') ||
+    args.selected.has('draftDownload') ||
+    args.selected.has('subtitleTemplate') ||
+    args.selected.has('kouboTemplate')
+  const hasImplicitWebUrlOpenIntent = hasUrlLikeText(args.prompt) && !hasCutSpecificIntent
+  const hasExplicitWebOpenIntent =
     hasAnyKeyword(text, WEB_OPEN_KEYWORDS) ||
     /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,20}(网页|页面|网站|百度)/.test(text)
+  const hasWebOpenIntent =
+    hasImplicitWebUrlOpenIntent || hasExplicitWebOpenIntent
   const hasWebSearchIntent =
     args.selected.has('search') ||
     hasAnyKeyword(text, WEB_SEARCH_KEYWORDS) ||
@@ -666,6 +810,10 @@ function classifyIntent(args: {
     addDomainSubdomain('workspace', 'find', 'prompt:workspace-find')
     addDomainSubdomain('workspace', 'read', 'prompt:workspace-find-implies-read')
   }
+  if (hasWorkspaceUploadIntent) {
+    addDomainSubdomain('workspace', 'upload', 'capability:workspace-upload')
+    addDomainSubdomain('workspace', 'read', 'capability:workspace-upload-implies-read')
+  }
   if (hasWorkspaceWriteIntent) addDomainSubdomain('workspace', 'write', 'prompt:workspace-write')
   if (hasWorkspaceExecuteIntent) addDomainSubdomain('workspace', 'execute', 'prompt:workspace-execute')
   if (hasWorkspaceTaskIntent) addDomainSubdomain('workspace', 'task', 'prompt:workspace-task')
@@ -674,7 +822,7 @@ function classifyIntent(args: {
   if (hasWebSearchIntent) {
     addDomainSubdomain('web', 'search', 'prompt:web-search')
   }
-  if (args.selected.has('browser') || hasAnyKeyword(text, WEB_BROWSER_KEYWORDS) || hasUrlLikeText(args.prompt) || hasWebOpenIntent) {
+  if (args.selected.has('browser') || hasAnyKeyword(text, WEB_BROWSER_KEYWORDS) || hasImplicitWebUrlOpenIntent || hasWebOpenIntent) {
     addDomainSubdomain('web', 'browser', 'prompt:web-browser')
   }
   if (hasWebOpenIntent) preferredMcpTools.add('mcp__browser__open')
@@ -686,6 +834,7 @@ function classifyIntent(args: {
 
   if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
   if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')
+  if (args.selected.has('seedAudio')) addDomainSubdomain('ai_media', 'seed_audio', 'capability:seed-audio')
   if (args.selected.has('digitalHuman')) addDomainSubdomain('ai_media', 'digital_human', 'capability:digital-human')
 
   if (args.selected.has('skills')) {
@@ -699,7 +848,20 @@ function classifyIntent(args: {
 
   if (args.selected.has('copylab')) addDomainSubdomain('scrapt', 'derive_prompt', 'capability:copylab')
 
+  if (args.selected.has('uploadFile')) preferredMcpTools.add('mcp__file-upload__upload_file_to_oss')
+  if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
+  if (args.selected.has('draftCreate')) preferredMcpTools.add('mcp__draft-management__create_draft')
+  if (args.selected.has('draftUpdateMeta')) preferredMcpTools.add('mcp__draft-management__modify_draft')
+  if (args.selected.has('draftInspect')) preferredMcpTools.add('mcp__draft-management__query_script')
+  if (args.selected.has('draftDownload')) preferredMcpTools.add('mcp__draft-download__download_draft')
+  if (args.selected.has('subtitleTemplate')) preferredMcpTools.add('mcp__subtitle-template__generate_smart_subtitle')
+  if (args.selected.has('kouboTemplate')) preferredMcpTools.add('mcp__koubo-template__submit_koubo_template_task')
+
+  if (args.selected.has('draftCreate')) addDomainSubdomain('cut', 'draft_create', 'capability:draft-create')
+  if (args.selected.has('draftUpdateMeta')) addDomainSubdomain('cut', 'draft_update_meta', 'capability:draft-update-meta')
+  if (args.selected.has('draftInspect')) addDomainSubdomain('cut', 'draft_inspect', 'capability:draft-inspect')
   if (args.selected.has('draftDownload')) addDomainSubdomain('cut', 'draft_download', 'capability:draft-download')
+  if (args.selected.has('subtitleTemplate')) addDomainSubdomain('cut', 'subtitle_template', 'capability:subtitle-template')
   if (args.selected.has('kouboTemplate')) addDomainSubdomain('cut', 'template', 'capability:koubo-template')
 
   const getSubdomains = (domain: IntentDomain) => Array.from(domainSubdomains.get(domain) ?? []).sort()
@@ -725,6 +887,7 @@ function classifyIntent(args: {
     (workspaceSubdomains.includes('write') ? 4 : 0) +
     (workspaceSubdomains.includes('execute') ? 4 : 0) +
     (workspaceSubdomains.includes('task') ? 3 : 0) +
+    (workspaceSubdomains.includes('upload') ? 3 : 0) +
     (workspaceSubdomains.includes('find') ? 2 : 0) +
     (workspaceSubdomains.includes('read') ? 2 : 0)
   const webScore =
@@ -781,7 +944,7 @@ function classifyIntent(args: {
     toolLayer = maxLayer(toolLayer, 'web')
     toolLayerReasons.push('domain:web')
   }
-  if (workspaceSubdomains.some((subdomain) => ['read', 'find', 'notebook'].includes(subdomain))) {
+  if (workspaceSubdomains.some((subdomain) => ['read', 'find', 'notebook', 'upload'].includes(subdomain))) {
     toolLayer = maxLayer(toolLayer, 'workspace-read')
     toolLayerReasons.push('domain:workspace-read')
   }

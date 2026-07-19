@@ -79,6 +79,7 @@ type IntentRoute = {
 - `find`
 - `notebook`
 - `task`
+- `upload`
 
 已接入工具：
 
@@ -88,6 +89,11 @@ type IntentRoute = {
 - `find` -> `Glob` / `Grep`
 - `notebook` -> `NotebookRead` / `NotebookEdit`
 - `task` -> `Task` / `TodoWrite`
+- `upload` -> `mcp__file-upload__upload_file_to_oss`
+
+说明：
+
+- `upload`：当用户需要上传本地文件时使用；逻辑上先获取临时 STS，再上传到 OSS 并返回 `public url`；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错
 
 ### 3. `web`
 
@@ -117,13 +123,20 @@ type IntentRoute = {
 建议子能力：
 - `image`
 - `speech`
+- `seed_audio`
 - `digital_human`
 
 已接入工具：
 
 - `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`
 - `speech` -> `mcp__speech__generate_speech`
+- `seed_audio` -> `mcp__seed-audio__generate_seed_audio`
 - `digital_human` -> `mcp__digital-human__create_lip_sync_digital_human` / `mcp__digital-human__get_lip_sync_digital_human_status` / `mcp__digital-human__create_image_driven_digital_human` / `mcp__digital-human__get_image_driven_digital_human_status` / `mcp__digital-human__create_omni_image_driven_digital_human` / `mcp__digital-human__get_omni_image_driven_digital_human_status` / `mcp__digital-human__create_seedance_digital_human` / `mcp__digital-human__get_seedance_digital_human_status`
+
+说明：
+
+- `speech`：TTS，按“文字 + 音色”合成语音
+- `seed_audio`：豆包音频生成，按“描述 + 参考图片/音频/音色”等条件生成一段完整音频，可包含多人、背景音乐、音效，不等同于 TTS
 
 ### 5. `skills`
 
@@ -182,13 +195,30 @@ type IntentRoute = {
 
 建议子能力：
 
+- `draft_create`
+- `draft_update_meta`
+- `draft_inspect`
 - `draft_download`
+- `subtitle_template`
 - `template`
 
 已接入工具：
 
+- `draft_create` -> `mcp__draft-management__create_draft`
+- `draft_update_meta` -> `mcp__draft-management__modify_draft`
+- `draft_inspect` -> `mcp__draft-management__query_script`
 - `draft_download` -> `mcp__draft-download__download_draft`
+- `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle` / `mcp__subtitle-template__get_smart_subtitle_task_status`
 - `template` -> `mcp__koubo-template__submit_koubo_template_task` / `mcp__koubo-template__get_koubo_template_task_status`
+
+说明：
+
+- `subtitle_template`：给一段音频或视频添加字幕模版，可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
+- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版，模版内容通常包含字幕、音频、动画，不等同于字幕模版
+
+- 用户提到“创建草稿”时，优先命中 `draft_create`
+- 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
+- 当任务涉及复杂草稿修改、修改了多个元素，或用户明确要求确认结果时，应补充 `draft_inspect`，用于查看草稿内容并校验是否添加正确
 
 ## 多域组合原则
 
@@ -320,17 +350,24 @@ type IntentRoute = {
 | `看下今天热点` | `web` | `["search"]` | 网络搜索 |
 | `反推 xx 链接的提示词` | `scrapt` | `["derive_prompt"]` | 爬虫反推提示词 |
 | `将一段声音合成语音` | `ai_media` | `["speech"]` | AI 媒体 |
+| `用豆包语音生成一段带背景音乐和音效的音频` | `ai_media` | `["seed_audio"]` | 豆包音频生成，不是 TTS |
 | `生成数字人` | `ai_media` | `["digital_human"]` | AI 媒体 |
 | `写文案` | `chat` | `[]` | 基础对话 |
 | `看看有没有文件` | `workspace` | `["find", "read"]` | 工作空间 |
 | `写文件` | `workspace` | `["write"]` | 工作空间 |
 | `写网页` | `workspace` | `["write"]` | 默认按生成/修改项目文件理解 |
 | `查一下有没有 xxx 文字` | `workspace` | `["find", "read"]` | 工作空间文本检索 |
+| `把这个文件上传到 oss` | `workspace` | `["upload", "read"]` | 本地文件上传 |
 | `打开网页` | `web` | `["browser"]` | 网络搜索 / 浏览器交互 |
 | `生成图片` | `ai_media` | `["image"]` | AI 媒体 |
+| `创建一个草稿` | `cut` | `["draft_create"]` | 草稿创建 |
+| `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
+| `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 字幕模版任务 |
 | `剪一下口播` | `cut` | `["template"]` | 剪辑任务，后续可再细分 |
 | `模版剪辑` | `cut` | `["template"]` | 剪辑任务 |
+| `看下这个草稿内容对不对` | `cut` | `["draft_inspect"]` | 主动查看草稿内容 |
+| `把这个草稿里很多元素都改一下，并确认有没有加对` | `cut` | `["template", "draft_inspect"]` | 复杂修改后追加核查 |
 
 ### 示例 1
 

@@ -183,6 +183,20 @@ export class PromptBuilder {
 - Prefer \`mcp__browser__open\` before other web or navigation tools.`)
     }
 
+    if (opts.preferredMcpTools?.includes('mcp__draft-download__download_draft')) {
+      sections.push(`## Tool selection for this turn
+
+- This request includes downloading a VectCut draft.
+- Prefer \`mcp__draft-download__download_draft\` before generic workspace or web tools.`)
+    }
+
+    if (opts.preferredMcpTools?.includes('mcp__file-upload__upload_file_to_oss')) {
+      sections.push(`## Tool selection for this turn
+
+- This request includes uploading a local file to VectCut OSS.
+- Prefer \`mcp__file-upload__upload_file_to_oss\` before generic workspace or web tools.`)
+    }
+
     return sections.join('\n\n')
   }
 

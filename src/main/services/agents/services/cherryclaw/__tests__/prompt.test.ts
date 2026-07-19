@@ -176,6 +176,26 @@ describe('PromptBuilder', () => {
       expect(result).toContain('prefer the dedicated copylab tool')
       expect(result.length).toBeLessThan(700)
     })
+
+    it('adds preferred draft download guidance when routed to draft download', () => {
+      const result = builder.buildToolGuidance('/workspace', {
+        preferredMcpTools: ['mcp__draft-download__download_draft']
+      })
+
+      expect(result).toContain('## Tool selection for this turn')
+      expect(result).toContain('downloading a VectCut draft')
+      expect(result).toContain('`mcp__draft-download__download_draft`')
+    })
+
+    it('adds preferred file upload guidance when routed to workspace upload', () => {
+      const result = builder.buildToolGuidance('/workspace', {
+        preferredMcpTools: ['mcp__file-upload__upload_file_to_oss']
+      })
+
+      expect(result).toContain('## Tool selection for this turn')
+      expect(result).toContain('uploading a local file to VectCut OSS')
+      expect(result).toContain('`mcp__file-upload__upload_file_to_oss`')
+    })
   })
 
   describe('buildFactsSection', () => {

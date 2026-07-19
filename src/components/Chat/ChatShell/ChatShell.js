@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Empty, Tooltip, Tour, message } from 'antd';
 import {
+  Check,
   ChevronRight,
   Eye,
   ExternalLink,
@@ -20,6 +21,7 @@ import {
   SquarePen,
   Play,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
@@ -209,6 +211,36 @@ const markWorkspaceVisited = (store, workspacePath, visitedAt = Date.now()) => {
     library: nextLibrary,
     recent: nextRecent,
     accessTimes: nextAccessTimes
+  };
+};
+const replaceWorkspacePathInStore = (store, previousPath, nextPath) => {
+  const normalizedPreviousPath = normalizePath(previousPath);
+  const normalizedNextPath = normalizePath(nextPath);
+  if (!normalizedPreviousPath || !normalizedNextPath) {
+    return {
+      library: getWorkspaceLibrary(store?.library),
+      recent: dedupePaths(store?.recent),
+      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes)
+    };
+  }
+
+  const library = getWorkspaceLibrary(
+    (store?.library || []).map((path) => (normalizePath(path) === normalizedPreviousPath ? normalizedNextPath : path))
+  );
+  const recent = dedupePaths(
+    (store?.recent || []).map((path) => (normalizePath(path) === normalizedPreviousPath ? normalizedNextPath : path))
+  );
+  const accessTimes = normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent]);
+  const previousVisitedAt = accessTimes[normalizedPreviousPath];
+  if (previousVisitedAt && !accessTimes[normalizedNextPath]) {
+    accessTimes[normalizedNextPath] = previousVisitedAt;
+  }
+  delete accessTimes[normalizedPreviousPath];
+
+  return {
+    library,
+    recent,
+    accessTimes: normalizeWorkspaceAccessTimes(accessTimes, [...library, ...recent])
   };
 };
 const getRecentWorkspacePaths = (agent, library) => {
@@ -740,6 +772,10 @@ const ChatShell = ({
   const [createWorkspaceName, setCreateWorkspaceName] = React.useState('');
   const [createWorkspaceNameError, setCreateWorkspaceNameError] = React.useState('');
   const [createWorkspaceSubmitting, setCreateWorkspaceSubmitting] = React.useState(false);
+  const [renamingWorkspacePath, setRenamingWorkspacePath] = React.useState('');
+  const [renameWorkspaceDraft, setRenameWorkspaceDraft] = React.useState('');
+  const [renameWorkspaceError, setRenameWorkspaceError] = React.useState('');
+  const [renameWorkspaceSubmitting, setRenameWorkspaceSubmitting] = React.useState(false);
   const [filePreview, setFilePreview] = React.useState(null);
   const [membersPanelWidth, setMembersPanelWidth] = React.useState(() => readMembersPanelWidth());
   const [webPreviewWidth, setWebPreviewWidth] = React.useState(() => readWebPreviewWidth());
@@ -750,6 +786,7 @@ const ChatShell = ({
   const [beginnerGuideDone, setBeginnerGuideDone] = React.useState(() => isBeginnerGuideCompleted());
   const [beginnerGuideReopenPending, setBeginnerGuideReopenPending] = React.useState(() => isBeginnerGuideReopenPending());
   const titleInputRef = React.useRef(null);
+  const renameWorkspaceInputRef = React.useRef(null);
   const filePreviewRequestIdRef = React.useRef(0);
   const contentRef = React.useRef(null);
   const beginnerGuideCreateWorkspaceButtonRef = React.useRef(null);
@@ -781,6 +818,18 @@ const ChatShell = ({
     (!beginnerGuideDone || beginnerGuideReopenPending) &&
     !hasLockedWorkspace
   );
+  React.useEffect(() => {
+    if (!renamingWorkspacePath) return;
+    const input = renameWorkspaceInputRef.current;
+    if (!input) return;
+
+    const timer = window.setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [renamingWorkspacePath]);
   const dismissBeginnerGuide = React.useCallback(() => {
     setBeginnerGuideOpen(false);
     setBeginnerGuideCurrent(0);
@@ -1690,6 +1739,78 @@ const ChatShell = ({
     createWorkspaceSubmitting
   ]);
 
+  const handleStartRenameWorkspace = React.useCallback((event, workspacePath) => {
+    event?.stopPropagation?.();
+    if (!workspacePath || renameWorkspaceSubmitting) return;
+    setRenamingWorkspacePath(workspacePath);
+    setRenameWorkspaceDraft(getBaseName(workspacePath));
+    setRenameWorkspaceError('');
+  }, [renameWorkspaceSubmitting]);
+
+  const handleCancelRenameWorkspace = React.useCallback((event) => {
+    event?.stopPropagation?.();
+    if (renameWorkspaceSubmitting) return;
+    setRenamingWorkspacePath('');
+    setRenameWorkspaceDraft('');
+    setRenameWorkspaceError('');
+  }, [renameWorkspaceSubmitting]);
+
+  const handleConfirmRenameWorkspace = React.useCallback(async (event) => {
+    event?.stopPropagation?.();
+    if (!renamingWorkspacePath || renameWorkspaceSubmitting) return;
+
+    const parentDir = getParentPath(renamingWorkspacePath);
+    const currentName = getBaseName(renamingWorkspacePath);
+    const requestedName = String(renameWorkspaceDraft || '').trim();
+
+    if (!parentDir) {
+      window.toast.error('重命名工作空间失败');
+      return;
+    }
+    if (!requestedName) {
+      setRenameWorkspaceError('名称不能为空');
+      return;
+    }
+
+    try {
+      setRenameWorkspaceSubmitting(true);
+      setRenameWorkspaceError('');
+
+      const { safeName, exists } = await window.api.file.checkFileName(parentDir, requestedName, false);
+      const nextName = String(safeName || requestedName).trim();
+      if (!nextName) {
+        setRenameWorkspaceError('工作空间名称无效');
+        return;
+      }
+      if (nextName === currentName) {
+        setRenamingWorkspacePath('');
+        setRenameWorkspaceDraft('');
+        setRenameWorkspaceError('');
+        return;
+      }
+      if (exists) {
+        setRenameWorkspaceError(`名称“${nextName}”已被占用`);
+        return;
+      }
+
+      await window.api.file.renameDir(renamingWorkspacePath, nextName);
+      const joinPath = window?.electronAPI?.path?.join;
+      const nextWorkspacePath = normalizePath(
+        typeof joinPath === 'function' ? joinPath(parentDir, nextName) : `${parentDir}/${nextName}`
+      );
+
+      setWorkspaceStore((prev) => replaceWorkspacePathInStore(prev, renamingWorkspacePath, nextWorkspacePath));
+      setRenamingWorkspacePath('');
+      setRenameWorkspaceDraft('');
+      setRenameWorkspaceError('');
+      message.success('工作空间已重命名');
+    } catch (error) {
+      window.toast.error(error?.message || '重命名工作空间失败');
+    } finally {
+      setRenameWorkspaceSubmitting(false);
+    }
+  }, [renameWorkspaceDraft, renameWorkspaceSubmitting, renamingWorkspacePath]);
+
   const openWorkspaceInFinder = React.useCallback((event, workspacePath) => {
     event.stopPropagation();
     if (!workspacePath) return;
@@ -2317,24 +2438,98 @@ const ChatShell = ({
                     {workspaceStatus && (
                       <div className="chat-panel__members-empty">{workspaceStatus}</div>
                     )}
-                    {visibleRecentWorkspaces.map((workspacePath) => (
-                      <div key={workspacePath} className="chat-panel__member-group chat-panel__member-group--history">
-                        <div className="chat-panel__member-item chat-panel__member-item--history">
-                          <button
-                            type="button"
-                            className="chat-panel__member-main chat-panel__member-main--history"
-                            onClick={() => void bindWorkspaceToSession(workspacePath)}
-                            title={workspacePath}>
-                            <span className="chat-panel__tree-icon" aria-hidden="true">
-                              <Folder size={14} />
-                            </span>
-                            <span className="chat-panel__member-text chat-panel__member-text--history">
-                              <span className="chat-panel__member-name chat-panel__member-name--history">{getBaseName(workspacePath)}</span>
-                            </span>
-                          </button>
+                    {visibleRecentWorkspaces.map((workspacePath) => {
+                      const isRenamingWorkspace = renamingWorkspacePath === workspacePath;
+
+                      return (
+                        <div key={workspacePath} className="chat-panel__member-group chat-panel__member-group--history">
+                          <div className={`chat-panel__member-item chat-panel__member-item--history ${isRenamingWorkspace ? 'is-renaming' : ''}`.trim()}>
+                            {isRenamingWorkspace ? (
+                              <div
+                                className="chat-panel__workspace-rename-inline"
+                                onClick={(event) => event.stopPropagation()}>
+                                <span className="chat-panel__tree-icon" aria-hidden="true">
+                                  <Folder size={14} />
+                                </span>
+                                <input
+                                  ref={renameWorkspaceInputRef}
+                                  type="text"
+                                  className={`chat-panel__workspace-rename-input ${renameWorkspaceError ? 'is-error' : ''}`.trim()}
+                                  value={renameWorkspaceDraft}
+                                  title={renameWorkspaceError || workspacePath}
+                                  aria-label="工作空间新名称"
+                                  disabled={renameWorkspaceSubmitting}
+                                  onChange={(event) => {
+                                    setRenameWorkspaceDraft(event.target.value);
+                                    if (renameWorkspaceError) {
+                                      setRenameWorkspaceError('');
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      void handleConfirmRenameWorkspace(event);
+                                      return;
+                                    }
+                                    if (event.key === 'Escape') {
+                                      handleCancelRenameWorkspace(event);
+                                    }
+                                  }}
+                                />
+                                <div className="chat-panel__workspace-rename-actions">
+                                  <button
+                                    type="button"
+                                    className="chat-panel__member-action"
+                                    onClick={(event) => void handleConfirmRenameWorkspace(event)}
+                                    title="确认重命名"
+                                    aria-label="确认重命名"
+                                    disabled={renameWorkspaceSubmitting}>
+                                    {renameWorkspaceSubmitting ? (
+                                      <LoaderCircle size={12} aria-hidden="true" className="chat-panel__action-icon-spinning" />
+                                    ) : (
+                                      <Check size={12} aria-hidden="true" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="chat-panel__member-action"
+                                    onClick={handleCancelRenameWorkspace}
+                                    title="取消重命名"
+                                    aria-label="取消重命名"
+                                    disabled={renameWorkspaceSubmitting}>
+                                    <X size={12} aria-hidden="true" />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="chat-panel__member-main chat-panel__member-main--history"
+                                  onClick={() => void bindWorkspaceToSession(workspacePath)}
+                                  title={workspacePath}>
+                                  <span className="chat-panel__tree-icon" aria-hidden="true">
+                                    <Folder size={14} />
+                                  </span>
+                                  <span className="chat-panel__member-text chat-panel__member-text--history">
+                                    <span className="chat-panel__member-name chat-panel__member-name--history">{getBaseName(workspacePath)}</span>
+                                  </span>
+                                </button>
+                                <div className="chat-panel__member-actions-overlay">
+                                  <button
+                                    type="button"
+                                    className="chat-panel__member-action"
+                                    onClick={(event) => handleStartRenameWorkspace(event, workspacePath)}
+                                    title="重命名工作空间"
+                                    aria-label={`重命名 ${getBaseName(workspacePath)}`}>
+                                    <SquarePen size={12} aria-hidden="true" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {recentWorkspacePaths.length > 5 && (
                       <button
                         type="button"

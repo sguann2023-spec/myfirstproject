@@ -1,4 +1,6 @@
-import { createHmac, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 
 import { loggerService } from '@logger'
 import Store from 'electron-store'
@@ -14,6 +16,7 @@ const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const DEFAULT_BUCKET = 'jianying-upload-tmp'
 const DEFAULT_REGION = 'oss-cn-hangzhou'
 const MAX_FILE_SIZE = 500 * 1024 * 1024
+const SIGN_EXPIRES_SECONDS = 24 * 60 * 60
 
 type CredentialsResponse = {
   bucket_name?: string
@@ -29,6 +32,23 @@ type CredentialsResponse = {
 type UploadedImage = {
   objectKey: string
   publicUrl: string
+}
+
+type UploadedFile = {
+  objectKey: string
+  publicUrl: string
+  signedPublicUrl: string
+  bucket: string
+  region: string
+  contentType: string
+  size: number
+}
+
+type UploadLocalFileOptions = {
+  bucket?: string
+  region?: string
+  folder?: string
+  contentType?: string
 }
 
 type PendingToken = {
@@ -109,8 +129,107 @@ class OssUploadService {
     }
   }
 
-  private async getCredentials(): Promise<CredentialsResponse> {
-    const response = await this.authenticatedJsonFetch('/sts/get_credentials', {})
+  public async uploadLocalFile(filePath: string, options: UploadLocalFileOptions = {}): Promise<UploadedFile> {
+    const normalizedPath = String(filePath || '').trim()
+    if (!normalizedPath) {
+      throw new Error('FILE_PATH_REQUIRED')
+    }
+
+    const stats = await fs.stat(normalizedPath)
+    if (!stats.isFile()) {
+      throw new Error('FILE_PATH_INVALID')
+    }
+    if (stats.size > MAX_FILE_SIZE) {
+      throw new Error('FILE_TOO_LARGE')
+    }
+
+    const requestedBucket = String(options.bucket || DEFAULT_BUCKET).trim() || DEFAULT_BUCKET
+    const requestedFolder = String(options.folder || 'agent_tmp').trim() || 'agent_tmp'
+    const credentials = await this.getCredentials({
+      bucket_name: requestedBucket,
+      folder: requestedFolder
+    })
+    const bucket = String(credentials.bucket_name || requestedBucket).trim() || requestedBucket
+    const region = String(credentials.region || options.region || DEFAULT_REGION).trim() || DEFAULT_REGION
+    const uploadHost = `https://${bucket}.${region}.aliyuncs.com`
+    const creds = credentials.credentials || {}
+    const accessKeyId = String(creds.AccessKeyId || '').trim()
+    const accessKeySecret = String(creds.AccessKeySecret || '').trim()
+    const securityToken = String(creds.SecurityToken || '').trim()
+
+    if (!accessKeyId || !accessKeySecret) {
+      throw new Error('STS_INVALID')
+    }
+
+    const bytes = await fs.readFile(normalizedPath)
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    const contentType = this.resolveContentType(normalizedPath, options.contentType)
+    const ext = path.extname(normalizedPath).trim() || this.detectExtension(contentType) || '.bin'
+    const keyPrefix = this.buildKeyPrefix(credentials.key_prefix || requestedFolder)
+    const objectKey = `${keyPrefix}vectcut_koubo_tmp_file_${hash}${ext}`
+    const policy = this.makePolicyBase64(keyPrefix, securityToken)
+    const signature = this.hmacSha1Base64(policy, accessKeySecret)
+    const form = new FormData()
+    form.append('key', objectKey)
+    form.append('policy', policy)
+    form.append('OSSAccessKeyId', accessKeyId)
+    if (securityToken) {
+      form.append('x-oss-security-token', securityToken)
+    }
+    form.append('success_action_status', '200')
+    form.append('Signature', signature)
+    form.append('Content-Type', contentType)
+    form.append('file', new Blob([bytes], { type: contentType }), pathBasename(objectKey))
+
+    logger.info('Uploading local file to OSS', {
+      filePath: normalizedPath,
+      bucket,
+      region,
+      keyPrefix,
+      objectKey,
+      size: stats.size,
+      contentType
+    })
+
+    const response = await net.fetch(uploadHost, {
+      method: 'POST',
+      body: form
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`UPLOAD_FAILED:${response.status}:${body}`)
+    }
+
+    const publicUrl = this.buildPublicUrl(bucket, uploadHost, objectKey)
+    const signedPublicUrl = this.buildSignedPublicUrl(
+      bucket,
+      objectKey,
+      accessKeyId,
+      accessKeySecret,
+      securityToken,
+      uploadHost
+    )
+
+    logger.info('Uploaded local file to OSS', {
+      filePath: normalizedPath,
+      objectKey,
+      publicUrl
+    })
+
+    return {
+      objectKey,
+      publicUrl,
+      signedPublicUrl,
+      bucket,
+      region,
+      contentType,
+      size: stats.size
+    }
+  }
+
+  private async getCredentials(payload: Record<string, unknown> = {}): Promise<CredentialsResponse> {
+    const response = await this.authenticatedJsonFetch('/sts/get_credentials', payload)
 
     if (!response.ok) {
       const body = await response.text().catch(() => '')
@@ -249,7 +368,58 @@ class OssUploadService {
     if (mediaType.includes('gif')) return '.gif'
     if (mediaType.includes('bmp')) return '.bmp'
     if (mediaType.includes('avif')) return '.avif'
+    if (mediaType.includes('mp3')) return '.mp3'
+    if (mediaType.includes('wav')) return '.wav'
+    if (mediaType.includes('mp4')) return '.mp4'
+    if (mediaType.includes('mov')) return '.mov'
+    if (mediaType.includes('m4a')) return '.m4a'
+    if (mediaType.includes('pdf')) return '.pdf'
+    if (mediaType.includes('json')) return '.json'
+    if (mediaType.includes('plain')) return '.txt'
     return ''
+  }
+
+  private resolveContentType(filePath: string, override?: string): string {
+    const explicit = String(override || '').trim()
+    if (explicit) {
+      return explicit
+    }
+
+    const ext = path.extname(filePath).toLowerCase()
+    switch (ext) {
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg'
+      case '.png':
+        return 'image/png'
+      case '.webp':
+        return 'image/webp'
+      case '.gif':
+        return 'image/gif'
+      case '.bmp':
+        return 'image/bmp'
+      case '.avif':
+        return 'image/avif'
+      case '.mp3':
+        return 'audio/mpeg'
+      case '.wav':
+        return 'audio/wav'
+      case '.m4a':
+        return 'audio/mp4'
+      case '.mp4':
+        return 'video/mp4'
+      case '.mov':
+        return 'video/quicktime'
+      case '.pdf':
+        return 'application/pdf'
+      case '.json':
+        return 'application/json'
+      case '.txt':
+      case '.md':
+        return 'text/plain'
+      default:
+        return 'application/octet-stream'
+    }
   }
 
   private buildPublicUrl(bucket: string, uploadHost: string, objectKey: string): string {
@@ -260,6 +430,36 @@ class OssUploadService {
 
     const isCname = !endpoint.includes('aliyuncs.com') && !endpoint.includes('oss-')
     return isCname ? `https://${endpoint}/${objectKey}` : `https://${bucket}.${endpoint}/${objectKey}`
+  }
+
+  private buildSignedPublicUrl(
+    bucket: string,
+    objectKey: string,
+    accessKeyId: string,
+    accessKeySecret: string,
+    securityToken: string,
+    uploadHost: string
+  ): string {
+    const endpoint = PUBLIC_ENDPOINT.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+    const isOfficial = endpoint.includes('aliyuncs.com') || endpoint.includes('oss-')
+    const expires = Math.floor(Date.now() / 1000) + SIGN_EXPIRES_SECONDS
+    const canonicalResource = `/${bucket}/${objectKey}${securityToken ? `?security-token=${securityToken}` : ''}`
+    const stringToSign = `GET\n\n\n${expires}\n${canonicalResource}`
+    const signature = createHmac('sha1', accessKeySecret).update(stringToSign).digest('base64')
+    const base = endpoint
+      ? isOfficial
+        ? `https://${bucket}.${endpoint}/${objectKey}`
+        : `https://${endpoint}/${objectKey}`
+      : `${uploadHost}/${objectKey}`
+    const query = new URLSearchParams({
+      OSSAccessKeyId: accessKeyId,
+      Expires: String(expires),
+      Signature: signature
+    })
+    if (securityToken) {
+      query.set('security-token', securityToken)
+    }
+    return `${base}?${query.toString()}`
   }
 }
 

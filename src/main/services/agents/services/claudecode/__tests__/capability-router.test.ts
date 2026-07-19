@@ -125,6 +125,26 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('browser')).toBe(true)
   })
 
+  it('does not let draft download requests with URLs fall into browser intent', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '下载这个草稿 https://vectcut.com/draft/downloader?draft_id=dfd_test_123',
+      sessionId: 'session-draft-download-url',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(['draft_download'])
+    expect(decision.selected.has('draftDownload')).toBe(true)
+    expect(decision.selected.has('browser')).toBe(false)
+    expect(decision.preferredMcpTools).toContain('mcp__draft-download__download_draft')
+    expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
+  })
+
   it('treats open website phrasing as browser intent', () => {
     const router = new CapabilityRouter()
 
@@ -249,12 +269,39 @@ describe('CapabilityRouter', () => {
     expect(decision.toolLayer).toBe('workspace-write')
   })
 
-  it('routes speech, image, and digital human requests to ai_media', () => {
+  it('routes file upload requests to workspace.upload', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '把 /tmp/demo.mp3 上传到 oss',
+      sessionId: 'session-upload-file',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('workspace')
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['upload', 'read']))
+    expect(decision.toolLayer).toBe('workspace-read')
+    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
+  })
+
+  it('routes speech, seed audio, image, and digital human requests to ai_media', () => {
     const router = new CapabilityRouter()
 
     const speechDecision = router.select({
       prompt: '将一段声音合成语音',
       sessionId: 'session-speech',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const seedAudioDecision = router.select({
+      prompt: '用豆包语音生成一段带多人对白、背景音乐和音效的音频，参考这张图和一段音频',
+      sessionId: 'session-seed-audio',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
@@ -280,6 +327,11 @@ describe('CapabilityRouter', () => {
     expect(speechDecision.primaryDomain).toBe('ai_media')
     expect(speechDecision.subdomains).toEqual(['speech'])
     expect(speechDecision.selected.has('speech')).toBe(true)
+    expect(seedAudioDecision.primaryDomain).toBe('ai_media')
+    expect(seedAudioDecision.subdomains).toEqual(['seed_audio'])
+    expect(seedAudioDecision.selected.has('seedAudio')).toBe(true)
+    expect(seedAudioDecision.selected.has('speech')).toBe(false)
+    expect(seedAudioDecision.preferredMcpTools).toContain('mcp__seed-audio__generate_seed_audio')
     expect(digitalHumanDecision.primaryDomain).toBe('ai_media')
     expect(digitalHumanDecision.subdomains).toEqual(['digital_human'])
     expect(digitalHumanDecision.selected.has('digitalHuman')).toBe(true)
@@ -291,9 +343,41 @@ describe('CapabilityRouter', () => {
   it('routes cut tasks into the cut domain', () => {
     const router = new CapabilityRouter()
 
+    const createDecision = router.select({
+      prompt: '创建一个草稿',
+      sessionId: 'session-draft-create',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const updateMetaDecision = router.select({
+      prompt: '把这个草稿的封面和名称改一下',
+      sessionId: 'session-draft-update-meta',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const inspectDecision = router.select({
+      prompt: '看下这个草稿内容对不对',
+      sessionId: 'session-draft-inspect',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const draftDecision = router.select({
       prompt: '下载草稿',
       sessionId: 'session-draft-download',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const subtitleTemplateDecision = router.select({
+      prompt: '给这段视频添加字幕模板，默认样式就行',
+      sessionId: 'session-subtitle-template',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
@@ -308,12 +392,29 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
 
+    expect(createDecision.primaryDomain).toBe('cut')
+    expect(createDecision.subdomains).toEqual(['draft_create'])
+    expect(createDecision.selected.has('draftCreate')).toBe(true)
+    expect(updateMetaDecision.primaryDomain).toBe('cut')
+    expect(updateMetaDecision.subdomains).toEqual(['draft_update_meta'])
+    expect(updateMetaDecision.selected.has('draftUpdateMeta')).toBe(true)
+    expect(updateMetaDecision.selected.has('image')).toBe(false)
+    expect(inspectDecision.primaryDomain).toBe('cut')
+    expect(inspectDecision.subdomains).toEqual(['draft_inspect'])
+    expect(inspectDecision.selected.has('draftInspect')).toBe(true)
     expect(draftDecision.primaryDomain).toBe('cut')
     expect(draftDecision.subdomains).toEqual(['draft_download'])
     expect(draftDecision.selected.has('draftDownload')).toBe(true)
+    expect(draftDecision.preferredMcpTools).toContain('mcp__draft-download__download_draft')
+    expect(subtitleTemplateDecision.primaryDomain).toBe('cut')
+    expect(subtitleTemplateDecision.subdomains).toEqual(['subtitle_template'])
+    expect(subtitleTemplateDecision.selected.has('subtitleTemplate')).toBe(true)
+    expect(subtitleTemplateDecision.selected.has('kouboTemplate')).toBe(false)
+    expect(subtitleTemplateDecision.preferredMcpTools).toContain('mcp__subtitle-template__generate_smart_subtitle')
     expect(templateDecision.primaryDomain).toBe('cut')
     expect(templateDecision.subdomains).toEqual(['template'])
     expect(templateDecision.selected.has('kouboTemplate')).toBe(true)
+    expect(templateDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
   })
 
   it('routes skill and auxiliary requests to their own domains', () => {

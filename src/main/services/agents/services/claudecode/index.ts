@@ -27,11 +27,15 @@ import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
+import DraftManagementServer from '@main/mcpServers/draft-management'
+import FileUploadServer from '@main/mcpServers/file-upload'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
+import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
+import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
@@ -1538,6 +1542,15 @@ class ClaudeCodeService implements AgentServiceInterface {
       markSkipped('search')
     }
 
+    if (shouldMountCapability('uploadFile')) {
+      const fileUploadServer = new FileUploadServer()
+      mountMcpServer('file-upload', { type: 'sdk', name: 'file-upload', instance: fileUploadServer.mcpServer })
+      autoAllowTools.add('mcp__file-upload__upload_file_to_oss')
+      allowMcpPattern('mcp__file-upload__*')
+    } else {
+      markSkipped('file-upload')
+    }
+
     if (shouldMountCapability('image')) {
       mountMcpServer('image', { type: 'sdk', name: 'image', instance: this.imageGenerateServer.mcpServer })
       autoAllowTools.add('mcp__image__generate_or_edit_image')
@@ -1556,6 +1569,39 @@ class ClaudeCodeService implements AgentServiceInterface {
       markSkipped('speech')
     }
 
+    if (shouldMountCapability('seedAudio')) {
+      const seedAudioServer = new SeedAudioServer()
+      mountMcpServer('seed-audio', { type: 'sdk', name: 'seed-audio', instance: seedAudioServer.mcpServer })
+      autoAllowTools.add('mcp__seed-audio__generate_seed_audio')
+      allowMcpPattern('mcp__seed-audio__*')
+    } else {
+      markSkipped('seed-audio')
+    }
+
+    if (
+      shouldMountCapability('draftCreate') ||
+      shouldMountCapability('draftUpdateMeta') ||
+      shouldMountCapability('draftInspect')
+    ) {
+      const draftManagementServer = new DraftManagementServer()
+      mountMcpServer('draft-management', {
+        type: 'sdk',
+        name: 'draft-management',
+        instance: draftManagementServer.mcpServer
+      })
+      if (shouldMountCapability('draftCreate')) {
+        autoAllowTools.add('mcp__draft-management__create_draft')
+      }
+      if (shouldMountCapability('draftUpdateMeta')) {
+        autoAllowTools.add('mcp__draft-management__modify_draft')
+      }
+      if (shouldMountCapability('draftInspect')) {
+        autoAllowTools.add('mcp__draft-management__query_script')
+      }
+    } else {
+      markSkipped('draft-management')
+    }
+
     if (shouldMountCapability('draftDownload')) {
       const draftDownloadServer = new DraftDownloadServer()
       mountMcpServer('draft-download', {
@@ -1567,6 +1613,20 @@ class ClaudeCodeService implements AgentServiceInterface {
       allowMcpPattern('mcp__draft-download__*')
     } else {
       markSkipped('draft-download')
+    }
+
+    if (shouldMountCapability('subtitleTemplate')) {
+      const subtitleTemplateServer = new SubtitleTemplateServer()
+      mountMcpServer('subtitle-template', {
+        type: 'sdk',
+        name: 'subtitle-template',
+        instance: subtitleTemplateServer.mcpServer
+      })
+      autoAllowTools.add('mcp__subtitle-template__generate_smart_subtitle')
+      autoAllowTools.add('mcp__subtitle-template__get_smart_subtitle_task_status')
+      allowMcpPattern('mcp__subtitle-template__*')
+    } else {
+      markSkipped('subtitle-template')
     }
 
     if (shouldMountCapability('copylab')) {
