@@ -367,6 +367,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const visualInspectDecision = router.select({
+      prompt: '检查一下这个草稿 dfd_cat_1784472467_83a33e4a，文字有右上弹入的动画吗',
+      sessionId: 'session-draft-visual-inspect',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const draftDecision = router.select({
       prompt: '下载草稿',
       sessionId: 'session-draft-download',
@@ -402,6 +410,9 @@ describe('CapabilityRouter', () => {
     expect(inspectDecision.primaryDomain).toBe('cut')
     expect(inspectDecision.subdomains).toEqual(['draft_inspect'])
     expect(inspectDecision.selected.has('draftInspect')).toBe(true)
+    expect(visualInspectDecision.primaryDomain).toBe('cut')
+    expect(visualInspectDecision.subdomains).toEqual(['draft_inspect'])
+    expect(visualInspectDecision.selected.has('draftInspect')).toBe(true)
     expect(draftDecision.primaryDomain).toBe('cut')
     expect(draftDecision.subdomains).toEqual(['draft_download'])
     expect(draftDecision.selected.has('draftDownload')).toBe(true)

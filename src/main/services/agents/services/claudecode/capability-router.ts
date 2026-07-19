@@ -427,6 +427,12 @@ const WEB_OPEN_KEYWORDS = [
 const CUT_CREATE_KEYWORDS = ['创建草稿', '新建草稿', 'create draft', 'new draft', 'start draft']
 const CUT_TEMPLATE_KEYWORDS = ['口播模板', '模板草稿', 'koubo', 'template', '模板剪辑', '模版剪辑', '剪一下口播']
 const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
+const DRAFT_REFERENCE_PATTERN = /(草稿|draft|dfd_[a-z0-9_-]*)/
+const DRAFT_INSPECT_VERB_PATTERN = /(查看|查询|检查|确认|校验|核对|核查|看下|看一下)/
+const DRAFT_VISUAL_ATTRIBUTE_PATTERN = /(动画|弹入|转场|位置|样式|特效|右上|左上|右下|左下|居中|效果)/
+const DRAFT_VISUAL_INSPECT_PATTERN = new RegExp(
+  `(?:${DRAFT_REFERENCE_PATTERN.source}.{0,80}${DRAFT_INSPECT_VERB_PATTERN.source}|${DRAFT_INSPECT_VERB_PATTERN.source}.{0,40}${DRAFT_REFERENCE_PATTERN.source}).{0,40}${DRAFT_VISUAL_ATTRIBUTE_PATTERN.source}`
+)
 
 const hasDraftMetaUpdateIntent = (text: string) =>
   (text.includes('草稿') || text.includes('draft')) &&
@@ -435,6 +441,7 @@ const hasDraftMetaUpdateIntent = (text: string) =>
 
 const hasDraftInspectIntent = (text: string) =>
   hasAnyKeyword(text, ['query script', 'query_script']) ||
+  DRAFT_VISUAL_INSPECT_PATTERN.test(text) ||
   ((text.includes('草稿') || text.includes('draft')) &&
     ((/(查看|查询|检查|确认|校验|核对|核查|看下|看一下).{0,16}(内容|脚本|元素|轨道|字幕|素材|对不对|是否正确|有没有加对|是否添加正确)/.test(text) ||
       /(内容|脚本|元素|轨道|字幕|素材).{0,8}(对不对|正确|是否正确|有没有加对|是否添加正确)/.test(text) ||
