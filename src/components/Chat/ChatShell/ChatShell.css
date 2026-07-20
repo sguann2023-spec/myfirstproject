@@ -208,12 +208,6 @@
   padding: 0px 2px 10px;
 }
 
-.chat-panel__members-footer {
-  flex: 0 0 auto;
-  padding: 10px 0 12px;
-  background: #f5f5f5;
-}
-
 .chat-panel__section-divider {
   height: 1px;
   margin: 14px 0 0 0;

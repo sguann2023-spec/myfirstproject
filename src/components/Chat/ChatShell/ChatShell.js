@@ -4,7 +4,6 @@ import { Empty, Tooltip, Tour, message } from 'antd';
 import {
   Check,
   ChevronRight,
-  Eye,
   ExternalLink,
   FileArchive,
   FileCode,
@@ -242,6 +241,21 @@ const replaceWorkspacePathInStore = (store, previousPath, nextPath) => {
     recent,
     accessTimes: normalizeWorkspaceAccessTimes(accessTimes, [...library, ...recent])
   };
+};
+const filterWorkspaceStorePaths = (store, allowedPaths) => {
+  const normalizedAllowedPaths = new Set(dedupePaths(allowedPaths));
+  const library = getWorkspaceLibrary((store?.library || []).filter((path) => normalizedAllowedPaths.has(normalizePath(path))));
+  const recent = dedupePaths((store?.recent || []).filter((path) => normalizedAllowedPaths.has(normalizePath(path))));
+  return {
+    library,
+    recent,
+    accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
+  };
+};
+const isSameWorkspaceStore = (left, right) => {
+  const normalizedLeft = filterWorkspaceStorePaths(left, [...(left?.library || []), ...(left?.recent || [])]);
+  const normalizedRight = filterWorkspaceStorePaths(right, [...(right?.library || []), ...(right?.recent || [])]);
+  return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
 };
 const getRecentWorkspacePaths = (agent, library) => {
   const normalizedLibrary = getWorkspaceLibrary(library);
@@ -808,6 +822,10 @@ const ChatShell = ({
     () => (showAllRecentWorkspaces ? recentWorkspacePaths : recentWorkspacePaths.slice(0, 5)),
     [recentWorkspacePaths, showAllRecentWorkspaces]
   );
+  const workspaceStorePathSignature = React.useMemo(
+    () => dedupePaths([...(workspaceStore?.library || []), ...(workspaceStore?.recent || [])]).join('\n'),
+    [workspaceStore?.library, workspaceStore?.recent]
+  );
   const hasFilePreview = Boolean(filePreview);
   const hasWebPreview = Boolean(webPreview);
   const showLeadingFilePreview = hasFilePreview;
@@ -919,14 +937,9 @@ const ChatShell = ({
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '接着点击这里，我会帮你打开对应网页和工作流。',
+      description: '接着点击这里，我会帮你创建一个技能。',
       target: () => childrensBookQuickPromptRef?.current || null,
       nextButtonProps: { style: { display: 'none' } }
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '你可以在这个网页里直接执行视频工作流。',
-      target: () => beginnerGuideWebPreviewPaneRef.current
     },
     {
       title: BEGINNER_GUIDE_TITLE,
@@ -1011,15 +1024,60 @@ const ChatShell = ({
   }, [beginnerGuideCurrent, beginnerGuideOpen, createWorkspaceDialogOpen]);
 
   React.useEffect(() => {
-    if (!beginnerGuideOpen) return;
-    if (beginnerGuideCurrent === 2 && hasWebPreview) {
-      setBeginnerGuideCurrent(3);
-    }
-  }, [beginnerGuideCurrent, beginnerGuideOpen, hasWebPreview]);
+    const handleChildrensBookSkillCreated = () => {
+      if (beginnerGuideOpen && beginnerGuideCurrent === 2) {
+        setBeginnerGuideCurrent(3);
+      }
+    };
+
+    window.addEventListener('childrens-book-skill-created', handleChildrensBookSkillCreated);
+    return () => {
+      window.removeEventListener('childrens-book-skill-created', handleChildrensBookSkillCreated);
+    };
+  }, [beginnerGuideCurrent, beginnerGuideOpen]);
 
   React.useEffect(() => {
     writeWorkspaceStore(workspaceStore);
   }, [workspaceStore]);
+
+  React.useEffect(() => {
+    const api = window?.api?.file;
+    if (!workspaceStorePathSignature || typeof api?.isDirectory !== 'function') return undefined;
+
+    let cancelled = false;
+    const validateWorkspaceStore = async () => {
+      const candidatePaths = workspaceStorePathSignature.split('\n').filter(Boolean);
+      if (!candidatePaths.length) return;
+
+      const results = await Promise.all(
+        candidatePaths.map(async (workspacePath) => ({
+          workspacePath,
+          exists: await api.isDirectory(workspacePath)
+        }))
+      );
+      if (cancelled) return;
+
+      const validPaths = results.filter((item) => item.exists).map((item) => item.workspacePath);
+      if (validPaths.length === candidatePaths.length) return;
+
+      setWorkspaceStore((prev) => {
+        const nextStore = filterWorkspaceStorePaths(prev, validPaths);
+        return isSameWorkspaceStore(prev, nextStore) ? prev : nextStore;
+      });
+    };
+
+    void validateWorkspaceStore();
+
+    const handleWindowFocus = () => {
+      void validateWorkspaceStore();
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [workspaceStorePathSignature]);
 
   const persistVisitedWorkspace = React.useCallback((workspacePath, visitedAt = Date.now()) => {
     const nextStore = markWorkspaceVisited(readWorkspaceStore(), workspacePath, visitedAt);
@@ -2016,32 +2074,6 @@ const ChatShell = ({
     }
   }, []);
 
-  const previewWorkspaceHtml = React.useCallback(async () => {
-    if (typeof onOpenWebPreview !== 'function' || !currentWorkspacePath) return;
-
-    const joinPath = window?.electronAPI?.path?.join;
-    const indexPath = normalizePath(
-      typeof joinPath === 'function' ? joinPath(currentWorkspacePath, 'index.html') : `${currentWorkspacePath}/index.html`
-    );
-
-    try {
-      await window.api.file.readExternal(indexPath, true);
-    } catch (_error) {
-      window.toast.error('当前工作空间未找到可预览的 index.html');
-      return;
-    }
-
-    const url = createFilePreviewUrl(indexPath);
-    if (!url) return;
-
-    onOpenWebPreview({
-      key: `workspace-root-html:${indexPath}`,
-      url,
-      title: `${getBaseName(currentWorkspacePath) || '工作空间'} 预览`,
-      sourcePath: indexPath
-    });
-  }, [currentWorkspacePath, onOpenWebPreview]);
-
   const openSkillWebPreview = React.useCallback((skill) => {
     const skillKey = getSkillKey(skill);
     const sourcePath = skillPreviewPaths[skillKey];
@@ -2080,8 +2112,8 @@ const ChatShell = ({
         enqueueDraftDownload({ draftId, draftName: displayName }) ? count + 1 : count
       ), 0);
 
-      if (beginnerGuideOpen && beginnerGuideCurrent === 5 && acceptedCount > 0) {
-        setBeginnerGuideCurrent(6);
+      if (beginnerGuideOpen && beginnerGuideCurrent === 4 && acceptedCount > 0) {
+        setBeginnerGuideCurrent(5);
       }
 
       if (acceptedCount > 0) {
@@ -2271,7 +2303,7 @@ const ChatShell = ({
                   const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
                   const isChildrensBookSkill = folderLabel === CHILDRENS_BOOK_SKILL_LABEL || displayName === CHILDRENS_BOOK_SKILL_LABEL;
                   const shouldForceShowActions = isChildrensBookSkill && beginnerGuideOpen && (
-                    beginnerGuideCurrent === 4 || beginnerGuideCurrent === 5
+                    beginnerGuideCurrent === 3 || beginnerGuideCurrent === 4
                   );
 
                   return (
@@ -2324,7 +2356,7 @@ const ChatShell = ({
                                 <button
                                   type="button"
                                   ref={isChildrensBookSkill ? beginnerGuideChildrensBookRunButtonRef : null}
-                                  className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 5 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
+                                  className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 4 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     void runSkillExample(skill);
@@ -2343,7 +2375,7 @@ const ChatShell = ({
                                 <button
                                   type="button"
                                   ref={isChildrensBookSkill ? beginnerGuideChildrensBookEditButtonRef : null}
-                                  className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 4 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
+                                  className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 3 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     onSelectSkill(skill);
@@ -2556,17 +2588,6 @@ const ChatShell = ({
               </div>
             )}
             </div>
-            {hasLockedWorkspace && (
-              <div className="chat-panel__members-footer">
-                <button
-                  type="button"
-                  className="chat-panel__members-create-btn chat-panel__members-create-btn--stacked"
-                  onClick={() => void previewWorkspaceHtml()}>
-                  <Eye size={14} aria-hidden="true" />
-                  <span>预览</span>
-                </button>
-              </div>
-            )}
           </div>
         </div>
         {showTrailingWebPreview && (

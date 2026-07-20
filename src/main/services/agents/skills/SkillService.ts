@@ -89,6 +89,16 @@ export class SkillService extends BaseService {
     })
   }
 
+  async listActiveInWorkspace(workspace: string): Promise<InstalledSkill[]> {
+    if (!workspace) return []
+
+    await this.reconcileAgentSkills('workspace', workspace)
+    return this.listInstalledSkillsInDirectory(path.join(workspace, '.claude', 'skills'), {
+      source: 'agent',
+      isEnabled: true
+    })
+  }
+
   async toggle(options: SkillToggleOptions): Promise<InstalledSkill | null> {
     const folderName = this.sanitizeFolderName(options.skillId)
     const workspace = await this.getAgentWorkspace(options.agentId)
@@ -249,6 +259,10 @@ export class SkillService extends BaseService {
     return path.join(root, this.sanitizeFolderName(name))
   }
 
+  getSkillDirectoryInWorkspace(workspace: string, name: string): string {
+    return path.join(workspace, '.claude', 'skills', this.sanitizeFolderName(name))
+  }
+
   async getAgentSkillsRoot(agentId: string): Promise<string> {
     const workspace = await this.getAgentWorkspace(agentId)
     if (!workspace) {
@@ -263,12 +277,33 @@ export class SkillService extends BaseService {
     return skills.find((skill) => skill.folderName === folderName || skill.id === folderName) ?? null
   }
 
+  async getActiveSkillByFolderNameInWorkspace(workspace: string, name: string): Promise<InstalledSkill | null> {
+    const folderName = this.sanitizeFolderName(name)
+    const skills = await this.listActiveInWorkspace(workspace)
+    return skills.find((skill) => skill.folderName === folderName || skill.id === folderName) ?? null
+  }
+
   async removeAgentLocalSkill(agentId: string, name: string): Promise<void> {
     const workspace = await this.getAgentWorkspace(agentId)
     if (!workspace) {
       throw new Error(`Agent workspace not found for "${agentId}"`)
     }
     await this.unlinkSkill(this.sanitizeFolderName(name), workspace)
+  }
+
+  async removeLocalSkillFromWorkspace(workspace: string, name: string): Promise<void> {
+    await this.unlinkSkill(this.sanitizeFolderName(name), workspace)
+  }
+
+  async enableSkillInWorkspace(skillId: string, workspace: string): Promise<InstalledSkill | null> {
+    const folderName = this.sanitizeFolderName(skillId)
+    const sourcePath = this.getSkillStoragePath(folderName)
+    if (!(await directoryExists(sourcePath))) return null
+
+    await this.linkSkill(folderName, workspace)
+
+    const base = (await this.list()).find((s) => s.folderName === folderName || s.id === folderName)
+    return base ? { ...base, isEnabled: true } : null
   }
 
   async uninstall(skillId: string): Promise<void> {
@@ -790,7 +825,9 @@ export class SkillService extends BaseService {
   ): Promise<InstalledSkill[]> {
     await fs.promises.mkdir(root, { recursive: true })
     const entries = await fs.promises.readdir(root, { withFileTypes: true })
-    const dirs = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    const dirs = entries.filter(
+      (entry) => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== '__pycache__'
+    )
 
     const results = await Promise.all(
       dirs.map(async (entry) => {

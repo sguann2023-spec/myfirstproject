@@ -7,13 +7,19 @@ const mockSkillInstall = vi.fn()
 const mockSkillUninstallByFolderName = vi.fn()
 const mockSkillList = vi.fn()
 const mockSkillListActive = vi.fn()
+const mockSkillListActiveInWorkspace = vi.fn()
+const mockSkillListLocal = vi.fn()
 const mockSkillToggle = vi.fn()
+const mockSkillEnableInWorkspace = vi.fn()
 const mockSkillGetSkillDirectory = vi.fn()
 const mockSkillGetAgentSkillDirectory = vi.fn()
+const mockSkillGetSkillDirectoryInWorkspace = vi.fn()
 const mockSkillGetSkillFolderName = vi.fn()
 const mockSkillGetByFolderName = vi.fn()
 const mockSkillGetActiveSkillByFolderName = vi.fn()
+const mockSkillGetActiveSkillByFolderNameInWorkspace = vi.fn()
 const mockSkillRemoveAgentLocalSkill = vi.fn()
+const mockSkillRemoveLocalSkillFromWorkspace = vi.fn()
 const mockNetFetch = vi.fn()
 const mockMkdir = vi.fn()
 const mockReaddir = vi.fn()
@@ -29,13 +35,19 @@ vi.mock('@main/services/agents/skills', () => ({
     uninstallByFolderName: mockSkillUninstallByFolderName,
     list: mockSkillList,
     listActive: mockSkillListActive,
+    listActiveInWorkspace: mockSkillListActiveInWorkspace,
+    listLocal: mockSkillListLocal,
     toggle: mockSkillToggle,
+    enableSkillInWorkspace: mockSkillEnableInWorkspace,
     getSkillDirectory: mockSkillGetSkillDirectory,
     getAgentSkillDirectory: mockSkillGetAgentSkillDirectory,
+    getSkillDirectoryInWorkspace: mockSkillGetSkillDirectoryInWorkspace,
     getSkillFolderName: mockSkillGetSkillFolderName,
     getByFolderName: mockSkillGetByFolderName,
     getActiveSkillByFolderName: mockSkillGetActiveSkillByFolderName,
-    removeAgentLocalSkill: mockSkillRemoveAgentLocalSkill
+    getActiveSkillByFolderNameInWorkspace: mockSkillGetActiveSkillByFolderNameInWorkspace,
+    removeAgentLocalSkill: mockSkillRemoveAgentLocalSkill,
+    removeLocalSkillFromWorkspace: mockSkillRemoveLocalSkillFromWorkspace
   }
 }))
 
@@ -45,6 +57,10 @@ type SkillsServerInstance = InstanceType<typeof SkillsServer>
 
 function createServer(agentId = 'agent_test') {
   return new SkillsServer(agentId)
+}
+
+function createServerWithWorkspace(agentId = 'agent_test', workspacePath = '/tmp/ws-test') {
+  return new SkillsServer(agentId, workspacePath)
 }
 
 async function callTool(server: SkillsServerInstance, args: Record<string, unknown>) {
@@ -69,11 +85,15 @@ describe('SkillsServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSkillToggle.mockResolvedValue({ id: 'skill-1', isEnabled: true })
+    mockSkillEnableInWorkspace.mockResolvedValue({ id: 'skill-1', isEnabled: true })
     mockSkillList.mockResolvedValue([])
     mockSkillListActive.mockResolvedValue([])
+    mockSkillListActiveInWorkspace.mockResolvedValue([])
+    mockSkillListLocal.mockResolvedValue([])
     mockSkillGetSkillFolderName.mockImplementation((name: string) => name)
     mockSkillGetByFolderName.mockResolvedValue(null)
     mockSkillGetActiveSkillByFolderName.mockResolvedValue(null)
+    mockSkillGetActiveSkillByFolderNameInWorkspace.mockResolvedValue(null)
   })
 
   it('should expose only the skills tool', async () => {
@@ -181,6 +201,36 @@ describe('SkillsServer', () => {
 
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toContain("'identifier' is required")
+    })
+  })
+
+  describe('workspace-local resolution', () => {
+    it('should list active skills from the current workspace when workspacePath is provided', async () => {
+      mockSkillList.mockResolvedValue([])
+      mockSkillListLocal.mockResolvedValue([
+        {
+          name: 'Local Skill',
+          description: 'Workspace local',
+          filename: '本地技能'
+        }
+      ])
+      mockSkillGetSkillFolderName.mockImplementation((name: string) => (name === '本地技能' ? '____' : name))
+
+      const server = createServerWithWorkspace('agent_1', '/tmp/ws-test')
+      const result = await callTool(server, { action: 'list' })
+
+      expect(mockSkillList).toHaveBeenCalledWith(undefined)
+      expect(mockSkillListLocal).toHaveBeenCalledWith('/tmp/ws-test')
+      const parsed = JSON.parse(result.content[0].text)
+      expect(parsed).toEqual([
+        {
+          name: 'Local Skill',
+          folder: '本地技能',
+          path: '/tmp/ws-test/.claude/skills/本地技能',
+          description: 'Workspace local',
+          enabled: true
+        }
+      ])
     })
   })
 

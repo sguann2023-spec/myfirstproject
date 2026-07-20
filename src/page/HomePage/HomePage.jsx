@@ -30,6 +30,7 @@ import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
+import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 const logger = loggerService.withContext('HomePage');
 
@@ -156,12 +157,6 @@ const writeWorkspaceStore = (store = {}) => {
 const buildAutoWorkspaceName = () => (
   `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 );
-const createLocalFileUrl = (filePath = '') => {
-  const normalizedPath = normalizeLocalPath(filePath).trim();
-  if (!normalizedPath) return '';
-  const pathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
-  return encodeURI(`file://${pathname}`);
-};
 const seedWorkspaceSkeleton = async (workspacePath) => {
   const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: workspacePath });
   if (!seedResult?.ok) {
@@ -174,12 +169,6 @@ const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
   if (!resourcesPath || !normalizedSkillName) return '';
   return joinLocalPath(resourcesPath, 'quick', 'skills', normalizedSkillName);
 };
-const resolveWorkspacePreviewFile = (workspacePath = '') => {
-  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
-  if (!normalizedWorkspacePath) return '';
-  return joinLocalPath(normalizedWorkspacePath, 'index.html');
-};
-
 const resolveProviderIdByModel = (modelId = '') => {
   const lower = String(modelId || '').toLowerCase();
   if (lower.startsWith('claude-')) return { id: 'anthropic', type: 'anthropic', name: 'Anthropic' };
@@ -1614,12 +1603,16 @@ const HomePage = () => {
   useEffect(() => {
     chatModelMetaRef.current = chatModelMeta;
   }, [chatModelMeta]);
-  const activeChatSessionSending = Boolean(
-    activeChatId && chatSessionSendingMap[String(activeChatId || '').trim()]
-  );
   const activeChatSessionInFlight = Boolean(
     activeChatId && chatSessionInFlightMap[String(activeChatId || '').trim()]
   );
+  const activeChatSessionPending = isChatSessionPending({
+    isPending: activeChatSessionInFlight
+  });
+  const activeChatSessionCompleted = isChatSessionCompleted({
+    isPending: activeChatSessionPending,
+    isFulfilled: Boolean(activeChatId && chatSessionFulfilledMap[String(activeChatId || '').trim()])
+  });
   const activeChatMessagePaneSending = Boolean(
     activeChatSessionInFlight
   );
@@ -1717,7 +1710,7 @@ const HomePage = () => {
     if (!canUseAgentRuntime) return;
     if (selectedPane !== 'chat') return;
     if (!activeChatSession || !activeChatNeedsHistoryHydrate) return;
-    if (activeChatSessionSending) return;
+    if (activeChatSessionPending) return;
     if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
       logger.warn('[HomePage][HistoryHydrate] bridge unavailable', {
         chatId: activeChatSession?.id || '',
@@ -1850,7 +1843,7 @@ const HomePage = () => {
     activeChatId,
     activeChatRuntimeSessionId,
     activeChatNeedsHistoryHydrate,
-    activeChatSessionSending
+    activeChatSessionPending
   ]);
   const setChatSessionSending = (chatId, sending) => {
     const id = String(chatId || '').trim();
@@ -1950,7 +1943,9 @@ const HomePage = () => {
       return sortChatSessions(updated);
     });
   }, []);
-  const activeChatSending = Boolean(activeChatId) && Boolean(chatSessionSendingMap[activeChatId]);
+  const activeChatSending = Boolean(activeChatId) && isChatSessionPending({
+    isPending: chatSessionInFlightMap[activeChatId]
+  });
   const activeChatWorkspaceStatus = String(
     (activeChatId && chatWorkspaceStatusMap[String(activeChatId || '').trim()]) || ''
   ).trim();
@@ -1961,6 +1956,10 @@ const HomePage = () => {
         ...session,
         isPending: Boolean(chatSessionInFlightMap[session.id]),
         isFulfilled: Boolean(chatSessionFulfilledMap[session.id]),
+        isCompleted: isChatSessionCompleted({
+          isPending: Boolean(chatSessionInFlightMap[session.id]),
+          isFulfilled: Boolean(chatSessionFulfilledMap[session.id])
+        }),
       })),
     [chatSessions, chatSessionInFlightMap, chatSessionFulfilledMap]
   );
@@ -2901,18 +2900,8 @@ const HomePage = () => {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
       }
 
-      const copyResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
-        directoryPath: quickSkillDir,
-        workspace: workspacePath,
-        sourceSubdir: 'website'
-      });
-      if (!copyResult?.success) {
-        throw new Error(copyResult?.error || '复制网页模板到工作空间失败');
-      }
-
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
-      const previewFilePath = resolveWorkspacePreviewFile(workspacePath);
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
@@ -2920,16 +2909,16 @@ const HomePage = () => {
             : item
         ))
       );
-      setManualChatWebPreview({
-        key: `quick-skill-preview:${session.id}:${previewFilePath}`,
-        title: '儿童绘本',
-        url: createLocalFileUrl(previewFilePath)
-      });
-      setChatWebPreviewDismissedKey('');
+      window.dispatchEvent(new window.CustomEvent('childrens-book-skill-created', {
+        detail: {
+          workspacePath,
+          sessionId: session.id
+        }
+      }));
       window.toast?.success?.(
         inheritedWorkspacePath
-          ? '已新建对话，复用当前工作空间并打开儿童绘本预览'
-          : '已新建对话和工作空间，并打开儿童绘本预览'
+          ? '已新建对话，复用当前工作空间并创建儿童绘本技能'
+          : '已新建对话和工作空间，并创建儿童绘本技能'
       );
     } catch (error) {
       window.toast?.error?.(error?.message || '快捷短语执行失败');
@@ -3000,18 +2989,8 @@ const HomePage = () => {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
       }
 
-      const copyResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
-        directoryPath: quickSkillDir,
-        workspace: workspacePath,
-        sourceSubdir: 'website'
-      });
-      if (!copyResult?.success) {
-        throw new Error(copyResult?.error || '复制网页模板到工作空间失败');
-      }
-
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
-      const previewFilePath = resolveWorkspacePreviewFile(workspacePath);
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
@@ -3019,16 +2998,10 @@ const HomePage = () => {
             : item
         ))
       );
-      setManualChatWebPreview({
-        key: `quick-skill-preview:${session.id}:${previewFilePath}`,
-        title: '旅游混剪',
-        url: createLocalFileUrl(previewFilePath)
-      });
-      setChatWebPreviewDismissedKey('');
       window.toast?.success?.(
         inheritedWorkspacePath
-          ? '已新建对话，复用当前工作空间并打开旅游混剪预览'
-          : '已新建对话和工作空间，并打开旅游混剪预览'
+          ? '已新建对话，复用当前工作空间并创建旅游混剪技能'
+          : '已新建对话和工作空间，并创建旅游混剪技能'
       );
     } catch (error) {
       window.toast?.error?.(error?.message || '快捷短语执行失败');
@@ -3734,7 +3707,7 @@ const HomePage = () => {
                 session={activeChatSession}
                 agentId={DEFAULT_RUNTIME_AGENT_ID}
                 runtimeSessionId={activeChatSession?.runtimeSessionId || ''}
-                sessionFulfilled={Boolean(activeChatId && chatSessionFulfilledMap[activeChatId])}
+                sessionFulfilled={activeChatSessionCompleted}
                 input={chatDraftInput}
                 setInput={setChatDraftInput}
                 onSendMessage={handleSendChatMessage}

@@ -140,23 +140,51 @@ type IntentRoute = {
 
 ### 5. `skills`
 
-适用于技能发现、创建、安装、调用。
+适用于技能发现、安装、创建、注册等技能管理任务。
 
 建议子能力：
 
-- `find_skill`
+- `search_skill`
+- `list_skill`
 - `create_skill`
+- `register_skill`
 
 已接入工具：
 
-- `find_skill` -> `mcp__skills__skills`
+- `search_skill` -> `mcp__skills__skills`
+- `list_skill` -> `mcp__skills__skills`
 - `create_skill` -> `mcp__skills__skills`
+- `register_skill` -> `mcp__skills__skills`
 
 说明：
 
-- `find_skill`：用户想找现成能力
-- `create_skill`：用户想把流程沉淀成技能
+- `search_skill`：查技能市场里的现成能力，对应 `action="search"`
+- `list_skill`：查看当前 agent 已启用或可见的技能，对应 `action="list"`
+- `create_skill`：在当前 agent 的 `.claude/skills/<name>` 下初始化技能目录，对应 `action="init"`
+- `register_skill`：校验并注册当前 agent 下刚创建的技能，对应 `action="register"`
+- `skills` 工具默认面向技能管理语义，但对于“当前 agent 是否已有某个本地技能 / 要执行哪个本地技能”这类判断，**唯一技能源** 应是当前 workspace 下的 `.claude/skills/<name>/SKILL.md`
+- 这里的 `/workspace` 指当前会话绑定的 agent workspace root；例如 `/workspace/.claude/skills/<name>/SKILL.md`
+- `search_skill` **只**用于查技能市场，不用于判断当前 workspace 里是否已存在某个技能；不能因为 `search_skill` 返回空就得出“本地没有这个技能”
+- `list_skill` 的正确语义是“列出当前 agent 已启用或可见的技能”；其中“已启用”部分应优先从当前 workspace 的 `.claude/skills` 枚举，再补充全局技能目录中的可见但未启用技能
+- 全局技能目录（如 `Data/Skills`）是安装缓存 / 共享注册表，不应覆盖当前 workspace 下本地技能的判定结果
+- 如果用户说“执行这个技能 / @某个技能 / 当前就有这个技能”，应优先按当前 workspace 的 `.claude/skills/<name>/SKILL.md` 做本地命中，而不是先走 `search_skill`
+- 如果用户要“查看 / 修改技能文件内容”，应补充 `workspace.read` / `workspace.write`，再基于当前 workspace 下 `.claude/skills/<name>` 或 `list_skill` 返回的真实路径读取或编辑
 - `run_skill`：后续如需显式路由到技能执行，可补
+
+#### 本地技能判定顺序
+
+当用户请求涉及“当前 agent 的本地技能”时，建议按下面顺序处理：
+
+1. 先确定当前会话绑定的 workspace root
+2. 再检查 `/workspace/.claude/skills/<name>/SKILL.md` 是否存在
+3. 若存在，则直接视为本地技能命中，可补充 `workspace.read` / `workspace.write` 读取或执行所需文件
+4. 若不存在，再根据用户意图决定是否调用 `list_skill` 查看已启用 / 可见技能
+5. 仅当用户明确要“搜索现成技能 / 安装新技能”时，才调用 `search_skill`
+
+反例：
+
+- 不能把“`search_skill("儿童绘本")` 没结果”解释为“当前 workspace 里没有 `儿童绘本` 技能”
+- 不能只扫描全局 `Data/Skills` 就忽略当前 workspace 的 `.claude/skills`
 
 ### 6. `auxiliary`
 

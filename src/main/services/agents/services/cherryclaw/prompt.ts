@@ -61,7 +61,10 @@ export class PromptBuilder {
   async buildSystemPrompt(
     workspacePath: string,
     _config?: CherryClawConfiguration,
-    toolGuidance?: ToolGuidanceOptions
+    toolGuidance?: ToolGuidanceOptions,
+    options?: {
+      activeSkillNames?: string[]
+    }
   ): Promise<string> {
     const instructionFiles = await this.discoverInstructionFiles(workspacePath)
     const sections = [
@@ -72,9 +75,10 @@ export class PromptBuilder {
       SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
       getEnvironmentSection(workspacePath),
       getWorkspaceRootSection(workspacePath),
+      getWorkspaceSkillsSection(workspacePath, options?.activeSkillNames),
       getProjectContextSection(workspacePath, instructionFiles.length),
       instructionFiles.length > 0 ? renderInstructionFiles(instructionFiles) : '',
-      this.buildToolGuidance(workspacePath, toolGuidance)
+      this.buildToolGuidance(workspacePath, toolGuidance, options)
     ].filter(Boolean)
 
     const rendered = sections.join('\n\n')
@@ -87,7 +91,13 @@ export class PromptBuilder {
     return rendered
   }
 
-  buildToolGuidance(workspacePath: string, opts: ToolGuidanceOptions = {}): string {
+  buildToolGuidance(
+    workspacePath: string,
+    opts: ToolGuidanceOptions = {},
+    options?: {
+      activeSkillNames?: string[]
+    }
+  ): string {
     const sections: string[] = []
 
     if (opts.hasClaw) {
@@ -99,10 +109,22 @@ export class PromptBuilder {
     }
 
     if (opts.hasSkills) {
+      const activeSkillNames = options?.activeSkillNames ?? []
+      const localSkillsLine =
+        activeSkillNames.length > 0
+          ? `- Current workspace local skills already present under \`${workspacePath}/.claude/skills\`: ${activeSkillNames
+              .map((name) => `\`${name}\``)
+              .join(', ')}.`
+          : `- Check \`${workspacePath}/.claude/skills/<name>/SKILL.md\` before assuming the current agent does not already have the requested skill.`
       sections.push(`## Skills
 
 - Skills are an opt-in capability surface, not a default reasoning dependency.
 - Use skill management only when the user asks to install, create, inspect, or invoke a skill.
+- When the user refers to a current, local, attached, or @mentioned skill, treat the current workspace's \`.claude/skills/<name>/SKILL.md\` as the primary source of truth.
+${localSkillsLine}
+- Use \`skills\` with action \`list\` to inspect skills visible to the current agent.
+- Use \`skills\` with action \`search\` only for marketplace discovery or installation, not to decide whether a local workspace skill exists.
+- Do not infer "the skill does not exist locally" from an empty marketplace search result.
 - Do not load or summarize skill internals unless the selected task actually requires that skill.`)
     }
 
@@ -336,6 +358,24 @@ function getWorkspaceRootSection(workspacePath: string): string {
     '- Treat .claude/skills, .claude/plugins, temporary outputs, and generated artifacts as children of the current workspace root unless tools prove otherwise.',
     '- Do not invent alternate roots such as app install folders, agent data folders, Desktop, Downloads, or other absolute paths unless the user asked for them or a tool result verified them.'
   ].join('\n')
+}
+
+function getWorkspaceSkillsSection(workspacePath: string, activeSkillNames?: string[]): string {
+  const activeNames = activeSkillNames ?? []
+  const lines = [
+    '# Workspace skills',
+    `- The local skill root for this workspace is: ${workspacePath}/.claude/skills`,
+    '- For current-agent local skill checks, treat `/workspace/.claude/skills/<name>/SKILL.md` as the canonical source of truth.',
+    '- Do not use marketplace search results to decide whether a local workspace skill exists.'
+  ]
+
+  if (activeNames.length > 0) {
+    lines.push(`- Active local skills already present in this workspace: ${activeNames.join(', ')}`)
+  } else {
+    lines.push('- No pre-scanned local skill names were provided for this turn; verify with workspace reads or `skills` action `list` before concluding there are no local skills.')
+  }
+
+  return lines.join('\n')
 }
 
 function getProjectContextSection(workspacePath: string, instructionFileCount: number): string {

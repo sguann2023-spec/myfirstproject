@@ -1268,7 +1268,9 @@ class ClaudeCodeService implements AgentServiceInterface {
     }
 
     const clawSystemPrompt = !isAssistant
-      ? await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)
+      ? await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions, {
+          activeSkillNames: activeClaudeSkillNames
+        })
       : undefined
     const factsRecall =
       !isAssistant && toolGuidanceOptions.hasMemory && cwd ? await promptBuilder.buildFactsSection(cwd) : undefined
@@ -1682,7 +1684,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     }
 
     if (shouldMountCapability('skills')) {
-      const skillsServer = new SkillsServer(session.agent_id)
+      const skillsServer = new SkillsServer(session.agent_id, cwd)
       mountMcpServer('skills', { type: 'sdk', name: 'skills', instance: skillsServer.mcpServer })
       autoAllowTools.add('mcp__skills__skills')
       allowMcpPattern('mcp__skills__*')

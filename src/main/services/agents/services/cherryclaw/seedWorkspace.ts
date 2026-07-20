@@ -1,105 +1,8 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { mkdir } from 'node:fs/promises'
 
 import { loggerService } from '@logger'
 
 const logger = loggerService.withContext('SeedWorkspace')
-
-const HTML_INDEX_TEMPLATE = `<!DOCTYPE html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Welcome</title>
-    <link rel="stylesheet" href="./assets/css/main.css" />
-  </head>
-  <body>
-    <main class="welcome">
-      <span class="welcome__eyebrow">VectCut</span>
-      <h1>开始搭建你自己的视频工作流</h1>
-      <p>无论是口播、混剪、直播切片，还是信息流广告，都可以从这里开始制作。搭建完成后，你可以一键发布到互联网上，并在手机端直接使用。</p>
-    </main>
-    <script src="./assets/js/main.js"></script>
-  </body>
-</html>
-`
-
-const HTML_CSS_TEMPLATE = `:root {
-  color-scheme: light;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f5f7fb;
-  color: #18202a;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background:
-    radial-gradient(circle at top, rgba(78, 110, 242, 0.18), transparent 32%),
-    linear-gradient(180deg, #f8faff 0%, #eef2f9 100%);
-}
-
-.welcome {
-  width: min(680px, calc(100vw - 32px));
-  padding: 48px 40px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(133, 149, 173, 0.2);
-  box-shadow: 0 24px 80px rgba(35, 52, 99, 0.12);
-  text-align: center;
-}
-
-.welcome__eyebrow {
-  display: inline-block;
-  margin-bottom: 16px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #edf2ff;
-  color: #3952d8;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.welcome h1 {
-  margin: 0 0 16px;
-  font-size: clamp(32px, 6vw, 48px);
-  line-height: 1.1;
-}
-
-.welcome p {
-  margin: 0 auto;
-  max-width: 480px;
-  font-size: 16px;
-  line-height: 1.7;
-  color: #4a5568;
-}
-
-.welcome__button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 28px;
-  padding: 12px 20px;
-  border-radius: 999px;
-  background: #18202a;
-  color: #fff;
-  text-decoration: none;
-  font-weight: 600;
-}
-`
-
-const HTML_JS_TEMPLATE = `document.addEventListener('DOMContentLoaded', () => {
-  console.log('HTML5 workspace is ready.');
-});
-`
 
 /**
  * The bootstrap instruction is embedded as a constant (not written to disk).
@@ -141,41 +44,13 @@ Guidelines:
 export const SOUL_CONTENT_THRESHOLD = 50
 
 /**
- * Seed workspace with template files for soul mode.
- * Idempotent: only writes files that don't already exist.
+ * Ensure the workspace root exists for soul mode.
  */
 export async function seedWorkspaceTemplates(workspacePath: string): Promise<void> {
   try {
-    // Ensure workspace and its starter directories exist.
     await mkdir(workspacePath, { recursive: true })
-    await mkdir(path.join(workspacePath, 'images'), { recursive: true })
-    await mkdir(path.join(workspacePath, 'assets'), { recursive: true })
-    await mkdir(path.join(workspacePath, 'assets', 'css'), { recursive: true })
-    await mkdir(path.join(workspacePath, 'assets', 'js'), { recursive: true })
-
-    const seeds: Array<{ filePath: string; content: string }> = [
-      { filePath: path.join(workspacePath, 'index.html'), content: HTML_INDEX_TEMPLATE },
-      { filePath: path.join(workspacePath, 'assets', 'css', 'main.css'), content: HTML_CSS_TEMPLATE },
-      { filePath: path.join(workspacePath, 'assets', 'js', 'main.js'), content: HTML_JS_TEMPLATE }
-    ]
-
-    for (const { filePath, content } of seeds) {
-      const exists = await fileExists(filePath)
-      if (!exists) {
-        await writeFile(filePath, content, 'utf-8')
-        logger.info(`Seeded template: ${path.basename(filePath)}`, { path: filePath })
-      }
-    }
+    logger.info('Ensured workspace directory exists', { path: workspacePath })
   } catch (error) {
     logger.error('Failed to seed workspace templates', error as Error)
-  }
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath)
-    return true
-  } catch {
-    return false
   }
 }

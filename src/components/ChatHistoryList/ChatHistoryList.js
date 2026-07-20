@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plus, X } from 'lucide-react';
+import { isChatSessionCompleted } from '../../shared/chatSessionCompletion';
 import './ChatHistoryList.css';
 
 const formatSessionTime = (value) => {
@@ -69,6 +70,12 @@ const ChatHistoryList = ({
         ) : (
           sortedSessions.map((session) => {
             const isActive = session.id === activeSessionId;
+            const isCompleted = typeof session.isCompleted === 'boolean'
+              ? session.isCompleted
+              : isChatSessionCompleted({
+                isPending: session.isPending,
+                isFulfilled: session.isFulfilled
+              });
             return (
               <div
                 key={session.id}
@@ -83,7 +90,7 @@ const ChatHistoryList = ({
                         aria-label="对话中"
                       />
                     )}
-                    {session.isFulfilled && !session.isPending && !isActive && (
+                    {isCompleted && !isActive && (
                       <span className="chat-history-list__status-dot is-fulfilled" aria-label="已完成" />
                     )}
                   </span>
