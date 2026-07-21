@@ -49,6 +49,13 @@ const DOMAIN_SUBDOMAIN_BUILTINS: Partial<Record<IntentDomain, Record<string, str
   }
 }
 
+const ALL_BUILTIN_TOOLS = Array.from(
+  new Set([
+    ...Object.values(BUILTIN_TOOL_LAYERS).flat(),
+    ...Object.values(DOMAIN_SUBDOMAIN_BUILTINS).flatMap((domainMap) => Object.values(domainMap).flat())
+  ])
+)
+
 const collectDomainBuiltinTools = (decision: CapabilityDecision): string[] => {
   const tools = new Set<string>()
   const applyDomain = (domain: IntentDomain, subdomains: string[]) => {
@@ -75,11 +82,14 @@ export function buildToolSurface(args: {
 }): ToolSurface {
   const domainBuiltinTools = collectDomainBuiltinTools(args.decision)
   const fallbackLayerTools = BUILTIN_TOOL_LAYERS[args.decision.toolLayer] ?? []
+  const hasSkillsDomain = args.decision.activeDomains.some((domainEntry) => domainEntry.domain === 'skills')
   const shouldUseFallbackLayerTools =
     domainBuiltinTools.length === 0 &&
     (args.decision.activeDomains.length === 0 ||
       args.decision.activeDomains.every((domainEntry) => ['chat', 'workspace', 'web'].includes(domainEntry.domain)))
-  const builtinTools = Array.from(new Set(shouldUseFallbackLayerTools ? fallbackLayerTools : domainBuiltinTools))
+  const builtinTools = hasSkillsDomain
+    ? ALL_BUILTIN_TOOLS
+    : Array.from(new Set(shouldUseFallbackLayerTools ? fallbackLayerTools : domainBuiltinTools))
   const availableBuiltinSet = new Set(builtinTools)
   const sessionAllowedTools = (args.sessionAllowedTools ?? []).filter((tool) => !FILTERED_TOOLS.has(tool))
   const autoAllowedTools = new Set<string>()

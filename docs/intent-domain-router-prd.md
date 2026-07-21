@@ -140,7 +140,7 @@ type IntentRoute = {
 
 ### 5. `skills`
 
-适用于技能发现、安装、创建、注册等技能管理任务。
+适用于技能搜索、查看、修改、执行、删除，以及安装、创建、注册等技能相关任务。
 
 建议子能力：
 
@@ -162,14 +162,18 @@ type IntentRoute = {
 - `list_skill`：查看当前 agent 已启用或可见的技能，对应 `action="list"`
 - `create_skill`：在当前 agent 的 `.claude/skills/<name>` 下初始化技能目录，对应 `action="init"`
 - `register_skill`：校验并注册当前 agent 下刚创建的技能，对应 `action="register"`
+- **只要命中 `skills` 域**，不区分它是主域还是伴随域，默认直接进入**全量挂载模式**
+- 全量挂载模式包含两部分：
+  - 挂载当前 workspace 下全部本地技能：`/workspace/.claude/skills/*/SKILL.md`
+  - 挂载全部 builtin tools 与全部 runtime MCP tools
+- `skills` 域优先保证技能相关任务的可执行性，不以最小工具面为目标
 - `skills` 工具默认面向技能管理语义，但对于“当前 agent 是否已有某个本地技能 / 要执行哪个本地技能”这类判断，**唯一技能源** 应是当前 workspace 下的 `.claude/skills/<name>/SKILL.md`
 - 这里的 `/workspace` 指当前会话绑定的 agent workspace root；例如 `/workspace/.claude/skills/<name>/SKILL.md`
 - `search_skill` **只**用于查技能市场，不用于判断当前 workspace 里是否已存在某个技能；不能因为 `search_skill` 返回空就得出“本地没有这个技能”
 - `list_skill` 的正确语义是“列出当前 agent 已启用或可见的技能”；其中“已启用”部分应优先从当前 workspace 的 `.claude/skills` 枚举，再补充全局技能目录中的可见但未启用技能
 - 全局技能目录（如 `Data/Skills`）是安装缓存 / 共享注册表，不应覆盖当前 workspace 下本地技能的判定结果
 - 如果用户说“执行这个技能 / @某个技能 / 当前就有这个技能”，应优先按当前 workspace 的 `.claude/skills/<name>/SKILL.md` 做本地命中，而不是先走 `search_skill`
-- 如果用户要“查看 / 修改技能文件内容”，应补充 `workspace.read` / `workspace.write`，再基于当前 workspace 下 `.claude/skills/<name>` 或 `list_skill` 返回的真实路径读取或编辑
-- `run_skill`：后续如需显式路由到技能执行，可补
+- 如果用户要“查看 / 修改技能文件内容”，由于 `skills` 域命中后已经进入全量挂载模式，允许直接基于当前 workspace 下 `.claude/skills/<name>` 或 `list_skill` 返回的真实路径读取、编辑、执行或删除
 
 #### 本地技能判定顺序
 
@@ -273,6 +277,7 @@ type IntentRoute = {
 - 不全量暴露工具
 - 先暴露主域最小工具集
 - 仅在子能力明确后继续扩展
+- `skills` 域是明确例外：一旦命中，直接挂载全部工具与当前 workspace 下全部本地技能
 
 ### 例子
 
@@ -317,7 +322,7 @@ type IntentRoute = {
 
 #### `skills.find_skill`
 
-只挂技能发现相关工具，不直接挂技能执行全量工具
+命中 `skills` 域后，直接挂载全部工具与当前 workspace 下全部本地技能，不再单独收窄为技能发现工具
 
 ## 路由流程
 
@@ -509,3 +514,4 @@ type IntentRoute = {
 - 联网 + 本地分析任务能够同时挂载 `web + workspace`
 - AI 媒体任务不会误挂大量无关工具
 - 技能相关任务优先走 `skills` 域，而不是混入普通工具路由
+- 命中 `skills` 域时，会挂载全部工具与当前 workspace 下全部本地技能

@@ -101,6 +101,23 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).not.toContain('mcp__exa__web_fetch_exa')
   })
 
+  it('exposes all builtin tools when the skills domain is active', () => {
+    const surface = buildToolSurface({
+      decision: makeDecision({
+        toolLayer: 'agentic',
+        activeDomains: [{ domain: 'skills', subdomains: ['create_skill'], role: 'primary', score: 6 }],
+        primaryDomain: 'skills',
+        subdomains: ['create_skill']
+      }),
+      sessionAllowedTools: [],
+      isAssistant: false
+    })
+
+    expect(surface.builtinTools).toEqual(
+      expect.arrayContaining(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Task', 'WebSearch', 'WebFetch'])
+    )
+  })
+
   it('updates the sorted auto-allow option when MCP patterns are added', () => {
     const surface = buildToolSurface({
       decision: makeDecision({ toolLayer: 'chat' }),

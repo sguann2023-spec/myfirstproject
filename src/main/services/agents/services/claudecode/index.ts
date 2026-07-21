@@ -64,6 +64,8 @@ import type {
   AgentStreamEvent,
   AgentThinkingOptions
 } from '../../interfaces/AgentStreamInterface'
+import { buildWorkspaceSkillMountPacket } from '../../skill-mounting/SkillMountPacketBuilder'
+import type { SkillMountPacket } from '../../skill-mounting/types'
 import { skillService } from '../../skills/SkillService'
 import { agentMessageRepository } from '../../database/sessionMessageRepository'
 import { agentRuntimeAuthService } from '../AgentRuntimeAuthService'
@@ -586,6 +588,18 @@ class ClaudeCodeService implements AgentServiceInterface {
       | string
       | undefined
     const isAssistant = builtinRole === 'assistant'
+    let workspaceSkills: Array<{ name: string; description?: string; filename: string }> = []
+    if (cwd) {
+      try {
+        workspaceSkills = await skillService.listLocal(cwd)
+      } catch (error) {
+        logger.warn('Failed to scan workspace skills before capability routing', {
+          sessionId: session.id,
+          cwd,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
     const intentPrompt = await resolveCapabilityRoutingPrompt(session.id, prompt)
     const capabilityDecision = this.capabilityRouter.select({
       prompt,
@@ -595,7 +609,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       isAssistant,
       autonomousEnabled,
       builtinRole,
-      hasCustomMcpServers: Boolean(session.mcps?.length)
+      hasCustomMcpServers: Boolean(session.mcps?.length),
+      workspaceSkills
     })
     const selectedRuntimeCapabilities = capabilityDecision.selected
     const toolGuidanceOptions = buildToolGuidanceOptions({
@@ -625,6 +640,58 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     }
     const workspaceSkillSurface = await scanWorkspaceSkillSurface(skillWorkspace)
+    let skillMountPacket: SkillMountPacket | undefined
+    let preferredWorkspaceSkill = capabilityDecision.preferredLocalSkillFilename
+      ? workspaceSkills.find((skill) => skill.filename === capabilityDecision.preferredLocalSkillFilename)
+      : undefined
+    let preferredLocalSkillSdkDiscovered = capabilityDecision.preferredLocalSkillFilename
+      ? activeClaudeSkillNames.includes(capabilityDecision.preferredLocalSkillFilename)
+      : false
+
+    if (
+      skillWorkspace &&
+      capabilityDecision.preferredLocalSkillFilename &&
+      capabilityDecision.preferredLocalSkillTriggerMode &&
+      !preferredLocalSkillSdkDiscovered
+    ) {
+      try {
+        await skillService.reconcileAgentSkills(session.agent_id, skillWorkspace)
+        workspaceSkills = await skillService.listLocal(skillWorkspace)
+        preferredWorkspaceSkill = workspaceSkills.find(
+          (skill) => skill.filename === capabilityDecision.preferredLocalSkillFilename
+        )
+        activeClaudeSkillNames = workspaceSkills.map((skill) => skill.filename).filter(Boolean).sort()
+        preferredLocalSkillSdkDiscovered = activeClaudeSkillNames.includes(capabilityDecision.preferredLocalSkillFilename)
+      } catch (error) {
+        logger.warn('Failed to force skill reconcile for SDK auto-discovery', {
+          agentId: session.agent_id,
+          sessionId: session.id,
+          skillWorkspace,
+          preferredLocalSkillFilename: capabilityDecision.preferredLocalSkillFilename,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    if (preferredWorkspaceSkill && capabilityDecision.preferredLocalSkillTriggerMode) {
+      toolGuidanceOptions.preferredLocalSkillSdkDiscovered = preferredLocalSkillSdkDiscovered
+      skillMountPacket = await buildWorkspaceSkillMountPacket({
+        workspaceId: cwd,
+        sessionId: session.id,
+        turn: capabilityDecision.turn,
+        workspacePath: cwd,
+        skill: preferredWorkspaceSkill,
+        mountMode: 'invoke',
+        triggerMode: capabilityDecision.preferredLocalSkillTriggerMode,
+        matchedBy: capabilityDecision.preferredLocalSkillMatchedBy ?? [],
+        matchedEvidence: capabilityDecision.preferredLocalSkillMatchedEvidence ?? [],
+        routeReason: capabilityDecision.domainReasons,
+        promptHintLevel: 'hard',
+        sdkDiscovered: preferredLocalSkillSdkDiscovered
+      })
+    } else if (capabilityDecision.preferredLocalSkillFilename) {
+      toolGuidanceOptions.preferredLocalSkillSdkDiscovered = preferredLocalSkillSdkDiscovered
+    }
     logger.info('[ToolRouter] active Claude skills snapshot', {
       agentId: session.agent_id,
       sessionId: session.id,
@@ -633,6 +700,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       activeSkillCount: activeClaudeSkillNames.length,
       activeSkills: activeClaudeSkillNames.slice(0, 50),
       omittedSkillCount: Math.max(0, activeClaudeSkillNames.length - 50),
+      preferredLocalSkillFilename: capabilityDecision.preferredLocalSkillFilename,
+      preferredLocalSkillSdkDiscovered,
       workspaceSkillSurface
     })
 
@@ -650,6 +719,11 @@ class ClaudeCodeService implements AgentServiceInterface {
       stickyApplied: capabilityDecision.stickyApplied,
       toolLayer: capabilityDecision.toolLayer,
       toolLayerReasons: capabilityDecision.toolLayerReasons,
+      preferredLocalSkillFilename: capabilityDecision.preferredLocalSkillFilename,
+      preferredLocalSkillTriggerMode: capabilityDecision.preferredLocalSkillTriggerMode,
+      preferredLocalSkillMatchedBy: capabilityDecision.preferredLocalSkillMatchedBy,
+      preferredLocalSkillMatchedEvidence: capabilityDecision.preferredLocalSkillMatchedEvidence,
+      preferredLocalSkillSdkDiscovered,
       promptLength: prompt.length,
       routingPromptLength: intentPrompt?.length ?? prompt.length,
       routingContextUsed: Boolean(intentPrompt && intentPrompt !== prompt),
@@ -660,6 +734,13 @@ class ClaudeCodeService implements AgentServiceInterface {
       hasCustomMcpServers: Boolean(session.mcps?.length),
       forceMountAll: shouldMountAllRuntimeMcpTools
     })
+    if (skillMountPacket) {
+      logger.info('[ToolRouter] skill mount packet', {
+        agentId: session.agent_id,
+        sessionId: session.id,
+        packet: skillMountPacket
+      })
+    }
 
     const runtimeModel = String(modelOverride || session.model || '').trim()
 
@@ -1760,6 +1841,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       skippedRuntimeMcpServers,
       toolGuidanceOptions,
       activeClaudeSkillCount: activeClaudeSkillNames.length,
+      preferredLocalSkillSdkDiscovered,
       customMcpServerCount: session.mcps?.length ?? 0,
       finalMcpServerNames: Object.keys(options.mcpServers || {}).sort(),
       builtinToolLayer: capabilityDecision.toolLayer,

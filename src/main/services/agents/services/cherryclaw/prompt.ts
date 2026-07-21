@@ -99,6 +99,9 @@ export class PromptBuilder {
     }
   ): string {
     const sections: string[] = []
+    const preferredLocalSkillPath = opts.preferredLocalSkillFilename
+      ? `${workspacePath}/.claude/skills/${opts.preferredLocalSkillFilename}/SKILL.md`
+      : ''
 
     if (opts.hasClaw) {
       sections.push(`## Autonomous VectCut actions
@@ -118,14 +121,40 @@ export class PromptBuilder {
           : `- Check \`${workspacePath}/.claude/skills/<name>/SKILL.md\` before assuming the current agent does not already have the requested skill.`
       sections.push(`## Skills
 
-- Skills are an opt-in capability surface, not a default reasoning dependency.
+- Skills are an execution surface when the current request clearly matches a local workspace skill.
 - Use skill management only when the user asks to install, create, inspect, or invoke a skill.
 - When the user refers to a current, local, attached, or @mentioned skill, treat the current workspace's \`.claude/skills/<name>/SKILL.md\` as the primary source of truth.
 ${localSkillsLine}
 - Use \`skills\` with action \`list\` to inspect skills visible to the current agent.
 - Use \`skills\` with action \`search\` only for marketplace discovery or installation, not to decide whether a local workspace skill exists.
 - Do not infer "the skill does not exist locally" from an empty marketplace search result.
+- For implicit skill routing, use names, filenames, and descriptions only as recall hints; treat the selected local \`SKILL.md\` as the final execution source.
+- If the current request matches a local workspace skill and that skill can directly satisfy the user request, read its \`SKILL.md\` first and follow it before giving a freeform answer.
+- Do not bypass a matched local skill with a general answer when the skill is clearly intended to handle the request.
 - Do not load or summarize skill internals unless the selected task actually requires that skill.`)
+    }
+
+    if (opts.preferredLocalSkillFilename) {
+      const triggerLine =
+        opts.preferredLocalSkillTriggerMode === 'explicit'
+          ? `- The user explicitly invoked the local workspace skill \`${opts.preferredLocalSkillFilename}\`.`
+          : `- The current request implicitly matches the local workspace skill \`${opts.preferredLocalSkillFilename}\`.`
+      const sdkLine =
+        opts.preferredLocalSkillSdkDiscovered === true
+          ? '- This skill is already present under the current workspace `.claude/skills/` and should be available to the SDK project-level skill loader.'
+          : '- Ensure this skill is present under the current workspace `.claude/skills/` so the SDK can auto-discover it for this turn.'
+      const evidenceLine =
+        (opts.preferredLocalSkillMatchedEvidence?.length ?? 0) > 0
+          ? `- Match evidence: ${opts.preferredLocalSkillMatchedEvidence!.map((item) => `\`${item}\``).join(', ')}.`
+          : ''
+      sections.push(`## Tool selection for this turn
+
+- ${opts.preferredLocalSkillTriggerMode === 'implicit' ? 'The host has already selected the target skill for this turn.' : 'The target skill is already explicit for this turn.'}
+${triggerLine}
+${sdkLine}
+${evidenceLine}
+- First read \`${preferredLocalSkillPath}\`.
+- Execute the request according to that \`SKILL.md\` before falling back to a generic answer.`)
     }
 
     if (opts.hasMemory) {

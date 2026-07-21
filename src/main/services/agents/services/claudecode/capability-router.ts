@@ -1,3 +1,5 @@
+import type { SkillMatchSignal, SkillTriggerMode } from '../../skill-mounting/types'
+
 export type RuntimeCapability =
   | 'browser'
   | 'search'
@@ -41,6 +43,10 @@ export type CapabilityDecision = {
   companionDomains: IntentDomain[]
   domainReasons: string[]
   preferredMcpTools: string[]
+  preferredLocalSkillFilename?: string
+  preferredLocalSkillTriggerMode?: SkillTriggerMode
+  preferredLocalSkillMatchedBy?: SkillMatchSignal[]
+  preferredLocalSkillMatchedEvidence?: string[]
   toolLayer: RuntimeToolLayer
   toolLayerReasons: string[]
 }
@@ -56,6 +62,24 @@ export type ToolGuidanceOptions = {
   hasWriteTools?: boolean
   hasAgenticTools?: boolean
   preferredMcpTools?: string[]
+  preferredLocalSkillFilename?: string
+  preferredLocalSkillTriggerMode?: SkillTriggerMode
+  preferredLocalSkillMatchedBy?: SkillMatchSignal[]
+  preferredLocalSkillMatchedEvidence?: string[]
+  preferredLocalSkillSdkDiscovered?: boolean
+}
+
+type WorkspaceSkillRef = {
+  name: string
+  description?: string
+  filename: string
+}
+
+type WorkspaceSkillMatch = {
+  skill: WorkspaceSkillRef
+  triggerMode: SkillTriggerMode
+  matchedBy: SkillMatchSignal[]
+  matchedEvidence: string[]
 }
 
 const syncSelectedCapabilitiesFromActiveDomains = (
@@ -127,7 +151,10 @@ const syncSelectedCapabilitiesFromActiveDomains = (
     }
 
     if (activeDomain.domain === 'skills') {
-      if (activeDomain.subdomains.some((subdomain) => ['find_skill', 'create_skill'].includes(subdomain)) && !selected.has('skills')) {
+      if (
+        activeDomain.subdomains.some((subdomain) => ['find_skill', 'create_skill', 'invoke_skill'].includes(subdomain)) &&
+        !selected.has('skills')
+      ) {
         addCapabilityReason(selected, reasons, 'skills', 'intent:skills')
       }
       continue
@@ -265,6 +292,89 @@ const maxLayer = (a: RuntimeToolLayer, b: RuntimeToolLayer): RuntimeToolLayer =>
 
 const hasWorkspaceAccess = (layer: RuntimeToolLayer): boolean =>
   layer === 'workspace-read' || layer === 'workspace-write' || layer === 'agentic'
+
+const normalizeSkillPhrase = (value: string): string =>
+  normalizeCapabilityText(value).replace(/^[@#]+/, '').trim()
+
+const collectWorkspaceSkillMatchSignals = (
+  skill: WorkspaceSkillRef
+): Array<{ signal: SkillMatchSignal; phrase: string }> => {
+  const signals = new Map<string, { signal: SkillMatchSignal; phrase: string }>()
+  const addPhrase = (signal: SkillMatchSignal, value: string | undefined) => {
+    const normalized = normalizeSkillPhrase(String(value || ''))
+    if (!normalized) return
+    if (normalized.length < 2) return
+    signals.set(`${signal}:${normalized}`, { signal, phrase: normalized })
+  }
+
+  addPhrase('name', skill.name)
+  addPhrase('filename', skill.filename)
+
+  for (const part of String(skill.description || '')
+    .split(/[，。,；;、:：()（）\[\]【】]/)
+    .map((item) => item.trim())
+    .filter(Boolean)) {
+    const normalized = normalizeSkillPhrase(part)
+    if (!normalized || normalized.length < 3) continue
+    if (['用户提到', '时触发', '触发', '生成', '技能'].includes(normalized)) continue
+    addPhrase('description', normalized)
+  }
+
+  return Array.from(signals.values())
+}
+
+const SKILL_MENTION_PATTERN = /(^|\s)@([\p{L}\p{N}_-]+)/gu
+
+const extractMentionedSkillNames = (value: string): string[] => {
+  const mentions: string[] = []
+  for (const match of String(value || '').matchAll(SKILL_MENTION_PATTERN)) {
+    const token = normalizeSkillPhrase(match[2] || '')
+    if (token) mentions.push(token)
+  }
+  return Array.from(new Set(mentions))
+}
+
+const findWorkspaceSkillMatch = (
+  prompt: string,
+  normalizedPrompt: string,
+  workspaceSkills: WorkspaceSkillRef[] = []
+): WorkspaceSkillMatch | undefined => {
+  if (workspaceSkills.length === 0) return undefined
+
+  const mentionedSkillNames = extractMentionedSkillNames(prompt)
+  if (mentionedSkillNames.length > 0) {
+    for (const mentionedSkillName of mentionedSkillNames) {
+      for (const skill of workspaceSkills) {
+        const explicitSignals = collectWorkspaceSkillMatchSignals(skill).filter(
+          (item) => item.signal === 'name' || item.signal === 'filename'
+        )
+        const matchedSignals = explicitSignals.filter((item) => item.phrase === mentionedSkillName)
+        if (matchedSignals.length === 0) continue
+        return {
+          skill,
+          triggerMode: 'explicit',
+          matchedBy: Array.from(new Set(matchedSignals.map((item) => item.signal))),
+          matchedEvidence: [mentionedSkillName]
+        }
+      }
+    }
+  }
+
+  for (const skill of workspaceSkills) {
+    const matchedSignals = collectWorkspaceSkillMatchSignals(skill).filter(
+      (item) => item.phrase && normalizedPrompt.includes(item.phrase)
+    )
+    if (matchedSignals.length === 0) continue
+    return {
+      skill,
+      triggerMode: 'implicit',
+      matchedBy: Array.from(new Set(matchedSignals.map((item) => item.signal))),
+      matchedEvidence: Array.from(new Set(matchedSignals.map((item) => item.phrase)))
+    }
+  }
+
+  return undefined
+}
 
 const WORKSPACE_CONTEXT_KEYWORDS = [
   '代码',
@@ -485,6 +595,38 @@ const COPYLAB_EXPLICIT_KEYWORDS = [
   'viral copy'
 ]
 
+const SKILL_MANAGEMENT_KEYWORDS = [
+  '安装技能',
+  '创建技能',
+  '新建技能',
+  '注册技能',
+  '删除技能',
+  '移除技能',
+  '卸载技能',
+  '搜索技能',
+  '查找技能',
+  '列出技能',
+  '技能列表',
+  '查看技能',
+  'skill list',
+  'install skill',
+  'create skill',
+  'new skill',
+  'register skill',
+  'remove skill',
+  'delete skill',
+  'search skill'
+]
+
+const hasSkillCreationIntent = (text: string) =>
+  hasAnyKeyword(text, ['新建成员', '创建成员', 'create member']) ||
+  ((text.includes('创建') || text.includes('新建')) && hasAnyKeyword(text, ['技能', 'skill', '成员']))
+
+const hasSkillManagementIntent = (text: string) =>
+  hasSkillCreationIntent(text) ||
+  hasAnyKeyword(text, SKILL_MANAGEMENT_KEYWORDS) ||
+  (/(查看|检查|分析|修改|编辑|删除|移除|注册|安装|搜索|查找|列出)/.test(text) && /(技能|skill|成员)/.test(text))
+
 export class CapabilityRouter {
   private turnsBySession = new Map<string, number>()
   private stickyBySession = new Map<string, Map<RuntimeCapability, number>>()
@@ -500,6 +642,7 @@ export class CapabilityRouter {
     autonomousEnabled: boolean
     builtinRole?: string
     hasCustomMcpServers: boolean
+    workspaceSkills?: WorkspaceSkillRef[]
   }): CapabilityDecision {
     const turn = (this.turnsBySession.get(args.sessionId) ?? 0) + 1
     this.turnsBySession.set(args.sessionId, turn)
@@ -509,6 +652,8 @@ export class CapabilityRouter {
     const stickyApplied: string[] = []
     const intentPrompt = String(args.intentPrompt || args.prompt || '')
     const text = normalizeCapabilityText(intentPrompt)
+
+    let matchedWorkspaceSkill: WorkspaceSkillMatch | undefined
 
     if (this.opts.forceMountAllRuntimeMcpTools) {
       for (const capability of ALL_OPTIONAL_RUNTIME_CAPABILITIES) {
@@ -645,12 +790,33 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'skills', 'prompt:skills')
       }
 
+      matchedWorkspaceSkill = findWorkspaceSkillMatch(args.prompt, text, args.workspaceSkills)
+
+      if (!selected.has('skills') && matchedWorkspaceSkill) {
+        addCapabilityReason(
+          selected,
+          reasons,
+          'skills',
+          `prompt:workspace-skill:${matchedWorkspaceSkill.triggerMode}:${matchedWorkspaceSkill.skill.filename}`
+        )
+      }
+
+      if (selected.has('skills') && !matchedWorkspaceSkill && (args.workspaceSkills?.length ?? 0) > 0) {
+        matchedWorkspaceSkill = findWorkspaceSkillMatch(args.prompt, text, args.workspaceSkills)
+      }
+
       if (hasAnyKeyword(text, ['记住', '记忆', '忘记', 'remember', 'memory'])) {
         addCapabilityReason(selected, reasons, 'agentMemory', 'prompt:memory')
       }
 
       if (args.autonomousEnabled && hasAnyKeyword(text, ['定时', '提醒', '通知', '计划任务', 'cron', 'notify'])) {
         addCapabilityReason(selected, reasons, 'claw', 'prompt:schedule-or-notify')
+      }
+
+      if (selected.has('skills')) {
+        for (const capability of ALL_OPTIONAL_RUNTIME_CAPABILITIES) {
+          addCapabilityReason(selected, reasons, capability, 'intent:skills-all-tools')
+        }
       }
 
       const sticky = this.stickyBySession.get(args.sessionId) ?? new Map<RuntimeCapability, number>()
@@ -701,6 +867,7 @@ export class CapabilityRouter {
       prompt: intentPrompt,
       normalizedPrompt: text,
       selected,
+      matchedWorkspaceSkill: matchedWorkspaceSkill?.skill,
       hasCustomMcpServers: args.hasCustomMcpServers,
       isAssistant: args.isAssistant
     })
@@ -718,6 +885,12 @@ export class CapabilityRouter {
       companionDomains,
       domainReasons,
       preferredMcpTools,
+      preferredLocalSkillFilename: subdomains.includes('invoke_skill') ? matchedWorkspaceSkill?.skill.filename : undefined,
+      preferredLocalSkillTriggerMode: subdomains.includes('invoke_skill') ? matchedWorkspaceSkill?.triggerMode : undefined,
+      preferredLocalSkillMatchedBy: subdomains.includes('invoke_skill') ? matchedWorkspaceSkill?.matchedBy : undefined,
+      preferredLocalSkillMatchedEvidence: subdomains.includes('invoke_skill')
+        ? matchedWorkspaceSkill?.matchedEvidence
+        : undefined,
       toolLayer,
       toolLayerReasons
     }
@@ -739,7 +912,11 @@ export function buildToolGuidanceOptions(args: {
     hasWorkspaceTools: hasWorkspaceAccess(decision.toolLayer),
     hasWriteTools: decision.toolLayer === 'workspace-write' || decision.toolLayer === 'agentic',
     hasAgenticTools: decision.toolLayer === 'agentic',
-    preferredMcpTools: decision.preferredMcpTools
+    preferredMcpTools: decision.preferredMcpTools,
+    preferredLocalSkillFilename: decision.preferredLocalSkillFilename,
+    preferredLocalSkillTriggerMode: decision.preferredLocalSkillTriggerMode,
+    preferredLocalSkillMatchedBy: decision.preferredLocalSkillMatchedBy,
+    preferredLocalSkillMatchedEvidence: decision.preferredLocalSkillMatchedEvidence
   }
 }
 
@@ -747,6 +924,7 @@ function classifyIntent(args: {
   prompt: string
   normalizedPrompt: string
   selected: Set<RuntimeCapability>
+  matchedWorkspaceSkill?: WorkspaceSkillRef
   hasCustomMcpServers: boolean
   isAssistant: boolean
 }): {
@@ -845,7 +1023,12 @@ function classifyIntent(args: {
   if (args.selected.has('digitalHuman')) addDomainSubdomain('ai_media', 'digital_human', 'capability:digital-human')
 
   if (args.selected.has('skills')) {
-    addDomainSubdomain('skills', text.includes('创建') || text.includes('新建') ? 'create_skill' : 'find_skill', 'capability:skills')
+    const skillSubdomain = hasSkillCreationIntent(text)
+      ? 'create_skill'
+      : args.matchedWorkspaceSkill && !hasSkillManagementIntent(text)
+        ? 'invoke_skill'
+        : 'find_skill'
+    addDomainSubdomain('skills', skillSubdomain, 'capability:skills')
   }
 
   if (args.selected.has('agentMemory')) addDomainSubdomain('auxiliary', 'memory', 'capability:memory')
@@ -915,10 +1098,10 @@ function classifyIntent(args: {
   }
 
   let primaryDomain: IntentDomain = 'chat'
-  if (cutSubdomains.length > 0) primaryDomain = 'cut'
+  if (skillsSubdomains.length > 0) primaryDomain = 'skills'
+  else if (cutSubdomains.length > 0) primaryDomain = 'cut'
   else if (aiMediaSubdomains.length > 0) primaryDomain = 'ai_media'
   else if (scraptSubdomains.length > 0) primaryDomain = 'scrapt'
-  else if (skillsSubdomains.length > 0) primaryDomain = 'skills'
   else if (workspaceScore > 0 || webScore > 0) primaryDomain = workspaceScore >= webScore ? 'workspace' : 'web'
   else if (auxiliarySubdomains.length > 0) primaryDomain = 'auxiliary'
 

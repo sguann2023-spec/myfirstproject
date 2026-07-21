@@ -125,7 +125,7 @@ describe('PromptBuilder', () => {
     const result = await builder.buildSystemPrompt('/workspace')
 
     expect(result).toContain('[truncated]')
-    expect(result.length).toBeLessThan(7000)
+    expect(result.length).toBeLessThan(7600)
   })
 
   it('uses mtime cache for repeated reads', async () => {
@@ -195,6 +195,33 @@ describe('PromptBuilder', () => {
       expect(result).toContain('## Tool selection for this turn')
       expect(result).toContain('uploading a local file to VectCut OSS')
       expect(result).toContain('`mcp__file-upload__upload_file_to_oss`')
+    })
+
+    it('adds local skill execution guidance when a workspace skill is matched', () => {
+      const result = builder.buildToolGuidance(
+        '/workspace',
+        {
+          hasSkills: true,
+          preferredLocalSkillFilename: '儿童绘本',
+          preferredLocalSkillTriggerMode: 'implicit',
+          preferredLocalSkillMatchedEvidence: ['儿童绘本', '绘本'],
+          preferredLocalSkillSdkDiscovered: true
+        },
+        {
+          activeSkillNames: ['儿童绘本']
+        }
+      )
+
+      expect(result).toContain('## Skills')
+      expect(result).toContain('read its `SKILL.md` first')
+      expect(result).toContain('Do not bypass a matched local skill with a general answer')
+      expect(result).toContain('## Tool selection for this turn')
+      expect(result).toContain('The host has already selected the target skill for this turn')
+      expect(result).toContain('implicitly matches the local workspace skill')
+      expect(result).toContain('Match evidence:')
+      expect(result).toContain('should be available to the SDK project-level skill loader')
+      expect(result).toContain('`/workspace/.claude/skills/儿童绘本/SKILL.md`')
+      expect(result).toContain('Execute the request according to that `SKILL.md`')
     })
   })
 

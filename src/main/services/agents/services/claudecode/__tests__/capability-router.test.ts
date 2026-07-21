@@ -451,12 +451,65 @@ describe('CapabilityRouter', () => {
     expect(skillsDecision.primaryDomain).toBe('skills')
     expect(skillsDecision.subdomains).toEqual(['create_skill'])
     expect(skillsDecision.selected.has('skills')).toBe(true)
+    expect(skillsDecision.selected.has('browser')).toBe(true)
+    expect(skillsDecision.selected.has('image')).toBe(true)
+    expect(skillsDecision.selected.has('draftCreate')).toBe(true)
+    expect(skillsDecision.selected.has('agentMemory')).toBe(true)
+    expect(skillsDecision.selected.has('system')).toBe(true)
+    expect(skillsDecision.selected.has('claw')).toBe(false)
     expect(memoryDecision.primaryDomain).toBe('auxiliary')
     expect(memoryDecision.subdomains).toEqual(['memory'])
     expect(memoryDecision.selected.has('agentMemory')).toBe(true)
     expect(memoryDecision.toolLayer).toBe('agentic')
-    expect(buildToolSurface({ decision: skillsDecision, isAssistant: false }).builtinTools).toEqual([])
+    expect(buildToolSurface({ decision: skillsDecision, isAssistant: false }).builtinTools).toEqual(
+      expect.arrayContaining(['Read', 'Write', 'Bash', 'Task', 'WebSearch', 'WebFetch'])
+    )
     expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual([])
+  })
+
+  it('routes prompts matching workspace skill metadata into the skills domain', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '生成一个儿童绘本',
+      sessionId: 'session-skill-workspace-match',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false,
+      workspaceSkills: [{ name: '儿童绘本', filename: '儿童绘本', description: '生成儿童绘本故事。用户提到创作儿童绘本、睡前故事时触发。' }]
+    })
+
+    expect(decision.primaryDomain).toBe('skills')
+    expect(decision.subdomains).toEqual(['invoke_skill'])
+    expect(decision.selected.has('skills')).toBe(true)
+    expect(decision.selected.has('image')).toBe(true)
+    expect(decision.toolLayer).toBe('agentic')
+    expect(decision.preferredLocalSkillFilename).toBe('儿童绘本')
+    expect(decision.preferredLocalSkillTriggerMode).toBe('implicit')
+    expect(decision.preferredLocalSkillMatchedBy).toEqual(expect.arrayContaining(['name', 'filename']))
+    expect(decision.preferredLocalSkillMatchedEvidence).toEqual(expect.arrayContaining(['儿童绘本']))
+  })
+
+  it('treats @mentioned workspace skills as explicit invocation targets', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '@儿童绘本 做一个司马光砸缸的故事',
+      sessionId: 'session-skill-workspace-explicit',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false,
+      workspaceSkills: [{ name: '儿童绘本', filename: '儿童绘本', description: '生成分页故事。' }]
+    })
+
+    expect(decision.primaryDomain).toBe('skills')
+    expect(decision.subdomains).toEqual(['invoke_skill'])
+    expect(decision.preferredLocalSkillFilename).toBe('儿童绘本')
+    expect(decision.preferredLocalSkillTriggerMode).toBe('explicit')
+    expect(decision.preferredLocalSkillMatchedBy).toEqual(expect.arrayContaining(['name', 'filename']))
+    expect(decision.preferredLocalSkillMatchedEvidence).toEqual(['儿童绘本'])
   })
 
   it('backfills capability selection from non-web routed domains', () => {
