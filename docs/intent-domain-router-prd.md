@@ -67,6 +67,22 @@ type IntentRoute = {
 - 不挂或只挂极小工具面
 - 优先保证回复速度和上下文稳定性
 
+补充规则：
+
+- `chat` 域默认不挂完整 `skills` 域能力
+- 普通问答、总结、解释、改写等请求，仍按最小工具面处理
+- 但如果用户输入中出现明确的本地 skill 信号，则不得继续按纯 `chat` 处理
+
+本地 skill 信号至少包括：
+
+- `@技能名`
+- “执行这个技能”
+- “运行这个技能”
+- “用当前这个技能”
+- 明确点名当前 workspace 下已存在的本地 skill 名
+
+一旦命中上述信号，应直接升级到 `skills` 域，而不是继续停留在 `chat`
+
 ### 2. `workspace`
 
 适用于本地工程、文件、代码、日志、命令相关任务。
@@ -148,6 +164,7 @@ type IntentRoute = {
 - `list_skill`
 - `create_skill`
 - `register_skill`
+- `invoke_skill`
 
 已接入工具：
 
@@ -155,6 +172,7 @@ type IntentRoute = {
 - `list_skill` -> `mcp__skills__skills`
 - `create_skill` -> `mcp__skills__skills`
 - `register_skill` -> `mcp__skills__skills`
+- `invoke_skill` -> 宿主侧本地 skill invoke 能力
 
 说明：
 
@@ -162,6 +180,12 @@ type IntentRoute = {
 - `list_skill`：查看当前 agent 已启用或可见的技能，对应 `action="list"`
 - `create_skill`：在当前 agent 的 `.claude/skills/<name>` 下初始化技能目录，对应 `action="init"`
 - `register_skill`：校验并注册当前 agent 下刚创建的技能，对应 `action="register"`
+- `invoke_skill`：执行当前 workspace 下的本地 skill；执行时必须定位并读取目标 `SKILL.md`，不能只靠 `name` / `description` / `filename`
+- `skills` 域包含两类能力：
+  - 技能管理能力：`search_skill` / `list_skill` / `create_skill` / `register_skill`
+  - 技能执行能力：`invoke_skill`
+- 技能管理能力不等于技能执行能力
+- 不能因为已经挂载了 `search_skill` 或 `list_skill`，就认为系统已经具备执行本地 skill 的能力
 - **只要命中 `skills` 域**，不区分它是主域还是伴随域，默认直接进入**全量挂载模式**
 - 全量挂载模式包含两部分：
   - 挂载当前 workspace 下全部本地技能：`/workspace/.claude/skills/*/SKILL.md`
@@ -181,9 +205,11 @@ type IntentRoute = {
 
 1. 先确定当前会话绑定的 workspace root
 2. 再检查 `/workspace/.claude/skills/<name>/SKILL.md` 是否存在
-3. 若存在，则直接视为本地技能命中，可补充 `workspace.read` / `workspace.write` 读取或执行所需文件
-4. 若不存在，再根据用户意图决定是否调用 `list_skill` 查看已启用 / 可见技能
-5. 仅当用户明确要“搜索现成技能 / 安装新技能”时，才调用 `search_skill`
+3. 若存在，直接视为本地技能命中
+4. 如果用户意图是执行 skill，则直接进入 `invoke_skill`
+5. 如果用户意图是查看当前可见技能，则调用 `list_skill`
+6. 若本地不存在，再根据用户意图决定是否调用 `list_skill` 查看已启用 / 可见技能
+7. 仅当用户明确要“搜索现成技能 / 安装新技能”时，才调用 `search_skill`
 
 反例：
 
@@ -231,6 +257,42 @@ type IntentRoute = {
 - `draft_update_meta`
 - `draft_inspect`
 - `draft_download`
+- `text_add`
+- `text_add_batch`
+- `text_delete`
+- `text_update`
+- `subtitle_srt`
+- `text_intro_animation_list`
+- `text_outro_animation_list`
+- `text_loop_animation_list`
+- `font_list`
+- `image_add`
+- `image_add_batch`
+- `image_update`
+- `image_delete`
+- `video_add`
+- `video_add_batch`
+- `video_update`
+- `video_delete`
+- `transition_type_list`
+- `audio_add`
+- `audio_add_batch`
+- `audio_update`
+- `audio_delete`
+- `audio_effect_type_list`
+- `keyframe_add`
+- `effect_add`
+- `effect_update`
+- `effect_delete`
+- `character_effect_type_list`
+- `scene_effect_type_list`
+- `filter_add`
+- `filter_update`
+- `filter_delete`
+- `filter_type_list`
+- `image_intro_animation_list`
+- `image_outro_animation_list`
+- `image_loop_animation_list`
 - `subtitle_template`
 - `template`
 
@@ -240,6 +302,42 @@ type IntentRoute = {
 - `draft_update_meta` -> `mcp__draft-management__modify_draft`
 - `draft_inspect` -> `mcp__draft-management__query_script`
 - `draft_download` -> `mcp__draft-download__download_draft`
+- `text_add` -> `mcp__draft-elements__add_text`
+- `text_add_batch` -> `mcp__draft-elements__add_batch_text`
+- `text_delete` -> `mcp__draft-elements__remove_text`
+- `text_update` -> `mcp__draft-elements__modify_text`
+- `subtitle_srt` -> `mcp__draft-elements__add_subtitle`
+- `text_intro_animation_list` -> `mcp__draft-elements__get_text_intro_types`
+- `text_outro_animation_list` -> `mcp__draft-elements__get_text_outro_types`
+- `text_loop_animation_list` -> `mcp__draft-elements__get_text_loop_anim_types`
+- `font_list` -> `mcp__draft-elements__get_font_types`
+- `image_add` -> `mcp__draft-elements__add_image`
+- `image_add_batch` -> `mcp__draft-elements__add_batch_image`
+- `image_update` -> `mcp__draft-elements__modify_image`
+- `image_delete` -> `mcp__draft-elements__remove_image`
+- `video_add` -> `mcp__draft-elements__add_video`
+- `video_add_batch` -> `mcp__draft-elements__add_batch_video`
+- `video_update` -> `mcp__draft-elements__modify_video`
+- `video_delete` -> `mcp__draft-elements__remove_video`
+- `transition_type_list` -> `mcp__draft-elements__get_transition_types`
+- `audio_add` -> `mcp__draft-elements__add_audio`
+- `audio_add_batch` -> `mcp__draft-elements__add_batch_audio`
+- `audio_update` -> `mcp__draft-elements__modify_audio`
+- `audio_delete` -> `mcp__draft-elements__remove_audio`
+- `audio_effect_type_list` -> `mcp__draft-elements__get_audio_effect_types`
+- `keyframe_add` -> `mcp__draft-elements__add_video_keyframe`
+- `effect_add` -> `mcp__draft-elements__add_effect`
+- `effect_update` -> `mcp__draft-elements__modify_effect`
+- `effect_delete` -> `mcp__draft-elements__remove_effect`
+- `character_effect_type_list` -> `mcp__draft-elements__get_video_character_effect_types`
+- `scene_effect_type_list` -> `mcp__draft-elements__get_video_scene_effect_types`
+- `filter_add` -> `mcp__draft-elements__add_filter`
+- `filter_update` -> `mcp__draft-elements__modify_filter`
+- `filter_delete` -> `mcp__draft-elements__remove_filter`
+- `filter_type_list` -> `mcp__draft-elements__get_filter_types`
+- `image_intro_animation_list` -> `mcp__draft-elements__get_intro_animation_types`
+- `image_outro_animation_list` -> `mcp__draft-elements__get_outro_animation_types`
+- `image_loop_animation_list` -> `mcp__draft-elements__get_combo_animation_types`
 - `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle` / `mcp__subtitle-template__get_smart_subtitle_task_status`
 - `template` -> `mcp__koubo-template__submit_koubo_template_task` / `mcp__koubo-template__get_koubo_template_task_status`
 
@@ -247,6 +345,8 @@ type IntentRoute = {
 
 - `subtitle_template`：给一段音频或视频添加字幕模版，可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
 - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版，模版内容通常包含字幕、音频、动画，不等同于字幕模版
+- `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
+- `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
 
 - 用户提到“创建草稿”时，优先命中 `draft_create`
 - 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
@@ -262,7 +362,7 @@ type IntentRoute = {
 - `workspace.read + web.search`
 - `workspace.write + web.browser`
 - `workspace.read + ai_media.image`
-- `skills.find_skill + workspace.read`
+- `skills.invoke_skill + workspace.read`
 
 建议规则：
 
@@ -320,9 +420,9 @@ type IntentRoute = {
 
 只挂图片生成相关 MCP / runtime 工具
 
-#### `skills.find_skill`
+#### `skills.invoke_skill`
 
-命中 `skills` 域后，直接挂载全部工具与当前 workspace 下全部本地技能，不再单独收窄为技能发现工具
+命中 `skills` 域后，直接挂载全部工具与当前 workspace 下全部本地技能；如果本轮是执行本地 skill，则必须进一步进入 `invoke_skill` 执行链路，而不能停留在技能发现或技能管理阶段
 
 ## 路由流程
 
@@ -372,7 +472,7 @@ type IntentRoute = {
 
 - `workspace.read/find`
 - `web.search`
-- `skills.find_skill`
+- `skills.list_skill`
 
 ## 示例
 
@@ -465,9 +565,26 @@ type IntentRoute = {
 ```json
 {
   "primaryDomain": "skills",
-  "subdomains": ["find_skill", "create_skill"],
+  "subdomains": ["search_skill", "create_skill"],
   "companionDomains": [],
   "confidence": 0.95
+}
+```
+
+### 示例 5
+
+用户输入：
+
+`@儿童绘本 制作一个司马光砸缸的 3 页绘本`
+
+路由结果：
+
+```json
+{
+  "primaryDomain": "skills",
+  "subdomains": ["invoke_skill"],
+  "companionDomains": [],
+  "confidence": 0.99
 }
 ```
 
@@ -515,3 +632,5 @@ type IntentRoute = {
 - AI 媒体任务不会误挂大量无关工具
 - 技能相关任务优先走 `skills` 域，而不是混入普通工具路由
 - 命中 `skills` 域时，会挂载全部工具与当前 workspace 下全部本地技能
+- 显式 `@技能名` 请求能够稳定命中 `skills.invoke_skill`，而不是退化成普通聊天或技能搜索
+- `search_skill` / `list_skill` / `create_skill` / `register_skill` 不再被误当作本地 skill 执行能力

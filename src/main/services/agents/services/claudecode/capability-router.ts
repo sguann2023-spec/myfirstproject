@@ -7,6 +7,42 @@ export type RuntimeCapability =
   | 'image'
   | 'speech'
   | 'seedAudio'
+  | 'textAdd'
+  | 'textAddBatch'
+  | 'textDelete'
+  | 'textUpdate'
+  | 'subtitleSrt'
+  | 'textIntroAnimationList'
+  | 'textOutroAnimationList'
+  | 'textLoopAnimationList'
+  | 'fontList'
+  | 'imageAdd'
+  | 'imageAddBatch'
+  | 'imageUpdate'
+  | 'imageDelete'
+  | 'videoAdd'
+  | 'videoAddBatch'
+  | 'videoUpdate'
+  | 'videoDelete'
+  | 'transitionTypeList'
+  | 'audioAdd'
+  | 'audioAddBatch'
+  | 'audioUpdate'
+  | 'audioDelete'
+  | 'audioEffectTypeList'
+  | 'keyframeAdd'
+  | 'effectAdd'
+  | 'effectUpdate'
+  | 'effectDelete'
+  | 'characterEffectTypeList'
+  | 'sceneEffectTypeList'
+  | 'filterAdd'
+  | 'filterUpdate'
+  | 'filterDelete'
+  | 'filterTypeList'
+  | 'imageIntroAnimationList'
+  | 'imageOutroAnimationList'
+  | 'imageLoopAnimationList'
   | 'subtitleTemplate'
   | 'draftCreate'
   | 'draftUpdateMeta'
@@ -122,6 +158,114 @@ const syncSelectedCapabilitiesFromActiveDomains = (
     }
 
     if (activeDomain.domain === 'cut') {
+      if (activeDomain.subdomains.includes('text_add') && !selected.has('textAdd')) {
+        addCapabilityReason(selected, reasons, 'textAdd', 'intent:cut.text_add')
+      }
+      if (activeDomain.subdomains.includes('text_add_batch') && !selected.has('textAddBatch')) {
+        addCapabilityReason(selected, reasons, 'textAddBatch', 'intent:cut.text_add_batch')
+      }
+      if (activeDomain.subdomains.includes('text_delete') && !selected.has('textDelete')) {
+        addCapabilityReason(selected, reasons, 'textDelete', 'intent:cut.text_delete')
+      }
+      if (activeDomain.subdomains.includes('text_update') && !selected.has('textUpdate')) {
+        addCapabilityReason(selected, reasons, 'textUpdate', 'intent:cut.text_update')
+      }
+      if (activeDomain.subdomains.includes('subtitle_srt') && !selected.has('subtitleSrt')) {
+        addCapabilityReason(selected, reasons, 'subtitleSrt', 'intent:cut.subtitle_srt')
+      }
+      if (activeDomain.subdomains.includes('text_intro_animation_list') && !selected.has('textIntroAnimationList')) {
+        addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'intent:cut.text_intro_animation_list')
+      }
+      if (activeDomain.subdomains.includes('text_outro_animation_list') && !selected.has('textOutroAnimationList')) {
+        addCapabilityReason(selected, reasons, 'textOutroAnimationList', 'intent:cut.text_outro_animation_list')
+      }
+      if (activeDomain.subdomains.includes('text_loop_animation_list') && !selected.has('textLoopAnimationList')) {
+        addCapabilityReason(selected, reasons, 'textLoopAnimationList', 'intent:cut.text_loop_animation_list')
+      }
+      if (activeDomain.subdomains.includes('font_list') && !selected.has('fontList')) {
+        addCapabilityReason(selected, reasons, 'fontList', 'intent:cut.font_list')
+      }
+      if (activeDomain.subdomains.includes('image_add') && !selected.has('imageAdd')) {
+        addCapabilityReason(selected, reasons, 'imageAdd', 'intent:cut.image_add')
+      }
+      if (activeDomain.subdomains.includes('image_add_batch') && !selected.has('imageAddBatch')) {
+        addCapabilityReason(selected, reasons, 'imageAddBatch', 'intent:cut.image_add_batch')
+      }
+      if (activeDomain.subdomains.includes('image_update') && !selected.has('imageUpdate')) {
+        addCapabilityReason(selected, reasons, 'imageUpdate', 'intent:cut.image_update')
+      }
+      if (activeDomain.subdomains.includes('image_delete') && !selected.has('imageDelete')) {
+        addCapabilityReason(selected, reasons, 'imageDelete', 'intent:cut.image_delete')
+      }
+      if (activeDomain.subdomains.includes('video_add') && !selected.has('videoAdd')) {
+        addCapabilityReason(selected, reasons, 'videoAdd', 'intent:cut.video_add')
+      }
+      if (activeDomain.subdomains.includes('video_add_batch') && !selected.has('videoAddBatch')) {
+        addCapabilityReason(selected, reasons, 'videoAddBatch', 'intent:cut.video_add_batch')
+      }
+      if (activeDomain.subdomains.includes('video_update') && !selected.has('videoUpdate')) {
+        addCapabilityReason(selected, reasons, 'videoUpdate', 'intent:cut.video_update')
+      }
+      if (activeDomain.subdomains.includes('video_delete') && !selected.has('videoDelete')) {
+        addCapabilityReason(selected, reasons, 'videoDelete', 'intent:cut.video_delete')
+      }
+      if (activeDomain.subdomains.includes('transition_type_list') && !selected.has('transitionTypeList')) {
+        addCapabilityReason(selected, reasons, 'transitionTypeList', 'intent:cut.transition_type_list')
+      }
+      if (activeDomain.subdomains.includes('audio_add') && !selected.has('audioAdd')) {
+        addCapabilityReason(selected, reasons, 'audioAdd', 'intent:cut.audio_add')
+      }
+      if (activeDomain.subdomains.includes('audio_add_batch') && !selected.has('audioAddBatch')) {
+        addCapabilityReason(selected, reasons, 'audioAddBatch', 'intent:cut.audio_add_batch')
+      }
+      if (activeDomain.subdomains.includes('audio_update') && !selected.has('audioUpdate')) {
+        addCapabilityReason(selected, reasons, 'audioUpdate', 'intent:cut.audio_update')
+      }
+      if (activeDomain.subdomains.includes('audio_delete') && !selected.has('audioDelete')) {
+        addCapabilityReason(selected, reasons, 'audioDelete', 'intent:cut.audio_delete')
+      }
+      if (activeDomain.subdomains.includes('audio_effect_type_list') && !selected.has('audioEffectTypeList')) {
+        addCapabilityReason(selected, reasons, 'audioEffectTypeList', 'intent:cut.audio_effect_type_list')
+      }
+      if (activeDomain.subdomains.includes('keyframe_add') && !selected.has('keyframeAdd')) {
+        addCapabilityReason(selected, reasons, 'keyframeAdd', 'intent:cut.keyframe_add')
+      }
+      if (activeDomain.subdomains.includes('effect_add') && !selected.has('effectAdd')) {
+        addCapabilityReason(selected, reasons, 'effectAdd', 'intent:cut.effect_add')
+      }
+      if (activeDomain.subdomains.includes('effect_update') && !selected.has('effectUpdate')) {
+        addCapabilityReason(selected, reasons, 'effectUpdate', 'intent:cut.effect_update')
+      }
+      if (activeDomain.subdomains.includes('effect_delete') && !selected.has('effectDelete')) {
+        addCapabilityReason(selected, reasons, 'effectDelete', 'intent:cut.effect_delete')
+      }
+      if (activeDomain.subdomains.includes('character_effect_type_list') && !selected.has('characterEffectTypeList')) {
+        addCapabilityReason(selected, reasons, 'characterEffectTypeList', 'intent:cut.character_effect_type_list')
+      }
+      if (activeDomain.subdomains.includes('scene_effect_type_list') && !selected.has('sceneEffectTypeList')) {
+        addCapabilityReason(selected, reasons, 'sceneEffectTypeList', 'intent:cut.scene_effect_type_list')
+      }
+      if (activeDomain.subdomains.includes('filter_add') && !selected.has('filterAdd')) {
+        addCapabilityReason(selected, reasons, 'filterAdd', 'intent:cut.filter_add')
+      }
+      if (activeDomain.subdomains.includes('filter_update') && !selected.has('filterUpdate')) {
+        addCapabilityReason(selected, reasons, 'filterUpdate', 'intent:cut.filter_update')
+      }
+      if (activeDomain.subdomains.includes('filter_delete') && !selected.has('filterDelete')) {
+        addCapabilityReason(selected, reasons, 'filterDelete', 'intent:cut.filter_delete')
+      }
+      if (activeDomain.subdomains.includes('filter_type_list') && !selected.has('filterTypeList')) {
+        addCapabilityReason(selected, reasons, 'filterTypeList', 'intent:cut.filter_type_list')
+      }
+      if (activeDomain.subdomains.includes('image_intro_animation_list') && !selected.has('imageIntroAnimationList')) {
+        addCapabilityReason(selected, reasons, 'imageIntroAnimationList', 'intent:cut.image_intro_animation_list')
+      }
+      if (activeDomain.subdomains.includes('image_outro_animation_list') && !selected.has('imageOutroAnimationList')) {
+        addCapabilityReason(selected, reasons, 'imageOutroAnimationList', 'intent:cut.image_outro_animation_list')
+      }
+      if (activeDomain.subdomains.includes('image_loop_animation_list') && !selected.has('imageLoopAnimationList')) {
+        addCapabilityReason(selected, reasons, 'imageLoopAnimationList', 'intent:cut.image_loop_animation_list')
+      }
       if (activeDomain.subdomains.includes('draft_create') && !selected.has('draftCreate')) {
         addCapabilityReason(selected, reasons, 'draftCreate', 'intent:cut.draft_create')
       }
@@ -152,7 +296,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
 
     if (activeDomain.domain === 'skills') {
       if (
-        activeDomain.subdomains.some((subdomain) => ['find_skill', 'create_skill', 'invoke_skill'].includes(subdomain)) &&
+        activeDomain.subdomains.some((subdomain) =>
+          ['search_skill', 'list_skill', 'create_skill', 'register_skill', 'invoke_skill'].includes(subdomain)
+        ) &&
         !selected.has('skills')
       ) {
         addCapabilityReason(selected, reasons, 'skills', 'intent:skills')
@@ -184,6 +330,42 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'image',
   'speech',
   'seedAudio',
+  'textAdd',
+  'textAddBatch',
+  'textDelete',
+  'textUpdate',
+  'subtitleSrt',
+  'textIntroAnimationList',
+  'textOutroAnimationList',
+  'textLoopAnimationList',
+  'fontList',
+  'imageAdd',
+  'imageAddBatch',
+  'imageUpdate',
+  'imageDelete',
+  'videoAdd',
+  'videoAddBatch',
+  'videoUpdate',
+  'videoDelete',
+  'transitionTypeList',
+  'audioAdd',
+  'audioAddBatch',
+  'audioUpdate',
+  'audioDelete',
+  'audioEffectTypeList',
+  'keyframeAdd',
+  'effectAdd',
+  'effectUpdate',
+  'effectDelete',
+  'characterEffectTypeList',
+  'sceneEffectTypeList',
+  'filterAdd',
+  'filterUpdate',
+  'filterDelete',
+  'filterTypeList',
+  'imageIntroAnimationList',
+  'imageOutroAnimationList',
+  'imageLoopAnimationList',
   'subtitleTemplate',
   'draftCreate',
   'draftUpdateMeta',
@@ -206,6 +388,42 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'image',
   'speech',
   'seedAudio',
+  'textAdd',
+  'textAddBatch',
+  'textDelete',
+  'textUpdate',
+  'subtitleSrt',
+  'textIntroAnimationList',
+  'textOutroAnimationList',
+  'textLoopAnimationList',
+  'fontList',
+  'imageAdd',
+  'imageAddBatch',
+  'imageUpdate',
+  'imageDelete',
+  'videoAdd',
+  'videoAddBatch',
+  'videoUpdate',
+  'videoDelete',
+  'transitionTypeList',
+  'audioAdd',
+  'audioAddBatch',
+  'audioUpdate',
+  'audioDelete',
+  'audioEffectTypeList',
+  'keyframeAdd',
+  'effectAdd',
+  'effectUpdate',
+  'effectDelete',
+  'characterEffectTypeList',
+  'sceneEffectTypeList',
+  'filterAdd',
+  'filterUpdate',
+  'filterDelete',
+  'filterTypeList',
+  'imageIntroAnimationList',
+  'imageOutroAnimationList',
+  'imageLoopAnimationList',
   'subtitleTemplate',
   'draftCreate',
   'draftUpdateMeta',
@@ -571,6 +789,131 @@ const hasSubtitleTemplateIntent = (text: string) =>
     /(字幕|字幕模板|字幕模版)/.test(text)) ||
   (/(字幕|字幕模板|字幕模版)/.test(text) && /(音频|视频|audio|video)/.test(text))
 
+const CUT_LOOKUP_KEYWORDS = ['查看', '看下', '看一下', '查询', '列出', '有哪些', '可用', '支持', '列表']
+const hasCutDraftContext = (text: string) => /(草稿|draft|dfd_)/.test(text)
+const hasLookupIntent = (text: string) => hasAnyKeyword(text, CUT_LOOKUP_KEYWORDS)
+const hasTextSubject = (text: string) => /(文字|文本)/.test(text)
+const hasImageSubject = (text: string) => /(图片|配图|image)/.test(text)
+const hasVideoSubject = (text: string) => /(视频|video|视频片段)/.test(text)
+const hasAudioSubject = (text: string) => /(音频|音轨|bgm|配乐|音乐|audio)/.test(text)
+const hasEffectSubject = (text: string) => /特效/.test(text) && !/音频特效/.test(text)
+const hasFilterSubject = (text: string) => /滤镜/.test(text)
+const hasVisualMediaSubject = (text: string) => hasImageSubject(text) || hasVideoSubject(text)
+
+const hasTextAddIntent = (text: string) =>
+  hasCutDraftContext(text) &&
+  hasTextSubject(text) &&
+  /(添加|加上|新增|插入|放入)/.test(text) &&
+  !/(批量|删除|移除|修改|编辑|更新|srt|字幕)/.test(text)
+
+const hasTextAddBatchIntent = (text: string) =>
+  hasCutDraftContext(text) && hasTextSubject(text) && /(批量|多个|多段|一批)/.test(text) && /(添加|加上|新增|插入)/.test(text)
+
+const hasTextDeleteIntent = (text: string) =>
+  hasCutDraftContext(text) && hasTextSubject(text) && /(删除|移除|去掉)/.test(text)
+
+const hasTextUpdateIntent = (text: string) =>
+  hasCutDraftContext(text) && hasTextSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
+
+const hasSubtitleSrtIntent = (text: string) =>
+  hasCutDraftContext(text) && text.includes('srt') && /(字幕|添加|导入|加入|插入)/.test(text)
+
+const hasTextIntroAnimationListIntent = (text: string) =>
+  hasLookupIntent(text) && hasTextSubject(text) && /(入场|进场)/.test(text) && /动画/.test(text)
+
+const hasTextOutroAnimationListIntent = (text: string) =>
+  hasLookupIntent(text) && hasTextSubject(text) && /(出场|退场)/.test(text) && /动画/.test(text)
+
+const hasTextLoopAnimationListIntent = (text: string) =>
+  hasLookupIntent(text) && hasTextSubject(text) && /循环/.test(text) && /动画/.test(text)
+
+const hasFontListIntent = (text: string) => hasLookupIntent(text) && /字体/.test(text)
+
+const hasImageAddIntent = (text: string) =>
+  hasCutDraftContext(text) &&
+  hasImageSubject(text) &&
+  /(添加|加上|新增|插入|放入)/.test(text) &&
+  !/(批量|删除|移除|修改|编辑|更新)/.test(text)
+
+const hasImageAddBatchIntent = (text: string) =>
+  hasCutDraftContext(text) && hasImageSubject(text) && /(批量|多张|一批)/.test(text) && /(添加|加上|新增|插入)/.test(text)
+
+const hasImageUpdateIntent = (text: string) =>
+  hasCutDraftContext(text) && hasImageSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
+
+const hasImageDeleteIntent = (text: string) =>
+  hasCutDraftContext(text) && hasImageSubject(text) && /(删除|移除|去掉)/.test(text)
+
+const hasVideoAddIntent = (text: string) =>
+  hasCutDraftContext(text) &&
+  hasVideoSubject(text) &&
+  /(添加|加上|新增|插入|放入)/.test(text) &&
+  !/(批量|删除|移除|修改|编辑|更新)/.test(text)
+
+const hasVideoAddBatchIntent = (text: string) =>
+  hasCutDraftContext(text) && hasVideoSubject(text) && /(批量|多个|多段|一批)/.test(text) && /(添加|加上|新增|插入)/.test(text)
+
+const hasVideoUpdateIntent = (text: string) =>
+  hasCutDraftContext(text) && hasVideoSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
+
+const hasVideoDeleteIntent = (text: string) =>
+  hasCutDraftContext(text) && hasVideoSubject(text) && /(删除|移除|去掉)/.test(text)
+
+const hasTransitionTypeListIntent = (text: string) => hasLookupIntent(text) && /转场/.test(text)
+
+const hasAudioAddIntent = (text: string) =>
+  hasCutDraftContext(text) &&
+  hasAudioSubject(text) &&
+  /(添加|加上|新增|插入|放入)/.test(text) &&
+  !/(批量|删除|移除|修改|编辑|更新|特效)/.test(text)
+
+const hasAudioAddBatchIntent = (text: string) =>
+  hasCutDraftContext(text) && hasAudioSubject(text) && /(批量|多个|多段|一批)/.test(text) && /(添加|加上|新增|插入)/.test(text)
+
+const hasAudioUpdateIntent = (text: string) =>
+  hasCutDraftContext(text) && hasAudioSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
+
+const hasAudioDeleteIntent = (text: string) =>
+  hasCutDraftContext(text) && hasAudioSubject(text) && /(删除|移除|去掉)/.test(text)
+
+const hasAudioEffectTypeListIntent = (text: string) => hasLookupIntent(text) && hasAudioSubject(text) && /特效/.test(text)
+
+const hasKeyframeAddIntent = (text: string) =>
+  hasCutDraftContext(text) && /关键帧/.test(text) && /(添加|加上|新增)/.test(text)
+
+const hasEffectAddIntent = (text: string) =>
+  hasCutDraftContext(text) && hasEffectSubject(text) && /(添加|加上|新增|插入)/.test(text) && !/(删除|移除|修改|编辑|更新)/.test(text)
+
+const hasEffectUpdateIntent = (text: string) =>
+  hasCutDraftContext(text) && hasEffectSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
+
+const hasEffectDeleteIntent = (text: string) =>
+  hasCutDraftContext(text) && hasEffectSubject(text) && /(删除|移除|去掉)/.test(text)
+
+const hasCharacterEffectTypeListIntent = (text: string) => hasLookupIntent(text) && /人物特效/.test(text)
+
+const hasSceneEffectTypeListIntent = (text: string) => hasLookupIntent(text) && /场景特效/.test(text)
+
+const hasFilterAddIntent = (text: string) =>
+  hasCutDraftContext(text) && hasFilterSubject(text) && /(添加|加上|新增|插入)/.test(text) && !/(删除|移除|修改|编辑|更新)/.test(text)
+
+const hasFilterUpdateIntent = (text: string) =>
+  hasCutDraftContext(text) && hasFilterSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
+
+const hasFilterDeleteIntent = (text: string) =>
+  hasCutDraftContext(text) && hasFilterSubject(text) && /(删除|移除|去掉)/.test(text)
+
+const hasFilterTypeListIntent = (text: string) => hasLookupIntent(text) && hasFilterSubject(text) && /类型/.test(text)
+
+const hasImageIntroAnimationListIntent = (text: string) =>
+  hasLookupIntent(text) && hasVisualMediaSubject(text) && /(入场|进场)/.test(text) && /动画/.test(text)
+
+const hasImageOutroAnimationListIntent = (text: string) =>
+  hasLookupIntent(text) && hasVisualMediaSubject(text) && /(出场|退场)/.test(text) && /动画/.test(text)
+
+const hasImageLoopAnimationListIntent = (text: string) =>
+  hasLookupIntent(text) && hasVisualMediaSubject(text) && /(循环|组合)/.test(text) && /动画/.test(text)
+
 const hasSeedAudioIntent = (text: string) =>
   /豆包.{0,8}(语音|音频)/.test(text) ||
   /(语音|音频).{0,8}豆包/.test(text) ||
@@ -599,33 +942,42 @@ const SKILL_MANAGEMENT_KEYWORDS = [
   '安装技能',
   '创建技能',
   '新建技能',
-  '注册技能',
   '删除技能',
   '移除技能',
   '卸载技能',
-  '搜索技能',
-  '查找技能',
-  '列出技能',
-  '技能列表',
-  '查看技能',
-  'skill list',
   'install skill',
   'create skill',
   'new skill',
-  'register skill',
   'remove skill',
-  'delete skill',
-  'search skill'
+  'delete skill'
 ]
+
+const SKILL_SEARCH_KEYWORDS = ['搜索技能', '查找技能', '搜索现成技能', '查市场技能', 'search skill', 'find skill']
+const SKILL_LIST_KEYWORDS = ['列出技能', '技能列表', '查看技能', '有哪些技能', '有哪些本地技能', 'list skill', 'skill list']
+const SKILL_REGISTER_KEYWORDS = ['注册技能', 'register skill']
 
 const hasSkillCreationIntent = (text: string) =>
   hasAnyKeyword(text, ['新建成员', '创建成员', 'create member']) ||
   ((text.includes('创建') || text.includes('新建')) && hasAnyKeyword(text, ['技能', 'skill', '成员']))
 
+const hasSkillSearchIntent = (text: string) => hasAnyKeyword(text, SKILL_SEARCH_KEYWORDS)
+
+const hasSkillListIntent = (text: string) =>
+  hasAnyKeyword(text, SKILL_LIST_KEYWORDS) ||
+  ((/(查看|检查|分析|修改|编辑|删除|移除)/.test(text) && /(技能|skill|成员)/.test(text)))
+
+const hasSkillRegisterIntent = (text: string) =>
+  hasAnyKeyword(text, SKILL_REGISTER_KEYWORDS) ||
+  /注册.{0,8}(技能|skill|成员)/.test(text) ||
+  /(技能|skill|成员).{0,8}注册/.test(text)
+
 const hasSkillManagementIntent = (text: string) =>
   hasSkillCreationIntent(text) ||
+  hasSkillRegisterIntent(text) ||
+  hasSkillSearchIntent(text) ||
+  hasSkillListIntent(text) ||
   hasAnyKeyword(text, SKILL_MANAGEMENT_KEYWORDS) ||
-  (/(查看|检查|分析|修改|编辑|删除|移除|注册|安装|搜索|查找|列出)/.test(text) && /(技能|skill|成员)/.test(text))
+  (/(注册|安装|搜索|查找|列出)/.test(text) && /(技能|skill|成员)/.test(text))
 
 export class CapabilityRouter {
   private turnsBySession = new Map<string, number>()
@@ -667,9 +1019,81 @@ export class CapabilityRouter {
       const hasDraftUpdateIntent = hasDraftMetaUpdateIntent(text)
       const shouldInspectDraft = hasDraftInspectIntent(text)
       const shouldDownloadDraft = hasDraftDownloadIntent(text)
+      const hasTextAdd = hasTextAddIntent(text)
+      const hasTextAddBatch = hasTextAddBatchIntent(text)
+      const hasTextDelete = hasTextDeleteIntent(text)
+      const hasTextUpdate = hasTextUpdateIntent(text)
+      const hasSubtitleSrt = hasSubtitleSrtIntent(text)
+      const hasTextIntroAnimationList = hasTextIntroAnimationListIntent(text)
+      const hasTextOutroAnimationList = hasTextOutroAnimationListIntent(text)
+      const hasTextLoopAnimationList = hasTextLoopAnimationListIntent(text)
+      const hasFontList = hasFontListIntent(text)
+      const hasImageAdd = hasImageAddIntent(text)
+      const hasImageAddBatch = hasImageAddBatchIntent(text)
+      const hasImageUpdate = hasImageUpdateIntent(text)
+      const hasImageDelete = hasImageDeleteIntent(text)
+      const hasVideoAdd = hasVideoAddIntent(text)
+      const hasVideoAddBatch = hasVideoAddBatchIntent(text)
+      const hasVideoUpdate = hasVideoUpdateIntent(text)
+      const hasVideoDelete = hasVideoDeleteIntent(text)
+      const hasTransitionTypeList = hasTransitionTypeListIntent(text)
+      const hasAudioAdd = hasAudioAddIntent(text)
+      const hasAudioAddBatch = hasAudioAddBatchIntent(text)
+      const hasAudioUpdate = hasAudioUpdateIntent(text)
+      const hasAudioDelete = hasAudioDeleteIntent(text)
+      const hasAudioEffectTypeList = hasAudioEffectTypeListIntent(text)
+      const hasKeyframeAdd = hasKeyframeAddIntent(text)
+      const hasEffectAdd = hasEffectAddIntent(text)
+      const hasEffectUpdate = hasEffectUpdateIntent(text)
+      const hasEffectDelete = hasEffectDeleteIntent(text)
+      const hasCharacterEffectTypeList = hasCharacterEffectTypeListIntent(text)
+      const hasSceneEffectTypeList = hasSceneEffectTypeListIntent(text)
+      const hasFilterAdd = hasFilterAddIntent(text)
+      const hasFilterUpdate = hasFilterUpdateIntent(text)
+      const hasFilterDelete = hasFilterDeleteIntent(text)
+      const hasFilterTypeList = hasFilterTypeListIntent(text)
+      const hasImageIntroAnimationList = hasImageIntroAnimationListIntent(text)
+      const hasImageOutroAnimationList = hasImageOutroAnimationListIntent(text)
+      const hasImageLoopAnimationList = hasImageLoopAnimationListIntent(text)
       const shouldApplySubtitleTemplate = hasSubtitleTemplateIntent(text)
       const hasTemplateIntent = hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS)
       const hasCutSpecificIntent =
+        hasTextAdd ||
+        hasTextAddBatch ||
+        hasTextDelete ||
+        hasTextUpdate ||
+        hasSubtitleSrt ||
+        hasTextIntroAnimationList ||
+        hasTextOutroAnimationList ||
+        hasTextLoopAnimationList ||
+        hasFontList ||
+        hasImageAdd ||
+        hasImageAddBatch ||
+        hasImageUpdate ||
+        hasImageDelete ||
+        hasVideoAdd ||
+        hasVideoAddBatch ||
+        hasVideoUpdate ||
+        hasVideoDelete ||
+        hasTransitionTypeList ||
+        hasAudioAdd ||
+        hasAudioAddBatch ||
+        hasAudioUpdate ||
+        hasAudioDelete ||
+        hasAudioEffectTypeList ||
+        hasKeyframeAdd ||
+        hasEffectAdd ||
+        hasEffectUpdate ||
+        hasEffectDelete ||
+        hasCharacterEffectTypeList ||
+        hasSceneEffectTypeList ||
+        hasFilterAdd ||
+        hasFilterUpdate ||
+        hasFilterDelete ||
+        hasFilterTypeList ||
+        hasImageIntroAnimationList ||
+        hasImageOutroAnimationList ||
+        hasImageLoopAnimationList ||
         hasDraftCreateIntent ||
         hasDraftUpdateIntent ||
         shouldInspectDraft ||
@@ -700,22 +1124,23 @@ export class CapabilityRouter {
       }
 
       if (
-        args.imageCount > 0 ||
-        hasAnyKeyword(text, [
-          '生成图',
-          '生成图片',
-          '画一张',
-          '做张图',
-          '海报',
-          '配图',
-          '修图',
-          '换背景',
-          '抠图',
-          'image',
-          'cover',
-          'poster'
-        ]) ||
-        (text.includes('封面') && !hasDraftUpdateIntent)
+        !hasCutSpecificIntent &&
+        (args.imageCount > 0 ||
+          hasAnyKeyword(text, [
+            '生成图',
+            '生成图片',
+            '画一张',
+            '做张图',
+            '海报',
+            '配图',
+            '修图',
+            '换背景',
+            '抠图',
+            'image',
+            'cover',
+            'poster'
+          ]) ||
+          (text.includes('封面') && !hasDraftUpdateIntent))
       ) {
         addCapabilityReason(
           selected,
@@ -727,7 +1152,11 @@ export class CapabilityRouter {
 
       const shouldGenerateSeedAudio = hasSeedAudioIntent(text)
 
-      if (hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio']) && !shouldGenerateSeedAudio) {
+      if (
+        !hasCutSpecificIntent &&
+        hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio']) &&
+        !shouldGenerateSeedAudio
+      ) {
         addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
       }
 
@@ -765,6 +1194,150 @@ export class CapabilityRouter {
 
       if (shouldDownloadDraft) {
         addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
+      }
+
+      if (hasTextAdd) {
+        addCapabilityReason(selected, reasons, 'textAdd', 'prompt:text-add')
+      }
+
+      if (hasTextAddBatch) {
+        addCapabilityReason(selected, reasons, 'textAddBatch', 'prompt:text-add-batch')
+      }
+
+      if (hasTextDelete) {
+        addCapabilityReason(selected, reasons, 'textDelete', 'prompt:text-delete')
+      }
+
+      if (hasTextUpdate) {
+        addCapabilityReason(selected, reasons, 'textUpdate', 'prompt:text-update')
+      }
+
+      if (hasSubtitleSrt) {
+        addCapabilityReason(selected, reasons, 'subtitleSrt', 'prompt:subtitle-srt')
+      }
+
+      if (hasTextIntroAnimationList) {
+        addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'prompt:text-intro-animation-list')
+      }
+
+      if (hasTextOutroAnimationList) {
+        addCapabilityReason(selected, reasons, 'textOutroAnimationList', 'prompt:text-outro-animation-list')
+      }
+
+      if (hasTextLoopAnimationList) {
+        addCapabilityReason(selected, reasons, 'textLoopAnimationList', 'prompt:text-loop-animation-list')
+      }
+
+      if (hasFontList) {
+        addCapabilityReason(selected, reasons, 'fontList', 'prompt:font-list')
+      }
+
+      if (hasImageAdd) {
+        addCapabilityReason(selected, reasons, 'imageAdd', 'prompt:image-add')
+      }
+
+      if (hasImageAddBatch) {
+        addCapabilityReason(selected, reasons, 'imageAddBatch', 'prompt:image-add-batch')
+      }
+
+      if (hasImageUpdate) {
+        addCapabilityReason(selected, reasons, 'imageUpdate', 'prompt:image-update')
+      }
+
+      if (hasImageDelete) {
+        addCapabilityReason(selected, reasons, 'imageDelete', 'prompt:image-delete')
+      }
+
+      if (hasVideoAdd) {
+        addCapabilityReason(selected, reasons, 'videoAdd', 'prompt:video-add')
+      }
+
+      if (hasVideoAddBatch) {
+        addCapabilityReason(selected, reasons, 'videoAddBatch', 'prompt:video-add-batch')
+      }
+
+      if (hasVideoUpdate) {
+        addCapabilityReason(selected, reasons, 'videoUpdate', 'prompt:video-update')
+      }
+
+      if (hasVideoDelete) {
+        addCapabilityReason(selected, reasons, 'videoDelete', 'prompt:video-delete')
+      }
+
+      if (hasTransitionTypeList) {
+        addCapabilityReason(selected, reasons, 'transitionTypeList', 'prompt:transition-type-list')
+      }
+
+      if (hasAudioAdd) {
+        addCapabilityReason(selected, reasons, 'audioAdd', 'prompt:audio-add')
+      }
+
+      if (hasAudioAddBatch) {
+        addCapabilityReason(selected, reasons, 'audioAddBatch', 'prompt:audio-add-batch')
+      }
+
+      if (hasAudioUpdate) {
+        addCapabilityReason(selected, reasons, 'audioUpdate', 'prompt:audio-update')
+      }
+
+      if (hasAudioDelete) {
+        addCapabilityReason(selected, reasons, 'audioDelete', 'prompt:audio-delete')
+      }
+
+      if (hasAudioEffectTypeList) {
+        addCapabilityReason(selected, reasons, 'audioEffectTypeList', 'prompt:audio-effect-type-list')
+      }
+
+      if (hasKeyframeAdd) {
+        addCapabilityReason(selected, reasons, 'keyframeAdd', 'prompt:keyframe-add')
+      }
+
+      if (hasEffectAdd) {
+        addCapabilityReason(selected, reasons, 'effectAdd', 'prompt:effect-add')
+      }
+
+      if (hasEffectUpdate) {
+        addCapabilityReason(selected, reasons, 'effectUpdate', 'prompt:effect-update')
+      }
+
+      if (hasEffectDelete) {
+        addCapabilityReason(selected, reasons, 'effectDelete', 'prompt:effect-delete')
+      }
+
+      if (hasCharacterEffectTypeList) {
+        addCapabilityReason(selected, reasons, 'characterEffectTypeList', 'prompt:character-effect-type-list')
+      }
+
+      if (hasSceneEffectTypeList) {
+        addCapabilityReason(selected, reasons, 'sceneEffectTypeList', 'prompt:scene-effect-type-list')
+      }
+
+      if (hasFilterAdd) {
+        addCapabilityReason(selected, reasons, 'filterAdd', 'prompt:filter-add')
+      }
+
+      if (hasFilterUpdate) {
+        addCapabilityReason(selected, reasons, 'filterUpdate', 'prompt:filter-update')
+      }
+
+      if (hasFilterDelete) {
+        addCapabilityReason(selected, reasons, 'filterDelete', 'prompt:filter-delete')
+      }
+
+      if (hasFilterTypeList) {
+        addCapabilityReason(selected, reasons, 'filterTypeList', 'prompt:filter-type-list')
+      }
+
+      if (hasImageIntroAnimationList) {
+        addCapabilityReason(selected, reasons, 'imageIntroAnimationList', 'prompt:image-intro-animation-list')
+      }
+
+      if (hasImageOutroAnimationList) {
+        addCapabilityReason(selected, reasons, 'imageOutroAnimationList', 'prompt:image-outro-animation-list')
+      }
+
+      if (hasImageLoopAnimationList) {
+        addCapabilityReason(selected, reasons, 'imageLoopAnimationList', 'prompt:image-loop-animation-list')
       }
 
       if (shouldApplySubtitleTemplate) {
@@ -868,6 +1441,7 @@ export class CapabilityRouter {
       normalizedPrompt: text,
       selected,
       matchedWorkspaceSkill: matchedWorkspaceSkill?.skill,
+      matchedWorkspaceSkillTriggerMode: matchedWorkspaceSkill?.triggerMode,
       hasCustomMcpServers: args.hasCustomMcpServers,
       isAssistant: args.isAssistant
     })
@@ -925,6 +1499,7 @@ function classifyIntent(args: {
   normalizedPrompt: string
   selected: Set<RuntimeCapability>
   matchedWorkspaceSkill?: WorkspaceSkillRef
+  matchedWorkspaceSkillTriggerMode?: SkillTriggerMode
   hasCustomMcpServers: boolean
   isAssistant: boolean
 }): {
@@ -971,6 +1546,42 @@ function classifyIntent(args: {
   const hasWorkspaceUploadIntent = args.selected.has('uploadFile')
   const hasNotebookIntent = text.includes('notebook') || text.includes('ipynb')
   const hasCutSpecificIntent =
+    args.selected.has('textAdd') ||
+    args.selected.has('textAddBatch') ||
+    args.selected.has('textDelete') ||
+    args.selected.has('textUpdate') ||
+    args.selected.has('subtitleSrt') ||
+    args.selected.has('textIntroAnimationList') ||
+    args.selected.has('textOutroAnimationList') ||
+    args.selected.has('textLoopAnimationList') ||
+    args.selected.has('fontList') ||
+    args.selected.has('imageAdd') ||
+    args.selected.has('imageAddBatch') ||
+    args.selected.has('imageUpdate') ||
+    args.selected.has('imageDelete') ||
+    args.selected.has('videoAdd') ||
+    args.selected.has('videoAddBatch') ||
+    args.selected.has('videoUpdate') ||
+    args.selected.has('videoDelete') ||
+    args.selected.has('transitionTypeList') ||
+    args.selected.has('audioAdd') ||
+    args.selected.has('audioAddBatch') ||
+    args.selected.has('audioUpdate') ||
+    args.selected.has('audioDelete') ||
+    args.selected.has('audioEffectTypeList') ||
+    args.selected.has('keyframeAdd') ||
+    args.selected.has('effectAdd') ||
+    args.selected.has('effectUpdate') ||
+    args.selected.has('effectDelete') ||
+    args.selected.has('characterEffectTypeList') ||
+    args.selected.has('sceneEffectTypeList') ||
+    args.selected.has('filterAdd') ||
+    args.selected.has('filterUpdate') ||
+    args.selected.has('filterDelete') ||
+    args.selected.has('filterTypeList') ||
+    args.selected.has('imageIntroAnimationList') ||
+    args.selected.has('imageOutroAnimationList') ||
+    args.selected.has('imageLoopAnimationList') ||
     args.selected.has('draftCreate') ||
     args.selected.has('draftUpdateMeta') ||
     args.selected.has('draftInspect') ||
@@ -1023,11 +1634,18 @@ function classifyIntent(args: {
   if (args.selected.has('digitalHuman')) addDomainSubdomain('ai_media', 'digital_human', 'capability:digital-human')
 
   if (args.selected.has('skills')) {
-    const skillSubdomain = hasSkillCreationIntent(text)
-      ? 'create_skill'
-      : args.matchedWorkspaceSkill && !hasSkillManagementIntent(text)
+    const skillSubdomain =
+      args.matchedWorkspaceSkill && args.matchedWorkspaceSkillTriggerMode === 'explicit'
         ? 'invoke_skill'
-        : 'find_skill'
+        : hasSkillCreationIntent(text)
+          ? 'create_skill'
+          : hasSkillRegisterIntent(text)
+            ? 'register_skill'
+            : hasSkillSearchIntent(text)
+              ? 'search_skill'
+              : args.matchedWorkspaceSkill && !hasSkillManagementIntent(text)
+                ? 'invoke_skill'
+                : 'list_skill'
     addDomainSubdomain('skills', skillSubdomain, 'capability:skills')
   }
 
@@ -1040,6 +1658,42 @@ function classifyIntent(args: {
 
   if (args.selected.has('uploadFile')) preferredMcpTools.add('mcp__file-upload__upload_file_to_oss')
   if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
+  if (args.selected.has('textAdd')) preferredMcpTools.add('mcp__draft-elements__add_text')
+  if (args.selected.has('textAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_text')
+  if (args.selected.has('textDelete')) preferredMcpTools.add('mcp__draft-elements__remove_text')
+  if (args.selected.has('textUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_text')
+  if (args.selected.has('subtitleSrt')) preferredMcpTools.add('mcp__draft-elements__add_subtitle')
+  if (args.selected.has('textIntroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_intro_types')
+  if (args.selected.has('textOutroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_outro_types')
+  if (args.selected.has('textLoopAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_loop_anim_types')
+  if (args.selected.has('fontList')) preferredMcpTools.add('mcp__draft-elements__get_font_types')
+  if (args.selected.has('imageAdd')) preferredMcpTools.add('mcp__draft-elements__add_image')
+  if (args.selected.has('imageAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_image')
+  if (args.selected.has('imageUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_image')
+  if (args.selected.has('imageDelete')) preferredMcpTools.add('mcp__draft-elements__remove_image')
+  if (args.selected.has('videoAdd')) preferredMcpTools.add('mcp__draft-elements__add_video')
+  if (args.selected.has('videoAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_video')
+  if (args.selected.has('videoUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_video')
+  if (args.selected.has('videoDelete')) preferredMcpTools.add('mcp__draft-elements__remove_video')
+  if (args.selected.has('transitionTypeList')) preferredMcpTools.add('mcp__draft-elements__get_transition_types')
+  if (args.selected.has('audioAdd')) preferredMcpTools.add('mcp__draft-elements__add_audio')
+  if (args.selected.has('audioAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_audio')
+  if (args.selected.has('audioUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_audio')
+  if (args.selected.has('audioDelete')) preferredMcpTools.add('mcp__draft-elements__remove_audio')
+  if (args.selected.has('audioEffectTypeList')) preferredMcpTools.add('mcp__draft-elements__get_audio_effect_types')
+  if (args.selected.has('keyframeAdd')) preferredMcpTools.add('mcp__draft-elements__add_video_keyframe')
+  if (args.selected.has('effectAdd')) preferredMcpTools.add('mcp__draft-elements__add_effect')
+  if (args.selected.has('effectUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_effect')
+  if (args.selected.has('effectDelete')) preferredMcpTools.add('mcp__draft-elements__remove_effect')
+  if (args.selected.has('characterEffectTypeList')) preferredMcpTools.add('mcp__draft-elements__get_video_character_effect_types')
+  if (args.selected.has('sceneEffectTypeList')) preferredMcpTools.add('mcp__draft-elements__get_video_scene_effect_types')
+  if (args.selected.has('filterAdd')) preferredMcpTools.add('mcp__draft-elements__add_filter')
+  if (args.selected.has('filterUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_filter')
+  if (args.selected.has('filterDelete')) preferredMcpTools.add('mcp__draft-elements__remove_filter')
+  if (args.selected.has('filterTypeList')) preferredMcpTools.add('mcp__draft-elements__get_filter_types')
+  if (args.selected.has('imageIntroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_intro_animation_types')
+  if (args.selected.has('imageOutroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_outro_animation_types')
+  if (args.selected.has('imageLoopAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_combo_animation_types')
   if (args.selected.has('draftCreate')) preferredMcpTools.add('mcp__draft-management__create_draft')
   if (args.selected.has('draftUpdateMeta')) preferredMcpTools.add('mcp__draft-management__modify_draft')
   if (args.selected.has('draftInspect')) preferredMcpTools.add('mcp__draft-management__query_script')
@@ -1047,6 +1701,60 @@ function classifyIntent(args: {
   if (args.selected.has('subtitleTemplate')) preferredMcpTools.add('mcp__subtitle-template__generate_smart_subtitle')
   if (args.selected.has('kouboTemplate')) preferredMcpTools.add('mcp__koubo-template__submit_koubo_template_task')
 
+  if (args.selected.has('textAdd')) addDomainSubdomain('cut', 'text_add', 'capability:text-add')
+  if (args.selected.has('textAddBatch')) addDomainSubdomain('cut', 'text_add_batch', 'capability:text-add-batch')
+  if (args.selected.has('textDelete')) addDomainSubdomain('cut', 'text_delete', 'capability:text-delete')
+  if (args.selected.has('textUpdate')) addDomainSubdomain('cut', 'text_update', 'capability:text-update')
+  if (args.selected.has('subtitleSrt')) addDomainSubdomain('cut', 'subtitle_srt', 'capability:subtitle-srt')
+  if (args.selected.has('textIntroAnimationList')) {
+    addDomainSubdomain('cut', 'text_intro_animation_list', 'capability:text-intro-animation-list')
+  }
+  if (args.selected.has('textOutroAnimationList')) {
+    addDomainSubdomain('cut', 'text_outro_animation_list', 'capability:text-outro-animation-list')
+  }
+  if (args.selected.has('textLoopAnimationList')) {
+    addDomainSubdomain('cut', 'text_loop_animation_list', 'capability:text-loop-animation-list')
+  }
+  if (args.selected.has('fontList')) addDomainSubdomain('cut', 'font_list', 'capability:font-list')
+  if (args.selected.has('imageAdd')) addDomainSubdomain('cut', 'image_add', 'capability:image-add')
+  if (args.selected.has('imageAddBatch')) addDomainSubdomain('cut', 'image_add_batch', 'capability:image-add-batch')
+  if (args.selected.has('imageUpdate')) addDomainSubdomain('cut', 'image_update', 'capability:image-update')
+  if (args.selected.has('imageDelete')) addDomainSubdomain('cut', 'image_delete', 'capability:image-delete')
+  if (args.selected.has('videoAdd')) addDomainSubdomain('cut', 'video_add', 'capability:video-add')
+  if (args.selected.has('videoAddBatch')) addDomainSubdomain('cut', 'video_add_batch', 'capability:video-add-batch')
+  if (args.selected.has('videoUpdate')) addDomainSubdomain('cut', 'video_update', 'capability:video-update')
+  if (args.selected.has('videoDelete')) addDomainSubdomain('cut', 'video_delete', 'capability:video-delete')
+  if (args.selected.has('transitionTypeList')) addDomainSubdomain('cut', 'transition_type_list', 'capability:transition-type-list')
+  if (args.selected.has('audioAdd')) addDomainSubdomain('cut', 'audio_add', 'capability:audio-add')
+  if (args.selected.has('audioAddBatch')) addDomainSubdomain('cut', 'audio_add_batch', 'capability:audio-add-batch')
+  if (args.selected.has('audioUpdate')) addDomainSubdomain('cut', 'audio_update', 'capability:audio-update')
+  if (args.selected.has('audioDelete')) addDomainSubdomain('cut', 'audio_delete', 'capability:audio-delete')
+  if (args.selected.has('audioEffectTypeList')) {
+    addDomainSubdomain('cut', 'audio_effect_type_list', 'capability:audio-effect-type-list')
+  }
+  if (args.selected.has('keyframeAdd')) addDomainSubdomain('cut', 'keyframe_add', 'capability:keyframe-add')
+  if (args.selected.has('effectAdd')) addDomainSubdomain('cut', 'effect_add', 'capability:effect-add')
+  if (args.selected.has('effectUpdate')) addDomainSubdomain('cut', 'effect_update', 'capability:effect-update')
+  if (args.selected.has('effectDelete')) addDomainSubdomain('cut', 'effect_delete', 'capability:effect-delete')
+  if (args.selected.has('characterEffectTypeList')) {
+    addDomainSubdomain('cut', 'character_effect_type_list', 'capability:character-effect-type-list')
+  }
+  if (args.selected.has('sceneEffectTypeList')) {
+    addDomainSubdomain('cut', 'scene_effect_type_list', 'capability:scene-effect-type-list')
+  }
+  if (args.selected.has('filterAdd')) addDomainSubdomain('cut', 'filter_add', 'capability:filter-add')
+  if (args.selected.has('filterUpdate')) addDomainSubdomain('cut', 'filter_update', 'capability:filter-update')
+  if (args.selected.has('filterDelete')) addDomainSubdomain('cut', 'filter_delete', 'capability:filter-delete')
+  if (args.selected.has('filterTypeList')) addDomainSubdomain('cut', 'filter_type_list', 'capability:filter-type-list')
+  if (args.selected.has('imageIntroAnimationList')) {
+    addDomainSubdomain('cut', 'image_intro_animation_list', 'capability:image-intro-animation-list')
+  }
+  if (args.selected.has('imageOutroAnimationList')) {
+    addDomainSubdomain('cut', 'image_outro_animation_list', 'capability:image-outro-animation-list')
+  }
+  if (args.selected.has('imageLoopAnimationList')) {
+    addDomainSubdomain('cut', 'image_loop_animation_list', 'capability:image-loop-animation-list')
+  }
   if (args.selected.has('draftCreate')) addDomainSubdomain('cut', 'draft_create', 'capability:draft-create')
   if (args.selected.has('draftUpdateMeta')) addDomainSubdomain('cut', 'draft_update_meta', 'capability:draft-update-meta')
   if (args.selected.has('draftInspect')) addDomainSubdomain('cut', 'draft_inspect', 'capability:draft-inspect')

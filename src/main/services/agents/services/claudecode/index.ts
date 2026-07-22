@@ -27,6 +27,7 @@ import BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
+import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
 import FileUploadServer from '@main/mcpServers/file-upload'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
@@ -65,6 +66,8 @@ import type {
   AgentThinkingOptions
 } from '../../interfaces/AgentStreamInterface'
 import { buildWorkspaceSkillMountPacket } from '../../skill-mounting/SkillMountPacketBuilder'
+import { buildHostSkillInvocationPrompt } from '../../skill-mounting/SkillPromptBridge'
+import { resolveWorkspaceSkillInvocation } from '../../skill-mounting/SkillInvokeService'
 import type { SkillMountPacket } from '../../skill-mounting/types'
 import { skillService } from '../../skills/SkillService'
 import { agentMessageRepository } from '../../database/sessionMessageRepository'
@@ -705,6 +708,45 @@ class ClaudeCodeService implements AgentServiceInterface {
       workspaceSkillSurface
     })
 
+    let sdkPrompt = prompt
+    let skillMdLoaded = false
+    if (preferredWorkspaceSkill && capabilityDecision.preferredLocalSkillTriggerMode) {
+      try {
+        const resolvedSkillInvocation = await resolveWorkspaceSkillInvocation({
+          workspacePath: skillWorkspace,
+          skillName: preferredWorkspaceSkill.filename,
+          triggerMode: capabilityDecision.preferredLocalSkillTriggerMode
+        })
+        sdkPrompt = buildHostSkillInvocationPrompt({
+          prompt,
+          skillName: resolvedSkillInvocation.skillName,
+          skillMdPath: resolvedSkillInvocation.skillMdPath,
+          skillMarkdown: resolvedSkillInvocation.skillMarkdown,
+          triggerMode: resolvedSkillInvocation.triggerMode
+        })
+        skillMdLoaded = true
+        logger.info('[ToolRouter] resolved local skill invocation context', {
+          agentId: session.agent_id,
+          sessionId: session.id,
+          preferredLocalSkillFilename: preferredWorkspaceSkill.filename,
+          triggerMode: capabilityDecision.preferredLocalSkillTriggerMode,
+          skillMdPath: resolvedSkillInvocation.skillMdPath,
+          skillMdChars: resolvedSkillInvocation.skillMarkdown.length,
+          originalPromptLength: prompt.length,
+          sdkPromptLength: sdkPrompt.length,
+          sdkPromptPreview: sdkPrompt.slice(0, 240)
+        })
+      } catch (error) {
+        logger.warn('[ToolRouter] failed to resolve local skill invocation context', {
+          agentId: session.agent_id,
+          sessionId: session.id,
+          preferredLocalSkillFilename: preferredWorkspaceSkill.filename,
+          triggerMode: capabilityDecision.preferredLocalSkillTriggerMode,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
     logger.info('[ToolRouter] capability decision', {
       agentId: session.agent_id,
       sessionId: session.id,
@@ -724,7 +766,9 @@ class ClaudeCodeService implements AgentServiceInterface {
       preferredLocalSkillMatchedBy: capabilityDecision.preferredLocalSkillMatchedBy,
       preferredLocalSkillMatchedEvidence: capabilityDecision.preferredLocalSkillMatchedEvidence,
       preferredLocalSkillSdkDiscovered,
+      skillMdLoaded,
       promptLength: prompt.length,
+      sdkPromptLength: sdkPrompt.length,
       routingPromptLength: intentPrompt?.length ?? prompt.length,
       routingContextUsed: Boolean(intentPrompt && intentPrompt !== prompt),
       imageCount: images?.length ?? 0,
@@ -1410,7 +1454,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     const promptView = await promptViewBuilder.build({
       continuationSummary: activeSegment?.continuationSummary,
       recentTurns,
-      currentPrompt: prompt,
+      currentPrompt: sdkPrompt,
       referencedArtifacts
     })
     const promptEnvelope = await segmentPromptService.build({
@@ -1698,6 +1742,101 @@ class ClaudeCodeService implements AgentServiceInterface {
       markSkipped('draft-download')
     }
 
+    if (
+      shouldMountCapability('textAdd') ||
+      shouldMountCapability('textAddBatch') ||
+      shouldMountCapability('textDelete') ||
+      shouldMountCapability('textUpdate') ||
+      shouldMountCapability('subtitleSrt') ||
+      shouldMountCapability('textIntroAnimationList') ||
+      shouldMountCapability('textOutroAnimationList') ||
+      shouldMountCapability('textLoopAnimationList') ||
+      shouldMountCapability('fontList') ||
+      shouldMountCapability('imageAdd') ||
+      shouldMountCapability('imageAddBatch') ||
+      shouldMountCapability('imageUpdate') ||
+      shouldMountCapability('imageDelete') ||
+      shouldMountCapability('videoAdd') ||
+      shouldMountCapability('videoAddBatch') ||
+      shouldMountCapability('videoUpdate') ||
+      shouldMountCapability('videoDelete') ||
+      shouldMountCapability('transitionTypeList') ||
+      shouldMountCapability('audioAdd') ||
+      shouldMountCapability('audioAddBatch') ||
+      shouldMountCapability('audioUpdate') ||
+      shouldMountCapability('audioDelete') ||
+      shouldMountCapability('audioEffectTypeList') ||
+      shouldMountCapability('keyframeAdd') ||
+      shouldMountCapability('effectAdd') ||
+      shouldMountCapability('effectUpdate') ||
+      shouldMountCapability('effectDelete') ||
+      shouldMountCapability('characterEffectTypeList') ||
+      shouldMountCapability('sceneEffectTypeList') ||
+      shouldMountCapability('filterAdd') ||
+      shouldMountCapability('filterUpdate') ||
+      shouldMountCapability('filterDelete') ||
+      shouldMountCapability('filterTypeList') ||
+      shouldMountCapability('imageIntroAnimationList') ||
+      shouldMountCapability('imageOutroAnimationList') ||
+      shouldMountCapability('imageLoopAnimationList')
+    ) {
+      const draftElementsServer = new DraftElementsServer()
+      mountMcpServer('draft-elements', {
+        type: 'sdk',
+        name: 'draft-elements',
+        instance: draftElementsServer.mcpServer
+      })
+      if (shouldMountCapability('textAdd')) autoAllowTools.add('mcp__draft-elements__add_text')
+      if (shouldMountCapability('textAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_text')
+      if (shouldMountCapability('textDelete')) autoAllowTools.add('mcp__draft-elements__remove_text')
+      if (shouldMountCapability('textUpdate')) autoAllowTools.add('mcp__draft-elements__modify_text')
+      if (shouldMountCapability('subtitleSrt')) autoAllowTools.add('mcp__draft-elements__add_subtitle')
+      if (shouldMountCapability('textIntroAnimationList')) autoAllowTools.add('mcp__draft-elements__get_text_intro_types')
+      if (shouldMountCapability('textOutroAnimationList')) autoAllowTools.add('mcp__draft-elements__get_text_outro_types')
+      if (shouldMountCapability('textLoopAnimationList')) autoAllowTools.add('mcp__draft-elements__get_text_loop_anim_types')
+      if (shouldMountCapability('fontList')) autoAllowTools.add('mcp__draft-elements__get_font_types')
+      if (shouldMountCapability('imageAdd')) autoAllowTools.add('mcp__draft-elements__add_image')
+      if (shouldMountCapability('imageAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_image')
+      if (shouldMountCapability('imageUpdate')) autoAllowTools.add('mcp__draft-elements__modify_image')
+      if (shouldMountCapability('imageDelete')) autoAllowTools.add('mcp__draft-elements__remove_image')
+      if (shouldMountCapability('videoAdd')) autoAllowTools.add('mcp__draft-elements__add_video')
+      if (shouldMountCapability('videoAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_video')
+      if (shouldMountCapability('videoUpdate')) autoAllowTools.add('mcp__draft-elements__modify_video')
+      if (shouldMountCapability('videoDelete')) autoAllowTools.add('mcp__draft-elements__remove_video')
+      if (shouldMountCapability('transitionTypeList')) autoAllowTools.add('mcp__draft-elements__get_transition_types')
+      if (shouldMountCapability('audioAdd')) autoAllowTools.add('mcp__draft-elements__add_audio')
+      if (shouldMountCapability('audioAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_audio')
+      if (shouldMountCapability('audioUpdate')) autoAllowTools.add('mcp__draft-elements__modify_audio')
+      if (shouldMountCapability('audioDelete')) autoAllowTools.add('mcp__draft-elements__remove_audio')
+      if (shouldMountCapability('audioEffectTypeList')) autoAllowTools.add('mcp__draft-elements__get_audio_effect_types')
+      if (shouldMountCapability('keyframeAdd')) autoAllowTools.add('mcp__draft-elements__add_video_keyframe')
+      if (shouldMountCapability('effectAdd')) autoAllowTools.add('mcp__draft-elements__add_effect')
+      if (shouldMountCapability('effectUpdate')) autoAllowTools.add('mcp__draft-elements__modify_effect')
+      if (shouldMountCapability('effectDelete')) autoAllowTools.add('mcp__draft-elements__remove_effect')
+      if (shouldMountCapability('characterEffectTypeList')) {
+        autoAllowTools.add('mcp__draft-elements__get_video_character_effect_types')
+      }
+      if (shouldMountCapability('sceneEffectTypeList')) {
+        autoAllowTools.add('mcp__draft-elements__get_video_scene_effect_types')
+      }
+      if (shouldMountCapability('filterAdd')) autoAllowTools.add('mcp__draft-elements__add_filter')
+      if (shouldMountCapability('filterUpdate')) autoAllowTools.add('mcp__draft-elements__modify_filter')
+      if (shouldMountCapability('filterDelete')) autoAllowTools.add('mcp__draft-elements__remove_filter')
+      if (shouldMountCapability('filterTypeList')) autoAllowTools.add('mcp__draft-elements__get_filter_types')
+      if (shouldMountCapability('imageIntroAnimationList')) {
+        autoAllowTools.add('mcp__draft-elements__get_intro_animation_types')
+      }
+      if (shouldMountCapability('imageOutroAnimationList')) {
+        autoAllowTools.add('mcp__draft-elements__get_outro_animation_types')
+      }
+      if (shouldMountCapability('imageLoopAnimationList')) {
+        autoAllowTools.add('mcp__draft-elements__get_combo_animation_types')
+      }
+      allowMcpPattern('mcp__draft-elements__*')
+    } else {
+      markSkipped('draft-elements')
+    }
+
     if (shouldMountCapability('subtitleTemplate')) {
       const subtitleTemplateServer = new SubtitleTemplateServer()
       mountMcpServer('subtitle-template', {
@@ -1829,6 +1968,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       sessionId: session.id,
       turn: capabilityDecision.turn,
       requestPromptLength: prompt.length,
+      sdkPromptLength: sdkPrompt.length,
       routingPromptLength: intentPrompt?.length ?? prompt.length,
       routingContextUsed: Boolean(intentPrompt && intentPrompt !== prompt),
       imageCount: images?.length ?? 0,

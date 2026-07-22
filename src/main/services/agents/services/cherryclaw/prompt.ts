@@ -130,6 +130,7 @@ ${localSkillsLine}
 - Do not infer "the skill does not exist locally" from an empty marketplace search result.
 - For implicit skill routing, use names, filenames, and descriptions only as recall hints; treat the selected local \`SKILL.md\` as the final execution source.
 - If the current request matches a local workspace skill and that skill can directly satisfy the user request, read its \`SKILL.md\` first and follow it before giving a freeform answer.
+- If the host already embeds a resolved local \`SKILL.md\` in the current turn prompt, treat that skill content as already loaded and do not waste tools rediscovering it.
 - Do not bypass a matched local skill with a general answer when the skill is clearly intended to handle the request.
 - Do not load or summarize skill internals unless the selected task actually requires that skill.`)
     }
@@ -154,6 +155,7 @@ ${triggerLine}
 ${sdkLine}
 ${evidenceLine}
 - First read \`${preferredLocalSkillPath}\`.
+- If the current turn already contains the resolved \`SKILL.md\` content, do not search the skill directory again before execution.
 - Execute the request according to that \`SKILL.md\` before falling back to a generic answer.`)
     }
 

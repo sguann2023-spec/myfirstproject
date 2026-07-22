@@ -221,6 +221,8 @@ describe('PromptBuilder', () => {
       expect(result).toContain('Match evidence:')
       expect(result).toContain('should be available to the SDK project-level skill loader')
       expect(result).toContain('`/workspace/.claude/skills/儿童绘本/SKILL.md`')
+      expect(result).toContain('If the host already embeds a resolved local `SKILL.md` in the current turn prompt')
+      expect(result).toContain('do not search the skill directory again before execution')
       expect(result).toContain('Execute the request according to that `SKILL.md`')
     })
   })

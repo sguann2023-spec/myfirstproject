@@ -428,6 +428,179 @@ describe('CapabilityRouter', () => {
     expect(templateDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
   })
 
+  it('routes draft element editing and lookup tasks into dedicated cut subdomains', () => {
+    const router = new CapabilityRouter()
+
+    const textAddDecision = router.select({
+      prompt: '向草稿里添加一段文字',
+      sessionId: 'session-text-add',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const textBatchDecision = router.select({
+      prompt: '向草稿批量添加多段文字',
+      sessionId: 'session-text-add-batch',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const subtitleSrtDecision = router.select({
+      prompt: '给这个草稿添加 srt 字幕',
+      sessionId: 'session-subtitle-srt',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const fontListDecision = router.select({
+      prompt: '查看可用的字体',
+      sessionId: 'session-font-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const imageUpdateDecision = router.select({
+      prompt: '修改草稿里的图片位置和透明度',
+      sessionId: 'session-image-update',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const imageLoopAnimationDecision = router.select({
+      prompt: '查看可用的图片循环动画',
+      sessionId: 'session-image-loop-animation-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const videoAddDecision = router.select({
+      prompt: '向草稿里添加一个视频',
+      sessionId: 'session-video-add',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const videoUpdateDecision = router.select({
+      prompt: '修改草稿里的一个视频片段',
+      sessionId: 'session-video-update',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const videoIntroAnimationDecision = router.select({
+      prompt: '查看可用的视频入场动画',
+      sessionId: 'session-video-intro-animation-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const transitionTypeDecision = router.select({
+      prompt: '查看可用的转场类型',
+      sessionId: 'session-transition-type-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const audioAddDecision = router.select({
+      prompt: '向草稿里添加一段音频',
+      sessionId: 'session-audio-add',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const audioEffectTypeDecision = router.select({
+      prompt: '获取可用的音频特效',
+      sessionId: 'session-audio-effect-type-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const keyframeAddDecision = router.select({
+      prompt: '给这个草稿添加关键帧',
+      sessionId: 'session-keyframe-add',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const sceneEffectTypeDecision = router.select({
+      prompt: '查看可用的场景特效',
+      sessionId: 'session-scene-effect-type-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const filterTypeDecision = router.select({
+      prompt: '获取可用的滤镜类型',
+      sessionId: 'session-filter-type-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(textAddDecision.primaryDomain).toBe('cut')
+    expect(textAddDecision.subdomains).toEqual(['text_add'])
+    expect(textAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_text')
+    expect(textBatchDecision.primaryDomain).toBe('cut')
+    expect(textBatchDecision.subdomains).toEqual(['text_add_batch'])
+    expect(textBatchDecision.preferredMcpTools).toContain('mcp__draft-elements__add_batch_text')
+    expect(subtitleSrtDecision.primaryDomain).toBe('cut')
+    expect(subtitleSrtDecision.subdomains).toEqual(['subtitle_srt'])
+    expect(subtitleSrtDecision.preferredMcpTools).toContain('mcp__draft-elements__add_subtitle')
+    expect(fontListDecision.primaryDomain).toBe('cut')
+    expect(fontListDecision.subdomains).toEqual(['font_list'])
+    expect(fontListDecision.preferredMcpTools).toContain('mcp__draft-elements__get_font_types')
+    expect(imageUpdateDecision.primaryDomain).toBe('cut')
+    expect(imageUpdateDecision.subdomains).toEqual(['image_update'])
+    expect(imageUpdateDecision.preferredMcpTools).toContain('mcp__draft-elements__modify_image')
+    expect(imageLoopAnimationDecision.primaryDomain).toBe('cut')
+    expect(imageLoopAnimationDecision.subdomains).toEqual(['image_loop_animation_list'])
+    expect(imageLoopAnimationDecision.preferredMcpTools).toContain('mcp__draft-elements__get_combo_animation_types')
+    expect(videoAddDecision.primaryDomain).toBe('cut')
+    expect(videoAddDecision.subdomains).toEqual(['video_add'])
+    expect(videoAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_video')
+    expect(videoUpdateDecision.primaryDomain).toBe('cut')
+    expect(videoUpdateDecision.subdomains).toEqual(['video_update'])
+    expect(videoUpdateDecision.preferredMcpTools).toContain('mcp__draft-elements__modify_video')
+    expect(videoIntroAnimationDecision.primaryDomain).toBe('cut')
+    expect(videoIntroAnimationDecision.subdomains).toEqual(['image_intro_animation_list'])
+    expect(videoIntroAnimationDecision.preferredMcpTools).toContain('mcp__draft-elements__get_intro_animation_types')
+    expect(transitionTypeDecision.primaryDomain).toBe('cut')
+    expect(transitionTypeDecision.subdomains).toEqual(['transition_type_list'])
+    expect(transitionTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_transition_types')
+    expect(audioAddDecision.primaryDomain).toBe('cut')
+    expect(audioAddDecision.subdomains).toEqual(['audio_add'])
+    expect(audioAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_audio')
+    expect(audioEffectTypeDecision.primaryDomain).toBe('cut')
+    expect(audioEffectTypeDecision.subdomains).toEqual(['audio_effect_type_list'])
+    expect(audioEffectTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_audio_effect_types')
+    expect(keyframeAddDecision.primaryDomain).toBe('cut')
+    expect(keyframeAddDecision.subdomains).toEqual(['keyframe_add'])
+    expect(keyframeAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_video_keyframe')
+    expect(sceneEffectTypeDecision.primaryDomain).toBe('cut')
+    expect(sceneEffectTypeDecision.subdomains).toEqual(['scene_effect_type_list'])
+    expect(sceneEffectTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_video_scene_effect_types')
+    expect(filterTypeDecision.primaryDomain).toBe('cut')
+    expect(filterTypeDecision.subdomains).toEqual(['filter_type_list'])
+    expect(filterTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_filter_types')
+    expect(imageUpdateDecision.selected.has('image')).toBe(false)
+    expect(audioAddDecision.selected.has('speech')).toBe(false)
+  })
+
   it('routes skill and auxiliary requests to their own domains', () => {
     const router = new CapabilityRouter()
 
@@ -510,6 +683,42 @@ describe('CapabilityRouter', () => {
     expect(decision.preferredLocalSkillTriggerMode).toBe('explicit')
     expect(decision.preferredLocalSkillMatchedBy).toEqual(expect.arrayContaining(['name', 'filename']))
     expect(decision.preferredLocalSkillMatchedEvidence).toEqual(['儿童绘本'])
+  })
+
+  it('routes skill management prompts into search/list/register subdomains', () => {
+    const router = new CapabilityRouter()
+
+    const searchDecision = router.select({
+      prompt: '搜索现成技能看看有没有儿童绘本',
+      sessionId: 'session-skill-search',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const listDecision = router.select({
+      prompt: '查看当前有哪些技能',
+      sessionId: 'session-skill-list',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const registerDecision = router.select({
+      prompt: '帮我注册这个技能',
+      sessionId: 'session-skill-register',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(searchDecision.primaryDomain).toBe('skills')
+    expect(searchDecision.subdomains).toEqual(['search_skill'])
+    expect(listDecision.primaryDomain).toBe('skills')
+    expect(listDecision.subdomains).toEqual(['list_skill'])
+    expect(registerDecision.primaryDomain).toBe('skills')
+    expect(registerDecision.subdomains).toEqual(['register_skill'])
   })
 
   it('backfills capability selection from non-web routed domains', () => {
