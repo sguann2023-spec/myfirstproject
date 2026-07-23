@@ -614,6 +614,12 @@
 
 .chat-panel__input-wrap.drag-active .chat-panel__input--tiptap {
   opacity: 0.2;
+  pointer-events: none;
+}
+
+.chat-panel__input-wrap.drag-active .chat-panel__input-prosemirror {
+  caret-color: transparent;
+  user-select: none;
 }
 
 .chat-panel__skill-mention-panel {

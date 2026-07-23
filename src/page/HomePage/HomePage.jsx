@@ -2032,12 +2032,20 @@ const HomePage = () => {
     setChatTitleRenamingSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
 
     try {
+      logger.info('[HomePage][TitleRename] model-candidates', {
+        sessionId: id,
+        latestAssistantModelType: typeof latestAssistant?.model,
+        latestAssistantModelValue: latestAssistant?.model,
+        latestAssistantModelId: latestAssistant?.modelId,
+        chatModel,
+        resolvedSummaryModel: summaryModel
+      });
       logger.info('[HomePage][TitleRename] start', {
         sessionId: id,
         messageCount: normalizedMessages.length,
         summaryModel
       });
-      const { text } = await fetchMessagesSummary({
+      const { text, error } = await fetchMessagesSummary({
         messages: normalizedMessages,
         model: summaryModel
       });
@@ -2045,7 +2053,9 @@ const HomePage = () => {
       if (!nextTitle) {
         logger.info('[HomePage][TitleRename] skipped', {
           sessionId: id,
-          reason: 'empty-generated-title'
+          reason: 'empty-generated-title',
+          summaryError: error || '',
+          resolvedSummaryModel: summaryModel
         });
         return;
       }

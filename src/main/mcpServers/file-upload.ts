@@ -9,6 +9,12 @@ import { ossUploadService } from '@main/services/OssUploadService'
 
 const logger = loggerService.withContext('MCPServer:FileUpload')
 const MAX_UPLOAD_FILE_SIZE_MB = 500
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_koubo_tmp_file_'
+const FILE_UPLOAD_PUBLIC_ENDPOINT = 'https://player.install-ai-guider.top'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 
 const UPLOAD_FILE_TO_OSS_TOOL: Tool = {
   name: 'upload_file_to_oss',
@@ -92,10 +98,13 @@ class FileUploadServer {
     }
 
     const uploaded = await ossUploadService.uploadLocalFile(filePath, {
-      bucket: 'jianying-upload-tmp',
-      region: 'oss-cn-hangzhou',
-      folder: 'agent_tmp',
-      contentType
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      contentType,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      publicEndpoint: FILE_UPLOAD_PUBLIC_ENDPOINT,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
     })
 
     return {
@@ -109,7 +118,7 @@ class FileUploadServer {
               file_path: filePath,
               bucket: uploaded.bucket,
               region: uploaded.region,
-              folder: 'agent_tmp',
+              folder: uploaded.folder,
               object_key: uploaded.objectKey,
               public_url: uploaded.publicUrl,
               signed_public_url: uploaded.signedPublicUrl,

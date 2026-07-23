@@ -10,8 +10,6 @@
     },
     "skill-creator": {
       "version": "1.0.2",
-      "deleted": true,
-      "tombstoneVersion": "2.0.0",
       "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator/1_0_2/skill-creator.zip",
       "minAppVersion": "1.5.22"
     },

@@ -38,6 +38,13 @@ vi.mock('@logger', () => ({
 import DraftElementsServer from '../draft-elements'
 
 type DraftElementsServerInstance = InstanceType<typeof DraftElementsServer>
+type ListedTool = {
+  name: string
+  inputSchema: {
+    properties: Record<string, unknown>
+    required?: string[]
+  }
+}
 
 function createServer() {
   return new DraftElementsServer()
@@ -118,6 +125,114 @@ describe('DraftElementsServer', () => {
       'get_outro_animation_types',
       'get_combo_animation_types'
     ])
+  })
+
+  it('should expose official VectCut params and required fields for representative tools', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    expect(Object.keys(toolsByName.get('add_text').inputSchema.properties)).toEqual(
+      expect.arrayContaining([
+        'font',
+        'font_color',
+        'font_size',
+        'background_color',
+        'shadow_enabled',
+        'loop_animation',
+        'transform_x_px',
+        'bold'
+      ])
+    )
+    expect(Object.keys(toolsByName.get('modify_text').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['start', 'end', 'align', 'rotation', 'bubble_effect_id', 'text_styles'])
+    )
+    expect(Object.keys(toolsByName.get('add_subtitle').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['font', 'bold', 'font_color', 'background_color', 'transform_x_px'])
+    )
+    expect(Object.keys(toolsByName.get('add_batch_text').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['end', 'ends', 'font', 'background_color', 'shadow_enabled', 'text_styles'])
+    )
+    expect(Object.keys(toolsByName.get('add_image').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['transition', 'mask_type', 'background_blur', 'mix_type'])
+    )
+    expect(Object.keys(toolsByName.get('add_batch_image').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['width', 'transition', 'mask_type', 'background_blur', 'mix_type'])
+    )
+    expect(Object.keys(toolsByName.get('modify_image').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['transition', 'mask_type', 'background_blur', 'mix_type'])
+    )
+    expect(Object.keys(toolsByName.get('add_video').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['speed', 'duration', 'transition', 'volume', 'mask_type'])
+    )
+    expect(Object.keys(toolsByName.get('add_batch_video').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['durations', 'speed', 'transition', 'volume', 'mask_type'])
+    )
+    expect(Object.keys(toolsByName.get('modify_video').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['target_start', 'speed', 'duration', 'transition', 'rotation'])
+    )
+    expect(Object.keys(toolsByName.get('add_audio').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin'])
+    )
+    expect(Object.keys(toolsByName.get('add_batch_audio').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['durations', 'speed', 'effect_type', 'effect_params', 'fade_out_duratioin'])
+    )
+    expect(Object.keys(toolsByName.get('modify_audio').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin'])
+    )
+    expect(toolsByName.get('add_effect').inputSchema.required).toEqual(['effect_type', 'effect_category'])
+    expect(Object.keys(toolsByName.get('add_effect').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['start', 'end', 'track_name', 'params', 'width', 'height'])
+    )
+    expect(toolsByName.get('add_filter').inputSchema.required).toEqual(['filter_type', 'start', 'end'])
+    expect(Object.keys(toolsByName.get('add_filter').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['track_name', 'relative_index', 'intensity', 'width', 'height'])
+    )
+    expect(toolsByName.get('modify_filter').inputSchema.required).toEqual(['material_id'])
+  })
+
+  it('should normalize add_batch_text official end param into runtime ends', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_batch_text_1',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_batch_text_1'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, 'add_batch_text', {
+      texts: ['第一段', '第二段'],
+      starts: [0, 2],
+      end: [1, 3],
+      draftId: 'dfd_batch_text_1',
+      font: '系统'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/cut_jianying/add_batch_text',
+      expect.objectContaining({ method: 'POST' })
+    )
+    const requestInit = mockNetFetch.mock.calls[1][1] as { body: string }
+    expect(JSON.parse(requestInit.body)).toEqual({
+      texts: ['第一段', '第二段'],
+      starts: [0, 2],
+      end: [1, 3],
+      ends: [1, 3],
+      draft_id: 'dfd_batch_text_1',
+      font: '系统'
+    })
   })
 
   it('should add text with camelCase aliases normalized to snake_case', async () => {
@@ -278,6 +393,37 @@ describe('DraftElementsServer', () => {
     })
   })
 
+  it('should pass local image path through image_path before add_image', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_image_local',
+            material_id: 'image_mat_local'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, 'add_image', {
+      imagePath: '/tmp/demo.png',
+      end: 8
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      image_path: '/tmp/demo.png',
+      end: 8
+    })
+  })
+
   it('should add video with camelCase aliases normalized to snake_case', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -332,6 +478,37 @@ describe('DraftElementsServer', () => {
     })
   })
 
+  it('should normalize local video path from videoUrl into video_path before add_video', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_video_local',
+            material_id: 'video_mat_local'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, 'add_video', {
+      videoUrl: '/tmp/demo.mp4',
+      targetStart: 3
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      video_path: '/tmp/demo.mp4',
+      target_start: 3
+    })
+  })
+
   it('should add audio with camelCase aliases normalized to snake_case', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -383,6 +560,37 @@ describe('DraftElementsServer', () => {
         draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_audio_1',
         material_id: 'audio_mat_1'
       }
+    })
+  })
+
+  it('should pass local audio path through audio_path before add_audio', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_audio_local',
+            material_id: 'audio_mat_local'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, 'add_audio', {
+      audioPath: '/tmp/demo.mp3',
+      effectType: '回音'
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      audio_path: '/tmp/demo.mp3',
+      effect_type: '回音'
     })
   })
 })

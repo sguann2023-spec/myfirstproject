@@ -7,6 +7,10 @@ export type RuntimeCapability =
   | 'image'
   | 'speech'
   | 'seedAudio'
+  | 'audioExtract'
+  | 'frameCapture'
+  | 'mediaDuration'
+  | 'mediaTrim'
   | 'textAdd'
   | 'textAddBatch'
   | 'textDelete'
@@ -158,6 +162,18 @@ const syncSelectedCapabilitiesFromActiveDomains = (
     }
 
     if (activeDomain.domain === 'cut') {
+      if (activeDomain.subdomains.includes('audio_extract') && !selected.has('audioExtract')) {
+        addCapabilityReason(selected, reasons, 'audioExtract', 'intent:cut.audio_extract')
+      }
+      if (activeDomain.subdomains.includes('frame_capture') && !selected.has('frameCapture')) {
+        addCapabilityReason(selected, reasons, 'frameCapture', 'intent:cut.frame_capture')
+      }
+      if (activeDomain.subdomains.includes('media_duration') && !selected.has('mediaDuration')) {
+        addCapabilityReason(selected, reasons, 'mediaDuration', 'intent:cut.media_duration')
+      }
+      if (activeDomain.subdomains.includes('media_trim') && !selected.has('mediaTrim')) {
+        addCapabilityReason(selected, reasons, 'mediaTrim', 'intent:cut.media_trim')
+      }
       if (activeDomain.subdomains.includes('text_add') && !selected.has('textAdd')) {
         addCapabilityReason(selected, reasons, 'textAdd', 'intent:cut.text_add')
       }
@@ -330,6 +346,10 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'image',
   'speech',
   'seedAudio',
+  'audioExtract',
+  'frameCapture',
+  'mediaDuration',
+  'mediaTrim',
   'textAdd',
   'textAddBatch',
   'textDelete',
@@ -388,6 +408,10 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'image',
   'speech',
   'seedAudio',
+  'audioExtract',
+  'frameCapture',
+  'mediaDuration',
+  'mediaTrim',
   'textAdd',
   'textAddBatch',
   'textDelete',
@@ -453,6 +477,10 @@ const COMMON_TEXT_FILE_PATTERN = new RegExp(
 const GENERIC_DOTTED_FILE_PATTERN = new RegExp(
   `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.([a-z][a-z0-9_-]{0,15})(?:\\b|$)`,
   'gi'
+)
+const VIDEO_FILE_REFERENCE_PATTERN = new RegExp(
+  `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(mp4|mov|m4v|mkv|avi|flv|webm|wmv|mpeg|mpg|ts|m2ts|mts)(?:\\b|$)`,
+  'i'
 )
 const PATH_LIKE_PATTERN =
   /(?:^|[\s"'`“”‘’(（[【])(?:\.{1,2}\/|~\/|\/|[A-Za-z]:[\\/])[^\s"'`“”‘’()（）[\]【】<>《》]+/i
@@ -795,6 +823,7 @@ const hasLookupIntent = (text: string) => hasAnyKeyword(text, CUT_LOOKUP_KEYWORD
 const hasTextSubject = (text: string) => /(文字|文本)/.test(text)
 const hasImageSubject = (text: string) => /(图片|配图|image)/.test(text)
 const hasVideoSubject = (text: string) => /(视频|video|视频片段)/.test(text)
+const hasVideoFileReference = (text: string) => VIDEO_FILE_REFERENCE_PATTERN.test(text)
 const hasAudioSubject = (text: string) => /(音频|音轨|bgm|配乐|音乐|audio)/.test(text)
 const hasEffectSubject = (text: string) => /特效/.test(text) && !/音频特效/.test(text)
 const hasFilterSubject = (text: string) => /滤镜/.test(text)
@@ -877,6 +906,32 @@ const hasAudioDeleteIntent = (text: string) =>
   hasCutDraftContext(text) && hasAudioSubject(text) && /(删除|移除|去掉)/.test(text)
 
 const hasAudioEffectTypeListIntent = (text: string) => hasLookupIntent(text) && hasAudioSubject(text) && /特效/.test(text)
+
+const hasAudioExtractIntent = (text: string) =>
+  (hasVideoSubject(text) ||
+    hasVideoFileReference(text) ||
+    ((/文件|素材/.test(text) || hasFileReference(text, { allowUnknownExtensions: true })) &&
+      /(提取|抽取|导出|拆出|分离)/.test(text))) &&
+  (hasAudioSubject(text) || /音轨/.test(text)) &&
+  /(分离|提取|抽取|导出|拆出|转成|转换)/.test(text) &&
+  !/(添加|加上|新增|插入|放入|字幕模板|字幕模版|字幕)/.test(text)
+
+const hasFrameCaptureIntent = (text: string) =>
+  ((hasVideoSubject(text) || /(截帧|抽帧|导出帧|提取帧|帧图片|帧图)/.test(text)) &&
+    (/(截帧|抽帧|导出帧|提取帧|帧图片|帧图|关键帧)/.test(text) ||
+      ((/时间戳|时间点|某一帧|某个时间点/.test(text) || /第.{0,6}秒/.test(text)) &&
+        /(截图|画面|图片|图像|封面|抓取|提取|截取)/.test(text)))) ||
+  (/截取/.test(text) && /(帧图片|帧图)/.test(text))
+
+const hasMediaDurationIntent = (text: string) =>
+  (hasAudioSubject(text) || hasVideoSubject(text)) &&
+  /(时长|duration|多长|长度)/.test(text) &&
+  !hasCutDraftContext(text)
+
+const hasMediaTrimIntent = (text: string) =>
+  (hasAudioSubject(text) || hasVideoSubject(text)) &&
+  (((/(截取|裁剪|剪出|剪下|切出|保留)/.test(text) || /trim/.test(text)) && /(片段|一段|区间|范围|时间段|时间范围)/.test(text)) ||
+    (/从/.test(text) && /到/.test(text) && /(视频|音频|片段)/.test(text)))
 
 const hasKeyframeAddIntent = (text: string) =>
   hasCutDraftContext(text) && /关键帧/.test(text) && /(添加|加上|新增)/.test(text)
@@ -1042,6 +1097,10 @@ export class CapabilityRouter {
       const hasAudioUpdate = hasAudioUpdateIntent(text)
       const hasAudioDelete = hasAudioDeleteIntent(text)
       const hasAudioEffectTypeList = hasAudioEffectTypeListIntent(text)
+      const hasAudioExtract = hasAudioExtractIntent(text)
+      const hasFrameCapture = hasFrameCaptureIntent(text)
+      const hasMediaDuration = hasMediaDurationIntent(text)
+      const hasMediaTrim = hasMediaTrimIntent(text)
       const hasKeyframeAdd = hasKeyframeAddIntent(text)
       const hasEffectAdd = hasEffectAddIntent(text)
       const hasEffectUpdate = hasEffectUpdateIntent(text)
@@ -1288,6 +1347,22 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'audioEffectTypeList', 'prompt:audio-effect-type-list')
       }
 
+      if (hasAudioExtract) {
+        addCapabilityReason(selected, reasons, 'audioExtract', 'prompt:audio-extract')
+      }
+
+      if (hasFrameCapture) {
+        addCapabilityReason(selected, reasons, 'frameCapture', 'prompt:frame-capture')
+      }
+
+      if (hasMediaDuration) {
+        addCapabilityReason(selected, reasons, 'mediaDuration', 'prompt:media-duration')
+      }
+
+      if (hasMediaTrim) {
+        addCapabilityReason(selected, reasons, 'mediaTrim', 'prompt:media-trim')
+      }
+
       if (hasKeyframeAdd) {
         addCapabilityReason(selected, reasons, 'keyframeAdd', 'prompt:keyframe-add')
       }
@@ -1528,6 +1603,7 @@ function classifyIntent(args: {
   const hasWorkspaceReadIntent =
     hasWorkspaceContextKeyword ||
     hasFileReference(args.prompt) ||
+    hasVideoFileReference(args.prompt) ||
     (hasReadActionKeyword && hasFileReference(args.prompt, { allowUnknownExtensions: true })) ||
     /(^|\s)(src|package\.json|tsconfig|vite|webpack|electron)\b/i.test(args.prompt)
 
@@ -1546,6 +1622,10 @@ function classifyIntent(args: {
   const hasWorkspaceUploadIntent = args.selected.has('uploadFile')
   const hasNotebookIntent = text.includes('notebook') || text.includes('ipynb')
   const hasCutSpecificIntent =
+    args.selected.has('audioExtract') ||
+    args.selected.has('frameCapture') ||
+    args.selected.has('mediaDuration') ||
+    args.selected.has('mediaTrim') ||
     args.selected.has('textAdd') ||
     args.selected.has('textAddBatch') ||
     args.selected.has('textDelete') ||
@@ -1658,6 +1738,10 @@ function classifyIntent(args: {
 
   if (args.selected.has('uploadFile')) preferredMcpTools.add('mcp__file-upload__upload_file_to_oss')
   if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
+  if (args.selected.has('audioExtract')) preferredMcpTools.add('mcp__ffmpeg-media__extract_audio_from_video')
+  if (args.selected.has('frameCapture')) preferredMcpTools.add('mcp__ffmpeg-media__capture_frame_at_timestamp')
+  if (args.selected.has('mediaDuration')) preferredMcpTools.add('mcp__ffmpeg-media__get_media_duration')
+  if (args.selected.has('mediaTrim')) preferredMcpTools.add('mcp__ffmpeg-media__trim_media_segment')
   if (args.selected.has('textAdd')) preferredMcpTools.add('mcp__draft-elements__add_text')
   if (args.selected.has('textAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_text')
   if (args.selected.has('textDelete')) preferredMcpTools.add('mcp__draft-elements__remove_text')
@@ -1701,6 +1785,10 @@ function classifyIntent(args: {
   if (args.selected.has('subtitleTemplate')) preferredMcpTools.add('mcp__subtitle-template__generate_smart_subtitle')
   if (args.selected.has('kouboTemplate')) preferredMcpTools.add('mcp__koubo-template__submit_koubo_template_task')
 
+  if (args.selected.has('audioExtract')) addDomainSubdomain('cut', 'audio_extract', 'capability:audio-extract')
+  if (args.selected.has('frameCapture')) addDomainSubdomain('cut', 'frame_capture', 'capability:frame-capture')
+  if (args.selected.has('mediaDuration')) addDomainSubdomain('cut', 'media_duration', 'capability:media-duration')
+  if (args.selected.has('mediaTrim')) addDomainSubdomain('cut', 'media_trim', 'capability:media-trim')
   if (args.selected.has('textAdd')) addDomainSubdomain('cut', 'text_add', 'capability:text-add')
   if (args.selected.has('textAddBatch')) addDomainSubdomain('cut', 'text_add_batch', 'capability:text-add-batch')
   if (args.selected.has('textDelete')) addDomainSubdomain('cut', 'text_delete', 'capability:text-delete')

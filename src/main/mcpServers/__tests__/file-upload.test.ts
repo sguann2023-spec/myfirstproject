@@ -62,10 +62,11 @@ describe('FileUploadServer', () => {
 
   it('should upload a local file with fixed OSS options', async () => {
     mockUploadLocalFile.mockResolvedValue({
-      objectKey: 'agent_tmp/vectcut_koubo_tmp_file_hash.mp3',
-      publicUrl: 'https://player.install-ai-guider.top/agent_tmp/vectcut_koubo_tmp_file_hash.mp3',
-      signedPublicUrl: 'https://player.install-ai-guider.top/agent_tmp/vectcut_koubo_tmp_file_hash.mp3?token=1',
-      bucket: 'jianying-upload-tmp',
+      objectKey: 'agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3',
+      folder: 'agent_tmp/user-123',
+      publicUrl: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3',
+      signedPublicUrl: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3?token=1',
+      bucket: 'oss-hangzhou-mp4',
       region: 'oss-cn-hangzhou',
       contentType: 'audio/mpeg',
       size: 1234
@@ -77,21 +78,24 @@ describe('FileUploadServer', () => {
     })
 
     expect(mockUploadLocalFile).toHaveBeenCalledWith('/tmp/demo.mp3', {
-      bucket: 'jianying-upload-tmp',
+      bucket: 'oss-hangzhou-mp4',
       region: 'oss-cn-hangzhou',
-      folder: 'agent_tmp',
-      contentType: undefined
+      folder: 'agent_tmp/{uid}',
+      contentType: undefined,
+      objectKeyPrefix: 'vectcut_koubo_tmp_file_',
+      publicEndpoint: 'https://player.install-ai-guider.top',
+      signExpiresSeconds: 3600
     })
     expect(JSON.parse(result.content[0].text)).toEqual({
       provider: 'vectcut',
       action: 'upload_file',
       file_path: '/tmp/demo.mp3',
-      bucket: 'jianying-upload-tmp',
+      bucket: 'oss-hangzhou-mp4',
       region: 'oss-cn-hangzhou',
-      folder: 'agent_tmp',
-      object_key: 'agent_tmp/vectcut_koubo_tmp_file_hash.mp3',
-      public_url: 'https://player.install-ai-guider.top/agent_tmp/vectcut_koubo_tmp_file_hash.mp3',
-      signed_public_url: 'https://player.install-ai-guider.top/agent_tmp/vectcut_koubo_tmp_file_hash.mp3?token=1',
+      folder: 'agent_tmp/user-123',
+      object_key: 'agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3',
+      public_url: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3',
+      signed_public_url: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3?token=1',
       content_type: 'audio/mpeg',
       size: 1234
     })

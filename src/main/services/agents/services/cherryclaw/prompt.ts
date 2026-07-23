@@ -386,7 +386,10 @@ function getWorkspaceRootSection(workspacePath: string): string {
     `- If the user asks what the current folder, working directory, current path, or workspace root is, answer with this exact path verbatim: ${workspacePath}`,
     '- Do not answer workspace-location questions with a remembered path from another project or session.',
     '- When the user refers to the current project, local files, generated output, examples, skills, or the workspace, resolve those references from this workspace root unless the user explicitly provides another path.',
+    '- If the user does not explicitly provide an output path, default generated, exported, and downloaded files to the current workspace root.',
+    '- If the source file is already inside the current workspace, prefer saving the output next to the source file unless the user asks for another location.',
     '- Treat .claude/skills, .claude/plugins, temporary outputs, and generated artifacts as children of the current workspace root unless tools prove otherwise.',
+    '- Do not default outputs to system temporary folders, Desktop, Downloads, or other external absolute paths when a workspace path is available.',
     '- Do not invent alternate roots such as app install folders, agent data folders, Desktop, Downloads, or other absolute paths unless the user asked for them or a tool result verified them.'
   ].join('\n')
 }

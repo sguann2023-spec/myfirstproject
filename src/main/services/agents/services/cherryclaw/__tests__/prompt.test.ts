@@ -102,6 +102,9 @@ describe('PromptBuilder', () => {
     expect(result).toContain('including chat, skills, web, and workspace tasks')
     expect(result).toContain('answer with this exact path verbatim: /workspace')
     expect(result).toContain('Do not answer workspace-location questions with a remembered path from another project or session')
+    expect(result).toContain('default generated, exported, and downloaded files to the current workspace root')
+    expect(result).toContain('prefer saving the output next to the source file')
+    expect(result).toContain('Do not default outputs to system temporary folders')
     expect(result).toContain('Do not invent alternate roots such as app install folders')
   })
 
@@ -125,7 +128,7 @@ describe('PromptBuilder', () => {
     const result = await builder.buildSystemPrompt('/workspace')
 
     expect(result).toContain('[truncated]')
-    expect(result.length).toBeLessThan(7600)
+    expect(result.length).toBeLessThan(8000)
   })
 
   it('uses mtime cache for repeated reads', async () => {

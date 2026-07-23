@@ -18,8 +18,10 @@ import {
   Link,
   LoaderCircle,
   SquarePen,
+  Trash2,
   Play,
   RefreshCw,
+  Upload as UploadIcon,
   X,
 } from 'lucide-react';
 import './ChatShell.css';
@@ -61,6 +63,27 @@ const getBaseName = (value) => {
   const normalized = normalizePath(value).replace(/\/$/, '');
   const segments = normalized.split('/').filter(Boolean);
   return segments[segments.length - 1] || normalized;
+};
+const splitFileName = (value = '') => {
+  const normalized = String(value || '').trim();
+  const extensionIndex = normalized.lastIndexOf('.');
+  if (extensionIndex <= 0) {
+    return { name: normalized, extension: '' };
+  }
+  return {
+    name: normalized.slice(0, extensionIndex),
+    extension: normalized.slice(extensionIndex),
+  };
+};
+const sanitizeDroppedEntryName = (value = '') => {
+  const sanitized = String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_');
+  return sanitized || 'untitled';
+};
+const appendIndexToFileName = (fileName = '', index = 0) => {
+  if (index <= 0) return fileName;
+  const { name, extension } = splitFileName(fileName);
+  const nextName = name || 'untitled';
+  return `${nextName}-${index}${extension}`;
 };
 const getParentPath = (value) => {
   const normalized = normalizePath(value).replace(/\/$/, '');
@@ -241,6 +264,12 @@ const replaceWorkspacePathInStore = (store, previousPath, nextPath) => {
     recent,
     accessTimes: normalizeWorkspaceAccessTimes(accessTimes, [...library, ...recent])
   };
+};
+const removeWorkspacePathFromStore = (store, workspacePath) => {
+  const normalizedWorkspacePath = normalizePath(workspacePath);
+  const allowedPaths = dedupePaths([...(store?.library || []), ...(store?.recent || [])])
+    .filter((path) => normalizePath(path) !== normalizedWorkspacePath);
+  return filterWorkspaceStorePaths(store, allowedPaths);
 };
 const filterWorkspaceStorePaths = (store, allowedPaths) => {
   const normalizedAllowedPaths = new Set(dedupePaths(allowedPaths));
@@ -780,6 +809,8 @@ const ChatShell = ({
   const [workspaceTrees, setWorkspaceTrees] = React.useState({});
   const [workspaceTreeLoading, setWorkspaceTreeLoading] = React.useState({});
   const [workspaceExpanded, setWorkspaceExpanded] = React.useState(true);
+  const [isWorkspaceDragActive, setIsWorkspaceDragActive] = React.useState(false);
+  const [workspaceDropPending, setWorkspaceDropPending] = React.useState(false);
   const [showAllRecentWorkspaces, setShowAllRecentWorkspaces] = React.useState(false);
   const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] = React.useState(false);
   const [createWorkspaceParentDir, setCreateWorkspaceParentDir] = React.useState('');
@@ -811,6 +842,7 @@ const ChatShell = ({
   const beginnerGuideChildrensBookEditButtonRef = React.useRef(null);
   const beginnerGuideRewardClaimingRef = React.useRef(false);
   const workspaceRefreshTimeoutRef = React.useRef(null);
+  const workspaceDragCounterRef = React.useRef(0);
   const workspaceLibrary = React.useMemo(() => getWorkspaceLibrary(workspaceStore?.library), [workspaceStore]);
   const recentWorkspacePaths = React.useMemo(
     () => getRecentWorkspacePaths(workspaceStore, workspaceLibrary),
@@ -1869,6 +1901,49 @@ const ChatShell = ({
     }
   }, [renameWorkspaceDraft, renameWorkspaceSubmitting, renamingWorkspacePath]);
 
+  const handleDeleteWorkspace = React.useCallback(async (event, workspacePath) => {
+    event?.stopPropagation?.();
+    const normalizedWorkspacePath = normalizePath(workspacePath).trim();
+    if (!normalizedWorkspacePath) return;
+
+    if (normalizedWorkspacePath === normalizePath(currentWorkspacePath)) {
+      window.toast.warning('当前对话正在使用该工作空间，无法删除');
+      return;
+    }
+
+    const workspaceName = getBaseName(normalizedWorkspacePath);
+    const deleteContent = `删除后不可恢复，确认删除「${workspaceName}」吗？`;
+    const confirmed = window?.modal?.confirm
+      ? await new Promise((resolve) => {
+          window.modal.confirm({
+            title: '确认删除工作空间',
+            content: deleteContent,
+            okText: '删除',
+            cancelText: '取消',
+            centered: true,
+            okType: 'danger',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        })
+      : window.confirm(deleteContent);
+    if (!confirmed) return;
+
+    try {
+      await window.api.file.deleteExternalDir(normalizedWorkspacePath);
+      invalidateWorkspaceTree(normalizedWorkspacePath);
+      setWorkspaceStore((prev) => removeWorkspacePathFromStore(prev, normalizedWorkspacePath));
+      if (normalizePath(renamingWorkspacePath) === normalizedWorkspacePath) {
+        setRenamingWorkspacePath('');
+        setRenameWorkspaceDraft('');
+        setRenameWorkspaceError('');
+      }
+      message.success('工作空间已删除');
+    } catch (error) {
+      window.toast.error(error?.message || '删除工作空间失败');
+    }
+  }, [currentWorkspacePath, invalidateWorkspaceTree, renamingWorkspacePath]);
+
   const openWorkspaceInFinder = React.useCallback((event, workspacePath) => {
     event.stopPropagation();
     if (!workspacePath) return;
@@ -1880,6 +1955,136 @@ const ChatShell = ({
     if (!currentWorkspacePath) return;
     void loadWorkspaceTree(currentWorkspacePath);
   }, [currentWorkspacePath, loadWorkspaceTree]);
+
+  const hasDraggedFiles = React.useCallback((event) => {
+    const dataTransferTypes = Array.from(event?.dataTransfer?.types || []);
+    return dataTransferTypes.includes('Files');
+  }, []);
+
+  const resetWorkspaceDragState = React.useCallback(() => {
+    workspaceDragCounterRef.current = 0;
+    setIsWorkspaceDragActive(false);
+  }, []);
+
+  const resolveWorkspaceDropPath = React.useCallback(async (workspacePath, entryName) => {
+    const normalizedWorkspacePath = normalizePath(workspacePath).trim();
+    const normalizedEntryName = sanitizeDroppedEntryName(entryName);
+    const joinPath = window?.electronAPI?.path?.join;
+    const fileApi = window?.api?.file;
+    if (!normalizedWorkspacePath || !fileApi) return '';
+
+    for (let index = 0; index < 200; index += 1) {
+      const candidateName = appendIndexToFileName(normalizedEntryName, index);
+      const candidatePath = normalizePath(
+        typeof joinPath === 'function'
+          ? joinPath(normalizedWorkspacePath, candidateName)
+          : `${normalizedWorkspacePath}/${candidateName}`
+      );
+      try {
+        const [fileEntry, isDirectory] = await Promise.all([
+          typeof fileApi.get === 'function' ? fileApi.get(candidatePath) : Promise.resolve(null),
+          typeof fileApi.isDirectory === 'function' ? fileApi.isDirectory(candidatePath) : Promise.resolve(false),
+        ]);
+        if (!fileEntry && !isDirectory) {
+          return candidatePath;
+        }
+      } catch (_error) {
+        return candidatePath;
+      }
+    }
+
+    return '';
+  }, []);
+
+  const copyDroppedFilesToWorkspace = React.useCallback(async (fileList) => {
+    const workspacePath = normalizePath(currentWorkspacePath).trim();
+    const copyApi = window?.api?.copy;
+    const fileApi = window?.api?.file;
+    if (!workspacePath || typeof copyApi !== 'function' || !fileApi || typeof fileApi.getPathForFile !== 'function') {
+      window.toast.error('工作空间拖拽上传不可用');
+      return;
+    }
+
+    const droppedEntries = Array.from(fileList || []).filter(Boolean);
+    if (droppedEntries.length === 0) return;
+
+    setWorkspaceDropPending(true);
+    try {
+      let successCount = 0;
+      for (const file of droppedEntries) {
+        const sourcePath = normalizePath(fileApi.getPathForFile(file) || '').trim();
+        if (!sourcePath) {
+          continue;
+        }
+        const targetPath = await resolveWorkspaceDropPath(workspacePath, file.name || getBaseName(sourcePath));
+        if (!targetPath) {
+          throw new Error('生成目标路径失败');
+        }
+        const copyResult = await copyApi(sourcePath, targetPath);
+        if (!copyResult?.success) {
+          throw new Error(copyResult?.error || '复制文件失败');
+        }
+        successCount += 1;
+      }
+
+      if (successCount === 0) {
+        window.toast.warning('未识别到可导入的本地文件');
+        return;
+      }
+
+      setWorkspaceExpanded(true);
+      await loadWorkspaceTree(workspacePath);
+      message.success(
+        successCount > 1
+          ? `已添加 ${successCount} 个文件到工作空间`
+          : '已添加 1 个文件到工作空间'
+      );
+    } catch (error) {
+      window.toast.error(error?.message || '拖拽导入工作空间失败');
+    } finally {
+      setWorkspaceDropPending(false);
+    }
+  }, [currentWorkspacePath, loadWorkspaceTree, resolveWorkspaceDropPath]);
+
+  const handleWorkspaceDragEnter = React.useCallback((event) => {
+    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    workspaceDragCounterRef.current += 1;
+    setIsWorkspaceDragActive(true);
+  }, [hasDraggedFiles, hasLockedWorkspace]);
+
+  const handleWorkspaceDragOver = React.useCallback((event) => {
+    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+    if (!isWorkspaceDragActive) {
+      setIsWorkspaceDragActive(true);
+    }
+  }, [hasDraggedFiles, hasLockedWorkspace, isWorkspaceDragActive]);
+
+  const handleWorkspaceDragLeave = React.useCallback((event) => {
+    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    workspaceDragCounterRef.current = Math.max(0, workspaceDragCounterRef.current - 1);
+    if (workspaceDragCounterRef.current === 0) {
+      setIsWorkspaceDragActive(false);
+    }
+  }, [hasDraggedFiles, hasLockedWorkspace]);
+
+  const handleWorkspaceDrop = React.useCallback((event) => {
+    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const droppedFiles = Array.from(event.dataTransfer?.files || []).filter(Boolean);
+    resetWorkspaceDragState();
+    if (droppedFiles.length === 0) return;
+    void copyDroppedFilesToWorkspace(droppedFiles);
+  }, [copyDroppedFilesToWorkspace, hasDraggedFiles, hasLockedWorkspace, resetWorkspaceDragState]);
 
   const closeFilePreview = React.useCallback(() => {
     filePreviewRequestIdRef.current += 1;
@@ -2445,7 +2650,13 @@ const ChatShell = ({
               )}
             </div>
             {workspaceExpanded && (
-              <div className={`chat-panel__workspace-section ${hasLockedWorkspace ? 'is-bound' : ''}`.trim()}>
+              <div
+                className={`chat-panel__workspace-section ${hasLockedWorkspace ? 'is-bound' : ''} ${isWorkspaceDragActive ? 'drag-active' : ''}`.trim()}
+                onDragEnter={handleWorkspaceDragEnter}
+                onDragOver={handleWorkspaceDragOver}
+                onDragLeave={handleWorkspaceDragLeave}
+                onDrop={handleWorkspaceDrop}
+              >
                 {!hasLockedWorkspace && (
                   <>
                     <div className="chat-panel__workspace-actions">
@@ -2555,6 +2766,14 @@ const ChatShell = ({
                                     aria-label={`重命名 ${getBaseName(workspacePath)}`}>
                                     <SquarePen size={12} aria-hidden="true" />
                                   </button>
+                                  <button
+                                    type="button"
+                                    className="chat-panel__member-action chat-panel__member-action--danger"
+                                    onClick={(event) => void handleDeleteWorkspace(event, workspacePath)}
+                                    title="删除工作空间"
+                                    aria-label={`删除 ${getBaseName(workspacePath)}`}>
+                                    <Trash2 size={12} aria-hidden="true" />
+                                  </button>
                                 </div>
                               </>
                             )}
@@ -2574,6 +2793,16 @@ const ChatShell = ({
                 )}
                 {hasLockedWorkspace && (
                   <>
+                    {isWorkspaceDragActive ? (
+                      <div className="chat-panel__workspace-drag-upload-overlay" aria-hidden="true">
+                        <div className="chat-panel__workspace-drag-upload-card">
+                          <UploadIcon className="chat-panel__workspace-drag-upload-icon" />
+                          <div className="chat-panel__workspace-drag-upload-text">
+                            {workspaceDropPending ? '正在添加文件到工作空间' : '将文件拖放到此处以添加到工作空间中'}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="chat-panel__workspace-tree">
                       {workspaceTreeLoading[currentWorkspacePath] && <div className="chat-panel__members-empty">加载目录中...</div>}
                       {!workspaceTreeLoading[currentWorkspacePath] && (workspaceTrees[currentWorkspacePath] || []).length === 0 && (

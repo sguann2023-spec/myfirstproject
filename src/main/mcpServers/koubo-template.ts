@@ -28,22 +28,22 @@ const KOUBO_TEMPLATE_AGENT_IDS = {
 
 type KouboTemplateKey = keyof typeof KOUBO_TEMPLATE_AGENT_IDS
 
-const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'video_url' | 'kongjing_urls'>> = {
-  knowledge_pip: ['video_url'],
-  classic_detail_yellow: ['video_url', 'kongjing_urls'],
-  traditional_bilingual: ['video_url'],
-  national_classic: ['video_url'],
-  basic_yellow_white: ['video_url'],
-  ai_trim_pauses: ['video_url'],
-  advanced_yellow_double: ['video_url'],
-  advanced_red_bilingual: ['video_url'],
-  luxury_white_bilingual: ['video_url']
+const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' | 'kongjing_urls'>> = {
+  knowledge_pip: ['media_urls'],
+  classic_detail_yellow: ['media_urls', 'kongjing_urls'],
+  traditional_bilingual: ['media_urls'],
+  national_classic: ['media_urls'],
+  basic_yellow_white: ['media_urls'],
+  ai_trim_pauses: ['media_urls'],
+  advanced_yellow_double: ['media_urls'],
+  advanced_red_bilingual: ['media_urls'],
+  luxury_white_bilingual: ['media_urls']
 }
 
 const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   name: 'submit_koubo_template_task',
   description:
-    'Submit an asynchronous VectCut talking-head template task for a source speaking video, with optional title, subtitles, effects, cover, and kongjing clips.',
+    'Submit an asynchronous VectCut talking-head template task for source speaking video or audio media, with optional title, subtitles, effects, cover, and kongjing clips.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -66,6 +66,17 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
           type: 'string'
         },
         description: 'Source video URLs. Most templates require exactly one.'
+      },
+      audioUrl: {
+        type: 'string',
+        description: 'Single source talking-head audio URL.'
+      },
+      audioUrls: {
+        type: 'array',
+        items: {
+          type: 'string'
+        },
+        description: 'Source audio URLs. Use this when the template should process uploaded audio directly.'
       },
       textContent: {
         type: 'string',
@@ -319,6 +330,10 @@ class KouboTemplateServer {
   }
 
   private getStringArray(value: unknown): string[] {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      return trimmed ? [trimmed] : []
+    }
     if (!Array.isArray(value)) {
       return []
     }
@@ -370,21 +385,21 @@ class KouboTemplateServer {
         : {}
 
     const payloadParams: Record<string, unknown> = { ...rawParams }
-    const videoUrls = this.getStringArray(args.videoUrls ?? args.video_url)
-    const coverUrls = this.getStringArray(args.coverUrls ?? args.cover)
+    const videoUrls = this.getStringArray(args.videoUrls ?? args.video_urls ?? args.videoUrl ?? args.video_url)
+    const audioUrls = this.getStringArray(args.audioUrls ?? args.audio_urls ?? args.audioUrl ?? args.audio_url)
+    const coverUrls = this.getStringArray(args.coverUrls ?? args.cover_urls ?? args.cover)
     const kongjingUrls = this.getStringArray(args.kongjingUrls ?? args.kongjing_urls)
-    const singleVideoUrl = typeof args.videoUrl === 'string' ? args.videoUrl.trim() : ''
-    const singleCoverUrl = typeof args.cover === 'string' ? args.cover.trim() : ''
 
-    if (singleVideoUrl) {
-      payloadParams.video_url = [singleVideoUrl]
-    } else if (videoUrls.length > 0) {
+    if (videoUrls.length > 0) {
       payloadParams.video_url = videoUrls
     }
 
-    if (singleCoverUrl) {
-      payloadParams.cover = [singleCoverUrl]
-    } else if (coverUrls.length > 0) {
+    if (audioUrls.length > 0) {
+      payloadParams.audio_urls = audioUrls
+      delete payloadParams.audio_url
+    }
+
+    if (coverUrls.length > 0) {
       payloadParams.cover = coverUrls
     }
 
@@ -407,16 +422,27 @@ class KouboTemplateServer {
     }
 
     const normalizedVideoUrls = this.getStringArray(payloadParams.video_url)
-    if (normalizedVideoUrls.length === 0) {
-      throw new McpError(ErrorCode.InvalidParams, "'videoUrl' or 'videoUrls' is required")
+    const normalizedAudioUrls = this.getStringArray(payloadParams.audio_urls ?? payloadParams.audio_url)
+    if (normalizedVideoUrls.length === 0 && normalizedAudioUrls.length === 0) {
+      throw new McpError(ErrorCode.InvalidParams, "'videoUrl', 'videoUrls', 'audioUrl', or 'audioUrls' is required")
     }
-    payloadParams.video_url = normalizedVideoUrls
+    if (normalizedVideoUrls.length > 0) {
+      payloadParams.video_url = normalizedVideoUrls
+    }
+    if (normalizedAudioUrls.length > 0) {
+      payloadParams.audio_urls = normalizedAudioUrls
+      delete payloadParams.audio_url
+    }
 
     if (resolved.template) {
       const requirements = KOUBO_TEMPLATE_REQUIREMENTS[resolved.template]
       for (const requirement of requirements) {
-        if (requirement === 'video_url' && this.getStringArray(payloadParams.video_url).length === 0) {
-          throw new McpError(ErrorCode.InvalidParams, `'${resolved.template}' requires 'videoUrl'`)
+        if (
+          requirement === 'media_urls' &&
+          this.getStringArray(payloadParams.video_url).length === 0 &&
+          this.getStringArray(payloadParams.audio_urls).length === 0
+        ) {
+          throw new McpError(ErrorCode.InvalidParams, `'${resolved.template}' requires 'videoUrl'/'videoUrls' or 'audioUrl'/'audioUrls'`)
         }
         if (requirement === 'kongjing_urls' && this.getStringArray(payloadParams.kongjing_urls).length === 0) {
           throw new McpError(ErrorCode.InvalidParams, `'${resolved.template}' requires 'kongjingUrls'`)

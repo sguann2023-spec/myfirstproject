@@ -527,6 +527,46 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const audioExtractDecision = router.select({
+      prompt: '分离视频里的音频',
+      sessionId: 'session-audio-extract',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const fileAudioExtractDecision = router.select({
+      prompt: '提取直播回放-07月21日.mp4的音频',
+      sessionId: 'session-file-audio-extract',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const frameCaptureDecision = router.select({
+      prompt: '截取 12.5 秒的帧图片',
+      sessionId: 'session-frame-capture',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const mediaDurationDecision = router.select({
+      prompt: '获取这个视频的时长',
+      sessionId: 'session-media-duration',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const mediaTrimDecision = router.select({
+      prompt: '截取 10 秒到 25 秒的视频片段',
+      sessionId: 'session-media-trim',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const keyframeAddDecision = router.select({
       prompt: '给这个草稿添加关键帧',
       sessionId: 'session-keyframe-add',
@@ -588,6 +628,36 @@ describe('CapabilityRouter', () => {
     expect(audioEffectTypeDecision.primaryDomain).toBe('cut')
     expect(audioEffectTypeDecision.subdomains).toEqual(['audio_effect_type_list'])
     expect(audioEffectTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_audio_effect_types')
+    expect(audioExtractDecision.primaryDomain).toBe('cut')
+    expect(audioExtractDecision.subdomains).toEqual(['audio_extract'])
+    expect(audioExtractDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__extract_audio_from_video')
+    expect(fileAudioExtractDecision.primaryDomain).toBe('cut')
+    expect(fileAudioExtractDecision.subdomains).toEqual(['audio_extract'])
+    expect(fileAudioExtractDecision.companionDomains).toContain('workspace')
+    expect(fileAudioExtractDecision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'cut',
+          role: 'primary',
+          subdomains: ['audio_extract']
+        }),
+        expect.objectContaining({
+          domain: 'workspace',
+          role: 'support',
+          subdomains: expect.arrayContaining(['read'])
+        })
+      ])
+    )
+    expect(fileAudioExtractDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__extract_audio_from_video')
+    expect(frameCaptureDecision.primaryDomain).toBe('cut')
+    expect(frameCaptureDecision.subdomains).toEqual(['frame_capture'])
+    expect(frameCaptureDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__capture_frame_at_timestamp')
+    expect(mediaDurationDecision.primaryDomain).toBe('cut')
+    expect(mediaDurationDecision.subdomains).toEqual(['media_duration'])
+    expect(mediaDurationDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__get_media_duration')
+    expect(mediaTrimDecision.primaryDomain).toBe('cut')
+    expect(mediaTrimDecision.subdomains).toEqual(['media_trim'])
+    expect(mediaTrimDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__trim_media_segment')
     expect(keyframeAddDecision.primaryDomain).toBe('cut')
     expect(keyframeAddDecision.subdomains).toEqual(['keyframe_add'])
     expect(keyframeAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_video_keyframe')

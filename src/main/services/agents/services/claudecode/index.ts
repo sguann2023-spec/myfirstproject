@@ -29,6 +29,7 @@ import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
+import FfmpegMediaServer from '@main/mcpServers/ffmpeg-media'
 import FileUploadServer from '@main/mcpServers/file-upload'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
@@ -1703,6 +1704,35 @@ class ClaudeCodeService implements AgentServiceInterface {
       allowMcpPattern('mcp__seed-audio__*')
     } else {
       markSkipped('seed-audio')
+    }
+
+    if (
+      shouldMountCapability('audioExtract') ||
+      shouldMountCapability('frameCapture') ||
+      shouldMountCapability('mediaDuration') ||
+      shouldMountCapability('mediaTrim')
+    ) {
+      const ffmpegMediaServer = new FfmpegMediaServer()
+      mountMcpServer('ffmpeg-media', {
+        type: 'sdk',
+        name: 'ffmpeg-media',
+        instance: ffmpegMediaServer.mcpServer
+      })
+      if (shouldMountCapability('audioExtract')) {
+        autoAllowTools.add('mcp__ffmpeg-media__extract_audio_from_video')
+      }
+      if (shouldMountCapability('frameCapture')) {
+        autoAllowTools.add('mcp__ffmpeg-media__capture_frame_at_timestamp')
+      }
+      if (shouldMountCapability('mediaDuration')) {
+        autoAllowTools.add('mcp__ffmpeg-media__get_media_duration')
+      }
+      if (shouldMountCapability('mediaTrim')) {
+        autoAllowTools.add('mcp__ffmpeg-media__trim_media_segment')
+      }
+      allowMcpPattern('mcp__ffmpeg-media__*')
+    } else {
+      markSkipped('ffmpeg-media')
     }
 
     if (

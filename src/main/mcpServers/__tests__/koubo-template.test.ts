@@ -176,6 +176,38 @@ describe('KouboTemplateServer', () => {
     })
   })
 
+  it('should accept audioUrls as source media', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'task-audio'
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, 'submit_koubo_template_task', {
+      agentId: 'koubo_custom_agent',
+      audioUrls: ['https://example.com/source.mp3'],
+      params: {
+        custom_flag: true
+      }
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      agent_id: 'koubo_custom_agent',
+      params: {
+        custom_flag: true,
+        audio_urls: ['https://example.com/source.mp3']
+      }
+    })
+  })
+
   it('should require kongjingUrls for classic_detail_yellow', async () => {
     const server = createServer()
     const result = await callTool(server, 'submit_koubo_template_task', {
@@ -185,6 +217,16 @@ describe('KouboTemplateServer', () => {
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain("'classic_detail_yellow' requires 'kongjingUrls'")
+  })
+
+  it('should reject submit when neither video nor audio sources are provided', async () => {
+    const server = createServer()
+    const result = await callTool(server, 'submit_koubo_template_task', {
+      agentId: 'koubo_custom_agent'
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain("'videoUrl', 'videoUrls', 'audioUrl', or 'audioUrls' is required")
   })
 
   it('should query koubo template task status', async () => {

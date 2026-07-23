@@ -9,7 +9,6 @@ import { net } from 'electron'
 const logger = loggerService.withContext('OssUploadService')
 
 const STS_BASE_URL = 'https://open.vectcut.com'
-const PUBLIC_ENDPOINT = 'https://player.install-ai-guider.top'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
@@ -17,6 +16,7 @@ const DEFAULT_BUCKET = 'jianying-upload-tmp'
 const DEFAULT_REGION = 'oss-cn-hangzhou'
 const MAX_FILE_SIZE = 500 * 1024 * 1024
 const SIGN_EXPIRES_SECONDS = 24 * 60 * 60
+const DEFAULT_OBJECT_KEY_PREFIX = 'vectcut_koubo_tmp_file_'
 
 type CredentialsResponse = {
   bucket_name?: string
@@ -36,6 +36,7 @@ type UploadedImage = {
 
 type UploadedFile = {
   objectKey: string
+  folder: string
   publicUrl: string
   signedPublicUrl: string
   bucket: string
@@ -49,6 +50,9 @@ type UploadLocalFileOptions = {
   region?: string
   folder?: string
   contentType?: string
+  objectKeyPrefix?: string
+  publicEndpoint?: string
+  signExpiresSeconds?: number
 }
 
 type PendingToken = {
@@ -116,7 +120,7 @@ class OssUploadService {
       throw new Error(`UPLOAD_FAILED:${response.status}:${body}`)
     }
 
-    const publicUrl = this.buildPublicUrl(bucket, uploadHost, objectKey)
+    const publicUrl = this.buildPublicUrl(bucket, undefined, uploadHost, objectKey)
 
     logger.info('Uploaded multimodal image to OSS', {
       objectKey,
@@ -144,7 +148,7 @@ class OssUploadService {
     }
 
     const requestedBucket = String(options.bucket || DEFAULT_BUCKET).trim() || DEFAULT_BUCKET
-    const requestedFolder = String(options.folder || 'agent_tmp').trim() || 'agent_tmp'
+    const requestedFolder = this.resolveUploadFolder(options.folder)
     const credentials = await this.getCredentials({
       bucket_name: requestedBucket,
       folder: requestedFolder
@@ -166,7 +170,8 @@ class OssUploadService {
     const contentType = this.resolveContentType(normalizedPath, options.contentType)
     const ext = path.extname(normalizedPath).trim() || this.detectExtension(contentType) || '.bin'
     const keyPrefix = this.buildKeyPrefix(credentials.key_prefix || requestedFolder)
-    const objectKey = `${keyPrefix}vectcut_koubo_tmp_file_${hash}${ext}`
+    const objectKeyPrefix = String(options.objectKeyPrefix || DEFAULT_OBJECT_KEY_PREFIX).trim() || DEFAULT_OBJECT_KEY_PREFIX
+    const objectKey = `${keyPrefix}${objectKeyPrefix}${hash}${ext}`
     const policy = this.makePolicyBase64(keyPrefix, securityToken)
     const signature = this.hmacSha1Base64(policy, accessKeySecret)
     const form = new FormData()
@@ -201,14 +206,16 @@ class OssUploadService {
       throw new Error(`UPLOAD_FAILED:${response.status}:${body}`)
     }
 
-    const publicUrl = this.buildPublicUrl(bucket, uploadHost, objectKey)
+    const publicUrl = this.buildPublicUrl(bucket, options.publicEndpoint, uploadHost, objectKey)
     const signedPublicUrl = this.buildSignedPublicUrl(
       bucket,
       objectKey,
       accessKeyId,
       accessKeySecret,
       securityToken,
-      uploadHost
+      uploadHost,
+      options.publicEndpoint,
+      options.signExpiresSeconds
     )
 
     logger.info('Uploaded local file to OSS', {
@@ -219,6 +226,7 @@ class OssUploadService {
 
     return {
       objectKey,
+      folder: requestedFolder,
       publicUrl,
       signedPublicUrl,
       bucket,
@@ -422,12 +430,24 @@ class OssUploadService {
     }
   }
 
-  private buildPublicUrl(bucket: string, uploadHost: string, objectKey: string): string {
-    const endpoint = PUBLIC_ENDPOINT.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+  private resolveUploadFolder(rawFolder?: string): string {
+    const requestedFolder = String(rawFolder || 'agent_tmp').trim() || 'agent_tmp'
+    if (!requestedFolder.includes('{uid}')) {
+      return requestedFolder
+    }
+
+    const storedUserId = String(this.store.get('settings.userId') || '').trim()
+    const resolvedUserId = storedUserId || 'anonymous'
+    return requestedFolder.replaceAll('{uid}', resolvedUserId)
+  }
+
+  private buildPublicUrl(bucket: string, publicEndpoint: string | undefined, uploadHost: string, objectKey: string): string {
+    const endpoint = String(publicEndpoint || '')
+      .replace(/^https?:\/\//, '')
+      .replace(/\/+$/, '')
     if (!endpoint) {
       return `${uploadHost}/${objectKey}`
     }
-
     const isCname = !endpoint.includes('aliyuncs.com') && !endpoint.includes('oss-')
     return isCname ? `https://${endpoint}/${objectKey}` : `https://${bucket}.${endpoint}/${objectKey}`
   }
@@ -438,11 +458,15 @@ class OssUploadService {
     accessKeyId: string,
     accessKeySecret: string,
     securityToken: string,
-    uploadHost: string
+    uploadHost: string,
+    publicEndpoint?: string,
+    signExpiresSeconds?: number
   ): string {
-    const endpoint = PUBLIC_ENDPOINT.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+    const endpoint = String(publicEndpoint || '')
+      .replace(/^https?:\/\//, '')
+      .replace(/\/+$/, '')
     const isOfficial = endpoint.includes('aliyuncs.com') || endpoint.includes('oss-')
-    const expires = Math.floor(Date.now() / 1000) + SIGN_EXPIRES_SECONDS
+    const expires = Math.floor(Date.now() / 1000) + (signExpiresSeconds ?? SIGN_EXPIRES_SECONDS)
     const canonicalResource = `/${bucket}/${objectKey}${securityToken ? `?security-token=${securityToken}` : ''}`
     const stringToSign = `GET\n\n\n${expires}\n${canonicalResource}`
     const signature = createHmac('sha1', accessKeySecret).update(stringToSign).digest('base64')

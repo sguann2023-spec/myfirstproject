@@ -82,8 +82,62 @@ const TOOLS: Tool[] = [
       end: { type: 'number', description: 'Required end time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Optional draft ID.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      font: { type: 'string', description: 'Optional font name.' },
+      font_color: { type: 'string', description: 'Optional font color.' },
+      font_size: { type: 'number', description: 'Optional font size.' },
       trackName: { type: 'string', description: 'Optional track name alias of track_name.' },
-      track_name: { type: 'string', description: 'Optional track name.' }
+      track_name: { type: 'string', description: 'Optional track name.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      font_alpha: { type: 'number', description: 'Optional font alpha.' },
+      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
+      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      border_alpha: { type: 'number', description: 'Optional border alpha.' },
+      border_color: { type: 'string', description: 'Optional border color.' },
+      border_width: { type: 'number', description: 'Optional border width.' },
+      background_color: { type: 'string', description: 'Optional background color.' },
+      background_style: { type: 'string', description: 'Optional background style.' },
+      background_alpha: { type: 'number', description: 'Optional background alpha.' },
+      background_round_radius: { type: 'number', description: 'Optional background round radius.' },
+      background_height: { type: 'number', description: 'Optional background height.' },
+      background_width: { type: 'number', description: 'Optional background width.' },
+      background_horizontal_offset: { type: 'number', description: 'Optional background horizontal offset.' },
+      background_vertical_offset: { type: 'number', description: 'Optional background vertical offset.' },
+      shadow_enabled: { type: 'boolean', description: 'Optional shadow enabled flag.' },
+      shadow_alpha: { type: 'number', description: 'Optional shadow alpha.' },
+      shadow_angle: { type: 'number', description: 'Optional shadow angle.' },
+      shadow_color: { type: 'string', description: 'Optional shadow color.' },
+      shadow_distance: { type: 'number', description: 'Optional shadow distance.' },
+      shadow_smoothing: { type: 'number', description: 'Optional shadow smoothing.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' },
+      text_styles: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Optional multi-style text configuration list.'
+      },
+      bubble_effect_id: { type: 'string', description: 'Optional bubble effect ID.' },
+      bubble_resource_id: { type: 'string', description: 'Optional bubble resource ID.' },
+      effect_effect_id: { type: 'string', description: 'Optional artist/effect ID.' },
+      letter_spacing: { type: 'number', description: 'Optional letter spacing.' },
+      line_spacing: { type: 'number', description: 'Optional line spacing.' },
+      loop_animation: { type: 'string', description: 'Optional loop animation name.' },
+      loop_duration: { type: 'number', description: 'Optional loop animation duration.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      align: { type: 'string', description: 'Optional text alignment.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      bold: { type: 'boolean', description: 'Optional bold flag.' },
+      italic: { type: 'boolean', description: 'Optional italic flag.' },
+      underline: { type: 'boolean', description: 'Optional underline flag.' }
     },
     ['text', 'start', 'end']
   ),
@@ -93,9 +147,65 @@ const TOOLS: Tool[] = [
     {
       texts: { type: 'array', items: { type: 'string' }, description: 'Required text contents.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Required start times in seconds.' },
+      end: { type: 'array', items: { type: 'number' }, description: 'Official doc variant of batch end times.' },
       ends: { type: 'array', items: { type: 'number' }, description: 'Required end times in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      font: { type: 'string', description: 'Optional font name.' },
+      align: { type: 'integer', description: 'Optional text alignment enum.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      font_color: { type: 'string', description: 'Optional font color.' },
+      font_size: { type: 'integer', description: 'Optional font size.' },
+      bold: { type: 'boolean', description: 'Optional bold flag.' },
+      italic: { type: 'boolean', description: 'Optional italic flag.' },
+      underline: { type: 'boolean', description: 'Optional underline flag.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'integer', description: 'Optional relative track index.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      font_alpha: { type: 'number', description: 'Optional font alpha.' },
+      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
+      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      border_alpha: { type: 'number', description: 'Optional border alpha.' },
+      border_color: { type: 'string', description: 'Optional border color.' },
+      border_width: { type: 'integer', description: 'Optional border width.' },
+      background_color: { type: 'string', description: 'Optional background color.' },
+      background_style: { type: 'integer', description: 'Optional background style.' },
+      background_alpha: { type: 'number', description: 'Optional background alpha.' },
+      background_round_radius: { type: 'number', description: 'Optional background round radius.' },
+      background_height: { type: 'number', description: 'Optional background height.' },
+      background_width: { type: 'number', description: 'Optional background width.' },
+      background_horizontal_offset: { type: 'number', description: 'Optional background horizontal offset.' },
+      background_vertical_offset: { type: 'number', description: 'Optional background vertical offset.' },
+      shadow_enabled: { type: 'boolean', description: 'Optional shadow enabled flag.' },
+      shadow_alpha: { type: 'number', description: 'Optional shadow alpha.' },
+      shadow_angle: { type: 'number', description: 'Optional shadow angle.' },
+      shadow_color: { type: 'string', description: 'Optional shadow color.' },
+      shadow_distance: { type: 'integer', description: 'Optional shadow distance.' },
+      shadow_smoothing: { type: 'number', description: 'Optional shadow smoothing.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      loop_animation: { type: 'string', description: 'Optional loop animation name.' },
+      loop_duration: { type: 'number', description: 'Optional loop animation duration.' },
+      width: { type: 'integer', description: 'Optional canvas width.' },
+      height: { type: 'integer', description: 'Optional canvas height.' },
+      text_styles: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Optional multi-style text configuration list.'
+      },
+      bubble_effect_id: { type: 'string', description: 'Optional bubble effect ID.' },
+      bubble_resource_id: { type: 'string', description: 'Optional bubble resource ID.' },
+      effect_effect_id: { type: 'string', description: 'Optional artist/effect ID.' },
+      letter_spacing: { type: 'integer', description: 'Optional letter spacing.' },
+      line_spacing: { type: 'integer', description: 'Optional line spacing.' }
     },
     ['texts', 'starts', 'ends']
   ),
@@ -107,7 +217,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' }
-    }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'modify_text',
@@ -117,8 +228,64 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
-      text: { type: 'string', description: 'Optional updated text content.' }
-    }
+      text: { type: 'string', description: 'Optional updated text content.' },
+      start: { type: 'number', description: 'Optional start time in seconds.' },
+      end: { type: 'number', description: 'Optional end time in seconds.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      font: { type: 'string', description: 'Optional font name.' },
+      font_color: { type: 'string', description: 'Optional font color.' },
+      font_size: { type: 'number', description: 'Optional font size.' },
+      bold: { type: 'boolean', description: 'Optional bold flag.' },
+      italic: { type: 'boolean', description: 'Optional italic flag.' },
+      underline: { type: 'boolean', description: 'Optional underline flag.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      font_alpha: { type: 'number', description: 'Optional font alpha.' },
+      letter_spacing: { type: 'number', description: 'Optional letter spacing.' },
+      line_spacing: { type: 'number', description: 'Optional line spacing.' },
+      align: { type: 'string', description: 'Optional text alignment.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      border_alpha: { type: 'number', description: 'Optional border alpha.' },
+      border_color: { type: 'string', description: 'Optional border color.' },
+      border_width: { type: 'number', description: 'Optional border width.' },
+      background_color: { type: 'string', description: 'Optional background color.' },
+      background_style: { type: 'string', description: 'Optional background style.' },
+      background_alpha: { type: 'number', description: 'Optional background alpha.' },
+      background_round_radius: { type: 'number', description: 'Optional background round radius.' },
+      background_height: { type: 'number', description: 'Optional background height.' },
+      background_width: { type: 'number', description: 'Optional background width.' },
+      background_horizontal_offset: { type: 'number', description: 'Optional background horizontal offset.' },
+      background_vertical_offset: { type: 'number', description: 'Optional background vertical offset.' },
+      shadow_enabled: { type: 'boolean', description: 'Optional shadow enabled flag.' },
+      shadow_alpha: { type: 'number', description: 'Optional shadow alpha.' },
+      shadow_angle: { type: 'number', description: 'Optional shadow angle.' },
+      shadow_color: { type: 'string', description: 'Optional shadow color.' },
+      shadow_distance: { type: 'number', description: 'Optional shadow distance.' },
+      shadow_smoothing: { type: 'number', description: 'Optional shadow smoothing.' },
+      bubble_effect_id: { type: 'string', description: 'Optional bubble effect ID.' },
+      bubble_resource_id: { type: 'string', description: 'Optional bubble resource ID.' },
+      effect_effect_id: { type: 'string', description: 'Optional artist/effect ID.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      loop_animation: { type: 'string', description: 'Optional loop animation name.' },
+      loop_duration: { type: 'number', description: 'Optional loop animation duration.' },
+      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
+      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      text_styles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional multi-style text configuration list.'
+      }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'add_subtitle',
@@ -128,7 +295,31 @@ const TOOLS: Tool[] = [
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Optional draft ID.' },
       timeOffset: { type: 'number', description: 'Optional subtitle time offset alias of time_offset.' },
-      time_offset: { type: 'number', description: 'Optional subtitle time offset in seconds.' }
+      time_offset: { type: 'number', description: 'Optional subtitle time offset in seconds.' },
+      font_size: { type: 'number', description: 'Optional font size.' },
+      font: { type: 'string', description: 'Optional font name.' },
+      bold: { type: 'boolean', description: 'Optional bold flag.' },
+      italic: { type: 'boolean', description: 'Optional italic flag.' },
+      underline: { type: 'boolean', description: 'Optional underline flag.' },
+      font_color: { type: 'string', description: 'Optional font color.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      alpha: { type: 'number', description: 'Optional subtitle alpha.' },
+      border_alpha: { type: 'number', description: 'Optional border alpha.' },
+      border_color: { type: 'string', description: 'Optional border color.' },
+      border_width: { type: 'number', description: 'Optional border width.' },
+      background_color: { type: 'string', description: 'Optional background color.' },
+      background_style: { type: 'string', description: 'Optional background style.' },
+      background_alpha: { type: 'number', description: 'Optional background alpha.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' }
     },
     ['srt']
   ),
@@ -151,11 +342,46 @@ const TOOLS: Tool[] = [
     {
       imageUrl: { type: 'string', description: 'Required image URL alias of image_url.' },
       image_url: { type: 'string', description: 'Required image URL.' },
+      imagePath: { type: 'string', description: 'Optional local image path alias of image_path.' },
+      image_path: { type: 'string', description: 'Optional local image path.' },
       start: { type: 'number', description: 'Optional start time in seconds.' },
       end: { type: 'number', description: 'Required end time in seconds.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_animation_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_animation_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      combo_animation: { type: 'string', description: 'Optional combo animation name.' },
+      combo_animation_duration: { type: 'number', description: 'Optional combo animation duration.' },
+      transition: { type: 'string', description: 'Optional transition name.' },
+      transition_duration: { type: 'number', description: 'Optional transition duration.' },
+      mask_type: { type: 'string', description: 'Optional mask type.' },
+      mask_center_x: { type: 'number', description: 'Optional mask center X.' },
+      mask_center_y: { type: 'number', description: 'Optional mask center Y.' },
+      mask_size: { type: 'number', description: 'Optional mask size.' },
+      mask_rotation: { type: 'number', description: 'Optional mask rotation.' },
+      mask_feather: { type: 'number', description: 'Optional mask feather.' },
+      mask_invert: { type: 'boolean', description: 'Optional mask invert flag.' },
+      mask_rect_width: { type: 'number', description: 'Optional mask rect width.' },
+      mask_round_corner: { type: 'number', description: 'Optional mask round corner.' },
+      background_blur: { type: 'number', description: 'Optional background blur amount.' },
+      alpha: { type: 'number', description: 'Optional layer alpha.' },
+      flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      transform_y_px: { type: 'string', description: 'Optional Y transform in pixels.' },
+      mix_type: { type: 'string', description: 'Optional blend mode.' }
+    },
+    ['image_url', 'end']
   ),
   toolWithArgs(
     'add_batch_image',
@@ -165,9 +391,42 @@ const TOOLS: Tool[] = [
       image_urls: { type: 'array', items: { type: 'string' }, description: 'Required image URLs.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Optional start times in seconds.' },
       ends: { type: 'array', items: { type: 'number' }, description: 'Required end times in seconds.' },
+      width: { type: 'integer', description: 'Optional canvas width.' },
+      height: { type: 'integer', description: 'Optional canvas height.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_x_px: { type: 'integer', description: 'Optional X transform in pixels.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_y_px: { type: 'string', description: 'Optional Y transform in pixels.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'integer', description: 'Optional relative track index.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_animation_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_animation_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      combo_animation: { type: 'string', description: 'Optional combo animation name.' },
+      combo_animation_duration: { type: 'number', description: 'Optional combo animation duration.' },
+      transition: { type: 'string', description: 'Optional transition name.' },
+      transition_duration: { type: 'number', description: 'Optional transition duration.' },
+      mask_type: { type: 'string', description: 'Optional mask type.' },
+      mask_center_x: { type: 'number', description: 'Optional mask center X.' },
+      mask_center_y: { type: 'number', description: 'Optional mask center Y.' },
+      mask_size: { type: 'number', description: 'Optional mask size.' },
+      mask_rotation: { type: 'number', description: 'Optional mask rotation.' },
+      mask_feather: { type: 'number', description: 'Optional mask feather.' },
+      mask_invert: { type: 'boolean', description: 'Optional mask invert flag.' },
+      mask_rect_width: { type: 'number', description: 'Optional mask rect width.' },
+      mask_round_corner: { type: 'number', description: 'Optional mask round corner.' },
+      background_blur: { type: 'integer', description: 'Optional background blur amount.' },
+      alpha: { type: 'number', description: 'Optional layer alpha.' },
+      flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      mix_type: { type: 'string', description: 'Optional blend mode.' }
+    },
+    ['image_urls', 'ends']
   ),
   toolWithArgs(
     'modify_image',
@@ -178,8 +437,41 @@ const TOOLS: Tool[] = [
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
       imageUrl: { type: 'string', description: 'Optional image URL alias of image_url.' },
-      image_url: { type: 'string', description: 'Optional image URL.' }
-    }
+      image_url: { type: 'string', description: 'Optional image URL.' },
+      start: { type: 'number', description: 'Optional start time in seconds.' },
+      end: { type: 'number', description: 'Optional end time in seconds.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_animation_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_animation_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      combo_animation: { type: 'string', description: 'Optional combo animation name.' },
+      combo_animation_duration: { type: 'number', description: 'Optional combo animation duration.' },
+      transition: { type: 'string', description: 'Optional transition name.' },
+      transition_duration: { type: 'number', description: 'Optional transition duration.' },
+      mask_type: { type: 'string', description: 'Optional mask type.' },
+      mask_center_x: { type: 'number', description: 'Optional mask center X.' },
+      mask_center_y: { type: 'number', description: 'Optional mask center Y.' },
+      mask_size: { type: 'number', description: 'Optional mask size.' },
+      mask_rotation: { type: 'number', description: 'Optional mask rotation.' },
+      mask_feather: { type: 'number', description: 'Optional mask feather.' },
+      mask_invert: { type: 'boolean', description: 'Optional mask invert flag.' },
+      mask_rect_width: { type: 'number', description: 'Optional mask rect width.' },
+      mask_round_corner: { type: 'number', description: 'Optional mask round corner.' },
+      background_blur: { type: 'number', description: 'Optional background blur amount.' },
+      alpha: { type: 'number', description: 'Optional layer alpha.' },
+      flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      mix_type: { type: 'string', description: 'Optional blend mode.' }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'remove_image',
@@ -189,7 +481,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' }
-    }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'add_video',
@@ -197,13 +490,48 @@ const TOOLS: Tool[] = [
     {
       videoUrl: { type: 'string', description: 'Required video URL alias of video_url.' },
       video_url: { type: 'string', description: 'Required video URL.' },
+      videoPath: { type: 'string', description: 'Optional local video path alias of video_path.' },
+      video_path: { type: 'string', description: 'Optional local video path.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      speed: { type: 'number', description: 'Optional playback speed.' },
       targetStart: { type: 'number', description: 'Optional timeline start alias of target_start.' },
       target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_animation_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_animation_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      duration: { type: 'number', description: 'Optional target duration in seconds.' },
+      transition: { type: 'string', description: 'Optional transition name.' },
+      transition_duration: { type: 'number', description: 'Optional transition duration.' },
+      volume: { type: 'number', description: 'Optional volume.' },
+      mask_type: { type: 'string', description: 'Optional mask type.' },
+      mask_center_x: { type: 'number', description: 'Optional mask center X.' },
+      mask_center_y: { type: 'number', description: 'Optional mask center Y.' },
+      mask_size: { type: 'number', description: 'Optional mask size.' },
+      mask_rotation: { type: 'number', description: 'Optional mask rotation.' },
+      mask_feather: { type: 'number', description: 'Optional mask feather.' },
+      mask_invert: { type: 'boolean', description: 'Optional mask invert flag.' },
+      mask_rect_width: { type: 'number', description: 'Optional mask rect width.' },
+      mask_round_corner: { type: 'number', description: 'Optional mask round corner.' },
+      background_blur: { type: 'number', description: 'Optional background blur amount.' },
+      alpha: { type: 'number', description: 'Optional layer alpha.' },
+      flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
+      mix_type: { type: 'string', description: 'Optional blend mode.' }
+    },
+    ['video_url']
   ),
   toolWithArgs(
     'add_batch_video',
@@ -213,13 +541,46 @@ const TOOLS: Tool[] = [
       video_urls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Optional source start times in seconds.' },
       ends: { type: 'array', items: { type: 'number' }, description: 'Optional source end times in seconds.' },
+      durations: { type: 'array', items: { type: 'number' }, description: 'Optional source durations.' },
       targetStarts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times alias of target_starts.' },
       target_starts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times in seconds.' },
       targetEnds: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times alias of target_ends.' },
       target_ends: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times in seconds.' },
+      width: { type: 'integer', description: 'Optional canvas width.' },
+      height: { type: 'integer', description: 'Optional canvas height.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_y_px: { type: 'integer', description: 'Optional Y transform in pixels.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_x_px: { type: 'integer', description: 'Optional X transform in pixels.' },
+      speed: { type: 'number', description: 'Optional playback speed.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'integer', description: 'Optional relative track index.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_animation_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_animation_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      transition: { type: 'string', description: 'Optional transition name.' },
+      transition_duration: { type: 'number', description: 'Optional transition duration.' },
+      volume: { type: 'number', description: 'Optional volume.' },
+      mask_type: { type: 'string', description: 'Optional mask type.' },
+      mask_center_x: { type: 'number', description: 'Optional mask center X.' },
+      mask_center_y: { type: 'number', description: 'Optional mask center Y.' },
+      mask_size: { type: 'number', description: 'Optional mask size.' },
+      mask_rotation: { type: 'number', description: 'Optional mask rotation.' },
+      mask_feather: { type: 'number', description: 'Optional mask feather.' },
+      mask_invert: { type: 'boolean', description: 'Optional mask invert flag.' },
+      mask_rect_width: { type: 'number', description: 'Optional mask rect width.' },
+      mask_round_corner: { type: 'number', description: 'Optional mask round corner.' },
+      background_blur: { type: 'number', description: 'Optional background blur amount.' },
+      alpha: { type: 'number', description: 'Optional layer alpha.' },
+      flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
+      mix_type: { type: 'string', description: 'Optional blend mode.' }
+    },
+    ['video_urls']
   ),
   toolWithArgs(
     'modify_video',
@@ -230,8 +591,43 @@ const TOOLS: Tool[] = [
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
       videoUrl: { type: 'string', description: 'Optional video URL alias of video_url.' },
-      video_url: { type: 'string', description: 'Optional video URL.' }
-    }
+      video_url: { type: 'string', description: 'Optional video URL.' },
+      start: { type: 'number', description: 'Optional source start time in seconds.' },
+      end: { type: 'number', description: 'Optional source end time in seconds.' },
+      target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
+      speed: { type: 'number', description: 'Optional playback speed.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      intro_animation: { type: 'string', description: 'Optional intro animation name.' },
+      intro_animation_duration: { type: 'number', description: 'Optional intro animation duration.' },
+      outro_animation: { type: 'string', description: 'Optional outro animation name.' },
+      outro_animation_duration: { type: 'number', description: 'Optional outro animation duration.' },
+      duration: { type: 'number', description: 'Optional target duration in seconds.' },
+      transition: { type: 'string', description: 'Optional transition name.' },
+      transition_duration: { type: 'number', description: 'Optional transition duration.' },
+      mask_type: { type: 'string', description: 'Optional mask type.' },
+      mask_center_x: { type: 'number', description: 'Optional mask center X.' },
+      mask_center_y: { type: 'number', description: 'Optional mask center Y.' },
+      mask_size: { type: 'number', description: 'Optional mask size.' },
+      mask_rotation: { type: 'number', description: 'Optional mask rotation.' },
+      mask_feather: { type: 'number', description: 'Optional mask feather.' },
+      mask_invert: { type: 'boolean', description: 'Optional mask invert flag.' },
+      mask_rect_width: { type: 'number', description: 'Optional mask rect width.' },
+      mask_round_corner: { type: 'number', description: 'Optional mask round corner.' },
+      volume: { type: 'number', description: 'Optional volume.' },
+      background_blur: { type: 'number', description: 'Optional background blur amount.' },
+      alpha: { type: 'number', description: 'Optional layer alpha.' },
+      flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      mix_type: { type: 'string', description: 'Optional blend mode.' }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'remove_video',
@@ -241,7 +637,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' }
-    }
+    },
+    ['draft_id', 'material_id']
   ),
   readonlyTool('get_transition_types', 'List supported transition types for visual tracks such as image and video.'),
   toolWithArgs(
@@ -250,13 +647,26 @@ const TOOLS: Tool[] = [
     {
       audioUrl: { type: 'string', description: 'Required audio URL alias of audio_url.' },
       audio_url: { type: 'string', description: 'Required audio URL.' },
+      audioPath: { type: 'string', description: 'Optional local audio path alias of audio_path.' },
+      audio_path: { type: 'string', description: 'Optional local audio path.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
       targetStart: { type: 'number', description: 'Optional timeline start alias of target_start.' },
       target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      volume: { type: 'number', description: 'Optional volume.' },
+      speed: { type: 'number', description: 'Optional playback speed.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      duration: { type: 'number', description: 'Optional target duration in seconds.' },
+      effect_type: { type: 'string', description: 'Optional audio effect type.' },
+      effect_params: { type: 'object', description: 'Optional audio effect params.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' },
+      fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
+      fade_out_duratioin: { type: 'number', description: 'Optional fade-out duration.' }
+    },
+    ['audio_url']
   ),
   toolWithArgs(
     'add_batch_audio',
@@ -270,9 +680,24 @@ const TOOLS: Tool[] = [
       target_starts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times in seconds.' },
       targetEnds: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times alias of target_ends.' },
       target_ends: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times in seconds.' },
+      durations: { type: 'array', items: { type: 'number' }, description: 'Optional source durations.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      volume: { type: 'number', description: 'Optional volume.' },
+      speed: { type: 'number', description: 'Optional playback speed.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      effect_type: { type: 'string', description: 'Optional audio effect type.' },
+      effect_params: {
+        type: 'array',
+        items: { type: 'integer' },
+        description: 'Optional audio effect params.'
+      },
+      width: { type: 'integer', description: 'Optional canvas width.' },
+      height: { type: 'integer', description: 'Optional canvas height.' },
+      fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
+      fade_out_duratioin: { type: 'number', description: 'Optional fade-out duration.' }
+    },
+    ['audio_urls']
   ),
   toolWithArgs(
     'modify_audio',
@@ -283,8 +708,20 @@ const TOOLS: Tool[] = [
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
       audioUrl: { type: 'string', description: 'Optional audio URL alias of audio_url.' },
-      audio_url: { type: 'string', description: 'Optional audio URL.' }
-    }
+      audio_url: { type: 'string', description: 'Optional audio URL.' },
+      start: { type: 'number', description: 'Optional source start time in seconds.' },
+      end: { type: 'number', description: 'Optional source end time in seconds.' },
+      volume: { type: 'number', description: 'Optional volume.' },
+      target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
+      speed: { type: 'number', description: 'Optional playback speed.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      duration: { type: 'number', description: 'Optional target duration in seconds.' },
+      effect_type: { type: 'string', description: 'Optional audio effect type.' },
+      effect_params: { type: 'object', description: 'Optional audio effect params.' },
+      fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
+      fade_out_duratioin: { type: 'number', description: 'Optional fade-out duration.' }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'remove_audio',
@@ -294,7 +731,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' }
-    }
+    },
+    ['draft_id', 'material_id']
   ),
   readonlyTool('get_audio_effect_types', 'List supported audio effect types and configurable params for audio tools.'),
   toolWithArgs(
@@ -305,15 +743,68 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       trackName: { type: 'string', description: 'Optional track name alias of track_name.' },
       track_name: { type: 'string', description: 'Optional track name.' },
-      propertyType: { type: 'string', description: 'Optional single keyframe property type alias of property_type.' },
-      property_type: { type: 'string', description: 'Optional single keyframe property type.' },
-      time: { type: 'number', description: 'Optional single keyframe time in seconds.' },
-      value: { type: 'string', description: 'Optional single keyframe value.' },
-      propertyTypes: { type: 'array', items: { type: 'string' }, description: 'Optional batch property types alias of property_types.' },
-      property_types: { type: 'array', items: { type: 'string' }, description: 'Optional batch property types.' },
+      propertyTypes: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'position_x_px',
+            'position_y_px',
+            'mask_position_x',
+            'mask_position_y',
+            'mask_position_x_px',
+            'mask_position_y_px',
+            'mask_size_x',
+            'mask_size_y',
+            'rotation',
+            'scale_x',
+            'scale_y',
+            'uniform_scale',
+            'alpha',
+            'saturation',
+            'contrast',
+            'brightness',
+            'volume',
+            'mask_rotation',
+            'text_color'
+          ]
+        },
+        description:
+          'Optional keyframe property type list alias of property_types. Enum values: position_x_px, position_y_px, mask_position_x, mask_position_y, mask_position_x_px, mask_position_y_px, mask_size_x, mask_size_y, rotation, scale_x, scale_y, uniform_scale, alpha, saturation, contrast, brightness, volume, mask_rotation, text_color.'
+      },
+      property_types: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'position_x_px',
+            'position_y_px',
+            'mask_position_x',
+            'mask_position_y',
+            'mask_position_x_px',
+            'mask_position_y_px',
+            'mask_size_x',
+            'mask_size_y',
+            'rotation',
+            'scale_x',
+            'scale_y',
+            'uniform_scale',
+            'alpha',
+            'saturation',
+            'contrast',
+            'brightness',
+            'volume',
+            'mask_rotation',
+            'text_color'
+          ]
+        },
+        description:
+          'Optional keyframe property type list. Enum values: position_x_px, position_y_px, mask_position_x, mask_position_y, mask_position_x_px, mask_position_y_px, mask_size_x, mask_size_y, rotation, scale_x, scale_y, uniform_scale, alpha, saturation, contrast, brightness, volume, mask_rotation, text_color.'
+      },
       times: { type: 'array', items: { type: 'number' }, description: 'Optional batch times in seconds.' },
       values: { type: 'array', items: { type: 'string' }, description: 'Optional batch values.' }
-    }
+    },
+    ['draft_id']
   ),
   toolWithArgs(
     'add_effect',
@@ -323,9 +814,21 @@ const TOOLS: Tool[] = [
       effect_type: { type: 'string', description: 'Required effect name.' },
       effectCategory: { type: 'string', description: 'Optional effect category alias of effect_category.' },
       effect_category: { type: 'string', description: 'Optional effect category.' },
+      start: { type: 'number', description: 'Optional start time in seconds.' },
+      end: { type: 'number', description: 'Optional end time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      params: {
+        type: 'array',
+        items: { type: 'number' },
+        description: 'Optional effect params.'
+      },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' }
+    },
+    ['effect_type', 'effect_category']
   ),
   toolWithArgs(
     'modify_effect',
@@ -338,8 +841,18 @@ const TOOLS: Tool[] = [
       effectType: { type: 'string', description: 'Optional effect name alias of effect_type.' },
       effect_type: { type: 'string', description: 'Optional effect name.' },
       effectCategory: { type: 'string', description: 'Optional effect category alias of effect_category.' },
-      effect_category: { type: 'string', description: 'Optional effect category.' }
-    }
+      effect_category: { type: 'string', description: 'Optional effect category.' },
+      start: { type: 'number', description: 'Optional start time in seconds.' },
+      end: { type: 'number', description: 'Optional end time in seconds.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      params: {
+        type: 'array',
+        items: { type: 'number' },
+        description: 'Optional effect params.'
+      }
+    },
+    ['draft_id', 'material_id']
   ),
   toolWithArgs(
     'remove_effect',
@@ -349,7 +862,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' }
-    }
+    },
+    ['draft_id', 'material_id']
   ),
   readonlyTool('get_video_character_effect_types', 'List supported character effect types for visual effect tools.'),
   readonlyTool('get_video_scene_effect_types', 'List supported scene effect types for visual effect tools.'),
@@ -359,9 +873,17 @@ const TOOLS: Tool[] = [
     {
       filterType: { type: 'string', description: 'Required filter name alias of filter_type.' },
       filter_type: { type: 'string', description: 'Required filter name.' },
+      start: { type: 'number', description: 'Required start time in seconds.' },
+      end: { type: 'number', description: 'Required end time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
-      draft_id: { type: 'string', description: 'Optional draft ID.' }
-    }
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      intensity: { type: 'number', description: 'Optional filter intensity.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' }
+    },
+    ['filter_type', 'start', 'end']
   ),
   toolWithArgs(
     'modify_filter',
@@ -372,8 +894,14 @@ const TOOLS: Tool[] = [
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
       filterType: { type: 'string', description: 'Optional filter name alias of filter_type.' },
-      filter_type: { type: 'string', description: 'Optional filter name.' }
-    }
+      filter_type: { type: 'string', description: 'Optional filter name.' },
+      start: { type: 'number', description: 'Optional start time in seconds.' },
+      end: { type: 'number', description: 'Optional end time in seconds.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      relative_index: { type: 'number', description: 'Optional relative track index.' },
+      intensity: { type: 'number', description: 'Optional filter intensity.' }
+    },
+    ['material_id']
   ),
   toolWithArgs(
     'remove_filter',
@@ -383,7 +911,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' }
-    }
+    },
+    ['draft_id', 'material_id']
   ),
   readonlyTool('get_filter_types', 'List supported filter types for filter tools.'),
   readonlyTool(
@@ -473,7 +1002,6 @@ const ARG_ALIASES: Record<string, string> = {
   intensity: 'intensity',
   fadeInDuration: 'fade_in_duration',
   fadeOutDuration: 'fade_out_duratioin',
-  propertyType: 'property_type',
   propertyTypes: 'property_types',
   maskType: 'mask_type',
   maskCenterX: 'mask_center_x',
@@ -508,11 +1036,11 @@ const MUTATION_REQUIRED_FIELDS: Record<string, string[]> = {
   modify_audio: ['draft_id', 'material_id'],
   remove_audio: ['draft_id', 'material_id'],
   add_video_keyframe: ['draft_id'],
-  add_effect: ['effect_type'],
+  add_effect: ['effect_type', 'effect_category'],
   modify_effect: ['draft_id', 'material_id'],
   remove_effect: ['draft_id', 'material_id'],
-  add_filter: ['filter_type'],
-  modify_filter: ['draft_id', 'material_id'],
+  add_filter: ['filter_type', 'start', 'end'],
+  modify_filter: ['material_id'],
   remove_filter: ['draft_id', 'material_id']
 }
 
@@ -542,6 +1070,30 @@ type VectCutResponse = {
   purchase_link?: string
   success?: boolean
   [key: string]: unknown
+}
+
+type LocalMediaSourceConfig = {
+  urlKey: 'image_url' | 'video_url' | 'audio_url'
+  pathKey: 'image_path' | 'video_path' | 'audio_path'
+  explicitPathKeys: string[]
+}
+
+const LOCAL_MEDIA_SOURCE_CONFIG: Partial<Record<string, LocalMediaSourceConfig>> = {
+  add_image: {
+    urlKey: 'image_url',
+    pathKey: 'image_path',
+    explicitPathKeys: ['image_path', 'imagePath']
+  },
+  add_video: {
+    urlKey: 'video_url',
+    pathKey: 'video_path',
+    explicitPathKeys: ['video_path', 'videoPath']
+  },
+  add_audio: {
+    urlKey: 'audio_url',
+    pathKey: 'audio_path',
+    explicitPathKeys: ['audio_path', 'audioPath']
+  }
 }
 
 class DraftElementsServer {
@@ -691,7 +1243,7 @@ class DraftElementsServer {
     return response
   }
 
-  private normalizeArgs(args: Record<string, unknown>): Record<string, unknown> {
+  private normalizeArgs(toolName: string, args: Record<string, unknown>): Record<string, unknown> {
     const body: Record<string, unknown> = {}
 
     for (const [key, value] of Object.entries(args)) {
@@ -714,12 +1266,31 @@ class DraftElementsServer {
       }
     }
 
+    // Official add_batch_text docs use `end`, while the example and runtime use `ends`.
+    if (toolName === 'add_batch_text' && typeof body.ends === 'undefined' && typeof body.end !== 'undefined') {
+      body.ends = body.end
+    }
+
     return body
   }
 
   private ensureRequiredFields(toolName: string, body: Record<string, unknown>) {
     const required = MUTATION_REQUIRED_FIELDS[toolName] ?? []
     for (const key of required) {
+      const mediaConfig = LOCAL_MEDIA_SOURCE_CONFIG[toolName]
+      if (mediaConfig && key === mediaConfig.urlKey) {
+        const urlValue = body[mediaConfig.urlKey]
+        const pathValue = body[mediaConfig.pathKey]
+        const hasUrl = typeof urlValue === 'string' && urlValue.trim()
+        const hasPath = typeof pathValue === 'string' && pathValue.trim()
+        if (!hasUrl && !hasPath) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `'${mediaConfig.urlKey}' or '${mediaConfig.pathKey}' is required for ${toolName}`
+          )
+        }
+        continue
+      }
       const value = body[key]
       const isMissing =
         typeof value === 'undefined' ||
@@ -728,6 +1299,30 @@ class DraftElementsServer {
         (Array.isArray(value) && value.length === 0)
       if (isMissing) {
         throw new McpError(ErrorCode.InvalidParams, `'${key}' is required for ${toolName}`)
+      }
+    }
+  }
+
+  private normalizeLocalMediaSource(toolName: string, body: Record<string, unknown>) {
+    const config = LOCAL_MEDIA_SOURCE_CONFIG[toolName]
+    if (!config) return
+
+    const explicitLocalPath = config.explicitPathKeys
+      .map((key) => (typeof body[key] === 'string' ? body[key].trim() : ''))
+      .find(Boolean)
+    const rawUrlValue = body[config.urlKey]
+    const currentUrlValue = typeof rawUrlValue === 'string' ? rawUrlValue.trim() : ''
+    if (explicitLocalPath) {
+      body[config.pathKey] = explicitLocalPath
+      delete body[config.urlKey]
+    } else if (currentUrlValue.startsWith('/')) {
+      body[config.pathKey] = currentUrlValue
+      delete body[config.urlKey]
+    }
+
+    for (const key of config.explicitPathKeys) {
+      if (key !== config.pathKey) {
+        delete body[key]
       }
     }
   }
@@ -779,7 +1374,8 @@ class DraftElementsServer {
   }
 
   private async callMutationTool(toolName: string, args: Record<string, unknown>) {
-    const body = this.normalizeArgs(args)
+    const body = this.normalizeArgs(toolName, args)
+    this.normalizeLocalMediaSource(toolName, body)
     this.ensureRequiredFields(toolName, body)
 
     const response = await this.requestWithAuth(ENDPOINTS[toolName as keyof typeof ENDPOINTS], {

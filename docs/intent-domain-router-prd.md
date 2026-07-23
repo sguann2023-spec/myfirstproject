@@ -109,7 +109,7 @@ type IntentRoute = {
 
 说明：
 
-- `upload`：当用户需要上传本地文件时使用；逻辑上先获取临时 STS，再上传到 OSS 并返回 `public url`；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错
+- `upload`：当用户需要上传本地文件并拿到可复用 URL 时使用；逻辑上先获取临时 STS，再上传到 OSS 并返回基于 OSS 官方域名的 `public url` / `signed public url`，不走 `player.install-ai-guider.top`；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错
 
 ### 3. `web`
 
@@ -118,7 +118,6 @@ type IntentRoute = {
 建议子能力：
 
 - `search`
-- `fetch`
 - `browser`
 - `execute`
 - `screenshot`
@@ -126,10 +125,11 @@ type IntentRoute = {
 已接入工具：
 
 - `search` -> `WebSearch` / `mcp__search__web_search`
-- `fetch` -> `WebFetch`
 - `browser` -> `mcp__browser__open` / `mcp__browser__click` / `mcp__browser__type` / `mcp__browser__press` / `mcp__browser__scroll` / `mcp__browser__focus` / `mcp__browser__hover` / `mcp__browser__wait_for` / `mcp__browser__inspect` / `mcp__browser__reload` / `mcp__browser__list_tabs` / `mcp__browser__switch_tab` / `mcp__browser__close_tab` / `mcp__browser__reset`
 - `execute` -> `mcp__browser__execute`
 - `screenshot` -> `mcp__browser__screenshot` / `mcp__browser__snapshot`
+
+备注：当前不开放独立的网页抓取工具；已知 URL 优先通过 `browser` / `execute` 能力处理。
 
 
 ### 4. `ai_media`
@@ -253,6 +253,10 @@ type IntentRoute = {
 
 建议子能力：
 
+- `audio_extract`
+- `frame_capture`
+- `media_duration`
+- `media_trim`
 - `draft_create`
 - `draft_update_meta`
 - `draft_inspect`
@@ -298,6 +302,10 @@ type IntentRoute = {
 
 已接入工具：
 
+- `audio_extract` -> `mcp__ffmpeg-media__extract_audio_from_video`
+- `frame_capture` -> `mcp__ffmpeg-media__capture_frame_at_timestamp`
+- `media_duration` -> `mcp__ffmpeg-media__get_media_duration`
+- `media_trim` -> `mcp__ffmpeg-media__trim_media_segment`
 - `draft_create` -> `mcp__draft-management__create_draft`
 - `draft_update_meta` -> `mcp__draft-management__modify_draft`
 - `draft_inspect` -> `mcp__draft-management__query_script`
@@ -343,12 +351,19 @@ type IntentRoute = {
 
 说明：
 
+- `audio_extract` / `frame_capture` / `media_duration` / `media_trim`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `frame_capture` / `media_trim` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到源文件同目录；若输入是远程 URL，则可退回临时目录
 - `subtitle_template`：给一段音频或视频添加字幕模版，可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
-- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版，模版内容通常包含字幕、音频、动画，不等同于字幕模版
+- `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持本地路径 `image_path` / `video_path` / `audio_path`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`
+- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版，输入素材可为 `video_url` / `video_urls`，也可为 `audio_url` / `audio_urls`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
 
-- 用户提到“创建草稿”时，优先命中 `draft_create`
+- 用户提到“分离视频里的音频”“提取视频音频”“提取 xxx 文件的音频”“导出音轨”时，应优先命中 `audio_extract`
+- 用户提到“截取某个时间戳的帧图片”“在 10 秒处截一帧”“抽一张帧图”时，应优先命中 `frame_capture`
+- 用户提到“获取视频时长”“查看音频时长”“查询 media duration”时，应优先命中 `media_duration`
+- 用户提到“截取 10 秒到 25 秒的视频片段”“裁一段音频出来”“按时间范围剪一段素材”时，应优先命中 `media_trim`
+- 对 `audio_extract` / `frame_capture` / `media_trim`，如果输入媒体文件位于当前 workspace 且用户未指定输出路径，默认应将新文件生成在源文件同目录，而不是系统临时目录；`media_duration` 为只读探测，不生成新文件
+- 用户提到“创建草稿” / “创建一个草稿” / “创建一个剪映草稿”时，应命中 `draft_create` + `draft_update_meta`
 - 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
 - 当任务涉及复杂草稿修改、修改了多个元素，或用户明确要求确认结果时，应补充 `draft_inspect`，用于查看草稿内容并校验是否添加正确
 - 当句子中出现草稿标识（如 `草稿` / `draft` / `dfd_`），同时包含“检查 / 看一下 / 确认 / 校验 / 核对”等动词，且后续跟随视觉属性词（如动画、弹入、转场、位置、样式、特效等）时，应直接命中 `draft_inspect`
@@ -494,7 +509,13 @@ type IntentRoute = {
 | `把这个文件上传到 oss` | `workspace` | `["upload", "read"]` | 本地文件上传 |
 | `打开网页` | `web` | `["browser"]` | 网络搜索 / 浏览器交互 |
 | `生成图片` | `ai_media` | `["image"]` | AI 媒体 |
-| `创建一个草稿` | `cut` | `["draft_create"]` | 草稿创建 |
+| `创建一个草稿` | `cut` | `["draft_create", "draft_update_meta"]` | 草稿创建，默认进入草稿创建 + 元信息设置链路 |
+| `创建一个剪映草稿` | `cut` | `["draft_create", "draft_update_meta"]` | 与“创建一个草稿”同义，默认进入草稿创建 + 元信息设置链路 |
+| `分离视频里的音频` | `cut` | `["audio_extract"]` | 本地 `ffmpeg` 媒体处理 |
+| `提取 xxx 文件的音频` | `cut` | `["audio_extract"]` | 文件导向表述，仍属于音频提取 |
+| `截取 12.5 秒的帧图片` | `cut` | `["frame_capture"]` | 本地 `ffmpeg` 单帧截图 |
+| `获取这个视频的时长` | `cut` | `["media_duration"]` | 本地 `ffprobe` 时长探测 |
+| `截取 10 秒到 25 秒的视频片段` | `cut` | `["media_trim"]` | 本地 `ffmpeg` 时间范围裁剪 |
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
 | `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 字幕模版任务 |

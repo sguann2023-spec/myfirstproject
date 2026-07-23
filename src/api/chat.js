@@ -1,5 +1,9 @@
 import { http } from '../http';
 
+const debugLog = (...args) => {
+  console.info('[chat.js]', ...args);
+};
+
 const BASE_URL = 'https://open.vectcut.com';
 const CHAT_MODEL_LIST_PATH = '/llm/chat/model_list';
 const CHAT_SUBMIT_TASK_PATH = '/llm/chat/submit_task/submit_chat_task';
@@ -267,6 +271,11 @@ export async function fetchMessagesSummary({
   model,
   signal
 } = {}) {
+  debugLog('fetchMessagesSummary:start', {
+    model,
+    modelType: typeof model,
+    messageCount: Array.isArray(messages) ? messages.length : 0
+  });
   if (!model) {
     return { text: null, error: 'model is required' };
   }
@@ -306,6 +315,10 @@ export async function fetchMessagesSummary({
     // 兼容后端直接返回结果的场景。
     const immediateTitle = normalizeTopicTitle(extractSummaryContent(submitPayload));
     if (immediateTitle) {
+      debugLog('fetchMessagesSummary:immediate-title', {
+        model,
+        immediateTitle
+      });
       return { text: immediateTitle };
     }
 
@@ -315,6 +328,12 @@ export async function fetchMessagesSummary({
       || submitPayload?.data?.task_id
       || ''
     ).trim();
+    debugLog('fetchMessagesSummary:submit-result', {
+      model,
+      taskId,
+      submitKeys: submitPayload && typeof submitPayload === 'object' ? Object.keys(submitPayload) : [],
+      extractedContentPreview: extractSummaryContent(submitPayload).slice(0, 120)
+    });
     if (!taskId) {
       return { text: null, error: 'missing task id' };
     }
@@ -341,7 +360,14 @@ export async function fetchMessagesSummary({
       if (status) lastStatus = status;
 
       if (status === 'success') {
-        const title = normalizeTopicTitle(extractSummaryContent(statusPayload));
+        const rawSummaryContent = extractSummaryContent(statusPayload);
+        const title = normalizeTopicTitle(rawSummaryContent);
+        debugLog('fetchMessagesSummary:success-status', {
+          model,
+          taskId,
+          rawSummaryContentPreview: rawSummaryContent.slice(0, 120),
+          normalizedTitle: title
+        });
         if (!title) {
           return { text: null, error: 'empty title' };
         }
@@ -349,6 +375,11 @@ export async function fetchMessagesSummary({
       }
 
       if (status === 'failed') {
+        debugLog('fetchMessagesSummary:failed-status', {
+          model,
+          taskId,
+          statusPayload
+        });
         return {
           text: null,
           error: safeString(statusPayload?.error || statusPayload?.message || 'summary task failed')
@@ -361,6 +392,10 @@ export async function fetchMessagesSummary({
       error: `summary task timeout${lastStatus ? ` (${lastStatus})` : ''}`
     };
   } catch (error) {
+    debugLog('fetchMessagesSummary:exception', {
+      model,
+      error: safeString(error?.message || error)
+    });
     return {
       text: null,
       error: safeString(error?.message || error) || 'summary request failed'
