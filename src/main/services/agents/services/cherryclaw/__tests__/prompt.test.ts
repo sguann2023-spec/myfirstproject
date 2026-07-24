@@ -166,6 +166,8 @@ describe('PromptBuilder', () => {
       expect(result).toContain('Use `Edit` for a single localized change')
       expect(result).toContain('Prefer the smallest unique snippet')
       expect(result).toContain('read the file again and retry with a freshly copied, smaller snippet')
+      expect(result).toContain('do not dump the full body inline into the conversation')
+      expect(result).toContain('write intermediate full inputs/outputs to files inside the workspace')
       expect(result).not.toContain('## Skills')
       expect(result).not.toContain('## Workspace memory')
       expect(result).not.toContain('## Content creation')

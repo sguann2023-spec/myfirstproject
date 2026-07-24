@@ -298,6 +298,67 @@ describe('Claude → AiSDK transform', () => {
     expect(toolResults[1].output).toBe('total 42\n...')
   })
 
+  it('truncates oversized tool results to the 2MB hard limit', () => {
+    const state = new ClaudeStreamState({ agentSessionId: 'limit-test-session' })
+    const oversized = 'a'.repeat(2 * 1024 * 1024 + 4096)
+
+    const assistantParts = transformSDKMessageToStreamParts(
+      {
+        ...baseStreamMetadata,
+        type: 'assistant',
+        uuid: uuid(30),
+        message: {
+          id: 'msg-tool-limit',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-test',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tool-limit',
+              name: 'Read',
+              input: { file_path: '/huge.json' }
+            }
+          ],
+          stop_reason: 'tool_use',
+          stop_sequence: null,
+          usage: {}
+        }
+      } as unknown as SDKMessage,
+      state
+    )
+
+    expect(assistantParts.map((part) => part.type)).toEqual(['tool-call'])
+
+    const parts = transformSDKMessageToStreamParts(
+      {
+        ...baseStreamMetadata,
+        type: 'user',
+        uuid: uuid(31),
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool-limit',
+              content: oversized,
+              is_error: false
+            }
+          ]
+        }
+      } as SDKMessage,
+      state
+    )
+
+    const toolResult = parts.find((part) => part.type === 'tool-result') as Extract<
+      (typeof parts)[number],
+      { type: 'tool-result' }
+    >
+    expect(typeof toolResult.output).toBe('string')
+    expect((toolResult.output as string)).toContain('已截断')
+    expect((toolResult.output as string).length).toBeLessThan(2 * 1024 * 1024 + 256)
+  })
+
   it('handles streaming text completion', () => {
     const state = new ClaudeStreamState({ agentSessionId: baseStreamMetadata.session_id })
     const parts: ReturnType<typeof transformSDKMessageToStreamParts>[number][] = []

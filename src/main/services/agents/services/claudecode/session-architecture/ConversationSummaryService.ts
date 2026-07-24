@@ -25,14 +25,15 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
       .map((turn) => turn.userText)
       .filter((value): value is string => Boolean(value))
       .slice(-3)
+    const recentAssistantResponses = input.recentTurns
+      .map((turn) => turn.assistantText)
+      .filter((value): value is string => Boolean(value))
+      .slice(-3)
     const pendingWork = input.recentTurns
       .filter((turn) => turn.status !== 'completed')
       .map((turn) => turn.userText || turn.id)
       .slice(0, 3)
     const fileChanges = input.fileChanges.slice(0, 5).map((change) => `- ${change.operation} \`${change.filePath}\``)
-    const toolFindings = input.artifacts
-      .slice(0, 5)
-      .map((artifact) => `- ${artifact.sourceType}${artifact.filePath ? ` \`${artifact.filePath}\`` : ''}`)
     const previousContext = input.segment.continuationSummary
       ? ['## Previously Compacted Context', input.segment.continuationSummary]
       : []
@@ -43,8 +44,10 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
       ...previousContext,
       '## Recent User Requests',
       ...(recentUserRequests.length > 0 ? recentUserRequests.map((value) => `- ${value}`) : ['- No recent user requests captured']),
-      '## Tool Findings',
-      ...(toolFindings.length > 0 ? toolFindings : ['- No persisted artifact findings']),
+      '## Recent Assistant Responses',
+      ...(recentAssistantResponses.length > 0
+        ? recentAssistantResponses.map((value) => `- ${value}`)
+        : ['- No recent assistant responses captured']),
       '## File Changes',
       ...(fileChanges.length > 0 ? fileChanges : ['- No file changes recorded']),
       '## Pending Work',

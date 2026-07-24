@@ -6,6 +6,7 @@ import { resolveFilesystemBaseDir } from '../config'
 import { handleDownloadTool } from '../tools/download'
 import { handleGlobTool } from '../tools/glob'
 import { handleLsTool } from '../tools/ls'
+import { handleReadTool } from '../tools/read'
 import * as types from '../types'
 import { validatePath } from '../types'
 
@@ -156,6 +157,18 @@ describe('filesystem MCP security', () => {
     await expect(fs.readFile(savedPath, 'utf-8')).resolves.toBe('mp3-data')
     expect(result.content[0].text).toContain('assets/audio/test.mp3')
     expect(result.content[0].text).toContain('audio/mpeg')
+  })
+
+  it('truncates read output to the 5 KB inline limit', async () => {
+    const workspaceRoot = await createTempDir('read-output-limit-root-')
+    const largeFile = path.join(workspaceRoot, 'large.log')
+    await fs.writeFile(largeFile, Array.from({ length: 400 }, (_, index) => `line-${index + 1} ${'x'.repeat(40)}`).join('\n'))
+
+    const result = await handleReadTool({ file_path: largeFile }, workspaceRoot)
+    const text = result.content[0].text
+
+    expect(text).toContain('读取结果 已截断')
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(5 * 1024)
   })
 
   it('rejects download destinations outside the configured workspace root', async () => {

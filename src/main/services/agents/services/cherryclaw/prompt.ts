@@ -199,6 +199,8 @@ ${evidenceLine}
 - The current workspace absolute path is: ${workspacePath}
 - Treat this absolute path as the workspace root for this turn.
 - Before any file-related action, first confirm the current workspace structure and the relevant target path with available workspace read tools such as Glob, Read, or Grep.
+- When a file, command output, or JSON document is large, do not dump the full body inline into the conversation. Prefer targeted reads, filters, or scripts, and write intermediate full inputs/outputs to files inside the workspace.
+- For very large JSON, logs, transcripts, or generated text, prefer shell or code workflows such as \`jq\`, \`rg\`, \`head\`, \`tail\`, or small scripts that extract only the needed slice before responding.
 - For downloaded artifacts such as audio, images, archives, and generated files, save them inside the current workspace by default unless the user explicitly asks for another location.
 - Read relevant files before changing behavior.
 - Keep edits scoped to the user's request and the surrounding ownership boundaries.
@@ -226,6 +228,7 @@ ${evidenceLine}
 
 - Use task lists, shell commands, and sub-agents only for genuinely multi-step or verification-heavy work.
 - Diagnose failed commands before changing approach.
+- If an input or output is too large to safely inline, save it to a workspace file and continue from the saved path with a concise summary.
 - Prefer deterministic scripts and tests for repeatable work.`)
     }
 

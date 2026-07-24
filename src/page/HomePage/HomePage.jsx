@@ -25,6 +25,7 @@ import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
+import { limitInlineText, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
@@ -46,7 +47,7 @@ const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
-const QUICK_TRAVEL_MONTAGE_SKILL_NAME = '旅游混剪';
+const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const getSessionWorkspacePath = (session) => {
@@ -736,6 +737,17 @@ const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
   });
 };
 
+const sanitizePersistedToolResponse = (rawToolResponse = {}) => {
+  if (!rawToolResponse || typeof rawToolResponse !== 'object') return rawToolResponse;
+  const toolName = String(rawToolResponse?.tool?.name || 'tool');
+  return {
+    ...rawToolResponse,
+    arguments: sanitizeInlinePayload(rawToolResponse.arguments, { label: `${toolName} 输入` }),
+    partialArguments: undefined,
+    response: sanitizeInlinePayload(rawToolResponse.response, { label: `${toolName} 回包` })
+  };
+};
+
 const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false } = {}) => {
   const nextBlockStatus = hasError ? 'error' : 'success';
   return (Array.isArray(blocks) ? blocks : []).reduce((acc, block) => {
@@ -764,10 +776,21 @@ const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false
       nextBlock.metadata = {
         ...nextBlock.metadata,
         rawMcpToolResponse: {
-          ...rawToolResponse,
+          ...sanitizePersistedToolResponse(rawToolResponse),
           status: hasError ? 'error' : 'done'
         }
       };
+    } else if (rawToolResponse) {
+      nextBlock.metadata = {
+        ...nextBlock.metadata,
+        rawMcpToolResponse: sanitizePersistedToolResponse(rawToolResponse)
+      };
+    }
+
+    if (typeof nextBlock.content === 'string') {
+      nextBlock.content = limitInlineText(nextBlock.content, { label: '消息块内容' });
+    } else if (nextBlock.content) {
+      nextBlock.content = sanitizeInlinePayload(nextBlock.content, { label: '消息块内容' });
     }
 
     acc.push(nextBlock);
@@ -785,6 +808,11 @@ const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
     }
     return nextMessage;
   };
+
+  const normalizedDirectContent = limitInlineText(nextMessage.content || '', { label: '会话消息内容' });
+  if (normalizedDirectContent !== String(nextMessage.content || '')) {
+    ensureCloned().content = normalizedDirectContent;
+  }
 
   if (String(nextMessage?.role || '').toLowerCase() !== 'assistant') {
     return nextMessage;
@@ -808,7 +836,7 @@ const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
   if (!String(nextMessage.content || '').trim() && hasStructuredBlocks(nextMessage.blocks)) {
     const nextContent = buildAssistantDisplayContentFromBlocks(nextMessage.blocks);
     if (nextContent !== nextMessage.content) {
-      ensureCloned().content = nextContent;
+      ensureCloned().content = limitInlineText(nextContent, { label: '会话消息内容' });
     }
   }
 
@@ -935,7 +963,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
     role,
-    content,
+    content: limitInlineText(content, { label: '历史消息内容' }),
     blocks: role === 'assistant' ? normalizedBlocks : [],
     createdAt,
     updatedAt,
@@ -1521,7 +1549,13 @@ const HomePage = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatSessions));
+      const persistedSessions = (Array.isArray(chatSessions) ? chatSessions : []).map((session) => ({
+        ...session,
+        messages: Array.isArray(session?.messages)
+          ? session.messages.map((message) => normalizePersistedChatMessage(message, chatModelOptions))
+          : []
+      }));
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistedSessions));
       if (activeChatId) {
         localStorage.setItem(CHAT_ACTIVE_ID_KEY, activeChatId);
       }
@@ -2937,7 +2971,7 @@ const HomePage = () => {
     }
   }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
-  const handleBootstrapTravelMontage = useCallback(async () => {
+  const handleBootstrapLiveClipping = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
     const session = createEmptyChatSession();
     setChatSessions((prev) => [session, ...prev]);
@@ -2945,13 +2979,13 @@ const HomePage = () => {
     setChatSessionSending(session.id, false, 'quick-bootstrap');
     setChatSessionInFlight(session.id, false, 'quick-bootstrap');
     setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
-    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备旅游混剪技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备直播切片技能...' : AUTO_WORKSPACE_STATUS_TEXT);
 
     try {
       const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
-      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_TRAVEL_MONTAGE_SKILL_NAME);
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_LIVE_CLIPPING_SKILL_NAME);
       if (!quickSkillDir) {
-        throw new Error('定位旅游混剪技能目录失败');
+        throw new Error('定位直播切片技能目录失败');
       }
 
       const agentSessionId = await ensureAgentSessionForChat(session.id);
@@ -3010,8 +3044,8 @@ const HomePage = () => {
       );
       window.toast?.success?.(
         inheritedWorkspacePath
-          ? '已新建对话，复用当前工作空间并创建旅游混剪技能'
-          : '已新建对话和工作空间，并创建旅游混剪技能'
+          ? '已新建对话，复用当前工作空间并创建直播切片技能'
+          : '已新建对话和工作空间，并创建直播切片技能'
       );
     } catch (error) {
       window.toast?.error?.(error?.message || '快捷短语执行失败');
@@ -3753,8 +3787,8 @@ const HomePage = () => {
                   if (action === 'bootstrap-childrens-picture-book') {
                     void handleBootstrapChildrensPictureBook();
                   }
-                  if (action === 'bootstrap-travel-montage') {
-                    void handleBootstrapTravelMontage();
+                  if (action === 'bootstrap-live-clipping') {
+                    void handleBootstrapLiveClipping();
                   }
                 }}
                 onRefreshCredits={refreshRechargeBalance}

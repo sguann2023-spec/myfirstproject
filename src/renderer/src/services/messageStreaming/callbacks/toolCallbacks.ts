@@ -7,6 +7,7 @@ import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { createCitationBlock, createToolBlock } from '@renderer/utils/messageUtils/create'
+import { sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
 import { isPlainObject } from 'lodash'
 
 import type { BlockManager } from '../BlockManager'
@@ -14,6 +15,18 @@ import type { BlockManager } from '../BlockManager'
 const logger = loggerService.withContext('ToolCallbacks')
 
 type ToolResponse = MCPToolResponse | NormalToolResponse
+
+const sanitizeToolResponse = (toolResponse: ToolResponse): ToolResponse => {
+  const toolName = String(toolResponse?.tool?.name || 'tool')
+  return {
+    ...toolResponse,
+    arguments: sanitizeInlinePayload(toolResponse.arguments, { label: `${toolName} 输入` }) as ToolResponse['arguments'],
+    partialArguments: sanitizeInlinePayload(toolResponse.partialArguments, {
+      label: `${toolName} 流式输入`
+    }) as ToolResponse['partialArguments'],
+    response: sanitizeInlinePayload(toolResponse.response, { label: `${toolName} 回包` }) as ToolResponse['response']
+  }
+}
 
 interface ToolCallbacksDependencies {
   blockManager: BlockManager
@@ -31,37 +44,39 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
 
   return {
     onToolCallPending: (toolResponse: ToolResponse) => {
-      logger.debug('onToolCallPending', toolResponse)
+      const nextToolResponse = sanitizeToolResponse(toolResponse)
+      logger.debug('onToolCallPending', nextToolResponse)
 
       if (blockManager.hasInitialPlaceholder) {
         const changes = {
           type: MessageBlockType.TOOL,
           status: MessageBlockStatus.PENDING,
-          toolName: toolResponse.tool.name,
-          metadata: { rawMcpToolResponse: toolResponse }
+          toolName: nextToolResponse.tool.name,
+          metadata: { rawMcpToolResponse: nextToolResponse }
         }
         toolBlockId = blockManager.initialPlaceholderBlockId!
         blockManager.smartBlockUpdate(toolBlockId, changes, MessageBlockType.TOOL)
-        toolCallIdToBlockIdMap.set(toolResponse.id, toolBlockId)
-      } else if (toolResponse.status === 'pending') {
-        const toolBlock = createToolBlock(assistantMsgId, toolResponse.id, {
-          toolName: toolResponse.tool.name,
+        toolCallIdToBlockIdMap.set(nextToolResponse.id, toolBlockId)
+      } else if (nextToolResponse.status === 'pending') {
+        const toolBlock = createToolBlock(assistantMsgId, nextToolResponse.id, {
+          toolName: nextToolResponse.tool.name,
           status: MessageBlockStatus.PENDING,
-          metadata: { rawMcpToolResponse: toolResponse }
+          metadata: { rawMcpToolResponse: nextToolResponse }
         })
         toolBlockId = toolBlock.id
         void blockManager.handleBlockTransition(toolBlock, MessageBlockType.TOOL)
-        toolCallIdToBlockIdMap.set(toolResponse.id, toolBlock.id)
+        toolCallIdToBlockIdMap.set(nextToolResponse.id, toolBlock.id)
       } else {
         logger.warn(
-          `[onToolCallPending] Received unhandled tool status: ${toolResponse.status} for ID: ${toolResponse.id}`
+          `[onToolCallPending] Received unhandled tool status: ${nextToolResponse.status} for ID: ${nextToolResponse.id}`
         )
       }
     },
 
     onToolArgumentStreaming: (toolResponse: ToolResponse) => {
+      const nextToolResponse = sanitizeToolResponse(toolResponse)
       // Find or create the tool block for streaming updates
-      let existingBlockId = toolCallIdToBlockIdMap.get(toolResponse.id)
+      let existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
 
       if (!existingBlockId) {
         // Create a new tool block if one doesn't exist yet
@@ -69,22 +84,22 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
           const changes = {
             type: MessageBlockType.TOOL,
             status: MessageBlockStatus.PENDING,
-            toolName: toolResponse.tool.name,
-            metadata: { rawMcpToolResponse: toolResponse }
+            toolName: nextToolResponse.tool.name,
+            metadata: { rawMcpToolResponse: nextToolResponse }
           }
           toolBlockId = blockManager.initialPlaceholderBlockId!
           blockManager.smartBlockUpdate(toolBlockId, changes, MessageBlockType.TOOL)
-          toolCallIdToBlockIdMap.set(toolResponse.id, toolBlockId)
+          toolCallIdToBlockIdMap.set(nextToolResponse.id, toolBlockId)
           existingBlockId = toolBlockId
         } else {
-          const toolBlock = createToolBlock(assistantMsgId, toolResponse.id, {
-            toolName: toolResponse.tool.name,
+          const toolBlock = createToolBlock(assistantMsgId, nextToolResponse.id, {
+            toolName: nextToolResponse.tool.name,
             status: MessageBlockStatus.PENDING,
-            metadata: { rawMcpToolResponse: toolResponse }
+            metadata: { rawMcpToolResponse: nextToolResponse }
           })
           toolBlockId = toolBlock.id
           void blockManager.handleBlockTransition(toolBlock, MessageBlockType.TOOL)
-          toolCallIdToBlockIdMap.set(toolResponse.id, toolBlock.id)
+          toolCallIdToBlockIdMap.set(nextToolResponse.id, toolBlock.id)
           existingBlockId = toolBlock.id
         }
       }
@@ -92,33 +107,34 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       // Update the tool block with streaming arguments
       const changes: Partial<ToolMessageBlock> = {
         status: MessageBlockStatus.PENDING,
-        metadata: { rawMcpToolResponse: toolResponse }
+        metadata: { rawMcpToolResponse: nextToolResponse }
       }
 
       blockManager.smartBlockUpdate(existingBlockId, changes, MessageBlockType.TOOL)
     },
 
     onToolCallComplete: (toolResponse: ToolResponse) => {
+      const nextToolResponse = sanitizeToolResponse(toolResponse)
       // Read resolvedInput BEFORE removing from store (removeByToolCallId deletes it)
       const state = store.getState()
-      const resolvedInput = toolResponse?.id ? state.toolPermissions.resolvedInputs[toolResponse.id] : undefined
+      const resolvedInput = nextToolResponse?.id ? state.toolPermissions.resolvedInputs[nextToolResponse.id] : undefined
 
-      if (toolResponse?.id) {
-        dispatch(toolPermissionsActions.removeByToolCallId({ toolCallId: toolResponse.id }))
+      if (nextToolResponse?.id) {
+        dispatch(toolPermissionsActions.removeByToolCallId({ toolCallId: nextToolResponse.id }))
       }
-      const existingBlockId = toolCallIdToBlockIdMap.get(toolResponse.id)
-      toolCallIdToBlockIdMap.delete(toolResponse.id)
+      const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
+      toolCallIdToBlockIdMap.delete(nextToolResponse.id)
 
-      if (toolResponse.status === 'done' || toolResponse.status === 'error' || toolResponse.status === 'cancelled') {
+      if (nextToolResponse.status === 'done' || nextToolResponse.status === 'error' || nextToolResponse.status === 'cancelled') {
         if (!existingBlockId) {
           logger.error(
-            `[onToolCallComplete] No existing block found for completed/error tool call ID: ${toolResponse.id}. Cannot update.`
+            `[onToolCallComplete] No existing block found for completed/error tool call ID: ${nextToolResponse.id}. Cannot update.`
           )
           return
         }
 
         const finalStatus =
-          toolResponse.status === 'done' || toolResponse.status === 'cancelled'
+          nextToolResponse.status === 'done' || nextToolResponse.status === 'cancelled'
             ? MessageBlockStatus.SUCCESS
             : MessageBlockStatus.ERROR
 
@@ -128,20 +144,20 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         // Merge order: toolResponse.arguments (base) -> existingResponse?.arguments -> resolvedInput (user answers take precedence)
         const mergedArguments = Object.assign(
           {},
-          isPlainObject(toolResponse.arguments) ? toolResponse.arguments : null,
+          isPlainObject(nextToolResponse.arguments) ? nextToolResponse.arguments : null,
           isPlainObject(existingResponse?.arguments) ? existingResponse?.arguments : null,
           isPlainObject(resolvedInput) ? resolvedInput : null
         )
 
         const mergedToolResponse: MCPToolResponse | NormalToolResponse = {
-          ...(existingResponse ?? toolResponse),
-          ...toolResponse,
-          arguments: mergedArguments,
+          ...(existingResponse ?? nextToolResponse),
+          ...nextToolResponse,
+          arguments: sanitizeInlinePayload(mergedArguments, { label: `${nextToolResponse.tool.name} 输入` }) as typeof mergedArguments,
           partialArguments: undefined // Strip redundant streaming buffer to free memory
         }
 
         const changes: Partial<ToolMessageBlock> = {
-          content: toolResponse.response,
+          content: nextToolResponse.response,
           status: finalStatus,
           metadata: { rawMcpToolResponse: mergedToolResponse }
         }
@@ -149,18 +165,18 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         if (finalStatus === MessageBlockStatus.ERROR) {
           changes.error = {
             message: `Tool execution failed/error`,
-            details: toolResponse.response,
+            details: nextToolResponse.response,
             name: null,
             stack: null
           }
         }
         blockManager.smartBlockUpdate(existingBlockId, changes, MessageBlockType.TOOL, true)
         // Handle citation block creation for web search results
-        if (toolResponse.tool.name === 'builtin_web_search' && toolResponse.response) {
+        if (nextToolResponse.tool.name === 'builtin_web_search' && nextToolResponse.response) {
           const citationBlock = createCitationBlock(
             assistantMsgId,
             {
-              response: { results: toolResponse.response, source: WEB_SEARCH_SOURCE.WEBSEARCH }
+              response: { results: nextToolResponse.response, source: WEB_SEARCH_SOURCE.WEBSEARCH }
             },
             {
               status: MessageBlockStatus.SUCCESS
@@ -169,10 +185,10 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
           citationBlockId = citationBlock.id
           void blockManager.handleBlockTransition(citationBlock, MessageBlockType.CITATION)
         }
-        if (toolResponse.tool.name === 'builtin_knowledge_search' && toolResponse.response) {
+        if (nextToolResponse.tool.name === 'builtin_knowledge_search' && nextToolResponse.response) {
           const citationBlock = createCitationBlock(
             assistantMsgId,
-            { knowledge: toolResponse.response },
+            { knowledge: nextToolResponse.response },
             {
               status: MessageBlockStatus.SUCCESS
             }
@@ -182,7 +198,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         }
       } else {
         logger.warn(
-          `[onToolCallComplete] Received unhandled tool status: ${toolResponse.status} for ID: ${toolResponse.id}`
+          `[onToolCallComplete] Received unhandled tool status: ${nextToolResponse.status} for ID: ${nextToolResponse.id}`
         )
       }
 

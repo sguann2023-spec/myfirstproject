@@ -2537,9 +2537,6 @@ const ChatShell = ({
                             </span>
                             <span className="chat-panel__member-text">
                               <span className="chat-panel__member-name">{folderLabel || displayName}</span>
-                              {displayName && displayName !== folderLabel && (
-                                <span className="chat-panel__member-alias">{displayName}</span>
-                              )}
                             </span>
                           </button>
                           {(skillPreviewPath || skillExamplePath || typeof onSelectSkill === 'function') && (

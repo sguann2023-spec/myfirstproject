@@ -24,13 +24,7 @@ export class PromptViewBuilderImpl implements PromptViewBuilder {
       continuationSummary: input.continuationSummary,
       recentTurns,
       currentPrompt: input.currentPrompt,
-      referencedArtifacts: input.referencedArtifacts?.map((artifact) => ({
-        id: artifact.id,
-        sourceType: artifact.sourceType,
-        toolSubtype: artifact.toolSubtype,
-        filePath: artifact.filePath,
-        summary: artifact.summary?.trim() || artifact.content.slice(0, 500)
-      }))
+      referencedArtifacts: []
     }
   }
 }

@@ -1,8 +1,11 @@
 import fs from 'fs/promises'
 import path from 'path'
 import * as z from 'zod'
+import { MAX_INLINE_PAYLOAD_BYTES, formatByteSize, limitInlineText } from '@shared/sessionPayloadLimits'
 
 import { DEFAULT_READ_LIMIT, isBinaryFile, MAX_LINE_LENGTH, validatePath } from '../types'
+
+const MAX_READ_OUTPUT_BYTES = 5 * 1024
 
 // Schema definition
 export const ReadToolSchema = z.object({
@@ -22,6 +25,7 @@ export const readToolDefinition = {
 - You can optionally specify a line offset and limit for long files
 - Any lines longer than 2000 characters will be truncated
 - Results are returned with line numbers starting at 1
+- Final inline output is capped at 5 KB
 - Binary files are detected and rejected with an error
 - Empty files return a warning`,
   inputSchema: z.toJSONSchema(ReadToolSchema)
@@ -38,11 +42,13 @@ export async function handleReadTool(args: unknown, baseDir: string) {
   const validPath = await validatePath(filePath, baseDir)
 
   // Check if file exists
+  let fileSize = 0
   try {
     const stats = await fs.stat(validPath)
     if (!stats.isFile()) {
       throw new Error(`Path is not a file: ${filePath}`)
     }
+    fileSize = Number(stats.size) || 0
   } catch (error: any) {
     if (error.code === 'ENOENT') {
       throw new Error(`File not found: ${filePath}`)
@@ -53,6 +59,24 @@ export async function handleReadTool(args: unknown, baseDir: string) {
   // Check if file is binary
   if (await isBinaryFile(validPath)) {
     throw new Error(`Cannot read binary file: ${filePath}`)
+  }
+
+  if (fileSize > MAX_INLINE_PAYLOAD_BYTES) {
+    const relativePath = path.relative(baseDir, validPath)
+    return {
+      content: [
+        {
+          type: 'text',
+          text: [
+            `File: ${relativePath}`,
+            `Size: ${formatByteSize(fileSize)}`,
+            '',
+            `Inline read skipped because this file exceeds the ${formatByteSize(MAX_INLINE_PAYLOAD_BYTES)} hard limit.`,
+            'Use targeted shell/code workflows instead, for example jq/rg/head/tail/sed, and save extracted results to workspace files before continuing.'
+          ].join('\n')
+        }
+      ]
+    }
   }
 
   // Read file content
@@ -94,7 +118,10 @@ export async function handleReadTool(args: unknown, baseDir: string) {
     content: [
       {
         type: 'text',
-        text: output.join('\n')
+        text: limitInlineText(output.join('\n'), {
+          label: '读取结果',
+          maxBytes: MAX_READ_OUTPUT_BYTES
+        })
       }
     ]
   }

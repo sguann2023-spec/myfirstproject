@@ -25,6 +25,7 @@ import type { ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resource
 import { loggerService } from '@logger'
 import type { CallToolResult, ImageContent, ResourceLink, TextContent } from '@modelcontextprotocol/sdk/types.js'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
+import { limitInlineText, sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ClaudeStreamState } from './claude-stream-state'
@@ -73,6 +74,8 @@ const emptyUsage: LanguageModelUsage = {
  * our own to ensure the downstream renderer can stitch chunks together.
  */
 const generateMessageId = (): string => `msg_${uuidv4().replace(/-/g, '')}`
+const limitInlineMessageText = (text: string, label: string): string => limitInlineText(text, { label })
+const limitInlineToolPayload = (value: unknown, label: string): unknown => sanitizeInlinePayload(value, { label })
 
 const summarizeForLog = (value: unknown): string => {
   if (typeof value === 'string') {
@@ -101,7 +104,7 @@ const summarizeForLog = (value: unknown): string => {
  */
 function toMcpToolResult(content: AnthropicToolResultContent): CallToolResult | string {
   if (typeof content === 'string') {
-    return content
+    return limitInlineMessageText(content, '工具回包')
   }
 
   const mapped: Array<TextContent | ImageContent | AnthropicResourceLink> = content.map((item) => {
@@ -115,7 +118,7 @@ function toMcpToolResult(content: AnthropicToolResultContent): CallToolResult | 
     return item as TextContent | AnthropicResourceLink
   })
 
-  return { content: mapped }
+  return limitInlineToolPayload({ content: mapped }, '工具回包') as CallToolResult | string
 }
 
 /**
@@ -191,7 +194,7 @@ function handleAssistantMessage(
   const isStreamingActive = state.hasActiveStep()
 
   if (typeof content === 'string') {
-    const sanitizedContent = stripLocalCommandTags(content)
+    const sanitizedContent = limitInlineMessageText(stripLocalCommandTags(content), '助手回复')
     if (!sanitizedContent) {
       return chunks
     }
@@ -236,7 +239,7 @@ function handleAssistantMessage(
       case 'text': {
         const sanitizedText = stripLocalCommandTags(block.text)
         if (sanitizedText) {
-          textBlocks.push(sanitizedText)
+          textBlocks.push(limitInlineMessageText(sanitizedText, '助手回复'))
         }
         break
       }
@@ -345,11 +348,11 @@ function handleAssistantToolUse(
     type: 'tool-call',
     toolCallId,
     toolName: block.name,
-    input: block.input,
+    input: limitInlineToolPayload(block.input, `${block.name} 输入`),
     providerExecuted: true,
     providerMetadata
   })
-  state.completeToolBlock(block.id, block.name, block.input, providerMetadata)
+  state.completeToolBlock(block.id, block.name, limitInlineToolPayload(block.input, `${block.name} 输入`), providerMetadata)
 }
 
 /**
@@ -427,7 +430,7 @@ function handleUserMessage(
             toolCallId,
             toolName: pendingCall?.toolName ?? 'unknown',
             input: pendingCall?.input,
-            error: toolResult.content,
+            error: limitInlineToolPayload(toolResult.content, `${pendingCall?.toolName ?? 'tool'} 错误输出`),
             providerExecuted: true
           } as AgentStreamPart)
         } else {
@@ -458,7 +461,7 @@ function handleUserMessage(
       return chunks
     }
 
-    const filteredContent = filterCommandTags(content)
+    const filteredContent = limitInlineMessageText(filterCommandTags(content), '用户消息')
     if (!filteredContent) {
       return chunks
     }
@@ -487,7 +490,7 @@ function handleUserMessage(
   for (const block of content) {
     if (block.type === 'text') {
       const rawText = (block as { text: string }).text
-      const filteredText = filterCommandTags(rawText)
+      const filteredText = limitInlineMessageText(filterCommandTags(rawText), '用户消息')
 
       if (filteredText) {
         const id = message.uuid?.toString() || generateMessageId()

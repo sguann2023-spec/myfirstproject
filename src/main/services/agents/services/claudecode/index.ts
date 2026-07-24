@@ -87,6 +87,7 @@ import {
 } from './capability-router'
 import { sessionService } from '../SessionService'
 import { agentArtifactRepository } from '../../database/repositories/agentArtifactRepository'
+import { buildPersistedAssistantText, extractAssistantTextFromSdkMessage } from './assistant-text'
 import { buildNamespacedToolCallId } from './claude-stream-state'
 import { logPromptBudgetProbe } from './prompt-budget'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
@@ -119,7 +120,6 @@ const ROUTING_CONTEXT_MAX_TURNS = 10
 const ROUTING_CONTEXT_MAX_MESSAGES = ROUTING_CONTEXT_MAX_TURNS * 2
 const ROUTING_CONTEXT_MAX_CHARS = 6000
 const ROUTING_CONTEXT_MAX_MESSAGE_CHARS = 500
-const MAX_PROMPT_REFERENCE_ARTIFACTS = 6
 const GIT_BASH_PATH_ERROR_SIGNATURE = 'CLAUDE_CODE_GIT_BASH_PATH path'
 
 type SessionArchitectureContext = {
@@ -1422,43 +1422,20 @@ class ClaudeCodeService implements AgentServiceInterface {
     }
 
     const recentTurns = activeSegment ? await agentTurnRepository.listBySegmentId(activeSegment.id, 4) : []
-    let artifactSourceSegmentId = activeSegment?.id
-    let referencedArtifacts = (
-      await Promise.all(recentTurns.map(async (turn) => artifactStoreService.listByTurnId(turn.id)))
-    )
-      .flat()
-      .slice(-MAX_PROMPT_REFERENCE_ARTIFACTS)
-
-    if (
-      referencedArtifacts.length === 0 &&
-      activeSegment?.parentSegmentId &&
-      activeSegment.parentSegmentId !== activeSegment.id
-    ) {
-      const parentRecentTurns = await agentTurnRepository.listBySegmentId(activeSegment.parentSegmentId, 4)
-      referencedArtifacts = (
-        await Promise.all(parentRecentTurns.map(async (turn) => artifactStoreService.listByTurnId(turn.id)))
-      )
-        .flat()
-        .slice(-MAX_PROMPT_REFERENCE_ARTIFACTS)
-      if (referencedArtifacts.length > 0) {
-        artifactSourceSegmentId = activeSegment.parentSegmentId
-      }
-    }
-
     logger.info('[SegmentCompose] start', {
       topicId: session.id,
       traceId,
       activeSegmentId: activeSegment?.id ?? '',
       sdkSessionId: activeSegment ? activeSegment.sdkSessionId : lastAgentSessionId ?? '',
       hasContinuationSummary: Boolean(activeSegment?.continuationSummary),
-      hasPriorArtifacts: referencedArtifacts.length > 0,
-      artifactSourceSegmentId: artifactSourceSegmentId ?? ''
+      hasPriorArtifacts: false,
+      artifactSourceSegmentId: ''
     })
     const promptView = await promptViewBuilder.build({
       continuationSummary: activeSegment?.continuationSummary,
       recentTurns,
       currentPrompt: sdkPrompt,
-      referencedArtifacts
+      referencedArtifacts: []
     })
     const promptEnvelope = await segmentPromptService.build({
       stableBasePrompt: assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || ''),
@@ -2521,6 +2498,8 @@ class ClaudeCodeService implements AgentServiceInterface {
     let currentSegment = architectureContext.activeSegment
     let currentTurn = architectureContext.currentTurn
     let finalInputTokens = 0
+    let streamedAssistantText = ''
+    const assistantSnapshotTexts: string[] = []
     const pendingToolCalls = new Map<string, PendingToolCall>()
     const streamingProbe = {
       firstChunkAtMs: null as number | null,
@@ -2564,6 +2543,13 @@ class ClaudeCodeService implements AgentServiceInterface {
             type: messageType || 'unknown',
             preview: compactProbePreview
           })
+        }
+
+        if (message.type === 'assistant') {
+          const assistantSnapshotText = extractAssistantTextFromSdkMessage(message)
+          if (assistantSnapshotText) {
+            assistantSnapshotTexts.push(assistantSnapshotText)
+          }
         }
 
         if (message.type === 'stream_event') {
@@ -2804,6 +2790,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
           if (chunk.type === 'text-delta') {
             streamingProbe.textDeltaCount += 1
+            streamedAssistantText += String((chunk as any).text || '')
             if (streamingProbe.firstTextDeltaAtMs === null) {
               streamingProbe.firstTextDeltaAtMs = elapsedMs
               logger.info('Streaming probe: first text delta emitted', {
@@ -3046,14 +3033,21 @@ class ClaudeCodeService implements AgentServiceInterface {
       //   })
       // }
 
+      const persistedAssistantText = buildPersistedAssistantText({
+        snapshotTexts: assistantSnapshotTexts,
+        streamedText: streamedAssistantText
+      })
+
       if (currentTurn) {
         await agentTurnRepository.update(currentTurn.id, {
+          assistantText: persistedAssistantText || undefined,
           completedAt: new Date().toISOString(),
           status: 'completed',
           cumulativeInputTokens: finalInputTokens
         })
         currentTurn = {
           ...currentTurn,
+          assistantText: persistedAssistantText || undefined,
           completedAt: new Date().toISOString(),
           status: 'completed',
           cumulativeInputTokens: finalInputTokens
@@ -3176,6 +3170,10 @@ class ClaudeCodeService implements AgentServiceInterface {
       if (isAborted) {
         if (currentTurn) {
           await agentTurnRepository.update(currentTurn.id, {
+              assistantText: buildPersistedAssistantText({
+                snapshotTexts: assistantSnapshotTexts,
+                streamedText: streamedAssistantText
+              }) || undefined,
             completedAt: new Date().toISOString(),
             status: 'cancelled',
             cumulativeInputTokens: finalInputTokens
@@ -3199,6 +3197,10 @@ class ClaudeCodeService implements AgentServiceInterface {
 
       if (currentTurn) {
         await agentTurnRepository.update(currentTurn.id, {
+            assistantText: buildPersistedAssistantText({
+              snapshotTexts: assistantSnapshotTexts,
+              streamedText: streamedAssistantText
+            }) || undefined,
           completedAt: new Date().toISOString(),
           status: 'failed',
           cumulativeInputTokens: finalInputTokens

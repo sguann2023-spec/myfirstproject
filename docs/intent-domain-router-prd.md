@@ -251,7 +251,6 @@ type IntentRoute = {
 
 已接入工具：
 
-- `memory` -> `mcp__agent-memory__memory`
 - `assistant` -> `mcp__assistant__navigate` / `mcp__assistant__diagnose`
 - `automation` -> `mcp__claw__cron` / `mcp__claw__notify` / `mcp__claw__config`
 - `system` -> `mcp__system__open_deeplink`
