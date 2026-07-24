@@ -120,6 +120,10 @@ vi.mock('@renderer/components/CodeViewer', () => ({
   default: ({ value }: any) => <pre data-testid="code-viewer">{value}</pre>
 }))
 
+vi.mock('@renderer/components/ImageViewer', () => ({
+  default: ({ src }: any) => <img data-testid="image-viewer" src={src} alt="mock-image-viewer" />
+}))
+
 // Mock LoadingIcon
 vi.mock('@renderer/components/Icons', () => ({
   LoadingIcon: () => <span data-testid="loading-icon" />
@@ -309,6 +313,26 @@ describe('MessageAgentTools', () => {
 
       // Should render the complete tool with output
       expect(screen.getByText('Read File')).toBeInTheDocument()
+    })
+
+    it('should render image output for Read tool results', () => {
+      const toolResponse = createToolResponse({
+        tool: { id: 'Read', name: 'Read', description: 'Read a file', type: 'provider' },
+        status: 'done',
+        arguments: { file_path: '/test.png' },
+        response: [
+          {
+            type: 'image',
+            data: 'ZmFrZS1iYXNlNjQ=',
+            mimeType: 'image/png'
+          }
+        ]
+      })
+
+      render(<MessageAgentTools toolResponse={toolResponse} />)
+
+      expect(screen.getByText('Read File')).toBeInTheDocument()
+      expect(screen.getByTestId('image-viewer')).toHaveAttribute('src', 'data:image/png;base64,ZmFrZS1iYXNlNjQ=')
     })
 
     it('should render TaskOutput with string response', () => {

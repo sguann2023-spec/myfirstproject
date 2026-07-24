@@ -3,6 +3,7 @@ import type { FileMetadata } from '@renderer/types'
 import { getFileExtension, isSupportedFile } from '@renderer/utils'
 
 const logger = loggerService.withContext('PasteService')
+const HARD_PASTE_AS_FILE_THRESHOLD = 20_000
 
 // Track last focused component
 type ComponentType = 'inputbar' | 'messageEditor' | 'TranslatePage' | null
@@ -39,12 +40,23 @@ export const handlePaste = async (
     // 优先处理文本粘贴
     const clipboardText = event.clipboardData?.getData('text')
     if (clipboardText) {
+      const shouldForcePasteAsFile = clipboardText.length > HARD_PASTE_AS_FILE_THRESHOLD
+      const shouldPasteAsFile =
+        shouldForcePasteAsFile ||
+        (!!pasteLongTextAsFile && !!pasteLongTextThreshold && clipboardText.length > pasteLongTextThreshold)
+
       // 1. 文本粘贴
-      if (pasteLongTextAsFile && pasteLongTextThreshold && clipboardText.length > pasteLongTextThreshold) {
+      if (shouldPasteAsFile) {
         // 长文本直接转文件，阻止默认粘贴
         event.preventDefault()
 
-        const tempFilePath = await window.api.file.createTempFile('pasted_text.txt')
+        const trimmedText = clipboardText.trim()
+        const fileName =
+          (trimmedText.startsWith('{') && trimmedText.endsWith('}')) ||
+          (trimmedText.startsWith('[') && trimmedText.endsWith(']'))
+            ? 'pasted_text.json'
+            : 'pasted_text.txt'
+        const tempFilePath = await window.api.file.createTempFile(fileName)
         await window.api.file.write(tempFilePath, clipboardText)
         const selectedFile = await window.api.file.get(tempFilePath)
         if (selectedFile) {

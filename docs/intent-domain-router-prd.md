@@ -61,6 +61,7 @@ type IntentRoute = {
 - 普通问答
 - 总结、解释、改写
 - 不需要外部工具的轻量任务
+- 通用命令执行 / Bash / terminal 任务
 
 默认特征：
 
@@ -71,7 +72,21 @@ type IntentRoute = {
 
 - `chat` 域默认不挂完整 `skills` 域能力
 - 普通问答、总结、解释、改写等请求，仍按最小工具面处理
+- 如果用户明确要求执行 shell / bash / terminal 命令，允许在 `chat` 域补充 `bash` 子能力
 - 但如果用户输入中出现明确的本地 skill 信号，则不得继续按纯 `chat` 处理
+
+建议子能力：
+
+- `bash`
+
+已接入工具：
+
+- `bash` -> `Bash`
+
+说明：
+
+- `bash`：用于通用命令执行、终端探测、脚本运行、临时 shell 操作；它是底层通用执行能力，不等同于 `workspace` 域的工程读写能力；若任务核心是“跑一条命令”“执行脚本”“用 bash / terminal 处理文件”，应优先视为 `chat.bash`，再按需要伴随命中 `workspace`
+- 除 `chat` 外，`workspace` / `web` / `ai_media` / `skills` / `auxiliary` / `scrapt` / `cut` 这些已命中的主域，默认也允许伴随暴露 `Bash`，用于模型在主工具链不足时执行必要的目录探测、脚本编排或命令兜底；但它仍属于通用底层能力，不改变各主域的优先工具选择
 
 本地 skill 信号至少包括：
 
@@ -85,30 +100,31 @@ type IntentRoute = {
 
 ### 2. `workspace`
 
-适用于本地工程、文件、代码、日志、命令相关任务。
+适用于本地工程、文件、代码、日志相关任务。
 
 建议子能力：
 
 - `read`
 - `write`
-- `execute`
 - `find`
 - `notebook`
 - `task`
+- `download`
 - `upload`
 
 已接入工具：
 
 - `read` -> `Read` / `Glob` / `Grep`
 - `write` -> `Write` / `Edit` / `MultiEdit`
-- `execute` -> `Bash`
 - `find` -> `Glob` / `Grep`
 - `notebook` -> `NotebookRead` / `NotebookEdit`
 - `task` -> `Task` / `TodoWrite`
+- `download` -> `mcp__filesystem-server__download`
 - `upload` -> `mcp__file-upload__upload_file_to_oss`
 
 说明：
 
+- `download`：当用户需要把远程文件、图片、音频、视频链接下载到当前 workspace 时使用；应优先保存到当前工作空间内的目标目录，而不是系统 Downloads；适用于通用文件落地，不负责媒体裁剪、抽帧、拼接等后处理
 - `upload`：当用户需要上传本地文件并拿到可复用 URL 时使用；逻辑上先获取临时 STS，再上传到 OSS 并返回基于 OSS 官方域名的 `public url` / `signed public url`，不走 `player.install-ai-guider.top`；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错
 
 ### 3. `web`
@@ -120,6 +136,7 @@ type IntentRoute = {
 - `search`
 - `browser`
 - `execute`
+- `download`
 - `screenshot`
 
 已接入工具：
@@ -127,9 +144,14 @@ type IntentRoute = {
 - `search` -> `WebSearch` / `mcp__search__web_search`
 - `browser` -> `mcp__browser__open` / `mcp__browser__click` / `mcp__browser__type` / `mcp__browser__press` / `mcp__browser__scroll` / `mcp__browser__focus` / `mcp__browser__hover` / `mcp__browser__wait_for` / `mcp__browser__inspect` / `mcp__browser__reload` / `mcp__browser__list_tabs` / `mcp__browser__switch_tab` / `mcp__browser__close_tab` / `mcp__browser__reset`
 - `execute` -> `mcp__browser__execute`
+- `download` -> `mcp__filesystem-server__download`
 - `screenshot` -> `mcp__browser__screenshot` / `mcp__browser__snapshot`
 
-备注：当前不开放独立的网页抓取工具；已知 URL 优先通过 `browser` / `execute` 能力处理。
+说明：
+
+- `download`：当任务核心是把远程链接内容保存到当前 workspace，而不是打开页面交互时使用；适用于下载网页上的文件直链、音频链接、视频链接、图片链接或其他可直接落地的远程资源；和 `browser` 的区别是：`download` 负责把文件保存到本地，`browser` 负责打开页面并交互
+
+备注：当前不开放独立的网页抓取工具；已知 URL 如果目标是页面浏览、交互或截图，优先通过 `browser` / `execute` 处理；如果目标是把资源落地到本地，则应优先考虑 `download`。
 
 
 ### 4. `ai_media`
@@ -151,8 +173,8 @@ type IntentRoute = {
 
 说明：
 
-- `speech`：TTS，按“文字 + 音色”合成语音
-- `seed_audio`：豆包音频生成，按“描述 + 参考图片/音频/音色”等条件生成一段完整音频，可包含多人、背景音乐、音效，不等同于 TTS
+- `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，只要用户没有明确强调“豆包语音”或更偏音乐/音效/完整音频生成，都默认命中 `speech`
+- `seed_audio`：豆包音频生成，按“描述 + 参考图片/音频/音色”等条件生成一段完整音频，可包含多人、背景音乐、音效，不等同于 TTS；只有当用户明确强调“用豆包语音生成”“豆包音频生成”，或目标明显是带背景音乐/音效/多人演绎的完整音频生成时，才命中 `seed_audio`
 
 ### 5. `skills`
 
@@ -254,9 +276,12 @@ type IntentRoute = {
 建议子能力：
 
 - `audio_extract`
+- `audio_concat`
+- `media_download`
 - `frame_capture`
 - `media_duration`
 - `media_trim`
+- `video_concat`
 - `draft_create`
 - `draft_update_meta`
 - `draft_inspect`
@@ -266,6 +291,7 @@ type IntentRoute = {
 - `text_delete`
 - `text_update`
 - `subtitle_srt`
+- `subtitle_recognition`
 - `text_intro_animation_list`
 - `text_outro_animation_list`
 - `text_loop_animation_list`
@@ -303,9 +329,12 @@ type IntentRoute = {
 已接入工具：
 
 - `audio_extract` -> `mcp__ffmpeg-media__extract_audio_from_video`
+- `audio_concat` -> `mcp__ffmpeg-media__concatenate_audio_files`
+- `media_download` -> `mcp__filesystem-server__download`
 - `frame_capture` -> `mcp__ffmpeg-media__capture_frame_at_timestamp`
 - `media_duration` -> `mcp__ffmpeg-media__get_media_duration`
 - `media_trim` -> `mcp__ffmpeg-media__trim_media_segment`
+- `video_concat` -> `mcp__ffmpeg-media__concatenate_video_files`
 - `draft_create` -> `mcp__draft-management__create_draft`
 - `draft_update_meta` -> `mcp__draft-management__modify_draft`
 - `draft_inspect` -> `mcp__draft-management__query_script`
@@ -351,18 +380,32 @@ type IntentRoute = {
 
 说明：
 
-- `audio_extract` / `frame_capture` / `media_duration` / `media_trim`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `frame_capture` / `media_trim` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到源文件同目录；若输入是远程 URL，则可退回临时目录
-- `subtitle_template`：给一段音频或视频添加字幕模版，可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
+- `audio_extract` / `audio_concat` / `frame_capture` / `media_duration` / `media_trim` / `video_concat`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到首个源文件同目录；若输入是远程 URL，则可退回临时目录
+- `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
+- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；底层走异步 ASR 任务提交 + 状态查询链路；输入必须是服务端可访问的远程 `url`，若用户给的是本地音视频文件，必须先命中 `workspace.upload` 获取 OSS URL 后再进入该子能力；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
+- `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持本地路径 `image_path` / `video_path` / `audio_path`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`
 - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版，输入素材可为 `video_url` / `video_urls`，也可为 `audio_url` / `audio_urls`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
+- `draft_download`：专用于下载剪映草稿；当当前句子或前文上下文里已经出现 `草稿` / `draft` / `draft_id` / `draft_url` / `dfd_` 等草稿标识时，下载语义应优先命中 `draft_download`，不要误落到 `workspace.download` 或 `media_download`
 
 - 用户提到“分离视频里的音频”“提取视频音频”“提取 xxx 文件的音频”“导出音轨”时，应优先命中 `audio_extract`
+- 用户提到“把两个音频拼在一起”“合并多个音频”“拼接音频文件”“把几段录音接成一个”时，应优先命中 `audio_concat`
+- 用户提到“下载这个音频”“下载这张图片”“下载这个视频”“把这个媒体链接保存到本地”时，应优先命中 `media_download`
 - 用户提到“截取某个时间戳的帧图片”“在 10 秒处截一帧”“抽一张帧图”时，应优先命中 `frame_capture`
 - 用户提到“获取视频时长”“查看音频时长”“查询 media duration”时，应优先命中 `media_duration`
 - 用户提到“截取 10 秒到 25 秒的视频片段”“裁一段音频出来”“按时间范围剪一段素材”时，应优先命中 `media_trim`
-- 对 `audio_extract` / `frame_capture` / `media_trim`，如果输入媒体文件位于当前 workspace 且用户未指定输出路径，默认应将新文件生成在源文件同目录，而不是系统临时目录；`media_duration` 为只读探测，不生成新文件
+- 用户提到“把两个视频拼在一起”“合并多个视频片段”“拼接视频文件”“把几段视频接成一个”时，应优先命中 `video_concat`
+- 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
+- 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
+- `subtitle_recognition` 仅接受音频/视频链接；若输入是本地文件路径、拖入文件或 workspace 内文件，必须先组合命中 `workspace.upload`，拿到 OSS 官方 URL 后再执行字幕识别，禁止把本地路径直接传给远端字幕识别接口
+- 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
+- 当用户明确表达“添加字幕模版”“套字幕样式”“把字幕加回草稿”“识别后按某种样式上屏”时，应命中 `subtitle_template`；其核心目标是样式化字幕并回写草稿，而非只返回识别结果
+- 若一句话里同时出现“识别字幕”和“添加模版/加回草稿/上屏”等表述，应以最终目标判断；最终目标是拿到字幕文本或时间轴时命中 `subtitle_recognition`，最终目标是生成带样式字幕并写回草稿时命中 `subtitle_template`
+- 当用户提供远程音频/图片/视频 URL，后续又要求本地 `ffmpeg` 处理（如拼接、裁剪、抽帧）时，推荐组合命中 `media_download`，先下载到 workspace 再处理，避免远程临时链接失效或 `ffprobe` / `ffmpeg` 直接读取失败
+- 若“下载”请求同时满足草稿标识和普通 URL 特征，应以 `draft_download` 为最高优先级；只有在没有任何草稿上下文时，才考虑 `workspace.download` 或 `media_download`
+- 对 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat`，如果输入媒体文件位于当前 workspace 且用户未指定输出路径，默认应将新文件生成在首个源文件同目录，而不是系统临时目录；`media_duration` 为只读探测，不生成新文件
 - 用户提到“创建草稿” / “创建一个草稿” / “创建一个剪映草稿”时，应命中 `draft_create` + `draft_update_meta`
 - 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
 - 当任务涉及复杂草稿修改、修改了多个元素，或用户明确要求确认结果时，应补充 `draft_inspect`，用于查看草稿内容并校验是否添加正确
@@ -412,9 +455,9 @@ type IntentRoute = {
 - `Edit`
 - `MultiEdit`
 
-#### `workspace.execute`
+#### `chat.bash`
 
-在 `workspace.read` 基础上追加：
+默认挂：
 
 - `Bash`
 - 测试/构建相关 runtime 工具
@@ -498,27 +541,38 @@ type IntentRoute = {
 | `你好` | `chat` | `[]` | 基础对话 |
 | `看下今天热点` | `web` | `["search"]` | 网络搜索 |
 | `反推 xx 链接的提示词` | `scrapt` | `["derive_prompt"]` | 爬虫反推提示词 |
-| `将一段声音合成语音` | `ai_media` | `["speech"]` | AI 媒体 |
+| `将一段文案合成语音` | `ai_media` | `["speech"]` | 默认按传统 TTS 理解 |
+| `把这段文字念出来` | `ai_media` | `["speech"]` | 未强调豆包时默认走 TTS |
 | `用豆包语音生成一段带背景音乐和音效的音频` | `ai_media` | `["seed_audio"]` | 豆包音频生成，不是 TTS |
+| `用豆包语音生成一段多人对话音频` | `ai_media` | `["seed_audio"]` | 明确强调豆包语音生成 |
 | `生成数字人` | `ai_media` | `["digital_human"]` | AI 媒体 |
 | `写文案` | `chat` | `[]` | 基础对话 |
 | `看看有没有文件` | `workspace` | `["find", "read"]` | 工作空间 |
 | `写文件` | `workspace` | `["write"]` | 工作空间 |
 | `写网页` | `workspace` | `["write"]` | 默认按生成/修改项目文件理解 |
 | `查一下有没有 xxx 文字` | `workspace` | `["find", "read"]` | 工作空间文本检索 |
+| `把这个链接下载到本地` | `workspace` | `["download", "read"]` | 通用文件下载到 workspace |
 | `把这个文件上传到 oss` | `workspace` | `["upload", "read"]` | 本地文件上传 |
+| `把这个网页上的音频链接下载下来` | `web` | `["download"]` | 联网场景下直接下载远程资源，不打开浏览器页面 |
 | `打开网页` | `web` | `["browser"]` | 网络搜索 / 浏览器交互 |
 | `生成图片` | `ai_media` | `["image"]` | AI 媒体 |
 | `创建一个草稿` | `cut` | `["draft_create", "draft_update_meta"]` | 草稿创建，默认进入草稿创建 + 元信息设置链路 |
 | `创建一个剪映草稿` | `cut` | `["draft_create", "draft_update_meta"]` | 与“创建一个草稿”同义，默认进入草稿创建 + 元信息设置链路 |
 | `分离视频里的音频` | `cut` | `["audio_extract"]` | 本地 `ffmpeg` 媒体处理 |
 | `提取 xxx 文件的音频` | `cut` | `["audio_extract"]` | 文件导向表述，仍属于音频提取 |
+| `把这两个音频拼接在一起` | `cut` | `["audio_concat"]` | 本地 `ffmpeg` 音频拼接 |
+| `把这个音频链接下载到本地再处理` | `cut` | `["media_download"]` | 先下载媒体，再进入本地处理链路 |
 | `截取 12.5 秒的帧图片` | `cut` | `["frame_capture"]` | 本地 `ffmpeg` 单帧截图 |
 | `获取这个视频的时长` | `cut` | `["media_duration"]` | 本地 `ffprobe` 时长探测 |
 | `截取 10 秒到 25 秒的视频片段` | `cut` | `["media_trim"]` | 本地 `ffmpeg` 时间范围裁剪 |
+| `把这两个视频拼接在一起` | `cut` | `["video_concat"]` | 本地 `ffmpeg` 视频拼接 |
+| `识别这个视频链接里的字幕` | `cut` | `["subtitle_recognition"]` | 远端异步字幕识别，仅接受可访问 URL |
+| `把这个本地音频文件识别成字幕` | `cut + workspace` | `["subtitle_recognition", "upload"]` | 先上传再识别，禁止直接传本地路径 |
+| `把这段视频的字幕提取出来，但不要上屏` | `cut` | `["subtitle_recognition"]` | 只提取字幕内容，不写回草稿 |
+| `先识别这段音频字幕，再按字幕模版加回草稿` | `cut` | `["subtitle_template"]` | 目标是样式化字幕并回写草稿 |
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
-| `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 字幕模版任务 |
+| `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 识别后按字幕样式模版上屏并写回草稿 |
 | `剪一下口播` | `cut` | `["template"]` | 剪辑任务，后续可再细分 |
 | `模版剪辑` | `cut` | `["template"]` | 剪辑任务 |
 | `看下这个草稿内容对不对` | `cut` | `["draft_inspect"]` | 主动查看草稿内容 |

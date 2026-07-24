@@ -30,6 +30,7 @@ import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
 import FfmpegMediaServer from '@main/mcpServers/ffmpeg-media'
+import FileSystemServer from '@main/mcpServers/filesystem'
 import FileUploadServer from '@main/mcpServers/file-upload'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
@@ -37,6 +38,7 @@ import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
+import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import SystemServer from '@main/mcpServers/system'
@@ -1634,7 +1636,18 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.allowedTools = toolSurface.allowedToolsOption
     }
 
-    markSkipped('filesystem')
+    if (
+      shouldMountCapability('workspaceDownload') ||
+      shouldMountCapability('webDownload') ||
+      shouldMountCapability('mediaDownload')
+    ) {
+      const fileSystemServer = new FileSystemServer(cwd)
+      mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem-server', instance: fileSystemServer.mcpServer })
+      autoAllowTools.add('mcp__filesystem-server__download')
+      allowMcpPattern('mcp__filesystem-server__*')
+    } else {
+      markSkipped('filesystem')
+    }
 
     if (shouldMountCapability('browser')) {
       const browserServer = await this.getOrCreateBrowserServer(session.id)
@@ -1708,9 +1721,11 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     if (
       shouldMountCapability('audioExtract') ||
+      shouldMountCapability('audioConcat') ||
       shouldMountCapability('frameCapture') ||
       shouldMountCapability('mediaDuration') ||
-      shouldMountCapability('mediaTrim')
+      shouldMountCapability('mediaTrim') ||
+      shouldMountCapability('videoConcat')
     ) {
       const ffmpegMediaServer = new FfmpegMediaServer()
       mountMcpServer('ffmpeg-media', {
@@ -1721,6 +1736,9 @@ class ClaudeCodeService implements AgentServiceInterface {
       if (shouldMountCapability('audioExtract')) {
         autoAllowTools.add('mcp__ffmpeg-media__extract_audio_from_video')
       }
+      if (shouldMountCapability('audioConcat')) {
+        autoAllowTools.add('mcp__ffmpeg-media__concatenate_audio_files')
+      }
       if (shouldMountCapability('frameCapture')) {
         autoAllowTools.add('mcp__ffmpeg-media__capture_frame_at_timestamp')
       }
@@ -1729,6 +1747,9 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
       if (shouldMountCapability('mediaTrim')) {
         autoAllowTools.add('mcp__ffmpeg-media__trim_media_segment')
+      }
+      if (shouldMountCapability('videoConcat')) {
+        autoAllowTools.add('mcp__ffmpeg-media__concatenate_video_files')
       }
       allowMcpPattern('mcp__ffmpeg-media__*')
     } else {
@@ -1865,6 +1886,20 @@ class ClaudeCodeService implements AgentServiceInterface {
       allowMcpPattern('mcp__draft-elements__*')
     } else {
       markSkipped('draft-elements')
+    }
+
+    if (shouldMountCapability('subtitleRecognition')) {
+      const subtitleRecognitionServer = new SubtitleRecognitionServer()
+      mountMcpServer('subtitle-recognition', {
+        type: 'sdk',
+        name: 'subtitle-recognition',
+        instance: subtitleRecognitionServer.mcpServer
+      })
+      autoAllowTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
+      autoAllowTools.add('mcp__subtitle-recognition__get_subtitle_recognition_task_status')
+      allowMcpPattern('mcp__subtitle-recognition__*')
+    } else {
+      markSkipped('subtitle-recognition')
     }
 
     if (shouldMountCapability('subtitleTemplate')) {

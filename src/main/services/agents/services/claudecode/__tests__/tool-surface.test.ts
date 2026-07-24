@@ -32,6 +32,25 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).toEqual(['mcp__skills__*'])
   })
 
+  it('exposes Bash for chat.bash turns without auto-allowing it', () => {
+    const surface = buildToolSurface({
+      decision: makeDecision({
+        toolLayer: 'chat',
+        activeDomains: [{ domain: 'chat', subdomains: ['bash'], role: 'primary', score: 2 }],
+        primaryDomain: 'chat',
+        subdomains: ['bash'],
+        domainReasons: ['chat.bash:capability:chat-bash'],
+        selected: new Set(['bash'] as any)
+      }),
+      sessionAllowedTools: [],
+      isAssistant: false
+    })
+
+    expect(surface.toolsOption).toEqual(['Bash'])
+    expect(surface.builtinTools).toEqual(['Bash'])
+    expect(surface.allowedToolsOption).not.toContain('Bash')
+  })
+
   it('enables only read tools for workspace-read turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
@@ -48,7 +67,7 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'Read'])
   })
 
-  it('keeps the web layer free of built-in workspace tools', () => {
+  it('adds Bash to web turns while keeping workspace builtins hidden', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'web',
@@ -60,9 +79,27 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual([])
-    expect(surface.builtinTools).toEqual([])
+    expect(surface.toolsOption).toEqual(['Bash'])
+    expect(surface.builtinTools).toEqual(['Bash'])
     expect(surface.allowedToolsOption).toEqual(['mcp__browser__*', 'mcp__search__*'])
+  })
+
+  it('adds Bash to cut turns', () => {
+    const surface = buildToolSurface({
+      decision: makeDecision({
+        toolLayer: 'chat',
+        activeDomains: [{ domain: 'cut', subdomains: ['audio_concat'], role: 'primary', score: 8 }],
+        primaryDomain: 'cut',
+        subdomains: ['audio_concat']
+      }),
+      sessionAllowedTools: ['mcp__ffmpeg-media__*'],
+      isAssistant: false
+    })
+
+    expect(surface.toolsOption).toEqual(['Bash'])
+    expect(surface.builtinTools).toEqual(['Bash'])
+    expect(surface.allowedToolsOption).toContain('mcp__ffmpeg-media__*')
+    expect(surface.allowedToolsOption).not.toContain('Bash')
   })
 
   it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {

@@ -1,20 +1,27 @@
 import type { SkillMatchSignal, SkillTriggerMode } from '../../skill-mounting/types'
 
 export type RuntimeCapability =
+  | 'bash'
   | 'browser'
   | 'search'
+  | 'workspaceDownload'
+  | 'webDownload'
   | 'uploadFile'
   | 'image'
   | 'speech'
   | 'seedAudio'
   | 'audioExtract'
+  | 'audioConcat'
   | 'frameCapture'
+  | 'mediaDownload'
   | 'mediaDuration'
   | 'mediaTrim'
+  | 'videoConcat'
   | 'textAdd'
   | 'textAddBatch'
   | 'textDelete'
   | 'textUpdate'
+  | 'subtitleRecognition'
   | 'subtitleSrt'
   | 'textIntroAnimationList'
   | 'textOutroAnimationList'
@@ -128,12 +135,22 @@ const syncSelectedCapabilitiesFromActiveDomains = (
   reasons: Record<string, string[]>
 ) => {
   for (const activeDomain of activeDomains) {
+    if (activeDomain.domain === 'chat') {
+      if (activeDomain.subdomains.includes('bash') && !selected.has('bash')) {
+        addCapabilityReason(selected, reasons, 'bash', 'intent:chat.bash')
+      }
+      continue
+    }
+
     if (activeDomain.domain === 'web') {
       if (activeDomain.subdomains.includes('browser') && !selected.has('browser')) {
         addCapabilityReason(selected, reasons, 'browser', 'intent:web.browser')
       }
       if (activeDomain.subdomains.includes('search') && !selected.has('search')) {
         addCapabilityReason(selected, reasons, 'search', 'intent:web.search')
+      }
+      if (activeDomain.subdomains.includes('download') && !selected.has('webDownload')) {
+        addCapabilityReason(selected, reasons, 'webDownload', 'intent:web.download')
       }
       continue
     }
@@ -165,6 +182,12 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('audio_extract') && !selected.has('audioExtract')) {
         addCapabilityReason(selected, reasons, 'audioExtract', 'intent:cut.audio_extract')
       }
+      if (activeDomain.subdomains.includes('audio_concat') && !selected.has('audioConcat')) {
+        addCapabilityReason(selected, reasons, 'audioConcat', 'intent:cut.audio_concat')
+      }
+      if (activeDomain.subdomains.includes('media_download') && !selected.has('mediaDownload')) {
+        addCapabilityReason(selected, reasons, 'mediaDownload', 'intent:cut.media_download')
+      }
       if (activeDomain.subdomains.includes('frame_capture') && !selected.has('frameCapture')) {
         addCapabilityReason(selected, reasons, 'frameCapture', 'intent:cut.frame_capture')
       }
@@ -173,6 +196,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       }
       if (activeDomain.subdomains.includes('media_trim') && !selected.has('mediaTrim')) {
         addCapabilityReason(selected, reasons, 'mediaTrim', 'intent:cut.media_trim')
+      }
+      if (activeDomain.subdomains.includes('video_concat') && !selected.has('videoConcat')) {
+        addCapabilityReason(selected, reasons, 'videoConcat', 'intent:cut.video_concat')
       }
       if (activeDomain.subdomains.includes('text_add') && !selected.has('textAdd')) {
         addCapabilityReason(selected, reasons, 'textAdd', 'intent:cut.text_add')
@@ -188,6 +214,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       }
       if (activeDomain.subdomains.includes('subtitle_srt') && !selected.has('subtitleSrt')) {
         addCapabilityReason(selected, reasons, 'subtitleSrt', 'intent:cut.subtitle_srt')
+      }
+      if (activeDomain.subdomains.includes('subtitle_recognition') && !selected.has('subtitleRecognition')) {
+        addCapabilityReason(selected, reasons, 'subtitleRecognition', 'intent:cut.subtitle_recognition')
       }
       if (activeDomain.subdomains.includes('text_intro_animation_list') && !selected.has('textIntroAnimationList')) {
         addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'intent:cut.text_intro_animation_list')
@@ -304,6 +333,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
     }
 
     if (activeDomain.domain === 'workspace') {
+      if (activeDomain.subdomains.includes('download') && !selected.has('workspaceDownload')) {
+        addCapabilityReason(selected, reasons, 'workspaceDownload', 'intent:workspace.download')
+      }
       if (activeDomain.subdomains.includes('upload') && !selected.has('uploadFile')) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'intent:workspace.upload')
       }
@@ -340,20 +372,27 @@ const syncSelectedCapabilitiesFromActiveDomains = (
 }
 
 const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
+  'bash',
   'browser',
   'search',
+  'workspaceDownload',
+  'webDownload',
   'uploadFile',
   'image',
   'speech',
   'seedAudio',
   'audioExtract',
+  'audioConcat',
   'frameCapture',
+  'mediaDownload',
   'mediaDuration',
   'mediaTrim',
+  'videoConcat',
   'textAdd',
   'textAddBatch',
   'textDelete',
   'textUpdate',
+  'subtitleRecognition',
   'subtitleSrt',
   'textIntroAnimationList',
   'textOutroAnimationList',
@@ -402,20 +441,27 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
 ]
 
 const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
+  'bash',
   'browser',
   'search',
+  'workspaceDownload',
+  'webDownload',
   'uploadFile',
   'image',
   'speech',
   'seedAudio',
   'audioExtract',
+  'audioConcat',
   'frameCapture',
+  'mediaDownload',
   'mediaDuration',
   'mediaTrim',
+  'videoConcat',
   'textAdd',
   'textAddBatch',
   'textDelete',
   'textUpdate',
+  'subtitleRecognition',
   'subtitleSrt',
   'textIntroAnimationList',
   'textOutroAnimationList',
@@ -480,6 +526,10 @@ const GENERIC_DOTTED_FILE_PATTERN = new RegExp(
 )
 const VIDEO_FILE_REFERENCE_PATTERN = new RegExp(
   `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(mp4|mov|m4v|mkv|avi|flv|webm|wmv|mpeg|mpg|ts|m2ts|mts)(?:\\b|$)`,
+  'i'
+)
+const AUDIO_FILE_REFERENCE_PATTERN = new RegExp(
+  `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff|aif|amr)(?:\\b|$)`,
   'i'
 )
 const PATH_LIKE_PATTERN =
@@ -715,7 +765,21 @@ const WORKSPACE_EXECUTE_KEYWORDS = [
 ]
 
 const WORKSPACE_TASK_KEYWORDS = ['待办', 'todo', '任务拆解', '任务列表', 'task list', 'todo list']
+const WORKSPACE_DOWNLOAD_KEYWORDS = [
+  '下载',
+  '下载到本地',
+  '下载到当前工作区',
+  '下载到workspace',
+  '保存到本地',
+  '保存到工作区',
+  '保存到 workspace',
+  '另存为',
+  'download',
+  'save to workspace',
+  'save locally'
+]
 const WORKSPACE_UPLOAD_KEYWORDS = [
+  '上传',
   '上传文件',
   '上传这个文件',
   '上传该文件',
@@ -743,7 +807,12 @@ const WEB_SEARCH_KEYWORDS = [
   'search',
   'look up',
   'google',
-  '百度'
+  '百度',
+  '查',
+  '看',
+  '找',
+  '搜',
+  '网'
 ]
 
 const WEB_BROWSER_KEYWORDS = [
@@ -766,6 +835,20 @@ const WEB_BROWSER_KEYWORDS = [
 const WEB_FETCH_KEYWORDS = ['抓取网页', '抓网页', '读取网页', '获取网页内容', 'fetch url', 'fetch page', 'webfetch']
 
 const WEB_SCREENSHOT_KEYWORDS = ['截图', '页面截图', '网页截图', '快照', 'snapshot']
+const CHAT_BASH_KEYWORDS = [
+  'bash',
+  'shell',
+  'terminal',
+  '终端',
+  '命令行',
+  '跑命令',
+  '执行命令',
+  '执行脚本',
+  '运行脚本',
+  'python3',
+  'ffmpeg',
+  'curl'
+]
 const WEB_OPEN_KEYWORDS = [
   '打开网页',
   '打开页面',
@@ -783,6 +866,17 @@ const WEB_OPEN_KEYWORDS = [
 const CUT_CREATE_KEYWORDS = ['创建草稿', '新建草稿', 'create draft', 'new draft', 'start draft']
 const CUT_TEMPLATE_KEYWORDS = ['口播模板', '模板草稿', 'koubo', 'template', '模板剪辑', '模版剪辑', '剪一下口播']
 const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
+const CUT_SUBTITLE_RECOGNITION_KEYWORDS = [
+  '字幕识别',
+  '识别字幕',
+  '提取字幕',
+  '字幕提取',
+  '字幕转写',
+  '字幕文案',
+  '带时间轴的字幕',
+  'subtitle recognition',
+  'transcribe subtitle'
+]
 const DRAFT_REFERENCE_PATTERN = /(草稿|draft|dfd_[a-z0-9_-]*)/
 const DRAFT_INSPECT_VERB_PATTERN = /(查看|查询|检查|确认|校验|核对|核查|看下|看一下)/
 const DRAFT_VISUAL_ATTRIBUTE_PATTERN = /(动画|弹入|转场|位置|样式|特效|右上|左上|右下|左下|居中|效果)/
@@ -814,8 +908,27 @@ const hasSubtitleTemplateIntent = (text: string) =>
   hasAnyKeyword(text, CUT_SUBTITLE_TEMPLATE_KEYWORDS) ||
   ((/(给|帮|把|为|对).{0,8}(音频|视频|音轨|素材|录音)/.test(text) ||
     /(音频|视频|音轨|素材|录音).{0,8}(加上|添加|套用|应用|生成|做一个|上一段)/.test(text)) &&
-    /(字幕|字幕模板|字幕模版)/.test(text)) ||
-  (/(字幕|字幕模板|字幕模版)/.test(text) && /(音频|视频|audio|video)/.test(text))
+    /(字幕模板|字幕模版|字幕样式|字幕风格|样式模板|样式模版)/.test(text)) ||
+  (/(字幕样式|字幕风格|字幕模板|字幕模版|样式模板|样式模版)/.test(text) &&
+    /(音频|视频|audio|video)/.test(text))
+
+const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
+
+const hasLocalMediaContext = (text: string) =>
+  hasMediaFileReference(text) ||
+  /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
+  /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
+
+const hasSubtitleRecognitionIntent = (text: string) =>
+  (hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
+    ((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
+      /(字幕|文案|台词|时间轴)/.test(text)) ||
+    (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text))) &&
+  (hasAudioSubject(text) || hasVideoSubject(text) || hasMediaFileReference(text) || hasUrlLikeText(text)) &&
+  !hasSubtitleTemplateIntent(text) &&
+  !/(添加到草稿|加回草稿|回写草稿|写回草稿|(?:加回|写回|添加到).{0,6}草稿|(?:给|帮|把|将).{0,12}上屏|字幕模板|字幕模版|样式模板|样式模版|套字幕样式|套模版|套模板)/.test(
+    text
+  )
 
 const CUT_LOOKUP_KEYWORDS = ['查看', '看下', '看一下', '查询', '列出', '有哪些', '可用', '支持', '列表']
 const hasCutDraftContext = (text: string) => /(草稿|draft|dfd_)/.test(text)
@@ -932,6 +1045,29 @@ const hasMediaTrimIntent = (text: string) =>
   (hasAudioSubject(text) || hasVideoSubject(text)) &&
   (((/(截取|裁剪|剪出|剪下|切出|保留)/.test(text) || /trim/.test(text)) && /(片段|一段|区间|范围|时间段|时间范围)/.test(text)) ||
     (/从/.test(text) && /到/.test(text) && /(视频|音频|片段)/.test(text)))
+
+const hasAudioConcatIntent = (text: string) =>
+  hasAudioSubject(text) &&
+  /(拼接|拼在一起|合并|接在一起|串起来|concat|concatenate|merge)/.test(text) &&
+  !hasCutDraftContext(text)
+
+const hasVideoConcatIntent = (text: string) =>
+  (hasVideoSubject(text) || hasVideoFileReference(text)) &&
+  /(拼接|拼在一起|合并|接在一起|串起来|concat|concatenate|merge)/.test(text) &&
+  !hasCutDraftContext(text)
+
+const hasDownloadKeyword = (text: string) =>
+  hasAnyKeyword(text, WORKSPACE_DOWNLOAD_KEYWORDS) || /(下载|保存).{0,12}(本地|工作区|workspace|下来)/.test(text)
+
+const hasMediaLink = (text: string) =>
+  hasUrlLikeText(text) && (/\.(mp3|wav|m4a|aac|flac|ogg|mp4|mov|mkv|avi|webm|jpg|jpeg|png|gif|webp)\b/i.test(text) || /(音频|视频|图片|链接)/.test(text))
+
+const hasMediaDownloadIntent = (text: string) => hasDownloadKeyword(text) && hasMediaLink(text) && !hasDraftDownloadIntent(text)
+
+const hasChatBashIntent = (text: string) =>
+  hasAnyKeyword(text, CHAT_BASH_KEYWORDS) ||
+  /(运行|执行|跑).{0,12}(bash|shell|terminal|命令|脚本)/.test(text) ||
+  /\b(python3?|bash|sh|zsh|ffmpeg|curl|node)\b/.test(text)
 
 const hasKeyframeAddIntent = (text: string) =>
   hasCutDraftContext(text) && /关键帧/.test(text) && /(添加|加上|新增)/.test(text)
@@ -1078,6 +1214,7 @@ export class CapabilityRouter {
       const hasTextAddBatch = hasTextAddBatchIntent(text)
       const hasTextDelete = hasTextDeleteIntent(text)
       const hasTextUpdate = hasTextUpdateIntent(text)
+      const hasSubtitleRecognition = hasSubtitleRecognitionIntent(text)
       const hasSubtitleSrt = hasSubtitleSrtIntent(text)
       const hasTextIntroAnimationList = hasTextIntroAnimationListIntent(text)
       const hasTextOutroAnimationList = hasTextOutroAnimationListIntent(text)
@@ -1098,9 +1235,13 @@ export class CapabilityRouter {
       const hasAudioDelete = hasAudioDeleteIntent(text)
       const hasAudioEffectTypeList = hasAudioEffectTypeListIntent(text)
       const hasAudioExtract = hasAudioExtractIntent(text)
+      const hasAudioConcat = hasAudioConcatIntent(text)
+      const hasChatBash = hasChatBashIntent(text)
       const hasFrameCapture = hasFrameCaptureIntent(text)
+      const hasMediaDownload = hasMediaDownloadIntent(text)
       const hasMediaDuration = hasMediaDurationIntent(text)
       const hasMediaTrim = hasMediaTrimIntent(text)
+      const hasVideoConcat = hasVideoConcatIntent(text)
       const hasKeyframeAdd = hasKeyframeAddIntent(text)
       const hasEffectAdd = hasEffectAddIntent(text)
       const hasEffectUpdate = hasEffectUpdateIntent(text)
@@ -1115,12 +1256,13 @@ export class CapabilityRouter {
       const hasImageOutroAnimationList = hasImageOutroAnimationListIntent(text)
       const hasImageLoopAnimationList = hasImageLoopAnimationListIntent(text)
       const shouldApplySubtitleTemplate = hasSubtitleTemplateIntent(text)
-      const hasTemplateIntent = hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS)
+      const hasTemplateIntent = hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS) && !shouldApplySubtitleTemplate
       const hasCutSpecificIntent =
         hasTextAdd ||
         hasTextAddBatch ||
         hasTextDelete ||
         hasTextUpdate ||
+        hasSubtitleRecognition ||
         hasSubtitleSrt ||
         hasTextIntroAnimationList ||
         hasTextOutroAnimationList ||
@@ -1140,6 +1282,7 @@ export class CapabilityRouter {
         hasAudioUpdate ||
         hasAudioDelete ||
         hasAudioEffectTypeList ||
+        hasAudioConcat ||
         hasKeyframeAdd ||
         hasEffectAdd ||
         hasEffectUpdate ||
@@ -1153,16 +1296,25 @@ export class CapabilityRouter {
         hasImageIntroAnimationList ||
         hasImageOutroAnimationList ||
         hasImageLoopAnimationList ||
+        hasMediaDownload ||
         hasDraftCreateIntent ||
         hasDraftUpdateIntent ||
         shouldInspectDraft ||
         shouldDownloadDraft ||
         shouldApplySubtitleTemplate ||
-        hasTemplateIntent
-      const hasImplicitBrowserUrlIntent = hasUrlLikeText(args.prompt) && !hasCutSpecificIntent
+        hasTemplateIntent ||
+        hasVideoConcat
+      const hasWorkspaceDownloadIntent = hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft
+      const hasWebDownloadIntent = hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft
+      const hasImplicitBrowserUrlIntent =
+        hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
 
       if (args.isAssistant) {
         addCapabilityReason(selected, reasons, 'assistant', 'assistant-role')
+      }
+
+      if (hasChatBash) {
+        addCapabilityReason(selected, reasons, 'bash', 'prompt:chat-bash')
       }
 
       if (hasImplicitBrowserUrlIntent || hasAnyKeyword(text, [...WEB_BROWSER_KEYWORDS, 'localhost'])) {
@@ -1177,9 +1329,18 @@ export class CapabilityRouter {
         hasAnyKeyword(text, WORKSPACE_UPLOAD_KEYWORDS) ||
         /(?:上传|传).{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
         /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
-        /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text)
+        /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
+        (hasSubtitleRecognition && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
       ) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
+      }
+
+      if (hasWorkspaceDownloadIntent) {
+        addCapabilityReason(selected, reasons, 'workspaceDownload', 'prompt:workspace-download')
+      }
+
+      if (hasWebDownloadIntent) {
+        addCapabilityReason(selected, reasons, 'webDownload', 'prompt:web-download')
       }
 
       if (
@@ -1275,6 +1436,10 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'subtitleSrt', 'prompt:subtitle-srt')
       }
 
+      if (hasSubtitleRecognition) {
+        addCapabilityReason(selected, reasons, 'subtitleRecognition', 'prompt:subtitle-recognition')
+      }
+
       if (hasTextIntroAnimationList) {
         addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'prompt:text-intro-animation-list')
       }
@@ -1351,8 +1516,16 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'audioExtract', 'prompt:audio-extract')
       }
 
+      if (hasAudioConcat) {
+        addCapabilityReason(selected, reasons, 'audioConcat', 'prompt:audio-concat')
+      }
+
       if (hasFrameCapture) {
         addCapabilityReason(selected, reasons, 'frameCapture', 'prompt:frame-capture')
+      }
+
+      if (hasMediaDownload) {
+        addCapabilityReason(selected, reasons, 'mediaDownload', 'prompt:media-download')
       }
 
       if (hasMediaDuration) {
@@ -1361,6 +1534,10 @@ export class CapabilityRouter {
 
       if (hasMediaTrim) {
         addCapabilityReason(selected, reasons, 'mediaTrim', 'prompt:media-trim')
+      }
+
+      if (hasVideoConcat) {
+        addCapabilityReason(selected, reasons, 'videoConcat', 'prompt:video-concat')
       }
 
       if (hasKeyframeAdd) {
@@ -1598,6 +1775,10 @@ function classifyIntent(args: {
     domainReasons.push(`${domain}.${subdomain}:${reason}`)
   }
 
+  if (args.selected.has('bash')) {
+    addDomainSubdomain('chat', 'bash', 'capability:chat-bash')
+  }
+
   const hasWorkspaceContextKeyword = hasAnyKeyword(text, WORKSPACE_CONTEXT_KEYWORDS)
   const hasReadActionKeyword = hasAnyKeyword(text, WORKSPACE_READ_ACTION_KEYWORDS)
   const hasWorkspaceReadIntent =
@@ -1610,6 +1791,7 @@ function classifyIntent(args: {
   const hasWorkspaceFindIntent =
     hasAnyKeyword(text, WORKSPACE_FIND_KEYWORDS) ||
     (/有没有/.test(text) && (text.includes('文件') || text.includes('文字') || text.includes('内容')))
+  const hasWorkspaceDownloadIntent = args.selected.has('workspaceDownload')
   const hasWorkspaceWriteIntent =
     hasAnyKeyword(text, WORKSPACE_WRITE_KEYWORDS) ||
     /(?:^|[\s，。,])写个[^，。\s]*文件/.test(text) ||
@@ -1620,16 +1802,21 @@ function classifyIntent(args: {
     /\b(cargo|go)\s+test\b/i.test(args.prompt)
   const hasWorkspaceTaskIntent = hasAnyKeyword(text, WORKSPACE_TASK_KEYWORDS)
   const hasWorkspaceUploadIntent = args.selected.has('uploadFile')
+  const hasWebDownloadIntent = args.selected.has('webDownload')
   const hasNotebookIntent = text.includes('notebook') || text.includes('ipynb')
   const hasCutSpecificIntent =
     args.selected.has('audioExtract') ||
+    args.selected.has('audioConcat') ||
     args.selected.has('frameCapture') ||
+    args.selected.has('mediaDownload') ||
     args.selected.has('mediaDuration') ||
     args.selected.has('mediaTrim') ||
+    args.selected.has('videoConcat') ||
     args.selected.has('textAdd') ||
     args.selected.has('textAddBatch') ||
     args.selected.has('textDelete') ||
     args.selected.has('textUpdate') ||
+    args.selected.has('subtitleRecognition') ||
     args.selected.has('subtitleSrt') ||
     args.selected.has('textIntroAnimationList') ||
     args.selected.has('textOutroAnimationList') ||
@@ -1668,7 +1855,8 @@ function classifyIntent(args: {
     args.selected.has('draftDownload') ||
     args.selected.has('subtitleTemplate') ||
     args.selected.has('kouboTemplate')
-  const hasImplicitWebUrlOpenIntent = hasUrlLikeText(args.prompt) && !hasCutSpecificIntent
+  const hasImplicitWebUrlOpenIntent =
+    hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
   const hasExplicitWebOpenIntent =
     hasAnyKeyword(text, WEB_OPEN_KEYWORDS) ||
     /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,20}(网页|页面|网站|百度)/.test(text)
@@ -1686,6 +1874,10 @@ function classifyIntent(args: {
     addDomainSubdomain('workspace', 'find', 'prompt:workspace-find')
     addDomainSubdomain('workspace', 'read', 'prompt:workspace-find-implies-read')
   }
+  if (hasWorkspaceDownloadIntent) {
+    addDomainSubdomain('workspace', 'download', 'prompt:workspace-download')
+    addDomainSubdomain('workspace', 'read', 'prompt:workspace-download-implies-read')
+  }
   if (hasWorkspaceUploadIntent) {
     addDomainSubdomain('workspace', 'upload', 'capability:workspace-upload')
     addDomainSubdomain('workspace', 'read', 'capability:workspace-upload-implies-read')
@@ -1698,10 +1890,13 @@ function classifyIntent(args: {
   if (hasWebSearchIntent) {
     addDomainSubdomain('web', 'search', 'prompt:web-search')
   }
+  if (hasWebDownloadIntent) {
+    addDomainSubdomain('web', 'download', 'prompt:web-download')
+  }
   if (args.selected.has('browser') || hasAnyKeyword(text, WEB_BROWSER_KEYWORDS) || hasImplicitWebUrlOpenIntent || hasWebOpenIntent) {
     addDomainSubdomain('web', 'browser', 'prompt:web-browser')
   }
-  if (hasWebOpenIntent) preferredMcpTools.add('mcp__browser__open')
+  if (hasWebOpenIntent && !hasWebDownloadIntent && !hasWorkspaceDownloadIntent) preferredMcpTools.add('mcp__browser__open')
   if (hasAnyKeyword(text, WEB_FETCH_KEYWORDS)) addDomainSubdomain('web', 'fetch', 'prompt:web-fetch')
   if (hasAnyKeyword(text, WEB_SCREENSHOT_KEYWORDS)) addDomainSubdomain('web', 'screenshot', 'prompt:web-screenshot')
   if (hasAnyKeyword(text, ['浏览器自动化', '自动操作页面', '网页执行', 'browser execute'])) {
@@ -1737,15 +1932,21 @@ function classifyIntent(args: {
   if (args.selected.has('copylab')) addDomainSubdomain('scrapt', 'derive_prompt', 'capability:copylab')
 
   if (args.selected.has('uploadFile')) preferredMcpTools.add('mcp__file-upload__upload_file_to_oss')
+  if (args.selected.has('workspaceDownload') || args.selected.has('webDownload') || args.selected.has('mediaDownload')) {
+    preferredMcpTools.add('mcp__filesystem-server__download')
+  }
   if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
   if (args.selected.has('audioExtract')) preferredMcpTools.add('mcp__ffmpeg-media__extract_audio_from_video')
+  if (args.selected.has('audioConcat')) preferredMcpTools.add('mcp__ffmpeg-media__concatenate_audio_files')
   if (args.selected.has('frameCapture')) preferredMcpTools.add('mcp__ffmpeg-media__capture_frame_at_timestamp')
   if (args.selected.has('mediaDuration')) preferredMcpTools.add('mcp__ffmpeg-media__get_media_duration')
   if (args.selected.has('mediaTrim')) preferredMcpTools.add('mcp__ffmpeg-media__trim_media_segment')
+  if (args.selected.has('videoConcat')) preferredMcpTools.add('mcp__ffmpeg-media__concatenate_video_files')
   if (args.selected.has('textAdd')) preferredMcpTools.add('mcp__draft-elements__add_text')
   if (args.selected.has('textAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_text')
   if (args.selected.has('textDelete')) preferredMcpTools.add('mcp__draft-elements__remove_text')
   if (args.selected.has('textUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_text')
+  if (args.selected.has('subtitleRecognition')) preferredMcpTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
   if (args.selected.has('subtitleSrt')) preferredMcpTools.add('mcp__draft-elements__add_subtitle')
   if (args.selected.has('textIntroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_intro_types')
   if (args.selected.has('textOutroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_outro_types')
@@ -1786,13 +1987,19 @@ function classifyIntent(args: {
   if (args.selected.has('kouboTemplate')) preferredMcpTools.add('mcp__koubo-template__submit_koubo_template_task')
 
   if (args.selected.has('audioExtract')) addDomainSubdomain('cut', 'audio_extract', 'capability:audio-extract')
+  if (args.selected.has('audioConcat')) addDomainSubdomain('cut', 'audio_concat', 'capability:audio-concat')
+  if (args.selected.has('mediaDownload')) addDomainSubdomain('cut', 'media_download', 'capability:media-download')
   if (args.selected.has('frameCapture')) addDomainSubdomain('cut', 'frame_capture', 'capability:frame-capture')
   if (args.selected.has('mediaDuration')) addDomainSubdomain('cut', 'media_duration', 'capability:media-duration')
   if (args.selected.has('mediaTrim')) addDomainSubdomain('cut', 'media_trim', 'capability:media-trim')
+  if (args.selected.has('videoConcat')) addDomainSubdomain('cut', 'video_concat', 'capability:video-concat')
   if (args.selected.has('textAdd')) addDomainSubdomain('cut', 'text_add', 'capability:text-add')
   if (args.selected.has('textAddBatch')) addDomainSubdomain('cut', 'text_add_batch', 'capability:text-add-batch')
   if (args.selected.has('textDelete')) addDomainSubdomain('cut', 'text_delete', 'capability:text-delete')
   if (args.selected.has('textUpdate')) addDomainSubdomain('cut', 'text_update', 'capability:text-update')
+  if (args.selected.has('subtitleRecognition')) {
+    addDomainSubdomain('cut', 'subtitle_recognition', 'capability:subtitle-recognition')
+  }
   if (args.selected.has('subtitleSrt')) addDomainSubdomain('cut', 'subtitle_srt', 'capability:subtitle-srt')
   if (args.selected.has('textIntroAnimationList')) {
     addDomainSubdomain('cut', 'text_intro_animation_list', 'capability:text-intro-animation-list')
@@ -1883,7 +2090,7 @@ function classifyIntent(args: {
     (webSubdomains.includes('execute') ? 2 : 0) +
     (webSubdomains.includes('screenshot') ? 1 : 0)
   const domainScoreMap: Record<IntentDomain, number> = {
-    chat: 0,
+    chat: getSubdomains('chat').length > 0 ? 1 + getSubdomains('chat').length : 0,
     workspace: workspaceScore,
     web: webScore,
     ai_media: aiMediaSubdomains.length > 0 ? 6 + aiMediaSubdomains.length : 0,
@@ -1907,7 +2114,7 @@ function classifyIntent(args: {
     return getSubdomains(domain).length > 0
   })
   const activeDomains = allDomains
-    .filter((domain) => domain !== 'chat' && getSubdomains(domain).length > 0)
+    .filter((domain) => getSubdomains(domain).length > 0)
     .sort((left, right) => {
       if (left === primaryDomain) return -1
       if (right === primaryDomain) return 1

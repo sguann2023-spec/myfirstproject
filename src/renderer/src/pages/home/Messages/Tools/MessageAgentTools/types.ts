@@ -28,6 +28,12 @@ export type TextOutput = {
   text: string
 }
 
+export type ImageOutput = {
+  type: 'image'
+  data: string
+  mimeType?: string
+}
+
 // Read 工具的类型定义
 export interface SkillToolInput {
   /**
@@ -54,7 +60,7 @@ export interface ReadToolInput {
   limit?: number
 }
 
-export type ReadToolOutput = string | TextOutput[]
+export type ReadToolOutput = string | Array<TextOutput | ImageOutput>
 
 // Task 工具的类型定义
 export type TaskToolInput = {

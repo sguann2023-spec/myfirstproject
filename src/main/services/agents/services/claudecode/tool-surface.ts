@@ -35,6 +35,9 @@ export type ToolSurface = {
 }
 
 const DOMAIN_SUBDOMAIN_BUILTINS: Partial<Record<IntentDomain, Record<string, string[]>>> = {
+  chat: {
+    bash: ['Bash']
+  },
   workspace: {
     read: ['Read', 'Glob', 'Grep'],
     write: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit'],
@@ -70,6 +73,10 @@ const collectDomainBuiltinTools = (decision: CapabilityDecision): string[] => {
 
   for (const activeDomain of decision.activeDomains) {
     applyDomain(activeDomain.domain, activeDomain.subdomains)
+  }
+
+  if (decision.activeDomains.some((activeDomain) => activeDomain.domain !== 'chat')) {
+    tools.add('Bash')
   }
 
   return Array.from(tools)

@@ -463,7 +463,8 @@ export class ToolCallChunkHandler {
         responses: [toolResponse]
       })
 
-      const images = extractImagesFromToolOutput(toolResponse.response)
+      const shouldEmitStandaloneImages = toolResponse.tool.name !== 'Read'
+      const images = shouldEmitStandaloneImages ? extractImagesFromToolOutput(toolResponse.response) : []
 
       if (images.length) {
         this.onChunk({

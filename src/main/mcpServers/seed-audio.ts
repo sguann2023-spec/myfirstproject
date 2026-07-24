@@ -17,17 +17,26 @@ const DEFAULT_SEED_AUDIO_MODEL = 'seed-audio-1.0'
 const GENERATE_SEED_AUDIO_TOOL: Tool = {
   name: 'generate_seed_audio',
   description:
-    'Generate rich audio with Doubao seed-audio instead of plain TTS. Use this for prompt-based audio generation with optional speaker, reference audio, reference image, background music, sound effects, or multi-speaker style control.',
+    'Generate rich audio with Doubao seed-audio from a creative prompt instead of plain TTS. Use this for prompt-based audio generation with optional speaker, reference audio, reference image, background music, sound effects, or multi-speaker style control.',
   inputSchema: {
     type: 'object',
     properties: {
+      prompt: {
+        type: 'string',
+        description:
+          'Required prompt describing the target audio scene, speaking style, speakers, background music, or sound effects. This is not TTS input text.'
+      },
+      prompt_text: {
+        type: 'string',
+        description: 'Alias of prompt.'
+      },
       textPrompt: {
         type: 'string',
-        description: 'Required audio generation prompt describing voice, scene, speakers, background music, or sound effects.'
+        description: 'Backward-compatible alias of prompt.'
       },
       text_prompt: {
         type: 'string',
-        description: 'Alias of textPrompt. Uses the same semantics as the VectCut API docs.'
+        description: 'Backward-compatible alias of prompt. Normalized to the upstream API field.'
       },
       model: {
         type: 'string',
@@ -98,7 +107,7 @@ const GENERATE_SEED_AUDIO_TOOL: Tool = {
         description: 'Optional watermark configuration.'
       }
     },
-    required: ['textPrompt'],
+    required: ['prompt'],
     additionalProperties: true
   }
 }
@@ -122,6 +131,8 @@ type SeedAudioGenerateResponse = {
 }
 
 const SEED_AUDIO_FIELD_ALIASES: Record<string, string> = {
+  prompt: 'text_prompt',
+  prompt_text: 'text_prompt',
   textPrompt: 'text_prompt',
   voiceId: 'voice_id',
   audioUrl: 'audio_url',
@@ -280,10 +291,20 @@ class SeedAudioServer {
   }
 
   private buildSeedAudioPayload(args: Record<string, unknown>) {
-    const rawTextPrompt = typeof args.textPrompt === 'string' ? args.textPrompt : args.text_prompt
-    const textPrompt = typeof rawTextPrompt === 'string' ? rawTextPrompt.trim() : ''
-    if (!textPrompt) {
-      throw new McpError(ErrorCode.InvalidParams, "'textPrompt' is required for generate_seed_audio")
+    const rawPrompt =
+      typeof args.prompt === 'string'
+        ? args.prompt
+        : typeof args.prompt_text === 'string'
+          ? args.prompt_text
+          : typeof args.textPrompt === 'string'
+            ? args.textPrompt
+            : args.text_prompt
+    const prompt = typeof rawPrompt === 'string' ? rawPrompt.trim() : ''
+    if (!prompt) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "'prompt' is required for generate_seed_audio (textPrompt/text_prompt are compatibility aliases)"
+      )
     }
 
     const payload: Record<string, unknown> = {}
@@ -293,7 +314,7 @@ class SeedAudioServer {
       payload[key] = value
     }
 
-    payload.text_prompt = textPrompt
+    payload.text_prompt = prompt
     payload.model =
       typeof payload.model === 'string' && String(payload.model).trim()
         ? String(payload.model).trim()
@@ -324,7 +345,7 @@ class SeedAudioServer {
       action: 'generate_seed_audio',
       request: {
         model: payload.model,
-        text_prompt: payload.text_prompt,
+        prompt: payload.text_prompt,
         voice_id: payload.voice_id,
         speaker: payload.speaker
       },

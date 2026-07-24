@@ -109,7 +109,7 @@ describe('SeedAudioServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
-      textPrompt: '  多人对话，带背景音乐和音效  ',
+      prompt: '  多人对话，带背景音乐和音效  ',
       speaker: 'female_1',
       audioUrl: 'https://example.com/ref.mp3',
       imageUrl: 'https://example.com/ref.png',
@@ -149,7 +149,7 @@ describe('SeedAudioServer', () => {
       action: 'generate_seed_audio',
       request: {
         model: 'seed-audio-1.0',
-        text_prompt: '多人对话，带背景音乐和音效',
+        prompt: '多人对话，带背景音乐和音效',
         voice_id: undefined,
         speaker: 'female_1'
       },
@@ -198,6 +198,36 @@ describe('SeedAudioServer', () => {
       text_prompt: '老年女声回忆往事',
       voice_id: 'speaker_ref_1',
       references: [{ audio_url: 'https://example.com/sample.mp3' }],
+      model: 'seed-audio-1.0'
+    })
+  })
+
+  it('should still accept legacy textPrompt alias', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          provider: 'volc',
+          model: 'seed-audio-1.0',
+          url: 'https://example.com/seed-audio-legacy.wav',
+          text_prompt: '科幻感女声，带轻微电子氛围',
+          voice_id: null
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, {
+      textPrompt: '  科幻感女声，带轻微电子氛围  '
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      text_prompt: '科幻感女声，带轻微电子氛围',
       model: 'seed-audio-1.0'
     })
   })

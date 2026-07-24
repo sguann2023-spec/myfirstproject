@@ -1,4 +1,5 @@
 import CodeViewer from '@renderer/components/CodeViewer'
+import ImageViewer from '@renderer/components/ImageViewer'
 import { getLanguageByFilePath } from '@renderer/utils/code-language'
 import { formatFileSize } from '@renderer/utils/file'
 import type { CollapseProps } from 'antd'
@@ -7,7 +8,12 @@ import { useTranslation } from 'react-i18next'
 import { truncateOutput } from '../shared/truncateOutput'
 import { ClickableFilePath } from './ClickableFilePath'
 import { SkeletonValue, ToolHeader, TruncatedIndicator } from './GenericTools'
-import type { ReadToolInput as ReadToolInputType, ReadToolOutput as ReadToolOutputType, TextOutput } from './types'
+import type {
+  ImageOutput,
+  ReadToolInput as ReadToolInputType,
+  ReadToolOutput as ReadToolOutputType,
+  TextOutput
+} from './types'
 import { AgentToolsType } from './types'
 
 const removeSystemReminderTags = (text: string): string => {
@@ -40,6 +46,11 @@ const normalizeOutputString = (output?: ReadToolOutputType): string | null => {
   return removeSystemReminderTags(output)
 }
 
+const extractImageOutputs = (output?: ReadToolOutputType): ImageOutput[] => {
+  if (!Array.isArray(output)) return []
+  return output.filter((item): item is ImageOutput => item.type === 'image' && typeof item.data === 'string')
+}
+
 const getOutputStats = (outputString: string | null) => {
   if (!outputString) return null
 
@@ -58,6 +69,7 @@ export function ReadTool({
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
   const outputString = normalizeOutputString(output)
+  const imageOutputs = extractImageOutputs(output)
   const stats = getOutputStats(outputString)
   const filename = input?.file_path?.split('/').pop()
   const language = getLanguageByFilePath(input?.file_path ?? '')
@@ -84,18 +96,30 @@ export function ReadTool({
         showStatus={false}
       />
     ),
-    children: strippedOutput ? (
+    children: strippedOutput || imageOutputs.length > 0 ? (
       <div>
-        <CodeViewer
-          value={strippedOutput}
-          language={language}
-          expanded={false}
-          wrapped={false}
-          minHeight={100}
-          maxHeight={240}
-          options={{ lineNumbers: true }}
-        />
-        {isTruncated && <TruncatedIndicator originalLength={originalLength} />}
+        {strippedOutput && (
+          <>
+            <CodeViewer
+              value={strippedOutput}
+              language={language}
+              expanded={false}
+              wrapped={false}
+              minHeight={100}
+              maxHeight={240}
+              options={{ lineNumbers: true }}
+            />
+            {isTruncated && <TruncatedIndicator originalLength={originalLength} />}
+          </>
+        )}
+        {imageOutputs.map((image, index) => (
+          <div key={`${image.mimeType ?? 'image/png'}-${index}`} style={{ marginTop: strippedOutput ? 12 : 0 }}>
+            <ImageViewer
+              src={`data:${image.mimeType ?? 'image/png'};base64,${image.data}`}
+              style={{ maxWidth: 300, maxHeight: 300, padding: 0, borderRadius: 8 }}
+            />
+          </div>
+        ))}
       </div>
     ) : (
       <SkeletonValue value={null} width="100%" fallback={null} />

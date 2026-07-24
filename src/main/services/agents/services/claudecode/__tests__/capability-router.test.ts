@@ -23,6 +23,31 @@ describe('CapabilityRouter', () => {
     expect(Array.from(decision.selected)).toEqual([])
   })
 
+  it('routes explicit bash requests to chat.bash', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '帮我执行这个 bash 命令：ffmpeg -i input.mp4 output.mp3',
+      sessionId: 'session-chat-bash',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('chat')
+    expect(decision.subdomains).toEqual(['bash'])
+    expect(decision.selected.has('bash')).toBe(true)
+    expect(decision.toolLayer).toBe('chat')
+    expect(decision.activeDomains).toEqual([
+      expect.objectContaining({
+        domain: 'chat',
+        role: 'primary',
+        subdomains: ['bash']
+      })
+    ])
+  })
+
   it('routes file creation requests to workspace.write', () => {
     const router = new CapabilityRouter()
 
@@ -142,6 +167,47 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('draftDownload')).toBe(true)
     expect(decision.selected.has('browser')).toBe(false)
     expect(decision.preferredMcpTools).toContain('mcp__draft-download__download_draft')
+    expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
+  })
+
+  it('routes multi media url downloads to cut.media_download instead of browser', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt:
+        '下载这几个音频链接到本地再合并 https://player.install-ai-guider.top/a.wav https://player.install-ai-guider.top/b.wav https://player.install-ai-guider.top/c.wav',
+      sessionId: 'session-media-download-urls',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['media_download']))
+    expect(decision.selected.has('mediaDownload')).toBe(true)
+    expect(decision.selected.has('browser')).toBe(false)
+    expect(decision.preferredMcpTools).toContain('mcp__filesystem-server__download')
+    expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
+  })
+
+  it('routes generic url download requests to web.download instead of browser', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '把这个网页上的音频链接下载下来 https://example.com/demo.wav',
+      sessionId: 'session-web-download',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('web')
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['download']))
+    expect(decision.selected.has('webDownload')).toBe(true)
+    expect(decision.selected.has('browser')).toBe(false)
+    expect(decision.preferredMcpTools).toContain('mcp__filesystem-server__download')
     expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
   })
 
@@ -391,6 +457,22 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const subtitleRecognitionDecision = router.select({
+      prompt: '识别这个视频链接里的字幕，不要上屏 https://example.com/source.mp4',
+      sessionId: 'session-subtitle-recognition',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const localSubtitleRecognitionDecision = router.select({
+      prompt: '把这个本地音频文件 sample.wav 识别成字幕',
+      sessionId: 'session-local-subtitle-recognition',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const templateDecision = router.select({
       prompt: '模版剪辑',
       sessionId: 'session-template-cut',
@@ -422,6 +504,21 @@ describe('CapabilityRouter', () => {
     expect(subtitleTemplateDecision.selected.has('subtitleTemplate')).toBe(true)
     expect(subtitleTemplateDecision.selected.has('kouboTemplate')).toBe(false)
     expect(subtitleTemplateDecision.preferredMcpTools).toContain('mcp__subtitle-template__generate_smart_subtitle')
+    expect(subtitleRecognitionDecision.primaryDomain).toBe('cut')
+    expect(subtitleRecognitionDecision.subdomains).toEqual(['subtitle_recognition'])
+    expect(subtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
+    expect(subtitleRecognitionDecision.selected.has('subtitleTemplate')).toBe(false)
+    expect(subtitleRecognitionDecision.selected.has('kouboTemplate')).toBe(false)
+    expect(subtitleRecognitionDecision.preferredMcpTools).toContain(
+      'mcp__subtitle-recognition__submit_subtitle_recognition_task'
+    )
+    expect(localSubtitleRecognitionDecision.primaryDomain).toBe('cut')
+    expect(localSubtitleRecognitionDecision.subdomains).toEqual(['subtitle_recognition'])
+    expect(localSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
+    expect(localSubtitleRecognitionDecision.selected.has('uploadFile')).toBe(true)
+    expect(localSubtitleRecognitionDecision.preferredMcpTools).toContain(
+      'mcp__subtitle-recognition__submit_subtitle_recognition_task'
+    )
     expect(templateDecision.primaryDomain).toBe('cut')
     expect(templateDecision.subdomains).toEqual(['template'])
     expect(templateDecision.selected.has('kouboTemplate')).toBe(true)

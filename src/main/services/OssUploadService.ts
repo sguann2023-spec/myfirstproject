@@ -221,7 +221,8 @@ class OssUploadService {
     logger.info('Uploaded local file to OSS', {
       filePath: normalizedPath,
       objectKey,
-      publicUrl
+      publicUrl,
+      signedPublicUrl
     })
 
     return {
