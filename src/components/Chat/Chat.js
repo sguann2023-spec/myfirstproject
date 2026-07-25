@@ -29,8 +29,8 @@ const QUICK_PROMPTS = [
     action: 'bootstrap-childrens-picture-book',
   },
   {
-    label: '把这条视频的气口去掉',
-    prompt: '请处理这个视频(<https://player.install-ai-guider.top/example/koubo_test3.mp4>)，把气口去掉',
+    label: '旅游攻略',
+    action: 'bootstrap-travel-guide',
   },
   // {
   //   label: '把这几条视频混剪在一起',

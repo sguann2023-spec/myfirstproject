@@ -48,6 +48,7 @@ const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
 const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
+const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const getSessionWorkspacePath = (session) => {
@@ -3054,6 +3055,89 @@ const HomePage = () => {
     }
   }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
+  const handleBootstrapTravelGuide = useCallback(async () => {
+    const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    const session = createEmptyChatSession();
+    setChatSessions((prev) => [session, ...prev]);
+    setActiveChatId(session.id);
+    setChatSessionSending(session.id, false, 'quick-bootstrap');
+    setChatSessionInFlight(session.id, false, 'quick-bootstrap');
+    setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
+    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备旅游攻略技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+
+    try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_TRAVEL_GUIDE_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位旅游攻略技能目录失败');
+      }
+
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = inheritedWorkspacePath;
+      if (!workspacePath) {
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath,
+        excludeSubdirs: ['website']
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? { ...item, runtimeSessionId: agentSessionId, updatedAt: Date.now() }
+            : item
+        ))
+      );
+      window.toast?.success?.(
+        inheritedWorkspacePath
+          ? '已新建对话，复用当前工作空间并创建旅游攻略技能'
+          : '已新建对话和工作空间，并创建旅游攻略技能'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
     setChatSessionFulfilled(sessionId, false, 'select-session');
@@ -3789,6 +3873,9 @@ const HomePage = () => {
                   }
                   if (action === 'bootstrap-live-clipping') {
                     void handleBootstrapLiveClipping();
+                  }
+                  if (action === 'bootstrap-travel-guide') {
+                    void handleBootstrapTravelGuide();
                   }
                 }}
                 onRefreshCredits={refreshRechargeBalance}
