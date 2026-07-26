@@ -6,6 +6,9 @@ import { MAX_INLINE_PAYLOAD_BYTES, formatByteSize, limitInlineText } from '@shar
 import { DEFAULT_READ_LIMIT, isBinaryFile, MAX_LINE_LENGTH, validatePath } from '../types'
 
 const MAX_READ_OUTPUT_BYTES = 5 * 1024
+const LARGE_FILE_HEAD_SAMPLE_BYTES = 2 * 1024
+const LARGE_FILE_TAIL_SAMPLE_BYTES = 2 * 1024
+const LARGE_FILE_PREVIEW_LINES = 12
 
 // Schema definition
 export const ReadToolSchema = z.object({
@@ -25,10 +28,74 @@ export const readToolDefinition = {
 - You can optionally specify a line offset and limit for long files
 - Any lines longer than 2000 characters will be truncated
 - Results are returned with line numbers starting at 1
+- Files above the hard inline limit return a concise summary instead of full content
 - Final inline output is capped at 5 KB
 - Binary files are detected and rejected with an error
 - Empty files return a warning`,
   inputSchema: z.toJSONSchema(ReadToolSchema)
+}
+
+function normalizePreviewLines(sample: string, options: { fromTail?: boolean; dropFirstPartialLine?: boolean } = {}): string[] {
+  const normalized = sample.replace(/\r\n/g, '\n')
+  let lines = normalized.split('\n')
+
+  if (options.dropFirstPartialLine && lines.length > 0) {
+    lines = lines.slice(1)
+  }
+  if (lines[lines.length - 1] === '') {
+    lines = lines.slice(0, -1)
+  }
+
+  const selected = options.fromTail ? lines.slice(-LARGE_FILE_PREVIEW_LINES) : lines.slice(0, LARGE_FILE_PREVIEW_LINES)
+  return selected.map((line) => (line.length > MAX_LINE_LENGTH ? `${line.slice(0, MAX_LINE_LENGTH)}...` : line))
+}
+
+async function buildLargeFileSummary(validPath: string, relativePath: string, fileSize: number): Promise<string> {
+  const fileHandle = await fs.open(validPath, 'r')
+
+  try {
+    const headBytes = Math.min(fileSize, LARGE_FILE_HEAD_SAMPLE_BYTES)
+    const headBuffer = Buffer.alloc(headBytes)
+    if (headBytes > 0) {
+      await fileHandle.read(headBuffer, 0, headBytes, 0)
+    }
+
+    const tailBytes = fileSize > headBytes ? Math.min(fileSize, LARGE_FILE_TAIL_SAMPLE_BYTES) : 0
+    const tailStart = Math.max(0, fileSize - tailBytes)
+    const tailBuffer = Buffer.alloc(tailBytes)
+    if (tailBytes > 0) {
+      await fileHandle.read(tailBuffer, 0, tailBytes, tailStart)
+    }
+
+    const headLines = normalizePreviewLines(headBuffer.toString('utf8'))
+    const tailLines = tailBytes > 0
+      ? normalizePreviewLines(tailBuffer.toString('utf8'), { fromTail: true, dropFirstPartialLine: tailStart > 0 })
+      : []
+
+    const sections = [
+      `File: ${relativePath}`,
+      `Size: ${formatByteSize(fileSize)}`,
+      '',
+      `Large file summary only. Full inline read was skipped because this file exceeds the ${formatByteSize(MAX_INLINE_PAYLOAD_BYTES)} hard limit.`
+    ]
+
+    if (headLines.length > 0) {
+      sections.push('', 'Start preview:')
+      sections.push(...headLines.map((line) => `  ${line}`))
+    }
+
+    if (tailLines.length > 0) {
+      sections.push('', 'End preview:')
+      sections.push(...tailLines.map((line) => `  ${line}`))
+    }
+
+    return limitInlineText(sections.join('\n'), {
+      label: '大文件摘要',
+      maxBytes: MAX_READ_OUTPUT_BYTES
+    })
+  } finally {
+    await fileHandle.close()
+  }
 }
 
 // Handler implementation
@@ -67,13 +134,7 @@ export async function handleReadTool(args: unknown, baseDir: string) {
       content: [
         {
           type: 'text',
-          text: [
-            `File: ${relativePath}`,
-            `Size: ${formatByteSize(fileSize)}`,
-            '',
-            `Inline read skipped because this file exceeds the ${formatByteSize(MAX_INLINE_PAYLOAD_BYTES)} hard limit.`,
-            'Use targeted shell/code workflows instead, for example jq/rg/head/tail/sed, and save extracted results to workspace files before continuing.'
-          ].join('\n')
+          text: await buildLargeFileSummary(validPath, relativePath, fileSize)
         }
       ]
     }

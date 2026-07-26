@@ -171,6 +171,24 @@ describe('filesystem MCP security', () => {
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(5 * 1024)
   })
 
+  it('returns a summary instead of offset guidance for files above the hard inline limit', async () => {
+    const workspaceRoot = await createTempDir('read-summary-root-')
+    const largeFile = path.join(workspaceRoot, 'huge.log')
+    const oversizedContent = ['start-line', 'A'.repeat(2 * 1024 * 1024 + 256), 'end-line'].join('\n')
+    await fs.writeFile(largeFile, oversizedContent)
+
+    const result = await handleReadTool({ file_path: largeFile }, workspaceRoot)
+    const text = result.content[0].text
+
+    expect(text).toContain('Large file summary only')
+    expect(text).toContain('Start preview:')
+    expect(text).toContain('End preview:')
+    expect(text).toContain('start-line')
+    expect(text).toContain('end-line')
+    expect(text).not.toContain('offset and limit')
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(5 * 1024)
+  })
+
   it('rejects download destinations outside the configured workspace root', async () => {
     const workspaceRoot = await createTempDir('download-reject-root-')
 

@@ -121,6 +121,9 @@ const ROUTING_CONTEXT_MAX_MESSAGES = ROUTING_CONTEXT_MAX_TURNS * 2
 const ROUTING_CONTEXT_MAX_CHARS = 6000
 const ROUTING_CONTEXT_MAX_MESSAGE_CHARS = 500
 const GIT_BASH_PATH_ERROR_SIGNATURE = 'CLAUDE_CODE_GIT_BASH_PATH path'
+const DEFAULT_SEGMENT_RECENT_TURNS = 4
+const CONTINUED_SEGMENT_RECENT_TURNS = 2
+const MAX_AUTO_COMPACTIONS_PER_QUERY = 2
 
 type SessionArchitectureContext = {
   traceId: string
@@ -176,6 +179,9 @@ const describeApiKey = (value?: string | null) => {
 }
 
 const buildTraceId = () => `trace_${randomUUID()}`
+
+const getSegmentRecentTurnLimit = (continuationSummary?: string): number =>
+  continuationSummary ? CONTINUED_SEGMENT_RECENT_TURNS : DEFAULT_SEGMENT_RECENT_TURNS
 
 const composePromptViewText = (promptView: PromptView): string => {
   const sections: string[] = []
@@ -1421,7 +1427,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       })
     }
 
-    const recentTurns = activeSegment ? await agentTurnRepository.listBySegmentId(activeSegment.id, 4) : []
+    const recentTurnLimit = getSegmentRecentTurnLimit(activeSegment?.continuationSummary)
+    const recentTurns = activeSegment ? await agentTurnRepository.listBySegmentId(activeSegment.id, recentTurnLimit) : []
     logger.info('[SegmentCompose] start', {
       topicId: session.id,
       traceId,
@@ -2501,6 +2508,8 @@ class ClaudeCodeService implements AgentServiceInterface {
     let streamedAssistantText = ''
     const assistantSnapshotTexts: string[] = []
     const pendingToolCalls = new Map<string, PendingToolCall>()
+    let compactBoundaryCount = 0
+    let repeatedCompactionTriggered = false
     const streamingProbe = {
       firstChunkAtMs: null as number | null,
       firstTextDeltaAtMs: null as number | null,
@@ -2511,6 +2520,50 @@ class ClaudeCodeService implements AgentServiceInterface {
       reasoningDeltaCount: 0,
       assistantSnapshotWithTextCount: 0,
       assistantSnapshotTextChars: 0
+    }
+
+    const recoverFreshSegmentAfterCompactionLoop = async () => {
+      if (!currentSegment) {
+        return
+      }
+
+      const recoveryRecentTurns = currentTurn ? [currentTurn] : []
+      const recoveryArtifacts = currentTurn ? await agentArtifactRepository.listByTurnId(currentTurn.id) : []
+      const recoveryFileChanges = currentTurn ? await fileChangeJournalService.listByTurn(currentTurn.id) : []
+      const rawSummary = await conversationSummaryService.buildRawSummary({
+        segment: currentSegment,
+        recentTurns: recoveryRecentTurns,
+        artifacts: recoveryArtifacts,
+        fileChanges: recoveryFileChanges
+      })
+      const continuationSummary = await conversationSummaryService.compressSummary({
+        rawSummary,
+        maxChars: 800,
+        maxLines: 16,
+        maxLineChars: 140
+      })
+
+      await conversationSegmentService.closeSegment(currentSegment.id)
+      const childSegment = await conversationSegmentService.createChildSegment({
+        topicId: currentSegment.topicId,
+        parentSegmentId: currentSegment.id,
+        forkFromSdkSessionId: currentSegment.sdkSessionId,
+        systemPromptVersion: architectureContext.promptEnvelope.systemPromptVersion,
+        systemPromptHash: architectureContext.promptEnvelope.systemPromptHash,
+        basePromptSnapshot: architectureContext.promptEnvelope.systemPrompt,
+        continuationSummary,
+        compactReason: 'repeated_auto_compaction',
+        summaryVersion: 'v1'
+      })
+
+      logger.warn('[CompactionFuse] created fresh child segment after repeated auto-compaction', {
+        topicId: architectureContext.topicId,
+        traceId: architectureContext.traceId,
+        parentSegmentId: currentSegment.id,
+        childSegmentId: childSegment.id,
+        compactBoundaryCount,
+        continuationSummaryChars: continuationSummary.length
+      })
     }
 
     try {
@@ -2536,6 +2589,20 @@ class ClaudeCodeService implements AgentServiceInterface {
               keys: Object.keys((message as Record<string, unknown>) || {}),
               preview: compactProbePreview
             })
+          }
+          if (systemSubtype === 'compact_boundary') {
+            compactBoundaryCount += 1
+            logger.info('[compact-probe][boundary-count]', {
+              sessionId,
+              compactBoundaryCount,
+              maxAutoCompactionsPerQuery: MAX_AUTO_COMPACTIONS_PER_QUERY
+            })
+            if (compactBoundaryCount > MAX_AUTO_COMPACTIONS_PER_QUERY) {
+              repeatedCompactionTriggered = true
+              throw new Error(
+                `Detected repeated Claude auto-compaction loop after ${compactBoundaryCount} compact boundaries in one request`
+              )
+            }
           }
         } else if (hasCompactSignal) {
           logger.info('[compact-probe][sdk-message]', {
@@ -3068,11 +3135,11 @@ class ClaudeCodeService implements AgentServiceInterface {
           cumulativeInputTokens: finalInputTokens,
           decision: decision.shouldCompact,
           reason: decision.reason ?? '',
-          preserveRecentMessages: 4
+          preserveRecentMessages: DEFAULT_SEGMENT_RECENT_TURNS
         })
 
         if (decision.shouldCompact) {
-          const recentTurns = await agentTurnRepository.listBySegmentId(currentSegment.id, 4)
+          const recentTurns = await agentTurnRepository.listBySegmentId(currentSegment.id, DEFAULT_SEGMENT_RECENT_TURNS)
           const artifacts = await agentArtifactRepository.listByTurnId(currentTurn.id)
           const fileChanges = await fileChangeJournalService.listByTurn(currentTurn.id)
           const rawSummary = await conversationSummaryService.buildRawSummary({
@@ -3135,7 +3202,7 @@ class ClaudeCodeService implements AgentServiceInterface {
             childSegmentId: childSegment.id,
             rawSummaryChars: rawSummary.length,
             continuationSummaryChars: continuationSummary.length,
-            preservedRecentMessages: 4,
+            preservedRecentMessages: DEFAULT_SEGMENT_RECENT_TURNS,
             compactedMessageCount: recentTurns.length
           })
           logger.info('[ForkContinuation] create-child', {
@@ -3170,7 +3237,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       if (isAborted) {
         if (currentTurn) {
           await agentTurnRepository.update(currentTurn.id, {
-              assistantText: buildPersistedAssistantText({
+            assistantText:
+              buildPersistedAssistantText({
                 snapshotTexts: assistantSnapshotTexts,
                 streamedText: streamedAssistantText
               }) || undefined,
@@ -3188,7 +3256,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
 
       errorChunks.push(errorObj instanceof Error ? errorObj.message : String(errorObj))
-      const errorMessage = errorChunks.join('\n\n')
       logger.error('SDK query failed', {
         duration,
         error: errorObj instanceof Error ? { name: errorObj.name, message: errorObj.message } : String(errorObj),
@@ -3197,7 +3264,8 @@ class ClaudeCodeService implements AgentServiceInterface {
 
       if (currentTurn) {
         await agentTurnRepository.update(currentTurn.id, {
-            assistantText: buildPersistedAssistantText({
+          assistantText:
+            buildPersistedAssistantText({
               snapshotTexts: assistantSnapshotTexts,
               streamedText: streamedAssistantText
             }) || undefined,
@@ -3206,6 +3274,23 @@ class ClaudeCodeService implements AgentServiceInterface {
           cumulativeInputTokens: finalInputTokens
         })
       }
+
+      if (repeatedCompactionTriggered) {
+        const recoveryMessage =
+          'Detected repeated Claude auto-compaction loop. Stopped the current Claude session and prepared a fresh continuation segment for the next retry.'
+        errorChunks.unshift(recoveryMessage)
+        try {
+          await recoverFreshSegmentAfterCompactionLoop()
+        } catch (recoveryError) {
+          logger.error('[CompactionFuse] failed to prepare fresh child segment', {
+            topicId: architectureContext.topicId,
+            traceId: architectureContext.traceId,
+            segmentId: currentSegment?.id ?? '',
+            error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError)
+          })
+        }
+      }
+      const errorMessage = errorChunks.join('\n\n')
 
       stream.emit('data', {
         type: 'error',

@@ -6,6 +6,7 @@ import {
   extractAssistantTextFromSdkMessage,
   normalizeAssistantTranscriptText
 } from '../assistant-text'
+import { promptViewBuilder } from '../session-architecture/PromptViewBuilder'
 import { conversationSummaryService } from '../session-architecture/ConversationSummaryService'
 
 describe('assistant-text', () => {
@@ -48,12 +49,17 @@ describe('assistant-text', () => {
 })
 
 describe('ConversationSummaryService', () => {
-  it('includes recent assistant responses in compact raw summary', async () => {
+  it('keeps stable handles from previous summary and recent assistant state', async () => {
     const summary = await conversationSummaryService.buildRawSummary({
       segment: {
         id: 'segment-1',
         topicId: 'topic-1',
         sdkSessionId: 'sdk-1',
+        continuationSummary:
+          '上次摘要里有一大段解释性文字，不应该整段回灌。\n' +
+          'taskId: task_123\n' +
+          'filePath: /tmp/demo.txt\n' +
+          '下一步：继续下载草稿',
         systemPromptVersion: 'v1',
         systemPromptHash: 'hash-1',
         status: 'active',
@@ -68,7 +74,11 @@ describe('ConversationSummaryService', () => {
           userMessageId: 'user-1',
           assistantMessageId: 'assistant-1',
           userText: '用户提问',
-          assistantText: '这是 AI 结论',
+          assistantText:
+            '这里有很长的解释。\n' +
+            'draftId: draft_456\n' +
+            'url: https://example.com/draft/456\n' +
+            '其余大段背景信息不需要完整保留。',
           startedAt: '2026-01-01T00:00:00.000Z',
           completedAt: '2026-01-01T00:00:01.000Z',
           status: 'completed'
@@ -78,7 +88,39 @@ describe('ConversationSummaryService', () => {
       fileChanges: []
     })
 
-    expect(summary).toContain('## Recent Assistant Responses')
-    expect(summary).toContain('- 这是 AI 结论')
+    expect(summary).toContain('## Structured State')
+    expect(summary).toContain('- taskId: task_123')
+    expect(summary).toContain('- filePath: /tmp/demo.txt')
+    expect(summary).toContain('## Recent Assistant State')
+    expect(summary).toContain('- draftId: draft_456')
+    expect(summary).toContain('- url: https://example.com/draft/456')
+    expect(summary).not.toContain('上次摘要里有一大段解释性文字')
+  })
+})
+
+describe('PromptViewBuilder', () => {
+  it('truncates oversized recent turn text', async () => {
+    const promptView = await promptViewBuilder.build({
+      continuationSummary: 'taskId: task_123',
+      currentPrompt: '继续处理',
+      recentTurns: [
+        {
+          id: 'turn-1',
+          topicId: 'topic-1',
+          segmentId: 'segment-1',
+          userMessageId: 'user-1',
+          userText: `用户输入${'a'.repeat(400)}`,
+          assistantText: `助手输出${'b'.repeat(400)}`,
+          startedAt: '2026-01-01T00:00:00.000Z',
+          completedAt: '2026-01-01T00:00:01.000Z',
+          status: 'completed'
+        }
+      ]
+    })
+
+    expect(promptView.recentTurns).toHaveLength(2)
+    expect(promptView.recentTurns[0].text.length).toBeLessThanOrEqual(280)
+    expect(promptView.recentTurns[1].text.length).toBeLessThanOrEqual(280)
+    expect(promptView.recentTurns[0].text.endsWith('…')).toBe(true)
   })
 })
