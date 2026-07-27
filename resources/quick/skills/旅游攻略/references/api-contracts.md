@@ -516,14 +516,14 @@ POST /cut_jianying/add_video
   "speed": 1.0,
   "track_name": "hunjian_clip",
   "relative_index": 1,
-  "transition": "向右",
+  "transition": "左移",
   "transition_duration": 0.5,
   "volume": 0,
   "alpha": 1.0
 }
 ```
 
-`start/end` 是截取源视频的片段时间，`target_start` 是草稿里的目标开始时间；不要把二者混用。如果先拿到视频画面时间戳，通常把它作为源视频 `start` 附近的依据，再按素材长度补 `end`，把分镜开始时间换算成 `target_start`。源代码传入的 `duration` 是所选素材的完整源时长（示例为 `12.0`），不是一定等于 `end-start`。视频响应至少保存原始 JSON；`success=false` 时只有错误明确为轨道重叠才允许改用 `hunjian_clip_fill`、`relative_index=2` 重试。
+`start/end` 是截取源视频的片段时间，`target_start` 是草稿里的目标开始时间；不要把二者混用。如果先拿到视频画面时间戳，通常把它作为源视频 `start` 附近的依据，再按素材长度补 `end`，把分镜开始时间换算成 `target_start`。源代码传入的 `duration` 是所选素材的完整源时长（示例为 `12.0`），不是一定等于 `end-start`。视频响应至少保存原始 JSON；`success=false` 时只有错误明确为轨道重叠才允许改用 `hunjian_clip_fill`、`relative_index=2` 重试。视频转场字段 `transition` 只使用 `翻页` 和 `左移`，写在前一个视频片段上；前后没有明确关系用 `翻页`，其他用 `左移`，最后一个视频片段不加转场。
 
 ## 11. 添加图片和图片缩放
 
