@@ -1,6 +1,6 @@
 {
   "name": "@sun-guannan/vectcut",
-  "version": "1.6.3",
+  "version": "1.6.5",
   "description": "VectCut Application",
   "main": "./out/main/index.js",
   "scripts": {
