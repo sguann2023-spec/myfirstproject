@@ -96,6 +96,47 @@ describe('ConversationSummaryService', () => {
     expect(summary).toContain('- url: https://example.com/draft/456')
     expect(summary).not.toContain('上次摘要里有一大段解释性文字')
   })
+
+  it('extracts stable handles from tool result artifacts without keeping full tool output', async () => {
+    const summary = await conversationSummaryService.buildRawSummary({
+      segment: {
+        id: 'segment-1',
+        topicId: 'topic-1',
+        sdkSessionId: 'sdk-1',
+        systemPromptVersion: 'v1',
+        systemPromptHash: 'hash-1',
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      },
+      recentTurns: [],
+      artifacts: [
+        {
+          id: 'artifact-1',
+          topicId: 'topic-1',
+          segmentId: 'segment-1',
+          turnId: 'turn-1',
+          sourceType: 'tool_result',
+          toolSubtype: 'draft_download',
+          content:
+            '下载完成。\n' +
+            'taskId: task_789\n' +
+            'draftId: draft_999\n' +
+            'url: https://example.com/download/999\n' +
+            '这里还有一大段冗长的调试输出，不应该整段进入摘要。',
+          contentHash: 'hash-artifact-1',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        }
+      ],
+      fileChanges: []
+    })
+
+    expect(summary).toContain('## Structured State')
+    expect(summary).toContain('- taskId: task_789')
+    expect(summary).toContain('- draftId: draft_999')
+    expect(summary).toContain('- url: https://example.com/download/999')
+    expect(summary).not.toContain('这里还有一大段冗长的调试输出')
+  })
 })
 
 describe('PromptViewBuilder', () => {
