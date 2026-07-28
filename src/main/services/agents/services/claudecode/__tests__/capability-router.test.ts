@@ -366,7 +366,7 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
     const seedAudioDecision = router.select({
-      prompt: '用豆包语音生成一段带多人对白、背景音乐和音效的音频，参考这张图和一段音频',
+      prompt: '豆包生成语音，做一段带多人对白、背景音乐和音效的音频，参考这张图和一段音频',
       sessionId: 'session-seed-audio',
       imageCount: 0,
       isAssistant: false,
@@ -393,6 +393,7 @@ describe('CapabilityRouter', () => {
     expect(speechDecision.primaryDomain).toBe('ai_media')
     expect(speechDecision.subdomains).toEqual(['speech'])
     expect(speechDecision.selected.has('speech')).toBe(true)
+    expect(speechDecision.preferredMcpTools).toContain('mcp__speech__generate_speech')
     expect(seedAudioDecision.primaryDomain).toBe('ai_media')
     expect(seedAudioDecision.subdomains).toEqual(['seed_audio'])
     expect(seedAudioDecision.selected.has('seedAudio')).toBe(true)
@@ -404,6 +405,44 @@ describe('CapabilityRouter', () => {
     expect(imageDecision.primaryDomain).toBe('ai_media')
     expect(imageDecision.subdomains).toEqual(['image'])
     expect(imageDecision.selected.has('image')).toBe(true)
+  })
+
+  it('keeps near-match doubao speech prompts on speech instead of seed audio', () => {
+    const router = new CapabilityRouter()
+
+    const nearMatchDecision = router.select({
+      prompt: '用豆包语音生成一段多人对话音频',
+      sessionId: 'session-seed-audio-near-match',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(nearMatchDecision.primaryDomain).toBe('ai_media')
+    expect(nearMatchDecision.subdomains).toEqual(['speech'])
+    expect(nearMatchDecision.selected.has('speech')).toBe(true)
+    expect(nearMatchDecision.selected.has('seedAudio')).toBe(false)
+    expect(nearMatchDecision.preferredMcpTools).not.toContain('mcp__seed-audio__generate_seed_audio')
+  })
+
+  it('routes the alternate exact phrase 豆包语言生成 to seed audio', () => {
+    const router = new CapabilityRouter()
+
+    const alternatePhraseDecision = router.select({
+      prompt: '豆包语言生成，一段多人对话音频',
+      sessionId: 'session-seed-audio-alt-phrase',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(alternatePhraseDecision.primaryDomain).toBe('ai_media')
+    expect(alternatePhraseDecision.subdomains).toEqual(['seed_audio'])
+    expect(alternatePhraseDecision.selected.has('seedAudio')).toBe(true)
+    expect(alternatePhraseDecision.selected.has('speech')).toBe(false)
+    expect(alternatePhraseDecision.preferredMcpTools).toContain('mcp__seed-audio__generate_seed_audio')
   })
 
   it('routes cut tasks into the cut domain', () => {

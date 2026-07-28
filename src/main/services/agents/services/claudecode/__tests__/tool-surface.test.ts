@@ -102,6 +102,23 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).not.toContain('Bash')
   })
 
+  it('keeps ai_media turns free of Bash while allowing MCP speech tools', () => {
+    const surface = buildToolSurface({
+      decision: makeDecision({
+        toolLayer: 'chat',
+        activeDomains: [{ domain: 'ai_media', subdomains: ['speech'], role: 'primary', score: 6 }],
+        primaryDomain: 'ai_media',
+        subdomains: ['speech']
+      }),
+      sessionAllowedTools: ['mcp__speech__*'],
+      isAssistant: false
+    })
+
+    expect(surface.toolsOption).toEqual([])
+    expect(surface.builtinTools).toEqual([])
+    expect(surface.allowedToolsOption).toEqual(['mcp__speech__*'])
+  })
+
   it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {
     const surface = buildToolSurface({
       decision: makeDecision({

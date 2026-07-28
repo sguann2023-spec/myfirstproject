@@ -75,7 +75,7 @@ const collectDomainBuiltinTools = (decision: CapabilityDecision): string[] => {
     applyDomain(activeDomain.domain, activeDomain.subdomains)
   }
 
-  if (decision.activeDomains.some((activeDomain) => activeDomain.domain !== 'chat')) {
+  if (decision.activeDomains.some((activeDomain) => ['web', 'cut'].includes(activeDomain.domain))) {
     tools.add('Bash')
   }
 

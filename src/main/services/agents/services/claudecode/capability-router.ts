@@ -1105,13 +1105,7 @@ const hasImageOutroAnimationListIntent = (text: string) =>
 const hasImageLoopAnimationListIntent = (text: string) =>
   hasLookupIntent(text) && hasVisualMediaSubject(text) && /(循环|组合)/.test(text) && /动画/.test(text)
 
-const hasSeedAudioIntent = (text: string) =>
-  /豆包.{0,8}(语音|音频)/.test(text) ||
-  /(语音|音频).{0,8}豆包/.test(text) ||
-  text.includes('seed-audio') ||
-  text.includes('seed audio') ||
-  ((text.includes('语音') || text.includes('音频')) &&
-    /(参考图片|参考音频|参考图|参考声音|音色|多人|背景音乐|音效)/.test(text))
+const hasSeedAudioIntent = (text: string) => text.includes('豆包生成语音') || text.includes('豆包语言生成')
 
 const COPYLAB_EXPLICIT_KEYWORDS = [
   '反推',
@@ -1935,6 +1929,7 @@ function classifyIntent(args: {
   if (args.selected.has('workspaceDownload') || args.selected.has('webDownload') || args.selected.has('mediaDownload')) {
     preferredMcpTools.add('mcp__filesystem-server__download')
   }
+  if (args.selected.has('speech')) preferredMcpTools.add('mcp__speech__generate_speech')
   if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
   if (args.selected.has('audioExtract')) preferredMcpTools.add('mcp__ffmpeg-media__extract_audio_from_video')
   if (args.selected.has('audioConcat')) preferredMcpTools.add('mcp__ffmpeg-media__concatenate_audio_files')
