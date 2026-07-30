@@ -629,4 +629,98 @@ describe('Claude → AiSDK transform', () => {
     expect(finish.usage).toMatchObject({ inputTokens: 3, outputTokens: 7, totalTokens: 10 })
     expect(finish.finishReason).toBe('stop')
   })
+
+  it('only emits the incremental suffix when an assistant snapshot arrives after partial text streaming', () => {
+    const state = new ClaudeStreamState({ agentSessionId: baseStreamMetadata.session_id })
+    const parts: ReturnType<typeof transformSDKMessageToStreamParts>[number][] = []
+
+    const messages: SDKMessage[] = [
+      {
+        ...baseStreamMetadata,
+        type: 'stream_event',
+        uuid: uuid(50),
+        event: {
+          type: 'message_start',
+          message: {
+            id: 'msg-partial-stream',
+            type: 'message',
+            role: 'assistant',
+            model: 'claude-test',
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: {}
+          }
+        }
+      } as unknown as SDKMessage,
+      {
+        ...baseStreamMetadata,
+        type: 'stream_event',
+        uuid: uuid(51),
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'text',
+            text: ''
+          }
+        }
+      } as unknown as SDKMessage,
+      {
+        ...baseStreamMetadata,
+        type: 'stream_event',
+        uuid: uuid(52),
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: {
+            type: 'text_delta',
+            text: '前半段'
+          }
+        }
+      } as unknown as SDKMessage,
+      {
+        ...baseStreamMetadata,
+        type: 'assistant',
+        uuid: uuid(53),
+        message: {
+          id: 'msg-partial-snapshot',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-test',
+          content: [
+            {
+              type: 'thinking',
+              thinking: 'internal',
+              signature: 'sig'
+            },
+            {
+              type: 'text',
+              text: '前半段后半段'
+            }
+          ],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          usage: {
+            input_tokens: 3,
+            output_tokens: 7
+          }
+        }
+      } as unknown as SDKMessage
+    ]
+
+    for (const message of messages) {
+      parts.push(...transformSDKMessageToStreamParts(message, state))
+    }
+
+    expect(parts.map((part) => part.type)).toEqual(['start-step', 'text-start', 'text-delta', 'text-delta', 'text-end', 'finish-step'])
+
+    const textDeltas = parts.filter((part) => part.type === 'text-delta') as Extract<
+      (typeof parts)[number],
+      { type: 'text-delta' }
+    >[]
+    expect(textDeltas).toHaveLength(2)
+    expect(textDeltas[0].text).toBe('前半段')
+    expect(textDeltas[1].text).toBe('后半段')
+  })
 })

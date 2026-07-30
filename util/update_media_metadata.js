@@ -409,7 +409,7 @@ function applyPendingKeyframeToSegment(segment, trackType, propertyType, timeOff
     segment.uniform_scale = {
       ...current,
       on: true,
-      value: toNumber(value, 1) || 1
+      value: toNumber(current?.value, 1) || 1
     };
     appendSegmentKeyframe(segment, KEYFRAME_PROPERTY_MAP.scale_x, timeOffset, value);
     return;

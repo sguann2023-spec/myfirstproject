@@ -297,12 +297,17 @@ function handleAssistantMessage(
 
   const existingTextBlock = state.getFirstOpenTextBlock()
   const fallbackId = existingTextBlock?.id || message.uuid?.toString() || generateMessageId()
+  const incrementalText =
+    existingTextBlock && combinedText.startsWith(existingTextBlock.text)
+      ? combinedText.slice(existingTextBlock.text.length)
+      : combinedText
   logger.info('Assistant text snapshot merged into streaming step', {
     sessionId: message.session_id,
     messageUuid: message.uuid || '',
     textChars: combinedText.length,
     textBlockCount: textBlocks.length,
     reusedOpenTextBlock: Boolean(existingTextBlock),
+    incrementalTextChars: incrementalText.length,
     reason: existingTextBlock ? 'assistant_snapshot_after_partial_stream' : 'assistant_snapshot_without_open_text_block'
   })
   if (!existingTextBlock) {
@@ -312,12 +317,14 @@ function handleAssistantMessage(
       providerMetadata
     })
   }
-  chunks.push({
-    type: 'text-delta',
-    id: fallbackId,
-    text: combinedText,
-    providerMetadata
-  })
+  if (incrementalText) {
+    chunks.push({
+      type: 'text-delta',
+      id: fallbackId,
+      text: incrementalText,
+      providerMetadata
+    })
+  }
   chunks.push({
     type: 'text-end',
     id: fallbackId,
