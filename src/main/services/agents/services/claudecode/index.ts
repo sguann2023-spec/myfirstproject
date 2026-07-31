@@ -43,6 +43,7 @@ import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
+import VoiceConversionServer from '@main/mcpServers/voice-conversion'
 import { configManager } from '@main/services/ConfigManager'
 import { ossUploadService } from '@main/services/OssUploadService'
 import {
@@ -1692,6 +1693,20 @@ class ClaudeCodeService implements AgentServiceInterface {
       allowMcpPattern('mcp__speech__*')
     } else {
       markSkipped('speech')
+    }
+
+    if (shouldMountCapability('voiceConversion')) {
+      const voiceConversionServer = new VoiceConversionServer()
+      mountMcpServer('voice-conversion', {
+        type: 'sdk',
+        name: 'voice-conversion',
+        instance: voiceConversionServer.mcpServer
+      })
+      autoAllowTools.add('mcp__voice-conversion__submit_voice_conversion_task')
+      autoAllowTools.add('mcp__voice-conversion__get_voice_conversion_task_status')
+      allowMcpPattern('mcp__voice-conversion__*')
+    } else {
+      markSkipped('voice-conversion')
     }
 
     if (shouldMountCapability('seedAudio')) {

@@ -365,6 +365,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const voiceConversionDecision = router.select({
+      prompt: '将这段音频进行变声，变为音色 gv_3，并保持语速和情绪不变',
+      sessionId: 'session-voice-conversion',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const seedAudioDecision = router.select({
       prompt: '豆包生成语音，做一段带多人对白、背景音乐和音效的音频，参考这张图和一段音频',
       sessionId: 'session-seed-audio',
@@ -394,6 +402,11 @@ describe('CapabilityRouter', () => {
     expect(speechDecision.subdomains).toEqual(['speech'])
     expect(speechDecision.selected.has('speech')).toBe(true)
     expect(speechDecision.preferredMcpTools).toContain('mcp__speech__generate_speech')
+    expect(voiceConversionDecision.primaryDomain).toBe('ai_media')
+    expect(voiceConversionDecision.subdomains).toEqual(['voice_conversion'])
+    expect(voiceConversionDecision.selected.has('voiceConversion')).toBe(true)
+    expect(voiceConversionDecision.selected.has('speech')).toBe(false)
+    expect(voiceConversionDecision.preferredMcpTools).toContain('mcp__voice-conversion__submit_voice_conversion_task')
     expect(seedAudioDecision.primaryDomain).toBe('ai_media')
     expect(seedAudioDecision.subdomains).toEqual(['seed_audio'])
     expect(seedAudioDecision.selected.has('seedAudio')).toBe(true)
@@ -424,6 +437,45 @@ describe('CapabilityRouter', () => {
     expect(nearMatchDecision.selected.has('speech')).toBe(true)
     expect(nearMatchDecision.selected.has('seedAudio')).toBe(false)
     expect(nearMatchDecision.preferredMcpTools).not.toContain('mcp__seed-audio__generate_seed_audio')
+  })
+
+  it('keeps voice-based TTS prompts on speech instead of voice conversion', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '利用音色 gv_ec3174bf08434ccd8da59eb8988df1f1 合成语音',
+      sessionId: 'session-speech-not-voice-conversion',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('ai_media')
+    expect(decision.subdomains).toEqual(['speech'])
+    expect(decision.selected.has('speech')).toBe(true)
+    expect(decision.selected.has('voiceConversion')).toBe(false)
+    expect(decision.preferredMcpTools).toContain('mcp__speech__generate_speech')
+    expect(decision.preferredMcpTools).not.toContain('mcp__voice-conversion__submit_voice_conversion_task')
+  })
+
+  it('routes changing the previous voice into a target voice id to voice conversion', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '把刚才的声音变为音色：gv_2e601fae38484816adf8bf5c38b79393',
+      sessionId: 'session-voice-conversion-change-previous-voice',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('ai_media')
+    expect(decision.subdomains).toEqual(['voice_conversion'])
+    expect(decision.selected.has('voiceConversion')).toBe(true)
+    expect(decision.selected.has('speech')).toBe(false)
+    expect(decision.preferredMcpTools).toContain('mcp__voice-conversion__submit_voice_conversion_task')
   })
 
   it('routes the alternate exact phrase 豆包语言生成 to seed audio', () => {
@@ -562,6 +614,43 @@ describe('CapabilityRouter', () => {
     expect(templateDecision.subdomains).toEqual(['template'])
     expect(templateDecision.selected.has('kouboTemplate')).toBe(true)
     expect(templateDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
+  })
+
+  it('allows cut and ai_media domains to combine in the same request', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '创建一个草稿，再把这段文案合成语音，并向草稿里添加一段音频',
+      sessionId: 'session-cut-ai-media-combined',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(['audio_add', 'draft_create'])
+    expect(decision.selected.has('draftCreate')).toBe(true)
+    expect(decision.selected.has('audioAdd')).toBe(true)
+    expect(decision.selected.has('speech')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__draft-management__create_draft')
+    expect(decision.preferredMcpTools).toContain('mcp__draft-elements__add_audio')
+    expect(decision.preferredMcpTools).toContain('mcp__speech__generate_speech')
+    expect(decision.companionDomains).toContain('ai_media')
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'cut',
+          role: 'primary',
+          subdomains: ['audio_add', 'draft_create']
+        }),
+        expect.objectContaining({
+          domain: 'ai_media',
+          role: 'support',
+          subdomains: ['speech']
+        })
+      ])
+    )
   })
 
   it('routes draft element editing and lookup tasks into dedicated cut subdomains', () => {

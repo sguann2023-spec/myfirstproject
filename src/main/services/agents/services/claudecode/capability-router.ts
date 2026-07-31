@@ -9,6 +9,7 @@ export type RuntimeCapability =
   | 'uploadFile'
   | 'image'
   | 'speech'
+  | 'voiceConversion'
   | 'seedAudio'
   | 'audioExtract'
   | 'audioConcat'
@@ -161,6 +162,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       }
       if (activeDomain.subdomains.includes('speech') && !selected.has('speech')) {
         addCapabilityReason(selected, reasons, 'speech', 'intent:ai_media.speech')
+      }
+      if (activeDomain.subdomains.includes('voice_conversion') && !selected.has('voiceConversion')) {
+        addCapabilityReason(selected, reasons, 'voiceConversion', 'intent:ai_media.voice_conversion')
       }
       if (activeDomain.subdomains.includes('seed_audio') && !selected.has('seedAudio')) {
         addCapabilityReason(selected, reasons, 'seedAudio', 'intent:ai_media.seed_audio')
@@ -380,6 +384,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'uploadFile',
   'image',
   'speech',
+  'voiceConversion',
   'seedAudio',
   'audioExtract',
   'audioConcat',
@@ -449,6 +454,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'uploadFile',
   'image',
   'speech',
+  'voiceConversion',
   'seedAudio',
   'audioExtract',
   'audioConcat',
@@ -1107,6 +1113,13 @@ const hasImageLoopAnimationListIntent = (text: string) =>
 
 const hasSeedAudioIntent = (text: string) => text.includes('豆包生成语音') || text.includes('豆包语言生成')
 
+const hasVoiceConversionIntent = (text: string) =>
+  /(变声|换声|换音色|改音色|音色转换|声音转换|声线转换|voice conversion|voice convert)/.test(text) ||
+  /(?:把|将).{0,24}(?:声音|音频|视频|语音).{0,24}(?:变成|变为|换成|改成|转成|转为|转换成|转换为).{0,24}(?:音色|声音|声线)/.test(
+    text
+  ) ||
+  /(?:变成|变为|换成|改成|转成|转为|转换成|转换为).{0,24}音色/.test(text)
+
 const COPYLAB_EXPLICIT_KEYWORDS = [
   '反推',
   '提示词',
@@ -1338,23 +1351,22 @@ export class CapabilityRouter {
       }
 
       if (
-        !hasCutSpecificIntent &&
-        (args.imageCount > 0 ||
-          hasAnyKeyword(text, [
-            '生成图',
-            '生成图片',
-            '画一张',
-            '做张图',
-            '海报',
-            '配图',
-            '修图',
-            '换背景',
-            '抠图',
-            'image',
-            'cover',
-            'poster'
-          ]) ||
-          (text.includes('封面') && !hasDraftUpdateIntent))
+        args.imageCount > 0 ||
+        hasAnyKeyword(text, [
+          '生成图',
+          '生成图片',
+          '画一张',
+          '做张图',
+          '海报',
+          '配图',
+          '修图',
+          '换背景',
+          '抠图',
+          'image',
+          'cover',
+          'poster'
+        ]) ||
+        (text.includes('封面') && !hasDraftUpdateIntent)
       ) {
         addCapabilityReason(
           selected,
@@ -1365,11 +1377,18 @@ export class CapabilityRouter {
       }
 
       const shouldGenerateSeedAudio = hasSeedAudioIntent(text)
+      const shouldConvertVoice = hasVoiceConversionIntent(text)
 
       if (
-        !hasCutSpecificIntent &&
+        shouldConvertVoice
+      ) {
+        addCapabilityReason(selected, reasons, 'voiceConversion', 'prompt:voice-conversion')
+      }
+
+      if (
         hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio']) &&
-        !shouldGenerateSeedAudio
+        !shouldGenerateSeedAudio &&
+        !shouldConvertVoice
       ) {
         addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
       }
@@ -1899,6 +1918,9 @@ function classifyIntent(args: {
 
   if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
   if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')
+  if (args.selected.has('voiceConversion')) {
+    addDomainSubdomain('ai_media', 'voice_conversion', 'capability:voice-conversion')
+  }
   if (args.selected.has('seedAudio')) addDomainSubdomain('ai_media', 'seed_audio', 'capability:seed-audio')
   if (args.selected.has('digitalHuman')) addDomainSubdomain('ai_media', 'digital_human', 'capability:digital-human')
 
@@ -1930,6 +1952,9 @@ function classifyIntent(args: {
     preferredMcpTools.add('mcp__filesystem-server__download')
   }
   if (args.selected.has('speech')) preferredMcpTools.add('mcp__speech__generate_speech')
+  if (args.selected.has('voiceConversion')) {
+    preferredMcpTools.add('mcp__voice-conversion__submit_voice_conversion_task')
+  }
   if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
   if (args.selected.has('audioExtract')) preferredMcpTools.add('mcp__ffmpeg-media__extract_audio_from_video')
   if (args.selected.has('audioConcat')) preferredMcpTools.add('mcp__ffmpeg-media__concatenate_audio_files')

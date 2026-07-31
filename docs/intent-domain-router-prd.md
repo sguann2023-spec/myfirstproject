@@ -161,6 +161,7 @@ type IntentRoute = {
 建议子能力：
 - `image`
 - `speech`
+- `voice_conversion`
 - `seed_audio`
 - `digital_human`
 
@@ -168,12 +169,14 @@ type IntentRoute = {
 
 - `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`
 - `speech` -> `mcp__speech__generate_speech`
+- `voice_conversion` -> `mcp__voice-conversion__submit_voice_conversion_task` / `mcp__voice-conversion__get_voice_conversion_task_status`
 - `seed_audio` -> `mcp__seed-audio__generate_seed_audio`
 - `digital_human` -> `mcp__digital-human__create_lip_sync_digital_human` / `mcp__digital-human__get_lip_sync_digital_human_status` / `mcp__digital-human__create_image_driven_digital_human` / `mcp__digital-human__get_image_driven_digital_human_status` / `mcp__digital-human__create_omni_image_driven_digital_human` / `mcp__digital-human__get_omni_image_driven_digital_human_status` / `mcp__digital-human__create_seedance_digital_human` / `mcp__digital-human__get_seedance_digital_human_status`
 
 说明：
 
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
+- `voice_conversion`：AI 变声 / 声音转换，输入应是公网可访问的原始音频链接或视频链接，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；如果用户提供的是本地文件而不是公网链接，通常需要先伴随命中 `workspace.upload`
 - `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
 
 ### 5. `skills`
@@ -542,6 +545,7 @@ type IntentRoute = {
 | `反推 xx 链接的提示词` | `scrapt` | `["derive_prompt"]` | 爬虫反推提示词 |
 | `将一段文案合成语音` | `ai_media` | `["speech"]` | 默认按传统 TTS 理解 |
 | `把这段文字念出来` | `ai_media` | `["speech"]` | 未强调豆包时默认走 TTS |
+| `把这段音频链接变成另一个音色，语速和情绪保持不变` | `ai_media` | `["voice_conversion"]` | 已有音频链接做变声，不是文本转语音 |
 | `豆包生成语音：一段带背景音乐和音效的音频` | `ai_media` | `["seed_audio"]` | 只有完整命中精确短语 `豆包生成语音` 或 `豆包语言生成` 才走 seed_audio |
 | `豆包语言生成：一段多人对话音频` | `ai_media` | `["seed_audio"]` | 精确短语白名单中的另一种说法，同样走 seed_audio |
 | `用豆包语音生成一段多人对话音频` | `ai_media` | `["speech"]` | 近似说法，不是精确短语，仍按 TTS 处理 |
