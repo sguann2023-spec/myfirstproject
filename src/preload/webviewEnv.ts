@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import { IpcChannel } from '@shared/IpcChannel'
 import { normalizeWebviewRuntimeEnv, shouldExposeWebviewRuntimeEnv, type WebviewRuntimeEnv } from '@shared/webview/runtimeEnv'
@@ -28,18 +28,30 @@ const processShim = Object.freeze({
     ...runtimeEnv
   })
 })
+const sendTextToMainWindow = (text: string) => ipcRenderer.invoke(IpcChannel.App_SendTextToMain, text)
+const selectLocalFilesFromHost = async (options?: Electron.OpenDialogOptions) => {
+  const result = await ipcRenderer.invoke(IpcChannel.File_Select, options)
+  return Array.isArray(result) ? result : null
+}
+const getPathForLocalFile = (file: File) => webUtils.getPathForFile(file)
 
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('VECTCUT_API_KEY', runtimeEnv.VECTCUT_API_KEY)
   contextBridge.exposeInMainWorld('__VECTCUT_ENV__', runtimeEnv)
   contextBridge.exposeInMainWorld('ENV', runtimeEnv)
   contextBridge.exposeInMainWorld('process', processShim)
+  contextBridge.exposeInMainWorld('sendTextToMainWindow', sendTextToMainWindow)
+  contextBridge.exposeInMainWorld('selectLocalFilesFromHost', selectLocalFilesFromHost)
+  contextBridge.exposeInMainWorld('getPathForLocalFile', getPathForLocalFile)
 } else {
   const globalObject = globalThis as typeof globalThis & {
     VECTCUT_API_KEY?: string
     __VECTCUT_ENV__?: WebviewRuntimeEnv
     ENV?: WebviewRuntimeEnv
     process?: any
+    sendTextToMainWindow?: (text: string) => Promise<unknown>
+    selectLocalFilesFromHost?: (options?: Electron.OpenDialogOptions) => Promise<any[] | null>
+    getPathForLocalFile?: (file: File) => string
   }
 
   globalObject.VECTCUT_API_KEY = runtimeEnv.VECTCUT_API_KEY
@@ -52,4 +64,7 @@ if (process.contextIsolated) {
       ...runtimeEnv
     }
   }
+  globalObject.sendTextToMainWindow = sendTextToMainWindow
+  globalObject.selectLocalFilesFromHost = selectLocalFilesFromHost
+  globalObject.getPathForLocalFile = getPathForLocalFile
 }

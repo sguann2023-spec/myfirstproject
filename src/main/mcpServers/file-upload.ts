@@ -108,36 +108,15 @@ class FileUploadServer {
     })
 
     const payload = {
-      provider: 'vectcut',
-      action: 'upload_file',
-      file_path: filePath,
-      bucket: uploaded.bucket,
-      region: uploaded.region,
-      folder: uploaded.folder,
-      object_key: uploaded.objectKey,
-      public_url: uploaded.signedPublicUrl,
-      content_type: uploaded.contentType,
-      size: uploaded.size
+      public_url: uploaded.signedPublicUrl
     }
 
     return {
-      structuredContent: {
-        ...payload,
-        publicUrl: uploaded.signedPublicUrl,
-        url: uploaded.signedPublicUrl,
-        mimeType: uploaded.contentType
-      },
+      structuredContent: payload,
       content: [
         {
           type: 'text' as const,
           text: JSON.stringify(payload, null, 2)
-        },
-        {
-          type: 'resource_link' as const,
-          uri: uploaded.signedPublicUrl,
-          name: path.basename(filePath),
-          title: path.basename(filePath),
-          mimeType: uploaded.contentType
         }
       ]
     }

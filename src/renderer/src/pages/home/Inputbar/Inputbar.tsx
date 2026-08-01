@@ -236,6 +236,35 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
         })
       })
 
+  const sendExternalMessage = useCallback(async (inputText: string) => {
+    const content = String(inputText || '').trim()
+    if (!content || loading || checkRateLimit(assistant)) {
+      return
+    }
+
+    logger.info('Starting to send external message')
+
+    const parent = spanManagerService.startTrace(
+      { topicId: topic.id, name: 'sendExternalMessage', inputs: content },
+      [assistant.model]
+    )
+    void EventEmitter.emit(EVENT_NAMES.SEND_MESSAGE, { topicId: topic.id, traceId: parent?.spanContext().traceId })
+
+    try {
+      const baseUserMessage: MessageInputBaseParams = { assistant, topic, content }
+      baseUserMessage.usage = await estimateUserPromptUsage(baseUserMessage)
+
+      const { message, blocks } = getUserMessage(baseUserMessage)
+      message.traceId = parent?.spanContext().traceId
+
+      void dispatch(_sendMessage(message, blocks, assistant, topic.id))
+      focusTextarea()
+    } catch (error) {
+      logger.warn('Failed to send external message:', error as Error)
+      parent?.recordException(error as Error)
+    }
+  }, [assistant, topic, loading, dispatch, focusTextarea])
+
   const sendMessage = useCallback(async () => {
     if (checkRateLimit(assistant)) {
       return
@@ -290,6 +319,16 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
     resizeTextArea,
     focusTextarea
   ])
+
+  useEffect(() => {
+    const sendListener = window.electron?.ipcRenderer.on(IpcChannel.App_SendTextToMain, (_, inputText: string) => {
+      void sendExternalMessage(inputText)
+    })
+
+    return () => {
+      sendListener?.()
+    }
+  }, [sendExternalMessage])
 
   const tokenCountProps = useMemo(() => {
     if (!config.showTokenCount || estimateTokenCount === undefined || !showInputEstimatedTokens) {

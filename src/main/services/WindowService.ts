@@ -759,6 +759,21 @@ export class WindowService {
       logger.error('Failed to quote to main window:', error as Error)
     }
   }
+
+  public sendTextToMainWindow(text: string): void {
+    try {
+      this.showMainWindow()
+
+      const mainWindow = this.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => {
+          mainWindow.webContents.send(IpcChannel.App_SendTextToMain, text)
+        }, 100)
+      }
+    } catch (error) {
+      logger.error('Failed to send text to main window:', error as Error)
+    }
+  }
 }
 
 export const windowService = WindowService.getInstance()

@@ -1,0 +1,241 @@
+.chat-panel__members-title {
+  padding: 12px 10px 8px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #000;
+}
+
+.chat-panel__members-count {
+  margin-left: 4px;
+  color: #000;
+  font-weight: 400;
+}
+
+.chat-panel__section-divider {
+  height: 1px;
+  margin: 14px 0 0 0;
+  background: #e5e5e5;
+}
+
+.chat-panel__members-empty {
+  color: #999;
+  padding: 6px 4px;
+  text-align: center;
+}
+
+.chat-panel__empty-state {
+  margin: 6px 0 2px;
+}
+
+.chat-panel__empty-state .ant-empty-image {
+  height: 32px;
+  margin-bottom: 6px;
+}
+
+.chat-panel__empty-state .ant-empty-description {
+  color: #999;
+  font-size: 12px;
+}
+
+.chat-panel__member-item {
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-panel__member-group {
+  margin-bottom: 0;
+}
+
+.chat-panel__member-item:hover {
+  background: #ebebeb;
+}
+
+.chat-panel__member-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 4px 6px 4px 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  z-index: 1;
+}
+
+.chat-panel__member-main:hover,
+.chat-panel__member-action:hover,
+.chat-panel__tree-item:hover {
+  background: #ebebeb;
+}
+
+.chat-panel__member-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-panel__member-name {
+  color: #666;
+  font-size: 13px;
+  font-weight: 400;
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+.chat-panel__member-tree {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid #e5e5e5;
+}
+
+.chat-panel__tree-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a8a8a;
+}
+
+.chat-panel__tree-toggle {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #8a8a8a;
+}
+
+.chat-panel__tree-toggle:disabled {
+  cursor: default;
+}
+
+.chat-panel__tree-toggle--root {
+  align-self: center;
+}
+
+.chat-panel__tree-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.18s ease;
+}
+
+.chat-panel__tree-toggle.is-expanded .chat-panel__tree-chevron {
+  transform: rotate(90deg);
+}
+
+.chat-panel__member-action {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #8a8a8a;
+  position: relative;
+  z-index: 1;
+}
+
+.chat-panel__member-actions-overlay {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 24px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.chat-panel__member-actions-overlay::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  bottom: -4px;
+  left: 10px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(235, 235, 235, 0) 0%, rgba(235, 235, 235, 0.96) 15%, rgba(235, 235, 235, 0.98) 82%, #ebebeb 100%);
+  z-index: 0;
+}
+
+.chat-panel__member-item:hover .chat-panel__member-actions-overlay,
+.chat-panel__member-item:focus-within .chat-panel__member-actions-overlay,
+.chat-panel__member-actions-overlay--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-panel__member-action--tour-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-panel__member-action:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.chat-panel__member-tooltip-overlay .ant-tooltip-inner {
+  max-width: 280px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+.chat-panel__member-tooltip-overlay .ant-tooltip-arrow::before {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.chat-panel__member-tooltip {
+  color: #333;
+}
+
+.chat-panel__member-tooltip-name {
+  font-size: 16px;
+  font-weight: 400;
+  color: #000;
+  line-height: 1.4;
+}
+
+.chat-panel__member-tooltip-folder {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.4;
+}
+
+.chat-panel__member-tooltip-desc {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

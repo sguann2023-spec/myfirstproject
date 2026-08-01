@@ -40,6 +40,7 @@ import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
+import VideoUnderstandServer from '@main/mcpServers/video-understand'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import SystemServer from '@main/mcpServers/system'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
@@ -92,12 +93,13 @@ import { buildPersistedAssistantText, extractAssistantTextFromSdkMessage } from 
 import { buildNamespacedToolCallId } from './claude-stream-state'
 import { logPromptBudgetProbe } from './prompt-budget'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
+import { summarizeToolResultForArtifact } from './tool-result-text'
 import { addAutoAllowedTool, buildToolSurface } from './tool-surface'
 import { promptForToolApproval } from './tool-permissions'
 import { artifactStoreService, buildArtifactHash } from './session-architecture/ArtifactStoreService'
 import { conversationCompactionService } from './session-architecture/ConversationCompactionService'
 import { conversationSegmentService } from './session-architecture/ConversationSegmentService'
-import { conversationSummaryService } from './session-architecture/ConversationSummaryService'
+import { conversationSummaryService, extractStableStateLines } from './session-architecture/ConversationSummaryService'
 import { fileChangeJournalService } from './session-architecture/FileChangeJournalService'
 import { promptViewBuilder } from './session-architecture/PromptViewBuilder'
 import { segmentPromptService } from './session-architecture/SegmentPromptService'
@@ -222,6 +224,7 @@ const shouldOffloadToolResult = (toolName: string, outputText: string): boolean 
   const lower = toolName.toLowerCase()
   return (
     outputText.length >= 1500 ||
+    extractStableStateLines(outputText, 1).length > 0 ||
     lower.includes('browser__screenshot') ||
     lower.includes('browser__snapshot') ||
     lower.includes('read') ||
@@ -1901,6 +1904,20 @@ class ClaudeCodeService implements AgentServiceInterface {
       markSkipped('subtitle-recognition')
     }
 
+    if (shouldMountCapability('videoUnderstand')) {
+      const videoUnderstandServer = new VideoUnderstandServer()
+      mountMcpServer('video-understand', {
+        type: 'sdk',
+        name: 'video-understand',
+        instance: videoUnderstandServer.mcpServer
+      })
+      autoAllowTools.add('mcp__video-understand__submit_video_detail_task')
+      autoAllowTools.add('mcp__video-understand__get_video_detail_task_status')
+      allowMcpPattern('mcp__video-understand__*')
+    } else {
+      markSkipped('video-understand')
+    }
+
     if (shouldMountCapability('subtitleTemplate')) {
       const subtitleTemplateServer = new SubtitleTemplateServer()
       mountMcpServer('subtitle-template', {
@@ -2929,7 +2946,7 @@ class ClaudeCodeService implements AgentServiceInterface {
             const toolCallId = String((chunk as any).toolCallId || '')
             const toolName = String((chunk as any).toolName || '')
             const pendingToolCall = pendingToolCalls.get(toolCallId)
-            const outputText = summarizeChunkField((chunk as any).output)
+            const outputText = summarizeToolResultForArtifact((chunk as any).output)
 
             if (currentTurn && currentSegment && shouldOffloadToolResult(toolName, outputText)) {
               const artifact = await artifactStoreService.save({
@@ -3033,6 +3050,14 @@ class ClaudeCodeService implements AgentServiceInterface {
             }
           }
 
+          if (chunk.type === 'error') {
+            logger.error('Error chunk received from SDK stream', {
+              sessionId,
+              elapsedMs,
+              error: summarizeChunkField((chunk as any).error).slice(0, 1200)
+            })
+          }
+
           stream.emit('data', {
             type: 'chunk',
             chunk
@@ -3048,7 +3073,10 @@ class ClaudeCodeService implements AgentServiceInterface {
             logger.info('Closing prompt stream as SDK signaled completion', {
               elapsedMs,
               chunkType: chunk.type,
-              reason: chunk.type === 'finish' ? 'finished' : 'error_occurred'
+              reason: chunk.type === 'finish' ? 'finished' : 'error_occurred',
+              ...(chunk.type === 'error'
+                ? { error: summarizeChunkField((chunk as any).error).slice(0, 1200) }
+                : {})
             })
             closePromptStream()
             logger.info('Prompt stream closed successfully')

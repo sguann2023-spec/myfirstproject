@@ -137,6 +137,28 @@ describe('ConversationSummaryService', () => {
     expect(summary).toContain('- url: https://example.com/download/999')
     expect(summary).not.toContain('这里还有一大段冗长的调试输出')
   })
+
+  it('preserves url lines when compressed summary is truncated', async () => {
+    const rawSummary = [
+      '## Scope',
+      '- Topic topic-1',
+      '- Segment segment-1',
+      '## Structured State',
+      '- taskId: task_123',
+      '- url: https://example.com/uploaded/video.mp4',
+      ...Array.from({ length: 40 }, (_, index) => `- filler line ${index + 1}`)
+    ].join('\n')
+
+    const compressed = await conversationSummaryService.compressSummary({
+      rawSummary,
+      maxChars: 500,
+      maxLines: 8,
+      maxLineChars: 160
+    })
+
+    expect(compressed).toContain('- url: https://example.com/uploaded/video.mp4')
+    expect(compressed).toContain('- taskId: task_123')
+  })
 })
 
 describe('PromptViewBuilder', () => {

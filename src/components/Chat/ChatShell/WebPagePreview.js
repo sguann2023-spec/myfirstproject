@@ -8,10 +8,13 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
+import { IpcChannel } from '@shared/IpcChannel';
 import './WebPagePreview.css';
 
 const normalizeUrl = (value = '') => String(value || '').trim();
 const BLANK_TAB_URL = 'about:blank';
+const SEND_TO_MAIN_PREFIX = '__VECTCUT_SEND_TO_MAIN__:';
+const HOST_FILE_SELECT_PREFIX = '__VECTCUT_HOST_FILE_SELECT__:';
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const getFallbackFaviconUrl = (value = '') => {
@@ -188,9 +191,13 @@ const WebPagePreview = ({ preview, onClose }) => {
         try {
           const runtimeEnv = await window.api?.webview?.primeRuntimeEnv?.();
           const vectcutApiKey = String(runtimeEnv?.VECTCUT_API_KEY || '').trim();
+            const sendToMainPrefix = SEND_TO_MAIN_PREFIX;
+            const hostFileSelectPrefix = HOST_FILE_SELECT_PREFIX;
           await webview.executeJavaScript(
             `(() => {
               const apiKey = ${JSON.stringify(vectcutApiKey)};
+                const sendPrefix = ${JSON.stringify(sendToMainPrefix)};
+                const fileSelectPrefix = ${JSON.stringify(hostFileSelectPrefix)};
               const env = Object.freeze({ VECTCUT_API_KEY: apiKey });
               const processShim = Object.freeze({
                 env: Object.freeze({ VECTCUT_API_KEY: apiKey })
@@ -199,6 +206,30 @@ const WebPagePreview = ({ preview, onClose }) => {
               window.__VECTCUT_ENV__ = env;
               window.ENV = env;
               window.process = processShim;
+                window.sendTextToMainWindow = (text) => {
+                  const normalizedText = String(text || '').trim();
+                  if (!normalizedText) {
+                    return Promise.resolve(false);
+                  }
+
+                  console.log(sendPrefix + JSON.stringify({ text: normalizedText }));
+                  return Promise.resolve(true);
+                };
+
+              window.__vectcutHostFileSelectResolvers = new Map();
+              window.__vectcutResolveHostFileSelect = (requestId, payload) => {
+                const resolver = window.__vectcutHostFileSelectResolvers.get(requestId);
+                if (!resolver) {
+                  return;
+                }
+                window.__vectcutHostFileSelectResolvers.delete(requestId);
+                resolver(payload);
+              };
+              window.selectLocalFilesFromHost = (options = {}) => new Promise((resolve) => {
+                const requestId = 'host-file-select-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+                window.__vectcutHostFileSelectResolvers.set(requestId, resolve);
+                console.log(fileSelectPrefix + JSON.stringify({ requestId, options }));
+              });
 
               const tokenEl = document.getElementById('token');
               if (tokenEl && apiKey) {
@@ -269,6 +300,53 @@ const WebPagePreview = ({ preview, onClose }) => {
       syncNavigationState();
     };
 
+      const handleConsoleMessage = (event) => {
+        const message = String(event?.message || '');
+        if (!message.startsWith(SEND_TO_MAIN_PREFIX)) {
+          if (!message.startsWith(HOST_FILE_SELECT_PREFIX)) {
+            return;
+          }
+
+          try {
+            const payload = JSON.parse(message.slice(HOST_FILE_SELECT_PREFIX.length));
+            const requestId = String(payload?.requestId || '').trim();
+            if (!requestId) {
+              return;
+            }
+
+            Promise.resolve(window.api?.file?.select?.(payload?.options || {}))
+              .then((selectedFiles) => {
+                  const responsePayload = JSON.stringify(Array.isArray(selectedFiles) ? selectedFiles : null);
+                return webview.executeJavaScript(
+                  `window.__vectcutResolveHostFileSelect(${JSON.stringify(requestId)}, ${responsePayload});`,
+                  true
+                );
+              })
+              .catch(() => {
+                return webview.executeJavaScript(
+                  `window.__vectcutResolveHostFileSelect(${JSON.stringify(requestId)}, null);`,
+                  true
+                );
+              });
+          } catch (_error) {
+            // ignore malformed host file select bridge payloads
+          }
+          return;
+        }
+
+        try {
+          const payload = JSON.parse(message.slice(SEND_TO_MAIN_PREFIX.length));
+          const text = String(payload?.text || '').trim();
+          if (!text) {
+            return;
+          }
+
+          void window.electron?.ipcRenderer.invoke(IpcChannel.App_SendTextToMain, text);
+        } catch (_error) {
+          // ignore malformed console bridge payloads
+        }
+      };
+
     webview.addEventListener('dom-ready', handleDomReady);
     webview.addEventListener('did-start-loading', handleStartLoading);
     webview.addEventListener('did-stop-loading', handleStopLoading);
@@ -276,6 +354,7 @@ const WebPagePreview = ({ preview, onClose }) => {
     webview.addEventListener('did-navigate', handleNavigate);
     webview.addEventListener('did-navigate-in-page', handleNavigate);
     webview.addEventListener('did-fail-load', handleFailLoad);
+      webview.addEventListener('console-message', handleConsoleMessage);
 
     return () => {
       webviewReadyRef.current = false;
@@ -286,6 +365,7 @@ const WebPagePreview = ({ preview, onClose }) => {
       webview.removeEventListener('did-navigate', handleNavigate);
       webview.removeEventListener('did-navigate-in-page', handleNavigate);
       webview.removeEventListener('did-fail-load', handleFailLoad);
+        webview.removeEventListener('console-message', handleConsoleMessage);
     };
   }, [readWebviewUrl, syncActiveTabFavicon, syncNavigationState, syncWebviewZoomFactor, targetUrl, updateActiveTab]);
 

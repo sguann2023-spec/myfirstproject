@@ -48,7 +48,7 @@ const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
 const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
-const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略';
+const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const getSessionWorkspacePath = (session) => {
@@ -2938,8 +2938,7 @@ const HomePage = () => {
 
       const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
         directoryPath: quickSkillDir,
-        workspace: workspacePath,
-        excludeSubdirs: ['website']
+        workspace: workspacePath
       });
       if (!copySkillResult?.success) {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
@@ -3027,8 +3026,7 @@ const HomePage = () => {
 
       const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
         directoryPath: quickSkillDir,
-        workspace: workspacePath,
-        excludeSubdirs: ['website']
+        workspace: workspacePath
       });
       if (!copySkillResult?.success) {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
@@ -3110,8 +3108,7 @@ const HomePage = () => {
 
       const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
         directoryPath: quickSkillDir,
-        workspace: workspacePath,
-        excludeSubdirs: ['website']
+        workspace: workspacePath
       });
       if (!copySkillResult?.success) {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');

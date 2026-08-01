@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>儿童绘本</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-max-width: 430px;
+      --dark-bg: #000000;
+      --dark-card: #111526;
+      --light-bg: #000000;
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.68);
+      --white: #ffffff;
+      --brand: #3f5cff;
+      --brand-soft: rgba(63, 92, 255, 0.12);
+      --brand-shadow: rgba(63, 92, 255, 0.28);
+      --border: rgba(17, 24, 39, 0.08);
+      --chip-bg: #ffffff;
+      --chip-border: rgba(63, 92, 255, 0.18);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+        "Microsoft YaHei", sans-serif;
+      background: #000000;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 0;
+      color: var(--white);
+    }
+
+    .app-shell {
+      position: relative;
+      width: 100%;
+      max-width: var(--page-max-width);
+      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
+      background: var(--dark-bg);
+    }
+
+    .page {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: max(18px, env(safe-area-inset-top)) 20px max(22px, env(safe-area-inset-bottom));
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      transition: transform 240ms ease, opacity 240ms ease, visibility 240ms ease;
+    }
+
+    .page.is-hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateX(24px);
+    }
+
+    .page-preview {
+      background: #000000;
+    }
+
+    .page-form {
+      background: var(--light-bg);
+      color: var(--text-primary);
+      transform: translateX(24px);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .page-form.is-active {
+      transform: translateX(0);
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .topbar.center-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      margin-bottom: 18px;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .preview-card {
+      overflow: hidden;
+      width: 100%;
+      height: auto;
+      max-height: min(58dvh, 480px);
+      aspect-ratio: 9 / 16;
+      border-radius: var(--radius-xl);
+      background: var(--dark-card);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    }
+
+    .preview-video {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    .preview-content {
+      padding: 18px 6px 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      color: rgba(255, 255, 255, 0.84);
+      font-size: 12px;
+      margin-bottom: 14px;
+    }
+
+    .preview-heading {
+      margin: 0 0 10px;
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 500;
+    }
+
+    .preview-description {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 12px;
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    .primary-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 40px;
+      min-height: 40px;
+      margin-top: 8px;
+      border: 0;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #4061ff 0%, #2847e8 100%);
+      color: var(--white);
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      box-shadow: 0 16px 32px var(--brand-shadow);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .secondary-note {
+      margin-top: 12px;
+      color: rgba(255, 255, 255, 0.48);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .form-heading {
+      margin: 10px 0 14px;
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    .form-subtitle {
+      margin: 0 0 20px;
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .input-card {
+      background: #111111;
+      border-radius: 24px;
+      padding: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+    }
+
+    .input-label {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .theme-input {
+      width: 100%;
+      min-height: 120px;
+      border: 0;
+      outline: none;
+      resize: none;
+      padding: 0;
+      background: transparent;
+      color: #ffffff;
+      font-size: 14px;
+      line-height: 1.7;
+      font-family: inherit;
+    }
+
+    .theme-input::placeholder {
+      color: rgba(255, 255, 255, 0.36);
+    }
+
+    .tips-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .chip {
+      border: 0;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      background: transparent;
+      color: #aaa;
+      font-size: 14px;
+      font-weight: 400;
+      padding: 6px 6px;
+      cursor: pointer;
+    }
+
+    .voice-section {
+      margin-top: 18px;
+    }
+
+    .voice-dropdown {
+      position: relative;
+    }
+
+    .voice-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 0;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      padding: 12px 14px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .voice-trigger-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .voice-trigger-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .voice-trigger-text {
+      min-width: 0;
+    }
+
+    .voice-trigger-name {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .voice-trigger-meta {
+      display: block;
+      margin-top: 2px;
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 12px;
+    }
+
+    .voice-trigger-arrow {
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 14px;
+      flex-shrink: 0;
+      transition: transform 160ms ease;
+    }
+
+    .voice-dropdown.is-open .voice-trigger-arrow {
+      transform: rotate(180deg);
+    }
+
+    .voice-menu {
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      background: #111111;
+      padding: 10px;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
+    }
+
+    .voice-dropdown.is-open .voice-menu {
+      display: block;
+    }
+
+    .voice-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .voice-empty {
+      padding: 14px 12px;
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .voice-more {
+      margin-top: 10px;
+    }
+
+    .voice-more-button {
+      width: 100%;
+      height: 40px;
+      border: 0;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.16);
+      color: #aaa;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .voice-more-button[disabled] {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .voice-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: #161616;
+      padding: 10px;
+      color: #ffffff;
+      cursor: pointer;
+      transition: border-color 160ms ease, background 160ms ease;
+    }
+
+    .voice-card.is-selected {
+      border-color: rgba(63, 92, 255, 0.9);
+      background: rgba(63, 92, 255, 0.12);
+    }
+
+    .voice-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 999px;
+      object-fit: cover;
+      display: block;
+      background: rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+
+    .voice-content {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .voice-name {
+      margin: 0 0 4px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .voice-meta {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .voice-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .voice-id-text {
+      color: rgba(255, 255, 255, 0.36);
+      font-size: 11px;
+    }
+
+    .voice-play {
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+      font-size: 12px;
+      line-height: 1;
+      padding: 8px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .defaults-card {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(63, 92, 255, 0.12);
+      color: rgba(255, 255, 255, 0.76);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .defaults-title {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .start-button {
+      margin-top: auto;
+      opacity: 1;
+    }
+
+    .start-hint {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 12px;
+      color: #8a92a6;
+    }
+
+    @media (min-width: 431px) {
+      body {
+        padding: 24px 0;
+      }
+
+      .app-shell {
+        min-height: min(720px, calc(100vh - 48px));
+        height: min(720px, calc(100vh - 48px));
+        border-radius: 32px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <section class="page page-preview" id="page-preview">
+      <div class="preview-card">
+        <video
+          class="preview-video"
+          src="https://player.install-ai-guider.top/example/skills/children_book/children_book.mp4"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata">
+        </video>
+      </div>
+
+      <div class="preview-content">
+        <div class="eyebrow">儿童绘本</div>
+        <h1 class="preview-heading">中国传统历史故事</h1>
+        <p class="preview-description">
+          给一个历史故事名称，快速生成一套儿童绘本。
+        </p>
+      </div>
+
+      <div class="spacer"></div>
+
+      <button class="primary-button" id="go-to-form" type="button">快去试试</button>
+    </section>
+
+    <section class="page page-form" id="page-form">
+      <div class="topbar center-title">
+        <h2 class="page-title">中国传统历史故事</h2>
+      </div>
+
+      <h1 class="form-heading">请输入你想创作的故事</h1>
+
+      <div class="input-card">
+        <textarea
+          class="theme-input"
+          id="theme-input"
+          placeholder="司马光砸缸"></textarea>
+
+        <div class="tips-row" aria-label="示例主题">
+          <button class="chip" type="button" data-example="司马光砸缸">司马光砸缸</button>
+          <button class="chip" type="button" data-example="孔融让梨">孔融让梨</button>
+          <button class="chip" type="button" data-example="曹冲称象">曹冲称象</button>
+          <button class="chip" type="button" data-example="铁杵磨成针">铁杵磨成针</button>
+        </div>
+      </div>
+
+      <div class="voice-section">
+        <label class="input-label">选择音色</label>
+        <div class="voice-dropdown" id="voice-dropdown">
+          <button class="voice-trigger" id="voice-trigger" type="button" aria-expanded="false">
+            <span class="voice-trigger-main">
+              <img
+                class="voice-trigger-avatar"
+                id="voice-trigger-avatar"
+                src=""
+                alt="音色头像">
+              <span class="voice-trigger-text">
+                <span class="voice-trigger-name" id="voice-trigger-name">加载音色中...</span>
+                <span class="voice-trigger-meta" id="voice-trigger-meta">请稍候</span>
+              </span>
+            </span>
+            <span class="voice-trigger-arrow">▼</span>
+          </button>
+
+          <div class="voice-menu" id="voice-menu">
+            <div class="voice-list" id="voice-list" aria-label="音色列表">
+              <div class="voice-empty" id="voice-empty">音色加载中...</div>
+            </div>
+            <div class="voice-more" id="voice-more" hidden>
+              <button class="voice-more-button" id="voice-more-button" type="button">加载更多</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+        <button class="primary-button start-button" id="start-button" type="button">开始生成</button>
+    </section>
+  </div>
+
+  <script>
+    const previewPage = document.getElementById('page-preview');
+    const formPage = document.getElementById('page-form');
+    const goToFormButton = document.getElementById('go-to-form');
+    const themeInput = document.getElementById('theme-input');
+    const exampleButtons = document.querySelectorAll('[data-example]');
+    const startButton = document.getElementById('start-button');
+    const voiceDropdown = document.getElementById('voice-dropdown');
+    const voiceTrigger = document.getElementById('voice-trigger');
+    const voiceTriggerAvatar = document.getElementById('voice-trigger-avatar');
+    const voiceTriggerName = document.getElementById('voice-trigger-name');
+    const voiceTriggerMeta = document.getElementById('voice-trigger-meta');
+    const voiceList = document.getElementById('voice-list');
+    const voiceEmpty = document.getElementById('voice-empty');
+    const voiceMore = document.getElementById('voice-more');
+      const voiceMoreButton = document.getElementById('voice-more-button');
+      const previewAudio = new Audio();
+      const SKILL_NAME = '儿童绘本';
+      const VOICE_LIBRARY_URL = 'https://open.vectcut.com/llm/tts/voice_library';
+      const VOICE_PAGE_LIMIT = 24;
+      let selectedVoiceId = '';
+      let playingButton = null;
+      let voiceOffset = 0;
+      let voiceTotal = 0;
+      let isVoiceLoading = false;
+      let hasLoadedVoiceLibrary = false;
+
+      function getVectcutApiToken() {
+        return String(
+          globalThis.VECTCUT_API_KEY ||
+          globalThis.ENV?.VECTCUT_API_KEY ||
+          globalThis.__VECTCUT_ENV__?.VECTCUT_API_KEY ||
+          globalThis.process?.env?.VECTCUT_API_KEY ||
+          ''
+        ).trim();
+      }
+
+      function buildPrompt(theme, voiceId) {
+        return `使用${SKILL_NAME}技能，主题是：${theme}，音色是${voiceId}`;
+      }
+
+      function sendPromptToHost(text) {
+        const normalizedText = String(text || '').trim();
+        if (!normalizedText) {
+          return false;
+        }
+
+        if (typeof globalThis.sendTextToMainWindow === 'function') {
+          void globalThis.sendTextToMainWindow(normalizedText);
+          return true;
+        }
+        return false;
+      }
+
+    function showFormPage() {
+      previewPage.classList.add('is-hidden');
+      formPage.classList.add('is-active');
+    }
+
+    goToFormButton.addEventListener('click', showFormPage);
+
+    exampleButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        themeInput.value = button.getAttribute('data-example') || '';
+        themeInput.focus();
+      });
+    });
+
+    voiceTrigger.addEventListener('click', () => {
+      const isOpen = voiceDropdown.classList.toggle('is-open');
+      voiceTrigger.setAttribute('aria-expanded', String(isOpen));
+    });
+
+    function getVoiceCards() {
+      return voiceList.querySelectorAll('.voice-card');
+    }
+
+    function formatVoiceMeta(item) {
+      const genderMap = {
+        Male: '男声',
+        Female: '女声'
+      };
+      const styleText = item.style ? item.style.split(',')[0] : '推荐';
+      const readableLanguage = item.readable_language || '中文';
+      const genderText = genderMap[item.gender] || '音色';
+      return `${readableLanguage} · ${genderText} · ${styleText}`;
+    }
+
+    function setVoiceTrigger(card) {
+      voiceTriggerAvatar.src = card.getAttribute('data-avatar-url') || '';
+      voiceTriggerAvatar.alt = card.getAttribute('data-name') || '';
+      voiceTriggerName.textContent = card.getAttribute('data-name') || '';
+      voiceTriggerMeta.textContent = card.getAttribute('data-meta') || '';
+    }
+
+    function updateLoadMoreVisibility() {
+      const hasMore = voiceOffset < voiceTotal;
+      voiceMore.hidden = !hasMore;
+      voiceMoreButton.disabled = isVoiceLoading;
+      voiceMoreButton.textContent = isVoiceLoading ? '加载中...' : '加载更多';
+    }
+
+    function bindVoiceCard(card) {
+      const playButton = card.querySelector('.voice-play');
+
+      card.addEventListener('click', () => {
+        getVoiceCards().forEach((item) => item.classList.remove('is-selected'));
+        card.classList.add('is-selected');
+        selectedVoiceId = card.getAttribute('data-voice-id') || '';
+        setVoiceTrigger(card);
+        voiceDropdown.classList.remove('is-open');
+        voiceTrigger.setAttribute('aria-expanded', 'false');
+      });
+
+      playButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const audioUrl = card.getAttribute('data-audio-url');
+
+        if (!audioUrl) {
+          return;
+        }
+
+        if (playingButton === playButton && !previewAudio.paused) {
+          previewAudio.pause();
+          previewAudio.currentTime = 0;
+          playButton.textContent = '试听';
+          playingButton = null;
+          return;
+        }
+
+        if (playingButton) {
+          playingButton.textContent = '试听';
+        }
+
+        previewAudio.src = audioUrl;
+        previewAudio.play();
+        playButton.textContent = '暂停';
+        playingButton = playButton;
+      });
+    }
+
+    function createVoiceCard(item, isSelected) {
+      const card = document.createElement('div');
+      const metaText = formatVoiceMeta(item);
+      card.className = `voice-card${isSelected ? ' is-selected' : ''}`;
+      card.setAttribute('data-voice-id', item.global_voice_id || '');
+      card.setAttribute('data-audio-url', item.try_listen_url || '');
+      card.setAttribute('data-avatar-url', item.avatar_url || '');
+      card.setAttribute('data-name', item.title || '未命名音色');
+      card.setAttribute('data-meta', metaText);
+      card.innerHTML = `
+        <img class="voice-avatar" src="${item.avatar_url || ''}" alt="${item.title || '音色头像'}">
+        <div class="voice-content">
+          <p class="voice-name">${item.title || '未命名音色'}</p>
+          <p class="voice-meta">${metaText}</p>
+        </div>
+        <div class="voice-actions">
+          <span class="voice-id-text">${isSelected ? '已默认' : '可试听'}</span>
+          <button class="voice-play" type="button">试听</button>
+        </div>
+      `;
+      bindVoiceCard(card);
+      return card;
+    }
+
+    async function loadVoiceLibrary(loadMore = false) {
+      if (isVoiceLoading) {
+        return;
+      }
+
+      isVoiceLoading = true;
+      updateLoadMoreVisibility();
+
+      if (!loadMore) {
+        voiceOffset = 0;
+        voiceTotal = 0;
+        voiceList.innerHTML = '<div class="voice-empty" id="voice-empty">音色加载中...</div>';
+      } else {
+        voiceMoreButton.textContent = '加载中...';
+      }
+
+        try {
+          const vectcutApiToken = getVectcutApiToken();
+
+          if (!vectcutApiToken) {
+            throw new Error('missing VECTCUT_API_KEY');
+          }
+
+        const requestUrl = new URL(VOICE_LIBRARY_URL);
+        requestUrl.searchParams.set('provider', 'volc2.0');
+        requestUrl.searchParams.set('sort_type', 'recommend');
+        requestUrl.searchParams.set('only_active', 'true');
+        requestUrl.searchParams.set('limit', String(VOICE_PAGE_LIMIT));
+        requestUrl.searchParams.set('offset', String(voiceOffset));
+
+          const response = await fetch(requestUrl.toString(), {
+            headers: {
+              authorization: `Bearer ${vectcutApiToken}`
+            }
+          });
+
+        if (!response.ok) {
+          throw new Error(`voice_library ${response.status}`);
+        }
+
+        const data = await response.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        const pagination = data.pagination || {};
+        voiceTotal = Number(pagination.total) || voiceTotal || 0;
+
+        if (!items.length) {
+          if (!loadMore) {
+            voiceList.innerHTML = '<div class="voice-empty">暂无可用音色</div>';
+            voiceTriggerName.textContent = '暂无可用音色';
+            voiceTriggerMeta.textContent = '请稍后再试';
+          }
+          updateLoadMoreVisibility();
+          return;
+        }
+
+        if (!loadMore) {
+          voiceList.innerHTML = '';
+        }
+
+        items.forEach((item, index) => {
+          const card = createVoiceCard(item, !loadMore && index === 0);
+          voiceList.appendChild(card);
+        });
+
+        voiceOffset += items.length;
+
+          if (!loadMore) {
+            selectedVoiceId = items[0].global_voice_id || '';
+            setVoiceTrigger(voiceList.querySelector('.voice-card.is-selected'));
+            hasLoadedVoiceLibrary = true;
+          }
+      } catch (error) {
+        if (!loadMore) {
+          voiceList.innerHTML = '<div class="voice-empty">音色加载失败，请稍后重试</div>';
+          voiceTriggerName.textContent = '音色加载失败';
+            voiceTriggerMeta.textContent = getVectcutApiToken() ? '请检查网络连接' : '缺少 VECTCUT_API_KEY';
+        }
+      } finally {
+        isVoiceLoading = false;
+        updateLoadMoreVisibility();
+      }
+    }
+
+    previewAudio.addEventListener('ended', () => {
+      if (playingButton) {
+        playingButton.textContent = '试听';
+      }
+      playingButton = null;
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!voiceDropdown.contains(event.target)) {
+        voiceDropdown.classList.remove('is-open');
+        voiceTrigger.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    voiceMoreButton.addEventListener('click', () => {
+      void loadVoiceLibrary(true);
+    });
+
+      window.addEventListener('vectcut-runtime-env-ready', () => {
+        if (!hasLoadedVoiceLibrary && !isVoiceLoading) {
+          void loadVoiceLibrary();
+        }
+      });
+
+    void loadVoiceLibrary();
+
+    startButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      const theme = String(themeInput.value || '').trim();
+      const voiceId = String(selectedVoiceId || '未选择音色').trim();
+
+      if (!theme) {
+        themeInput.focus();
+        return;
+      }
+
+      try {
+        const prompt = buildPrompt(theme, voiceId);
+        const sent = sendPromptToHost(prompt);
+          if (!sent) {
+            return;
+          }
+        } catch (_error) {
+          return;
+      }
+    });
+  </script>
+</body>
+</html>

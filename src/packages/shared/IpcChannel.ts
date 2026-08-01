@@ -50,6 +50,7 @@ export enum IpcChannel {
   App_MacRequestProcessTrust = 'app:mac-request-process-trust',
 
   App_QuoteToMain = 'app:quote-to-main',
+  App_SendTextToMain = 'app:send-text-to-main',
   App_SetDisableHardwareAcceleration = 'app:set-disable-hardware-acceleration',
   App_SetUseSystemTitleBar = 'app:set-use-system-title-bar',
   App_BootstrapBuiltinSkills = 'app:bootstrap-builtin-skills',

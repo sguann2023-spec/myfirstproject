@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Empty, Tooltip, Tour, message } from 'antd';
+import { Tooltip, Tour, message } from 'antd';
 import {
   Check,
   ChevronRight,
@@ -15,11 +15,9 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
-  Link,
   LoaderCircle,
   SquarePen,
   Trash2,
-  Play,
   RefreshCw,
   Upload as UploadIcon,
   X,
@@ -27,6 +25,7 @@ import {
 import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
+import SkillMembersSection from './SkillMembers/SkillMembersSection';
 import TextFilePreview from './TextFilePreview';
 import WebPagePreview from './WebPagePreview';
 import { claimNewguiderReward } from '../../../api/newguiderReward';
@@ -502,105 +501,6 @@ const getSkillKey = (skill) => String(skill?.id || skill?.folderName || skill?.f
 const getSkillFolderLabel = (skill) => String(skill?.folderName || skill?.filename || skill?.id || skill?.name || '').trim();
 const getSkillDisplayName = (skill) => String(skill?.name || skill?.id || skill?.filename || '').trim();
 
-const parseJsonLikeText = (value) => {
-  const text = String(value || '').trim();
-  if (!text) return null;
-
-  try {
-    return JSON.parse(text);
-  } catch (_error) {
-    const startIndex = text.lastIndexOf('{');
-    if (startIndex < 0) return null;
-    const candidate = text.slice(startIndex);
-    try {
-      return JSON.parse(candidate);
-    } catch (_nestedError) {
-      return null;
-    }
-  }
-};
-
-const extractDraftIdsFromText = (value) => {
-  const text = String(value || '');
-  if (!text) return [];
-
-  const collected = [];
-
-  const draftIdsArrayPattern = /"draft_ids"\s*:\s*\[([\s\S]*?)\]/g;
-  let arrayMatch = draftIdsArrayPattern.exec(text);
-  while (arrayMatch) {
-    const itemPattern = /"([^"]+)"/g;
-    let itemMatch = itemPattern.exec(arrayMatch[1]);
-    while (itemMatch) {
-      const normalized = String(itemMatch[1] || '').trim();
-      if (normalized) {
-        collected.push(normalized);
-      }
-      itemMatch = itemPattern.exec(arrayMatch[1]);
-    }
-    arrayMatch = draftIdsArrayPattern.exec(text);
-  }
-
-  if (collected.length > 0) {
-    return [...new Set(collected)];
-  }
-
-  const draftIdPattern = /"draft_id"\s*:\s*"([^"]+)"/g;
-  let draftIdMatch = draftIdPattern.exec(text);
-  while (draftIdMatch) {
-    const normalized = String(draftIdMatch[1] || '').trim();
-    if (normalized) {
-      collected.push(normalized);
-    }
-    draftIdMatch = draftIdPattern.exec(text);
-  }
-
-  return [...new Set(collected)];
-};
-
-const extractDraftIdsFromExampleResult = (value) => {
-  const data = parseJsonLikeText(value);
-  if (!data || typeof data !== 'object') {
-    return extractDraftIdsFromText(value);
-  }
-
-  const draftIdsValue = data.output?.draft_ids
-    || data.data?.draft_ids
-    || data.result?.draft_ids
-    || data.draft_ids;
-  const normalizedDraftIds = Array.isArray(draftIdsValue)
-    ? draftIdsValue.map((item) => String(item || '').trim()).filter(Boolean)
-    : [];
-  if (normalizedDraftIds.length > 0) {
-    return normalizedDraftIds;
-  }
-
-  const draftIdValue = data.output?.draft_id
-    || data.data?.draft_id
-    || data.result?.draft_id
-    || data.draft_id;
-  const draftId = String(draftIdValue || '').trim();
-  if (draftId) {
-    return [draftId];
-  }
-
-  return extractDraftIdsFromText(value);
-};
-
-const enqueueDraftDownload = ({ draftId, draftName }) => {
-  const normalizedDraftId = String(draftId || '').trim();
-  if (!normalizedDraftId || typeof window?.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return false;
-
-  window.dispatchEvent(new CustomEvent('enqueue-draft-download', {
-    detail: {
-      draft_id: normalizedDraftId,
-      draft_name: String(draftName || '').trim() || normalizedDraftId,
-      createdAt: Date.now()
-    }
-  }));
-  return true;
-};
-
 const MarqueeText = ({ text, className = '' }) => {
   const containerRef = React.useRef(null);
   const contentRef = React.useRef(null);
@@ -801,7 +701,6 @@ const ChatShell = ({
   const [skills, setSkills] = React.useState([]);
   const [skillPreviewPaths, setSkillPreviewPaths] = React.useState({});
   const [skillExamplePaths, setSkillExamplePaths] = React.useState({});
-  const [runningSkillExamples, setRunningSkillExamples] = React.useState({});
   const [expandedSkillKeys, setExpandedSkillKeys] = React.useState(() => new Set());
   const [expandedNodeKeys, setExpandedNodeKeys] = React.useState(() => new Set());
   const [skillTrees, setSkillTrees] = React.useState({});
@@ -980,13 +879,13 @@ const ChatShell = ({
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '点击执行，可以直接查看并运行这个技能的执行示例。',
+      description: '点击执行，可以直接打开这个技能的示例页面。',
       target: () => beginnerGuideChildrensBookRunButtonRef.current,
       nextButtonProps: { style: { display: 'none' } }
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '触发下载后，这里会显示正在下载的草稿数量。等下载完毕后，去剪映草稿箱里打开即可。',
+      description: '执行完毕会触发下载，这里会显示正在下载的草稿数量。等下载完毕后，去剪映草稿箱里打开即可。',
       target: () => beginnerGuideDownloadPaneRef?.current || null,
     },
     {
@@ -1254,7 +1153,7 @@ const ChatShell = ({
   );
 
   const resolveSkillExamplePath = React.useCallback(
-    async (skill) => resolveSkillEntryPath(skill, { searchPattern: 'main.py', targetSuffix: '/examples/main.py' }),
+    async (skill) => resolveSkillEntryPath(skill, { searchPattern: 'index.html', targetSuffix: '/website/index.html' }),
     [resolveSkillEntryPath]
   );
 
@@ -2295,47 +2194,24 @@ const ChatShell = ({
 
   const runSkillExample = React.useCallback(async (skill) => {
     const skillKey = getSkillKey(skill);
-    const displayName = getSkillFolderLabel(skill) || getSkillDisplayName(skill) || '技能';
     const examplePath = skillExamplePaths[skillKey];
-    const api = window?.electronAPI?.agentSkills;
+    const url = createFilePreviewUrl(examplePath);
 
-    if (!skillKey || !examplePath) return;
-    if (!api || typeof api.runExample !== 'function') {
-      window.toast.error('执行能力不可用');
+    if (typeof onOpenWebPreview !== 'function' || !skillKey || !examplePath || !url) {
       return;
     }
-    if (runningSkillExamples[skillKey]) return;
 
-    setRunningSkillExamples((prev) => ({ ...prev, [skillKey]: true }));
-    try {
-      const result = await api.runExample({ skillPath: skill?.__skillRoot || '' });
-      if (!result?.ok) {
-        throw new Error(result?.error || '执行示例失败');
-      }
-      const draftIds = extractDraftIdsFromExampleResult(result?.stdout);
-      const acceptedCount = draftIds.reduce((count, draftId) => (
-        enqueueDraftDownload({ draftId, draftName: displayName }) ? count + 1 : count
-      ), 0);
+    onOpenWebPreview({
+      key: `skill-example:${examplePath}`,
+      url,
+      title: getSkillFolderLabel(skill) || getSkillDisplayName(skill) || getBaseName(examplePath) || '示例页面',
+      sourcePath: examplePath
+    });
 
-      if (beginnerGuideOpen && beginnerGuideCurrent === 4 && acceptedCount > 0) {
-        setBeginnerGuideCurrent(5);
-      }
-
-      if (acceptedCount > 0) {
-        window.toast.success(`${displayName} 示例执行完成，已加入 ${acceptedCount} 个下载任务`);
-      } else {
-        window.toast.success(`${displayName} 示例执行完成`);
-      }
-    } catch (error) {
-      window.toast.error(error?.message || '执行示例失败');
-    } finally {
-      setRunningSkillExamples((prev) => {
-        const next = { ...prev };
-        delete next[skillKey];
-        return next;
-      });
+    if (beginnerGuideOpen && beginnerGuideCurrent === 4) {
+      setBeginnerGuideCurrent(5);
     }
-  }, [beginnerGuideCurrent, beginnerGuideOpen, runningSkillExamples, skillExamplePaths]);
+  }, [beginnerGuideCurrent, beginnerGuideOpen, onOpenWebPreview, skillExamplePaths]);
 
   const renderTreeNodes = React.useCallback((scopeKey, rootPath, nodes, depth = 1) => {
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
@@ -2481,131 +2357,31 @@ const ChatShell = ({
         <div className="chat-panel__members" style={membersPanelStyle}>
           <div className="chat-panel__members-sidebar" style={membersSidebarStyle}>
             <div className="chat-panel__members-list">
-            {hasLockedWorkspace && (
-              <>
-                <div className="chat-panel__members-title">
-                  技能成员
-                  {!skillsLoading && <span className="chat-panel__members-count">{skills.length}</span>}
-                </div>
-                {skillsLoading && <div className="chat-panel__members-empty">加载中...</div>}
-                {!skillsLoading && skillsError && <div className="chat-panel__members-empty">{skillsError}</div>}
-                {!skillsLoading && !skillsError && skills.length === 0 && (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="未发现技能"
-                    className="chat-panel__empty-state"
-                  />
-                )}
-                {!skillsLoading && !skillsError && skills.map((skill) => {
-                  const skillKey = getSkillKey(skill);
-                  const folderLabel = getSkillFolderLabel(skill);
-                  const displayName = getSkillDisplayName(skill);
-                  const skillPreviewPath = skillPreviewPaths[skillKey] || '';
-                  const skillExamplePath = skillExamplePaths[skillKey] || '';
-                  const isExampleRunning = Boolean(runningSkillExamples[skillKey]);
-                  const isExpanded = expandedSkillKeys.has(skillKey);
-                  const treeNodes = skillTrees[skillKey] || [];
-                  const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
-                  const isChildrensBookSkill = folderLabel === CHILDRENS_BOOK_SKILL_LABEL || displayName === CHILDRENS_BOOK_SKILL_LABEL;
-                  const shouldForceShowActions = isChildrensBookSkill && beginnerGuideOpen && (
-                    beginnerGuideCurrent === 3 || beginnerGuideCurrent === 4
-                  );
-
-                  return (
-                    <Tooltip
-                      key={skillKey}
-                      title={renderSkillTooltip(skill)}
-                      placement="leftTop"
-                      mouseEnterDelay={0.15}
-                      classNames={{ root: 'chat-panel__member-tooltip-overlay' }}>
-                      <div className="chat-panel__member-group">
-                        <div className="chat-panel__member-item">
-                          <button
-                            type="button"
-                            className={`chat-panel__tree-toggle chat-panel__tree-toggle--root ${isExpanded ? 'is-expanded' : ''}`}
-                            onClick={() => void toggleSkillExpanded(skill)}
-                            aria-label={`${isExpanded ? '折叠' : '展开'} ${folderLabel || displayName}`}>
-                            <ChevronRight className="chat-panel__tree-chevron" aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            className="chat-panel__member-main"
-                            onClick={() => void toggleSkillExpanded(skill)}
-                            title={folderLabel || displayName}>
-                            <span className="chat-panel__tree-icon" aria-hidden="true">
-                              {isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />}
-                            </span>
-                            <span className="chat-panel__member-text">
-                              <span className="chat-panel__member-name">{folderLabel || displayName}</span>
-                            </span>
-                          </button>
-                          {(skillPreviewPath || skillExamplePath || typeof onSelectSkill === 'function') && (
-                            <div className={`chat-panel__member-actions-overlay ${shouldForceShowActions ? 'chat-panel__member-actions-overlay--visible' : ''}`.trim()}>
-                              {skillPreviewPath && (
-                                <button
-                                  type="button"
-                                  className="chat-panel__member-action"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openSkillWebPreview(skill);
-                                  }}
-                                  title="在内嵌浏览器中打开技能页面"
-                                  aria-label={`在内嵌浏览器中打开 ${folderLabel || displayName}`}>
-                                  <Link size={12} aria-hidden="true" />
-                                </button>
-                              )}
-                              {skillExamplePath && (
-                                <button
-                                  type="button"
-                                  ref={isChildrensBookSkill ? beginnerGuideChildrensBookRunButtonRef : null}
-                                  className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 4 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void runSkillExample(skill);
-                                  }}
-                                  title="执行这个技能示例"
-                                  aria-label={`执行 ${folderLabel || displayName} 示例`}
-                                  disabled={isExampleRunning}>
-                                  {isExampleRunning ? (
-                                    <LoaderCircle size={12} aria-hidden="true" className="chat-panel__action-icon-spinning" />
-                                  ) : (
-                                    <Play size={12} aria-hidden="true" />
-                                  )}
-                                </button>
-                              )}
-                              {typeof onSelectSkill === 'function' && (
-                                <button
-                                  type="button"
-                                  ref={isChildrensBookSkill ? beginnerGuideChildrensBookEditButtonRef : null}
-                                  className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 3 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    onSelectSkill(skill);
-                                  }}
-                                  title="编辑这个技能"
-                                  aria-label={`编辑 ${folderLabel || displayName} 的技能网页`}>
-                                  <SquarePen size={12} aria-hidden="true" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {isExpanded && (
-                          <div className="chat-panel__member-tree">
-                            {isTreeLoading && <div className="chat-panel__members-empty">加载目录中...</div>}
-                            {!isTreeLoading && treeNodes.length === 0 && (
-                              <div className="chat-panel__members-empty">目录为空</div>
-                            )}
-                            {!isTreeLoading && treeNodes.length > 0 && renderTreeNodes(skillKey, skill?.__skillRoot, treeNodes)}
-                          </div>
-                        )}
-                      </div>
-                    </Tooltip>
-                  );
-                })}
-                <div className="chat-panel__section-divider" aria-hidden="true" />
-              </>
-            )}
+            <SkillMembersSection
+              hasLockedWorkspace={hasLockedWorkspace}
+              skillsLoading={skillsLoading}
+              skillsError={skillsError}
+              skills={skills}
+              skillPreviewPaths={skillPreviewPaths}
+              skillExamplePaths={skillExamplePaths}
+              expandedSkillKeys={expandedSkillKeys}
+              skillTrees={skillTrees}
+              skillTreeLoading={skillTreeLoading}
+              beginnerGuideOpen={beginnerGuideOpen}
+              beginnerGuideCurrent={beginnerGuideCurrent}
+              beginnerGuideChildrensBookRunButtonRef={beginnerGuideChildrensBookRunButtonRef}
+              beginnerGuideChildrensBookEditButtonRef={beginnerGuideChildrensBookEditButtonRef}
+              onToggleSkillExpanded={toggleSkillExpanded}
+              onOpenSkillWebPreview={openSkillWebPreview}
+              onRunSkillExample={runSkillExample}
+              onSelectSkill={onSelectSkill}
+              renderSkillTooltip={renderSkillTooltip}
+              renderTreeNodes={renderTreeNodes}
+              getSkillKey={getSkillKey}
+              getSkillFolderLabel={getSkillFolderLabel}
+              getSkillDisplayName={getSkillDisplayName}
+              childrensBookSkillLabel={CHILDRENS_BOOK_SKILL_LABEL}
+            />
             <div
               className="chat-panel__workspace-header"
               onClick={toggleWorkspaceExpanded}

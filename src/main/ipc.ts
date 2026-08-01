@@ -126,6 +126,12 @@ const SKILL_WATCH_DEBOUNCE_MS = 150
 const skillWatcherEntries = new Map<string, SkillWatcherEntry>()
 const vectcutStore = new Store({ name: 'vectcut' })
 
+function getCachedVectcutApiKey(): string {
+  return String(
+    vectcutStore.get('auth.vectcut_api_key') || process.env.VECTCUT_API_KEY || process.env.VECTCUT_APIKEY || ''
+  ).trim()
+}
+
 async function resolveCurrentVectcutApiKey(): Promise<string> {
   try {
     const accessToken = await agentRuntimeAuthService.ensureValidAccessToken()
@@ -138,11 +144,11 @@ async function resolveCurrentVectcutApiKey(): Promise<string> {
     })
   }
 
-  const cachedToken = String(vectcutStore.get('auth.vectcut_api_key') || '').trim()
+  const cachedToken = getCachedVectcutApiKey()
   if (cachedToken) {
     return cachedToken
   }
-  throw new Error('未获取到当前 API Key，请先登录')
+  throw new Error('未获取到当前 API Key，请先登录或配置 VECTCUT_API_KEY')
 }
 
 async function resolveSkillExamplePythonRuntime(): Promise<{ command: string; argsPrefix: string[] }> {
@@ -1309,7 +1315,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     return normalizeWebviewRuntimeEnv({ VECTCUT_API_KEY: vectcutApiKey })
   })
   ipcMain.on(IpcChannel.Webview_GetRuntimeEnv, (event) => {
-    const vectcutApiKey = String(vectcutStore.get('auth.vectcut_api_key') || '').trim()
+    const vectcutApiKey = getCachedVectcutApiKey()
     event.returnValue = normalizeWebviewRuntimeEnv({ VECTCUT_API_KEY: vectcutApiKey })
   })
 
@@ -1320,6 +1326,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   SelectionService.registerIpcHandler()
 
   ipcMain.handle(IpcChannel.App_QuoteToMain, (_, text: string) => windowService.quoteToMainWindow(text))
+  ipcMain.handle(IpcChannel.App_SendTextToMain, (_, text: string) => windowService.sendTextToMainWindow(text))
 
   ipcMain.handle(IpcChannel.App_SetDisableHardwareAcceleration, (_, isDisable: boolean) => {
     configManager.setDisableHardwareAcceleration(isDisable)

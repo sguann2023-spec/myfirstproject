@@ -33,7 +33,10 @@ const toBullet = (text: string): string => `- ${truncateSummaryLine(text)}`
 const buildUniqueLines = (lines: string[], limit: number): string[] =>
   Array.from(new Map(lines.filter(Boolean).map((line) => [line.toLowerCase(), line])).values()).slice(0, limit)
 
-const extractStableStateLines = (text: string, limit = STABLE_HANDLE_LINE_LIMIT): string[] => {
+export const isStableStateLine = (line: string): boolean =>
+  SUMMARY_STATE_LINE_PATTERN.test(line) || URL_PATTERN.test(line) || PATH_PATTERN.test(line)
+
+export const extractStableStateLines = (text: string, limit = STABLE_HANDLE_LINE_LIMIT): string[] => {
   const normalized = normalizeSummaryText(text)
   if (!normalized) {
     return []
@@ -44,9 +47,7 @@ const extractStableStateLines = (text: string, limit = STABLE_HANDLE_LINE_LIMIT)
     .map((line) => line.trim())
     .filter(Boolean)
 
-  const matchedLines = lines
-    .filter((line) => SUMMARY_STATE_LINE_PATTERN.test(line) || URL_PATTERN.test(line) || PATH_PATTERN.test(line))
-    .map((line) => toBullet(line))
+  const matchedLines = lines.filter((line) => isStableStateLine(line)).map((line) => toBullet(line))
 
   const progressLines = lines.filter((line) => SUMMARY_PROGRESS_LINE_PATTERN.test(line)).map((line) => toBullet(line))
 
@@ -158,7 +159,10 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
       .map((line) => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
     const dedupedLines = Array.from(new Map(normalizedLines.map((line) => [line.toLowerCase(), line])).values())
-    const limitedLines = dedupedLines.slice(0, maxLines).map((line) =>
+    const stableLines = dedupedLines.filter((line) => isStableStateLine(line))
+    const nonStableLines = dedupedLines.filter((line) => !isStableStateLine(line))
+    const prioritizedLines = [...stableLines, ...nonStableLines]
+    const limitedLines = prioritizedLines.slice(0, maxLines).map((line) =>
       line.length > maxLineChars ? `${line.slice(0, maxLineChars - 1)}…` : line
     )
     const compressed = limitedLines.join('\n')

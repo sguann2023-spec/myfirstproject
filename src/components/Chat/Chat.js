@@ -2,6 +2,7 @@ import React from 'react';
 import { Provider } from 'react-redux';
 import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
 import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
+import { IpcChannel } from '@shared/IpcChannel';
 import ChatShell from './ChatShell/ChatShell';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
@@ -29,7 +30,7 @@ const QUICK_PROMPTS = [
     action: 'bootstrap-childrens-picture-book',
   },
   {
-    label: '旅游攻略',
+    label: '旅游攻略混剪',
     action: 'bootstrap-travel-guide',
   },
   // {
@@ -220,6 +221,22 @@ const Chat = ({
   const handleSubmitFileComment = React.useCallback((payload = {}) => {
     const nextMessage = buildFileCommentMessage(payload);
     return handleSend(nextMessage);
+  }, [handleSend]);
+
+  React.useEffect(() => {
+    const offSendText = window.electron?.ipcRenderer.on(IpcChannel.App_SendTextToMain, (_event, nextText) => {
+      const sent = handleSend(nextText);
+      if (!sent) {
+        setInput(String(nextText || '').trim());
+        window.requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+      }
+    });
+
+    return () => {
+      offSendText?.();
+    };
   }, [handleSend]);
 
   return (

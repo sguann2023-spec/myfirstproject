@@ -23,6 +23,7 @@ export type RuntimeCapability =
   | 'textDelete'
   | 'textUpdate'
   | 'subtitleRecognition'
+  | 'videoUnderstand'
   | 'subtitleSrt'
   | 'textIntroAnimationList'
   | 'textOutroAnimationList'
@@ -222,6 +223,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('subtitle_recognition') && !selected.has('subtitleRecognition')) {
         addCapabilityReason(selected, reasons, 'subtitleRecognition', 'intent:cut.subtitle_recognition')
       }
+      if (activeDomain.subdomains.includes('video_understand') && !selected.has('videoUnderstand')) {
+        addCapabilityReason(selected, reasons, 'videoUnderstand', 'intent:cut.video_understand')
+      }
       if (activeDomain.subdomains.includes('text_intro_animation_list') && !selected.has('textIntroAnimationList')) {
         addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'intent:cut.text_intro_animation_list')
       }
@@ -398,6 +402,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'textDelete',
   'textUpdate',
   'subtitleRecognition',
+  'videoUnderstand',
   'subtitleSrt',
   'textIntroAnimationList',
   'textOutroAnimationList',
@@ -468,6 +473,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'textDelete',
   'textUpdate',
   'subtitleRecognition',
+  'videoUnderstand',
   'subtitleSrt',
   'textIntroAnimationList',
   'textOutroAnimationList',
@@ -883,6 +889,19 @@ const CUT_SUBTITLE_RECOGNITION_KEYWORDS = [
   'subtitle recognition',
   'transcribe subtitle'
 ]
+const CUT_VIDEO_UNDERSTAND_KEYWORDS = [
+  '视频理解',
+  '理解视频',
+  '视频分析',
+  '分析视频',
+  '视频内容理解',
+  '视频内容分析',
+  '镜头内容',
+  '画面内容',
+  'video understand',
+  'video understanding',
+  'video detail'
+]
 const DRAFT_REFERENCE_PATTERN = /(草稿|draft|dfd_[a-z0-9_-]*)/
 const DRAFT_INSPECT_VERB_PATTERN = /(查看|查询|检查|确认|校验|核对|核查|看下|看一下)/
 const DRAFT_VISUAL_ATTRIBUTE_PATTERN = /(动画|弹入|转场|位置|样式|特效|右上|左上|右下|左下|居中|效果)/
@@ -935,6 +954,21 @@ const hasSubtitleRecognitionIntent = (text: string) =>
   !/(添加到草稿|加回草稿|回写草稿|写回草稿|(?:加回|写回|添加到).{0,6}草稿|(?:给|帮|把|将).{0,12}上屏|字幕模板|字幕模版|样式模板|样式模版|套字幕样式|套模版|套模板)/.test(
     text
   )
+
+const hasVideoUnderstandIntent = (text: string) =>
+  (hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
+    ((/(理解|分析|总结|概括|描述|识别|看懂)/.test(text) ||
+      /讲了什么/.test(text) ||
+      /有什么/.test(text) ||
+      /出现了什么/.test(text)) &&
+      /(画面|镜头|场景|人物|动作|内容)/.test(text)) ||
+    ((/(理解|分析|总结|概括|描述|识别|看懂)/.test(text) || /讲了什么|出现了什么|有什么/.test(text)) &&
+      (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text)))) &&
+  (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text)) &&
+  !hasSubtitleRecognitionIntent(text) &&
+  !hasSubtitleTemplateIntent(text) &&
+  !hasCutDraftContext(text) &&
+  !/(声音|音频|音轨|字幕|台词|文案|上屏|模板|模版|草稿)/.test(text)
 
 const CUT_LOOKUP_KEYWORDS = ['查看', '看下', '看一下', '查询', '列出', '有哪些', '可用', '支持', '列表']
 const hasCutDraftContext = (text: string) => /(草稿|draft|dfd_)/.test(text)
@@ -1222,6 +1256,7 @@ export class CapabilityRouter {
       const hasTextDelete = hasTextDeleteIntent(text)
       const hasTextUpdate = hasTextUpdateIntent(text)
       const hasSubtitleRecognition = hasSubtitleRecognitionIntent(text)
+      const hasVideoUnderstand = hasVideoUnderstandIntent(text)
       const hasSubtitleSrt = hasSubtitleSrtIntent(text)
       const hasTextIntroAnimationList = hasTextIntroAnimationListIntent(text)
       const hasTextOutroAnimationList = hasTextOutroAnimationListIntent(text)
@@ -1270,6 +1305,7 @@ export class CapabilityRouter {
         hasTextDelete ||
         hasTextUpdate ||
         hasSubtitleRecognition ||
+        hasVideoUnderstand ||
         hasSubtitleSrt ||
         hasTextIntroAnimationList ||
         hasTextOutroAnimationList ||
@@ -1337,7 +1373,7 @@ export class CapabilityRouter {
         /(?:上传|传).{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
         /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
-        (hasSubtitleRecognition && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
+        ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
       ) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
@@ -1451,6 +1487,10 @@ export class CapabilityRouter {
 
       if (hasSubtitleRecognition) {
         addCapabilityReason(selected, reasons, 'subtitleRecognition', 'prompt:subtitle-recognition')
+      }
+
+      if (hasVideoUnderstand) {
+        addCapabilityReason(selected, reasons, 'videoUnderstand', 'prompt:video-understand')
       }
 
       if (hasTextIntroAnimationList) {
@@ -1830,6 +1870,7 @@ function classifyIntent(args: {
     args.selected.has('textDelete') ||
     args.selected.has('textUpdate') ||
     args.selected.has('subtitleRecognition') ||
+    args.selected.has('videoUnderstand') ||
     args.selected.has('subtitleSrt') ||
     args.selected.has('textIntroAnimationList') ||
     args.selected.has('textOutroAnimationList') ||
@@ -1967,6 +2008,7 @@ function classifyIntent(args: {
   if (args.selected.has('textDelete')) preferredMcpTools.add('mcp__draft-elements__remove_text')
   if (args.selected.has('textUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_text')
   if (args.selected.has('subtitleRecognition')) preferredMcpTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
+  if (args.selected.has('videoUnderstand')) preferredMcpTools.add('mcp__video-understand__submit_video_detail_task')
   if (args.selected.has('subtitleSrt')) preferredMcpTools.add('mcp__draft-elements__add_subtitle')
   if (args.selected.has('textIntroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_intro_types')
   if (args.selected.has('textOutroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_outro_types')
@@ -2019,6 +2061,9 @@ function classifyIntent(args: {
   if (args.selected.has('textUpdate')) addDomainSubdomain('cut', 'text_update', 'capability:text-update')
   if (args.selected.has('subtitleRecognition')) {
     addDomainSubdomain('cut', 'subtitle_recognition', 'capability:subtitle-recognition')
+  }
+  if (args.selected.has('videoUnderstand')) {
+    addDomainSubdomain('cut', 'video_understand', 'capability:video-understand')
   }
   if (args.selected.has('subtitleSrt')) addDomainSubdomain('cut', 'subtitle_srt', 'capability:subtitle-srt')
   if (args.selected.has('textIntroAnimationList')) {

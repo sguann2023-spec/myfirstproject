@@ -564,6 +564,22 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const videoUnderstandDecision = router.select({
+      prompt: '分析这个视频画面内容 https://example.com/source.mp4',
+      sessionId: 'session-video-understand',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const localVideoUnderstandDecision = router.select({
+      prompt: '理解这个本地视频 sample.mp4 里都有什么画面',
+      sessionId: 'session-local-video-understand',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const templateDecision = router.select({
       prompt: '模版剪辑',
       sessionId: 'session-template-cut',
@@ -610,6 +626,15 @@ describe('CapabilityRouter', () => {
     expect(localSubtitleRecognitionDecision.preferredMcpTools).toContain(
       'mcp__subtitle-recognition__submit_subtitle_recognition_task'
     )
+    expect(videoUnderstandDecision.primaryDomain).toBe('cut')
+    expect(videoUnderstandDecision.subdomains).toEqual(['video_understand'])
+    expect(videoUnderstandDecision.selected.has('videoUnderstand')).toBe(true)
+    expect(videoUnderstandDecision.preferredMcpTools).toContain('mcp__video-understand__submit_video_detail_task')
+    expect(localVideoUnderstandDecision.primaryDomain).toBe('cut')
+    expect(localVideoUnderstandDecision.subdomains).toEqual(['video_understand'])
+    expect(localVideoUnderstandDecision.selected.has('videoUnderstand')).toBe(true)
+    expect(localVideoUnderstandDecision.selected.has('uploadFile')).toBe(true)
+    expect(localVideoUnderstandDecision.preferredMcpTools).toContain('mcp__video-understand__submit_video_detail_task')
     expect(templateDecision.primaryDomain).toBe('cut')
     expect(templateDecision.subdomains).toEqual(['template'])
     expect(templateDecision.selected.has('kouboTemplate')).toBe(true)

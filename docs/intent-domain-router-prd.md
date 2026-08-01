@@ -294,6 +294,7 @@ type IntentRoute = {
 - `text_update`
 - `subtitle_srt`
 - `subtitle_recognition`
+- `video_understand`
 - `text_intro_animation_list`
 - `text_outro_animation_list`
 - `text_loop_animation_list`
@@ -346,6 +347,8 @@ type IntentRoute = {
 - `text_delete` -> `mcp__draft-elements__remove_text`
 - `text_update` -> `mcp__draft-elements__modify_text`
 - `subtitle_srt` -> `mcp__draft-elements__add_subtitle`
+- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task` / `mcp__subtitle-recognition__get_subtitle_recognition_task_status`
+- `video_understand` -> `mcp__video-understand__submit_video_detail_task` / `mcp__video-understand__get_video_detail_task_status`
 - `text_intro_animation_list` -> `mcp__draft-elements__get_text_intro_types`
 - `text_outro_animation_list` -> `mcp__draft-elements__get_text_outro_types`
 - `text_loop_animation_list` -> `mcp__draft-elements__get_text_loop_anim_types`
@@ -385,6 +388,7 @@ type IntentRoute = {
 - `audio_extract` / `audio_concat` / `frame_capture` / `media_duration` / `media_trim` / `video_concat`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到首个源文件同目录；若输入是远程 URL，则可退回临时目录
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
 - `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；底层走异步 ASR 任务提交 + 状态查询链路；输入必须是服务端可访问的远程 `url`，若用户给的是本地音视频文件，必须先命中 `workspace.upload` 获取 OSS URL 后再进入该子能力；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
+- `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；若用户给的是本地视频文件，必须先命中 `workspace.upload` 获取服务端可访问的 URL 后再进入该子能力
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持本地路径 `image_path` / `video_path` / `audio_path`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`
 - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版，输入素材可为 `video_url` / `video_urls`，也可为 `audio_url` / `audio_urls`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
@@ -400,8 +404,10 @@ type IntentRoute = {
 - 用户提到“截取 10 秒到 25 秒的视频片段”“裁一段音频出来”“按时间范围剪一段素材”时，应优先命中 `media_trim`
 - 用户提到“把两个视频拼在一起”“合并多个视频片段”“拼接视频文件”“把几段视频接成一个”时，应优先命中 `video_concat`
 - 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
+- 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
 - `subtitle_recognition` 仅接受音频/视频链接；若输入是本地文件路径、拖入文件或 workspace 内文件，必须先组合命中 `workspace.upload`，拿到 OSS 官方 URL 后再执行字幕识别，禁止把本地路径直接传给远端字幕识别接口
+- `video_understand` 仅接受服务端可访问的视频链接；若输入是本地视频文件路径、拖入文件或 workspace 内视频，必须先组合命中 `workspace.upload`，拿到 OSS 官方 URL 后再执行视频理解，禁止把本地路径直接传给远端视频理解接口
 - 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
 - 当用户明确表达“添加字幕模版”“套字幕样式”“把字幕加回草稿”“识别后按某种样式上屏”时，应命中 `subtitle_template`；其核心目标是样式化字幕并回写草稿，而非只返回识别结果
 - 若一句话里同时出现“识别字幕”和“添加模版/加回草稿/上屏”等表述，应以最终目标判断；最终目标是拿到字幕文本或时间轴时命中 `subtitle_recognition`，最终目标是生成带样式字幕并写回草稿时命中 `subtitle_template`
