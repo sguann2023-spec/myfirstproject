@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>直播切片</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-max-width: 430px;
+      --dark-bg: #000000;
+      --dark-card: #111526;
+      --light-bg: #000000;
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.68);
+      --white: #ffffff;
+      --brand: #3f5cff;
+      --brand-soft: rgba(63, 92, 255, 0.12);
+      --brand-shadow: rgba(63, 92, 255, 0.28);
+      --border: rgba(17, 24, 39, 0.08);
+      --chip-bg: #ffffff;
+      --chip-border: rgba(63, 92, 255, 0.18);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+        "Microsoft YaHei", sans-serif;
+      background: #000000;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 0;
+      color: var(--white);
+    }
+
+    .app-shell {
+      position: relative;
+      width: 100%;
+      max-width: var(--page-max-width);
+      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
+      background: var(--dark-bg);
+    }
+
+    .page {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: max(18px, env(safe-area-inset-top)) 20px max(22px, env(safe-area-inset-bottom));
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      transition: transform 240ms ease, opacity 240ms ease, visibility 240ms ease;
+    }
+
+    .page.is-hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateX(24px);
+    }
+
+    .page-preview {
+      background: #000000;
+    }
+
+    .page-form {
+      background: var(--light-bg);
+      color: var(--text-primary);
+      transform: translateX(24px);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .page-form.is-active {
+      transform: translateX(0);
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .page-materials {
+      background: var(--light-bg);
+      color: var(--text-primary);
+      transform: translateX(24px);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .page-materials.is-active {
+      transform: translateX(0);
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .topbar.center-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      margin-bottom: 18px;
+    }
+
+    .topbar-shell {
+      display: grid;
+      grid-template-columns: 72px 1fr 72px;
+      align-items: center;
+      min-height: 44px;
+      margin-bottom: 18px;
+    }
+
+    .nav-button {
+      justify-self: start;
+      min-width: 56px;
+      height: 32px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .topbar-placeholder {
+      width: 56px;
+      height: 32px;
+      justify-self: end;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .preview-card {
+      overflow: hidden;
+      width: 100%;
+      height: auto;
+      max-height: min(58dvh, 480px);
+      aspect-ratio: 9 / 16;
+      border-radius: var(--radius-xl);
+      background: var(--dark-card);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    }
+
+    .preview-video {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    .preview-content {
+      padding: 18px 6px 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      color: rgba(255, 255, 255, 0.84);
+      font-size: 12px;
+      margin-bottom: 14px;
+    }
+
+    .preview-heading {
+      margin: 0 0 10px;
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 500;
+    }
+
+    .preview-description {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 12px;
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    .primary-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 40px;
+      min-height: 40px;
+      margin-top: 8px;
+      border: 0;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #4061ff 0%, #2847e8 100%);
+      color: var(--white);
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      box-shadow: 0 16px 32px var(--brand-shadow);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .secondary-note {
+      margin-top: 12px;
+      color: rgba(255, 255, 255, 0.48);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .form-heading {
+      margin: 10px 0 12px;
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--text-primary);
+    }
+
+    .form-subtitle {
+      margin: 0 0 20px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .defaults-card {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(63, 92, 255, 0.12);
+      color: rgba(255, 255, 255, 0.76);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .defaults-title {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .start-button {
+      margin-top: auto;
+      opacity: 1;
+    }
+
+    .start-hint {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 12px;
+      color: #8a92a6;
+    }
+
+    .materials-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .summary-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .summary-action {
+      height: 34px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(63, 92, 255, 0.18);
+      color: #ffffff;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .gallery-card {
+      flex: 1;
+      min-height: 320px;
+      max-height: calc(100dvh - 240px);
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #111111;
+      padding: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .gallery-card.has-items {
+      align-content: start;
+    }
+
+    .gallery-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 292px;
+      height: 100%;
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 15px;
+      line-height: 1.6;
+      cursor: pointer;
+      text-align: center;
+      padding: 24px;
+    }
+
+    .gallery-empty strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #ffffff;
+      font-size: 16px;
+    }
+
+    .materials-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      align-content: start;
+    }
+
+    .material-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 16px;
+      aspect-ratio: 16 / 9;
+      background: #1a1a1a;
+    }
+
+    .material-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #1a1a1a;
+    }
+
+    .material-type {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.58);
+      color: #ffffff;
+      font-size: 11px;
+      line-height: 1;
+      backdrop-filter: blur(6px);
+    }
+
+    .material-remove {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.58);
+      color: #ffffff;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+    }
+
+    .material-meta {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      padding: 28px 10px 10px;
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.78) 100%);
+    }
+
+    .material-name {
+      margin: 0;
+      color: #ffffff;
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 600;
+      word-break: break-all;
+      display: -webkit-box;
+      line-clamp: 2;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .material-path {
+      margin: 4px 0 0;
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 10px;
+      line-height: 1.3;
+      word-break: break-all;
+      display: -webkit-box;
+      line-clamp: 1;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    @media (min-width: 431px) {
+      body {
+        padding: 24px 0;
+      }
+
+      .app-shell {
+        min-height: min(720px, calc(100vh - 48px));
+        height: min(720px, calc(100vh - 48px));
+        border-radius: 32px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <section class="page page-preview" id="page-preview">
+      <div class="preview-card">
+        <video
+          class="preview-video"
+          src="https://player.install-ai-guider.top/example/skills/live-stream-clipping/live-stream-clipping.mp4"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata">
+        </video>
+      </div>
+
+      <div class="preview-content">
+        <div class="eyebrow">直播切片</div>
+        <h1 class="preview-heading">一键从直播里切高光</h1>
+        <p class="preview-description">
+          上传直播回放，自动识别字幕、提取高光片段。
+        </p>
+      </div>
+
+      <div class="spacer"></div>
+
+      <button class="primary-button" id="go-to-form" type="button">快去试试</button>
+    </section>
+
+    <section class="page page-materials" id="page-materials">
+      <div class="topbar topbar-shell">
+        <button class="nav-button" id="back-to-preview" type="button">返回</button>
+        <h2 class="page-title">上传直播视频</h2>
+        <span class="topbar-placeholder" aria-hidden="true"></span>
+      </div>
+
+      <div class="materials-summary">
+        <div class="summary-pill" id="materials-count">已选 0 / 1</div>
+        <button class="summary-action" id="pick-materials-button" type="button">上传本地文件</button>
+      </div>
+
+      <input class="file-input" id="materials-input" type="file" accept="video/*">
+
+      <div class="gallery-card">
+        <button class="gallery-empty" id="gallery-empty" type="button">
+          <strong>点我选择本地文件</strong>
+          只支持 1 个本地直播视频<br>
+          推荐 mp4 / mov / m4v
+        </button>
+        <div class="materials-grid" id="materials-grid" hidden></div>
+      </div>
+
+      <p class="start-hint" id="materials-hint">先选 1 个直播文件，再开始高光剪辑。</p>
+      <button class="primary-button start-button" id="start-button" type="button">开始高光剪辑</button>
+    </section>
+  </div>
+
+  <script>
+    const previewPage = document.getElementById('page-preview');
+    const materialsPage = document.getElementById('page-materials');
+    const goToFormButton = document.getElementById('go-to-form');
+    const backToPreviewButton = document.getElementById('back-to-preview');
+    const startButton = document.getElementById('start-button');
+    const pickMaterialsButton = document.getElementById('pick-materials-button');
+    const galleryCard = document.querySelector('.gallery-card');
+    const galleryEmpty = document.getElementById('gallery-empty');
+    const materialsGrid = document.getElementById('materials-grid');
+    const materialsInput = document.getElementById('materials-input');
+    const materialsCount = document.getElementById('materials-count');
+    const materialsHint = document.getElementById('materials-hint');
+    const SKILL_NAME = '直播切片';
+    const MAX_MATERIAL_COUNT = 1;
+    const DEFAULT_CLIP_COUNT = 10;
+    const DEFAULT_CLIP_DURATION = '30-90 秒';
+    const DEFAULT_HIGHLIGHT_STYLE = '传播/转化综合优先';
+    const DEFAULT_SUBTITLE_TEMPLATE = 'bottom_word_highlight';
+    const DEFAULT_OUTPUT_GOAL = '短视频发布';
+      const selectedMaterials = [];
+      const materialKeySet = new Set();
+
+    function buildPrompt(sourceVideoPath) {
+      return [
+        `使用${SKILL_NAME}技能`,
+        `source_video：${sourceVideoPath}`,
+        `clip_count：${DEFAULT_CLIP_COUNT}`,
+        `clip_duration：${DEFAULT_CLIP_DURATION}`,
+        `highlight_style：${DEFAULT_HIGHLIGHT_STYLE}`,
+        `subtitle_template：${DEFAULT_SUBTITLE_TEMPLATE}`,
+        `output_goal：${DEFAULT_OUTPUT_GOAL}`
+      ].join('\n');
+    }
+
+      function sendPromptToHost(text) {
+        const normalizedText = String(text || '').trim();
+        if (!normalizedText) {
+          return false;
+        }
+
+        if (typeof globalThis.sendTextToMainWindow === 'function') {
+          void globalThis.sendTextToMainWindow(normalizedText);
+          return true;
+        }
+        return false;
+      }
+
+    function showMaterialsPage() {
+      previewPage.classList.add('is-hidden');
+      materialsPage.classList.add('is-active');
+    }
+
+    function showPreviewPage() {
+      previewPage.classList.remove('is-hidden');
+      materialsPage.classList.remove('is-active');
+    }
+
+    function getMaterialTypeLabel(type) {
+      return '直播视频';
+    }
+
+    function getLocalFilePreviewUrl(filePath) {
+      const normalizedPath = String(filePath || '').trim();
+      if (!normalizedPath) {
+        return '';
+      }
+
+      if (normalizedPath.startsWith('file://')) {
+        return normalizedPath;
+      }
+
+      const slashNormalizedPath = normalizedPath.replace(/\\/g, '/');
+      const fileUrlPath = slashNormalizedPath.startsWith('/') ? slashNormalizedPath : `/${slashNormalizedPath}`;
+      return encodeURI(`file://${fileUrlPath}`);
+    }
+
+    function isAbsoluteLocalPath(value) {
+      const normalizedValue = String(value || '').trim();
+      return /^\/|^[A-Za-z]:[\\/]|^file:\/\//.test(normalizedValue);
+    }
+
+    function getMaterialPath(file) {
+      const directPath = String(file.path || '').trim();
+      const bridgePath = typeof globalThis.getPathForLocalFile === 'function'
+        ? String(globalThis.getPathForLocalFile(file) || '').trim()
+        : '';
+
+      const fileSystemHandlePath = String(file?.handle?.path || '').trim();
+      if (isAbsoluteLocalPath(directPath)) {
+        return directPath;
+      }
+      if (isAbsoluteLocalPath(bridgePath)) {
+        return bridgePath;
+      }
+      if (isAbsoluteLocalPath(fileSystemHandlePath)) {
+        return fileSystemHandlePath;
+      }
+      return '';
+    }
+
+    function getMaterialKey(file) {
+      return [
+        getMaterialPath(file),
+        String(file.name || ''),
+        String(file.size || 0),
+        String(file.lastModified || 0)
+      ].join('::');
+    }
+
+    function getSelectedMaterialPaths() {
+      return selectedMaterials
+        .map((item) => item.path)
+        .filter((item) => isAbsoluteLocalPath(item));
+    }
+
+    function updateMaterialsStatus(message) {
+      materialsCount.textContent = `已选 ${selectedMaterials.length} / ${MAX_MATERIAL_COUNT}`;
+      if (message) {
+        materialsHint.textContent = message;
+        return;
+      }
+
+      materialsHint.textContent = selectedMaterials.length
+        ? '文件已就位，点底部按钮开始高光剪辑。'
+        : '先选 1 个直播文件，再开始高光剪辑。';
+    }
+
+    function revokeMaterialPreview(material) {
+      if (material && String(material.previewUrl || '').startsWith('blob:')) {
+        URL.revokeObjectURL(material.previewUrl);
+      }
+    }
+
+    function clearSelectedMaterials() {
+      selectedMaterials.forEach((material) => {
+        revokeMaterialPreview(material);
+      });
+      selectedMaterials.splice(0, selectedMaterials.length);
+      materialKeySet.clear();
+    }
+
+    function removeMaterial(index) {
+      const removedItems = selectedMaterials.splice(index, 1);
+      const removed = removedItems[0];
+      if (removed) {
+        materialKeySet.delete(removed.key);
+        revokeMaterialPreview(removed);
+      }
+      renderMaterials();
+    }
+
+    function replaceSingleMaterial(nextMaterial) {
+      clearSelectedMaterials();
+      selectedMaterials.push(nextMaterial);
+      materialKeySet.add(nextMaterial.key);
+    }
+
+    function createMaterialCard(material, index) {
+      const card = document.createElement('div');
+      card.className = 'material-card';
+
+      const media = document.createElement(material.kind === 'video' ? 'video' : 'img');
+      media.className = 'material-thumb';
+      media.src = material.previewUrl;
+      media.alt = material.name;
+
+      if (material.kind === 'video') {
+        media.muted = true;
+        media.playsInline = true;
+        media.preload = 'metadata';
+      }
+
+      const typeBadge = document.createElement('span');
+      typeBadge.className = 'material-type';
+      typeBadge.textContent = getMaterialTypeLabel(material.type);
+
+      const removeButton = document.createElement('button');
+      removeButton.className = 'material-remove';
+      removeButton.type = 'button';
+      removeButton.textContent = 'x';
+      removeButton.setAttribute('aria-label', `移除${material.name}`);
+      removeButton.addEventListener('click', () => {
+        removeMaterial(index);
+      });
+
+      const meta = document.createElement('div');
+      meta.className = 'material-meta';
+
+      const name = document.createElement('p');
+      name.className = 'material-name';
+      name.textContent = material.name;
+
+      const path = document.createElement('p');
+      path.className = 'material-path';
+      path.textContent = material.path;
+
+      meta.appendChild(name);
+      meta.appendChild(path);
+      card.appendChild(media);
+      card.appendChild(typeBadge);
+      card.appendChild(removeButton);
+      card.appendChild(meta);
+      return card;
+    }
+
+    function renderMaterials(message) {
+      materialsGrid.innerHTML = '';
+
+      if (!selectedMaterials.length) {
+        galleryEmpty.hidden = false;
+        materialsGrid.hidden = true;
+        galleryCard.classList.remove('has-items');
+        updateMaterialsStatus(message);
+        return;
+      }
+
+      selectedMaterials.forEach((material, index) => {
+        materialsGrid.appendChild(createMaterialCard(material, index));
+      });
+
+      galleryEmpty.hidden = true;
+      materialsGrid.hidden = false;
+      galleryCard.classList.add('has-items');
+      updateMaterialsStatus(message);
+    }
+
+    function appendMaterials(fileList) {
+      const files = Array.from(fileList || []);
+      if (!files.length) {
+        return;
+      }
+
+      let duplicateCount = 0;
+      let missingAbsolutePathCount = 0;
+      let pickedMoreThanOne = files.length > 1;
+      let hasReplaced = false;
+
+      for (const file of files) {
+        const key = getMaterialKey(file);
+        if (materialKeySet.has(key)) {
+          duplicateCount += 1;
+          continue;
+        }
+
+        const path = getMaterialPath(file);
+        if (!path) {
+          missingAbsolutePathCount += 1;
+          continue;
+        }
+
+        const type = String(file.type || 'video/*');
+        const kind = 'video';
+
+        replaceSingleMaterial({
+          key,
+          name: String(file.name || '未命名文件'),
+          path,
+          type,
+          kind,
+          previewUrl: URL.createObjectURL(file)
+        });
+        hasReplaced = true;
+        break;
+      }
+
+      let message = '';
+      if (pickedMoreThanOne) {
+        message = '只支持 1 个直播文件，我先保留第一个。';
+      } else if (missingAbsolutePathCount) {
+        message = `有 ${missingAbsolutePathCount} 个文件没拿到绝对路径，已跳过；请在宿主环境里重新选择本地文件。`;
+      } else if (duplicateCount) {
+        message = '重复文件已跳过。';
+      } else if (hasReplaced) {
+        message = '直播文件已就位。';
+      }
+
+      renderMaterials(message);
+    }
+
+    function appendMaterialsFromHostSelection(fileMetadataList) {
+      const items = Array.from(fileMetadataList || []);
+      if (!items.length) {
+        return;
+      }
+
+      let duplicateCount = 0;
+      let missingAbsolutePathCount = 0;
+      let pickedMoreThanOne = items.length > 1;
+      let hasReplaced = false;
+
+      for (const item of items) {
+        const path = String(item?.path || '').trim();
+        if (!isAbsoluteLocalPath(path)) {
+          missingAbsolutePathCount += 1;
+          continue;
+        }
+
+        const key = [
+          path,
+          String(item?.name || ''),
+          String(item?.size || 0)
+        ].join('::');
+
+        if (materialKeySet.has(key)) {
+          duplicateCount += 1;
+          continue;
+        }
+
+        const rawType = String(item?.type || '');
+        const normalizedType = rawType === 'video' ? 'video/*' : rawType || 'video/*';
+        const kind = 'video';
+
+        replaceSingleMaterial({
+          key,
+          name: String(item?.origin_name || item?.name || '未命名文件'),
+          path,
+          type: normalizedType,
+          kind,
+          previewUrl: getLocalFilePreviewUrl(path)
+        });
+        hasReplaced = true;
+        break;
+      }
+
+      let message = '';
+      if (pickedMoreThanOne) {
+        message = '只支持 1 个直播文件，我先保留第一个。';
+      } else if (missingAbsolutePathCount) {
+        message = `有 ${missingAbsolutePathCount} 个文件没拿到绝对路径，已跳过；请在宿主环境里重新选择本地文件。`;
+      } else if (duplicateCount) {
+        message = '重复文件已跳过。';
+      } else if (hasReplaced) {
+        message = '直播文件已就位。';
+      }
+
+      renderMaterials(message);
+    }
+
+    async function openMaterialsPicker() {
+      if (typeof globalThis.selectLocalFilesFromHost === 'function') {
+        const selectedFiles = await globalThis.selectLocalFilesFromHost({
+          properties: ['openFile'],
+          filters: [
+            {
+              name: 'Video',
+              extensions: ['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm']
+            }
+          ]
+        });
+
+        if (Array.isArray(selectedFiles) && selectedFiles.length) {
+          appendMaterialsFromHostSelection(selectedFiles);
+        }
+        return;
+      }
+
+      if (typeof materialsInput.showPicker === 'function') {
+        materialsInput.showPicker();
+        return;
+      }
+      materialsInput.click();
+    }
+
+    goToFormButton.addEventListener('click', () => {
+      showMaterialsPage();
+    });
+
+    backToPreviewButton.addEventListener('click', () => {
+      showPreviewPage();
+    });
+
+    if (pickMaterialsButton) {
+      pickMaterialsButton.addEventListener('click', () => {
+        void openMaterialsPicker();
+      });
+    }
+
+    galleryEmpty.addEventListener('click', () => {
+      void openMaterialsPicker();
+    });
+
+    materialsInput.addEventListener('change', (event) => {
+      const target = event.target;
+      appendMaterials(target.files);
+      target.value = '';
+    });
+
+    startButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      const localFilePaths = getSelectedMaterialPaths();
+      const hasOnlyAbsolutePaths = localFilePaths.length === selectedMaterials.length;
+
+      if (!localFilePaths.length) {
+        updateMaterialsStatus('先选 1 个直播文件。');
+        void openMaterialsPicker();
+        return;
+      }
+
+      if (!hasOnlyAbsolutePaths) {
+        updateMaterialsStatus('当前文件不是绝对路径，请重新选择本地文件后再开始高光剪辑。');
+        return;
+      }
+
+      try {
+        const prompt = buildPrompt(localFilePaths[0]);
+        const sent = sendPromptToHost(prompt);
+          if (!sent) {
+            return;
+          }
+        } catch (_error) {
+          return;
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      selectedMaterials.forEach((material) => {
+        revokeMaterialPreview(material);
+      });
+    });
+  </script>
+</body>
+</html>
