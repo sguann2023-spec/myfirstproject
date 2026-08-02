@@ -51,6 +51,13 @@ const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
 const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
+const isAbsoluteLocalEntryPath = (value = '') => {
+  const normalized = normalizeLocalPath(value).trim();
+  return Boolean(
+    normalized
+    && (normalized.startsWith('/') || /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('//'))
+  );
+};
 const getSessionWorkspacePath = (session) => {
   const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
   return normalizeLocalPath(config.selected_workspace_path || session?.accessible_paths?.[0] || '').trim();
@@ -61,6 +68,19 @@ const joinLocalPath = (...segments) => {
     return normalizeLocalPath(joinPath(...segments));
   }
   return normalizeLocalPath(segments.filter(Boolean).join('/')).replace(/\/+/g, '/');
+};
+const resolveListedLocalEntryPath = (rootPath, entryPath) => {
+  const normalizedRoot = normalizeLocalPath(rootPath).replace(/\/$/, '');
+  const normalizedEntry = normalizeLocalPath(entryPath).trim();
+  if (!normalizedEntry) return '';
+  if (isAbsoluteLocalEntryPath(normalizedEntry)) return normalizedEntry;
+  return `${normalizedRoot}/${normalizedEntry}`.replace(/\/+/g, '/');
+};
+const createLocalFilePreviewUrl = (filePath = '') => {
+  const normalizedPath = normalizeLocalPath(filePath).trim();
+  if (!normalizedPath) return '';
+  const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+  return encodeURI(`file://${normalizedPathname}`);
 };
 const dedupeWorkspacePaths = (paths = []) => Array.from(new Set(
   (Array.isArray(paths) ? paths : []).map((item) => normalizeLocalPath(item).trim()).filter(Boolean)
@@ -1095,6 +1115,40 @@ const HomePage = () => {
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
   const activeChatWebPreviewKeyRef = useRef('');
   const chatExpandedWindowBaseWidthRef = useRef(null);
+  const openQuickSkillWebsitePreview = useCallback(async (skillRootPath, previewTitle = '网页预览') => {
+    const normalizedSkillRootPath = normalizeLocalPath(skillRootPath).trim();
+    if (!normalizedSkillRootPath || !window?.api?.file?.listDirectory) return false;
+
+    try {
+      const entries = await window.api.file.listDirectory(normalizedSkillRootPath, {
+        recursive: true,
+        maxDepth: 3,
+        includeHidden: false,
+        includeFiles: true,
+        includeDirectories: false,
+        maxEntries: 50,
+        searchPattern: 'index.html'
+      });
+      const websitePath = (Array.isArray(entries) ? entries : [])
+        .map((entryPath) => resolveListedLocalEntryPath(normalizedSkillRootPath, entryPath))
+        .find((entryPath) => normalizeLocalPath(entryPath).endsWith('/website/index.html'));
+      const previewUrl = createLocalFilePreviewUrl(websitePath);
+      if (!websitePath || !previewUrl) return false;
+
+      if (chatWebPreview?.key) {
+        setChatWebPreviewDismissedKey(String(chatWebPreview.key));
+      }
+      setManualChatWebPreview({
+        key: `quick-skill-html:${websitePath}`,
+        url: previewUrl,
+        title: String(previewTitle || '').trim() || '网页预览',
+        sourcePath: websitePath
+      });
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }, [chatWebPreview?.key]);
   const refreshHeaderMembership = useCallback(async () => {
     try {
       const payload = await getMembershipSummary();
@@ -2943,6 +2997,7 @@ const HomePage = () => {
       if (!copySkillResult?.success) {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
       }
+      await openQuickSkillWebsitePreview(copySkillResult?.data?.targetPath, QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME);
 
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
@@ -2969,7 +3024,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebsitePreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleBootstrapLiveClipping = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
@@ -3031,6 +3086,7 @@ const HomePage = () => {
       if (!copySkillResult?.success) {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
       }
+      await openQuickSkillWebsitePreview(copySkillResult?.data?.targetPath, QUICK_LIVE_CLIPPING_SKILL_NAME);
 
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
@@ -3051,7 +3107,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebsitePreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleBootstrapTravelGuide = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
@@ -3113,6 +3169,7 @@ const HomePage = () => {
       if (!copySkillResult?.success) {
         throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
       }
+      await openQuickSkillWebsitePreview(copySkillResult?.data?.targetPath, QUICK_TRAVEL_GUIDE_SKILL_NAME);
 
       const workspaceStore = readWorkspaceStore();
       writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
@@ -3133,7 +3190,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebsitePreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
