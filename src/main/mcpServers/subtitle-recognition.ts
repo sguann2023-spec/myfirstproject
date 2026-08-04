@@ -31,7 +31,8 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
       effectMode: {
         type: 'string',
         enum: [...SUBTITLE_RECOGNITION_EFFECT_MODES],
-        description: 'Optional recognition strength. One of basic, nlp, llm, llm_vad. Defaults to llm.'
+          description:
+            'Optional recognition strength. Use basic for fast baseline ASR, nlp for fast short-video sentence splitting with a 12-character limit per line, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to llm.'
       },
       content: {
         type: 'string',

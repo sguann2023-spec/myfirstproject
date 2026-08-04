@@ -393,7 +393,7 @@ describe('DraftElementsServer', () => {
     })
   })
 
-  it('should pass local image path through image_path before add_image', async () => {
+  it('should keep local file paths in image_url before add_image', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -414,12 +414,12 @@ describe('DraftElementsServer', () => {
 
     const server = createServer()
     await callTool(server, 'add_image', {
-      imagePath: '/tmp/demo.png',
+      imageUrl: '/tmp/demo.png',
       end: 8
     })
 
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      image_path: '/tmp/demo.png',
+      image_url: '/tmp/demo.png',
       end: 8
     })
   })
@@ -478,7 +478,7 @@ describe('DraftElementsServer', () => {
     })
   })
 
-  it('should normalize local video path from videoUrl into video_path before add_video', async () => {
+  it('should keep local file URLs in video_url before add_video', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -499,12 +499,12 @@ describe('DraftElementsServer', () => {
 
     const server = createServer()
     await callTool(server, 'add_video', {
-      videoUrl: '/tmp/demo.mp4',
+      videoUrl: 'file:///tmp/demo.mp4',
       targetStart: 3
     })
 
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      video_path: '/tmp/demo.mp4',
+      video_url: 'file:///tmp/demo.mp4',
       target_start: 3
     })
   })
@@ -563,7 +563,7 @@ describe('DraftElementsServer', () => {
     })
   })
 
-  it('should pass local audio path through audio_path before add_audio', async () => {
+  it('should keep local file paths in audio_url before add_audio', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -584,12 +584,12 @@ describe('DraftElementsServer', () => {
 
     const server = createServer()
     await callTool(server, 'add_audio', {
-      audioPath: '/tmp/demo.mp3',
+      audioUrl: '/tmp/demo.mp3',
       effectType: '回音'
     })
 
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      audio_path: '/tmp/demo.mp3',
+      audio_url: '/tmp/demo.mp3',
       effect_type: '回音'
     })
   })

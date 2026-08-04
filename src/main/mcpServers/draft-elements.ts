@@ -340,10 +340,8 @@ const TOOLS: Tool[] = [
     'add_image',
     'Add a single image layer into a VectCut draft.',
     {
-      imageUrl: { type: 'string', description: 'Required image URL alias of image_url.' },
-      image_url: { type: 'string', description: 'Required image URL.' },
-      imagePath: { type: 'string', description: 'Optional local image path alias of image_path.' },
-      image_path: { type: 'string', description: 'Optional local image path.' },
+      imageUrl: { type: 'string', description: 'Required image URL or local file path alias of image_url.' },
+      image_url: { type: 'string', description: 'Required image URL or local file path.' },
       start: { type: 'number', description: 'Optional start time in seconds.' },
       end: { type: 'number', description: 'Required end time in seconds.' },
       width: { type: 'number', description: 'Optional canvas width.' },
@@ -488,10 +486,8 @@ const TOOLS: Tool[] = [
     'add_video',
     'Add a single video layer into a VectCut draft.',
     {
-      videoUrl: { type: 'string', description: 'Required video URL alias of video_url.' },
-      video_url: { type: 'string', description: 'Required video URL.' },
-      videoPath: { type: 'string', description: 'Optional local video path alias of video_path.' },
-      video_path: { type: 'string', description: 'Optional local video path.' },
+      videoUrl: { type: 'string', description: 'Required video URL or local file path alias of video_url.' },
+      video_url: { type: 'string', description: 'Required video URL or local file path.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
       width: { type: 'number', description: 'Optional canvas width.' },
@@ -645,10 +641,8 @@ const TOOLS: Tool[] = [
     'add_audio',
     'Add a single audio layer into a VectCut draft.',
     {
-      audioUrl: { type: 'string', description: 'Required audio URL alias of audio_url.' },
-      audio_url: { type: 'string', description: 'Required audio URL.' },
-      audioPath: { type: 'string', description: 'Optional local audio path alias of audio_path.' },
-      audio_path: { type: 'string', description: 'Optional local audio path.' },
+      audioUrl: { type: 'string', description: 'Required audio URL or local file path alias of audio_url.' },
+      audio_url: { type: 'string', description: 'Required audio URL or local file path.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
       targetStart: { type: 'number', description: 'Optional timeline start alias of target_start.' },
@@ -1072,30 +1066,6 @@ type VectCutResponse = {
   [key: string]: unknown
 }
 
-type LocalMediaSourceConfig = {
-  urlKey: 'image_url' | 'video_url' | 'audio_url'
-  pathKey: 'image_path' | 'video_path' | 'audio_path'
-  explicitPathKeys: string[]
-}
-
-const LOCAL_MEDIA_SOURCE_CONFIG: Partial<Record<string, LocalMediaSourceConfig>> = {
-  add_image: {
-    urlKey: 'image_url',
-    pathKey: 'image_path',
-    explicitPathKeys: ['image_path', 'imagePath']
-  },
-  add_video: {
-    urlKey: 'video_url',
-    pathKey: 'video_path',
-    explicitPathKeys: ['video_path', 'videoPath']
-  },
-  add_audio: {
-    urlKey: 'audio_url',
-    pathKey: 'audio_path',
-    explicitPathKeys: ['audio_path', 'audioPath']
-  }
-}
-
 class DraftElementsServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
@@ -1277,20 +1247,6 @@ class DraftElementsServer {
   private ensureRequiredFields(toolName: string, body: Record<string, unknown>) {
     const required = MUTATION_REQUIRED_FIELDS[toolName] ?? []
     for (const key of required) {
-      const mediaConfig = LOCAL_MEDIA_SOURCE_CONFIG[toolName]
-      if (mediaConfig && key === mediaConfig.urlKey) {
-        const urlValue = body[mediaConfig.urlKey]
-        const pathValue = body[mediaConfig.pathKey]
-        const hasUrl = typeof urlValue === 'string' && urlValue.trim()
-        const hasPath = typeof pathValue === 'string' && pathValue.trim()
-        if (!hasUrl && !hasPath) {
-          throw new McpError(
-            ErrorCode.InvalidParams,
-            `'${mediaConfig.urlKey}' or '${mediaConfig.pathKey}' is required for ${toolName}`
-          )
-        }
-        continue
-      }
       const value = body[key]
       const isMissing =
         typeof value === 'undefined' ||
@@ -1299,30 +1255,6 @@ class DraftElementsServer {
         (Array.isArray(value) && value.length === 0)
       if (isMissing) {
         throw new McpError(ErrorCode.InvalidParams, `'${key}' is required for ${toolName}`)
-      }
-    }
-  }
-
-  private normalizeLocalMediaSource(toolName: string, body: Record<string, unknown>) {
-    const config = LOCAL_MEDIA_SOURCE_CONFIG[toolName]
-    if (!config) return
-
-    const explicitLocalPath = config.explicitPathKeys
-      .map((key) => (typeof body[key] === 'string' ? body[key].trim() : ''))
-      .find(Boolean)
-    const rawUrlValue = body[config.urlKey]
-    const currentUrlValue = typeof rawUrlValue === 'string' ? rawUrlValue.trim() : ''
-    if (explicitLocalPath) {
-      body[config.pathKey] = explicitLocalPath
-      delete body[config.urlKey]
-    } else if (currentUrlValue.startsWith('/')) {
-      body[config.pathKey] = currentUrlValue
-      delete body[config.urlKey]
-    }
-
-    for (const key of config.explicitPathKeys) {
-      if (key !== config.pathKey) {
-        delete body[key]
       }
     }
   }
@@ -1375,7 +1307,6 @@ class DraftElementsServer {
 
   private async callMutationTool(toolName: string, args: Record<string, unknown>) {
     const body = this.normalizeArgs(toolName, args)
-    this.normalizeLocalMediaSource(toolName, body)
     this.ensureRequiredFields(toolName, body)
 
     const response = await this.requestWithAuth(ENDPOINTS[toolName as keyof typeof ENDPOINTS], {
