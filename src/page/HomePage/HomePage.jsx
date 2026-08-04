@@ -435,8 +435,9 @@ const buildChatBrowserPreviewFromSession = (session) => {
         || readBrowserToolTitle(rawToolResponse?.arguments, '')
         || url;
       const toolCallId = String(rawToolResponse?.id || block?.id || '').trim() || url;
+      const previewIdentity = String(rawToolResponse?.id || '').trim() || toolCallId;
       return {
-        key: `${String(session?.id || 'chat').trim()}:${toolCallId}:${url}`,
+        key: `${String(session?.id || 'chat').trim()}:${previewIdentity}`,
         url,
         title
       };
@@ -458,8 +459,9 @@ const buildChatBrowserPreviewFromBlocks = (blocks, scopeKey = 'chat') => {
       || readBrowserToolTitle(rawToolResponse?.arguments, '')
       || url;
     const toolCallId = String(rawToolResponse?.id || block?.id || '').trim() || url;
+    const previewIdentity = String(rawToolResponse?.id || '').trim() || toolCallId;
     return {
-      key: `${String(scopeKey || 'chat').trim()}:${toolCallId}:${url}`,
+      key: `${String(scopeKey || 'chat').trim()}:${previewIdentity}`,
       url,
       title
     };
@@ -484,16 +486,6 @@ const formatCreditsCount = (value) => {
 };
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const summarizeMapKeys = (mapLike, limit = 6) => {
-  try {
-    if (!mapLike || typeof mapLike.keys !== 'function') return [];
-    return [...mapLike.keys()].slice(0, limit);
-  } catch {
-    return [];
-  }
-};
-
 
 const getPerfTimestamp = () =>
   (typeof globalThis?.performance?.now === 'function' ? globalThis.performance.now() : Date.now());
@@ -897,6 +889,32 @@ const countStructuredAssistantBlocks = (messages = []) => (
   }, 0)
 );
 
+const hasUnstableAssistantToolBlocks = (messages = []) => {
+  const seenToolCallIds = new Set();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') continue;
+    const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+    for (const block of blocks) {
+      if (!isStructuredBlockObject(block)) continue;
+      const rawToolResponse = block?.metadata?.rawMcpToolResponse;
+      const isToolBlock = String(block?.type || '').toLowerCase() === 'tool' || Boolean(rawToolResponse);
+      if (!isToolBlock) continue;
+
+      if (isStreamingLikeBlockStatus(block?.status) || isStreamingLikeBlockStatus(rawToolResponse?.status)) {
+        return true;
+      }
+
+      const toolCallId = String(rawToolResponse?.id || '').trim();
+      if (!toolCallId) continue;
+      if (seenToolCallIds.has(toolCallId)) {
+        return true;
+      }
+      seenToolCallIds.add(toolCallId);
+    }
+  }
+  return false;
+};
+
 const shouldApplyHydratedMessages = ({
   currentMessages = [],
   hydratedMessages = []
@@ -905,6 +923,7 @@ const shouldApplyHydratedMessages = ({
   const beforeVisibleAssistantCount = countVisibleAssistantMessages(currentMessages);
   const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
   const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
+  const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
   const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
@@ -915,6 +934,7 @@ const shouldApplyHydratedMessages = ({
     || afterMissingAssistantCount < beforeMissingAssistantCount
     || afterVisibleAssistantCount > beforeVisibleAssistantCount
     || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
+    || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
   );
 };
 
@@ -1157,6 +1177,12 @@ const HomePage = () => {
     chatHistoryHydrateSettledRef.current.delete(hydrateKey);
     chatHistoryHydratingRef.current.add(hydrateKey);
     try {
+      const currentSessionAtHydrateStart = chatSessionsRef.current.find((item) => item.id === normalizedChatId);
+      const beforeMessageIds = new Set(
+        (Array.isArray(currentSessionAtHydrateStart?.messages) ? currentSessionAtHydrateStart.messages : [])
+          .map((message) => String(message?.id || '').trim())
+          .filter(Boolean)
+      );
       const invoke = window?.ipc?.invoke
         ? (channel, payload) => window.ipc.invoke(channel, payload)
         : (channel, payload) => window.electron.ipcRenderer.invoke(channel, payload);
@@ -1205,15 +1231,26 @@ const HomePage = () => {
       }
 
       setChatSessions((prev) => {
-        const updated = prev.map((item) => (
-          item.id === normalizedChatId
-            ? {
-              ...item,
-              updatedAt: Date.now(),
-              messages: hydratedMessages
-            }
-            : item
-        ));
+        const updated = prev.map((item) => {
+          if (item.id !== normalizedChatId) return item;
+          const currentMessages = Array.isArray(item.messages) ? item.messages : [];
+          const hydratedMessageIds = new Set(
+            hydratedMessages.map((message) => String(message?.id || '').trim()).filter(Boolean)
+          );
+          // Preserve optimistic messages created after persisted hydrate started so
+          // late session syncs do not wipe a freshly resent user turn.
+          const locallyAddedMessages = currentMessages.filter((message) => {
+            const messageId = String(message?.id || '').trim();
+            if (!messageId) return false;
+            if (hydratedMessageIds.has(messageId)) return false;
+            return !beforeMessageIds.has(messageId);
+          });
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: [...hydratedMessages, ...locallyAddedMessages]
+          };
+        });
         return sortChatSessions(updated);
       });
       chatHistoryHydrateSettledRef.current.add(hydrateKey);
@@ -1372,6 +1409,46 @@ const HomePage = () => {
       manualChatWebPreview?.key || chatWebPreview?.key || ''
     ).trim();
   }, [chatWebPreview?.key, manualChatWebPreview?.key]);
+
+  useEffect(() => {
+    try {
+      const { ipcRenderer } = window.require('electron');
+
+      const handleEnsureBrowserPreview = (_event, payload = {}) => {
+        const normalizedUrl = String(payload?.url || '').trim();
+        if (!normalizedUrl) return;
+
+        const normalizedTabId = String(payload?.tabId || '').trim();
+        const normalizedKey = String(
+          payload?.key || `browser-preview:${normalizedTabId || normalizedUrl}`
+        ).trim();
+        const normalizedTitle = String(payload?.title || normalizedUrl).trim() || normalizedUrl;
+
+        setSelectedPane('chat');
+        setManualChatWebPreview({
+          key: normalizedKey,
+          url: normalizedUrl,
+          title: normalizedTitle,
+          tabId: normalizedTabId || undefined
+        });
+      };
+
+      const handleHideBrowserPreview = () => {
+        setManualChatWebPreview(null);
+      };
+
+      ipcRenderer.on(IpcChannel.BrowserPreview_EnsureVisible, handleEnsureBrowserPreview);
+      ipcRenderer.on(IpcChannel.BrowserPreview_Hide, handleHideBrowserPreview);
+
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.BrowserPreview_EnsureVisible, handleEnsureBrowserPreview);
+        ipcRenderer.removeListener(IpcChannel.BrowserPreview_Hide, handleHideBrowserPreview);
+      };
+    } catch (error) {
+      logger.warn('Failed to subscribe browser preview events.', error);
+      return undefined;
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -2327,6 +2404,16 @@ const HomePage = () => {
         const payloadType = String(payload?.type || '');
         const chunkType = String(payload?.chunk?.type || '');
         const mappedChatId = chatIdByAgentSessionIdRef.current.get(agentSessionId);
+        const hasNewerPendingForSameChat = Boolean(
+          mappedChatId
+          && [...chatPendingByRequestIdRef.current.entries()].some(([pendingRequestId, item]) => (
+            pendingRequestId !== requestId
+            && item?.chatId === mappedChatId
+          ))
+        );
+        if (mappedChatId && hasNewerPendingForSameChat) {
+          return;
+        }
         if (payloadType === 'started') {
           if (mappedChatId) {
             setChatSessionSending(mappedChatId, true, 'chunk.started.without-pending');
@@ -2357,15 +2444,14 @@ const HomePage = () => {
           || payloadType === 'error'
           || payloadType === 'cancelled';
         if (isToolRelated) {
-          logger.warn('[HomePage][StreamTrace] drop payload without pending state', {
-            requestId,
-            sessionId: agentSessionId,
-            payloadType,
-            chunkType,
-            pendingMapSize: chatPendingByRequestIdRef.current.size,
-            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current),
-            knownChatSessionIds: summarizeMapKeys(chatAgentSessionIdByChatIdRef.current)
-          });
+          if (mappedChatId && agentSessionId) {
+            chatHistoryHydrateSettledRef.current.delete(`${mappedChatId}:${agentSessionId}`);
+            void hydratePersistedChatSessionFromHistory({
+              chatId: mappedChatId,
+              sessionId: agentSessionId,
+              reason: `drop-payload-without-pending:${payloadType || chunkType || 'unknown'}`
+            });
+          }
         }
         return;
       }
@@ -2377,13 +2463,6 @@ const HomePage = () => {
         if (perfEntry && !perfEntry.startedAt) {
           perfEntry.startedAt = Date.now();
           perfEntry.startedPerfAt = getPerfTimestamp();
-          logger.info('[HomePage][Perf] request started', {
-            requestId,
-            chatId,
-            sessionId: agentSessionId,
-            assistantMessageId,
-            knownPendingRequestIds: summarizeMapKeys(chatPendingByRequestIdRef.current)
-          });
         }
         setChatSessionSending(chatId, true, 'chunk.started');
         setChatSessionInFlight(chatId, true, 'chunk.started');
@@ -2485,10 +2564,7 @@ const HomePage = () => {
 
       const finalizeAssistantMessage = ({ error = null, aborted = false } = {}) => {
         const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
-        const snapshotSummary = summarizeSnapshotForPerf(snapshot);
-        let computeDurationMs = 0;
         setChatSessions((prev) => {
-          const computeStart = getPerfTimestamp();
           const updated = prev.map((item) => {
             if (item.id !== chatId) return item;
             return {
@@ -2530,18 +2606,7 @@ const HomePage = () => {
               })
             };
           });
-          const sorted = sortChatSessions(updated);
-          computeDurationMs = Math.round((getPerfTimestamp() - computeStart) * 100) / 100;
-          return sorted;
-        });
-        logger.info('[HomePage][Perf] finalize assistant message', {
-          requestId,
-          chatId,
-          sessionId: agentSessionId,
-          aborted,
-          hasError: Boolean(error),
-          computeDurationMs,
-          ...snapshotSummary
+          return sortChatSessions(updated);
         });
       };
 
@@ -2566,25 +2631,8 @@ const HomePage = () => {
             perfEntry.firstVisibleTextAt = Date.now();
             perfEntry.firstVisibleTextPerfAt = getPerfTimestamp();
           }
-          logger.info('[HomePage][Perf] first visible assistant text chunk', {
-            requestId,
-            chatId,
-            sessionId: agentSessionId,
-            assistantMessageId,
-            chunkType
-          });
           setChatSessionSending(chatId, false, `chunk.${chunkType}`);
           setChatSending(false);
-        }
-        if (pushChunkDurationMs >= 16) {
-          logger.warn('[HomePage][Perf] slow pushChunk', {
-            requestId,
-            chatId,
-            sessionId: agentSessionId,
-            assistantMessageId,
-            chunkType,
-            pushChunkDurationMs
-          });
         }
         if (!useRendererStoreStreaming) {
           scheduleSnapshot(null);
@@ -2618,23 +2666,6 @@ const HomePage = () => {
           if (requestId) {
             const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
             if (completedPerf) {
-              const totalDurationMs = completedPerf.startedPerfAt
-                ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
-                : null;
-              logger.info('[HomePage][Perf] request finished', {
-                requestId,
-                chatId,
-                sessionId: agentSessionId,
-                outcome: 'aborted',
-                totalDurationMs,
-                chunkCount: completedPerf.chunkCount,
-                snapshotCount: completedPerf.snapshotCount,
-                maxContentLength: completedPerf.maxContentLength,
-                maxBlockCount: completedPerf.maxBlockCount,
-                maxPushChunkMs: completedPerf.maxPushChunkMs,
-                maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
-                lastChunkType: completedPerf.lastChunkType
-              });
               chatPerfByRequestIdRef.current.delete(requestId);
             }
           }
@@ -2661,23 +2692,6 @@ const HomePage = () => {
         if (requestId) {
           const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
           if (completedPerf) {
-            const totalDurationMs = completedPerf.startedPerfAt
-              ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
-              : null;
-            logger.info('[HomePage][Perf] request finished', {
-              requestId,
-              chatId,
-              sessionId: agentSessionId,
-              outcome: 'error',
-              totalDurationMs,
-              chunkCount: completedPerf.chunkCount,
-              snapshotCount: completedPerf.snapshotCount,
-              maxContentLength: completedPerf.maxContentLength,
-              maxBlockCount: completedPerf.maxBlockCount,
-              maxPushChunkMs: completedPerf.maxPushChunkMs,
-              maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
-              lastChunkType: completedPerf.lastChunkType
-            });
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
@@ -2698,23 +2712,6 @@ const HomePage = () => {
         if (requestId) {
           const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
           if (completedPerf) {
-            const totalDurationMs = completedPerf.startedPerfAt
-              ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
-              : null;
-            logger.info('[HomePage][Perf] request finished', {
-              requestId,
-              chatId,
-              sessionId: agentSessionId,
-              outcome: 'cancelled',
-              totalDurationMs,
-              chunkCount: completedPerf.chunkCount,
-              snapshotCount: completedPerf.snapshotCount,
-              maxContentLength: completedPerf.maxContentLength,
-              maxBlockCount: completedPerf.maxBlockCount,
-              maxPushChunkMs: completedPerf.maxPushChunkMs,
-              maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
-              lastChunkType: completedPerf.lastChunkType
-            });
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
@@ -2836,23 +2833,6 @@ const HomePage = () => {
         if (requestId) {
           const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
           if (completedPerf) {
-            const totalDurationMs = completedPerf.startedPerfAt
-              ? Math.round((getPerfTimestamp() - completedPerf.startedPerfAt) * 100) / 100
-              : null;
-            logger.info('[HomePage][Perf] request finished', {
-              requestId,
-              chatId,
-              sessionId: agentSessionId,
-              outcome: 'complete',
-              totalDurationMs,
-              chunkCount: completedPerf.chunkCount,
-              snapshotCount: completedPerf.snapshotCount,
-              maxContentLength: completedPerf.maxContentLength,
-              maxBlockCount: completedPerf.maxBlockCount,
-              maxPushChunkMs: completedPerf.maxPushChunkMs,
-              maxSnapshotComputeMs: completedPerf.maxSnapshotComputeMs,
-              lastChunkType: completedPerf.lastChunkType
-            });
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }

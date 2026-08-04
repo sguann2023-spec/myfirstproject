@@ -43,6 +43,29 @@ const summarizeForLog = (value: unknown): string => {
     return String(value ?? '')
   }
 }
+
+const normalizeStreamingArgs = (value: string): string => {
+  const raw = String(value || '')
+  if (!raw) return raw
+
+  try {
+    JSON.parse(raw)
+    return raw
+  } catch {
+    // Fall through and try to collapse duplicated full-payload replays such as "{}{}" or "{...}{...}".
+  }
+
+  if (raw.length % 2 !== 0) return raw
+  const half = raw.slice(0, raw.length / 2)
+  if (half !== raw.slice(raw.length / 2)) return raw
+
+  try {
+    JSON.parse(half)
+    return half
+  } catch {
+    return raw
+  }
+}
 /**
  * 工具调用处理器类
  */
@@ -271,6 +294,16 @@ export class ToolCallChunkHandler {
     // 尝试解析完整的 JSON 参数
     let parsedArgs: any = undefined
     if (toolCall.streamingArgs) {
+      const normalizedStreamingArgs = normalizeStreamingArgs(toolCall.streamingArgs)
+      if (normalizedStreamingArgs !== toolCall.streamingArgs) {
+        logger.warn('🔧 [ToolCallChunkHandler] Collapsed duplicated streaming args before parse', {
+          toolCallId,
+          toolName: toolCall.toolName,
+          beforePreview: summarizeForLog(toolCall.streamingArgs),
+          afterPreview: summarizeForLog(normalizedStreamingArgs)
+        })
+        toolCall.streamingArgs = normalizedStreamingArgs
+      }
       try {
         parsedArgs = JSON.parse(toolCall.streamingArgs)
         toolCall.args = parsedArgs

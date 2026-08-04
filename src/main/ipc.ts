@@ -48,6 +48,7 @@ import { apiServerService } from './services/ApiServerService'
 import appService from './services/AppService'
 import AppUpdater from './services/AppUpdater'
 import BackupManager from './services/BackupManager'
+import { browserPreviewService } from './services/BrowserPreviewService'
 import CherryINOAuthService from './services/CherryINOAuthService'
 import { codeToolsService } from './services/CodeToolsService'
 import { ConfigKeys, configManager } from './services/ConfigManager'
@@ -1317,6 +1318,12 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.on(IpcChannel.Webview_GetRuntimeEnv, (event) => {
     const vectcutApiKey = getCachedVectcutApiKey()
     event.returnValue = normalizeWebviewRuntimeEnv({ VECTCUT_API_KEY: vectcutApiKey })
+  })
+  ipcMain.handle(IpcChannel.BrowserPreview_StateSync, (_event, payload) => {
+    return browserPreviewService.syncState(payload)
+  })
+  ipcMain.handle(IpcChannel.BrowserPreview_CommandResult, (_event, payload) => {
+    return browserPreviewService.resolveCommandResult(payload)
   })
 
   // store sync

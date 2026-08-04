@@ -17,6 +17,7 @@ const SEND_TO_MAIN_PREFIX = '__VECTCUT_SEND_TO_MAIN__:';
 const HOST_FILE_SELECT_PREFIX = '__VECTCUT_HOST_FILE_SELECT__:';
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const readPreviewTabId = (preview, fallback = 'initial-tab') => String(preview?.tabId || fallback).trim() || fallback;
 const getFallbackFaviconUrl = (value = '') => {
   const normalized = normalizeUrl(value);
   if (!normalized || normalized === BLANK_TAB_URL) return '';
@@ -34,8 +35,17 @@ const createPreviewTab = (preview, overrides = {}) => ({
   previewKey: String(preview?.key || '').trim(),
   title: normalizeUrl(preview?.title) || '新标签页',
   url: normalizeUrl(preview?.url) || BLANK_TAB_URL,
-  favicon: overrides.favicon ?? getFallbackFaviconUrl(preview?.url)
+  favicon: overrides.favicon ?? getFallbackFaviconUrl(preview?.url),
+  webContentsId: Number(overrides.webContentsId || 0) > 0 ? Number(overrides.webContentsId) : null
 });
+const buildInitialPreviewTab = (preview) => createPreviewTab(preview, { id: readPreviewTabId(preview) });
+const getIpcRenderer = () => {
+  try {
+    return window?.['electron']?.ipcRenderer || window.require?.('electron')?.ipcRenderer || null;
+  } catch (_error) {
+    return null;
+  }
+};
 
 const normalizeAddressInput = (value = '') => {
   const normalized = normalizeUrl(value);
@@ -61,12 +71,14 @@ const WebPagePreview = ({ preview, onClose }) => {
   const webviewReadyRef = React.useRef(false);
   const appliedPreviewKeyRef = React.useRef('');
   const shouldScrollTabsToEndRef = React.useRef(false);
-  const [tabs, setTabs] = React.useState(() => [createPreviewTab(preview)]);
-  const [activeTabId, setActiveTabId] = React.useState(() => createPreviewTab(preview, { id: 'initial-tab' }).id);
+  const [tabs, setTabs] = React.useState(() => [buildInitialPreviewTab(preview)]);
+  const [activeTabId, setActiveTabId] = React.useState(() => readPreviewTabId(preview));
   const [addressValue, setAddressValue] = React.useState(() => normalizeUrl(preview?.url) || BLANK_TAB_URL);
   const [loading, setLoading] = React.useState(false);
   const [canGoBack, setCanGoBack] = React.useState(false);
   const [canGoForward, setCanGoForward] = React.useState(false);
+  const tabsStateRef = React.useRef([]);
+  const activeTabIdRef = React.useRef(readPreviewTabId(preview));
   const activeTab = React.useMemo(
     () => tabs.find((item) => item.id === activeTabId) || tabs[0] || null,
     [activeTabId, tabs]
@@ -74,11 +86,22 @@ const WebPagePreview = ({ preview, onClose }) => {
   const targetUrl = normalizeUrl(activeTab?.url) || BLANK_TAB_URL;
 
   React.useEffect(() => {
-    setTabs(() => [createPreviewTab(preview, { id: 'initial-tab' })]);
-    setActiveTabId('initial-tab');
+    const initialTab = buildInitialPreviewTab(preview);
+    setTabs(() => [initialTab]);
+    setActiveTabId(initialTab.id);
     setAddressValue(normalizeUrl(preview?.url) || BLANK_TAB_URL);
     appliedPreviewKeyRef.current = String(preview?.key || '').trim();
+    tabsStateRef.current = [initialTab];
+    activeTabIdRef.current = initialTab.id;
   }, []);
+
+  React.useEffect(() => {
+    tabsStateRef.current = tabs;
+  }, [tabs]);
+
+  React.useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
 
   const updateActiveTab = React.useCallback((updater) => {
     setTabs((prev) => prev.map((tab) => {
@@ -169,17 +192,217 @@ const WebPagePreview = ({ preview, onClose }) => {
     }
   }, []);
 
+  const syncPreviewState = React.useCallback(() => {
+    const ipcRenderer = getIpcRenderer();
+    if (!ipcRenderer?.invoke) return Promise.resolve(null);
+
+    const buildStatePayload = () => {
+      let activeWebContentsId = null;
+      try {
+        const webviewId = webviewRef.current?.getWebContentsId?.();
+        if (Number(webviewId) > 0) {
+          activeWebContentsId = Number(webviewId);
+        }
+      } catch (_error) {
+        activeWebContentsId = null;
+      }
+
+      return {
+        visible: true,
+        ready: Boolean(activeWebContentsId),
+        activeTabId: activeTabIdRef.current || null,
+        activeWebContentsId,
+        tabs: tabsStateRef.current.map((tab) => ({
+          id: tab.id,
+          title: tab.title,
+          url: tab.url,
+          isActive: tab.id === activeTabIdRef.current,
+          webContentsId: tab.id === activeTabIdRef.current ? activeWebContentsId : null
+        }))
+      };
+    };
+
+    const payload = buildStatePayload();
+
+    return ipcRenderer.invoke(IpcChannel.BrowserPreview_StateSync, payload).catch?.(() => null);
+  }, []);
+
+  const waitForLoadResult = React.useCallback((expectedTabId, timeoutMs = 15000) => new Promise((resolve, reject) => {
+    const webview = webviewRef.current;
+    if (!webview) {
+      reject(new Error('浏览器预览尚未初始化'));
+      return;
+    }
+
+    let settled = false;
+    let timeoutHandle;
+
+    const cleanup = () => {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      webview.removeEventListener('did-stop-loading', handleSuccess);
+      webview.removeEventListener('dom-ready', handleSuccess);
+      webview.removeEventListener('did-fail-load', handleFail);
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const currentUrl = normalizeUrl(readWebviewUrl(webview) || webview.getAttribute?.('src') || '');
+      const currentTitle = String(webview.getTitle?.() || '').trim()
+        || tabsStateRef.current.find((tab) => tab.id === expectedTabId)?.title
+        || currentUrl;
+      resolve({
+        tabId: expectedTabId,
+        currentUrl: currentUrl || BLANK_TAB_URL,
+        title: currentTitle || BLANK_TAB_URL
+      });
+    };
+
+    const handleSuccess = () => {
+      void syncPreviewState();
+      finish();
+    };
+
+    const handleFail = (event) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(String(event?.errorDescription || '页面加载失败')));
+    };
+
+    timeoutHandle = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('浏览器预览加载超时'));
+    }, timeoutMs);
+
+    webview.addEventListener('did-stop-loading', handleSuccess);
+    webview.addEventListener('dom-ready', handleSuccess);
+    webview.addEventListener('did-fail-load', handleFail);
+  }), [readWebviewUrl, syncPreviewState]);
+
   React.useEffect(() => {
     const previewKey = String(preview?.key || '').trim();
     const previewUrl = normalizeUrl(preview?.url);
     if (!previewKey || !previewUrl || previewKey === appliedPreviewKeyRef.current) return;
 
-    const nextTab = createPreviewTab(preview);
     appliedPreviewKeyRef.current = previewKey;
-    setTabs((prev) => [...prev, nextTab]);
+    const previewTabId = readPreviewTabId(preview, createTabId());
+    const hasControllerManagedTab = tabsStateRef.current.some((tab) =>
+      String(tab?.previewKey || '').startsWith('mcp-browser:')
+    );
+
+    // Controller-driven previews already carry a tabId and will be created by the
+    // subsequent BrowserPreview_Command open handler. Here we only reveal/retarget
+    // the current preview state to avoid adding the same tab twice.
+    if (preview?.tabId) {
+      setTabs((prev) => (
+        prev.some((tab) => tab.id === previewTabId)
+          ? prev.map((tab) => (
+              tab.id === previewTabId
+                ? {
+                    ...tab,
+                    previewKey: previewKey || tab.previewKey,
+                    url: previewUrl,
+                    title: normalizeUrl(preview?.title) || tab.title || previewUrl
+                  }
+                : tab
+            ))
+          : prev.map((tab, index) => {
+              const shouldAdoptExistingTab = (
+                index === 0
+                && (
+                  tab.id === 'initial-tab'
+                  || tab.previewKey === previewKey
+                  || normalizeUrl(tab.url) === previewUrl
+                )
+              );
+              if (!shouldAdoptExistingTab) return tab;
+              return {
+                ...tab,
+                id: previewTabId,
+                previewKey: previewKey || tab.previewKey,
+                url: previewUrl,
+                title: normalizeUrl(preview?.title) || tab.title || previewUrl
+              };
+            })
+      ));
+      setActiveTabId(previewTabId);
+      setAddressValue(previewUrl);
+      return;
+    }
+
+    // Once MCP browser control has taken over the preview, later chat-derived
+    // preview updates (which do not carry a tabId) should not append extra local tabs.
+    if (hasControllerManagedTab) {
+      return;
+    }
+
+    const nextTab = createPreviewTab(preview, { id: previewTabId });
+    setTabs((prev) => (
+      prev.some((tab) => tab.id === previewTabId)
+        ? prev.map((tab) => (
+          tab.id === previewTabId
+            ? {
+              ...tab,
+              previewKey: nextTab.previewKey,
+              url: nextTab.url,
+              title: nextTab.title,
+              favicon: nextTab.favicon
+            }
+            : tab
+        ))
+        : [...prev, nextTab]
+    ));
     setActiveTabId(nextTab.id);
     setAddressValue(nextTab.url);
   }, [preview]);
+
+  React.useEffect(() => {
+    void syncPreviewState();
+  }, [activeTabId, syncPreviewState, tabs]);
+
+  const navigateToAddress = React.useCallback((value) => {
+    const nextUrl = normalizeAddressInput(value);
+    if (!nextUrl) return;
+    setAddressValue(nextUrl);
+    updateActiveTab((tab) => ({
+      url: nextUrl,
+      title: nextUrl === BLANK_TAB_URL ? (tab?.title || '新标签页') : (tab?.title || nextUrl)
+    }));
+  }, [updateActiveTab]);
+
+  const handleCreateTab = React.useCallback(() => {
+    const nextTab = {
+      id: createTabId(),
+      previewKey: '',
+      title: '新标签页',
+      url: BLANK_TAB_URL
+    };
+    shouldScrollTabsToEndRef.current = true;
+    setTabs((prev) => [...prev, nextTab]);
+    setActiveTabId(nextTab.id);
+    setAddressValue(BLANK_TAB_URL);
+  }, []);
+
+  const handleCloseTab = React.useCallback((tabId) => {
+    setTabs((prev) => {
+      if (prev.length <= 1) {
+        onClose?.();
+        return prev;
+      }
+      const nextTabs = prev.filter((tab) => tab.id !== tabId);
+      if (tabId === activeTabId) {
+        const closedIndex = prev.findIndex((tab) => tab.id === tabId);
+        const fallbackTab = nextTabs[Math.max(0, closedIndex - 1)] || nextTabs[0] || null;
+        setActiveTabId(fallbackTab?.id || '');
+        setAddressValue(normalizeUrl(fallbackTab?.url) || BLANK_TAB_URL);
+      }
+      return nextTabs;
+    });
+  }, [activeTabId, onClose]);
 
   React.useEffect(() => {
     const webview = webviewRef.current;
@@ -191,13 +414,13 @@ const WebPagePreview = ({ preview, onClose }) => {
         try {
           const runtimeEnv = await window.api?.webview?.primeRuntimeEnv?.();
           const vectcutApiKey = String(runtimeEnv?.VECTCUT_API_KEY || '').trim();
-            const sendToMainPrefix = SEND_TO_MAIN_PREFIX;
-            const hostFileSelectPrefix = HOST_FILE_SELECT_PREFIX;
+          const sendToMainPrefix = SEND_TO_MAIN_PREFIX;
+          const hostFileSelectPrefix = HOST_FILE_SELECT_PREFIX;
           await webview.executeJavaScript(
             `(() => {
               const apiKey = ${JSON.stringify(vectcutApiKey)};
-                const sendPrefix = ${JSON.stringify(sendToMainPrefix)};
-                const fileSelectPrefix = ${JSON.stringify(hostFileSelectPrefix)};
+              const sendPrefix = ${JSON.stringify(sendToMainPrefix)};
+              const fileSelectPrefix = ${JSON.stringify(hostFileSelectPrefix)};
               const env = Object.freeze({ VECTCUT_API_KEY: apiKey });
               const processShim = Object.freeze({
                 env: Object.freeze({ VECTCUT_API_KEY: apiKey })
@@ -206,15 +429,15 @@ const WebPagePreview = ({ preview, onClose }) => {
               window.__VECTCUT_ENV__ = env;
               window.ENV = env;
               window.process = processShim;
-                window.sendTextToMainWindow = (text) => {
-                  const normalizedText = String(text || '').trim();
-                  if (!normalizedText) {
-                    return Promise.resolve(false);
-                  }
+              window.sendTextToMainWindow = (text) => {
+                const normalizedText = String(text || '').trim();
+                if (!normalizedText) {
+                  return Promise.resolve(false);
+                }
 
-                  console.log(sendPrefix + JSON.stringify({ text: normalizedText }));
-                  return Promise.resolve(true);
-                };
+                console.log(sendPrefix + JSON.stringify({ text: normalizedText }));
+                return Promise.resolve(true);
+              };
 
               window.__vectcutHostFileSelectResolvers = new Map();
               window.__vectcutResolveHostFileSelect = (requestId, payload) => {
@@ -258,6 +481,7 @@ const WebPagePreview = ({ preview, onClose }) => {
       try {
         const webviewId = webview.getWebContentsId?.();
         if (webviewId) {
+          updateActiveTab({ webContentsId: Number(webviewId) });
           void window.api?.webview?.setSpellCheckEnabled?.(webviewId, false);
         }
       } catch (_error) {
@@ -266,6 +490,7 @@ const WebPagePreview = ({ preview, onClose }) => {
       void syncWebviewZoomFactor();
       syncNavigationState();
       void syncActiveTabFavicon(readWebviewUrl(webview) || targetUrl);
+      void syncPreviewState();
     };
 
     const handleStartLoading = () => {
@@ -277,12 +502,14 @@ const WebPagePreview = ({ preview, onClose }) => {
       setLoading(false);
       syncNavigationState();
       void syncActiveTabFavicon(readWebviewUrl(webview) || targetUrl);
+      void syncPreviewState();
     };
 
     const handleTitleUpdated = (event) => {
       if (event?.title) {
         updateActiveTab({ title: String(event.title).trim() || '新标签页' });
       }
+      void syncPreviewState();
     };
 
     const handleNavigate = (event) => {
@@ -293,59 +520,62 @@ const WebPagePreview = ({ preview, onClose }) => {
         void syncActiveTabFavicon(nextUrl);
       }
       syncNavigationState();
+      void syncPreviewState();
     };
 
     const handleFailLoad = () => {
       setLoading(false);
       syncNavigationState();
+      void syncPreviewState();
     };
 
-      const handleConsoleMessage = (event) => {
-        const message = String(event?.message || '');
-        if (!message.startsWith(SEND_TO_MAIN_PREFIX)) {
-          if (!message.startsWith(HOST_FILE_SELECT_PREFIX)) {
-            return;
-          }
-
-          try {
-            const payload = JSON.parse(message.slice(HOST_FILE_SELECT_PREFIX.length));
-            const requestId = String(payload?.requestId || '').trim();
-            if (!requestId) {
-              return;
-            }
-
-            Promise.resolve(window.api?.file?.select?.(payload?.options || {}))
-              .then((selectedFiles) => {
-                  const responsePayload = JSON.stringify(Array.isArray(selectedFiles) ? selectedFiles : null);
-                return webview.executeJavaScript(
-                  `window.__vectcutResolveHostFileSelect(${JSON.stringify(requestId)}, ${responsePayload});`,
-                  true
-                );
-              })
-              .catch(() => {
-                return webview.executeJavaScript(
-                  `window.__vectcutResolveHostFileSelect(${JSON.stringify(requestId)}, null);`,
-                  true
-                );
-              });
-          } catch (_error) {
-            // ignore malformed host file select bridge payloads
-          }
+    const handleConsoleMessage = (event) => {
+      const message = String(event?.message || '');
+      if (!message.startsWith(SEND_TO_MAIN_PREFIX)) {
+        if (!message.startsWith(HOST_FILE_SELECT_PREFIX)) {
           return;
         }
 
         try {
-          const payload = JSON.parse(message.slice(SEND_TO_MAIN_PREFIX.length));
-          const text = String(payload?.text || '').trim();
-          if (!text) {
+          const payload = JSON.parse(message.slice(HOST_FILE_SELECT_PREFIX.length));
+          const requestId = String(payload?.requestId || '').trim();
+          if (!requestId) {
             return;
           }
 
-          void window.electron?.ipcRenderer.invoke(IpcChannel.App_SendTextToMain, text);
+          Promise.resolve(window.api?.file?.select?.(payload?.options || {}))
+            .then((selectedFiles) => {
+              const responsePayload = JSON.stringify(Array.isArray(selectedFiles) ? selectedFiles : null);
+              return webview.executeJavaScript(
+                `window.__vectcutResolveHostFileSelect(${JSON.stringify(requestId)}, ${responsePayload});`,
+                true
+              );
+            })
+            .catch(() => {
+              return webview.executeJavaScript(
+                `window.__vectcutResolveHostFileSelect(${JSON.stringify(requestId)}, null);`,
+                true
+              );
+            });
         } catch (_error) {
-          // ignore malformed console bridge payloads
+          // ignore malformed host file select bridge payloads
         }
-      };
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(message.slice(SEND_TO_MAIN_PREFIX.length));
+        const text = String(payload?.text || '').trim();
+        if (!text) {
+          return;
+        }
+
+        const ipcRenderer = getIpcRenderer();
+        void ipcRenderer?.invoke?.(IpcChannel.App_SendTextToMain, text);
+      } catch (_error) {
+        // ignore malformed console bridge payloads
+      }
+    };
 
     webview.addEventListener('dom-ready', handleDomReady);
     webview.addEventListener('did-start-loading', handleStartLoading);
@@ -354,9 +584,19 @@ const WebPagePreview = ({ preview, onClose }) => {
     webview.addEventListener('did-navigate', handleNavigate);
     webview.addEventListener('did-navigate-in-page', handleNavigate);
     webview.addEventListener('did-fail-load', handleFailLoad);
-      webview.addEventListener('console-message', handleConsoleMessage);
+    webview.addEventListener('console-message', handleConsoleMessage);
 
     return () => {
+      const ipcRenderer = getIpcRenderer();
+      if (ipcRenderer?.invoke) {
+        void ipcRenderer.invoke(IpcChannel.BrowserPreview_StateSync, {
+          visible: false,
+          ready: false,
+          activeTabId: null,
+          activeWebContentsId: null,
+          tabs: []
+        });
+      }
       webviewReadyRef.current = false;
       webview.removeEventListener('dom-ready', handleDomReady);
       webview.removeEventListener('did-start-loading', handleStartLoading);
@@ -365,9 +605,143 @@ const WebPagePreview = ({ preview, onClose }) => {
       webview.removeEventListener('did-navigate', handleNavigate);
       webview.removeEventListener('did-navigate-in-page', handleNavigate);
       webview.removeEventListener('did-fail-load', handleFailLoad);
-        webview.removeEventListener('console-message', handleConsoleMessage);
+      webview.removeEventListener('console-message', handleConsoleMessage);
     };
   }, [readWebviewUrl, syncActiveTabFavicon, syncNavigationState, syncWebviewZoomFactor, targetUrl, updateActiveTab]);
+
+  React.useEffect(() => {
+    const ipcRenderer = getIpcRenderer();
+    if (!ipcRenderer?.on || !ipcRenderer?.invoke) return undefined;
+
+    const handleBrowserPreviewCommand = async (_event, message = {}) => {
+      const requestId = String(message?.requestId || '').trim();
+      const command = String(message?.command || '').trim();
+      const payload = message?.payload && typeof message.payload === 'object' ? message.payload : {};
+      if (!requestId || !command) return;
+
+      try {
+        let result = null;
+
+        if (command === 'open') {
+          const tabId = String(payload?.tabId || '').trim() || createTabId();
+          const nextUrl = normalizeAddressInput(payload?.url || '');
+          if (!nextUrl) throw new Error('缺少有效的 URL');
+
+          const shouldCreateNewTab = Boolean(payload?.newTab) || !tabsStateRef.current.some((tab) => tab.id === tabId);
+          if (shouldCreateNewTab) {
+            const nextTab = createPreviewTab({
+              key: `mcp-browser:${tabId}`,
+              url: nextUrl,
+              title: String(payload?.title || nextUrl).trim() || nextUrl,
+              tabId
+            }, { id: tabId });
+            setTabs((prev) => [...prev, nextTab]);
+            shouldScrollTabsToEndRef.current = true;
+          } else {
+            updateTabById(tabId, (tab) => ({
+              url: nextUrl,
+              title: String(payload?.title || tab?.title || nextUrl).trim() || nextUrl
+            }));
+          }
+
+          setActiveTabId(tabId);
+          setAddressValue(nextUrl);
+          const webview = webviewRef.current;
+          if (!webview) throw new Error('浏览器预览尚未初始化');
+          setLoading(true);
+          webview.loadURL?.(nextUrl);
+          result = await waitForLoadResult(tabId, Number(payload?.timeout || 15000));
+        } else if (command === 'switch_tab') {
+          const tabId = String(payload?.tabId || '').trim();
+          const targetTab = tabsStateRef.current.find((tab) => tab.id === tabId);
+          if (!tabId || !targetTab) throw new Error('目标标签页不存在');
+
+          setActiveTabId(tabId);
+          setAddressValue(normalizeUrl(targetTab.url) || BLANK_TAB_URL);
+          const webview = webviewRef.current;
+          if (!webview) throw new Error('浏览器预览尚未初始化');
+          const targetTabUrl = normalizeUrl(targetTab.url) || BLANK_TAB_URL;
+          const currentUrl = normalizeUrl(readWebviewUrl(webview) || webview.getAttribute?.('src'));
+          if (currentUrl !== targetTabUrl) {
+            setLoading(true);
+            webview.loadURL?.(targetTabUrl);
+            result = await waitForLoadResult(tabId, Number(payload?.timeout || 15000));
+          } else {
+            result = {
+              tabId,
+              currentUrl: currentUrl || BLANK_TAB_URL,
+              title: targetTab.title || currentUrl || BLANK_TAB_URL
+            };
+          }
+        } else if (command === 'get_context') {
+          const webview = webviewRef.current;
+          const currentUrl = normalizeUrl(
+            readWebviewUrl(webview) || webview?.getAttribute?.('src') || targetUrl
+          ) || BLANK_TAB_URL;
+          let activeWebContentsId = null;
+          try {
+            const webviewId = webview?.getWebContentsId?.();
+            if (Number(webviewId) > 0) {
+              activeWebContentsId = Number(webviewId);
+            }
+          } catch (_error) {
+            activeWebContentsId = null;
+          }
+          result = {
+            state: {
+              visible: true,
+              ready: Boolean(activeWebContentsId),
+              activeTabId: activeTabIdRef.current || null,
+              activeWebContentsId,
+              tabs: tabsStateRef.current.map((tab) => ({
+                id: tab.id,
+                title: tab.title,
+                url: tab.id === activeTabIdRef.current ? currentUrl : tab.url,
+                isActive: tab.id === activeTabIdRef.current,
+                webContentsId: tab.id === activeTabIdRef.current ? activeWebContentsId : null
+              }))
+            },
+            activeUrl: currentUrl
+          };
+        } else if (command === 'close_tab') {
+          const tabId = String(payload?.tabId || '').trim();
+          if (!tabId) throw new Error('缺少 tabId');
+          handleCloseTab(tabId);
+          result = { closed: tabId };
+        } else if (command === 'reset') {
+          if (payload?.tabId) {
+            const tabId = String(payload.tabId || '').trim();
+            if (tabId) {
+              handleCloseTab(tabId);
+              result = { closed: tabId };
+            }
+          } else {
+            onClose?.();
+            result = { reset: true };
+          }
+        } else {
+          throw new Error(`未知浏览器预览命令: ${command}`);
+        }
+
+        await ipcRenderer.invoke(IpcChannel.BrowserPreview_CommandResult, {
+          requestId,
+          ok: true,
+          result
+        });
+      } catch (error) {
+        await ipcRenderer.invoke(IpcChannel.BrowserPreview_CommandResult, {
+          requestId,
+          ok: false,
+          error: error?.message || String(error)
+        });
+      }
+    };
+
+    ipcRenderer.on(IpcChannel.BrowserPreview_Command, handleBrowserPreviewCommand);
+    return () => {
+      ipcRenderer.removeListener(IpcChannel.BrowserPreview_Command, handleBrowserPreviewCommand);
+    };
+  }, [handleCloseTab, onClose, readWebviewUrl, syncPreviewState, targetUrl, updateTabById, waitForLoadResult]);
 
   React.useEffect(() => {
     const webview = webviewRef.current;
@@ -394,46 +768,6 @@ const WebPagePreview = ({ preview, onClose }) => {
       });
     });
   }, [tabs]);
-
-  const navigateToAddress = React.useCallback((value) => {
-    const nextUrl = normalizeAddressInput(value);
-    if (!nextUrl) return;
-    setAddressValue(nextUrl);
-    updateActiveTab((tab) => ({
-      url: nextUrl,
-      title: nextUrl === BLANK_TAB_URL ? (tab?.title || '新标签页') : (tab?.title || nextUrl)
-    }));
-  }, [updateActiveTab]);
-
-  const handleCreateTab = React.useCallback(() => {
-    const nextTab = {
-      id: createTabId(),
-      previewKey: '',
-      title: '新标签页',
-      url: BLANK_TAB_URL
-    };
-    shouldScrollTabsToEndRef.current = true;
-    setTabs((prev) => [...prev, nextTab]);
-    setActiveTabId(nextTab.id);
-    setAddressValue(BLANK_TAB_URL);
-  }, []);
-
-  const handleCloseTab = React.useCallback((tabId) => {
-    setTabs((prev) => {
-      if (prev.length <= 1) {
-        onClose?.();
-        return prev;
-      }
-      const nextTabs = prev.filter((tab) => tab.id !== tabId);
-      if (tabId === activeTabId) {
-        const closedIndex = prev.findIndex((tab) => tab.id === tabId);
-        const fallbackTab = nextTabs[Math.max(0, closedIndex - 1)] || nextTabs[0] || null;
-        setActiveTabId(fallbackTab?.id || '');
-        setAddressValue(normalizeUrl(fallbackTab?.url) || BLANK_TAB_URL);
-      }
-      return nextTabs;
-    });
-  }, [activeTabId, onClose]);
 
   const handleOpenInExternalBrowser = React.useCallback(() => {
     if (!targetUrl || targetUrl === BLANK_TAB_URL) return;

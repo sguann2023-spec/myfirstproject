@@ -65,6 +65,11 @@ export enum IpcChannel {
   Webview_SaveAsHTML = 'webview:save-as-html',
   Webview_PrimeRuntimeEnv = 'webview:prime-runtime-env',
   Webview_GetRuntimeEnv = 'webview:get-runtime-env',
+  BrowserPreview_EnsureVisible = 'browser-preview:ensure-visible',
+  BrowserPreview_Hide = 'browser-preview:hide',
+  BrowserPreview_Command = 'browser-preview:command',
+  BrowserPreview_CommandResult = 'browser-preview:command-result',
+  BrowserPreview_StateSync = 'browser-preview:state-sync',
 
   // Open
   Open_Path = 'open:path',

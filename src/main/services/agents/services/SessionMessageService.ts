@@ -74,6 +74,27 @@ function serializeError(error: unknown): { message: string; name?: string; stack
   }
 }
 
+function summarizeTextStreamPart(part: TextStreamPart<Record<string, any>>): Record<string, unknown> {
+  const chunk = part as any
+  const type = String(chunk?.type || 'unknown')
+  return {
+    type,
+    id: typeof chunk?.id === 'string' ? chunk.id : undefined,
+    toolCallId: typeof chunk?.toolCallId === 'string' ? chunk.toolCallId : undefined,
+    toolName: typeof chunk?.toolName === 'string' ? chunk.toolName : undefined,
+    textChars: typeof chunk?.text === 'string' ? chunk.text.length : 0,
+    inputPreview:
+      chunk?.input !== undefined
+        ? String(typeof chunk.input === 'string' ? chunk.input : JSON.stringify(chunk.input)).slice(0, 160)
+        : undefined,
+    outputPreview:
+      chunk?.output !== undefined
+        ? String(typeof chunk.output === 'string' ? chunk.output : JSON.stringify(chunk.output)).slice(0, 160)
+        : undefined,
+    finishReason: typeof chunk?.finishReason === 'string' ? chunk.finishReason : undefined
+  }
+}
+
 class TextStreamAccumulator {
   private textBuffer = ''
   private totalText = ''
@@ -92,7 +113,7 @@ class TextStreamAccumulator {
         break
       case 'text-delta':
         if (chunk.text) {
-          this.textBuffer = chunk.text
+          this.textBuffer += chunk.text
         }
         break
       case 'text-end': {
@@ -198,6 +219,17 @@ class TextStreamAccumulator {
 
   getUsage(): PersistedUsage | undefined {
     return this.latestUsage ? { ...this.latestUsage } : undefined
+  }
+
+  summarizeState(): Record<string, unknown> {
+    return {
+      totalTextChars: this.totalText.length,
+      textBufferChars: this.textBuffer.length,
+      toolCallCount: this.toolCallOrder.length,
+      toolResultCount: this.toolResults.size,
+      slashCommandCount: this.initSlashCommands.length,
+      hasUsage: Boolean(this.latestUsage)
+    }
   }
 
   getAssistantBlocks(
@@ -393,6 +425,13 @@ export class SessionMessageService extends BaseService {
                 }
 
                 accumulator.add(chunk)
+                logger.info('[SessionMessageService][StreamChunk] accumulated chunk', {
+                  sessionId: session.id,
+                  requestModel: req.model,
+                  assistantMessageId: headlessAssistantMsgId,
+                  chunk: summarizeTextStreamPart(chunk),
+                  accumulator: accumulator.summarizeState()
+                })
                 controller.enqueue(chunk)
                 break
               }
@@ -420,15 +459,19 @@ export class SessionMessageService extends BaseService {
                 if (options?.persist) {
                   // Read SDK session_id from the stream object (set by ClaudeCodeService on init)
                   const resolvedSessionId = claudeStream.sdkSessionId || agentSessionId
+                  const assistantBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
                   logger.debug('Persisting headless exchange with agent session ID', {
                     sdkSessionId: claudeStream.sdkSessionId,
                     fallback: agentSessionId,
-                    resolved: resolvedSessionId
+                    resolved: resolvedSessionId,
+                    accumulator: accumulator.summarizeState(),
+                    assistantBlockCount: assistantBlocks.length,
+                    assistantBlockTypes: assistantBlocks.map((block) => block.type)
                   })
                   this.persistHeadlessExchange(
                     session,
                     options?.displayContent ?? req.content,
-                    accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
+                    assistantBlocks,
                     resolvedSessionId,
                     headlessAssistantMsgId,
                     options?.images,
@@ -598,7 +641,11 @@ export class SessionMessageService extends BaseService {
       assistantMessageId: assistantMsgId,
       assistantBlockCount: assistantBlocks.length,
       assistantToolBlockCount: assistantBlocks.filter((block) => block.type === 'tool').length,
-      assistantUsage: usage
+      assistantUsage: usage,
+      assistantBlockTypes: assistantBlocks.map((block) => String(block.type || 'unknown')),
+      assistantTextChars: assistantBlocks
+        .filter((block) => typeof (block as { content?: unknown }).content === 'string')
+        .reduce((total, block) => total + String((block as { content?: unknown }).content || '').length, 0)
     })
 
     return result

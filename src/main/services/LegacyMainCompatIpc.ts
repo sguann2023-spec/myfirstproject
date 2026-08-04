@@ -176,6 +176,12 @@ async function downloadViaWindowSession(
       await pipeline(source, fs.createWriteStream(localFilename))
     }
 
+    const waitForSessionFetchRetry = async () => {
+      const delayMs = 5000 + Math.floor(Math.random() * 5001)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+      return delayMs
+    }
+
     const downloadWithNodeRequest = async (targetUrl: string, redirectCount = 0): Promise<void> => {
       if (redirectCount >= 5) {
         throw new Error('session download exceeded redirect limit')
@@ -307,9 +313,45 @@ async function downloadViaWindowSession(
           error: message
         })
 
-        await downloadWithSessionFetch(url)
-        nodeError = null
-        break
+        const sessionFetchMaxAttempts = 3
+        let sessionFetchAttempt = 0
+
+        while (sessionFetchAttempt < sessionFetchMaxAttempts) {
+          sessionFetchAttempt += 1
+          try {
+            await downloadWithSessionFetch(url)
+            nodeError = null
+            break
+          } catch (sessionFetchError) {
+            const sessionFetchMessage = timeoutError?.message || (sessionFetchError instanceof Error ? sessionFetchError.message : String(sessionFetchError))
+
+            downloadedBytes = 0
+            totalBytes = 0
+            try {
+              await fs.promises.unlink(localFilename)
+            } catch {}
+
+            if (sessionFetchAttempt >= sessionFetchMaxAttempts || timeoutError) {
+              throw sessionFetchError
+            }
+
+            const retryDelayMs = await waitForSessionFetchRetry()
+            logger.warn('[DLTRACE][Main] session.fetch failed, retrying session.fetch', {
+              jobId,
+              draftId,
+              reqId,
+              url,
+              attempt: sessionFetchAttempt,
+              maxAttempts: sessionFetchMaxAttempts,
+              retryDelayMs,
+              error: sessionFetchMessage
+            })
+          }
+        }
+
+        if (!nodeError) {
+          break
+        }
       }
     }
 

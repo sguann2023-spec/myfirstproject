@@ -229,6 +229,39 @@ describe('CapabilityRouter', () => {
     expect(decision.preferredMcpTools).toContain('mcp__browser__open')
   })
 
+  it('treats open site-name phrasing as browser intent', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '打开淘宝网',
+      sessionId: 'session-open-taobao',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('web')
+    expect(decision.subdomains).toContain('browser')
+    expect(decision.selected.has('browser')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
+  })
+
+  it('does not treat site-name mentions alone as web search intent', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '淘宝网',
+      sessionId: 'session-taobao-name-only',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('search')).toBe(false)
+  })
+
   it('keeps multiple active domains for mixed workspace and web tasks', () => {
     const router = new CapabilityRouter()
 

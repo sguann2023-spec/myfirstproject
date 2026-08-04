@@ -523,7 +523,11 @@ export function registerSessionStreamIpc(): void {
             requestId,
             userMessageId: completionResult?.userMessage?.id,
             assistantMessageId: completionResult?.assistantMessage?.id,
-            persistedAssistantBlockCount: persistedAssistantBlocks.length
+            persistedAssistantBlockCount: persistedAssistantBlocks.length,
+            persistedAssistantBlockTypes: persistedAssistantBlocks.map((block: any) => String(block?.type || 'unknown')),
+            persistedAssistantTextChars: persistedAssistantBlocks.reduce((total: number, block: any) => {
+              return total + (typeof block?.content === 'string' ? block.content.length : 0)
+            }, 0)
           })
           logger.info('[SessionStreamIpc] Publishing complete event to session stream bus', {
             sessionId,

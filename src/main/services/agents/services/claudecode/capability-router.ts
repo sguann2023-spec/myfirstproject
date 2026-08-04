@@ -823,8 +823,7 @@ const WEB_SEARCH_KEYWORDS = [
   '查',
   '看',
   '找',
-  '搜',
-  '网'
+  '搜'
 ]
 
 const WEB_BROWSER_KEYWORDS = [
@@ -1913,7 +1912,7 @@ function classifyIntent(args: {
     hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
   const hasExplicitWebOpenIntent =
     hasAnyKeyword(text, WEB_OPEN_KEYWORDS) ||
-    /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,20}(网页|页面|网站|百度)/.test(text)
+    /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,20}(网页|页面|网站|百度|官网|首页|[^\s，。！？\n]{1,20}网)(?=$|[，。！？\s])/.test(text)
   const hasWebOpenIntent =
     hasImplicitWebUrlOpenIntent || hasExplicitWebOpenIntent
   const hasWebSearchIntent =

@@ -33,12 +33,14 @@ export const createTextCallbacks = (deps: TextCallbacksDependencies) => {
 
   // 内部维护的状态
   let mainTextBlockId: string | null = null
+  let currentTextContent = ''
   // Track thoughtSignature for Gemini thought signature persistence
   let currentThoughtSignature: string | undefined
 
   return {
     getCurrentMainTextBlockId: () => mainTextBlockId,
     onTextStart: async () => {
+      currentTextContent = ''
       if (blockManager.hasInitialPlaceholder) {
         const changes = {
           type: MessageBlockType.MAIN_TEXT,
@@ -62,8 +64,11 @@ export const createTextCallbacks = (deps: TextCallbacksDependencies) => {
         ? (getState().messageBlocks.entities[citationBlockId] as CitationMessageBlock).response?.source
         : WEB_SEARCH_SOURCE.WEBSEARCH
       if (text) {
+        currentTextContent = currentTextContent && text.startsWith(currentTextContent)
+          ? text
+          : `${currentTextContent}${text}`
         const blockChanges: Partial<MessageBlock> = {
-          content: text,
+          content: currentTextContent,
           status: MessageBlockStatus.STREAMING,
           citationReferences: citationBlockId ? [{ citationBlockId, citationBlockSource }] : []
         }
@@ -81,20 +86,22 @@ export const createTextCallbacks = (deps: TextCallbacksDependencies) => {
 
     onTextComplete: async (finalText: string, providerMetadata?: ProviderMetadata) => {
       if (mainTextBlockId) {
+        const resolvedFinalText = finalText || currentTextContent
         // Use thoughtSignature from providerMetadata if available, otherwise use collected one
         const thoughtSignature = providerMetadata?.google?.thoughtSignature || currentThoughtSignature
         const changes: Partial<MessageBlock> = {
-          content: finalText,
+          content: resolvedFinalText,
           status: MessageBlockStatus.SUCCESS,
           // Store thoughtSignature in metadata for persistence
           metadata: thoughtSignature ? { thoughtSignature } : undefined
         }
         blockManager.smartBlockUpdate(mainTextBlockId, changes, MessageBlockType.MAIN_TEXT, true)
         if (handleCompactTextComplete) {
-          await handleCompactTextComplete(finalText, mainTextBlockId)
+          await handleCompactTextComplete(resolvedFinalText, mainTextBlockId)
         }
         // Clear thoughtSignature after block is complete
         currentThoughtSignature = undefined
+        currentTextContent = ''
         mainTextBlockId = null
       } else {
         logger.warn(
