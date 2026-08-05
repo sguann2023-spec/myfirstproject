@@ -21,6 +21,13 @@ import StreamZip from 'node-stream-zip'
 
 import { BaseService } from '../BaseService'
 import { agentsTable } from '../database/schema'
+import {
+  getHiddenBuiltinSkillMdPath,
+  getHiddenBuiltinSkillPath,
+  HIDDEN_SKILL_MARKER_FILE,
+  HIDDEN_BUILTIN_SKILL_FOLDERS,
+  isHiddenBuiltinSkillFolder
+} from './hiddenBuiltinSkills'
 import { SkillInstaller } from './SkillInstaller'
 
 const logger = loggerService.withContext('SkillService')
@@ -206,7 +213,7 @@ export class SkillService extends BaseService {
 
   async readFile(skillId: string, filename: string): Promise<string | null> {
     const folderName = this.sanitizeFolderName(skillId)
-    const skillRoot = this.getSkillStoragePath(folderName)
+    const skillRoot = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
     const filePath = path.resolve(skillRoot, filename)
 
     // Prevent path traversal
@@ -221,7 +228,7 @@ export class SkillService extends BaseService {
 
   async listFiles(skillId: string): Promise<SkillFileNode[]> {
     const folderName = this.sanitizeFolderName(skillId)
-    const skillRoot = this.getSkillStoragePath(folderName)
+    const skillRoot = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
     if (!(await directoryExists(skillRoot))) return []
     try {
       return await this.buildFileTree(skillRoot, skillRoot)
@@ -257,6 +264,41 @@ export class SkillService extends BaseService {
   async getAgentSkillDirectory(agentId: string, name: string): Promise<string> {
     const root = await this.getAgentSkillsRoot(agentId)
     return path.join(root, this.sanitizeFolderName(name))
+  }
+
+  async listHiddenBuiltinSkills(): Promise<Array<{
+    name: string
+    description?: string
+    filename: string
+    skillMdPath: string
+    source: 'global'
+  }>> {
+    const results: Array<{
+      name: string
+      description?: string
+      filename: string
+      skillMdPath: string
+      source: 'global'
+    }> = []
+
+    for (const folderName of HIDDEN_BUILTIN_SKILL_FOLDERS) {
+      const skillPath = getHiddenBuiltinSkillPath(folderName)
+      if (!(await directoryExists(skillPath))) continue
+      try {
+        const metadata = await parseSkillMetadata(skillPath, folderName, 'skills')
+        results.push({
+          name: metadata.name,
+          description: metadata.description,
+          filename: folderName,
+          skillMdPath: getHiddenBuiltinSkillMdPath(folderName),
+          source: 'global'
+        })
+      } catch {
+        // Skip invalid hidden builtin skills.
+      }
+    }
+
+    return results
   }
 
   getSkillDirectoryInWorkspace(workspace: string, name: string): string {
@@ -297,7 +339,7 @@ export class SkillService extends BaseService {
 
   async enableSkillInWorkspace(skillId: string, workspace: string): Promise<InstalledSkill | null> {
     const folderName = this.sanitizeFolderName(skillId)
-    const sourcePath = this.getSkillStoragePath(folderName)
+    const sourcePath = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
     if (!(await directoryExists(sourcePath))) return null
 
     await this.linkSkill(folderName, workspace)
@@ -318,8 +360,9 @@ export class SkillService extends BaseService {
       await this.unlinkSkill(folderName, workspace).catch(() => undefined)
     }
 
-    const skillPath = this.getSkillStoragePath(folderName)
-    await this.installer.uninstall(skillPath)
+    for (const skillPath of this.getSkillStoragePaths(folderName)) {
+      await this.installer.uninstall(skillPath).catch(() => undefined)
+    }
     logger.info('Skill uninstalled (filesystem only)', { skillId, folderName })
   }
 
@@ -453,16 +496,25 @@ export class SkillService extends BaseService {
   /**
    * List local skills from an agent workdir's .claude/skills/ directory.
    */
-  async listLocal(workdir: string): Promise<Array<{ name: string; description?: string; filename: string }>> {
+  async listLocal(
+    workdir: string,
+    options: { includeHidden?: boolean } = {}
+  ): Promise<Array<{ name: string; description?: string; filename: string }>> {
     const results: Array<{ name: string; description?: string; filename: string }> = []
     const skillsDir = path.join(workdir, '.claude', 'skills')
+    const includeHidden = options.includeHidden === true
 
     try {
       const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
       for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+        if (entry.name.startsWith('.')) continue
         try {
           const skillPath = path.join(skillsDir, entry.name)
+          const stats = await fs.promises.stat(skillPath)
+          if (!stats.isDirectory()) continue
+          if (!includeHidden && (await this.isSkillHiddenAtPath(skillPath, entry.name))) {
+            continue
+          }
           const metadata = await parseSkillMetadata(skillPath, entry.name, 'skills')
           results.push({ name: metadata.name, description: metadata.description, filename: entry.name })
         } catch {
@@ -484,10 +536,20 @@ export class SkillService extends BaseService {
    * Copy a skill directory into `{workspace}/.claude/skills/{folderName}`.
    */
   async linkSkill(folderName: string, workspace: string): Promise<void> {
-    const target = this.getSkillStoragePath(folderName)
+    const target = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
     const linkPath = this.getSkillLinkPath(folderName, workspace)
 
     try {
+      if (isHiddenBuiltinSkillFolder(folderName)) {
+        await fs.promises.rm(linkPath, { recursive: true, force: true })
+        logger.info('Hidden skill stays in global storage without workspace materialization', {
+          folderName,
+          target,
+          linkPath
+        })
+        return
+      }
+
       // Idempotent fast-path: if copied skill already exists and version is unchanged, skip rm+cp.
       if ((await directoryExists(linkPath)) && (await this.isSkillCopyUpToDate(target, linkPath))) {
         logger.info('Skill copy skipped (up-to-date)', { folderName, target, linkPath })
@@ -649,6 +711,7 @@ export class SkillService extends BaseService {
 
     await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
     await this.installer.install(skillDir, destPath)
+    await this.writeHiddenSkillMarkerIfNeeded(destPath, folderName)
     const stat = await fs.promises.stat(destPath)
     const contentHash = await this.installer.computeContentHash(destPath).catch(() => '')
     const now = Date.now()
@@ -834,6 +897,9 @@ export class SkillService extends BaseService {
         const folderName = this.sanitizeFolderName(entry.name)
         const skillPath = path.join(root, entry.name)
         try {
+          if (await this.isSkillHiddenAtPath(skillPath, folderName)) {
+            return null
+          }
           const stat = await fs.promises.stat(skillPath)
           const metadata = await parseSkillMetadata(skillPath, folderName, 'skills')
           const contentHash = await this.installer.computeContentHash(skillPath).catch(() => '')
@@ -868,7 +934,42 @@ export class SkillService extends BaseService {
 
   /** Full path to a skill in global storage */
   private getSkillStoragePath(folderName: string): string {
-    return path.join(getDataPath('Skills'), folderName)
+    return this.getSkillStoragePaths(folderName)[0]
+  }
+
+  private getSkillStoragePaths(folderName: string): string[] {
+    if (isHiddenBuiltinSkillFolder(folderName)) {
+      return [getHiddenBuiltinSkillPath(folderName), path.join(getDataPath('Skills'), folderName)]
+    }
+    return [path.join(getDataPath('Skills'), folderName)]
+  }
+
+  private async resolveExistingSkillStoragePath(folderName: string): Promise<string | null> {
+    for (const candidatePath of this.getSkillStoragePaths(folderName)) {
+      if (await directoryExists(candidatePath)) {
+        return candidatePath
+      }
+    }
+    return null
+  }
+
+  private async isSkillHiddenAtPath(skillPath: string, folderName: string): Promise<boolean> {
+    if (isHiddenBuiltinSkillFolder(folderName)) {
+      return true
+    }
+    try {
+      await fs.promises.access(path.join(skillPath, HIDDEN_SKILL_MARKER_FILE))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private async writeHiddenSkillMarkerIfNeeded(skillPath: string, folderName: string): Promise<void> {
+    if (!isHiddenBuiltinSkillFolder(folderName)) {
+      return
+    }
+    await fs.promises.writeFile(path.join(skillPath, HIDDEN_SKILL_MARKER_FILE), 'hidden\n', 'utf-8')
   }
 
   /** Symlink location for a given agent workspace: `{workspace}/.claude/skills/{folderName}` */

@@ -6,6 +6,7 @@ import { app, net } from 'electron'
 import semver from 'semver'
 
 import { skillService } from '../services/agents/skills/SkillService'
+import { HIDDEN_SKILL_MARKER_FILE, isHiddenBuiltinSkillFolder } from '../services/agents/skills/hiddenBuiltinSkills'
 import { getDataPath, getResourcePath } from '.'
 
 const logger = loggerService.withContext('builtinSkills')
@@ -100,7 +101,7 @@ export async function installBuiltinSkills(options?: {
     }
 
     const desiredVersion = getDesiredSkillVersion(localManifest, entry.name)
-    const destPath = path.join(globalSkillsPath, entry.name)
+    const destPath = skillService.getSkillDirectory(entry.name)
     const installedVersion = await readInstalledVersion(destPath)
 
     if (!installedVersion) {
@@ -112,6 +113,9 @@ export async function installBuiltinSkills(options?: {
       await fs.mkdir(destPath, { recursive: true })
       await fs.cp(path.join(resourceSkillsPath, entry.name), destPath, { recursive: true })
       await fs.writeFile(path.join(destPath, VERSION_FILE), desiredVersion, 'utf-8')
+      if (isHiddenBuiltinSkillFolder(entry.name)) {
+        await fs.writeFile(path.join(destPath, HIDDEN_SKILL_MARKER_FILE), 'hidden\n', 'utf-8')
+      }
       syncState.skills[entry.name] = {
         version: desiredVersion,
         source: 'bundle',
@@ -215,7 +219,7 @@ async function syncBuiltinSkillsFromRemote(options: {
       continue
     }
 
-    const destPath = path.join(getDataPath('Skills'), skillName)
+    const destPath = skillService.getSkillDirectory(skillName)
     const installedVersion = await readInstalledVersion(destPath)
     if (installedVersion && compareVersions(installedVersion, entry.version) >= 0) {
       logger.debug('Skipping remote builtin skill because installed version is already up to date', {
@@ -354,7 +358,7 @@ async function downloadAndInstallBuiltinSkill(skillName: string, entry: BuiltinS
     await fs.writeFile(zipPath, buffer)
 
     const installed = await skillService.installFromZip({ zipFilePath: zipPath })
-    const installedPath = path.join(getDataPath('Skills'), installed.folderName)
+    const installedPath = skillService.getSkillDirectory(installed.folderName)
     await fs.writeFile(path.join(installedPath, VERSION_FILE), version, 'utf-8')
     logger.info('Persisted remote builtin skill version marker', {
       skillName,

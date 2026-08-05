@@ -254,7 +254,11 @@ class SkillsServer {
 
   private async listSkills() {
     if (this.workspacePath) {
-      const [globalSkills, localSkills] = await Promise.all([skillService.list(), skillService.listLocal(this.workspacePath)])
+      const [globalSkills, localSkills, hiddenGlobalSkills] = await Promise.all([
+        skillService.list(),
+        skillService.listLocal(this.workspacePath),
+        skillService.listHiddenBuiltinSkills()
+      ])
       const localBySanitizedFolder = new Map(
         localSkills.map((skill) => [skillService.getSkillFolderName(skill.filename), skill])
       )
@@ -272,6 +276,13 @@ class SkillsServer {
             enabled: Boolean(localSkill)
           }
         }),
+        ...hiddenGlobalSkills.map((skill) => ({
+          name: skill.name,
+          folder: skill.filename,
+          path: path.dirname(skill.skillMdPath),
+          description: skill.description ?? null,
+          enabled: true
+        })),
         ...localSkills
           .filter((skill) => !globalSkills.some((globalSkill) => globalSkill.folderName === skillService.getSkillFolderName(skill.filename)))
           .map((skill) => ({
@@ -293,12 +304,16 @@ class SkillsServer {
       }
     }
 
-    const [globalSkills, activeSkills] = await Promise.all([skillService.list(this.agentId), skillService.listActive(this.agentId)])
+    const [globalSkills, activeSkills, hiddenGlobalSkills] = await Promise.all([
+      skillService.list(this.agentId),
+      skillService.listActive(this.agentId),
+      skillService.listHiddenBuiltinSkills()
+    ])
     const activeSkillMap = new Map(activeSkills.map((skill) => [skill.folderName, skill]))
     const activeOnlySkills = activeSkills.filter((active) => !globalSkills.some((skill) => skill.folderName === active.folderName))
     const skills = [...globalSkills, ...activeOnlySkills]
 
-    if (skills.length === 0) {
+    if (skills.length === 0 && hiddenGlobalSkills.length === 0) {
       return { content: [{ type: 'text' as const, text: 'No skills installed.' }] }
     }
 
@@ -323,10 +338,17 @@ class SkillsServer {
         }
       })
     )
+    const hiddenResults = hiddenGlobalSkills.map((skill) => ({
+      name: skill.name,
+      folder: skill.filename,
+      path: path.dirname(skill.skillMdPath),
+      description: skill.description ?? null,
+      enabled: true
+    }))
 
     logger.info('Skills list via tool', { agentId: this.agentId, count: results.length })
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }]
+      content: [{ type: 'text' as const, text: JSON.stringify([...results, ...hiddenResults], null, 2) }]
     }
   }
 

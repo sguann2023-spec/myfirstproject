@@ -348,10 +348,20 @@ class ClaudeCodeService implements AgentServiceInterface {
       | string
       | undefined
     const isAssistant = builtinRole === 'assistant'
-    let workspaceSkills: Array<{ name: string; description?: string; filename: string }> = []
+    let workspaceSkills: Array<{
+      name: string
+      description?: string
+      filename: string
+      skillMdPath?: string
+      source?: 'workspace' | 'global'
+    }> = []
     if (cwd) {
       try {
-        workspaceSkills = await skillService.listLocal(cwd)
+        const [localWorkspaceSkills, hiddenBuiltinSkills] = await Promise.all([
+          skillService.listLocal(cwd),
+          skillService.listHiddenBuiltinSkills()
+        ])
+        workspaceSkills = [...localWorkspaceSkills, ...hiddenBuiltinSkills]
       } catch (error) {
         logger.warn('Failed to scan workspace skills before capability routing', {
           sessionId: session.id,
@@ -416,7 +426,11 @@ class ClaudeCodeService implements AgentServiceInterface {
     ) {
       try {
         await skillService.reconcileAgentSkills(session.agent_id, skillWorkspace)
-        workspaceSkills = await skillService.listLocal(skillWorkspace)
+        const [localWorkspaceSkills, hiddenBuiltinSkills] = await Promise.all([
+          skillService.listLocal(skillWorkspace),
+          skillService.listHiddenBuiltinSkills()
+        ])
+        workspaceSkills = [...localWorkspaceSkills, ...hiddenBuiltinSkills]
         preferredWorkspaceSkill = workspaceSkills.find(
           (skill) => skill.filename === capabilityDecision.preferredLocalSkillFilename
         )
@@ -481,6 +495,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         const resolvedSkillInvocation = await resolveWorkspaceSkillInvocation({
           workspacePath: skillWorkspace,
           skillName: preferredWorkspaceSkill.filename,
+          skillMdPath: preferredWorkspaceSkill.skillMdPath,
           triggerMode: capabilityDecision.preferredLocalSkillTriggerMode
         })
         sdkPrompt = buildHostSkillInvocationPrompt({

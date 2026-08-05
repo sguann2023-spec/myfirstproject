@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   mockEnableForAllAgents,
+  mockGetSkillDirectory,
   mockInstallFromZip,
   mockNetFetch,
   mockUninstallByFolderName
 } = vi.hoisted(() => ({
   mockEnableForAllAgents: vi.fn(),
+  mockGetSkillDirectory: vi.fn((folderName: string) => path.join('/userData/Data/Skills', folderName)),
   mockInstallFromZip: vi.fn(),
   mockNetFetch: vi.fn(),
   mockUninstallByFolderName: vi.fn()
@@ -58,6 +60,7 @@ vi.mock('../utils', () => ({
 vi.mock('../services/agents/skills/SkillService', () => ({
   skillService: {
     enableForAllAgents: mockEnableForAllAgents,
+    getSkillDirectory: mockGetSkillDirectory,
     installFromZip: mockInstallFromZip,
     uninstallByFolderName: mockUninstallByFolderName
   }

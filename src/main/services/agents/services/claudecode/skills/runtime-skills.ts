@@ -15,7 +15,22 @@ export async function scanWorkspaceSkillSurface(workspacePath: string): Promise<
   const skillsDir = path.join(workspacePath, '.claude', 'skills')
   try {
     const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
-    const skillDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+    const skillDirNames: string[] = []
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const skillPath = path.join(skillsDir, entry.name)
+      try {
+        const stats = await fs.promises.stat(skillPath)
+        if (stats.isDirectory()) {
+          skillDirNames.push(entry.name)
+        }
+      } catch {
+        // Ignore unreadable entries.
+      }
+    }
+
+    const skillDirs = skillDirNames.sort()
     let skillMdCount = 0
     let skillMdBytes = 0
     let largestSkillMdBytes = 0

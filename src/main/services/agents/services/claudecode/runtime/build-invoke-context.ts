@@ -17,6 +17,8 @@ type WorkspaceSkillEntry = {
   name: string
   description?: string
   filename: string
+  skillMdPath?: string
+  source?: 'workspace' | 'global'
 }
 
 type SkillInvocationContextInput = {
@@ -214,8 +216,8 @@ function buildSkillRuntimeSnapshot(input: {
     visibleSkills: workspaceSkills.map((skill) => ({
       name: skill.name,
       description: skill.description,
-      filePath: path.join(cwd, '.claude', 'skills', skill.filename, 'SKILL.md'),
-      source: 'workspace' as const
+      filePath: skill.skillMdPath ?? path.join(cwd, '.claude', 'skills', skill.filename, 'SKILL.md'),
+      source: skill.source ?? ('workspace' as const)
     })),
     activeSkillNames: [...activeClaudeSkillNames],
     preferredSkillName: preferredLocalSkillFilename,

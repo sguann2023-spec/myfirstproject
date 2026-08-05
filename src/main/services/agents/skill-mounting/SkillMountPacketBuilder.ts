@@ -14,6 +14,8 @@ type WorkspaceSkillSnapshot = {
   name: string
   filename: string
   description?: string
+  skillMdPath?: string
+  source?: 'workspace' | 'global'
 }
 
 export async function buildWorkspaceSkillMountPacket(args: {
@@ -30,7 +32,7 @@ export async function buildWorkspaceSkillMountPacket(args: {
   promptHintLevel: SkillMountPromptHintLevel
   sdkDiscovered: boolean
 }): Promise<SkillMountPacket> {
-  const skillMdPath = path.join(args.workspacePath, '.claude', 'skills', args.skill.filename, 'SKILL.md')
+  const skillMdPath = args.skill.skillMdPath ?? path.join(args.workspacePath, '.claude', 'skills', args.skill.filename, 'SKILL.md')
   const contentHash = await readFileHash(skillMdPath)
   const updatedAt = await readFileUpdatedAt(skillMdPath)
 
@@ -40,7 +42,7 @@ export async function buildWorkspaceSkillMountPacket(args: {
     turn: args.turn,
     mountMode: args.mountMode,
     triggerMode: args.triggerMode,
-    source: 'workspace-local',
+    source: args.skill.source === 'global' ? 'global-cache' : 'workspace-local',
     sdkDiscovered: args.sdkDiscovered,
     skill: {
       id: `workspace-local:${args.skill.filename}`,
