@@ -2508,6 +2508,196 @@
         "webSearch": "Web Search",
         "write": "Write"
       },
+      "mcp": {
+        "servers": {
+          "agent_memory": "Workspace Memory",
+          "assistant": "Assistant",
+          "brave_search_server": "Brave Search",
+          "cherry_browser": "Browser",
+          "cherry_dify_knowledge_server": "Dify Knowledge",
+          "claw": "Claw",
+          "copylab": "Copy Reverse Engineering",
+          "digital_human": "Digital Human",
+          "draft_elements": "Draft Processing",
+          "draft_download": "Draft Download",
+          "draft_management": "Draft Management",
+          "ffmpeg_media": "Media Tools",
+          "file_upload": "File Upload",
+          "filesystem_server": "Filesystem",
+          "image": "Image",
+          "koubo_template": "Talking Head Template",
+          "search": "Web Search",
+          "seed_audio": "Doubao Audio",
+          "speech": "Speech",
+          "subtitle_recognition": "Subtitle Recognition",
+          "system": "System",
+          "subtitle_template": "Subtitle Template",
+          "video_understand": "Video Understanding",
+          "voice_conversion": "Voice Conversion",
+          "zcaceres_fetch": "Web Fetch"
+        },
+        "tools": {
+          "agent_memory": {
+            "memory": "Record Workspace Memory"
+          },
+          "assistant": {
+            "diagnose": "Diagnose App State",
+            "navigate": "Open App Page"
+          },
+          "brave_search_server": {
+            "brave_local_search": "Local Search",
+            "brave_web_search": "Web Search"
+          },
+          "cherry_browser": {
+            "click": "Click Element",
+            "close_tab": "Close Tab",
+            "execute": "Execute",
+            "focus": "Focus Element",
+            "hover": "Hover Element",
+            "inspect": "Inspect Element",
+            "list_tabs": "List Tabs",
+            "open": "Open Web Page",
+            "press": "Press Key",
+            "reload": "Reload Page",
+            "reset": "Reset Browser",
+            "screenshot": "Take Screenshot",
+            "scroll": "Scroll Page",
+            "snapshot": "Capture Page Snapshot",
+            "switch_tab": "Switch Tab",
+            "type": "Type Text",
+            "wait_for": "Wait for Condition"
+          },
+          "cherry_dify_knowledge_server": {
+            "list_knowledges": "List Knowledge Bases",
+            "search_knowledge": "Search Knowledge Base"
+          },
+          "claw": {
+            "config": "Manage Channel Config",
+            "cron": "Manage Scheduled Tasks",
+            "notify": "Send Notification"
+          },
+          "copylab": {
+            "derive_copy_prompt": "Extract Copy Prompt"
+          },
+          "digital_human": {
+            "create_image_driven_digital_human": "Create Image-Driven Digital Human",
+            "create_lip_sync_digital_human": "Create Mouth-Synced Digital Human",
+            "create_omni_image_driven_digital_human": "Create omni Image-Driven Digital Human",
+            "create_seedance_digital_human": "Create Seedance Digital Human",
+            "get_image_driven_digital_human_status": "Check Image-Driven Digital Human Status",
+            "get_lip_sync_digital_human_status": "Check Mouth-Synced Digital Human Status",
+            "get_omni_image_driven_digital_human_status": "Check omni Image-Driven Digital Human Status",
+            "get_seedance_digital_human_status": "Check Seedance Digital Human Status"
+          },
+          "draft_elements": {
+            "add_audio": "Add Audio",
+            "add_batch_audio": "Add Audio in Batch",
+            "add_batch_image": "Add Images in Batch",
+            "add_batch_text": "Add Text in Batch",
+            "add_batch_video": "Add Videos in Batch",
+            "add_effect": "Add Effect",
+            "add_filter": "Add Filter",
+            "add_image": "Add Image",
+            "add_subtitle": "Add Subtitle",
+            "add_text": "Add Text",
+            "add_video": "Add Video",
+            "add_video_keyframe": "Add Video Keyframe",
+            "get_audio_effect_types": "View Audio Effect Types",
+            "get_combo_animation_types": "View Combo Animation Types",
+            "get_filter_types": "View Filter Types",
+            "get_font_types": "View Font List",
+            "get_intro_animation_types": "View Intro Animation List",
+            "get_outro_animation_types": "View Outro Animation List",
+            "get_text_intro_types": "View Text Intro Animation List",
+            "get_text_loop_anim_types": "View Text Loop Animation List",
+            "get_text_outro_types": "View Text Outro Animation List",
+            "get_transition_types": "View Transition List",
+            "get_video_character_effect_types": "View Character Effect List",
+            "get_video_scene_effect_types": "View Scene Effect List",
+            "modify_audio": "Modify Audio",
+            "modify_effect": "Modify Effect",
+            "modify_filter": "Modify Filter",
+            "modify_image": "Modify Image",
+            "modify_text": "Modify Text",
+            "modify_video": "Modify Video",
+            "remove_audio": "Remove Audio",
+            "remove_effect": "Remove Effect",
+            "remove_filter": "Remove Filter",
+            "remove_image": "Remove Image",
+            "remove_text": "Remove Text",
+            "remove_video": "Remove Video"
+          },
+          "draft_download": {
+            "download_draft": "Download Draft"
+          },
+          "draft_management": {
+            "create_draft": "Create Draft",
+            "modify_draft": "Modify Draft",
+            "query_script": "Query Draft"
+          },
+          "ffmpeg_media": {
+            "capture_frame_at_timestamp": "Capture Frame at Timestamp",
+            "extract_audio_from_video": "Extract Audio from Video",
+            "get_media_duration": "Get Media Duration",
+            "trim_media_segment": "Trim Media Segment"
+          },
+          "file_upload": {
+            "upload_file_to_oss": "Upload File"
+          },
+          "filesystem_server": {
+            "delete": "Delete File",
+            "download": "Download File",
+            "edit": "Edit File",
+            "glob": "Match Files",
+            "grep": "Search Content",
+            "ls": "List Directory",
+            "read": "Read File",
+            "write": "Write File"
+          },
+          "image": {
+            "generate_or_edit_image": "Generate or Edit Image",
+            "get_image_capabilities": "View Image Models"
+          },
+          "koubo_template": {
+            "get_koubo_template_task_status": "Check Talking Head Template Task Status",
+            "submit_koubo_template_task": "Submit Talking Head Template Task"
+          },
+          "search": {
+            "web_search": "Search the Web"
+          },
+          "seed_audio": {
+            "generate_seed_audio": "Generate Doubao Audio"
+          },
+          "speech": {
+            "generate_speech": "Generate Speech"
+          },
+          "subtitle_recognition": {
+            "get_subtitle_recognition_task_status": "Check Subtitle Recognition Task Status",
+            "submit_subtitle_recognition_task": "Submit Subtitle Recognition Task"
+          },
+          "subtitle_template": {
+            "generate_smart_subtitle": "Generate Smart Subtitle",
+            "get_smart_subtitle_task_status": "Check Subtitle Task Status"
+          },
+          "system": {
+            "open_deeplink": "Open Link"
+          },
+          "video_understand": {
+            "get_video_detail_task_status": "Check Video Understanding Task Status",
+            "submit_video_detail_task": "Submit Video Understanding Task"
+          },
+          "voice_conversion": {
+            "get_voice_conversion_task_status": "Check Voice Conversion Task Status",
+            "submit_voice_conversion_task": "Submit Voice Conversion Task"
+          },
+          "zcaceres_fetch": {
+            "fetch_html": "Fetch HTML",
+            "fetch_json": "Fetch JSON",
+            "fetch_markdown": "Fetch Markdown",
+            "fetch_txt": "Fetch Plain Text"
+          }
+        }
+      },
       "noData": "No data available for this tool",
       "pending": "Pending",
       "preview": "Preview",

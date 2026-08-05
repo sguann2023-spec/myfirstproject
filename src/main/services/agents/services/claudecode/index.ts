@@ -797,7 +797,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       autoAllowTools,
       autonomousEnabled,
       isAssistant,
-      imageGenerateServer: this.imageGenerateServer,
+      imageGenerateServer: new ImageGenerateServer(),
       getOrCreateBrowserServer: (sessionId) => this.getOrCreateBrowserServer(sessionId),
       resolveSourceChannel: (agentId, sessionId) => this.resolveSourceChannel(agentId, sessionId)
     })

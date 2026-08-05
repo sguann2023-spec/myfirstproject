@@ -12,6 +12,7 @@ export enum AgentToolsType {
   TodoWrite = 'TodoWrite',
   WebSearch = 'WebSearch',
   Grep = 'Grep',
+  InspectImage = 'InspectImage',
   Write = 'Write',
   WebFetch = 'WebFetch',
   Edit = 'Edit',

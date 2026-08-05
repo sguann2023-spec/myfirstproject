@@ -31,7 +31,7 @@ function mapPiStopReason(reason: string | undefined): 'stop' | 'length' | 'tool-
   return 'stop'
 }
 
-function convertPiUsage(usage?: {
+export function convertPiUsage(usage?: {
   input?: number
   output?: number
   totalTokens?: number
@@ -39,16 +39,19 @@ function convertPiUsage(usage?: {
   cacheWrite?: number
   reasoning?: number
 }): LanguageModelUsage {
-  const inputTokens = Number(usage?.input ?? 0)
+  const noCacheInputTokens = Number(usage?.input ?? 0)
   const outputTokens = Number(usage?.output ?? 0)
+  const cacheReadTokens = Number(usage?.cacheRead ?? 0)
+  const cacheWriteTokens = Number(usage?.cacheWrite ?? 0)
+  const inputTokens = noCacheInputTokens + cacheReadTokens + cacheWriteTokens
   return {
     inputTokens,
     outputTokens,
     totalTokens: Number(usage?.totalTokens ?? inputTokens + outputTokens),
     inputTokenDetails: {
-      cacheReadTokens: Number(usage?.cacheRead ?? 0),
-      cacheWriteTokens: Number(usage?.cacheWrite ?? 0),
-      noCacheTokens: Math.max(0, inputTokens - Number(usage?.cacheRead ?? 0) - Number(usage?.cacheWrite ?? 0))
+      cacheReadTokens,
+      cacheWriteTokens,
+      noCacheTokens: noCacheInputTokens
     },
     outputTokenDetails: {
       textTokens: Math.max(0, outputTokens - Number(usage?.reasoning ?? 0)),

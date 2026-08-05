@@ -12,16 +12,6 @@ interface UnknownToolProps {
   output?: unknown
 }
 
-const getToolDisplayName = (name: string) => {
-  if (name.startsWith('mcp__')) {
-    const parts = name.substring(5).split('__')
-    if (parts.length >= 2) {
-      return `${parts[0]}:${parts.slice(1).join(':')}`
-    }
-  }
-  return name
-}
-
 /**
  * Extract text-only preview from MCP CallToolResult.
  * Images are already rendered via IMAGE_COMPLETE, so only text is shown here.
@@ -76,7 +66,7 @@ export function UnknownToolRenderer({
     key: 'unknown-tool',
     label: (
       <ToolHeader
-        toolName={getToolDisplayName(toolName)}
+        toolName={toolName}
         icon={<Wrench className="h-4 w-4" />}
         params={getToolDescription(toolName)}
         variant="collapse-label"

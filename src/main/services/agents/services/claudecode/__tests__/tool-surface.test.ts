@@ -20,19 +20,19 @@ const makeDecision = (args: Partial<CapabilityDecision> & Pick<CapabilityDecisio
 })
 
 describe('buildToolSurface', () => {
-  it('disables all built-in tools for chat turns', () => {
+  it('exposes InspectImage for plain chat turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({ toolLayer: 'chat' }),
       sessionAllowedTools: ['Bash', 'mcp__skills__*'],
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual([])
-    expect(surface.builtinTools).toEqual([])
-    expect(surface.allowedToolsOption).toEqual(['mcp__skills__*'])
+    expect(surface.toolsOption).toEqual(['InspectImage'])
+    expect(surface.builtinTools).toEqual(['InspectImage'])
+    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__skills__*'])
   })
 
-  it('exposes Bash for chat.bash turns without auto-allowing it', () => {
+  it('exposes InspectImage and Bash for chat.bash turns without auto-allowing Bash', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -46,9 +46,10 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['Bash'])
-    expect(surface.builtinTools).toEqual(['Bash'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'Bash'])
     expect(surface.allowedToolsOption).not.toContain('Bash')
+    expect(surface.allowedToolsOption).toContain('InspectImage')
   })
 
   it('enables only read tools for workspace-read turns', () => {
@@ -63,11 +64,11 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['Read', 'Glob', 'Grep'])
-    expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'Read'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'Read', 'Glob', 'Grep'])
+    expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'InspectImage', 'Read'])
   })
 
-  it('adds Bash to web turns while keeping workspace builtins hidden', () => {
+  it('adds InspectImage and Bash to web turns while keeping workspace builtins hidden', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'web',
@@ -79,12 +80,12 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['Bash'])
-    expect(surface.builtinTools).toEqual(['Bash'])
-    expect(surface.allowedToolsOption).toEqual(['mcp__browser__*', 'mcp__search__*'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'Bash'])
+    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__browser__*', 'mcp__search__*'])
   })
 
-  it('adds Bash to cut turns', () => {
+  it('adds InspectImage and Bash to cut turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -96,13 +97,14 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['Bash'])
-    expect(surface.builtinTools).toEqual(['Bash'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'Bash'])
     expect(surface.allowedToolsOption).toContain('mcp__ffmpeg-media__*')
     expect(surface.allowedToolsOption).not.toContain('Bash')
+    expect(surface.allowedToolsOption).toContain('InspectImage')
   })
 
-  it('keeps ai_media turns free of Bash while allowing MCP speech tools', () => {
+  it('keeps ai_media turns free of Bash while still exposing InspectImage', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -114,9 +116,9 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual([])
-    expect(surface.builtinTools).toEqual([])
-    expect(surface.allowedToolsOption).toEqual(['mcp__speech__*'])
+    expect(surface.toolsOption).toEqual(['InspectImage'])
+    expect(surface.builtinTools).toEqual(['InspectImage'])
+    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__speech__*'])
   })
 
   it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {
@@ -133,9 +135,11 @@ describe('buildToolSurface', () => {
 
     expect(surface.builtinTools).toContain('Write')
     expect(surface.builtinTools).toContain('Bash')
+    expect(surface.builtinTools).toContain('InspectImage')
     expect(surface.allowedToolsOption).not.toContain('Write')
     expect(surface.allowedToolsOption).not.toContain('Edit')
     expect(surface.allowedToolsOption).not.toContain('Bash')
+    expect(surface.allowedToolsOption).toContain('InspectImage')
   })
 
   it('filters known expensive or unsupported defaults from auto-allow lists', () => {
@@ -168,7 +172,19 @@ describe('buildToolSurface', () => {
     })
 
     expect(surface.builtinTools).toEqual(
-      expect.arrayContaining(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Task', 'WebSearch', 'WebFetch'])
+      expect.arrayContaining([
+        'Read',
+        'Glob',
+        'Grep',
+        'Write',
+        'Edit',
+        'MultiEdit',
+        'Bash',
+        'Task',
+        'WebSearch',
+        'WebFetch',
+        'InspectImage'
+      ])
     )
   })
 
@@ -181,6 +197,6 @@ describe('buildToolSurface', () => {
 
     addAutoAllowedTool(surface, 'mcp__skills__*')
 
-    expect(surface.allowedToolsOption).toEqual(['mcp__skills__*'])
+    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__skills__*'])
   })
 })

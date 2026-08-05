@@ -13,6 +13,7 @@ import {
   Globe,
   ListTodo,
   NotebookPen,
+  ScanSearch,
   PencilRuler,
   Search,
   ShieldCheck,
@@ -27,6 +28,7 @@ import styled from 'styled-components'
 import { renderToolChangeStats } from './MessageAgentTools/changeStats'
 import { type ToolStatus, ToolStatusIndicator } from './MessageAgentTools/GenericTools'
 import { AgentToolsType } from './MessageAgentTools/types'
+import { getMcpToolDisplayName, parseMcpToolName } from './shared/mcpToolDisplay'
 
 export interface ToolHeaderProps {
   block?: ToolMessageBlock
@@ -61,6 +63,8 @@ const getAgentToolIcon = (toolName: string): ReactNode => {
       return <FolderSearch size={14} />
     case AgentToolsType.Grep:
       return <FileSearch size={14} />
+    case AgentToolsType.InspectImage:
+      return <ScanSearch size={14} />
     case AgentToolsType.Write:
       return <FileText size={14} />
     case AgentToolsType.Edit:
@@ -84,6 +88,11 @@ const getAgentToolIcon = (toolName: string): ReactNode => {
 }
 
 const getAgentToolLabel = (toolName: string, t: (key: string) => string): string => {
+  if (toolName.startsWith('mcp__')) {
+    const parts = parseMcpToolName(toolName)
+    return getMcpToolDisplayName({ ...parts, t })
+  }
+
   switch (toolName) {
     case AgentToolsType.Read:
       return t('message.tools.labels.readFile')
@@ -103,6 +112,8 @@ const getAgentToolLabel = (toolName: string, t: (key: string) => string): string
       return t('message.tools.labels.glob')
     case AgentToolsType.Grep:
       return t('message.tools.labels.grep')
+    case AgentToolsType.InspectImage:
+      return '图片理解'
     case AgentToolsType.Write:
       return t('message.tools.labels.write')
     case AgentToolsType.Edit:
@@ -256,13 +267,16 @@ const ToolHeader: FC<ToolHeaderProps> = ({
 
   if (block && tool?.type === 'mcp') {
     const mcpTool = tool as MCPTool
+    const displayName = getMcpToolDisplayName({
+      serverName: mcpTool.serverName,
+      toolName: mcpTool.name,
+      t
+    })
     return (
       <Container>
         <ToolName align="center" gap={6}>
           <Wrench size={14} className="tool-icon" />
-          <span className="name">
-            {mcpTool.serverName} : {mcpTool.name}
-          </span>
+          <span className="name">{displayName}</span>
           {isToolAutoApproved(mcpTool) && (
             <Tooltip title={t('message.tools.autoApproveEnabled')} mouseLeaveDelay={0}>
               <ShieldCheck size={14} color="var(--color-primary)" />

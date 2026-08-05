@@ -2508,6 +2508,196 @@
         "webSearch": "網頁搜尋",
         "write": "寫入"
       },
+      "mcp": {
+        "servers": {
+          "agent_memory": "工作區記憶",
+          "assistant": "助手",
+          "brave_search_server": "Brave 搜尋",
+          "cherry_browser": "瀏覽器",
+          "cherry_dify_knowledge_server": "Dify 知識庫",
+          "claw": "Claw",
+          "copylab": "文案反推",
+          "digital_human": "數位人",
+          "draft_elements": "草稿處理",
+          "draft_download": "草稿下載",
+          "draft_management": "草稿管理",
+          "ffmpeg_media": "媒體處理",
+          "file_upload": "檔案上傳",
+          "filesystem_server": "檔案系統",
+          "image": "圖像",
+          "koubo_template": "口播模板",
+          "search": "聯網搜尋",
+          "seed_audio": "豆包音訊",
+          "speech": "語音",
+          "subtitle_recognition": "字幕識別",
+          "system": "系統",
+          "subtitle_template": "字幕模板",
+          "video_understand": "影片理解",
+          "voice_conversion": "聲音轉換",
+          "zcaceres_fetch": "網頁抓取"
+        },
+        "tools": {
+          "agent_memory": {
+            "memory": "記錄工作區記憶"
+          },
+          "assistant": {
+            "diagnose": "診斷應用狀態",
+            "navigate": "開啟應用頁面"
+          },
+          "brave_search_server": {
+            "brave_local_search": "本地搜尋",
+            "brave_web_search": "網頁搜尋"
+          },
+          "cherry_browser": {
+            "click": "點擊元素",
+            "close_tab": "關閉分頁",
+            "execute": "執行",
+            "focus": "聚焦元素",
+            "hover": "懸停元素",
+            "inspect": "查看元素",
+            "list_tabs": "列出分頁",
+            "open": "開啟網頁",
+            "press": "按下按鍵",
+            "reload": "重新整理頁面",
+            "reset": "重設瀏覽器",
+            "screenshot": "頁面截圖",
+            "scroll": "滾動頁面",
+            "snapshot": "取得頁面快照",
+            "switch_tab": "切換分頁",
+            "type": "輸入文字",
+            "wait_for": "等待頁面條件"
+          },
+          "cherry_dify_knowledge_server": {
+            "list_knowledges": "列出知識庫",
+            "search_knowledge": "搜尋知識庫"
+          },
+          "claw": {
+            "config": "管理渠道設定",
+            "cron": "管理排程任務",
+            "notify": "發送通知"
+          },
+          "copylab": {
+            "derive_copy_prompt": "提取文案提示詞"
+          },
+          "digital_human": {
+            "create_image_driven_digital_human": "建立圖片驅動數位人",
+            "create_lip_sync_digital_human": "建立口型驅動數位人",
+            "create_omni_image_driven_digital_human": "建立omni圖片驅動數位人",
+            "create_seedance_digital_human": "建立 Seedance 數位人",
+            "get_image_driven_digital_human_status": "查詢圖片驅動數位人狀態",
+            "get_lip_sync_digital_human_status": "查詢口型驅動數位人狀態",
+            "get_omni_image_driven_digital_human_status": "查詢omni圖片驅動數位人狀態",
+            "get_seedance_digital_human_status": "查詢 Seedance 數位人狀態"
+          },
+          "draft_elements": {
+            "add_audio": "添加音訊",
+            "add_batch_audio": "批次添加音訊",
+            "add_batch_image": "批次添加圖片",
+            "add_batch_text": "批次添加文字",
+            "add_batch_video": "批次添加影片",
+            "add_effect": "添加特效",
+            "add_filter": "添加濾鏡",
+            "add_image": "添加圖片",
+            "add_subtitle": "添加字幕",
+            "add_text": "添加文字",
+            "add_video": "添加影片",
+            "add_video_keyframe": "添加影片關鍵影格",
+            "get_audio_effect_types": "查看音訊效果類型",
+            "get_combo_animation_types": "查看組合動畫類型",
+            "get_filter_types": "查看濾鏡類型",
+            "get_font_types": "查看字型列表",
+            "get_intro_animation_types": "查看入場動畫列表",
+            "get_outro_animation_types": "查看出場動畫列表",
+            "get_text_intro_types": "查看文字入場動畫列表",
+            "get_text_loop_anim_types": "查看文字循環動畫列表",
+            "get_text_outro_types": "查看文字出場動畫列表",
+            "get_transition_types": "查看轉場列表",
+            "get_video_character_effect_types": "查看人物特效列表",
+            "get_video_scene_effect_types": "查看場景特效列表",
+            "modify_audio": "修改音訊",
+            "modify_effect": "修改特效",
+            "modify_filter": "修改濾鏡",
+            "modify_image": "修改圖片",
+            "modify_text": "修改文字",
+            "modify_video": "修改影片",
+            "remove_audio": "刪除音訊",
+            "remove_effect": "刪除特效",
+            "remove_filter": "刪除濾鏡",
+            "remove_image": "刪除圖片",
+            "remove_text": "刪除文字",
+            "remove_video": "刪除影片"
+          },
+          "draft_download": {
+            "download_draft": "下載草稿"
+          },
+          "draft_management": {
+            "create_draft": "建立草稿",
+            "modify_draft": "修改草稿",
+            "query_script": "查詢草稿"
+          },
+          "ffmpeg_media": {
+            "capture_frame_at_timestamp": "依時間點截幀",
+            "extract_audio_from_video": "從影片提取音訊",
+            "get_media_duration": "取得媒體時長",
+            "trim_media_segment": "裁剪媒體片段"
+          },
+          "file_upload": {
+            "upload_file_to_oss": "上傳檔案"
+          },
+          "filesystem_server": {
+            "delete": "刪除檔案",
+            "download": "下載檔案",
+            "edit": "編輯檔案",
+            "glob": "匹配檔案",
+            "grep": "搜尋內容",
+            "ls": "列出目錄",
+            "read": "讀取檔案",
+            "write": "寫入檔案"
+          },
+          "image": {
+            "generate_or_edit_image": "生成或編輯圖片",
+            "get_image_capabilities": "查看圖像模型"
+          },
+          "koubo_template": {
+            "get_koubo_template_task_status": "查詢口播模板任務狀態",
+            "submit_koubo_template_task": "提交口播模板任務"
+          },
+          "search": {
+            "web_search": "聯網搜尋"
+          },
+          "seed_audio": {
+            "generate_seed_audio": "生成豆包音訊"
+          },
+          "speech": {
+            "generate_speech": "生成語音"
+          },
+          "subtitle_recognition": {
+            "get_subtitle_recognition_task_status": "查詢字幕識別任務狀態",
+            "submit_subtitle_recognition_task": "提交字幕識別任務"
+          },
+          "subtitle_template": {
+            "generate_smart_subtitle": "智慧字幕生成",
+            "get_smart_subtitle_task_status": "查詢字幕任務狀態"
+          },
+          "system": {
+            "open_deeplink": "開啟跳轉連結"
+          },
+          "video_understand": {
+            "get_video_detail_task_status": "查詢影片理解任務狀態",
+            "submit_video_detail_task": "提交影片理解任務"
+          },
+          "voice_conversion": {
+            "get_voice_conversion_task_status": "查詢聲音轉換任務狀態",
+            "submit_voice_conversion_task": "提交聲音轉換任務"
+          },
+          "zcaceres_fetch": {
+            "fetch_html": "抓取網頁 HTML",
+            "fetch_json": "抓取 JSON",
+            "fetch_markdown": "抓取網頁 Markdown",
+            "fetch_txt": "抓取純文字"
+          }
+        }
+      },
       "noData": "此工具暫無可用資料",
       "pending": "等待中",
       "preview": "預覽",

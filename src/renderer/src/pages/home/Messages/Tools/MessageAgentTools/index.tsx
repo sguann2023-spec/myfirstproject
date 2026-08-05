@@ -23,6 +23,7 @@ import { ExitPlanModeTool } from './ExitPlanModeTool'
 import { getEffectiveStatus, StreamingContext, type ToolStatus, ToolStatusIndicator } from './GenericTools'
 import { GlobTool } from './GlobTool'
 import { GrepTool } from './GrepTool'
+import { InspectImageTool } from './InspectImageTool'
 import { MultiEditTool } from './MultiEditTool'
 import { NavigateToolInline } from './NavigateTool'
 import { NotebookEditTool } from './NotebookEditTool'
@@ -56,6 +57,7 @@ export const toolRenderers = {
   [AgentToolsType.Glob]: GlobTool,
   [AgentToolsType.WebSearch]: WebSearchTool,
   [AgentToolsType.Grep]: GrepTool,
+  [AgentToolsType.InspectImage]: InspectImageTool,
   [AgentToolsType.Write]: WriteTool,
   [AgentToolsType.WebFetch]: WebFetchTool,
   [AgentToolsType.Edit]: EditTool,

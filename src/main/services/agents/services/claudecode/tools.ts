@@ -38,6 +38,13 @@ export const builtinTools: Tool[] = [
     type: 'builtin'
   },
   {
+    id: 'InspectImage',
+    name: 'InspectImage',
+    description: 'Inspects a local image file or image URL with the current model. 支持查看本地图片或图片链接。',
+    requirePermissions: false,
+    type: 'builtin'
+  },
+  {
     id: 'NotebookEdit',
     name: 'NotebookEdit',
     description: 'Modifies Jupyter notebook cells',

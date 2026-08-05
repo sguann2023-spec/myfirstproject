@@ -18,14 +18,6 @@ export function isAgentMcpToolName(name: string): boolean {
   return name.startsWith('mcp__')
 }
 
-function getAgentMcpToolDisplayName(name: string): string {
-  const parts = name.substring(5).split('__')
-  if (parts.length < 2) {
-    return name
-  }
-  return `${parts[0]}:${parts.slice(1).join(':')}`
-}
-
 function normalizeArgs(value: unknown): Record<string, unknown> | unknown[] | null {
   if (value === undefined || value === null) return null
   if (typeof value === 'object') return value as Record<string, unknown> | unknown[]
@@ -70,7 +62,7 @@ export function McpServerToolRenderer({
     key: `mcp-tool-${toolName}`,
     label: (
       <ToolHeader
-        toolName={getAgentMcpToolDisplayName(toolName)}
+        toolName={toolName}
         icon={<Wrench size={14} style={{ marginLeft: 11, marginRight: 11 }} />}
         params={normalizedProgressMessage || t('message.tools.labels.mcpServerTool')}
         stats={typeof progress === 'number' && progress > 0 ? `${Math.round(progress * 100)}%` : undefined}

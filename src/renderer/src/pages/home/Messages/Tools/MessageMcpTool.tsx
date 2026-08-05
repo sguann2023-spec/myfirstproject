@@ -34,6 +34,7 @@ import {
   formatArgValue,
   ResponseSection
 } from './shared/ArgsTable'
+import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
 import { truncateOutput } from './shared/truncateOutput'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
 
@@ -62,6 +63,10 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   const isDone = status === 'done'
   const isError = status === 'error'
   const isStreaming = status === 'streaming'
+  const displayToolName = useMemo(
+    () => getMcpToolDisplayName({ serverName: tool?.serverName, toolName: tool?.name || '', t }),
+    [t, tool?.name, tool?.serverName]
+  )
 
   useEffect(() => {
     const removeListener = window.electron.ipcRenderer.on(
@@ -138,7 +143,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
           <TitleContent>
             <ToolNameRow align="center" gap={4}>
               <ToolName align="center" gap={4}>
-                {tool.serverName} : {tool.name}
+                {displayToolName}
                 {isToolAutoApproved(tool) && (
                   <Tooltip title={t('message.tools.autoApproveEnabled')} mouseLeaveDelay={0}>
                     <ShieldCheck size={14} color="var(--status-color-success)" />

@@ -302,18 +302,47 @@ export class SessionService extends BaseService {
     // We'll skip this validation for now to avoid circular dependencies
 
     const now = new Date().toISOString()
+    const normalizedUpdates: UpdateSessionRequest = { ...updates }
 
-    if (updates.accessible_paths !== undefined) {
-      if (updates.accessible_paths.length === 0) {
+    if (normalizedUpdates.accessible_paths !== undefined) {
+      if (normalizedUpdates.accessible_paths.length === 0) {
         throw new Error('accessible_paths must not be empty')
       }
-      updates.accessible_paths = this.resolveAccessiblePaths(updates.accessible_paths, existing.agent_id)
+      normalizedUpdates.accessible_paths = this.resolveAccessiblePaths(normalizedUpdates.accessible_paths, existing.agent_id)
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'configuration')) {
+      const existingConfiguration =
+        existing.configuration && typeof existing.configuration === 'object'
+          ? (existing.configuration as Record<string, unknown>)
+          : {}
+      const incomingConfiguration =
+        normalizedUpdates.configuration && typeof normalizedUpdates.configuration === 'object'
+          ? (normalizedUpdates.configuration as Record<string, unknown>)
+          : {}
+      const existingEnvVars =
+        existingConfiguration.env_vars && typeof existingConfiguration.env_vars === 'object'
+          ? (existingConfiguration.env_vars as Record<string, unknown>)
+          : {}
+      const incomingEnvVars =
+        incomingConfiguration.env_vars && typeof incomingConfiguration.env_vars === 'object'
+          ? (incomingConfiguration.env_vars as Record<string, unknown>)
+          : {}
+
+      normalizedUpdates.configuration = {
+        ...existingConfiguration,
+        ...incomingConfiguration,
+        env_vars: {
+          ...existingEnvVars,
+          ...incomingEnvVars
+        }
+      } as UpdateSessionRequest['configuration']
     }
 
     const modelUpdates: Partial<Record<AgentModelField, string | undefined>> = {}
     for (const field of this.modelFields) {
-      if (Object.prototype.hasOwnProperty.call(updates, field)) {
-        modelUpdates[field] = updates[field as keyof UpdateSessionRequest] as string | undefined
+      if (Object.prototype.hasOwnProperty.call(normalizedUpdates, field)) {
+        modelUpdates[field] = normalizedUpdates[field as keyof UpdateSessionRequest] as string | undefined
       }
     }
 
@@ -321,7 +350,7 @@ export class SessionService extends BaseService {
       await this.validateAgentModels(existing.agent_type, modelUpdates)
     }
 
-    const serializedUpdates = this.serializeJsonFields(updates)
+    const serializedUpdates = this.serializeJsonFields(normalizedUpdates)
 
     const updateData: Partial<SessionRow> = {
       updated_at: now
