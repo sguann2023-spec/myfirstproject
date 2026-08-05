@@ -51,6 +51,12 @@ const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
 const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
+const createLocalFilePreviewUrl = (filePath = '') => {
+  const normalizedPath = normalizeLocalPath(filePath).trim();
+  if (!normalizedPath) return '';
+  const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+  return encodeURI(`file://${normalizedPathname}`);
+};
 const getSessionWorkspacePath = (session) => {
   const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
   return normalizeLocalPath(config.selected_workspace_path || session?.accessible_paths?.[0] || '').trim();
@@ -2863,6 +2869,35 @@ const HomePage = () => {
     setChatSessionFulfilled(session.id, false, 'create-session');
   };
 
+  const openQuickSkillWebPreview = useCallback(({ workspacePath, skillName, sessionId }) => {
+    const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+    const normalizedSkillName = String(skillName || '').trim();
+    if (!normalizedWorkspacePath || !normalizedSkillName) return;
+
+    const sourcePath = joinLocalPath(
+      normalizedWorkspacePath,
+      '.claude',
+      'skills',
+      normalizedSkillName,
+      'website',
+      'index.html'
+    );
+    const url = createLocalFilePreviewUrl(sourcePath);
+    if (!url) return;
+
+    const activePreviewKey = String(chatWebPreview?.key || '').trim();
+    if (activePreviewKey) {
+      setChatWebPreviewDismissedKey(activePreviewKey);
+    }
+    setSelectedPane('chat');
+    setManualChatWebPreview({
+      key: `quick-skill:${String(sessionId || normalizedSkillName).trim()}:${sourcePath}`,
+      url,
+      title: normalizedSkillName,
+      sourcePath
+    });
+  }, [chatWebPreview?.key]);
+
   const handleBootstrapChildrensPictureBook = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
     const session = createEmptyChatSession();
@@ -2933,6 +2968,11 @@ const HomePage = () => {
             : item
         ))
       );
+      openQuickSkillWebPreview({
+        workspacePath,
+        skillName: QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME,
+        sessionId: session.id
+      });
       window.dispatchEvent(new window.CustomEvent('childrens-book-skill-created', {
         detail: {
           workspacePath,
@@ -2949,7 +2989,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebPreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleBootstrapLiveClipping = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
@@ -3021,6 +3061,11 @@ const HomePage = () => {
             : item
         ))
       );
+      openQuickSkillWebPreview({
+        workspacePath,
+        skillName: QUICK_LIVE_CLIPPING_SKILL_NAME,
+        sessionId: session.id
+      });
       window.toast?.success?.(
         inheritedWorkspacePath
           ? '已新建对话，复用当前工作空间并创建直播切片技能'
@@ -3031,7 +3076,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebPreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleBootstrapTravelGuide = useCallback(async () => {
     const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
@@ -3103,6 +3148,11 @@ const HomePage = () => {
             : item
         ))
       );
+      openQuickSkillWebPreview({
+        workspacePath,
+        skillName: QUICK_TRAVEL_GUIDE_SKILL_NAME,
+        sessionId: session.id
+      });
       window.toast?.success?.(
         inheritedWorkspacePath
           ? '已新建对话，复用当前工作空间并创建旅游攻略技能'
@@ -3113,7 +3163,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebPreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
 
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
