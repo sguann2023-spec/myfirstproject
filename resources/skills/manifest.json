@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-05T12:00:00Z",
+  "updatedAt": "2026-08-05T15:15:00Z",
   "skills": {
     "find-skills": {
       "version": "1.0.0",
@@ -10,8 +10,15 @@
     },
     "skill-creator": {
       "version": "1.0.2",
+      "deleted": true,
+      "tombstoneVersion": "2.0.0",
       "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator/1_0_2/skill-creator.zip",
-      "minAppVersion": "1.5.22"
+      "minAppVersion": "1.6.7"
+    },
+    "cutskill-creator": {
+      "version": "1.0.2",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/cutskill-creator/1_0_2/cutskill-creator.zip",
+      "minAppVersion": "1.6.7"
     },
     "vectcut-skill": {
       "version": "1.5.27",

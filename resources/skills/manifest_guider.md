@@ -65,7 +65,7 @@ https://player.install-ai-guider.top/skills/manifest.json
 ```text
 https://player.install-ai-guider.top/skills/vectcut-skill/1_5_9/vectcut-skill.zip
 https://player.install-ai-guider.top/skills/find-skills/1_0_0/find-skills.zip
-https://player.install-ai-guider.top/skills/skill-creator/1_0_0/skill-creator.zip
+https://player.install-ai-guider.top/skills/storyboard-skill/1_0_0/storyboard-skill.zip
 ```
 
 推荐规则：
@@ -519,7 +519,8 @@ https://player.install-ai-guider.top/skills/manifest.json
 
 推荐做法：
 
-- 本地 manifest 只维护基础字段：`version`、`downloadUrl`、`minAppVersion`
+- 本地 manifest 通常维护基础字段：`version`、`downloadUrl`、`minAppVersion`
+- 如果某个 skill 已经明确下线，本地 manifest 也可以直接保留 `deleted`、`tombstoneVersion`，避免基线包和远程策略不一致
 - 远程 manifest 可以在此基础上增加 `deleted`、`tombstoneVersion`、`autoEnableExistingAgents`
 
 ---
@@ -534,17 +535,17 @@ https://player.install-ai-guider.top/skills/manifest.json
   "skills": {
     "find-skills": {
       "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/find-skills.zip",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/find-skills/1_0_0/find-skills.zip",
       "minAppVersion": "0.0.0"
     },
-    "skill-creator": {
+    "storyboard-skill": {
       "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/skill-creator.zip",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/storyboard-skill/1_0_0/storyboard-skill.zip",
       "minAppVersion": "0.0.0"
     },
     "vectcut-skill": {
       "version": "1.0.0",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill.zip",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/vectcut-skill/1_0_0/vectcut-skill.zip",
       "minAppVersion": "0.0.0"
     }
   }
@@ -552,8 +553,6 @@ https://player.install-ai-guider.top/skills/manifest.json
 ```
 
 ---
-
-## 14. 推荐检查清单
 
 每次发 manifest 前，建议检查：
 
