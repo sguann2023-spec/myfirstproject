@@ -1075,14 +1075,14 @@ const VoiceSquareToolDetail = ({
           <button
             type="button"
             className="chat-panel__tool-button chat-panel__tool-button--active"
-            aria-label="语音生成"
-            title="语音生成"
+            aria-label="音频"
+            title="音频"
             aria-pressed="true"
             disabled={disabled}
             onClick={onBack}
           >
             <img className="chat-panel__tool-icon" src={VoiceSelectedIcon} alt="" aria-hidden="true" />
-            <span className="chat-panel__tool-text chat-panel__tool-text--active">语音生成</span>
+            <span className="chat-panel__tool-text chat-panel__tool-text--active">音频</span>
             <CloseOutlined className="chat-panel__tool-close-icon" aria-hidden="true" />
           </button>
         </span>

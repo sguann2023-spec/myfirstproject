@@ -318,17 +318,17 @@ describe('ImageGenerateServer', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
           'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify({
-          prompt: '一只站在云上的猫',
-          model: 'seedream-4.5',
-          size: '1024x1024',
-          reference_image: 'https://example.com/ref.png',
-          compose_draft: false,
-          draft_id: 'draft-1'
         })
       })
     )
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      prompt: '一只站在云上的猫',
+      model: 'seedream-4.5',
+      size: '1024x1024',
+      compose_draft: false,
+      draft_id: 'draft-1',
+      reference_images: ['https://example.com/ref.png']
+    })
 
     expect(result.isError).not.toBe(true)
     expect(JSON.parse(result.content[0].text)).toEqual({
@@ -405,14 +405,14 @@ describe('ImageGenerateServer', () => {
       2,
       'https://open.vectcut.com/llm/image/submit_task/generate',
       expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: '保留人物主体，把背景改成雪山，并提升清晰度',
-          reference_image: 'https://example.com/original.png',
-          compose_draft: false
-        })
+        method: 'POST'
       })
     )
+    expect(JSON.parse(String(mockNetFetch.mock.calls[1]?.[1]?.body))).toEqual({
+      prompt: '保留人物主体，把背景改成雪山，并提升清晰度',
+      compose_draft: false,
+      reference_images: ['https://example.com/original.png']
+    })
   })
 
   it('should resolve non-standard model aliases to the closest supported model', async () => {
@@ -461,14 +461,14 @@ describe('ImageGenerateServer', () => {
       3,
       'https://open.vectcut.com/llm/image/submit_task/generate',
       expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: '保留主体，把图片变成电影海报风格',
-          model: 'gpt-image-2-all',
-          reference_image: 'https://example.com/original.png'
-        })
+        method: 'POST'
       })
     )
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      prompt: '保留主体，把图片变成电影海报风格',
+      model: 'gpt-image-2-all',
+      reference_images: ['https://example.com/original.png']
+    })
 
     expect(JSON.parse(result.content[0].text)).toMatchObject({
       provider: 'vectcut',

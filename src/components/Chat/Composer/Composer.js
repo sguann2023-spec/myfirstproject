@@ -21,6 +21,7 @@ import {
 } from './AiWriteToolDetail/presetOptions';
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
+import ImagePanToolDetail from './ImagePanToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 
 const { shell } = window.require('electron');
@@ -253,12 +254,16 @@ const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
 const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
 const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
+const IMAGE_PAN_MODEL_STORAGE_KEY = 'chat-panel:image-pan-model';
+const IMAGE_PAN_RESOLUTION_STORAGE_KEY = 'chat-panel:image-pan-resolution';
 const DEFAULT_DIGITAL_HUMAN_MODE = 'seedance-avatar';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
 const DIGITAL_HUMAN_OPTION_VALUES = new Set(['seedance-avatar', 'jimeng-avatar', 'lips']);
 const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
 const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
+const DEFAULT_IMAGE_PAN_MODEL = 'seedream-4.5';
+const DEFAULT_IMAGE_PAN_RESOLUTION = '1440x2560';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
@@ -299,6 +304,32 @@ const readPersistedDigitalHumanAvatarSelection = () => {
       cover_url: DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL,
       voice_id: DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID,
     };
+  }
+};
+
+const normalizeImagePanModel = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_IMAGE_PAN_MODEL;
+};
+
+const normalizeImagePanResolution = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_IMAGE_PAN_RESOLUTION;
+};
+
+const readPersistedImagePanModel = () => {
+  try {
+    return normalizeImagePanModel(localStorage.getItem(IMAGE_PAN_MODEL_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_IMAGE_PAN_MODEL;
+  }
+};
+
+const readPersistedImagePanResolution = () => {
+  try {
+    return normalizeImagePanResolution(localStorage.getItem(IMAGE_PAN_RESOLUTION_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_IMAGE_PAN_RESOLUTION;
   }
 };
 const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
@@ -1858,6 +1889,8 @@ const Composer = ({
   const [selectedAiWritePresetId, setSelectedAiWritePresetId] = React.useState(() => getDefaultAiWritePresetId());
   const [selectedDigitalHumanMode, setSelectedDigitalHumanMode] = React.useState(() => readPersistedDigitalHumanMode());
   const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(() => readPersistedDigitalHumanAvatarSelection());
+  const [selectedImagePanModel, setSelectedImagePanModel] = React.useState(() => readPersistedImagePanModel());
+  const [selectedImagePanResolution, setSelectedImagePanResolution] = React.useState(() => readPersistedImagePanResolution());
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
@@ -1923,6 +1956,8 @@ const Composer = ({
   const inputPlaceholder =
     activeTool === 'digital-human'
       ? ''
+      : activeTool === 'image-pan'
+        ? '描述你想要的图片，或者上传图片然后修改'
       : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
 
   requestUploadPickerRef.current = (slotId = '') => {
@@ -3409,6 +3444,8 @@ const Composer = ({
           `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`,
           voiceSquareComposeParts?.extraText || '',
         ].filter(Boolean).join(' ')
+        : activeTool === 'image-pan'
+          ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
@@ -3446,6 +3483,22 @@ const Composer = ({
     syncVoiceSquareReferenceNode(editor, selectedVoiceLibraryItem);
   }, [activeTool, editor, selectedVoiceLibraryItem]);
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(IMAGE_PAN_MODEL_STORAGE_KEY, normalizeImagePanModel(selectedImagePanModel));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedImagePanModel]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(IMAGE_PAN_RESOLUTION_STORAGE_KEY, normalizeImagePanResolution(selectedImagePanResolution));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedImagePanResolution]);
+
   const applyAiWriteTemplate = React.useCallback((presetId) => {
     if (!editor || editor.isDestroyed) return;
     editor.commands.setContent(buildAiWriteEditorDocument(presetId), false);
@@ -3457,6 +3510,15 @@ const Composer = ({
     if (activeTool !== 'ai-write') return;
     applyAiWriteTemplate(presetId);
   }, [activeTool, applyAiWriteTemplate]);
+
+  const handleImageTemplateApply = React.useCallback((prompt) => {
+    setInput(String(prompt || ''));
+    if (!editor || editor.isDestroyed) return;
+    window.requestAnimationFrame(() => {
+      if (!editor || editor.isDestroyed) return;
+      editor.commands.focus('end');
+    });
+  }, [editor, setInput]);
 
   const handleToolSelect = React.useCallback((toolId) => {
     const nextTool = activeTool === toolId ? null : toolId;
@@ -3575,6 +3637,16 @@ const Composer = ({
                       onBack={handleToolDetailBack}
                       selectedPresetId={selectedAiWritePresetId}
                       onPresetSelect={handleAiWritePresetSelect}
+                    />
+                  ) : activeTool === 'image-pan' ? (
+                    <ImagePanToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedModel={selectedImagePanModel}
+                      selectedResolution={selectedImagePanResolution}
+                      onModelChange={setSelectedImagePanModel}
+                      onResolutionChange={setSelectedImagePanResolution}
+                      onPromptChange={handleImageTemplateApply}
                     />
                   ) : (
                     <ToolArea

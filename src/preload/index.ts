@@ -996,6 +996,15 @@ const legacyElectronAPI = {
     },
     run: ({ skillName, args = [], envVars = {} }: { skillName: string; args?: string[]; envVars?: Record<string, string> }) =>
       ipcRenderer.invoke('agent:skills:run', { skillName, args, envVars })
+  },
+  imageGeneration: {
+    getModelList: () => ipcRenderer.invoke(IpcChannel.Image_GetModelList),
+    getCapabilities: (filters: {
+      model?: string
+      tier?: string
+      ratio?: string
+      includePrices?: boolean
+    } = {}) => ipcRenderer.invoke(IpcChannel.Image_GetCapabilities, filters)
   }
 }
 

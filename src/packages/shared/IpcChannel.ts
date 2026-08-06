@@ -258,6 +258,8 @@ export enum IpcChannel {
   File_ValidateNotesDirectory = 'file:validateNotesDirectory',
   File_StartWatcher = 'file:startWatcher',
   File_StopWatcher = 'file:stopWatcher',
+  Image_GetModelList = 'image:get-model-list',
+  Image_GetCapabilities = 'image:get-capabilities',
   File_PauseWatcher = 'file:pauseWatcher',
   File_ResumeWatcher = 'file:resumeWatcher',
   File_BatchUploadMarkdown = 'file:batchUploadMarkdown',

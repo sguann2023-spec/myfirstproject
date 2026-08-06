@@ -45,14 +45,14 @@ const AiWriteToolDetail = ({
           <button
             type="button"
             className="chat-panel__tool-button chat-panel__tool-button--active"
-            aria-label="帮我写文案"
-            title="帮我写文案"
+            aria-label="文案"
+            title="文案"
             aria-pressed="true"
             disabled={disabled}
             onClick={onBack}
           >
             <img className="chat-panel__tool-icon" src={AiWriteIcon} alt="" aria-hidden="true" />
-            <span className="chat-panel__tool-text chat-panel__tool-text--active">帮我写文案</span>
+            <span className="chat-panel__tool-text chat-panel__tool-text--active">文案</span>
             <CloseOutlined className="chat-panel__tool-close-icon" aria-hidden="true" />
           </button>
         </span>

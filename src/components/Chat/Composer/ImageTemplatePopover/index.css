@@ -1,0 +1,226 @@
+.chat-panel__image-template-popover-panel {
+  width: min(700px, calc(100vw - 160px));
+  height: 320px;
+  max-height: 320px;
+  padding: 12px;
+  border: 1px solid #ececec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-sizing: border-box;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.chat-panel__image-template-popover-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-panel__image-template-popover-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(700px, calc(100vw - 160px));
+  height: 320px;
+  color: #8c8c8c;
+  font-size: 14px;
+}
+
+.chat-panel__image-template-grid {
+  column-count: 4;
+  column-gap: 2px;
+}
+
+.chat-panel__image-template-card {
+  display: block;
+  width: 100%;
+  margin: 0 0 2px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.chat-panel__image-template-card-cover {
+  position: relative;
+  border-radius: 0;
+  overflow: hidden;
+  background: #f5f5f5;
+}
+
+.chat-panel__image-template-card-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-panel__image-template-card-hover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 10px 10px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.04) 0%, rgba(0, 0, 0, 0.58) 72%, rgba(0, 0, 0, 0.78) 100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  box-sizing: border-box;
+}
+
+.chat-panel__image-template-card:hover .chat-panel__image-template-card-hover {
+  opacity: 1;
+}
+
+.chat-panel__image-template-card-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.chat-panel__image-template-card-desc {
+  color: #ddd;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  line-clamp: 3;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.chat-panel__image-template-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 8px;
+  background: rgba(52, 52, 52, 0.92);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.chat-panel__image-template-card--spring-letter .chat-panel__image-template-card-art::before {
+  content: '';
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 22px;
+  height: 92px;
+  border-radius: 18px;
+  background: rgba(255, 250, 244, 0.88);
+  box-shadow: 0 10px 24px rgba(237, 146, 129, 0.18);
+}
+
+.chat-panel__image-template-card--spring-letter .chat-panel__image-template-card-art::after {
+  content: '进店指南';
+  position: absolute;
+  left: 26px;
+  top: 22px;
+  color: #e95a58;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.chat-panel__image-template-card--poster .chat-panel__image-template-card-art::before {
+  content: '城市\A 漫游';
+  white-space: pre-line;
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  color: #111111;
+  font-size: 30px;
+  line-height: 0.96;
+  font-weight: 800;
+}
+
+.chat-panel__image-template-card--poster .chat-panel__image-template-card-art::after {
+  content: 'CITY WANDER';
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  color: #111111;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.chat-panel__image-template-card--sunset .chat-panel__image-template-card-art::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, transparent 0 36%, rgba(255, 186, 154, 0.48) 36% 58%, transparent 58%),
+    linear-gradient(0deg, rgba(78, 94, 115, 0.92) 0 8px, transparent 8px),
+    radial-gradient(circle at 70% 58%, rgba(255, 236, 189, 0.9) 0 18px, transparent 19px);
+}
+
+.chat-panel__image-template-card--sunset .chat-panel__image-template-card-art::after {
+  content: '';
+  position: absolute;
+  left: 54%;
+  right: 8%;
+  top: 0;
+  bottom: 0;
+  background:
+    linear-gradient(90deg, rgba(33, 45, 57, 0.86) 0 22%, transparent 22%),
+    linear-gradient(180deg, transparent 0 72%, rgba(244, 241, 235, 0.95) 72% 74%, transparent 74%);
+}
+
+.chat-panel__image-template-card--building .chat-panel__image-template-card-art::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(86, 96, 108, 0.82) 0 18%, transparent 18% 58%, rgba(63, 71, 82, 0.8) 58% 82%, transparent 82%),
+    linear-gradient(180deg, transparent 0 58%, rgba(59, 67, 78, 0.82) 58% 64%, transparent 64% 76%, rgba(59, 67, 78, 0.82) 76% 82%, transparent 82%);
+}
+
+.chat-panel__image-template-card--glasses .chat-panel__image-template-card-art::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(circle at 38% 48%, rgba(202, 229, 255, 0.95) 0 11px, transparent 12px),
+    radial-gradient(circle at 62% 48%, rgba(202, 229, 255, 0.95) 0 11px, transparent 12px),
+    radial-gradient(circle at 50% 56%, rgba(226, 232, 240, 0.85) 0 26px, transparent 27px);
+}
+
+.chat-panel__image-template-card--muse .chat-panel__image-template-card-art::before {
+  content: 'DIGITAL MUSE';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #e6c9c7;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+}
+
+.chat-panel__image-template-card--fabric .chat-panel__image-template-card-art::before {
+  content: '';
+  position: absolute;
+  right: -10px;
+  bottom: -14px;
+  width: 92px;
+  height: 92px;
+  border-radius: 40px;
+  background: linear-gradient(180deg, #ffceb3 0%, #ffb391 100%);
+  transform: rotate(-16deg);
+}

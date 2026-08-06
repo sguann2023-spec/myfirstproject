@@ -51,11 +51,6 @@ const IMAGE_GENERATE_TOOL: Tool = {
         type: 'string',
         description: 'Optional output size, such as 1024x1024.'
       },
-      referenceImage: {
-        type: 'string',
-        description:
-          'Optional single source/reference image URL. Use for image editing, retouching, image-to-image, style transfer, or preserving composition from an existing image.'
-      },
       referenceImages: {
         type: 'array',
         items: {
@@ -66,7 +61,7 @@ const IMAGE_GENERATE_TOOL: Tool = {
       },
       sourceImage: {
         type: 'string',
-        description: 'Alias of referenceImage. Optional source image URL for editing or image-to-image tasks.'
+        description: 'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks.'
       },
       sourceImages: {
         type: 'array',
@@ -77,11 +72,11 @@ const IMAGE_GENERATE_TOOL: Tool = {
       },
       baseImage: {
         type: 'string',
-        description: 'Alias of referenceImage. Optional base image URL to modify, enhance, or restyle.'
+        description: 'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle.'
       },
       editImage: {
         type: 'string',
-        description: 'Alias of referenceImage. Optional image URL to edit or retouch.'
+        description: 'Alias of referenceImages. Optional image URL to edit or retouch.'
       },
       composeDraft: {
         type: 'boolean',
@@ -167,6 +162,8 @@ type ResolutionItem = {
 }
 
 type ModelCapability = {
+  display_name?: string
+  description?: string
   reference_supported?: boolean
   resolutions?: Record<string, ResolutionItem[]>
 }
@@ -194,12 +191,11 @@ type CachedImageModelList = {
 }
 
 const IMAGE_SUBMIT_FIELD_ALIASES: Record<string, string> = {
-  referenceImage: 'reference_image',
   referenceImages: 'reference_images',
-  sourceImage: 'reference_image',
+  sourceImage: 'reference_images',
   sourceImages: 'reference_images',
-  baseImage: 'reference_image',
-  editImage: 'reference_image',
+  baseImage: 'reference_images',
+  editImage: 'reference_images',
   composeDraft: 'compose_draft',
   draftId: 'draft_id',
   transformX: 'transform_x',
@@ -433,6 +429,41 @@ class ImageGenerateServer {
     }
   }
 
+  public async listImageCapabilities(filters: { model?: string; tier?: string; ratio?: string; includePrices?: boolean } = {}) {
+    const modelFilter = typeof filters.model === 'string' ? filters.model.trim() : ''
+    const tier = typeof filters.tier === 'string' ? filters.tier.trim() : ''
+    const ratio = typeof filters.ratio === 'string' ? filters.ratio.trim() : ''
+    const includePrices = typeof filters.includePrices === 'boolean' ? filters.includePrices : true
+
+    const { capabilities, prices } = await this.fetchImageCapabilitiesPayload()
+
+    const availableModels = Object.keys(capabilities)
+    const resolvedModelFilter = modelFilter ? this.findClosestModelMatch(modelFilter, availableModels) : null
+    if (modelFilter && !resolvedModelFilter) {
+      throw new McpError(ErrorCode.InvalidParams, `Unknown image model: ${modelFilter}`)
+    }
+
+    const targetModels = modelFilter ? [resolvedModelFilter!.model] : availableModels
+    const models = targetModels
+      .map((model) =>
+        this.normalizeModelCapability(model, capabilities[model], prices, {
+          tier: tier || undefined,
+          ratio: ratio || undefined,
+          includePrices
+        })
+      )
+      .filter(
+        (item) =>
+          Object.keys((item.resolutions as Record<string, ResolutionItem[]>) ?? {}).length > 0 || (!tier && !ratio)
+      )
+
+    return {
+      requestedModel: modelFilter || undefined,
+      resolvedModel: resolvedModelFilter?.model,
+      models
+    }
+  }
+
   private async fetchImageCapabilitiesPayload(forceRefresh = false): Promise<CachedImageCapabilities> {
     if (!forceRefresh && this.capabilitiesCache && Date.now() < this.capabilitiesCache.expiresAt) {
       return this.capabilitiesCache
@@ -596,6 +627,23 @@ class ImageGenerateServer {
       payload[key] = value
     }
 
+    if (typeof args.referenceImage === 'string' && args.referenceImage.trim()) {
+      payload.reference_images = [args.referenceImage.trim()]
+    }
+
+    delete payload.referenceImage
+
+    if (typeof payload.reference_images === 'string') {
+      payload.reference_images = payload.reference_images.trim() ? [payload.reference_images.trim()] : []
+    }
+
+    if (Array.isArray(payload.reference_images)) {
+      payload.reference_images = payload.reference_images
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+
     const rawModel = typeof payload.model === 'string' ? payload.model.trim() : ''
     const modelResolution = rawModel ? await this.resolveImageModelName(rawModel) : null
     if (modelResolution?.resolvedModel) {
@@ -717,6 +765,8 @@ class ImageGenerateServer {
 
     const normalized: Record<string, unknown> = {
       model,
+      display_name: typeof capability?.display_name === 'string' ? capability.display_name : undefined,
+      description: typeof capability?.description === 'string' ? capability.description : undefined,
       reference_supported: Boolean(capability?.reference_supported),
       resolutions: normalizedResolutions
     }
@@ -733,32 +783,16 @@ class ImageGenerateServer {
     const tier = typeof args.tier === 'string' ? args.tier.trim() : ''
     const ratio = typeof args.ratio === 'string' ? args.ratio.trim() : ''
     const includePrices = typeof args.includePrices === 'boolean' ? args.includePrices : true
-
-    const { capabilities, prices } = await this.fetchImageCapabilitiesPayload()
-
-    const availableModels = Object.keys(capabilities)
-    const resolvedModelFilter = modelFilter ? this.findClosestModelMatch(modelFilter, availableModels) : null
-    if (modelFilter && !resolvedModelFilter) {
-      throw new McpError(ErrorCode.InvalidParams, `Unknown image model: ${modelFilter}`)
-    }
-
-    const targetModels = modelFilter ? [resolvedModelFilter!.model] : availableModels
-    const models = targetModels
-      .map((model) =>
-        this.normalizeModelCapability(model, capabilities[model], prices, {
-          tier: tier || undefined,
-          ratio: ratio || undefined,
-          includePrices
-        })
-      )
-      .filter(
-        (item) =>
-          Object.keys((item.resolutions as Record<string, ResolutionItem[]>) ?? {}).length > 0 || (!tier && !ratio)
-      )
+    const { requestedModel, resolvedModel, models } = await this.listImageCapabilities({
+      model: modelFilter,
+      tier,
+      ratio,
+      includePrices
+    })
 
     logger.info('Image model capabilities queried', {
-      model: resolvedModelFilter?.model ?? (modelFilter || undefined),
-      requestedModel: modelFilter || undefined,
+      model: resolvedModel ?? (requestedModel || undefined),
+      requestedModel: requestedModel || undefined,
       tier: tier || undefined,
       ratio: ratio || undefined,
       count: models.length
@@ -767,10 +801,10 @@ class ImageGenerateServer {
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'capabilities',
-      ...(modelFilter
+      ...(requestedModel
         ? {
-            requested_model: modelFilter,
-            resolved_model: resolvedModelFilter?.model
+            requested_model: requestedModel,
+            resolved_model: resolvedModel
           }
         : {}),
       models

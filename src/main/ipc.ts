@@ -39,8 +39,9 @@ import type {
 import checkDiskSpace from 'check-disk-space'
 import Store from 'electron-store'
 import type { ProxyConfig } from 'electron'
-import { BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, webContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, webContents } from 'electron'
 import fontList from 'font-list'
+import ImageGenerateServer from './mcpServers/image-generate'
 
 import { agentMessageRepository } from './services/agents/database'
 import { skillService } from './services/agents/skills/SkillService'
@@ -115,6 +116,15 @@ import { compress, decompress } from './utils/zip'
 import { installBuiltinSkills } from './utils/builtinSkills'
 
 const logger = loggerService.withContext('IPC')
+const imageGenerateServer = new ImageGenerateServer()
+
+void app.whenReady().then(async () => {
+  try {
+    await imageGenerateServer.getImageModelList()
+  } catch (error) {
+    logger.warn('Failed to preload image generation capabilities for IPC bridge', error as Error)
+  }
+})
 
 type SkillWatcherEntry = {
   watcher: fs.FSWatcher
@@ -1029,6 +1039,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.File_ValidateNotesDirectory, fileManager.validateNotesDirectory.bind(fileManager))
   ipcMain.handle(IpcChannel.File_StartWatcher, fileManager.startFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.File_StopWatcher, fileManager.stopFileWatcher.bind(fileManager))
+  ipcMain.handle(IpcChannel.Image_GetModelList, async () => imageGenerateServer.getImageModelList())
+  ipcMain.handle(IpcChannel.Image_GetCapabilities, async (_, filters = {}) => imageGenerateServer.listImageCapabilities(filters))
   ipcMain.handle(IpcChannel.File_PauseWatcher, fileManager.pauseFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.File_ResumeWatcher, fileManager.resumeFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.File_BatchUploadMarkdown, fileManager.batchUploadMarkdownFiles.bind(fileManager))
