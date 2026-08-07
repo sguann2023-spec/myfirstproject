@@ -23,25 +23,7 @@ const formatMessageTime = (value) => {
 };
 
 const normalizeMessages = (session) => (Array.isArray(session?.messages) ? session.messages : []);
-const EMPTY_WELCOME_TEXT = '初次见面，你的剪辑伙伴已就位';
-const QUICK_PROMPTS = [
-  {
-    label: '儿童绘本',
-    action: 'bootstrap-childrens-picture-book',
-  },
-  {
-    label: '旅游攻略混剪',
-    action: 'bootstrap-travel-guide',
-  },
-  // {
-  //   label: '把这几条视频混剪在一起',
-  //   prompt: '将下面的这几条空镜素材混剪在一起(<https://player.install-ai-guider.top/example/broll_real_1.mp4>,<https://player.install-ai-guider.top/example/broll_real_2.mp4>,<https://player.install-ai-guider.top/example/broll_real_3.mp4>,<https://player.install-ai-guider.top/example/broll_real_4.mp4>,<https://player.install-ai-guider.top/example/broll_real_5.mp4>,<https://player.install-ai-guider.top/example/broll_real_6.mp4>,<https://player.install-ai-guider.top/example/broll_real_7.mp4>,<https://player.install-ai-guider.top/example/broll_real_8.mp4>,<https://player.install-ai-guider.top/example/broll_real_9.mp4>,<https://player.install-ai-guider.top/example/broll_real_10.mp4>)',
-  // }
-  {
-    label: '直播切片',
-    action: 'bootstrap-live-clipping',
-  }
-];
+const EMPTY_WELCOME_TEXT = '从剪辑技能开始';
 const CREATE_SKILL_PROMPT_TEMPLATE = [
   '请用 skill-creator 帮我创建一个技能。',
   '',
@@ -98,6 +80,11 @@ const ChatPinnedTodoPanel = ({ topicId, sessionFulfilled = false }) => {
   );
 };
 
+const getSessionWorkspacePath = (session) => {
+  const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
+  return String(config.selected_workspace_path || session?.accessible_paths?.[0] || '').trim();
+};
+
 const Chat = ({
   session,
   agentId: agentIdProp,
@@ -140,6 +127,7 @@ const Chat = ({
   const childrensBookQuickPromptRef = React.useRef(null);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
   const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
+  const currentWorkspacePath = React.useMemo(() => getSessionWorkspacePath(session), [session]);
   const currentModelMeta = React.useMemo(() => {
     const selectedModel = String(model || '').trim();
     const matchedOption = (Array.isArray(modelOptions) ? modelOptions : []).find((item) => {
@@ -192,6 +180,38 @@ const Chat = ({
     });
   }, [input, setInput]);
 
+  const insertQuickSkillMention = React.useCallback((skill) => {
+    const mentionLabel = String(skill?.folderName || skill?.filename || skill?.name || skill?.id || '').trim();
+    if (!mentionLabel) return;
+
+    const currentText = String(input || '');
+    const inputElement = inputRef.current;
+    const isInputFocused = typeof inputElement?.isFocused === 'function'
+      ? inputElement.isFocused()
+      : inputElement && document.activeElement === inputElement;
+    const selectionRange = typeof inputElement?.getSelectionRange === 'function'
+      ? inputElement.getSelectionRange()
+      : {
+        start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
+        end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
+      };
+    const selectionStart = selectionRange?.start ?? currentText.length;
+    const selectionEnd = selectionRange?.end ?? selectionStart;
+    const prefix = currentText.slice(0, selectionStart);
+    const suffix = currentText.slice(selectionEnd);
+    const mentionText = `@${mentionLabel}`;
+    const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
+    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
+    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${mentionText}${needsTrailingSpace ? ' ' : ''}${suffix}`;
+    const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + mentionText.length;
+
+    setInput(nextText);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [input, setInput]);
+
   const insertCreateSkillPrompt = React.useCallback(() => {
     const nextText = CREATE_SKILL_PROMPT_TEMPLATE;
     const firstPlaceholderIndex = nextText.indexOf('xxx');
@@ -224,7 +244,7 @@ const Chat = ({
   }, [handleSend]);
 
   React.useEffect(() => {
-    const offSendText = window.electron?.ipcRenderer.on(IpcChannel.App_SendTextToMain, (_event, nextText) => {
+    const offSendText = window.ipc?.on(IpcChannel.App_SendTextToMain, (_event, nextText) => {
       const sent = handleSend(nextText);
       if (!sent) {
         setInput(String(nextText || '').trim());
@@ -274,13 +294,12 @@ const Chat = ({
         messageEndRef={messageEndRef}
         onQuickPrompt={(prompt) => {
           if (prompt && typeof prompt === 'object' && prompt.action) {
-            onQuickPromptAction && onQuickPromptAction(prompt.action);
-            return;
+            return onQuickPromptAction ? onQuickPromptAction(prompt.action) : Promise.resolve();
           }
           setInput(typeof prompt === 'string' ? prompt : '');
           inputRef.current?.focus();
+          return Promise.resolve();
         }}
-        quickPrompts={QUICK_PROMPTS}
         emptyWelcomeText={EMPTY_WELCOME_TEXT}
         formatMessageTime={formatMessageTime}
         model={model}
@@ -288,6 +307,9 @@ const Chat = ({
         formatModelDisplayName={formatModelDisplayName}
         userName={userName}
         userAvatar={userAvatar}
+        currentWorkspacePath={currentWorkspacePath}
+        runtimeSessionId={runtimeSessionId}
+        onSelectSkill={insertQuickSkillMention}
         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
       />
       <ChatPinnedTodoPanel topicId={chatTopicId} sessionFulfilled={sessionFulfilled} />

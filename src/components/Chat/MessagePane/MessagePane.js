@@ -1,15 +1,11 @@
 import React from 'react';
 import './MessagePane.css';
 import MessageGroup from './MessageGroup/MessageGroup';
+import WelcomePage from './WelcomePage';
 import { loggerService } from '@logger';
-import { getCurrentChannelBrandConfig } from '../../../../channel-branding/runtime';
-
-const CURRENT_CHANNEL_BRAND_CONFIG = getCurrentChannelBrandConfig();
-const EMPTY_CLAW_IMAGE = CURRENT_CHANNEL_BRAND_CONFIG.runtimeAssets.emptyClawImage;
 
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 const logger = loggerService.withContext('ChatLoading/MessagePane');
-const CHILDRENS_BOOK_TOUR_ACTION = 'bootstrap-childrens-picture-book';
 
 const MessagePane = ({
   messages,
@@ -27,6 +23,9 @@ const MessagePane = ({
   formatModelDisplayName,
   userName,
   userAvatar,
+  currentWorkspacePath,
+  runtimeSessionId,
+  onSelectSkill,
   childrensBookQuickPromptRef,
 }) => {
   const scrollContainerRef = React.useRef(null);
@@ -83,17 +82,16 @@ const MessagePane = ({
 
   React.useEffect(() => {
     if (!DEBUG_CHAT_LOADING) return;
-    const tail = visibleMessages.slice(-3).map((item) => ({
-      id: item?.id,
-      role: item?.role,
-      contentLength: String(item?.content || '').length
-    }));
     // logger.info({
     //   sending,
     //   visibleCount: visibleMessages.length,
     //   loadingMessageId,
     //   groupedCount: groupedMessages.length,
-    //   tail
+    //   tail: visibleMessages.slice(-3).map((item) => ({
+    //     id: item?.id,
+    //     role: item?.role,
+    //     contentLength: String(item?.content || '').length
+    //   }))
     // });
   }, [sending, visibleMessages, loadingMessageId, groupedMessages]);
 
@@ -152,33 +150,15 @@ const MessagePane = ({
         onWheelCapture={handleWheelCapture}>
         {visibleMessages.length === 0 ? (
           messages.length === 0 ? (
-            <div className="chat-panel__empty chat-panel__empty--image">
-              <img className="chat-panel__empty-image" src={EMPTY_CLAW_IMAGE} alt="开始对话" />
-              <div className="chat-panel__empty-welcome" aria-label={emptyWelcomeText}>
-                {Array.from(emptyWelcomeText).map((char, index) => (
-                  <span
-                    key={`${char}-${index}`}
-                    className="chat-panel__empty-welcome-char"
-                    style={{ animationDelay: `${index * 20}ms` }}
-                  >
-                    {char}
-                  </span>
-                ))}
-              </div>
-              <div className="chat-panel__quick-prompts">
-                {quickPrompts.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    className="chat-panel__quick-prompt"
-                    ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? childrensBookQuickPromptRef : null}
-                    onClick={() => onQuickPrompt(item.action ? item : item.prompt)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <WelcomePage
+              emptyWelcomeText={emptyWelcomeText}
+              quickPrompts={quickPrompts}
+              onQuickPrompt={onQuickPrompt}
+              currentWorkspacePath={currentWorkspacePath}
+              runtimeSessionId={runtimeSessionId}
+              onSelectSkill={onSelectSkill}
+              childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+            />
           ) : (
             <div className="chat-panel__empty">没有匹配的消息</div>
           )
@@ -269,4 +249,7 @@ export default React.memo(MessagePane, (prevProps, nextProps) => (
   && prevProps.formatModelDisplayName === nextProps.formatModelDisplayName
   && prevProps.userName === nextProps.userName
   && prevProps.userAvatar === nextProps.userAvatar
+  && prevProps.currentWorkspacePath === nextProps.currentWorkspacePath
+  && prevProps.runtimeSessionId === nextProps.runtimeSessionId
+  && prevProps.onSelectSkill === nextProps.onSelectSkill
 ));

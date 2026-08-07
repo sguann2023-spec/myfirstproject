@@ -2869,44 +2869,62 @@ const HomePage = () => {
     setChatSessionFulfilled(session.id, false, 'create-session');
   };
 
-  const openQuickSkillWebPreview = useCallback(({ workspacePath, skillName, sessionId }) => {
-    const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
-    const normalizedSkillName = String(skillName || '').trim();
-    if (!normalizedWorkspacePath || !normalizedSkillName) return;
-
-    const sourcePath = joinLocalPath(
-      normalizedWorkspacePath,
-      '.claude',
-      'skills',
-      normalizedSkillName,
-      'website',
-      'index.html'
-    );
-    const url = createLocalFilePreviewUrl(sourcePath);
-    if (!url) return;
-
-    const activePreviewKey = String(chatWebPreview?.key || '').trim();
-    if (activePreviewKey) {
-      setChatWebPreviewDismissedKey(activePreviewKey);
+  const prepareQuickSkillTargetSession = useCallback(async (workspaceStatusText) => {
+    let inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    if (!inheritedWorkspacePath) {
+      const runtimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
+      if (runtimeSessionId) {
+        const ensuredSession = await window.electronAPI.cherryChatStream.getSession(runtimeSessionId);
+        const runtimeSession = ensuredSession?.session || null;
+        inheritedWorkspacePath = getSessionWorkspacePath(runtimeSession);
+        if (inheritedWorkspacePath && activeChatSession?.id) {
+          setChatSessions((prev) => prev.map((item) => (
+            item.id === activeChatSession.id
+              ? {
+                ...item,
+                runtimeSessionId,
+                accessible_paths: Array.isArray(runtimeSession?.accessible_paths) ? runtimeSession.accessible_paths : item.accessible_paths,
+                configuration: runtimeSession?.configuration && typeof runtimeSession.configuration === 'object'
+                  ? runtimeSession.configuration
+                  : item.configuration,
+                updatedAt: Date.now()
+              }
+              : item
+          )));
+        }
+      }
     }
-    setSelectedPane('chat');
-    setManualChatWebPreview({
-      key: `quick-skill:${String(sessionId || normalizedSkillName).trim()}:${sourcePath}`,
-      url,
-      title: normalizedSkillName,
-      sourcePath
-    });
-  }, [chatWebPreview?.key]);
 
-  const handleBootstrapChildrensPictureBook = useCallback(async () => {
-    const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    if (activeChatSession?.id && inheritedWorkspacePath) {
+      const sessionId = activeChatSession.id;
+      setChatSessionSending(sessionId, false, 'quick-bootstrap');
+      setChatSessionInFlight(sessionId, false, 'quick-bootstrap');
+      setChatSessionFulfilled(sessionId, false, 'quick-bootstrap');
+      setChatWorkspaceStatus(sessionId, workspaceStatusText);
+      return {
+        session: activeChatSession,
+        workspacePath: inheritedWorkspacePath,
+        reusedCurrentSession: true
+      };
+    }
+
     const session = createEmptyChatSession();
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'quick-bootstrap');
     setChatSessionInFlight(session.id, false, 'quick-bootstrap');
     setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
-    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备儿童绘本技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+    setChatWorkspaceStatus(session.id, AUTO_WORKSPACE_STATUS_TEXT);
+    return {
+      session,
+      workspacePath: '',
+      reusedCurrentSession: false
+    };
+  }, [activeChatSession, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatSessions, setChatWorkspaceStatus]);
+
+  const handleBootstrapChildrensPictureBook = useCallback(async () => {
+    const target = await prepareQuickSkillTargetSession('正在准备儿童绘本技能...');
+    const session = target.session;
 
     try {
       const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
@@ -2916,7 +2934,7 @@ const HomePage = () => {
       }
 
       const agentSessionId = await ensureAgentSessionForChat(session.id);
-      let workspacePath = inheritedWorkspacePath;
+      let workspacePath = target.workspacePath;
       if (!workspacePath) {
         const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
         if (!appDataPath) {
@@ -2964,15 +2982,19 @@ const HomePage = () => {
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
-            ? { ...item, runtimeSessionId: agentSessionId, updatedAt: Date.now() }
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
             : item
         ))
       );
-      openQuickSkillWebPreview({
-        workspacePath,
-        skillName: QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME,
-        sessionId: session.id
-      });
       window.dispatchEvent(new window.CustomEvent('childrens-book-skill-created', {
         detail: {
           workspacePath,
@@ -2980,8 +3002,8 @@ const HomePage = () => {
         }
       }));
       window.toast?.success?.(
-        inheritedWorkspacePath
-          ? '已新建对话，复用当前工作空间并创建儿童绘本技能'
+        target.reusedCurrentSession
+          ? '已将儿童绘本技能添加到当前工作空间'
           : '已新建对话和工作空间，并创建儿童绘本技能'
       );
     } catch (error) {
@@ -2989,17 +3011,11 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebPreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
 
   const handleBootstrapLiveClipping = useCallback(async () => {
-    const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
-    const session = createEmptyChatSession();
-    setChatSessions((prev) => [session, ...prev]);
-    setActiveChatId(session.id);
-    setChatSessionSending(session.id, false, 'quick-bootstrap');
-    setChatSessionInFlight(session.id, false, 'quick-bootstrap');
-    setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
-    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备直播切片技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+    const target = await prepareQuickSkillTargetSession('正在准备直播切片技能...');
+    const session = target.session;
 
     try {
       const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
@@ -3009,7 +3025,7 @@ const HomePage = () => {
       }
 
       const agentSessionId = await ensureAgentSessionForChat(session.id);
-      let workspacePath = inheritedWorkspacePath;
+      let workspacePath = target.workspacePath;
       if (!workspacePath) {
         const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
         if (!appDataPath) {
@@ -3057,18 +3073,22 @@ const HomePage = () => {
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
-            ? { ...item, runtimeSessionId: agentSessionId, updatedAt: Date.now() }
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
             : item
         ))
       );
-      openQuickSkillWebPreview({
-        workspacePath,
-        skillName: QUICK_LIVE_CLIPPING_SKILL_NAME,
-        sessionId: session.id
-      });
       window.toast?.success?.(
-        inheritedWorkspacePath
-          ? '已新建对话，复用当前工作空间并创建直播切片技能'
+        target.reusedCurrentSession
+          ? '已将直播切片技能添加到当前工作空间'
           : '已新建对话和工作空间，并创建直播切片技能'
       );
     } catch (error) {
@@ -3076,17 +3096,11 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebPreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
 
   const handleBootstrapTravelGuide = useCallback(async () => {
-    const inheritedWorkspacePath = getSessionWorkspacePath(activeChatSession);
-    const session = createEmptyChatSession();
-    setChatSessions((prev) => [session, ...prev]);
-    setActiveChatId(session.id);
-    setChatSessionSending(session.id, false, 'quick-bootstrap');
-    setChatSessionInFlight(session.id, false, 'quick-bootstrap');
-    setChatSessionFulfilled(session.id, false, 'quick-bootstrap');
-    setChatWorkspaceStatus(session.id, inheritedWorkspacePath ? '正在准备旅游攻略技能...' : AUTO_WORKSPACE_STATUS_TEXT);
+    const target = await prepareQuickSkillTargetSession('正在准备旅游攻略技能...');
+    const session = target.session;
 
     try {
       const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
@@ -3096,7 +3110,7 @@ const HomePage = () => {
       }
 
       const agentSessionId = await ensureAgentSessionForChat(session.id);
-      let workspacePath = inheritedWorkspacePath;
+      let workspacePath = target.workspacePath;
       if (!workspacePath) {
         const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
         if (!appDataPath) {
@@ -3144,18 +3158,22 @@ const HomePage = () => {
       setChatSessions((prev) =>
         prev.map((item) => (
           item.id === session.id
-            ? { ...item, runtimeSessionId: agentSessionId, updatedAt: Date.now() }
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
             : item
         ))
       );
-      openQuickSkillWebPreview({
-        workspacePath,
-        skillName: QUICK_TRAVEL_GUIDE_SKILL_NAME,
-        sessionId: session.id
-      });
       window.toast?.success?.(
-        inheritedWorkspacePath
-          ? '已新建对话，复用当前工作空间并创建旅游攻略技能'
+        target.reusedCurrentSession
+          ? '已将旅游攻略技能添加到当前工作空间'
           : '已新建对话和工作空间，并创建旅游攻略技能'
       );
     } catch (error) {
@@ -3163,7 +3181,7 @@ const HomePage = () => {
     } finally {
       setChatWorkspaceStatus(session.id, '');
     }
-  }, [activeChatSession, ensureAgentSessionForChat, openQuickSkillWebPreview, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatWorkspaceStatus]);
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
 
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
@@ -3896,14 +3914,15 @@ const HomePage = () => {
                 onOpenWebPreview={handleOpenChatWebPreview}
                 onQuickPromptAction={(action) => {
                   if (action === 'bootstrap-childrens-picture-book') {
-                    void handleBootstrapChildrensPictureBook();
+                    return handleBootstrapChildrensPictureBook();
                   }
                   if (action === 'bootstrap-live-clipping') {
-                    void handleBootstrapLiveClipping();
+                    return handleBootstrapLiveClipping();
                   }
                   if (action === 'bootstrap-travel-guide') {
-                    void handleBootstrapTravelGuide();
+                    return handleBootstrapTravelGuide();
                   }
+                  return Promise.resolve();
                 }}
                 onRefreshCredits={refreshRechargeBalance}
                 beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}

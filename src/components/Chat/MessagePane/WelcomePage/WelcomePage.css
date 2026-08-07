@@ -1,0 +1,257 @@
+.chat-panel__empty--image {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.chat-panel__welcome-stage {
+  width: 100%;
+  max-width: 980px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.chat-panel__welcome-stage--preview {
+  max-width: 100%;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.chat-panel__empty--image:has(.chat-panel__welcome-stage--preview) {
+  justify-content: flex-start;
+  padding-top: 0;
+}
+
+.chat-panel__empty-welcome {
+  font-size: 26px;
+  color: #000;
+  font-weight: 300;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.chat-panel__empty-welcome-char {
+  display: inline-block;
+  animation: chat-panel-welcome-char-bounce 0.55s ease-out both;
+}
+
+.chat-panel__quick-prompts {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 620px;
+  padding: 0 16px;
+}
+
+.chat-panel__quick-prompt {
+  border: none;
+  background: #fff;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1;
+  color: #333;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.chat-panel__quick-prompt:hover {
+  background: #efefef;
+}
+
+.chat-panel__welcome-skills-shell {
+  position: relative;
+  width: 100%;
+  overflow: visible;
+}
+
+.chat-panel__welcome-skills-viewport {
+  width: 100%;
+  background: transparent;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.chat-panel__welcome-skills-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-panel__welcome-skills-track {
+  width: max-content;
+  min-width: 100%;
+  background: transparent;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background-color: transparent !important;
+  gap: 16px;
+  padding: 0;
+}
+
+.chat-panel__welcome-skills-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #444;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.chat-panel__welcome-skills-arrow:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-panel__welcome-skills-arrow:first-of-type {
+  left: -16px;
+}
+
+.chat-panel__welcome-skills-arrow:last-of-type {
+  right: -16px;
+}
+
+.chat-panel__welcome-skill-card {
+  width: 220px;
+  flex: 0 0 220px;
+  border: 1px solid #e2e2e2;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-panel__welcome-skill-card:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 2px;
+}
+
+.chat-panel__welcome-skill-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.chat-panel__welcome-skill-cover-image,
+.chat-panel__welcome-skill-video {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chat-panel__welcome-skill-cover-image {
+  object-fit: initial;
+}
+
+.chat-panel__welcome-skill-content {
+  padding: 12px 12px 12px;
+}
+
+.chat-panel__welcome-skill-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-panel__welcome-skill-name {
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: #000;
+}
+
+.chat-panel__welcome-skill-add {
+  width: 26px;
+  height: 26px;
+  border: none;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #666;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.chat-panel__welcome-skill-add--installed {
+  color: #000;
+  cursor: default;
+}
+
+.chat-panel__welcome-skill-add:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.chat-panel__welcome-skill-add:hover {
+  background: #f3f3f3;
+  color: #000;
+}
+
+.chat-panel__welcome-skill-add--loading svg {
+  animation: chat-panel-welcome-skill-spin 0.9s linear infinite;
+}
+
+.chat-panel__welcome-skill-description {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #777;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+@keyframes chat-panel-welcome-char-bounce {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chat-panel-welcome-skill-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
