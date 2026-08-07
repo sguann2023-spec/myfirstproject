@@ -990,7 +990,10 @@ describe('CapabilityRouter', () => {
     expect(buildToolSurface({ decision: skillsDecision, isAssistant: false }).builtinTools).toEqual(
       expect.arrayContaining(['Read', 'Write', 'Bash', 'Task', 'WebSearch', 'WebFetch'])
     )
-    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual([])
+    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual([
+      'InspectImage',
+      'AskUserQuestion'
+    ])
   })
 
   it('routes prompts matching workspace skill metadata into the skills domain', () => {
@@ -1200,8 +1203,12 @@ describe('CapabilityRouter', () => {
     const workspaceSurface = buildToolSurface({ decision: workspaceDecision, isAssistant: false })
     const mixedSurface = buildToolSurface({ decision: mixedDecision, isAssistant: false })
 
-    expect(webSurface.builtinTools).toEqual(['WebSearch'])
-    expect(workspaceSurface.builtinTools).toEqual(expect.arrayContaining(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit']))
-    expect(mixedSurface.builtinTools).toEqual(expect.arrayContaining(['Read', 'Glob', 'Grep', 'WebSearch']))
+    expect(webSurface.builtinTools).toEqual(expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'WebSearch']))
+    expect(workspaceSurface.builtinTools).toEqual(
+      expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit'])
+    )
+    expect(mixedSurface.builtinTools).toEqual(
+      expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'Read', 'Glob', 'Grep', 'WebSearch'])
+    )
   })
 })

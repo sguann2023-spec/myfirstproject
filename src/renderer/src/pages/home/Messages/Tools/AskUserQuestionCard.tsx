@@ -1,6 +1,10 @@
 import { loggerService } from '@logger'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
-import { selectPendingPermission, toolPermissionsActions } from '@renderer/store/toolPermissions'
+import {
+  selectPendingPermission,
+  selectUniqueActivePermissionByToolName,
+  toolPermissionsActions
+} from '@renderer/store/toolPermissions'
 import type { NormalToolResponse } from '@renderer/types'
 import { cn } from '@renderer/utils'
 import { Button, Checkbox, Input, Radio, Tag } from 'antd'
@@ -258,7 +262,17 @@ function PendingContent({
 export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalToolResponse }) {
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
-  const request = useAppSelector((state) => selectPendingPermission(state.toolPermissions, toolResponse.toolCallId))
+  const request = useAppSelector((state) => {
+    const directMatch = selectPendingPermission(state.toolPermissions, toolResponse.toolCallId)
+    if (directMatch) return directMatch
+
+    // pi-agent currently reports a synthetic streamed toolCallId to the renderer,
+    // while the permission request keeps the namespaced provider toolCallId.
+    // Fall back only when there is a single active AskUserQuestion request.
+    return toolResponse.tool?.name === 'AskUserQuestion'
+      ? selectUniqueActivePermissionByToolName(state.toolPermissions, 'AskUserQuestion')
+      : undefined
+  })
 
   // HomePage runtime may keep the tool block in "streaming" while the
   // permission request is already pending. Treat any active request as the

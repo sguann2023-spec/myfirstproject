@@ -20,19 +20,19 @@ const makeDecision = (args: Partial<CapabilityDecision> & Pick<CapabilityDecisio
 })
 
 describe('buildToolSurface', () => {
-  it('exposes InspectImage for plain chat turns', () => {
+  it('exposes InspectImage and AskUserQuestion for plain chat turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({ toolLayer: 'chat' }),
       sessionAllowedTools: ['Bash', 'mcp__skills__*'],
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage'])
-    expect(surface.builtinTools).toEqual(['InspectImage'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion'])
     expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__skills__*'])
   })
 
-  it('exposes InspectImage and Bash for chat.bash turns without auto-allowing Bash', () => {
+  it('exposes InspectImage, AskUserQuestion and Bash for chat.bash turns without auto-allowing Bash', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -46,8 +46,8 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'Bash'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
     expect(surface.allowedToolsOption).not.toContain('Bash')
     expect(surface.allowedToolsOption).toContain('InspectImage')
   })
@@ -64,11 +64,11 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'Read', 'Glob', 'Grep'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Read', 'Glob', 'Grep'])
     expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'InspectImage', 'Read'])
   })
 
-  it('adds InspectImage and Bash to web turns while keeping workspace builtins hidden', () => {
+  it('adds InspectImage, AskUserQuestion and Bash to web turns while keeping workspace builtins hidden', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'web',
@@ -80,12 +80,12 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'Bash'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
     expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__browser__*', 'mcp__search__*'])
   })
 
-  it('adds InspectImage and Bash to cut turns', () => {
+  it('adds InspectImage, AskUserQuestion and Bash to cut turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -97,14 +97,14 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'Bash'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
     expect(surface.allowedToolsOption).toContain('mcp__ffmpeg-media__*')
     expect(surface.allowedToolsOption).not.toContain('Bash')
     expect(surface.allowedToolsOption).toContain('InspectImage')
   })
 
-  it('keeps ai_media turns free of Bash while still exposing InspectImage', () => {
+  it('keeps ai_media turns free of Bash while still exposing InspectImage and AskUserQuestion', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -116,8 +116,8 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage'])
-    expect(surface.builtinTools).toEqual(['InspectImage'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion'])
     expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__speech__*'])
   })
 
@@ -136,6 +136,7 @@ describe('buildToolSurface', () => {
     expect(surface.builtinTools).toContain('Write')
     expect(surface.builtinTools).toContain('Bash')
     expect(surface.builtinTools).toContain('InspectImage')
+    expect(surface.builtinTools).toContain('AskUserQuestion')
     expect(surface.allowedToolsOption).not.toContain('Write')
     expect(surface.allowedToolsOption).not.toContain('Edit')
     expect(surface.allowedToolsOption).not.toContain('Bash')
@@ -183,7 +184,8 @@ describe('buildToolSurface', () => {
         'Task',
         'WebSearch',
         'WebFetch',
-        'InspectImage'
+        'InspectImage',
+        'AskUserQuestion'
       ])
     )
   })

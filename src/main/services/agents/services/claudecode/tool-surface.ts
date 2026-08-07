@@ -3,7 +3,7 @@ import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { CapabilityDecision, IntentDomain, RuntimeToolLayer } from './capability-router'
 
 export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
-  chat: ['InspectImage'],
+  chat: ['InspectImage', 'AskUserQuestion'],
   web: [],
   'workspace-read': ['Read', 'Glob', 'Grep', 'NotebookRead'],
   'workspace-write': ['Read', 'Glob', 'Grep', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'],

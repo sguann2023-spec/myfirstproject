@@ -1,7 +1,7 @@
 import { loggerService } from '@logger'
 import type { AppDispatch } from '@renderer/store'
 import store from '@renderer/store'
-import { toolPermissionsActions } from '@renderer/store/toolPermissions'
+import { selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
 import type { MCPToolResponse, NormalToolResponse } from '@renderer/types'
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
@@ -46,6 +46,19 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     onToolCallPending: (toolResponse: ToolResponse) => {
       const nextToolResponse = sanitizeToolResponse(toolResponse)
       logger.debug('onToolCallPending', nextToolResponse)
+      const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
+
+      if (existingBlockId) {
+        blockManager.smartBlockUpdate(
+          existingBlockId,
+          {
+            status: MessageBlockStatus.PENDING,
+            metadata: { rawMcpToolResponse: nextToolResponse }
+          },
+          MessageBlockType.TOOL
+        )
+        return
+      }
 
       if (blockManager.hasInitialPlaceholder) {
         const changes = {
@@ -117,10 +130,19 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       const nextToolResponse = sanitizeToolResponse(toolResponse)
       // Read resolvedInput BEFORE removing from store (removeByToolCallId deletes it)
       const state = store.getState()
-      const resolvedInput = nextToolResponse?.id ? state.toolPermissions.resolvedInputs[nextToolResponse.id] : undefined
+      const fallbackPermission =
+        nextToolResponse.tool?.name === 'AskUserQuestion'
+          ? selectUniqueActivePermissionByToolName(state.toolPermissions, 'AskUserQuestion')
+          : undefined
+      const resolvedInput =
+        (nextToolResponse?.id ? state.toolPermissions.resolvedInputs[nextToolResponse.id] : undefined) ??
+        fallbackPermission?.resolvedInput
 
       if (nextToolResponse?.id) {
         dispatch(toolPermissionsActions.removeByToolCallId({ toolCallId: nextToolResponse.id }))
+      }
+      if (fallbackPermission?.toolCallId && fallbackPermission.toolCallId !== nextToolResponse?.id) {
+        dispatch(toolPermissionsActions.removeByToolCallId({ toolCallId: fallbackPermission.toolCallId }))
       }
       const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
       toolCallIdToBlockIdMap.delete(nextToolResponse.id)

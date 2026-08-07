@@ -53,6 +53,8 @@ export interface ToolPermissionsState {
   resolvedInputs: Record<string, Record<string, unknown>>
 }
 
+const ACTIVE_TOOL_PERMISSION_STATUSES: ToolPermissionStatus[] = ['pending', 'submitting-allow', 'submitting-deny', 'invoking']
+
 const initialState: ToolPermissionsState = {
   requests: {},
   resolvedInputs: {}
@@ -123,9 +125,7 @@ const toolPermissionsSlice = createSlice({
 export const toolPermissionsActions = toolPermissionsSlice.actions
 
 export const selectActiveToolPermission = (state: ToolPermissionsState): ToolPermissionEntry | null => {
-  const activeEntries = Object.values(state.requests).filter((entry) =>
-    ['pending', 'submitting-allow', 'submitting-deny', 'invoking'].includes(entry.status)
-  )
+  const activeEntries = Object.values(state.requests).filter((entry) => ACTIVE_TOOL_PERMISSION_STATUSES.includes(entry.status))
 
   if (activeEntries.length === 0) return null
 
@@ -146,7 +146,7 @@ export const selectPendingPermission = (
 
   const activeEntries = Object.values(state.requests)
     .filter((entry) => entry.toolCallId === toolCallId)
-    .filter((entry) => ['pending', 'submitting-allow', 'submitting-deny', 'invoking'].includes(entry.status))
+    .filter((entry) => ACTIVE_TOOL_PERMISSION_STATUSES.includes(entry.status))
 
   if (activeEntries.length === 0) return undefined
 
@@ -155,6 +155,19 @@ export const selectPendingPermission = (
     if (priorityDiff !== 0) return priorityDiff
     return b.createdAt - a.createdAt
   })
+
+  return activeEntries[0]
+}
+
+export const selectUniqueActivePermissionByToolName = (
+  state: ToolPermissionsState,
+  toolName: string
+): ToolPermissionEntry | undefined => {
+  const activeEntries = Object.values(state.requests)
+    .filter((entry) => entry.toolName === toolName)
+    .filter((entry) => ACTIVE_TOOL_PERMISSION_STATUSES.includes(entry.status))
+
+  if (activeEntries.length !== 1) return undefined
 
   return activeEntries[0]
 }

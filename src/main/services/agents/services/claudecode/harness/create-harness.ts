@@ -690,8 +690,9 @@ function buildBuiltinTools(input: {
   packageBridge: PiPackageBridge
   invokeContext: ClaudeCodeInvokeContext
   runtimeEnvironment: ClaudeRuntimeEnvironment
+  interactiveUpdatedInputs: Map<string, Record<string, unknown>>
 }): PiAgentHarnessTool[] {
-  const { packageBridge, invokeContext, runtimeEnvironment } = input
+  const { packageBridge, invokeContext, runtimeEnvironment, interactiveUpdatedInputs } = input
   const { Type } = packageBridge.piAi
   const cwd = invokeContext.runtime.workspacePath
 
@@ -965,6 +966,54 @@ function buildBuiltinTools(input: {
     }
   } as any
 
+  const askUserQuestionTool: PiAgentHarnessTool = {
+    name: 'AskUserQuestion',
+    label: 'AskUserQuestion',
+    description: 'Ask the user a multiple-choice question card and wait for their selection.',
+    parameters: Type.Object({
+      questions: Type.Array(
+        Type.Object({
+          question: Type.String(),
+          header: Type.String(),
+          options: Type.Array(
+            Type.Object({
+              label: Type.String(),
+              description: Type.Optional(Type.String())
+            })
+          ),
+          multiSelect: Type.Boolean()
+        })
+      ),
+      answers: Type.Optional(Type.Any())
+    }),
+    async execute(_toolCallId: string, rawParams: unknown) {
+      const params =
+        interactiveUpdatedInputs.get(_toolCallId) ??
+        ((rawParams ?? {}) as Record<string, unknown>)
+      interactiveUpdatedInputs.delete(_toolCallId)
+      const answers =
+        params.answers && typeof params.answers === 'object' && !Array.isArray(params.answers)
+          ? (params.answers as Record<string, unknown>)
+          : {}
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              Object.keys(answers).length > 0
+                ? summarizeValue({ questions: params.questions, answers })
+                : 'User question card displayed.'
+          }
+        ],
+        details: {
+          questions: params.questions,
+          answers
+        }
+      }
+    }
+  } as any
+
   const todoWriteTool: PiAgentHarnessTool = {
     name: 'TodoWrite',
     label: 'TodoWrite',
@@ -1016,6 +1065,7 @@ function buildBuiltinTools(input: {
     ['Glob', globTool],
     ['Grep', grepTool],
     ['InspectImage', inspectImageTool],
+    ['AskUserQuestion', askUserQuestionTool],
     ['TodoWrite', todoWriteTool],
     ['Task', taskTool],
     ['NotebookRead', notebookReadTool],
@@ -1533,10 +1583,13 @@ async function buildPiRuntimeBridge(input: {
     throw new Error(`Failed to resolve pi model ${providerId}/${modelId}`)
   }
 
+  const interactiveUpdatedInputs = new Map<string, Record<string, unknown>>()
+
   const builtinTools = buildBuiltinTools({
     packageBridge,
     invokeContext,
-    runtimeEnvironment
+    runtimeEnvironment,
+    interactiveUpdatedInputs
   })
   const mcpTools = await buildMcpTools({
     packageBridge,
@@ -1608,6 +1661,15 @@ async function buildPiRuntimeBridge(input: {
         block: true,
         reason: decision.message
       }
+    }
+
+    if (
+      decision.behavior === 'allow' &&
+      decision.updatedInput &&
+      typeof decision.updatedInput === 'object' &&
+      !Array.isArray(decision.updatedInput)
+    ) {
+      interactiveUpdatedInputs.set(context.toolCallId, decision.updatedInput as Record<string, unknown>)
     }
 
     return undefined

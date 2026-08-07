@@ -58,6 +58,11 @@ type RendererPermissionResultPayload = {
 const pendingRequests = new Map<string, PendingPermissionRequest>()
 let ipcHandlersInitialized = false
 
+const normalizeToolName = (name: string): string =>
+  name.startsWith('builtin_') ? name.slice('builtin_'.length) : name
+
+const requiresUserResponse = (toolName: string): boolean => normalizeToolName(toolName) === 'AskUserQuestion'
+
 const jsonReplacer = (_key: string, value: unknown) => {
   if (typeof value === 'bigint') return value.toString()
   if (value instanceof Map) return Object.fromEntries(value.entries())
@@ -232,7 +237,7 @@ export async function promptForToolApproval(
   input: Record<string, unknown>,
   options: PromptForToolApprovalOptions
 ): Promise<PermissionResult> {
-  if (shouldAutoApproveTools) {
+  if (shouldAutoApproveTools && !requiresUserResponse(toolName)) {
     logger.debug('promptForToolApproval auto-approving tool for test', {
       toolName
     })
