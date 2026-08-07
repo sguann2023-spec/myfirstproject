@@ -1,4 +1,14 @@
+import { execFile } from 'node:child_process'
+import fs from 'node:fs'
+import fsPromises from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+
 import { loggerService } from '@logger'
+import { ossUploadService } from '@main/services/OssUploadService'
+import { getResourcePath } from '@main/utils'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -6,6 +16,8 @@ import Store from 'electron-store'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:SubtitleTemplate')
+const execFileAsync = promisify(execFile)
+const ffprobeStatic = require('ffprobe-static') as { path?: string }
 
 const API_HOST = 'https://open.vectcut.com'
 const SUBTITLE_TEMPLATE_GENERATE_ENDPOINT = '/cut_jianying/generate_smart_subtitle'
@@ -14,6 +26,15 @@ const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const DEFAULT_SUBTITLE_TEMPLATE_AGENT_ID = 'asr_42da310c1e4347ddb2c96dd2a5d055c2'
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_subtitle_template_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const LONG_VIDEO_THRESHOLD_SECONDS = 10 * 60
+const FFMPEG_TIMEOUT_MS = 5 * 60 * 1000
+const FFPROBE_TIMEOUT_MS = 15 * 1000
+const PROCESS_MAX_BUFFER = 1024 * 1024
 
 const SUBTITLE_TEMPLATE_AGENT_IDS = {
   luxury_black_shadow: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
@@ -35,13 +56,14 @@ type SubtitleTemplateKey = keyof typeof SUBTITLE_TEMPLATE_AGENT_IDS
 const GENERATE_SMART_SUBTITLE_TOOL: Tool = {
   name: 'generate_smart_subtitle',
   description:
-    'Add a subtitle template to an audio or video source, optionally continue editing an existing draft, and create a new VectCut draft with stylized subtitles.',
+    'Add a subtitle template to an audio or video source, optionally continue editing an existing draft, and create a new VectCut draft with stylized subtitles. Accepts a remote URL, file URL, or absolute local path. Local files are uploaded automatically, and local videos longer than 10 minutes are converted to audio before upload.',
   inputSchema: {
     type: 'object',
     properties: {
       url: {
         type: 'string',
-        description: 'Required source audio or video URL.'
+        description:
+          'Required source audio or video URL, file URL, or absolute local path. Local files are uploaded automatically before submission. Local videos longer than 10 minutes are converted to audio first.'
       },
       template: {
         type: 'string',
@@ -93,6 +115,26 @@ type PendingToken = {
   expiresAt: number
 }
 
+type FfprobeStream = {
+  codec_type?: string
+  duration?: number | string
+}
+
+type FfprobeResult = {
+  format?: {
+    duration?: number | string
+  }
+  streams?: FfprobeStream[]
+}
+
+type PreparedSubtitleTemplateSource = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'remote_url' | 'local_audio' | 'local_video' | 'local_video_audio_extracted'
+  extractedAudio: boolean
+  durationSeconds?: number | null
+}
+
 type SmartSubtitleGenerateResponse = {
   task_id?: string
   [key: string]: unknown
@@ -113,6 +155,41 @@ type SmartSubtitleStatusResponse = {
   task_id?: string
   [key: string]: unknown
 }
+
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
+
+const toPositiveNumber = (value: unknown) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : null
+}
+
+const getProbeDurationSeconds = (probe: FfprobeResult) => {
+  const formatDuration = toPositiveNumber(probe.format?.duration)
+  if (formatDuration !== null) {
+    return formatDuration
+  }
+  const streamDurations = (probe.streams || [])
+    .map((stream) => toPositiveNumber(stream.duration))
+    .filter((value): value is number => value !== null)
+  return streamDurations.length > 0 ? Math.max(...streamDurations) : null
+}
+
+const hasVideoStream = (probe: FfprobeResult) => (probe.streams || []).some((stream) => stream.codec_type === 'video')
+
+const hasAudioStream = (probe: FfprobeResult) => (probe.streams || []).some((stream) => stream.codec_type === 'audio')
+
+const parseJsonFromFfprobe = (rawOutput: string): FfprobeResult => {
+  const text = String(rawOutput || '').trim()
+  const jsonStart = text.indexOf('{')
+  if (jsonStart === -1) {
+    throw new Error('ffprobe did not return JSON output')
+  }
+  return JSON.parse(text.slice(jsonStart)) as FfprobeResult
+}
+
+const sanitizeFileName = (value: string) => value.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'media'
+
+const getSourceBaseName = (source: string) => sanitizeFileName(path.parse(source).name || 'media')
 
 class SubtitleTemplateServer {
   public mcpServer: McpServer
@@ -276,6 +353,149 @@ class SubtitleTemplateServer {
     }
   }
 
+  private normalizeSource(value: unknown): string {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      throw new McpError(ErrorCode.InvalidParams, "'url' is required for generate_smart_subtitle")
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private resolveBundledFfmpegPath() {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    const binaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+    const candidate = path.join(getResourcePath(), 'ffmpeg', process.platform, arch, binaryName)
+    return fs.existsSync(candidate) ? candidate : null
+  }
+
+  private resolveFfprobePath() {
+    const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+    const bundled = String((ffprobeStatic as { path?: string } | undefined)?.path || '').trim()
+    const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
+    const candidates = [bundled, unpacked, 'ffprobe'].filter(Boolean)
+
+    for (const candidate of candidates) {
+      if (candidate === 'ffprobe' || fs.existsSync(candidate)) {
+        return candidate
+      }
+    }
+
+    return executableName
+  }
+
+  private async probeMedia(source: string) {
+    const ffprobePath = this.resolveFfprobePath()
+    const { stdout, stderr } = await execFileAsync(
+      ffprobePath,
+      ['-v', 'error', '-show_entries', 'stream=codec_type,duration:format=duration', '-of', 'json', source],
+      {
+        windowsHide: true,
+        timeout: FFPROBE_TIMEOUT_MS,
+        maxBuffer: PROCESS_MAX_BUFFER
+      }
+    )
+
+    return parseJsonFromFfprobe(`${String(stdout || '')}\n${String(stderr || '')}`)
+  }
+
+  private async runFfmpeg(args: string[]) {
+    const ffmpegCommand = this.resolveBundledFfmpegPath() || 'ffmpeg'
+    await execFileAsync(ffmpegCommand, args, {
+      windowsHide: true,
+      timeout: FFMPEG_TIMEOUT_MS,
+      maxBuffer: PROCESS_MAX_BUFFER
+    })
+  }
+
+  private async uploadLocalFile(filePath: string, contentType?: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      contentType,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private async extractAudioForSubtitleTemplate(source: string): Promise<string> {
+    const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'vectcut-subtitle-template-'))
+    const outputPath = path.join(tempDir, `${getSourceBaseName(source)}_audio.mp3`)
+    await this.runFfmpeg(['-y', '-i', source, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', outputPath])
+    return outputPath
+  }
+
+  private async prepareSourceForSubmission(input: unknown): Promise<PreparedSubtitleTemplateSource> {
+    const normalizedSource = this.normalizeSource(input)
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_url',
+        extractedAudio: false
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      throw new McpError(ErrorCode.InvalidParams, "'url' must be a remote URL, file URL, or absolute local path")
+    }
+
+    const stats = await fsPromises.stat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(ErrorCode.InvalidParams, "'url' must point to a local file when using a local path")
+    }
+
+    const probe = await this.probeMedia(normalizedSource)
+    const durationSeconds = getProbeDurationSeconds(probe)
+
+    if (hasVideoStream(probe)) {
+      if (!hasAudioStream(probe)) {
+        throw new McpError(ErrorCode.InvalidParams, 'The local video does not contain an audio stream')
+      }
+
+      if (durationSeconds !== null && durationSeconds > LONG_VIDEO_THRESHOLD_SECONDS) {
+        const extractedAudioPath = await this.extractAudioForSubtitleTemplate(normalizedSource)
+        try {
+          const uploaded = await this.uploadLocalFile(extractedAudioPath, 'audio/mpeg')
+          return {
+            originalInput: normalizedSource,
+            submittedUrl: uploaded.signedPublicUrl,
+            sourceKind: 'local_video_audio_extracted',
+            extractedAudio: true,
+            durationSeconds
+          }
+        } finally {
+          await fsPromises.unlink(extractedAudioPath).catch(() => undefined)
+        }
+      }
+
+      const uploaded = await this.uploadLocalFile(normalizedSource)
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: uploaded.signedPublicUrl,
+        sourceKind: 'local_video',
+        extractedAudio: false,
+        durationSeconds
+      }
+    }
+
+    if (!hasAudioStream(probe)) {
+      throw new McpError(ErrorCode.InvalidParams, 'The local file is not a supported audio or video media file')
+    }
+
+    const uploaded = await this.uploadLocalFile(normalizedSource)
+    return {
+      originalInput: normalizedSource,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_audio',
+      extractedAudio: false,
+      durationSeconds
+    }
+  }
+
   private resolveAgentId(template?: string, agentId?: string): { agentId: string; template: string } {
     const normalizedTemplate = typeof template === 'string' ? template.trim() : ''
     const rawAgentId = typeof agentId === 'string' ? agentId.trim() : ''
@@ -307,12 +527,7 @@ class SubtitleTemplateServer {
     }
   }
 
-  private buildGeneratePayload(args: Record<string, unknown>) {
-    const url = typeof args.url === 'string' ? args.url.trim() : ''
-    if (!url) {
-      throw new McpError(ErrorCode.InvalidParams, "'url' is required for generate_smart_subtitle")
-    }
-
+  private buildGeneratePayload(args: Record<string, unknown>, preparedSource: PreparedSubtitleTemplateSource) {
     const resolved = this.resolveAgentId(
       typeof args.template === 'string' ? args.template : undefined,
       typeof args.agentId === 'string' ? args.agentId : undefined
@@ -320,7 +535,7 @@ class SubtitleTemplateServer {
 
     const payload: Record<string, unknown> = {
       agent_id: resolved.agentId,
-      url
+      url: preparedSource.submittedUrl
     }
 
     if (typeof args.draftId === 'string' && args.draftId.trim()) {
@@ -342,7 +557,8 @@ class SubtitleTemplateServer {
   }
 
   private async generateSmartSubtitle(args: Record<string, unknown>) {
-    const { payload, template } = this.buildGeneratePayload(args)
+    const preparedSource = await this.prepareSourceForSubmission(args.url)
+    const { payload, template } = this.buildGeneratePayload(args, preparedSource)
     const response = await this.requestWithAuth(SUBTITLE_TEMPLATE_GENERATE_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -366,6 +582,11 @@ class SubtitleTemplateServer {
       mode: 'subtitle_template',
       template,
       agent_id: payload.agent_id,
+      source_kind: preparedSource.sourceKind,
+      source_url: preparedSource.submittedUrl,
+      original_input: preparedSource.originalInput,
+      extracted_audio: preparedSource.extractedAudio,
+      duration_seconds: preparedSource.durationSeconds ?? undefined,
       draft_id: payload.draft_id,
       task_id: result.task_id
     })
