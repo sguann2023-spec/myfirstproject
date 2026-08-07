@@ -1,4 +1,12 @@
+import { execFile } from 'node:child_process'
+import fs from 'node:fs'
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+
 import { loggerService } from '@logger'
+import { ossUploadService } from '@main/services/OssUploadService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -6,6 +14,8 @@ import Store from 'electron-store'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:KouboTemplate')
+const execFileAsync = promisify(execFile)
+const ffprobeStatic = require('ffprobe-static') as { path?: string }
 
 const API_HOST = 'https://open.vectcut.com'
 const KOUBO_TEMPLATE_SUBMIT_ENDPOINT = '/cut_jianying/agent/submit_agent_task'
@@ -13,6 +23,15 @@ const KOUBO_TEMPLATE_STATUS_ENDPOINT = '/cut_jianying/agent/task_status'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_koubo_tmp_file_'
+const FILE_UPLOAD_PUBLIC_ENDPOINT = 'https://player.install-ai-guider.top'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const MAX_LOCAL_VIDEO_BYTES = 500 * 1024 * 1024
+const FFPROBE_TIMEOUT_MS = 15 * 1000
+const PROCESS_MAX_BUFFER = 1024 * 1024
 
 const KOUBO_TEMPLATE_AGENT_IDS = {
   knowledge_pip: 'koubo_8f4e3d2a91c74b76a85d2c4e7f8a9b1c',
@@ -43,7 +62,7 @@ const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' |
 const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   name: 'submit_koubo_template_task',
   description:
-    'Submit an asynchronous VectCut talking-head template task for source speaking video or audio media, with optional title, subtitles, effects, cover, and kongjing clips.',
+    'Submit an asynchronous VectCut talking-head template task for source speaking video media. Inputs may be remote URLs, file URLs, or absolute local paths. Local videos are uploaded automatically. Koubo template only accepts video input, and local video files must not exceed 500MB.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -58,25 +77,14 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
       },
       videoUrl: {
         type: 'string',
-        description: 'Single source talking-head video URL.'
+        description: 'Single source talking-head video URL, file URL, or absolute local path.'
       },
       videoUrls: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Source video URLs. Most templates require exactly one.'
-      },
-      audioUrl: {
-        type: 'string',
-        description: 'Single source talking-head audio URL.'
-      },
-      audioUrls: {
-        type: 'array',
-        items: {
-          type: 'string'
-        },
-        description: 'Source audio URLs. Use this when the template should process uploaded audio directly.'
+        description: 'Source talking-head video URLs, file URLs, or absolute local paths. Most templates require exactly one.'
       },
       textContent: {
         type: 'string',
@@ -142,6 +150,21 @@ type PendingToken = {
   expiresAt: number
 }
 
+type FfprobeStream = {
+  codec_type?: string
+}
+
+type FfprobeResult = {
+  streams?: FfprobeStream[]
+}
+
+type PreparedKouboTemplateSource = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'remote_video' | 'local_video'
+  fileSizeBytes?: number
+}
+
 type KouboTemplateSubmitResponse = {
   task_id?: string
   [key: string]: unknown
@@ -161,6 +184,19 @@ type KouboTemplateStatusResponse = {
   success?: boolean
   task_id?: string
   [key: string]: unknown
+}
+
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
+
+const hasVideoStream = (probe: FfprobeResult) => (probe.streams || []).some((stream) => stream.codec_type === 'video')
+
+const parseJsonFromFfprobe = (rawOutput: string): FfprobeResult => {
+  const text = String(rawOutput || '').trim()
+  const jsonStart = text.indexOf('{')
+  if (jsonStart === -1) {
+    throw new Error('ffprobe did not return JSON output')
+  }
+  return JSON.parse(text.slice(jsonStart)) as FfprobeResult
 }
 
 class KouboTemplateServer {
@@ -341,6 +377,107 @@ class KouboTemplateServer {
     return value.map((item) => String(item || '').trim()).filter(Boolean)
   }
 
+  private normalizeSource(value: unknown, fieldName: string): string {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' contains an empty source`)
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private resolveFfprobePath() {
+    const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+    const bundled = String((ffprobeStatic as { path?: string } | undefined)?.path || '').trim()
+    const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
+    const candidates = [bundled, unpacked, 'ffprobe'].filter(Boolean)
+
+    for (const candidate of candidates) {
+      if (candidate === 'ffprobe' || fs.existsSync(candidate)) {
+        return candidate
+      }
+    }
+
+    return executableName
+  }
+
+  private async probeMedia(source: string) {
+    const ffprobePath = this.resolveFfprobePath()
+    const { stdout, stderr } = await execFileAsync(
+      ffprobePath,
+      ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', source],
+      {
+        windowsHide: true,
+        timeout: FFPROBE_TIMEOUT_MS,
+        maxBuffer: PROCESS_MAX_BUFFER
+      }
+    )
+
+    return parseJsonFromFfprobe(`${String(stdout || '')}\n${String(stderr || '')}`)
+  }
+
+  private async uploadLocalFile(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      publicEndpoint: FILE_UPLOAD_PUBLIC_ENDPOINT,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private ensureAudioInputNotUsed(args: Record<string, unknown>, payloadParams: Record<string, unknown>) {
+    const topLevelAudioInputs = this.getStringArray(args.audioUrls ?? args.audio_urls ?? args.audioUrl ?? args.audio_url)
+    const paramAudioInputs = this.getStringArray(payloadParams.audio_urls ?? payloadParams.audio_url)
+
+    if (topLevelAudioInputs.length > 0 || paramAudioInputs.length > 0) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "'audioUrl'/'audioUrls' are not supported for koubo template; this tool requires video input"
+      )
+    }
+  }
+
+  private async prepareVideoSourceForSubmission(input: unknown, fieldName: string): Promise<PreparedKouboTemplateSource> {
+    const normalizedSource = this.normalizeSource(input, fieldName)
+
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_video'
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must be a remote URL, file URL, or absolute local path`)
+    }
+
+    const stats = await fsPromises.stat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must point to a local file when using a local path`)
+    }
+    if (stats.size > MAX_LOCAL_VIDEO_BYTES) {
+      throw new McpError(ErrorCode.InvalidParams, 'Local video files for koubo template must not exceed 500MB')
+    }
+
+    const probe = await this.probeMedia(normalizedSource)
+    if (!hasVideoStream(probe)) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must point to a video file`)
+    }
+
+    const uploaded = await this.uploadLocalFile(normalizedSource)
+    return {
+      originalInput: normalizedSource,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_video',
+      fileSizeBytes: stats.size
+    }
+  }
+
   private getRequiredTaskId(args: Record<string, unknown>): string {
     const taskIdValue = typeof args.taskId === 'string' ? args.taskId : args.task_id
     const taskId = typeof taskIdValue === 'string' ? taskIdValue.trim() : ''
@@ -377,7 +514,7 @@ class KouboTemplateServer {
     }
   }
 
-  private buildSubmitPayload(args: Record<string, unknown>) {
+  private async buildSubmitPayload(args: Record<string, unknown>) {
     const resolved = this.resolveTemplate(args)
     const rawParams =
       args.params && typeof args.params === 'object' && !Array.isArray(args.params)
@@ -385,19 +522,11 @@ class KouboTemplateServer {
         : {}
 
     const payloadParams: Record<string, unknown> = { ...rawParams }
-    const videoUrls = this.getStringArray(args.videoUrls ?? args.video_urls ?? args.videoUrl ?? args.video_url)
-    const audioUrls = this.getStringArray(args.audioUrls ?? args.audio_urls ?? args.audioUrl ?? args.audio_url)
+    this.ensureAudioInputNotUsed(args, payloadParams)
+
+    const videoInputs = this.getStringArray(args.videoUrls ?? args.video_urls ?? args.videoUrl ?? args.video_url)
     const coverUrls = this.getStringArray(args.coverUrls ?? args.cover_urls ?? args.cover)
     const kongjingUrls = this.getStringArray(args.kongjingUrls ?? args.kongjing_urls)
-
-    if (videoUrls.length > 0) {
-      payloadParams.video_url = videoUrls
-    }
-
-    if (audioUrls.length > 0) {
-      payloadParams.audio_urls = audioUrls
-      delete payloadParams.audio_url
-    }
 
     if (coverUrls.length > 0) {
       payloadParams.cover = coverUrls
@@ -421,28 +550,25 @@ class KouboTemplateServer {
       }
     }
 
-    const normalizedVideoUrls = this.getStringArray(payloadParams.video_url)
-    const normalizedAudioUrls = this.getStringArray(payloadParams.audio_urls ?? payloadParams.audio_url)
-    if (normalizedVideoUrls.length === 0 && normalizedAudioUrls.length === 0) {
-      throw new McpError(ErrorCode.InvalidParams, "'videoUrl', 'videoUrls', 'audioUrl', or 'audioUrls' is required")
+    const normalizedVideoInputs = [...this.getStringArray(payloadParams.video_url), ...videoInputs].filter(Boolean)
+    if (normalizedVideoInputs.length === 0) {
+      throw new McpError(ErrorCode.InvalidParams, "'videoUrl' or 'videoUrls' is required for koubo template")
     }
-    if (normalizedVideoUrls.length > 0) {
-      payloadParams.video_url = normalizedVideoUrls
+
+    const preparedSources: PreparedKouboTemplateSource[] = []
+    for (const videoInput of normalizedVideoInputs) {
+      preparedSources.push(await this.prepareVideoSourceForSubmission(videoInput, 'videoUrl/videoUrls'))
     }
-    if (normalizedAudioUrls.length > 0) {
-      payloadParams.audio_urls = normalizedAudioUrls
-      delete payloadParams.audio_url
-    }
+
+    payloadParams.video_url = preparedSources.map((source) => source.submittedUrl)
+    delete payloadParams.audio_url
+    delete payloadParams.audio_urls
 
     if (resolved.template) {
       const requirements = KOUBO_TEMPLATE_REQUIREMENTS[resolved.template]
       for (const requirement of requirements) {
-        if (
-          requirement === 'media_urls' &&
-          this.getStringArray(payloadParams.video_url).length === 0 &&
-          this.getStringArray(payloadParams.audio_urls).length === 0
-        ) {
-          throw new McpError(ErrorCode.InvalidParams, `'${resolved.template}' requires 'videoUrl'/'videoUrls' or 'audioUrl'/'audioUrls'`)
+        if (requirement === 'media_urls' && this.getStringArray(payloadParams.video_url).length === 0) {
+          throw new McpError(ErrorCode.InvalidParams, `'${resolved.template}' requires 'videoUrl'/'videoUrls'`)
         }
         if (requirement === 'kongjing_urls' && this.getStringArray(payloadParams.kongjing_urls).length === 0) {
           throw new McpError(ErrorCode.InvalidParams, `'${resolved.template}' requires 'kongjingUrls'`)
@@ -452,6 +578,7 @@ class KouboTemplateServer {
 
     return {
       template: resolved.template,
+      preparedSources,
       body: {
         agent_id: resolved.agentId,
         params: payloadParams
@@ -460,7 +587,7 @@ class KouboTemplateServer {
   }
 
   private async submitKouboTemplateTask(args: Record<string, unknown>) {
-    const payload = this.buildSubmitPayload(args)
+    const payload = await this.buildSubmitPayload(args)
     const response = await this.requestWithAuth(KOUBO_TEMPLATE_SUBMIT_ENDPOINT, {
       method: 'POST',
       body: payload.body
@@ -485,6 +612,12 @@ class KouboTemplateServer {
       mode: 'koubo_template',
       template: payload.template,
       agent_id: payload.body.agent_id,
+      source_summary: payload.preparedSources.map((source) => ({
+        original_input: source.originalInput,
+        submitted_url: source.submittedUrl,
+        source_kind: source.sourceKind,
+        file_size_bytes: source.fileSizeBytes
+      })),
       ...result
     })
   }

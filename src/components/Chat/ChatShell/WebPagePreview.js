@@ -8,6 +8,7 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
+import { loggerService } from '@logger';
 import { IpcChannel } from '@shared/IpcChannel';
 import './WebPagePreview.css';
 
@@ -15,6 +16,7 @@ const normalizeUrl = (value = '') => String(value || '').trim();
 const BLANK_TAB_URL = 'about:blank';
 const SEND_TO_MAIN_PREFIX = '__VECTCUT_SEND_TO_MAIN__:';
 const HOST_FILE_SELECT_PREFIX = '__VECTCUT_HOST_FILE_SELECT__:';
+const logger = loggerService.withContext('ChatShell/WebPagePreview');
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const readPreviewTabId = (preview, fallback = 'initial-tab') => String(preview?.tabId || fallback).trim() || fallback;
@@ -416,7 +418,7 @@ const WebPagePreview = ({ preview, onClose }) => {
           const vectcutApiKey = String(runtimeEnv?.VECTCUT_API_KEY || '').trim();
           const sendToMainPrefix = SEND_TO_MAIN_PREFIX;
           const hostFileSelectPrefix = HOST_FILE_SELECT_PREFIX;
-          await webview.executeJavaScript(
+          const bridgeInfo = await webview.executeJavaScript(
             `(() => {
               const apiKey = ${JSON.stringify(vectcutApiKey)};
               const sendPrefix = ${JSON.stringify(sendToMainPrefix)};
@@ -425,34 +427,55 @@ const WebPagePreview = ({ preview, onClose }) => {
               const processShim = Object.freeze({
                 env: Object.freeze({ VECTCUT_API_KEY: apiKey })
               });
-              window.VECTCUT_API_KEY = apiKey;
-              window.__VECTCUT_ENV__ = env;
-              window.ENV = env;
-              window.process = processShim;
-              window.sendTextToMainWindow = (text) => {
-                const normalizedText = String(text || '').trim();
-                if (!normalizedText) {
-                  return Promise.resolve(false);
-                }
-
-                console.log(sendPrefix + JSON.stringify({ text: normalizedText }));
-                return Promise.resolve(true);
-              };
-
-              window.__vectcutHostFileSelectResolvers = new Map();
-              window.__vectcutResolveHostFileSelect = (requestId, payload) => {
-                const resolver = window.__vectcutHostFileSelectResolvers.get(requestId);
-                if (!resolver) {
+              const assignIfMissing = (key, value) => {
+                const currentValue = window[key];
+                if (currentValue !== undefined && currentValue !== null && currentValue !== '') {
                   return;
                 }
-                window.__vectcutHostFileSelectResolvers.delete(requestId);
-                resolver(payload);
+                try {
+                  window[key] = value;
+                } catch (_error) {
+                  // ignore read-only bridge properties exposed by preload
+                }
               };
-              window.selectLocalFilesFromHost = (options = {}) => new Promise((resolve) => {
-                const requestId = 'host-file-select-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-                window.__vectcutHostFileSelectResolvers.set(requestId, resolve);
-                console.log(fileSelectPrefix + JSON.stringify({ requestId, options }));
-              });
+
+              assignIfMissing('VECTCUT_API_KEY', apiKey);
+              assignIfMissing('__VECTCUT_ENV__', env);
+              assignIfMissing('ENV', env);
+              if (!window.process?.env?.VECTCUT_API_KEY) {
+                assignIfMissing('process', processShim);
+              }
+
+              const hasNativeSendTextBridge = typeof window.sendTextToMainWindow === 'function';
+              if (!hasNativeSendTextBridge) {
+                window.sendTextToMainWindow = (text) => {
+                  const normalizedText = String(text || '').trim();
+                  if (!normalizedText) {
+                    return Promise.resolve(false);
+                  }
+
+                  console.log(sendPrefix + JSON.stringify({ text: normalizedText }));
+                  return Promise.resolve(true);
+                };
+              }
+
+              const hasNativeFileSelectBridge = typeof window.selectLocalFilesFromHost === 'function';
+              if (!hasNativeFileSelectBridge) {
+                window.__vectcutHostFileSelectResolvers = new Map();
+                window.__vectcutResolveHostFileSelect = (requestId, payload) => {
+                  const resolver = window.__vectcutHostFileSelectResolvers.get(requestId);
+                  if (!resolver) {
+                    return;
+                  }
+                  window.__vectcutHostFileSelectResolvers.delete(requestId);
+                  resolver(payload);
+                };
+                window.selectLocalFilesFromHost = (options = {}) => new Promise((resolve) => {
+                  const requestId = 'host-file-select-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+                  window.__vectcutHostFileSelectResolvers.set(requestId, resolve);
+                  console.log(fileSelectPrefix + JSON.stringify({ requestId, options }));
+                });
+              }
 
               const tokenEl = document.getElementById('token');
               if (tokenEl && apiKey) {
@@ -469,13 +492,26 @@ const WebPagePreview = ({ preview, onClose }) => {
 
               return {
                 hasApiKey: Boolean(apiKey),
-                tokenInputFound: Boolean(tokenEl)
+                tokenInputFound: Boolean(tokenEl),
+                hasNativeSendTextBridge,
+                hasNativeFileSelectBridge
               };
             })()`,
             true
           );
+          logger.info('Web preview bridge injected', {
+            previewKey: String(preview?.key || '').trim() || null,
+            targetUrl: readWebviewUrl(webview) || normalizeUrl(webview.getAttribute?.('src')) || null,
+            hasApiKey: Boolean(bridgeInfo?.hasApiKey),
+            tokenInputFound: Boolean(bridgeInfo?.tokenInputFound),
+            hasNativeSendTextBridge: Boolean(bridgeInfo?.hasNativeSendTextBridge),
+            hasNativeFileSelectBridge: Boolean(bridgeInfo?.hasNativeFileSelectBridge)
+          });
         } catch (_error) {
-          // ignore runtime env injection failures
+          logger.warn('Failed to inject web preview bridge', {
+            previewKey: String(preview?.key || '').trim() || null,
+            targetUrl: readWebviewUrl(webview) || normalizeUrl(webview.getAttribute?.('src')) || null
+          });
         }
       })();
       try {
@@ -523,14 +559,30 @@ const WebPagePreview = ({ preview, onClose }) => {
       void syncPreviewState();
     };
 
-    const handleFailLoad = () => {
+    const handleFailLoad = (event) => {
       setLoading(false);
+      if (Number(event?.errorCode) !== -3) {
+        logger.warn('Web preview load failed', {
+          previewKey: String(preview?.key || '').trim() || null,
+          targetUrl: normalizeUrl(event?.validatedURL || event?.url || targetUrl) || null,
+          errorCode: Number(event?.errorCode || 0),
+          errorDescription: String(event?.errorDescription || '').trim() || null
+        });
+      }
       syncNavigationState();
       void syncPreviewState();
     };
 
     const handleConsoleMessage = (event) => {
       const message = String(event?.message || '');
+      if (message.startsWith(SEND_TO_MAIN_PREFIX) || message.startsWith(HOST_FILE_SELECT_PREFIX)) {
+        logger.info('Web preview console bridge message', {
+          previewKey: String(preview?.key || '').trim() || null,
+          sourceId: Number(event?.sourceId || 0) || null,
+          level: Number(event?.level || 0),
+          prefix: message.startsWith(SEND_TO_MAIN_PREFIX) ? SEND_TO_MAIN_PREFIX : HOST_FILE_SELECT_PREFIX
+        });
+      }
       if (!message.startsWith(SEND_TO_MAIN_PREFIX)) {
         if (!message.startsWith(HOST_FILE_SELECT_PREFIX)) {
           return;

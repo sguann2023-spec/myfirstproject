@@ -570,6 +570,7 @@
       </div>
 
         <button class="primary-button start-button" id="start-button" type="button">开始生成</button>
+        <p class="start-hint" id="start-hint" aria-live="polite"></p>
     </section>
   </div>
 
@@ -588,6 +589,7 @@
     const voiceList = document.getElementById('voice-list');
     const voiceEmpty = document.getElementById('voice-empty');
     const voiceMore = document.getElementById('voice-more');
+      const startHint = document.getElementById('start-hint');
       const voiceMoreButton = document.getElementById('voice-more-button');
       const previewAudio = new Audio();
       const SKILL_NAME = '儿童绘本';
@@ -626,6 +628,13 @@
         }
         return false;
       }
+
+    function setStartHint(message) {
+      if (!startHint) {
+        return;
+      }
+      startHint.textContent = String(message || '').trim();
+    }
 
     function showFormPage() {
       previewPage.classList.add('is-hidden');
@@ -853,6 +862,7 @@
       const voiceId = String(selectedVoiceId || '未选择音色').trim();
 
       if (!theme) {
+        setStartHint('请先输入你想创作的故事');
         themeInput.focus();
         return;
       }
@@ -861,9 +871,12 @@
         const prompt = buildPrompt(theme, voiceId);
         const sent = sendPromptToHost(prompt);
           if (!sent) {
+            setStartHint('当前预览未连接到聊天窗口，请刷新后重试');
             return;
           }
+          setStartHint('已发送到聊天窗口，正在开始生成');
         } catch (_error) {
+          setStartHint('发送失败，请刷新后重试');
           return;
       }
     });

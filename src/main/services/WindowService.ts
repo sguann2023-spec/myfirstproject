@@ -762,13 +762,26 @@ export class WindowService {
 
   public sendTextToMainWindow(text: string): void {
     try {
+      const normalizedText = String(text || '').trim()
+      logger.info('Received request to send text to main window', {
+        textLength: normalizedText.length,
+        hasMainWindow: Boolean(this.mainWindow && !this.mainWindow.isDestroyed())
+      })
       this.showMainWindow()
 
       const mainWindow = this.getMainWindow()
       if (mainWindow && !mainWindow.isDestroyed()) {
         setTimeout(() => {
+          logger.info('Dispatching text to main window renderer', {
+            textLength: normalizedText.length,
+            webContentsId: mainWindow.webContents.id
+          })
           mainWindow.webContents.send(IpcChannel.App_SendTextToMain, text)
         }, 100)
+      } else {
+        logger.warn('Unable to dispatch text because main window is unavailable', {
+          textLength: normalizedText.length
+        })
       }
     } catch (error) {
       logger.error('Failed to send text to main window:', error as Error)

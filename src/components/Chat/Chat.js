@@ -1,5 +1,6 @@
 import React from 'react';
 import { Provider } from 'react-redux';
+import { loggerService } from '@logger';
 import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
 import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
 import { IpcChannel } from '@shared/IpcChannel';
@@ -7,6 +8,7 @@ import ChatShell from './ChatShell/ChatShell';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
 import appStore from '../../renderer/src/store';
+const logger = loggerService.withContext('Chat');
 
 const formatMessageTime = (value) => {
   if (!value) return '';
@@ -244,12 +246,25 @@ const Chat = ({
   }, [handleSend]);
 
   React.useEffect(() => {
-    const offSendText = window.ipc?.on(IpcChannel.App_SendTextToMain, (_event, nextText) => {
+    const offSendText = window.ipc?.on(IpcChannel.App_SendTextToMain, (nextText) => {
+      const normalizedText = String(nextText || '').trim();
+      logger.info('Received App_SendTextToMain in chat renderer', {
+        textLength: normalizedText.length,
+        sessionSending: Boolean(sessionSending),
+        modelListLoading: Boolean(modelListLoading)
+      });
       const sent = handleSend(nextText);
       if (!sent) {
-        setInput(String(nextText || '').trim());
+        logger.info('Fell back to filling chat input from App_SendTextToMain', {
+          textLength: normalizedText.length
+        });
+        setInput(normalizedText);
         window.requestAnimationFrame(() => {
           inputRef.current?.focus();
+        });
+      } else {
+        logger.info('Sent message immediately from App_SendTextToMain', {
+          textLength: normalizedText.length
         });
       }
     });
