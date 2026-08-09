@@ -49,6 +49,9 @@ const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
 const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
 const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
+const QUICK_SWEATER_SELLING_SKILL_NAME = '毛衣带货口播';
+const QUICK_CONVENIENCE_STORE_TOUR_SKILL_NAME = '便利店探店';
+const QUICK_EDUCATION_KNOWLEDGE_SKILL_NAME = '教育知识讲解';
 const BLOCK_NEW_CHAT_AFTER_TIMEOUT_MESSAGE = '当前会话已超时，请先在当前会话继续，暂不支持自动新建对话。';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
@@ -3366,6 +3369,261 @@ const HomePage = () => {
     }
   }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
 
+  const handleBootstrapSweaterSelling = useCallback(async () => {
+    const target = await prepareQuickSkillTargetSession('正在准备毛衣带货口播技能...');
+    const session = target.session;
+
+    try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_SWEATER_SELLING_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位毛衣带货口播技能目录失败');
+      }
+
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = target.workspacePath;
+      if (!workspacePath) {
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
+            : item
+        ))
+      );
+      window.toast?.success?.(
+        target.reusedCurrentSession
+          ? '已将毛衣带货口播技能添加到当前工作空间'
+          : '已新建对话和工作空间，并创建毛衣带货口播技能'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
+
+  const handleBootstrapConvenienceStoreTour = useCallback(async () => {
+    const target = await prepareQuickSkillTargetSession('正在准备便利店探店技能...');
+    const session = target.session;
+
+    try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_CONVENIENCE_STORE_TOUR_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位便利店探店技能目录失败');
+      }
+
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = target.workspacePath;
+      if (!workspacePath) {
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
+            : item
+        ))
+      );
+      window.toast?.success?.(
+        target.reusedCurrentSession
+          ? '已将便利店探店技能添加到当前工作空间'
+          : '已新建对话和工作空间，并创建便利店探店技能'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
+
+  const handleBootstrapEducationKnowledge = useCallback(async () => {
+    const target = await prepareQuickSkillTargetSession('正在准备教育知识讲解技能...');
+    const session = target.session;
+
+    try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_EDUCATION_KNOWLEDGE_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位教育知识讲解技能目录失败');
+      }
+
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = target.workspacePath;
+      if (!workspacePath) {
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
+            : item
+        ))
+      );
+      window.toast?.success?.(
+        target.reusedCurrentSession
+          ? '已将教育知识讲解技能添加到当前工作空间'
+          : '已新建对话和工作空间，并创建教育知识讲解技能'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
+
   const handleSelectChatSession = (sessionId) => {
     setActiveChatId(sessionId);
     setChatSessionFulfilled(sessionId, false, 'select-session');
@@ -4117,6 +4375,15 @@ const HomePage = () => {
                   }
                   if (action === 'bootstrap-travel-guide') {
                     return handleBootstrapTravelGuide();
+                  }
+                  if (action === 'bootstrap-sweater-selling') {
+                    return handleBootstrapSweaterSelling();
+                  }
+                  if (action === 'bootstrap-convenience-store-tour') {
+                    return handleBootstrapConvenienceStoreTour();
+                  }
+                  if (action === 'bootstrap-education-knowledge') {
+                    return handleBootstrapEducationKnowledge();
                   }
                   return Promise.resolve();
                 }}

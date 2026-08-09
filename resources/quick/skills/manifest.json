@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-07T09:23:13Z",
+  "updatedAt": "2026-08-09T15:49:00Z",
   "skills": {
     "儿童绘本": {
       "version": "1.0.0",
@@ -11,7 +11,6 @@
       "description": "生成儿童绘本故事。用户提到创作儿童绘本、睡前故事、幼儿故事、绘本分页内容或角色故事时触发。",
       "websitePath": "儿童绘本/website/index.html",
       "coverPath": "儿童绘本/website/cover.jpg",
-      "coverUrl": "https://player.install-ai-guider.top/quick/skills/儿童绘本/website/cover.jpg",
       "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/children_book/children_book.mp4"
     },
     "旅游攻略混剪": {
@@ -24,7 +23,6 @@
       "description": "当用户要制作旅行混剪、旅拍混剪、旅行攻略口播配空镜时使用。",
       "websitePath": "旅游攻略混剪/website/index.html",
       "coverPath": "旅游攻略混剪/website/cover.png",
-      "coverUrl": "https://player.install-ai-guider.top/quick/skills/旅游攻略混剪/website/cover.png",
       "previewVideoUrl": "https://player.install-ai-guider.top/example/hunjian_chaoshan_result.mp4"
     },
     "直播切片": {
@@ -37,8 +35,37 @@
       "description": "用于把长直播回放、直播录屏、带货直播、课程直播、访谈直播等视频自动制作成高光切片。只要用户提到“直播切片”“从直播里剪高光”“把长视频切成短视频”“识别爆点片段”“给直播回放加字幕模板”等需求，就优先使用此技能，即使用户没有明确说出技能名称。该技能按固定流程执行：提取音频、上传音频并提交字幕识别、分析字幕找高光、截取高光片段、套用字幕模板。",
       "websitePath": "直播切片/website/index.html",
       "coverPath": "直播切片/website/cover.png",
-      "coverUrl": "https://player.install-ai-guider.top/quick/skills/直播切片/website/cover.png",
       "previewVideoUrl": "https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/f2eda5c5-5970-4bf9-820e-aee67f6bed77.mov.mp4"
+    },
+    "毛衣带货口播": {
+      "version": "1.0.0",
+      "name": "毛衣带货口播",
+      "folderName": "毛衣带货口播",
+      "action": "bootstrap-sweater-selling",
+      "order": 4,
+      "headline": "秋冬穿搭带货种草",
+      "description": "毛衣带货口播模板，突出秋冬穿搭、面料质感、上身效果与种草转化，适用于毛衣推荐、针织单品带货、秋冬穿搭分享、直播切片口播等内容。当用户要求制作毛衣带货口播、针织衫种草口播、秋冬穿搭推荐口播、毛衣上身展示口播",
+      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/maoyi-daikou-koubo.mp4"
+    },
+    "便利店探店": {
+      "version": "1.0.0",
+      "name": "便利店探店",
+      "folderName": "便利店探店",
+      "action": "bootstrap-convenience-store-tour",
+      "order": 5,
+      "headline": "新品零食饮料探店",
+      "description": "便利店探店口播模板，活力网感漫味风，醒目标题一眼 get 重点，适用于便利店探店、新品测评、零食饮料推荐、门店打卡引流等内容。",
+      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/bianlidian-tandian.mp4"
+    },
+    "教育知识讲解": {
+      "version": "1.0.0",
+      "name": "教育知识讲解",
+      "folderName": "教育知识讲解",
+      "action": "bootstrap-education-knowledge",
+      "order": 6,
+      "headline": "知识点拆解高亮讲解",
+      "description": "教育知识讲解口播模板，鲜黄亮蓝风格，默认去气口，适用于知识点拆解、学习方法讲解、学科科普、课程干货分享等教育内容。当用户要求制作教育知识讲解口播、知识点讲解模板、口播去气口、关键词高亮字幕、可选素材穿插，或提供口播视频生成剪映草稿时使用。",
+      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/jiaoyu-zhishi-jiangjie.mp4"
     }
   }
 }
