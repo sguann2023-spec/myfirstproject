@@ -36,36 +36,6 @@
       "websitePath": "直播切片/website/index.html",
       "coverPath": "直播切片/website/cover.png",
       "previewVideoUrl": "https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/f2eda5c5-5970-4bf9-820e-aee67f6bed77.mov.mp4"
-    },
-    "毛衣带货口播": {
-      "version": "1.0.0",
-      "name": "毛衣带货口播",
-      "folderName": "毛衣带货口播",
-      "action": "bootstrap-sweater-selling",
-      "order": 4,
-      "headline": "秋冬穿搭带货种草",
-      "description": "毛衣带货口播模板，突出秋冬穿搭、面料质感、上身效果与种草转化，适用于毛衣推荐、针织单品带货、秋冬穿搭分享、直播切片口播等内容。当用户要求制作毛衣带货口播、针织衫种草口播、秋冬穿搭推荐口播、毛衣上身展示口播",
-      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/maoyi-daikou-koubo.mp4"
-    },
-    "便利店探店": {
-      "version": "1.0.0",
-      "name": "便利店探店",
-      "folderName": "便利店探店",
-      "action": "bootstrap-convenience-store-tour",
-      "order": 5,
-      "headline": "新品零食饮料探店",
-      "description": "便利店探店口播模板，活力网感漫味风，醒目标题一眼 get 重点，适用于便利店探店、新品测评、零食饮料推荐、门店打卡引流等内容。",
-      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/bianlidian-tandian.mp4"
-    },
-    "教育知识讲解": {
-      "version": "1.0.0",
-      "name": "教育知识讲解",
-      "folderName": "教育知识讲解",
-      "action": "bootstrap-education-knowledge",
-      "order": 6,
-      "headline": "知识点拆解高亮讲解",
-      "description": "教育知识讲解口播模板，鲜黄亮蓝风格，默认去气口，适用于知识点拆解、学习方法讲解、学科科普、课程干货分享等教育内容。当用户要求制作教育知识讲解口播、知识点讲解模板、口播去气口、关键词高亮字幕、可选素材穿插，或提供口播视频生成剪映草稿时使用。",
-      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/jiaoyu-zhishi-jiangjie.mp4"
     }
   }
 }
