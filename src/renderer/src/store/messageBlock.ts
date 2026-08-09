@@ -29,6 +29,7 @@ import type {
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { CitationMessageBlock, MessageBlock, ToolMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockType } from '@renderer/types/newMessage'
+import { extractAgentSessionIdFromTopicId, isAgentSessionTopicId } from '@renderer/utils/agentSession'
 
 import type { RootState } from './index' // 确认 RootState 从 store/index.ts 导出
 
@@ -369,6 +370,41 @@ export interface TodoWriteToolMessageBlock extends Omit<ToolMessageBlock, 'metad
   }
 }
 
+const normalizeTodoItems = (value: unknown): TodoItem[] | null => {
+  const source =
+    typeof value === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(value)
+          } catch {
+            return null
+          }
+        })()
+      : value
+
+  if (!Array.isArray(source)) {
+    return null
+  }
+
+  const normalized = source
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const record = item as Partial<TodoItem> & Record<string, unknown>
+      const content = typeof record.content === 'string' ? record.content.trim() : ''
+      if (!content) return null
+      const status =
+        record.status === 'completed' || record.status === 'in_progress' || record.status === 'pending'
+          ? record.status
+          : 'pending'
+      const activeForm =
+        typeof record.activeForm === 'string' && record.activeForm.trim().length > 0 ? record.activeForm : content
+      return { content, status, activeForm }
+    })
+    .filter((item): item is TodoItem => item !== null)
+
+  return normalized.length > 0 ? normalized : null
+}
+
 /**
  * Check if a block is a TodoWrite tool block
  */
@@ -379,7 +415,7 @@ export const isTodoWriteBlock = (block: MessageBlock | undefined): block is Todo
   // Defensive: validate todos is actually an array to prevent dirty data from crashing selectors (#12804)
   const args = toolResponse.arguments
   if (!args || typeof args !== 'object' || Array.isArray(args)) return false
-  return Array.isArray(args.todos)
+  return normalizeTodoItems(args.todos) !== null
 }
 
 /**
@@ -412,36 +448,56 @@ export const selectActiveTodoInfo = createSelector(
     (_state: RootState, topicId: string) => topicId
   ],
   (messageEntities, blockEntities, messageIdsByTopic, topicId): ActiveTodoInfo | undefined => {
-    const topicMessageIds = messageIdsByTopic[topicId]
-    if (!topicMessageIds?.length) return undefined
-
     const blockIdsByMessage: Record<string, string[]> = {}
     let latestBlock: TodoWriteToolMessageBlock | undefined
+    const visitedMessageIds = new Set<string>()
 
-    for (const messageId of topicMessageIds) {
-      const message = messageEntities[messageId]
-      if (!message?.blocks?.length) continue
+    const collectFromMessageIds = (messageIds: string[] | undefined) => {
+      if (!messageIds?.length) return
 
-      for (const blockId of message.blocks) {
-        const block = blockEntities[blockId]
-        if (isTodoWriteBlock(block)) {
-          const ids = (blockIdsByMessage[messageId] ??= [])
-          ids.push(blockId)
-          latestBlock = block
+      for (const messageId of messageIds) {
+        if (visitedMessageIds.has(messageId)) continue
+        visitedMessageIds.add(messageId)
+
+        const message = messageEntities[messageId]
+        if (!message?.blocks?.length) continue
+
+        for (const blockId of message.blocks) {
+          const block = blockEntities[blockId]
+          if (isTodoWriteBlock(block)) {
+            const ids = (blockIdsByMessage[messageId] ??= [])
+            ids.push(blockId)
+            latestBlock = block
+          }
         }
       }
     }
+
+    collectFromMessageIds(messageIdsByTopic[topicId])
+
+    // Home chat messages store agent replies under the home topic id while also carrying agentSessionId.
+    // When the pinned panel receives an agent-session topic id, fall back to messages linked to that session.
+    if (!latestBlock && isAgentSessionTopicId(topicId)) {
+      const agentSessionId = extractAgentSessionIdFromTopicId(topicId)
+      const fallbackMessageIds = Object.keys(messageEntities).filter((messageId) => {
+        const message = messageEntities[messageId]
+        return message?.agentSessionId?.trim() === agentSessionId
+      })
+      collectFromMessageIds(fallbackMessageIds)
+    }
+
     const targetBlock = latestBlock
     if (!targetBlock) return undefined
-    const todos = targetBlock.metadata.rawMcpToolResponse?.arguments?.todos
-    if (!todos) return undefined
+    const normalizedTodos = normalizeTodoItems(targetBlock.metadata.rawMcpToolResponse?.arguments?.todos)
+    if (!normalizedTodos) return undefined
     const activeTodo =
-      todos.find((todo) => todo.status === 'in_progress') ?? todos.find((todo) => todo.status === 'pending')
+      normalizedTodos.find((todo) => todo.status === 'in_progress') ??
+      normalizedTodos.find((todo) => todo.status === 'pending')
     return {
-      todos,
+      todos: normalizedTodos,
       activeTodo,
-      completedCount: todos.filter((todo) => todo.status === 'completed').length,
-      totalCount: todos.length,
+      completedCount: normalizedTodos.filter((todo) => todo.status === 'completed').length,
+      totalCount: normalizedTodos.length,
       blockIdsByMessage
     }
   }

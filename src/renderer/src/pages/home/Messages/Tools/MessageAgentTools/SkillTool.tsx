@@ -1,6 +1,7 @@
 import type { CollapseProps } from 'antd'
 import { useTranslation } from 'react-i18next'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { SkeletonValue, ToolHeader, TruncatedIndicator } from './GenericTools'
 import { AgentToolsType, type SkillToolInput, type SkillToolOutput } from './types'
@@ -13,7 +14,8 @@ export function SkillTool({
   output?: SkillToolOutput
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
-  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(output)
+  const outputText = extractTextPreviewFromToolResult(output)
+  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(outputText)
 
   return {
     key: AgentToolsType.Skill,

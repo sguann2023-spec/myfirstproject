@@ -1,6 +1,7 @@
 import type { CollapseProps } from 'antd'
 import { useTranslation } from 'react-i18next'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
 import { AgentToolsType, type ToolSearchToolInput, ToolSearchToolOutputSchema } from './types'
@@ -8,7 +9,7 @@ import { AgentToolsType, type ToolSearchToolInput, ToolSearchToolOutputSchema } 
 function parseOutput(output: unknown): { matches: string[]; message?: string } {
   if (!output) return { matches: [] }
   const result = ToolSearchToolOutputSchema.safeParse(output)
-  if (!result.success) return { matches: [], message: JSON.stringify(output, null, 2) }
+  if (!result.success) return { matches: [], message: extractTextPreviewFromToolResult(output) || JSON.stringify(output, null, 2) }
   if (typeof result.data === 'string') return { matches: [], message: result.data }
   return { matches: result.data.map((item) => item.tool_name) }
 }

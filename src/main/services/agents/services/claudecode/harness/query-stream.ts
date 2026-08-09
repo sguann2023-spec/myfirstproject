@@ -22,7 +22,7 @@ import type {
   SegmentPromptEnvelope
 } from '../session-architecture/types'
 import { conversationCompactionService } from '../session-architecture/ConversationCompactionService'
-import { conversationSummaryService, extractStableStateLines } from '../session-architecture/ConversationSummaryService'
+import { conversationSummaryService } from '../session-architecture/ConversationSummaryService'
 import { fileChangeJournalService } from '../session-architecture/FileChangeJournalService'
 import { conversationSegmentService } from '../session-architecture/ConversationSegmentService'
 import { ClaudeStreamState, transformSDKMessageToStreamParts } from '../transform'
@@ -91,16 +91,9 @@ function getArtifactSourceType(toolName: string): 'read' | 'grep' | 'webfetch' |
 }
 
 function shouldOffloadToolResult(toolName: string, outputText: string): boolean {
-  const lower = toolName.toLowerCase()
-  return (
-    outputText.length >= 1500 ||
-    extractStableStateLines(outputText, 1).length > 0 ||
-    lower.includes('browser__screenshot') ||
-    lower.includes('browser__snapshot') ||
-    lower.includes('read') ||
-    lower.includes('grep') ||
-    lower.includes('webfetch')
-  )
+  void toolName
+  void outputText
+  return true
 }
 
 function tryExtractFilePath(input: unknown): string | undefined {
@@ -774,8 +767,8 @@ export async function processClaudeSdkQuery(input: {
 
     if (repeatedCompactionTriggered) {
       const recoveryMessage =
-        'Detected repeated Claude auto-compaction loop. Stopped the current Claude session and prepared a fresh continuation segment for the next retry.'
-      errorChunks.unshift(recoveryMessage)
+        '当前对话上下文过长。为了节约您的 token 消耗，已停止本次请求。请开启新对话后继续执行任务。'
+      errorChunks.splice(0, errorChunks.length, recoveryMessage)
       try {
         await recoverFreshSegmentAfterCompactionLoop({
           currentSegment,

@@ -518,6 +518,63 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
 
 const CAPABILITY_STICKY_TURNS = 3
 
+const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
+  audio_extract: 'media',
+  audio_concat: 'media',
+  media_download: 'media',
+  frame_capture: 'media',
+  media_duration: 'media',
+  media_trim: 'media',
+  video_concat: 'media',
+  text_add: 'edit',
+  text_add_batch: 'edit',
+  text_delete: 'edit',
+  text_update: 'edit',
+  subtitle_srt: 'edit',
+  text_intro_animation_list: 'edit',
+  text_outro_animation_list: 'edit',
+  text_loop_animation_list: 'edit',
+  font_list: 'edit',
+  image_add: 'edit',
+  image_add_batch: 'edit',
+  image_update: 'edit',
+  image_delete: 'edit',
+  video_add: 'edit',
+  video_add_batch: 'edit',
+  video_update: 'edit',
+  video_delete: 'edit',
+  transition_type_list: 'edit',
+  audio_add: 'edit',
+  audio_add_batch: 'edit',
+  audio_update: 'edit',
+  audio_delete: 'edit',
+  audio_effect_type_list: 'edit',
+  keyframe_add: 'edit',
+  effect_add: 'edit',
+  effect_update: 'edit',
+  effect_delete: 'edit',
+  character_effect_type_list: 'edit',
+  scene_effect_type_list: 'edit',
+  filter_add: 'edit',
+  filter_update: 'edit',
+  filter_delete: 'edit',
+  filter_type_list: 'edit',
+  image_intro_animation_list: 'edit',
+  image_outro_animation_list: 'edit',
+  image_loop_animation_list: 'edit',
+  subtitle_recognition: 'analysis',
+  video_understand: 'analysis',
+  draft_create: 'draft',
+  draft_update_meta: 'draft',
+  draft_inspect: 'draft',
+  draft_download: 'draft',
+  subtitle_template: 'template',
+  template: 'template'
+}
+
+const collapseCutSubdomains = (subdomains: string[]): string[] =>
+  Array.from(new Set(subdomains.map((subdomain) => CUT_COARSE_SUBDOMAIN_MAP[subdomain] ?? 'edit'))).sort()
+
 const normalizeCapabilityText = (value: string) => String(value || '').toLowerCase()
 
 const hasAnyKeyword = (text: string, keywords: string[]) => keywords.some((keyword) => text.includes(keyword))
@@ -2121,7 +2178,14 @@ function classifyIntent(args: {
   if (args.selected.has('subtitleTemplate')) addDomainSubdomain('cut', 'subtitle_template', 'capability:subtitle-template')
   if (args.selected.has('kouboTemplate')) addDomainSubdomain('cut', 'template', 'capability:koubo-template')
 
-  const getSubdomains = (domain: IntentDomain) => Array.from(domainSubdomains.get(domain) ?? []).sort()
+  const getRawSubdomains = (domain: IntentDomain) => Array.from(domainSubdomains.get(domain) ?? []).sort()
+  const getSubdomains = (domain: IntentDomain) => {
+    const rawSubdomains = getRawSubdomains(domain)
+    if (domain !== 'cut') {
+      return rawSubdomains
+    }
+    return collapseCutSubdomains(rawSubdomains)
+  }
   const workspaceSubdomains = getSubdomains('workspace')
   const webSubdomains = getSubdomains('web')
   const aiMediaSubdomains = getSubdomains('ai_media')
@@ -2175,10 +2239,10 @@ function classifyIntent(args: {
   const allDomains: IntentDomain[] = ['chat', 'workspace', 'web', 'ai_media', 'skills', 'auxiliary', 'scrapt', 'cut']
   const companionDomains = allDomains.filter((domain) => {
     if (domain === 'chat' || domain === primaryDomain) return false
-    return getSubdomains(domain).length > 0
+    return getRawSubdomains(domain).length > 0
   })
   const activeDomains = allDomains
-    .filter((domain) => getSubdomains(domain).length > 0)
+      .filter((domain) => getRawSubdomains(domain).length > 0)
     .sort((left, right) => {
       if (left === primaryDomain) return -1
       if (right === primaryDomain) return 1
@@ -2188,7 +2252,7 @@ function classifyIntent(args: {
     })
     .map((domain): ActiveIntentDomain => ({
       domain,
-      subdomains: getSubdomains(domain),
+        subdomains: getRawSubdomains(domain),
       role: domain === primaryDomain ? 'primary' : 'support',
       score: domainScoreMap[domain]
     }))

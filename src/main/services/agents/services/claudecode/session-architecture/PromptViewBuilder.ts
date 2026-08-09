@@ -1,6 +1,8 @@
 import type { AgentArtifact, AgentTurn, PromptView } from './types'
+import { buildInlineToolResultText } from '../tool-result-text'
 
 const MAX_RECENT_TURN_TEXT_CHARS = 280
+const MAX_REFERENCED_ARTIFACTS = 4
 
 const normalizePromptTurnText = (text: string): string =>
   String(text || '')
@@ -37,11 +39,19 @@ export class PromptViewBuilderImpl implements PromptViewBuilder {
       ])
       .filter((turn): turn is { role: 'user' | 'assistant'; text: string } => Boolean(turn?.text))
 
+    const referencedArtifacts = (input.referencedArtifacts ?? []).slice(-MAX_REFERENCED_ARTIFACTS).map((artifact) => ({
+      id: artifact.id,
+      sourceType: artifact.sourceType,
+      toolSubtype: artifact.toolSubtype,
+      filePath: artifact.filePath,
+      summary: buildInlineToolResultText(artifact.content, artifact.toolSubtype || artifact.sourceType)
+    }))
+
     return {
       continuationSummary: input.continuationSummary,
       recentTurns,
       currentPrompt: input.currentPrompt,
-      referencedArtifacts: []
+      referencedArtifacts
     }
   }
 }

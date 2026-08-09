@@ -1,6 +1,7 @@
 const textEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null
 
 export const MAX_INLINE_PAYLOAD_BYTES = 2 * 1024 * 1024
+export const MAX_INLINE_TOOL_PAYLOAD_BYTES = 16 * 1024
 
 const LARGE_FIELD_KEYS = new Set(['data', 'base64', 'contentBase64', 'content_base64'])
 
@@ -71,6 +72,16 @@ export function limitInlineText(
   return `${truncateUtf8ToBytes(text, budget)}${notice}`
 }
 
+export function limitInlineToolText(
+  value: unknown,
+  options: { label?: string; maxBytes?: number } = {}
+): string {
+  return limitInlineText(value, {
+    label: options.label,
+    maxBytes: Number.isFinite(options.maxBytes) ? Number(options.maxBytes) : MAX_INLINE_TOOL_PAYLOAD_BYTES
+  })
+}
+
 function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2)
@@ -139,4 +150,27 @@ export function sanitizeInlinePayload(
   options: { label?: string; maxBytes?: number } = {}
 ): unknown {
   return sanitizeInlinePayloadInternal(value, options, new WeakSet())
+}
+
+export function limitInlineToolPayload(
+  value: unknown,
+  options: { label?: string; maxBytes?: number } = {}
+): unknown {
+  const label = options.label || '工具回包'
+  const maxBytes = Number.isFinite(options.maxBytes) ? Number(options.maxBytes) : MAX_INLINE_TOOL_PAYLOAD_BYTES
+
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    return limitInlineToolText(value, { label, maxBytes })
+  }
+
+  const serialized = safeStringify(value)
+  if (getUtf8ByteLength(serialized) <= maxBytes) {
+    return value
+  }
+
+  return limitInlineToolText(serialized, { label, maxBytes })
 }

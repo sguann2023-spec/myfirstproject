@@ -2,6 +2,7 @@ import type { CollapseProps } from 'antd'
 import { useTranslation } from 'react-i18next'
 
 import { truncateOutput } from '../shared/truncateOutput'
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { SkeletonValue, ToolHeader, TruncatedIndicator } from './GenericTools'
 import { TerminalOutput } from './TerminalOutput'
 import {
@@ -19,7 +20,8 @@ export function BashTool({
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
   const command = input?.command
-  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(output)
+  const normalizedOutput = extractTextPreviewFromToolResult(output)
+  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(normalizedOutput)
 
   return {
     key: AgentToolsType.Bash,

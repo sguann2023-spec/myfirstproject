@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 
 import { BaseService } from '../../BaseService'
 import type { AgentTurn } from '../../services/claudecode/session-architecture/types'
@@ -11,6 +11,18 @@ export interface IAgentTurnRepository {
   save(turn: AgentTurn): Promise<AgentTurn>
   update(turnId: string, updates: Partial<AgentTurn>): Promise<void>
   listBySegmentId(segmentId: string, limit?: number): Promise<AgentTurn[]>
+}
+
+export function isTurnEligibleForRecentContext(
+  turn: Pick<AgentTurn, 'status' | 'userText' | 'assistantText'>
+): boolean {
+  if (turn.status === 'completed') {
+    return true
+  }
+  if (turn.status !== 'cancelled') {
+    return false
+  }
+  return Boolean(String(turn.userText || '').trim() || String(turn.assistantText || '').trim())
 }
 
 class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepository {
@@ -90,10 +102,13 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
     const rows = await database
       .select()
       .from(agentTurnsTable)
-      .where(and(eq(agentTurnsTable.segment_id, segmentId), eq(agentTurnsTable.status, 'completed')))
+      .where(and(eq(agentTurnsTable.segment_id, segmentId), inArray(agentTurnsTable.status, ['completed', 'cancelled'])))
       .orderBy(desc(agentTurnsTable.started_at))
-      .limit(limit)
-    return rows.map((row) => this.deserialize(row)!).reverse()
+    return rows
+      .map((row) => this.deserialize(row)!)
+      .filter(isTurnEligibleForRecentContext)
+      .reverse()
+      .slice(-limit)
   }
 }
 

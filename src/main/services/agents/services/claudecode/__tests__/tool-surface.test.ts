@@ -64,8 +64,8 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Read', 'Glob', 'Grep'])
-    expect(surface.allowedToolsOption).toEqual(['Glob', 'Grep', 'InspectImage', 'Read'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Read', 'Bash'])
+    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'Read'])
   })
 
   it('adds InspectImage, AskUserQuestion and Bash to web turns while keeping workspace builtins hidden', () => {
@@ -175,8 +175,6 @@ describe('buildToolSurface', () => {
     expect(surface.builtinTools).toEqual(
       expect.arrayContaining([
         'Read',
-        'Glob',
-        'Grep',
         'Write',
         'Edit',
         'MultiEdit',

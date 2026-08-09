@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { summarizeToolResultForArtifact } from '../tool-result-text'
+import { buildInlineToolResultText, summarizeToolResultForArtifact } from '../tool-result-text'
 
 describe('summarizeToolResultForArtifact', () => {
-  it('extracts plain text from MCP text blocks', () => {
+  it('preserves full structured payloads for artifact storage', () => {
     const summary = summarizeToolResultForArtifact({
       content: [
         {
@@ -13,9 +13,8 @@ describe('summarizeToolResultForArtifact', () => {
       ]
     })
 
-    expect(summary).toContain('"task_id": "task-123"')
-    expect(summary).toContain('"status": "queued"')
-    expect(summary).not.toContain('\\"task_id\\"')
+    expect(summary).toContain('"type": "text"')
+    expect(summary).toContain('\\"task_id\\": \\"task-123\\"')
   })
 
   it('falls back to formatted JSON for non-text payloads', () => {
@@ -27,5 +26,12 @@ describe('summarizeToolResultForArtifact', () => {
 
     expect(summary).toContain('"task_id": "task-456"')
     expect(summary).toContain('\n')
+  })
+
+  it('hard-truncates inline tool text to 16KB', () => {
+    const inline = buildInlineToolResultText('x'.repeat(20 * 1024), 'Read 回包')
+
+    expect(inline).toContain('已截断')
+    expect(Buffer.byteLength(inline, 'utf8')).toBeLessThanOrEqual(16 * 1024)
   })
 })

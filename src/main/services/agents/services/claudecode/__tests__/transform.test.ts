@@ -298,9 +298,9 @@ describe('Claude → AiSDK transform', () => {
     expect(toolResults[1].output).toBe('total 42\n...')
   })
 
-  it('truncates oversized tool results to the 2MB hard limit', () => {
+  it('keeps raw oversized tool results and hard-truncates the inline view to 16KB', () => {
     const state = new ClaudeStreamState({ agentSessionId: 'limit-test-session' })
-    const oversized = 'a'.repeat(2 * 1024 * 1024 + 4096)
+    const oversized = 'a'.repeat(20 * 1024)
 
     const assistantParts = transformSDKMessageToStreamParts(
       {
@@ -356,7 +356,8 @@ describe('Claude → AiSDK transform', () => {
     >
     expect(typeof toolResult.output).toBe('string')
     expect((toolResult.output as string)).toContain('已截断')
-    expect((toolResult.output as string).length).toBeLessThan(2 * 1024 * 1024 + 256)
+    expect(Buffer.byteLength(toolResult.output as string, 'utf8')).toBeLessThanOrEqual(16 * 1024)
+    expect((toolResult as any).rawOutput).toBe(oversized)
   })
 
   it('handles streaming text completion', () => {

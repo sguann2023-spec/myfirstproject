@@ -40,6 +40,7 @@ import {
   type RuntimeToolLayer
 } from './capability-router'
 import { logPromptBudgetProbe } from './prompt-budget'
+import { buildInlineToolResultText, stringifyToolResult } from './tool-result-text'
 import { buildToolSurface } from './tool-surface'
 import { createClaudeCodeHarness } from './harness/create-harness'
 import { processPiHarnessQuery } from './harness/pi-query-stream'
@@ -129,17 +130,45 @@ const extractMainTextFromPersistedMessage = (message: unknown): string => {
   const blocks = Array.isArray((message as { blocks?: unknown[] } | null)?.blocks)
     ? ((message as { blocks: unknown[] }).blocks ?? [])
     : []
+  const parts: string[] = []
 
   for (const block of blocks) {
     if (!block || typeof block !== 'object') continue
-    const candidate = block as { type?: unknown; content?: unknown }
-    if (candidate.type !== 'main_text') continue
-    if (typeof candidate.content === 'string' && candidate.content.trim()) {
-      return candidate.content.trim()
+    const candidate = block as {
+      type?: unknown
+      content?: unknown
+      toolName?: unknown
+      metadata?: {
+        rawMcpToolResponse?: {
+          responseRaw?: unknown
+          response?: unknown
+          tool?: { name?: unknown }
+        }
+      }
     }
+
+    if (candidate.type === 'main_text') {
+      if (typeof candidate.content === 'string' && candidate.content.trim()) {
+        parts.push(candidate.content.trim())
+      }
+      continue
+    }
+
+    if (candidate.type !== 'tool') {
+      continue
+    }
+
+    const rawToolResponse = candidate.metadata?.rawMcpToolResponse
+    const toolName = String(rawToolResponse?.tool?.name || candidate.toolName || 'tool').trim()
+    const toolOutput = rawToolResponse?.responseRaw ?? rawToolResponse?.response ?? candidate.content
+    const serializedToolOutput = stringifyToolResult(toolOutput).trim()
+    if (!serializedToolOutput) {
+      continue
+    }
+    parts.push(`[工具 ${toolName} 输出]\n${buildInlineToolResultText(serializedToolOutput, `${toolName} 回包`)}`)
   }
 
-  return ''
+  return parts.join('\n\n').trim()
 }
 
 const normalizeRoutingText = (value: string): string => String(value || '').replace(/\s+/g, ' ').trim()
@@ -688,7 +717,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       recentTurnsCount: promptEnvelope.promptView.recentTurns.length,
       referencedArtifactsCount: promptEnvelope.promptView.referencedArtifacts?.length ?? 0
     })
-
     // Build SDK options from session configuration.
     // If thinking is not explicitly configured, leave it unset so the runtime
     // does not force adaptive thinking by default.
@@ -939,7 +967,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       canUseTool,
       pendingFileChanges
     })
-    piHarness.appendUserPrompt(composedPrompt)
 
     const shouldResumeExistingSession = !NO_RESUME_COMMANDS.some((cmd) => composedPrompt.includes(cmd))
     if (activeSegment && !activeSegment.sdkSessionId && shouldResumeExistingSession) {
@@ -980,7 +1007,8 @@ class ClaudeCodeService implements AgentServiceInterface {
         architectureContext,
         harness: piHarness,
         prompt: composedPrompt,
-        images
+        images,
+        abortSignal: abortController.signal
       })
 
       queryPromise.catch((error) => {

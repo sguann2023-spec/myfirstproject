@@ -5,12 +5,10 @@ import type { CapabilityDecision, IntentDomain, RuntimeToolLayer } from './capab
 export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
   chat: ['InspectImage', 'AskUserQuestion'],
   web: [],
-  'workspace-read': ['Read', 'Glob', 'Grep', 'NotebookRead'],
-  'workspace-write': ['Read', 'Glob', 'Grep', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'],
+  'workspace-read': ['Read', 'NotebookRead', 'Bash'],
+  'workspace-write': ['Read', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'],
   agentic: [
     'Read',
-    'Glob',
-    'Grep',
     'NotebookRead',
     'Edit',
     'MultiEdit',
@@ -22,7 +20,7 @@ export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
   ]
 }
 
-const SAFE_AUTO_ALLOW_BUILTINS = new Set(['Read', 'Glob', 'Grep', 'NotebookRead', 'InspectImage', 'TodoWrite'])
+const SAFE_AUTO_ALLOW_BUILTINS = new Set(['Read', 'NotebookRead', 'InspectImage', 'TodoWrite'])
 
 const FILTERED_TOOLS = new Set(['WebFetch', 'mcp__exa__web_fetch_exa'])
 
@@ -39,10 +37,10 @@ const DOMAIN_SUBDOMAIN_BUILTINS: Partial<Record<IntentDomain, Record<string, str
     bash: ['Bash']
   },
   workspace: {
-    read: ['Read', 'Glob', 'Grep'],
-    write: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit'],
-    execute: ['Read', 'Glob', 'Grep', 'Bash'],
-    find: ['Glob', 'Grep'],
+    read: ['Read', 'Bash'],
+    write: ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash'],
+    execute: ['Read', 'Bash'],
+    find: ['Bash'],
     notebook: ['NotebookRead', 'NotebookEdit'],
     task: ['Task', 'TodoWrite']
   },

@@ -21,6 +21,15 @@ type RequestFingerprints = {
   messages: string
 }
 
+type PromptShapeSummary = {
+  chars: number
+  lines: number
+  hasDataUrl: boolean
+  hasBase64Marker: boolean
+  headPreview: string
+  tailPreview: string
+}
+
 export function logPromptBudgetProbe(args: {
   agentId: string
   sessionId: string
@@ -77,6 +86,7 @@ export function logPromptBudgetProbe(args: {
   }
   const previous = previousFingerprintsBySession.get(args.sessionId)
   previousFingerprintsBySession.set(args.sessionId, fingerprints)
+  const promptShape = summarizePromptShape(args.prompt)
 
   const changed = previous
     ? (Object.keys(fingerprints) as Array<keyof RequestFingerprints>).filter((key) => previous[key] !== fingerprints[key])
@@ -102,6 +112,7 @@ export function logPromptBudgetProbe(args: {
     referencedArtifactsCount: args.referencedArtifactsCount ?? 0,
     segments,
     approxTotalTokens: segments.reduce((total, item) => total + item.approxTokens, 0),
+    promptShape,
     fingerprints,
     fingerprintChanged: previous ? changed : ['first-request'],
     cacheRisk: classifyCacheRisk(changed)
@@ -153,6 +164,18 @@ function classifyCacheRisk(changed: string[]): 'unknown' | 'low' | 'expected-bre
 
 function hashStable(value: unknown): string {
   return hashText(stringifyStable(value))
+}
+
+function summarizePromptShape(prompt: string): PromptShapeSummary {
+  const text = String(prompt || '')
+  return {
+    chars: text.length,
+    lines: text ? text.split('\n').length : 0,
+    hasDataUrl: /data:image\/[a-zA-Z0-9.+-]+;base64,/.test(text),
+    hasBase64Marker: /base64,/i.test(text),
+    headPreview: text.slice(0, 240),
+    tailPreview: text.slice(Math.max(0, text.length - 240))
+  }
 }
 
 function stringifyStable(value: unknown): string {

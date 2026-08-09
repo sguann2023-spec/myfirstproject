@@ -1,4 +1,5 @@
 import { Compass } from 'lucide-react'
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 
 interface NavigateToolInput {
   path?: string
@@ -101,15 +102,7 @@ export function NavigateToolInline({
 
   const routeInfo = getRouteInfo(fullPath)
 
-  const outputText =
-    output && typeof output === 'string'
-      ? output
-      : Array.isArray(output)
-        ? (output as Array<{ text?: string }>)
-            .map((o) => o?.text)
-            .filter(Boolean)
-            .join('')
-        : ''
+  const outputText = extractTextPreviewFromToolResult(output)
   const isSuccess = outputText.includes('Navigated to')
 
   const handleClick = () => {

@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { SkeletonValue, ToolHeader, TruncatedIndicator } from './GenericTools'
 import {
@@ -11,20 +12,7 @@ import {
   type TaskOutputToolOutput as TaskOutputToolOutputType
 } from './types'
 
-const normalizeTaskOutput = (output?: TaskOutputToolOutputType): string => {
-  if (typeof output === 'string') {
-    return output
-  }
-
-  if (!Array.isArray(output)) {
-    return ''
-  }
-
-  return output
-    .map((item) => (item && typeof item === 'object' && typeof item.text === 'string' ? item.text : ''))
-    .filter(Boolean)
-    .join('\n\n')
-}
+const normalizeTaskOutput = (output?: TaskOutputToolOutputType): string => extractTextPreviewFromToolResult(output)
 
 export function TaskOutputTool({
   input,

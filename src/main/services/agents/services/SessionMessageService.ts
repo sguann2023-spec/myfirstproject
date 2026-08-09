@@ -16,6 +16,7 @@ import { sessionMessagesTable } from '../database/schema'
 import { agentMessageRepository } from '../database/sessionMessageRepository'
 import type { AgentStreamEvent } from '../interfaces/AgentStreamInterface'
 import ClaudeCodeService from './claudecode'
+import { TextStreamAccumulator, type HeadlessPersistedBlock } from './session-stream-accumulator'
 
 const claudeCodeService = new ClaudeCodeService()
 
@@ -28,16 +29,6 @@ type SessionStreamResult = {
     userMessage?: AgentSessionMessageEntity
     assistantMessage?: AgentSessionMessageEntity
   }>
-}
-
-type HeadlessPersistedBlock = {
-  id: string
-  messageId: string
-  type: string
-  createdAt: string
-  updatedAt?: string
-  status: string
-  [key: string]: any
 }
 
 type PersistedUsage = {
@@ -71,225 +62,6 @@ function serializeError(error: unknown): { message: string; name?: string; stack
 
   return {
     message: 'Unknown error'
-  }
-}
-
-function summarizeTextStreamPart(part: TextStreamPart<Record<string, any>>): Record<string, unknown> {
-  const chunk = part as any
-  const type = String(chunk?.type || 'unknown')
-  return {
-    type,
-    id: typeof chunk?.id === 'string' ? chunk.id : undefined,
-    toolCallId: typeof chunk?.toolCallId === 'string' ? chunk.toolCallId : undefined,
-    toolName: typeof chunk?.toolName === 'string' ? chunk.toolName : undefined,
-    textChars: typeof chunk?.text === 'string' ? chunk.text.length : 0,
-    inputPreview:
-      chunk?.input !== undefined
-        ? String(typeof chunk.input === 'string' ? chunk.input : JSON.stringify(chunk.input)).slice(0, 160)
-        : undefined,
-    outputPreview:
-      chunk?.output !== undefined
-        ? String(typeof chunk.output === 'string' ? chunk.output : JSON.stringify(chunk.output)).slice(0, 160)
-        : undefined,
-    finishReason: typeof chunk?.finishReason === 'string' ? chunk.finishReason : undefined
-  }
-}
-
-class TextStreamAccumulator {
-  private textBuffer = ''
-  private totalText = ''
-  private readonly toolCalls = new Map<string, { toolName?: string; input?: unknown }>()
-  private readonly toolResults = new Map<string, unknown>()
-  private readonly toolCallOrder: string[] = []
-  private initSlashCommands: string[] = []
-  private latestUsage?: PersistedUsage
-
-  add(part: TextStreamPart<Record<string, any>>): void {
-    const chunk = part as any
-    const partType = chunk.type as string | undefined
-    switch (partType) {
-      case 'text-start':
-        this.textBuffer = ''
-        break
-      case 'text-delta':
-        if (chunk.text) {
-          this.textBuffer += chunk.text
-        }
-        break
-      case 'text-end': {
-        const blockText = (chunk.providerMetadata?.text?.value as string | undefined) ?? this.textBuffer
-        if (blockText) {
-          this.totalText += blockText
-        }
-        this.textBuffer = ''
-        break
-      }
-      case 'tool-call':
-        if (chunk.toolCallId) {
-          if (!this.toolCalls.has(chunk.toolCallId)) {
-            this.toolCallOrder.push(chunk.toolCallId)
-          }
-          const legacyPart = chunk as {
-            args?: unknown
-            providerMetadata?: { raw?: { input?: unknown } }
-          }
-          this.toolCalls.set(chunk.toolCallId, {
-            toolName: chunk.toolName,
-            input: chunk.input ?? legacyPart.args ?? legacyPart.providerMetadata?.raw?.input
-          })
-        }
-        break
-      case 'tool-result':
-        if (chunk.toolCallId) {
-          const legacyPart = chunk as {
-            result?: unknown
-            providerMetadata?: { raw?: unknown }
-          }
-          this.toolResults.set(chunk.toolCallId, chunk.output ?? legacyPart.result ?? legacyPart.providerMetadata?.raw)
-        }
-        break
-      case 'raw': {
-        const rawPart = chunk as {
-          rawValue?: { type?: string; slash_commands?: unknown }
-        }
-        const rawValue = rawPart.rawValue
-        if (rawValue?.type === 'init' && Array.isArray(rawValue.slash_commands)) {
-          this.initSlashCommands = rawValue.slash_commands.filter((cmd): cmd is string => typeof cmd === 'string')
-        }
-        break
-      }
-      case 'usage': {
-        const usagePart = chunk as {
-          usage?: {
-            inputTokens?: number | null
-            outputTokens?: number | null
-            totalTokens?: number | null
-          }
-        }
-        this.setUsageFromSdk(usagePart.usage)
-        break
-      }
-      case 'finish': {
-        const finishPart = chunk as {
-          totalUsage?: {
-            inputTokens?: number | null
-            outputTokens?: number | null
-            totalTokens?: number | null
-          }
-        }
-        this.setUsageFromSdk(finishPart.totalUsage)
-        break
-      }
-      default:
-        break
-    }
-  }
-
-  private setUsageFromSdk(usage?: {
-    inputTokens?: number | null
-    outputTokens?: number | null
-    totalTokens?: number | null
-  }): void {
-    if (!usage) {
-      return
-    }
-
-    const promptTokens = Number(usage.inputTokens ?? 0)
-    const completionTokens = Number(usage.outputTokens ?? 0)
-    const totalTokens = Number(usage.totalTokens ?? promptTokens + completionTokens)
-
-    if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
-      return
-    }
-
-    this.latestUsage = {
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      total_tokens: totalTokens
-    }
-  }
-
-  getText(): string {
-    return (this.totalText + this.textBuffer).replace(/\n+$/, '')
-  }
-
-  getInitSlashCommands(): string[] {
-    return [...this.initSlashCommands]
-  }
-
-  getUsage(): PersistedUsage | undefined {
-    return this.latestUsage ? { ...this.latestUsage } : undefined
-  }
-
-  summarizeState(): Record<string, unknown> {
-    return {
-      totalTextChars: this.totalText.length,
-      textBufferChars: this.textBuffer.length,
-      toolCallCount: this.toolCallOrder.length,
-      toolResultCount: this.toolResults.size,
-      slashCommandCount: this.initSlashCommands.length,
-      hasUsage: Boolean(this.latestUsage)
-    }
-  }
-
-  getAssistantBlocks(
-    messageId: string,
-    modelId?: string
-  ): HeadlessPersistedBlock[] {
-    const now = new Date().toISOString()
-    const blocks: HeadlessPersistedBlock[] = []
-
-    for (const toolCallId of this.toolCallOrder) {
-      const toolCall = this.toolCalls.get(toolCallId)
-      if (!toolCall) continue
-      const toolResult = this.toolResults.get(toolCallId)
-      blocks.push({
-        id: randomUUID(),
-        messageId,
-        type: 'tool',
-        createdAt: now,
-        updatedAt: now,
-        status: toolResult !== undefined ? 'success' : 'processing',
-        model: modelId,
-        toolId: toolCallId,
-        toolName: toolCall.toolName,
-        arguments: toolCall.input && typeof toolCall.input === 'object' ? toolCall.input : undefined,
-        content: toolResult,
-        metadata: {
-          rawMcpToolResponse: {
-            id: toolCallId,
-            tool: {
-              id: toolCall.toolName || toolCallId,
-              name: toolCall.toolName || toolCallId
-            },
-            arguments:
-              toolCall.input && typeof toolCall.input === 'object'
-                ? toolCall.input
-                : toolCall.input !== undefined
-                  ? String(toolCall.input)
-                  : undefined,
-            status: toolResult !== undefined ? 'done' : 'pending',
-            response: toolResult
-          }
-        }
-      })
-    }
-
-    const text = this.getText()
-    if (text) {
-      blocks.push({
-        id: randomUUID(),
-        messageId,
-        type: 'main_text',
-        createdAt: now,
-        updatedAt: now,
-        status: 'success',
-        modelId,
-        content: text
-      })
-    }
-
-    return blocks
   }
 }
 
@@ -423,15 +195,7 @@ export class SessionMessageService extends BaseService {
                   logger.warn('Received agent chunk event without chunk payload')
                   return
                 }
-
                 accumulator.add(chunk)
-                logger.info('[SessionMessageService][StreamChunk] accumulated chunk', {
-                  sessionId: session.id,
-                  requestModel: req.model,
-                  assistantMessageId: headlessAssistantMsgId,
-                  chunk: summarizeTextStreamPart(chunk),
-                  accumulator: accumulator.summarizeState()
-                })
                 controller.enqueue(chunk)
                 break
               }
@@ -495,17 +259,18 @@ export class SessionMessageService extends BaseService {
                 controller.close()
                 if (options?.persist) {
                   const resolvedSessionId = claudeStream.sdkSessionId || agentSessionId
-                  const partialText = accumulator.getText()
-                  if (partialText) {
+                  const assistantBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
+                  const usage = accumulator.getUsage()
+                  if (assistantBlocks.length > 0 || usage) {
                     this.persistHeadlessExchange(
                       session,
                       options?.displayContent ?? req.content,
-                      accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
+                      assistantBlocks,
                       resolvedSessionId,
                       headlessAssistantMsgId,
                       options?.images,
                       req.model,
-                      accumulator.getUsage()
+                      usage
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -647,7 +412,6 @@ export class SessionMessageService extends BaseService {
         .filter((block) => typeof (block as { content?: unknown }).content === 'string')
         .reduce((total, block) => total + String((block as { content?: unknown }).content || '').length, 0)
     })
-
     return result
   }
 

@@ -1,5 +1,6 @@
 import type { CollapseProps } from 'antd'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { ToolHeader, TruncatedIndicator } from './GenericTools'
 import { AgentToolsType, type WebFetchToolInput, type WebFetchToolOutput } from './types'
@@ -11,7 +12,8 @@ export function WebFetchTool({
   input?: WebFetchToolInput
   output?: WebFetchToolOutput
 }): NonNullable<CollapseProps['items']>[number] {
-  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(output)
+  const outputText = extractTextPreviewFromToolResult(output)
+  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(outputText)
 
   return {
     key: AgentToolsType.WebFetch,

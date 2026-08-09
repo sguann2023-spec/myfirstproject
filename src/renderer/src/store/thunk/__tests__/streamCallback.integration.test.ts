@@ -925,6 +925,31 @@ describe('streamCallback Integration Tests', () => {
     expect(message?.status).toBe(AssistantMessageStatus.SUCCESS)
   })
 
+  it('should inject a fallback text block when assistant completes with no visible content', async () => {
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
+
+    const chunks: Chunk[] = [
+      { type: ChunkType.LLM_RESPONSE_CREATED },
+      {
+        type: ChunkType.BLOCK_COMPLETE,
+        response: {
+          usage: { prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 },
+          metrics: { completion_tokens: 0, time_completion_millsec: 120 }
+        }
+      }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const blocks = Object.values(state.messageBlocks.entities)
+    const textBlock = blocks.find((block) => block.type === MessageBlockType.MAIN_TEXT)
+
+    expect(textBlock).toBeDefined()
+    expect(textBlock?.status).toBe(MessageBlockStatus.SUCCESS)
+    expect((textBlock as any)?.content).toBe('AI什么也没说，重试一下试试')
+  })
+
   it('should maintain block reference integrity during streaming', async () => {
     const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
 

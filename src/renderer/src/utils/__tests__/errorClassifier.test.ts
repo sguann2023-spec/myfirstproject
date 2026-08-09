@@ -74,6 +74,15 @@ describe('classifyError', () => {
     expect(result.category).toBe('quota')
   })
 
+  it('classifies friendly compaction fuse message as context_length', () => {
+    const result = classifyError(
+      makeError({
+        message: '当前对话上下文过长。为了节约您的 token 消耗，已停止本次请求。请开启新对话后继续执行任务。'
+      })
+    )
+    expect(result.category).toBe('context_length')
+  })
+
   // Network
   it('classifies econnrefused as network', () => {
     const result = classifyError(makeError({ message: 'connect ECONNREFUSED 127.0.0.1:443' }))

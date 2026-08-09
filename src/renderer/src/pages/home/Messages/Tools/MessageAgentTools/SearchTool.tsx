@@ -2,6 +2,7 @@ import type { CollapseProps } from 'antd'
 import { useTranslation } from 'react-i18next'
 
 import { countLines, truncateOutput } from '../shared/truncateOutput'
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { StringInputTool, StringOutputTool, ToolHeader, TruncatedIndicator } from './GenericTools'
 import {
   AgentToolsType,
@@ -17,9 +18,10 @@ export function SearchTool({
   output?: SearchToolOutputType
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
+  const outputText = extractTextPreviewFromToolResult(output)
   // 如果有输出，计算结果数量
-  const resultCount = countLines(output)
-  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(output)
+  const resultCount = countLines(outputText)
+  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(outputText)
 
   return {
     key: AgentToolsType.Search,
@@ -27,7 +29,7 @@ export function SearchTool({
       <ToolHeader
         toolName={AgentToolsType.Search}
         params={input ? `"${input}"` : undefined}
-        stats={output ? t('message.tools.units.result', { count: resultCount }) : undefined}
+        stats={outputText ? t('message.tools.units.result', { count: resultCount }) : undefined}
         variant="collapse-label"
         showStatus={false}
       />

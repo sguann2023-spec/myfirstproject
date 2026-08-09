@@ -2,6 +2,7 @@ import type { CollapseProps } from 'antd'
 import { Tag } from 'antd'
 import ReactMarkdown from 'react-markdown'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { ClickableFilePath } from './ClickableFilePath'
 import { ToolHeader, TruncatedIndicator } from './GenericTools'
@@ -15,7 +16,8 @@ export function NotebookEditTool({
   input?: NotebookEditToolInput
   output?: NotebookEditToolOutput
 }): NonNullable<CollapseProps['items']>[number] {
-  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(output)
+  const outputText = extractTextPreviewFromToolResult(output)
+  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(outputText)
 
   return {
     key: AgentToolsType.NotebookEdit,

@@ -73,6 +73,8 @@ const classifyError = ({ message = '', status } = {}) => {
     lower.includes('context_length_exceeded')
     || lower.includes('too many tokens')
     || lower.includes('maximum context length')
+    || lower.includes('上下文过长')
+    || lower.includes('repeated claude auto-compaction loop')
   ) {
     return {
       category: 'context_length',

@@ -6,6 +6,7 @@ import { useRuntime } from '@renderer/hooks/useRuntime'
 import { useNavbarPosition, useSettings } from '@renderer/hooks/useSettings'
 import { useShortcut } from '@renderer/hooks/useShortcuts'
 import { useShowTopics } from '@renderer/hooks/useStore'
+import { useAppSelector } from '@renderer/store'
 import { cn } from '@renderer/utils'
 import { buildAgentSessionTopicId } from '@renderer/utils/agentSession'
 import { Alert, Spin } from 'antd'
@@ -40,6 +41,10 @@ const AgentChat = () => {
     isAgentsLoading || isAgentLoading || !isSessionInitialized || !agents || (!activeAgentId && agents.length > 0)
 
   const showRightSessions = topicPosition === 'right' && showTopics && !!activeAgentId
+  const activeSessionTopicId = activeSessionId ? buildAgentSessionTopicId(activeSessionId) : null
+  const activeSessionLoading = useAppSelector((state) =>
+    activeSessionTopicId ? Boolean(state.messages.loadingByTopic[activeSessionTopicId]) : false
+  )
 
   useShortcut(
     'new_topic',
@@ -100,7 +105,7 @@ const AgentChat = () => {
             <AgentSessionMessages agentId={activeAgentId} sessionId={activeSessionId} />
             <div className="mt-auto px-4.5 pb-2">
               <NarrowLayout>
-                <PinnedTodoPanel topicId={buildAgentSessionTopicId(activeSessionId)} />
+                <PinnedTodoPanel topicId={buildAgentSessionTopicId(activeSessionId)} sessionActive={activeSessionLoading} />
               </NarrowLayout>
             </div>
             {messageNavigation === 'buttons' && <ChatNavigation containerId="messages" />}

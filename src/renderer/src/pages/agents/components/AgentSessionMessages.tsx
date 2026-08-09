@@ -146,7 +146,7 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
             sessionId,
             sessionTopicId
           })
-        } else if (event.type === 'error') {
+        } else if (event.type === 'error' || event.type === 'cancelled') {
           exchangeDoneRef.current = true
           lastLocalCompletionAtRef.current = Date.now()
           // Push the error as a data chunk so the adapter can render it via
@@ -156,7 +156,10 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
           if (streamCtrlRef.current) {
             streamCtrlRef.current.pushChunk({
               type: 'error',
-              error: new Error(event.error?.message ?? 'Stream error')
+              error:
+                event.type === 'cancelled'
+                  ? new DOMException('Request was aborted.', 'AbortError')
+                  : new Error(event.error?.message ?? 'Stream error')
             } as any)
             streamCtrlRef.current.complete()
           }

@@ -40,8 +40,12 @@ const KOUBO_TEMPLATE_AGENT_IDS = {
   national_classic: 'koubo_d8b7f9e05c4a11efb9620242ac120003',
   basic_yellow_white: 'koubo_b82feeb636f3476a9a752ebd745d9750',
   ai_trim_pauses: 'koubo_2dfb2efedde84791b218cfd798531bc8',
-  advanced_yellow_double: 'koubo_d47e8a905f1b48798e76123456789abc',
-  advanced_red_bilingual: 'koubo_1f9c8d7e6a2b4c0d9e8f123456789abc',
+  classic_grass_green: 'koubo_a3d4f6b8c1e24f7b9a0d5e6c8f2b1a97',
+  international_orange_bilingual: 'koubo_e7c1a9d4b6f24c8e91a3d5b7f0c2e6a8',
+  eye_catching_green_bilingual: 'koubo_39ff88a1b2c34d5e9f0a6b7c8d9e0123',
+  intellectual_red: 'koubo_f47ac10b58cc4372a5670e02b2c3d479',
+  classical_dark_brown: 'koubo_7b2f0c9d4e6a41f8b3c5d7e9a1b2c4d6',
+  fisheye_ins: 'koubo_5e7a9c3d1f2b4a6e8c0d5f7b9e1a3c6d',
   luxury_white_bilingual: 'koubo_6a4f2c9e8b1d4f7aa3c5e9d02b6f8c13'
 } as const
 
@@ -54,8 +58,12 @@ const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' |
   national_classic: ['media_urls'],
   basic_yellow_white: ['media_urls'],
   ai_trim_pauses: ['media_urls'],
-  advanced_yellow_double: ['media_urls'],
-  advanced_red_bilingual: ['media_urls'],
+  classic_grass_green: ['media_urls'],
+  international_orange_bilingual: ['media_urls'],
+  eye_catching_green_bilingual: ['media_urls'],
+  intellectual_red: ['media_urls'],
+  classical_dark_brown: ['media_urls'],
+  fisheye_ins: ['media_urls'],
   luxury_white_bilingual: ['media_urls']
 }
 

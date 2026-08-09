@@ -91,17 +91,16 @@ const Sessions = ({ agentId, onSelectItem }: SessionsProps) => {
     []
   )
 
-  // Handle scroll to load more
   useEffect(() => {
-    const scrollElement = listRef.current?.scrollElement()
-    if (!scrollElement) return
+    const frameId = window.requestAnimationFrame(() => {
+      handleScroll()
+    })
 
-    scrollElement.addEventListener('scroll', handleScroll)
     return () => {
+      window.cancelAnimationFrame(frameId)
       handleScroll.cancel()
-      scrollElement.removeEventListener('scroll', handleScroll)
     }
-  }, [handleScroll])
+  }, [handleScroll, sessions.length, hasMore, isLoadingMore])
 
   const setActiveSessionId = useCallback(
     (agentId: string, sessionId: string | null) => {
@@ -186,6 +185,7 @@ const Sessions = ({ agentId, onSelectItem }: SessionsProps) => {
         list={sessions}
         estimateSize={() => 9 * 4}
         scrollerStyle={{ overflowX: 'hidden', padding: '12px 10px' }}
+        onScroll={handleScroll}
         onUpdate={reorderSessions}
         itemKey={(index) => sessions[index]?.id ?? index}
         header={

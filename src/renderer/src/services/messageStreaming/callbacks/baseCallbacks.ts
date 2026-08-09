@@ -22,7 +22,7 @@ import { uuid } from '@renderer/utils'
 import { isAgentSessionTopicId } from '@renderer/utils/agentSession'
 import { trackTokenUsage } from '@renderer/utils/analytics'
 import { isAbortError, isTimeoutError, serializeError } from '@renderer/utils/error'
-import { createBaseMessageBlock, createErrorBlock } from '@renderer/utils/messageUtils/create'
+import { createBaseMessageBlock, createErrorBlock, createMainTextBlock } from '@renderer/utils/messageUtils/create'
 import { findAllBlocks, getMainTextContent } from '@renderer/utils/messageUtils/find'
 import { isFocused, isOnHomePage } from '@renderer/utils/window'
 import type { AISDKError } from 'ai'
@@ -31,6 +31,7 @@ import { NoOutputGeneratedError } from 'ai'
 import type { BlockManager } from '../BlockManager'
 
 const logger = loggerService.withContext('BaseCallbacks')
+const EMPTY_ASSISTANT_FALLBACK_TEXT = 'AI什么也没说，重试一下试试'
 interface BaseCallbacksDependencies {
   blockManager: BlockManager
   dispatch: any
@@ -320,8 +321,21 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
           blockManager.smartBlockUpdate(possibleBlockId, changes, blockManager.lastBlockType!, true)
         }
 
+        const refreshedAssistantMsg = getState().messages.entities[assistantMsgId]
+        const visibleBlocks = refreshedAssistantMsg
+          ? findAllBlocks(refreshedAssistantMsg).filter((block) => block.type !== MessageBlockType.UNKNOWN)
+          : []
+
+        if (visibleBlocks.length === 0) {
+          const fallbackBlock = createMainTextBlock(assistantMsgId, EMPTY_ASSISTANT_FALLBACK_TEXT, {
+            status: MessageBlockStatus.SUCCESS
+          })
+          await blockManager.handleBlockTransition(fallbackBlock, MessageBlockType.MAIN_TEXT)
+        }
+
         const duration = Date.now() - startTime
-        const content = getMainTextContent(finalAssistantMsg)
+        const notificationMessage = getState().messages.entities[assistantMsgId] ?? finalAssistantMsg
+        const content = getMainTextContent(notificationMessage)
 
         const timeOut = duration > 30 * 1000
         // 发送长时间运行消息的成功通知

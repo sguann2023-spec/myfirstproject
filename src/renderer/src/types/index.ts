@@ -919,6 +919,7 @@ interface BaseToolResponse {
   arguments: Record<string, unknown> | Record<string, unknown>[] | string | undefined
   status: MCPToolResponseStatus
   response?: any
+  responseRaw?: unknown
   // Streaming arguments support
   partialArguments?: string // Accumulated partial JSON string during streaming
 }

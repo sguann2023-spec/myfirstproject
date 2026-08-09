@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { SkeletonValue, ToolHeader, TruncatedIndicator } from './GenericTools'
 import {
@@ -19,15 +20,14 @@ export function TaskTool({
   output?: TaskToolOutputType
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
-  const hasOutput = Array.isArray(output) && output.length > 0
+  const normalizedOutput = useMemo(() => extractTextPreviewFromToolResult(output), [output])
+  const hasOutput = normalizedOutput.length > 0
 
-  // Combine all text outputs and truncate
   const { truncatedText, isTruncated, originalLength } = useMemo(() => {
     if (!hasOutput) return { truncatedText: '', isTruncated: false, originalLength: 0 }
-    const combinedText = output.map((item) => item.text).join('\n\n')
-    const result = truncateOutput(combinedText)
+    const result = truncateOutput(normalizedOutput)
     return { truncatedText: result.data, isTruncated: result.isTruncated, originalLength: result.originalLength }
-  }, [output, hasOutput])
+  }, [normalizedOutput, hasOutput])
 
   return {
     key: AgentToolsType.Task,

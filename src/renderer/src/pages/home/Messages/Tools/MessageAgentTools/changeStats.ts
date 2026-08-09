@@ -60,7 +60,6 @@ function summarizeWriteInput(input: unknown): ChangeStats | null {
 
   return {
     added,
-    removed: added,
     approximate: true
   }
 }

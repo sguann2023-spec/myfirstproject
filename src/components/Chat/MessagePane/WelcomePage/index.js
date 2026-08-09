@@ -115,19 +115,6 @@ const WelcomeSkillCard = ({
   disabled,
   childrensBookQuickPromptRef
 }) => {
-  const preferredCoverUrl = item.localCoverUrl || item.remoteCoverUrl || '';
-  const [coverSrc, setCoverSrc] = React.useState(preferredCoverUrl);
-
-  React.useEffect(() => {
-    setCoverSrc(preferredCoverUrl);
-  }, [preferredCoverUrl]);
-
-  const handleCoverError = React.useCallback(() => {
-    if (item.remoteCoverUrl && coverSrc !== item.remoteCoverUrl) {
-      setCoverSrc(item.remoteCoverUrl);
-    }
-  }, [coverSrc, item.remoteCoverUrl]);
-
   return (
     <article
       className="chat-panel__welcome-skill-card"
@@ -140,16 +127,6 @@ const WelcomeSkillCard = ({
           onPreviewSkill(item);
         }
       }}>
-      <div className="chat-panel__welcome-skill-cover">
-        {coverSrc ? (
-          <img
-            className="chat-panel__welcome-skill-cover-image"
-            src={coverSrc}
-            alt={`${item.name}封面`}
-            onError={handleCoverError}
-          />
-        ) : null}
-      </div>
       <div className="chat-panel__welcome-skill-content">
         <div className="chat-panel__welcome-skill-header">
           <div className="chat-panel__welcome-skill-name">{item.name}</div>

@@ -41,6 +41,7 @@ import { UnknownToolRenderer } from './UnknownToolRenderer'
 import { WebFetchTool } from './WebFetchTool'
 import { WebSearchTool } from './WebSearchTool'
 import { WriteTool } from './WriteTool'
+import { getDisplayToolHasError, getDisplayToolStatus } from '../shared/toolDisplayState'
 
 type ToolRenderer = (props: {
   input?: any
@@ -150,13 +151,7 @@ function ToolContent({
   progress?: number
   progressMessage?: string
 }) {
-  const shouldFallbackToUnknownForBash =
-    toolName === AgentToolsType.Bash
-    && output !== undefined
-    && output !== null
-    && typeof output !== 'string'
-
-  const renderedItem = isValidAgentToolsType(toolName) && !shouldFallbackToUnknownForBash
+  const renderedItem = isValidAgentToolsType(toolName)
     ? renderTool(toolName, (input ?? {}) as Record<string, unknown>, output)
     : isAgentMcpToolName(toolName ?? '')
       ? McpServerToolRenderer({ toolName: toolName ?? 'Tool', input, output, progress, progressMessage })
@@ -270,7 +265,9 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
     return null
   }
 
-  const effectiveStatus = getEffectiveStatus(status, !!pendingPermission)
+  const displayStatus = getDisplayToolStatus(toolResponse, status)
+  const effectiveStatus = getEffectiveStatus(displayStatus, !!pendingPermission)
+  const hasDisplayError = getDisplayToolHasError(toolResponse, status === 'error')
 
   if (effectiveStatus === 'waiting') {
     return <ToolPermissionRequestCard toolResponse={toolResponse} />
@@ -284,7 +281,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
       output={isLoading ? undefined : response}
       isStreaming={isLoading}
       status={effectiveStatus}
-      hasError={status === 'error'}
+      hasError={hasDisplayError}
       progress={progress}
       progressMessage={progressMessage}
     />

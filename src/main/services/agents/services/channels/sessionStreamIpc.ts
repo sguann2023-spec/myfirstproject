@@ -16,6 +16,7 @@ import { sessionStreamBus, type SessionStreamChunk } from './SessionStreamBus'
 
 const activeSubscriptions = new Map<string, () => void>()
 const activeAbortControllers = new Map<string, { controller: AbortController; requestId: string }>()
+const cancelledRequestIds = new Set<string>()
 let sessionStreamIpcRegistered = false
 let sessionMessageServicePromise: Promise<import('../SessionMessageService').SessionMessageService | null> | null = null
 let channelMessageHandlerPromise: Promise<import('./ChannelMessageHandler').ChannelMessageHandler | null> | null = null
@@ -233,6 +234,20 @@ function buildSubscriptionKey(channel: string, sessionId: string): string {
   return `${channel}::${sessionId}`
 }
 
+function isRequestCancelled(requestId: string): boolean {
+  return cancelledRequestIds.has(requestId)
+}
+
+function markRequestCancelled(requestId: string): void {
+  cancelledRequestIds.add(requestId)
+}
+
+function clearCancelledRequest(requestId: string): void {
+  setTimeout(() => {
+    cancelledRequestIds.delete(requestId)
+  }, 30_000)
+}
+
 async function resolveSessionById(sessionId: string, preferredAgentId?: string) {
   const candidateAgentId = String(preferredAgentId || '').trim()
   if (candidateAgentId) {
@@ -304,6 +319,7 @@ export function registerSessionStreamIpc(): void {
           hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
           subscriberCount: sessionStreamBus.subscriberCount(sessionId)
         })
+        markRequestCancelled(activeRequest.requestId)
         activeRequest.controller.abort()
         activeAbortControllers.delete(sessionId)
         sessionStreamBus.publish(sessionId, {
@@ -452,6 +468,9 @@ export function registerSessionStreamIpc(): void {
         elapsedMs: Date.now() - streamStartedAt
       })
       void streamFinished.then(() => {
+        if (isRequestCancelled(requestId)) {
+          return
+        }
         logger.info('[SessionStreamIpc] Publishing stream-finished event to session stream bus', {
           sessionId,
           requestId,
@@ -484,6 +503,9 @@ export function registerSessionStreamIpc(): void {
           while (true) {
             const { done, value } = await reader.read()
             if (done) break
+            if (isRequestCancelled(requestId)) {
+              break
+            }
             chunkCount += 1
             if (!firstChunkLogged) {
               firstChunkLogged = true
@@ -506,6 +528,10 @@ export function registerSessionStreamIpc(): void {
             })
           }
           clearTimeout(firstChunkWarnTimer)
+          if (isRequestCancelled(requestId)) {
+            await completion.catch(() => undefined)
+            return
+          }
           logger.info('[SessionStreamIpc][TRACE] reader loop completed', {
             sessionId,
             requestId,
@@ -545,6 +571,9 @@ export function registerSessionStreamIpc(): void {
             type: 'complete'
           })
         } catch (error) {
+          if (isRequestCancelled(requestId)) {
+            return
+          }
           sessionStreamBus.publish(sessionId, {
             sessionId,
             agentId: session.agent_id,
@@ -557,6 +586,7 @@ export function registerSessionStreamIpc(): void {
           if (activeRequest?.requestId === requestId) {
             activeAbortControllers.delete(sessionId)
           }
+          clearCancelledRequest(requestId)
         }
       })()
 

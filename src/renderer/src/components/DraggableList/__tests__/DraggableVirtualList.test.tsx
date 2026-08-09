@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { DraggableVirtualList } from '../'
@@ -109,6 +109,18 @@ describe('DraggableVirtualList', () => {
       )
       const items = screen.queryAllByTestId('test-item')
       expect(items.length).toBe(0)
+    })
+
+    it('should call onScroll when the scroller scrolls', () => {
+      const onScroll = vi.fn()
+      render(
+        <DraggableVirtualList list={sampleList} onUpdate={() => {}} onScroll={onScroll}>
+          {(item) => <div>{item.name}</div>}
+        </DraggableVirtualList>
+      )
+
+      fireEvent.scroll(screen.getByTestId('scrollbar'))
+      expect(onScroll).toHaveBeenCalledTimes(1)
     })
   })
 

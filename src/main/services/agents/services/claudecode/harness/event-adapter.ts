@@ -6,18 +6,6 @@ import type { ClaudeCodeHarnessAdapter } from './create-harness'
 
 const logger = loggerService.withContext('ClaudeCodeEventAdapter')
 
-function summarizeChunk(chunk: TextStreamPart<any>): Record<string, unknown> {
-  const anyChunk = chunk as any
-  return {
-    type: chunk.type,
-    id: typeof anyChunk?.id === 'string' ? anyChunk.id : undefined,
-    toolCallId: typeof anyChunk?.toolCallId === 'string' ? anyChunk.toolCallId : undefined,
-    toolName: typeof anyChunk?.toolName === 'string' ? anyChunk.toolName : undefined,
-    textChars: typeof anyChunk?.text === 'string' ? anyChunk.text.length : 0,
-    finishReason: typeof anyChunk?.finishReason === 'string' ? anyChunk.finishReason : undefined
-  }
-}
-
 function recordProjectionEvent(
   harness: ClaudeCodeHarnessAdapter | undefined,
   event: Omit<Parameters<ClaudeCodeHarnessAdapter['recordProjectionEvent']>[0], 'timestamp'>
@@ -31,12 +19,6 @@ export function emitChunk(
   chunk: TextStreamPart<any>,
   harness?: ClaudeCodeHarnessAdapter
 ): void {
-  logger.info('[EventAdapter] emit chunk', {
-    traceId: harness?.invokeContext.runtime.traceId ?? '',
-    topicId: harness?.invokeContext.projection.topicId ?? '',
-    piSessionId: harness?.invokeContext.projection.piSessionId ?? '',
-    chunk: summarizeChunk(chunk)
-  })
   stream.emit('data', {
     type: 'chunk',
     chunk

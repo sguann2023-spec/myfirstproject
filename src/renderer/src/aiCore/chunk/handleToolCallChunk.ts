@@ -6,6 +6,7 @@
 
 import { loggerService } from '@logger'
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { normalizeToCallToolResult } from '../../pages/home/Messages/Tools/shared/callToolResult'
 import { processKnowledgeReferences } from '@renderer/services/KnowledgeService'
 import type { BaseTool, MCPTool, MCPToolResponse, NormalToolResponse } from '@renderer/types'
 import type { Chunk } from '@renderer/types/chunk'
@@ -459,19 +460,21 @@ export class ToolCallChunkHandler {
     }
 
     // 创建工具调用结果的 MCPToolResponse 格式
+    const normalizedOutput = normalizeToCallToolResult(output)
     const toolResponse: MCPToolResponse | NormalToolResponse = {
       id: toolCallInfo.toolCallId,
       tool: toolCallInfo.tool,
       arguments: input,
       status: 'done',
-      response: output,
+      response: normalizedOutput,
+      responseRaw: output,
       toolCallId: toolCallId
     }
 
     // 工具特定的后处理
     switch (toolResponse.tool.name) {
       case 'builtin_knowledge_search': {
-        processKnowledgeReferences(toolResponse.response, this.onChunk)
+        processKnowledgeReferences(toolResponse.responseRaw as Parameters<typeof processKnowledgeReferences>[0], this.onChunk)
         break
       }
       // 未来可以在这里添加其他工具的后处理逻辑
@@ -525,12 +528,14 @@ export class ToolCallChunkHandler {
       logger.warn(`🔧 [ToolCallChunkHandler] Tool call info not found for ID: ${toolCallId}`)
       return
     }
+    const normalizedError = normalizeToCallToolResult(error, { isError: true })
     const toolResponse: MCPToolResponse | NormalToolResponse = {
       id: toolCallId,
       tool: toolCallInfo.tool,
       arguments: input,
       status: 'error',
-      response: error,
+      response: normalizedError,
+      responseRaw: error,
       toolCallId: toolCallId
     }
     this.clearToolCallWatchdog(toolCallId)

@@ -425,5 +425,20 @@ describe('MessageAgentTools', () => {
       const container = screen.getByTestId('collapse-content-Bash')
       expect(container.textContent).toContain('npm install')
     })
+
+    it('should render structured CallToolResult output without crashing', () => {
+      const toolResponse = createToolResponse({
+        tool: { id: 'Bash', name: 'Bash', description: 'Execute command', type: 'provider' },
+        status: 'done',
+        response: {
+          content: [{ type: 'text', text: '(no output)' }]
+        }
+      })
+
+      render(<MessageAgentTools toolResponse={toolResponse} />)
+
+      const container = screen.getByTestId('collapse-content-Bash')
+      expect(container.textContent).toContain('(no output)')
+    })
   })
 })

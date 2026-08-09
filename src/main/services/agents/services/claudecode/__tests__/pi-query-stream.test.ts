@@ -1,6 +1,105 @@
-import { describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
 
-import { convertPiUsage } from '../harness/pi-query-stream'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@logger', () => ({
+  loggerService: {
+    withContext: () => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn()
+    })
+  }
+}))
+
+vi.mock('@shared/sessionPayloadLimits', () => ({
+  limitInlineToolPayload: vi.fn((value: unknown) => value)
+}))
+
+vi.mock('../../../database/repositories/agentTurnRepository', () => ({
+  agentTurnRepository: {
+    save: vi.fn(),
+    update: vi.fn()
+  }
+}))
+
+vi.mock('../session-architecture/ConversationSegmentService', () => ({
+  conversationSegmentService: {
+    createRootSegment: vi.fn(),
+    bindSdkSession: vi.fn()
+  }
+}))
+
+vi.mock('../harness/query-side-effects', () => ({
+  handleToolResultSideEffects: vi.fn()
+}))
+
+import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
+import type { AgentStream, AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
+import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
+import { convertPiUsage, processPiHarnessQuery } from '../harness/pi-query-stream'
+
+function createStreamRecorder(): AgentStream & { events: AgentStreamEvent[] } {
+  const stream = new EventEmitter() as AgentStream & { events: AgentStreamEvent[] }
+  stream.events = []
+  stream.on('data', (event: AgentStreamEvent) => {
+    stream.events.push(event)
+  })
+  return stream
+}
+
+function createHarnessStub(overrides?: {
+  prompt?: (prompt: string, options?: unknown) => Promise<unknown>
+  abort?: () => Promise<unknown>
+}): {
+  harness: any
+  emitAgentEvent: (event: unknown) => Promise<void>
+  abort: ReturnType<typeof vi.fn>
+  prompt: ReturnType<typeof vi.fn>
+} {
+  let listener: ((event: unknown) => Promise<void>) | undefined
+  const abort = vi.fn(overrides?.abort ?? (async () => undefined))
+  const prompt = vi.fn(overrides?.prompt ?? (async () => ({ role: 'assistant', content: [], stopReason: 'stop', usage: {} })))
+
+  return {
+    emitAgentEvent: async (event) => {
+      await listener?.(event)
+    },
+    abort,
+    prompt,
+    harness: {
+      enabled: false,
+      mode: 'pi-npm',
+      importStrategy: 'npm-native-import',
+      invokeContext: {
+        runtime: { traceId: 'trace-1' },
+        projection: {
+          topicId: 'topic-1',
+          piSessionId: 'pi-session-1'
+        }
+      },
+      appendUserPrompt() {},
+      appendAssistantResponse() {},
+      recordProjectionEvent() {},
+      runtimeBridge: {
+        model: {
+          provider: 'provider-1',
+          id: 'model-1'
+        },
+        harness: {
+          subscribe(next: (event: unknown) => Promise<void>) {
+            listener = next
+            return () => {
+              listener = undefined
+            }
+          },
+          prompt,
+          abort
+        }
+      }
+    }
+  }
+}
 
 describe('convertPiUsage', () => {
   it('counts cache tokens as part of input tokens while preserving upstream total', () => {
@@ -27,5 +126,172 @@ describe('convertPiUsage', () => {
         reasoningTokens: 60
       }
     })
+  })
+})
+
+describe('processPiHarnessQuery', () => {
+  const activeSegment: AgentConversationSegment = {
+    id: 'segment-1',
+    topicId: 'topic-1',
+    sdkSessionId: 'pi-session-1',
+    systemPromptVersion: 'v1',
+    systemPromptHash: 'hash-1',
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z'
+  }
+  const currentTurn: AgentTurn = {
+    id: 'turn-1',
+    topicId: 'topic-1',
+    segmentId: 'segment-1',
+    traceId: 'trace-1',
+    userMessageId: 'user-1',
+    userText: 'hello',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    status: 'running'
+  }
+
+  beforeEach(() => {
+    vi.spyOn(agentTurnRepository, 'update').mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+    delete process.env.PI_TERMINAL_TIMEOUT_MS
+  })
+
+  it('aborts the PI harness and emits cancelled when the external signal aborts', async () => {
+    const abortController = new AbortController()
+    let aborted = false
+    let resolvePrompt: (() => void) | undefined
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        if (aborted) {
+          return {
+            role: 'assistant',
+            content: [{ type: 'text', text: '' }],
+            stopReason: 'aborted',
+            usage: {}
+          }
+        }
+        await new Promise<void>((resolve) => {
+          resolvePrompt = resolve
+        })
+        return {
+          role: 'assistant',
+          content: [{ type: 'text', text: '' }],
+          stopReason: 'aborted',
+          usage: {}
+        }
+      },
+      abort: async () => {
+        aborted = true
+        resolvePrompt?.()
+      }
+    })
+    const stream = createStreamRecorder()
+
+    const runPromise = processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1',
+        topicId: 'topic-1',
+        currentPrompt: 'hello',
+        activeSegment,
+        currentTurn,
+        promptEnvelope: {
+          systemPromptVersion: 'v1',
+          systemPromptHash: 'hash-1',
+          systemPrompt: 'system'
+        },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello',
+      abortSignal: abortController.signal
+    })
+
+    abortController.abort()
+    await runPromise
+
+    expect(harnessStub.abort).toHaveBeenCalledTimes(1)
+    expect(agentTurnRepository.update).toHaveBeenCalledWith(
+      'turn-1',
+      expect.objectContaining({
+        status: 'cancelled'
+      })
+    )
+    expect(stream.events.map((event) => event.type)).toEqual(['cancelled'])
+  })
+
+  it('fails the turn when the assistant never reaches a terminal state before the timeout', async () => {
+    vi.useFakeTimers()
+    process.env.PI_TERMINAL_TIMEOUT_MS = '1000'
+
+    let resolvePrompt: (() => void) | undefined
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        await harnessStub.emitAgentEvent({
+          type: 'message_start',
+          message: {
+            role: 'assistant',
+            content: [],
+            usage: {},
+            stopReason: 'pending'
+          }
+        })
+        await new Promise<void>((resolve) => {
+          resolvePrompt = resolve
+        })
+        return {
+          role: 'assistant',
+          content: [{ type: 'text', text: '' }],
+          stopReason: 'aborted',
+          usage: {}
+        }
+      },
+      abort: async () => {
+        resolvePrompt?.()
+      }
+    })
+    const stream = createStreamRecorder()
+
+    const runPromise = processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1',
+        topicId: 'topic-1',
+        currentPrompt: 'hello',
+        activeSegment,
+        currentTurn,
+        promptEnvelope: {
+          systemPromptVersion: 'v1',
+          systemPromptHash: 'hash-1',
+          systemPrompt: 'system'
+        },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await runPromise
+
+    expect(harnessStub.abort).toHaveBeenCalledTimes(1)
+    expect(agentTurnRepository.update).toHaveBeenCalledWith(
+      'turn-1',
+      expect.objectContaining({
+        status: 'failed'
+      })
+    )
+    expect(stream.events.map((event) => event.type)).toContain('error')
+    expect(stream.events.map((event) => event.type)).not.toContain('complete')
+    expect(stream.events.map((event) => event.type)).not.toContain('cancelled')
   })
 })

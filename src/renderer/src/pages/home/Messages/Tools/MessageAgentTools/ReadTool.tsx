@@ -5,15 +5,11 @@ import { formatFileSize } from '@renderer/utils/file'
 import type { CollapseProps } from 'antd'
 import { useTranslation } from 'react-i18next'
 
+import { extractPreviewContentFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { ClickableFilePath } from './ClickableFilePath'
 import { SkeletonValue, ToolHeader, TruncatedIndicator } from './GenericTools'
-import type {
-  ImageOutput,
-  ReadToolInput as ReadToolInputType,
-  ReadToolOutput as ReadToolOutputType,
-  TextOutput
-} from './types'
+import type { ReadToolInput as ReadToolInputType, ReadToolOutput as ReadToolOutputType } from './types'
 import { AgentToolsType } from './types'
 
 const removeSystemReminderTags = (text: string): string => {
@@ -27,28 +23,6 @@ const removeSystemReminderTags = (text: string): string => {
  */
 const stripLineNumbers = (text: string): string => {
   return text.replace(/^ *\d+→/gm, '')
-}
-
-const normalizeOutputString = (output?: ReadToolOutputType): string | null => {
-  if (!output) return null
-
-  const toText = (item: TextOutput) => removeSystemReminderTags(item.text)
-
-  if (Array.isArray(output)) {
-    return output
-      .filter((item): item is TextOutput => item.type === 'text')
-      .map(toText)
-      .join('')
-  }
-
-  if (typeof output !== 'string') return null
-
-  return removeSystemReminderTags(output)
-}
-
-const extractImageOutputs = (output?: ReadToolOutputType): ImageOutput[] => {
-  if (!Array.isArray(output)) return []
-  return output.filter((item): item is ImageOutput => item.type === 'image' && typeof item.data === 'string')
 }
 
 const getOutputStats = (outputString: string | null) => {
@@ -68,8 +42,9 @@ export function ReadTool({
   output?: ReadToolOutputType
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
-  const outputString = normalizeOutputString(output)
-  const imageOutputs = extractImageOutputs(output)
+  const preview = extractPreviewContentFromToolResult(output)
+  const outputString = preview.text ? removeSystemReminderTags(preview.text) : null
+  const imageOutputs = preview.images
   const stats = getOutputStats(outputString)
   const filename = input?.file_path?.split('/').pop()
   const language = getLanguageByFilePath(input?.file_path ?? '')
@@ -113,9 +88,9 @@ export function ReadTool({
           </>
         )}
         {imageOutputs.map((image, index) => (
-          <div key={`${image.mimeType ?? 'image/png'}-${index}`} style={{ marginTop: strippedOutput ? 12 : 0 }}>
+          <div key={`${image.mimeType}-${index}`} style={{ marginTop: strippedOutput ? 12 : 0 }}>
             <ImageViewer
-              src={`data:${image.mimeType ?? 'image/png'};base64,${image.data}`}
+              src={image.kind === 'url' ? image.source : `data:${image.mimeType};base64,${image.source}`}
               style={{ maxWidth: 300, maxHeight: 300, padding: 0, borderRadius: 8 }}
             />
           </div>

@@ -25,7 +25,7 @@ import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
-import { limitInlineText, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
+import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock } from '../../renderer/src/store/messageBlock';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
@@ -49,6 +49,7 @@ const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
 const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
 const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
+const BLOCK_NEW_CHAT_AFTER_TIMEOUT_MESSAGE = '当前会话已超时，请先在当前会话继续，暂不支持自动新建对话。';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const createLocalFilePreviewUrl = (filePath = '') => {
@@ -621,6 +622,7 @@ const sortChatSessions = (sessions) => {
 
 const STREAMING_LIKE_BLOCK_STATUSES = ['pending', 'processing', 'streaming', 'running', 'invoking'];
 const TERMINAL_TOOL_RUNTIME_STATUSES = ['done', 'error', 'cancelled'];
+const INTERRUPTED_BLOCK_STATUSES = ['cancelled', 'aborted', 'interrupted'];
 
 const isStreamingLikeBlockStatus = (value) => (
   STREAMING_LIKE_BLOCK_STATUSES.includes(String(value || '').toLowerCase())
@@ -628,6 +630,10 @@ const isStreamingLikeBlockStatus = (value) => (
 
 const isTerminalToolRuntimeStatus = (value) => (
   TERMINAL_TOOL_RUNTIME_STATUSES.includes(String(value || '').toLowerCase())
+);
+
+const isInterruptedBlockStatus = (value) => (
+  INTERRUPTED_BLOCK_STATUSES.includes(String(value || '').toLowerCase())
 );
 
 const isStructuredBlockObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -705,7 +711,7 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
 };
 
 const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
-  const nextBlockStatus = aborted ? 'success' : 'error';
+  const nextBlockStatus = aborted ? 'cancelled' : 'error';
   return (Array.isArray(blocks) ? blocks : []).map((block) => {
     if (!block || typeof block !== 'object') return block;
 
@@ -739,16 +745,20 @@ const finalizeStructuredBlocks = (blocks = [], { aborted = false } = {}) => {
 const sanitizePersistedToolResponse = (rawToolResponse = {}) => {
   if (!rawToolResponse || typeof rawToolResponse !== 'object') return rawToolResponse;
   const toolName = String(rawToolResponse?.tool?.name || 'tool');
+  const rawResponse = rawToolResponse.responseRaw ?? rawToolResponse.response;
+  const inlineResponse = limitInlineToolPayload(rawResponse, { label: `${toolName} 回包` });
   return {
     ...rawToolResponse,
     arguments: sanitizeInlinePayload(rawToolResponse.arguments, { label: `${toolName} 输入` }),
     partialArguments: undefined,
-    response: sanitizeInlinePayload(rawToolResponse.response, { label: `${toolName} 回包` })
+    response: inlineResponse,
+    responseRaw: rawResponse,
+    truncated: rawResponse !== undefined && rawResponse !== null && rawResponse !== inlineResponse
   };
 };
 
-const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false } = {}) => {
-  const nextBlockStatus = hasError ? 'error' : 'success';
+const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false, aborted = false } = {}) => {
+  const nextBlockStatus = aborted ? 'cancelled' : (hasError ? 'error' : 'success');
   return (Array.isArray(blocks) ? blocks : []).reduce((acc, block) => {
     if (!block || typeof block !== 'object') return acc;
 
@@ -776,7 +786,7 @@ const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false
         ...nextBlock.metadata,
         rawMcpToolResponse: {
           ...sanitizePersistedToolResponse(rawToolResponse),
-          status: hasError ? 'error' : 'done'
+            status: aborted ? 'cancelled' : (hasError ? 'error' : 'done')
         }
       };
     } else if (rawToolResponse) {
@@ -795,6 +805,18 @@ const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false
     acc.push(nextBlock);
     return acc;
   }, []);
+};
+
+const hasInterruptedAssistantState = (message = {}) => {
+  if (String(message?.role || '').toLowerCase() !== 'assistant') return false;
+  if (Boolean(message?.aborted)) return true;
+  if (String(message?.error?.category || '').toLowerCase() === 'aborted') return true;
+  const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+  return blocks.some((block) => {
+    if (!isStructuredBlockObject(block)) return false;
+    if (isInterruptedBlockStatus(block?.status)) return true;
+    return isInterruptedBlockStatus(block?.metadata?.rawMcpToolResponse?.status);
+  });
 };
 
 const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
@@ -823,12 +845,17 @@ const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
   if (Array.isArray(nextMessage.blocks)) {
     const structuredBlocks = nextMessage.blocks.filter((block) => isStructuredBlockObject(block));
     if (structuredBlocks.length === nextMessage.blocks.length) {
+        const aborted = hasInterruptedAssistantState(nextMessage);
       const normalizedBlocks = normalizeStructuredBlocksForPersistence(structuredBlocks, {
-        hasError: Boolean(nextMessage.error)
+          hasError: Boolean(nextMessage.error),
+          aborted
       });
       if (JSON.stringify(normalizedBlocks) !== JSON.stringify(nextMessage.blocks)) {
         ensureCloned().blocks = normalizedBlocks;
       }
+        if (aborted && nextMessage.aborted !== true) {
+          ensureCloned().aborted = true;
+        }
     }
   }
 
@@ -869,7 +896,7 @@ const shouldHydrateChatSessionFromHistory = (session) => {
 
   return session.messages.some((message) => {
     if (String(message?.role || '').toLowerCase() !== 'assistant') return false;
-    return !buildVisibleAssistantContent(message);
+    return !buildVisibleAssistantContent(message) || hasInterruptedAssistantState(message);
   });
 };
 
@@ -930,9 +957,11 @@ const shouldApplyHydratedMessages = ({
   const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
   const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
   const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
+  const beforeHasInterruptedAssistantState = (Array.isArray(currentMessages) ? currentMessages : []).some(hasInterruptedAssistantState);
   const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
+  const afterHasInterruptedAssistantState = (Array.isArray(hydratedMessages) ? hydratedMessages : []).some(hasInterruptedAssistantState);
 
   return (
     beforeMessageCount === 0
@@ -940,8 +969,27 @@ const shouldApplyHydratedMessages = ({
     || afterMissingAssistantCount < beforeMissingAssistantCount
     || afterVisibleAssistantCount > beforeVisibleAssistantCount
     || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
+    || (beforeHasInterruptedAssistantState && !afterHasInterruptedAssistantState)
     || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
   );
+};
+
+const summarizeHydrateMessageCollection = (messages = []) => {
+  const normalizedMessages = Array.isArray(messages) ? messages : [];
+  return normalizedMessages.slice(-6).map((message, index) => {
+    const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+    const imageBlocks = blocks.filter((block) => String(block?.type || '').toLowerCase() === 'image');
+    return {
+      index: normalizedMessages.length - Math.min(normalizedMessages.length, 6) + index,
+      id: String(message?.id || ''),
+      role: String(message?.role || ''),
+      contentChars: String(message?.content || '').length,
+      blockCount: blocks.length,
+      blockTypes: blocks.map((block) => String(block?.type || 'unknown')),
+      imageBlockCount: imageBlocks.length,
+      dataUrlImageBlockCount: imageBlocks.filter((block) => String(block?.url || '').startsWith('data:image/')).length
+    };
+  });
 };
 
 const buildMessageContentFromBlocks = (blocks = []) => {
@@ -967,12 +1015,57 @@ const buildVisibleAssistantContent = (message = {}) => {
   return buildAssistantDisplayContentFromBlocks(structuredBlocks).trim();
 };
 
+const isTimeoutLikeChatError = (error = {}) => {
+  if (!error || typeof error !== 'object') return false;
+  const normalized = [
+    error?.category,
+    error?.title,
+    error?.message,
+    error?.detail,
+    error?.code
+  ]
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+
+  if (!normalized) return false;
+
+  return (
+    normalized.includes('timeout')
+    || normalized.includes('timed out')
+    || normalized.includes('请求超时')
+    || normalized.includes('超时')
+    || normalized.includes('first chunk')
+  );
+};
+
+const hasTimedOutAssistant = (session = {}) => {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  return [...messages].some((message) => (
+    String(message?.role || '').toLowerCase() === 'assistant'
+    && isTimeoutLikeChatError(message?.error)
+  ));
+};
+
+const findLatestTimedOutChatSession = (sessions = []) => (
+  (Array.isArray(sessions) ? sessions : []).reduce((latest, session) => {
+    if (!hasTimedOutAssistant(session)) return latest;
+    if (!latest) return session;
+    return Number(session?.updatedAt || 0) >= Number(latest?.updatedAt || 0) ? session : latest;
+  }, null)
+);
+
 const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => {
   const sourceMessage = persistedEntry?.message || {};
   const role = String(sourceMessage?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
   const sourceBlocks = Array.isArray(persistedEntry?.blocks) ? persistedEntry.blocks.filter((block) => isStructuredBlockObject(block)) : [];
   const normalizedBlocks = normalizeStructuredBlocksForPersistence(sourceBlocks, {
-    hasError: Boolean(sourceMessage?.error)
+    hasError: Boolean(sourceMessage?.error),
+    aborted: hasInterruptedAssistantState({
+      ...sourceMessage,
+      role,
+      blocks: sourceBlocks
+    })
   });
   const contentFromBlocks = role === 'assistant'
     ? buildAssistantDisplayContentFromBlocks(normalizedBlocks)
@@ -999,6 +1092,11 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     usage: sourceMessage?.usage ? { ...sourceMessage.usage } : undefined,
     metrics: sourceMessage?.metrics ? { ...sourceMessage.metrics } : undefined,
     error: sourceMessage?.error || null,
+      aborted: hasInterruptedAssistantState({
+        ...sourceMessage,
+        role,
+        blocks: normalizedBlocks
+      }),
     storeAssistantMessageId: null
   };
 };
@@ -1232,6 +1330,13 @@ const HomePage = () => {
           currentStructuredAssistantBlockCount: countStructuredAssistantBlocks(currentMessages),
           hydratedStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages)
         });
+        logger.warn('[CTXLOSS][HistoryHydrate] persisted-sync-skip', {
+          chatId: normalizedChatId,
+          sessionId: normalizedSessionId,
+          reason,
+          currentSummary: summarizeHydrateMessageCollection(currentMessages),
+          hydratedSummary: summarizeHydrateMessageCollection(hydratedMessages)
+        });
         chatHistoryHydrateSettledRef.current.add(hydrateKey);
         return;
       }
@@ -1260,6 +1365,13 @@ const HomePage = () => {
         return sortChatSessions(updated);
       });
       chatHistoryHydrateSettledRef.current.add(hydrateKey);
+      logger.info('[CTXLOSS][HistoryHydrate] persisted-sync-applied', {
+        chatId: normalizedChatId,
+        sessionId: normalizedSessionId,
+        reason,
+        beforeMessageIds: Array.from(beforeMessageIds).slice(-8),
+        hydratedSummary: summarizeHydrateMessageCollection(hydratedMessages)
+      });
     } catch (error) {
       logger.warn('[HomePage][HistoryHydrate] failed persisted sync', {
         chatId: normalizedChatId,
@@ -1468,7 +1580,8 @@ const HomePage = () => {
         setChatWebPreview(null);
         setSelectedPane('chat');
         setChatHistoryVisible(false);
-        handleCreateChatSession();
+        logger.info('[HomePage] restart-beginner-guide received');
+        handleCreateChatSession({ source: 'restart-beginner-guide' });
       };
 
       ipcRenderer.on('restart-beginner-guide', handleRestartBeginnerGuide);
@@ -1591,9 +1704,14 @@ const HomePage = () => {
             if (freshGuideSession) {
               nextActiveChatId = freshGuideSession.id;
             } else {
-              const nextFreshSession = createEmptyChatSession();
-              nextSessions = [nextFreshSession, ...nextSessions];
-              nextActiveChatId = nextFreshSession.id;
+              const timedOutSession = findLatestTimedOutChatSession(nextSessions);
+              if (timedOutSession?.id) {
+                nextActiveChatId = timedOutSession.id;
+              } else {
+                const nextFreshSession = createEmptyChatSession();
+                nextSessions = [nextFreshSession, ...nextSessions];
+                nextActiveChatId = nextFreshSession.id;
+              }
             }
             setSelectedPane('chat');
             setChatHistoryVisible(false);
@@ -1737,6 +1855,37 @@ const HomePage = () => {
   const activeChatNeedsHistoryHydrate = Boolean(
     activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
   );
+  const recoverTimedOutChatBeforeAutoCreate = useCallback(({ source = 'auto-create-chat', notify = true } = {}) => {
+    const timedOutSession = findLatestTimedOutChatSession(chatSessionsRef.current);
+    const chatId = String(timedOutSession?.id || '').trim();
+    if (!chatId) {
+      return null;
+    }
+
+    const runtimeSessionId = String(timedOutSession?.runtimeSessionId || '').trim();
+    logger.warn('[HomePage][SessionSending] blocked automatic chat creation after timeout', {
+      source,
+      chatId,
+      runtimeSessionId
+    });
+
+    if (runtimeSessionId) {
+      chatHistoryHydrateSettledRef.current.delete(`${chatId}:${runtimeSessionId}`);
+      void hydratePersistedChatSessionFromHistory({
+        chatId,
+        sessionId: runtimeSessionId,
+        reason: `blocked-auto-chat-create-after-timeout:${source}`
+      });
+    }
+
+    if (notify) {
+      window.toast?.warning?.(BLOCK_NEW_CHAT_AFTER_TIMEOUT_MESSAGE);
+    }
+
+    setSelectedPane('chat');
+    setActiveChatId(chatId);
+    return timedOutSession;
+  }, [hydratePersistedChatSessionFromHistory]);
 
   useEffect(() => {
     if (!latestChatBrowserPreview) {
@@ -1912,6 +2061,12 @@ const HomePage = () => {
             afterStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages),
             messageCount: hydratedMessages.length
           });
+          logger.warn('[CTXLOSS][HistoryHydrate] active-sync-skip', {
+            chatId: activeChatSession.id,
+            sessionId: runtimeSessionId,
+            currentSummary: summarizeHydrateMessageCollection(activeChatSession.messages),
+            hydratedSummary: summarizeHydrateMessageCollection(hydratedMessages)
+          });
           return;
         }
 
@@ -1940,6 +2095,12 @@ const HomePage = () => {
           return sortChatSessions(updated);
         });
         chatHistoryHydrateSettledRef.current.add(hydrateKey);
+        logger.info('[CTXLOSS][HistoryHydrate] active-sync-applied', {
+          chatId: activeChatSession.id,
+          sessionId: runtimeSessionId,
+          beforeSummary: summarizeHydrateMessageCollection(activeChatSession.messages),
+          hydratedSummary: summarizeHydrateMessageCollection(hydratedMessages)
+        });
       } catch (error) {
         if (cancelled) return;
         logger.warn('[HomePage][HistoryHydrate] failed', {
@@ -2061,6 +2222,51 @@ const HomePage = () => {
       return sortChatSessions(updated);
     });
   }, []);
+  const finalizeChatAssistantMessageLocally = useCallback(({
+    chatId,
+    assistantMessageId,
+    storeAssistantMessageId
+  }, {
+    error = null,
+    aborted = false
+  } = {}) => {
+    if (!chatId || !assistantMessageId) return;
+    const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+    updateChatAssistantMessage(chatId, assistantMessageId, (message) => {
+      const sourceBlocks = snapshot?.blocks || message?.blocks || [];
+      const nextBlocks = finalizeStructuredBlocks(sourceBlocks, { aborted });
+      const nextContent =
+        snapshot?.content
+        || buildAssistantDisplayContentFromBlocks(nextBlocks)
+        || message?.content
+        || '';
+      const nextModel = normalizeMessageModelMeta(
+        snapshot?.model || message?.model,
+        snapshot?.model?.id || message?.modelId || chatModel,
+        chatModelOptionsRef.current
+      ) || message?.model || chatModelMetaRef.current || chatModelMeta;
+      const nextModelId = String(
+        nextModel?.id
+        || resolveMessageModelId(snapshot?.model, message?.modelId || chatModel)
+        || message?.modelId
+        || chatModel
+        || ''
+      ).trim() || chatModel;
+      return {
+        ...message,
+        storeAssistantMessageId: null,
+        content: nextContent,
+        blocks: nextBlocks,
+        usage: snapshot?.usage ? { ...snapshot.usage } : message?.usage,
+        metrics: snapshot?.metrics ? { ...snapshot.metrics } : message?.metrics,
+        model: nextModel,
+        modelId: nextModelId,
+        error,
+        aborted: Boolean(aborted),
+        updatedAt: Date.now()
+      };
+    });
+  }, [chatModel, chatModelMeta, updateChatAssistantMessage]);
   const activeChatSending = Boolean(activeChatId) && isChatSessionPending({
     isPending: chatSessionInFlightMap[activeChatId]
   });
@@ -2568,53 +2774,16 @@ const HomePage = () => {
         });
       };
 
-      const finalizeAssistantMessage = ({ error = null, aborted = false } = {}) => {
-        const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
-        setChatSessions((prev) => {
-          const updated = prev.map((item) => {
-            if (item.id !== chatId) return item;
-            return {
-              ...item,
-              updatedAt: Date.now(),
-              messages: item.messages.map((message) => {
-                if (message.id !== assistantMessageId) return message;
-                const sourceBlocks = snapshot?.blocks || message.blocks || [];
-                const nextBlocks = finalizeStructuredBlocks(sourceBlocks, { aborted });
-                const nextContent =
-                  snapshot?.content
-                  || buildAssistantDisplayContentFromBlocks(nextBlocks)
-                  || message.content
-                  || '';
-                const nextModel = normalizeMessageModelMeta(
-                  snapshot?.model || message.model,
-                  snapshot?.model?.id || message.modelId || chatModel,
-                  chatModelOptionsRef.current
-                ) || message.model || chatModelMetaRef.current || chatModelMeta;
-                const nextModelId = String(
-                  nextModel?.id
-                  || resolveMessageModelId(snapshot?.model, message.modelId || chatModel)
-                  || message.modelId
-                  || chatModel
-                  || ''
-                ).trim() || chatModel;
-                return {
-                  ...message,
-                  storeAssistantMessageId: null,
-                  content: nextContent,
-                  blocks: nextBlocks,
-                  usage: snapshot?.usage ? { ...snapshot.usage } : message.usage,
-                  metrics: snapshot?.metrics ? { ...snapshot.metrics } : message.metrics,
-                  model: nextModel,
-                  modelId: nextModelId,
-                  error,
-                  updatedAt: Date.now()
-                };
-              })
-            };
+        const finalizeAssistantMessage = ({ error = null, aborted = false } = {}) => {
+          finalizeChatAssistantMessageLocally({
+            chatId,
+            assistantMessageId,
+            storeAssistantMessageId
+          }, {
+            error,
+            aborted
           });
-          return sortChatSessions(updated);
-        });
-      };
+        };
 
       if (payload.type === 'chunk') {
         const chunkStart = getPerfTimestamp();
@@ -2856,11 +3025,18 @@ const HomePage = () => {
     };
   }, [canUseAgentRuntime]);
 
-  const handleCreateChatSession = () => {
+  const handleCreateChatSession = (metadata = {}) => {
     const session = createEmptyChatSession();
     logger.info('[HomePage][SessionSending] create session', {
       sessionId: session.id,
-      fromActiveChatId: activeChatId
+      fromActiveChatId: activeChatId,
+      source: String(metadata?.source || 'unknown'),
+      isTrusted: metadata?.isTrusted,
+      detail: metadata?.detail,
+      pointerType: metadata?.pointerType || '',
+      clientX: metadata?.clientX,
+      clientY: metadata?.clientY,
+      startupElapsedMs: metadata?.startupElapsedMs
     });
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
@@ -2920,7 +3096,14 @@ const HomePage = () => {
       workspacePath: '',
       reusedCurrentSession: false
     };
-  }, [activeChatSession, setChatSessionFulfilled, setChatSessionInFlight, setChatSessionSending, setChatSessions, setChatWorkspaceStatus]);
+  }, [
+    activeChatSession,
+    setChatSessionFulfilled,
+    setChatSessionInFlight,
+    setChatSessionSending,
+    setChatSessions,
+    setChatWorkspaceStatus
+  ]);
 
   const handleBootstrapChildrensPictureBook = useCallback(async () => {
     const target = await prepareQuickSkillTargetSession('正在准备儿童绘本技能...');
@@ -3275,10 +3458,15 @@ const HomePage = () => {
 
     let targetSessionId = activeChatId;
     if (!targetSessionId) {
-      const created = createEmptyChatSession();
-      targetSessionId = created.id;
-      setChatSessions((prev) => [created, ...prev]);
-      setActiveChatId(created.id);
+      const recoveredSession = recoverTimedOutChatBeforeAutoCreate({ source: 'send-without-active-chat' });
+      if (recoveredSession?.id) {
+        targetSessionId = recoveredSession.id;
+      } else {
+        const created = createEmptyChatSession();
+        targetSessionId = created.id;
+        setChatSessions((prev) => [created, ...prev]);
+        setActiveChatId(created.id);
+      }
     }
     if (isChatSessionSending(targetSessionId)) {
       logger.warn('[HomePage][SessionSending] blocked send by session sending', {
@@ -3489,6 +3677,14 @@ const HomePage = () => {
       const pendingEntries = [...chatPendingByRequestIdRef.current.entries()];
       const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
       if (active && active[1]?.agentSessionId) {
+          finalizeChatAssistantMessageLocally({
+            chatId: active[1].chatId,
+            assistantMessageId: active[1].assistantMessageId,
+            storeAssistantMessageId: active[1].storeAssistantMessageId
+          }, {
+            error: null,
+            aborted: true
+          });
         void window.electronAPI.cherryChatStream.abort(active[1].agentSessionId);
         return;
       }

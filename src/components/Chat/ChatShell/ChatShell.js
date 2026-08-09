@@ -2294,7 +2294,13 @@ const ChatShell = ({
           <span
             className="chat-panel__navbar-icon-wrap"
             style={{ marginLeft: 6 }}
-            onClick={() => onCreateSession && onCreateSession()}>
+            onClick={(event) => onCreateSession && onCreateSession({
+              source: 'chat-shell-navbar-click',
+              isTrusted: Boolean(event?.isTrusted),
+              detail: Number(event?.detail || 0),
+              clientX: Number(event?.clientX || 0),
+              clientY: Number(event?.clientY || 0)
+            })}>
             <img className="chat-panel__navbar-icon-image" src={NewChatIcon} alt="新建对话" />
           </span>
         </Tooltip>

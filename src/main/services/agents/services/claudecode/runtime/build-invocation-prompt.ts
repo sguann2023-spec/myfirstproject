@@ -5,6 +5,7 @@ import { CHANNEL_SECURITY_PROMPT } from '@shared/agents/claudecode/constants'
 import { languageEnglishNameMap } from '@shared/config/languages'
 
 import type { GetAgentSessionResponse } from '../..'
+import { agentArtifactRepository } from '../../../database/repositories/agentArtifactRepository'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
 import { channelService } from '../../ChannelService'
 import { PromptBuilder } from '../../cherryclaw/prompt'
@@ -145,11 +146,16 @@ export async function buildInvocationPromptState(input: {
 
   const recentTurnLimit = getSegmentRecentTurnLimit(activeSegment?.continuationSummary)
   const recentTurns = activeSegment ? await agentTurnRepository.listBySegmentId(activeSegment.id, recentTurnLimit) : []
+  const referencedArtifacts = (
+    await Promise.all(recentTurns.map(async (turn) => agentArtifactRepository.listByTurnId(turn.id)))
+  )
+    .flat()
+    .filter((artifact) => artifact.sourceType === 'tool_result')
   const promptView = await promptViewBuilder.build({
     continuationSummary: activeSegment?.continuationSummary,
     recentTurns,
     currentPrompt: sdkPrompt,
-    referencedArtifacts: []
+    referencedArtifacts
   })
   const promptEnvelope = await segmentPromptService.build({
     stableBasePrompt: assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || ''),

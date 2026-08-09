@@ -114,9 +114,9 @@ type IntentRoute = {
 
 已接入工具：
 
-- `read` -> `Read` / `Glob` / `Grep`
+- `read` -> `Read` / `Bash`
 - `write` -> `Write` / `Edit` / `MultiEdit`
-- `find` -> `Glob` / `Grep`
+- `find` -> `Bash`
 - `notebook` -> `NotebookRead` / `NotebookEdit`
 - `task` -> `Task` / `TodoWrite`
 - `download` -> `mcp__filesystem-server__download`
@@ -124,6 +124,8 @@ type IntentRoute = {
 
 说明：
 
+- `Read` / `Bash`：当返回内容特别长（如大文件、长日志、长命令输出）时，允许工具内部先做一层“结果整理/摘要预览”，优先返回结构化的关键信息、统计信息、命中片段、头尾片段、错误摘要或下一步可继续读取的定位信息，而不是把整段原文直接塞进模型上下文
+- `Read` / `Bash`：工具内摘要只负责改善可读性与上下文利用率，不替代原始结果持久化；系统侧仍应保留完整 `rawOutput`，模型消费侧仅使用工具提供的 `inline/summary` 结果，并保留统一的 `16KB` 硬截断兜底
 - `download`：当用户需要把远程文件、图片、音频、视频链接下载到当前 workspace 时使用；应优先保存到当前工作空间内的目标目录，而不是系统 Downloads；适用于通用文件落地，不负责媒体裁剪、抽帧、拼接等后处理
 - `upload`：当用户需要上传本地文件并拿到可复用 URL 时使用；逻辑上先获取临时 STS，再上传到 OSS 并返回基于 OSS 官方域名的 `public url` / `signed public url`，不走 `player.install-ai-guider.top`；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错
 
@@ -452,8 +454,7 @@ type IntentRoute = {
 默认挂：
 
 - `Read`
-- `Glob`
-- `Grep`
+- `Bash`
 
 #### `workspace.write`
 

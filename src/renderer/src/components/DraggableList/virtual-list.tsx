@@ -45,6 +45,7 @@ export interface DraggableVirtualListProps<T> {
   className?: string
   style?: React.CSSProperties
   scrollerStyle?: React.CSSProperties
+  onScroll?: () => void
   itemStyle?: React.CSSProperties
   itemContainerStyle?: React.CSSProperties
   droppableProps?: Partial<DroppableProps>
@@ -72,6 +73,7 @@ function DraggableVirtualList<T>({
   className,
   style,
   scrollerStyle,
+  onScroll,
   itemStyle,
   itemContainerStyle,
   droppableProps,
@@ -160,6 +162,7 @@ function DraggableVirtualList<T>({
                 ref={setRefs}
                 {...provided.droppableProps}
                 className="virtual-scroller"
+                onScroll={onScroll}
                 style={{
                   ...scrollerStyle,
                   height: '100%',

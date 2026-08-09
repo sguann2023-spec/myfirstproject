@@ -97,7 +97,7 @@ describe('ConversationSummaryService', () => {
     expect(summary).not.toContain('上次摘要里有一大段解释性文字')
   })
 
-  it('extracts stable handles from tool result artifacts without keeping full tool output', async () => {
+  it('does not inject tool result artifacts into structured state', async () => {
     const summary = await conversationSummaryService.buildRawSummary({
       segment: {
         id: 'segment-1',
@@ -131,11 +131,9 @@ describe('ConversationSummaryService', () => {
       fileChanges: []
     })
 
-    expect(summary).toContain('## Structured State')
-    expect(summary).toContain('- taskId: task_789')
-    expect(summary).toContain('- draftId: draft_999')
-    expect(summary).toContain('- url: https://example.com/download/999')
-    expect(summary).not.toContain('这里还有一大段冗长的调试输出')
+    expect(summary).toContain('## Referenced Artifacts')
+    expect(summary).toContain('artifact: draft_download')
+    expect(summary).not.toContain('- taskId: task_789')
   })
 
   it('preserves url lines when compressed summary is truncated', async () => {
@@ -178,6 +176,19 @@ describe('PromptViewBuilder', () => {
           completedAt: '2026-01-01T00:00:01.000Z',
           status: 'completed'
         }
+      ],
+      referencedArtifacts: [
+        {
+          id: 'artifact-1',
+          topicId: 'topic-1',
+          segmentId: 'segment-1',
+          turnId: 'turn-1',
+          sourceType: 'tool_result',
+          toolSubtype: 'Read',
+          content: 'x'.repeat(20 * 1024),
+          contentHash: 'hash-1',
+          createdAt: '2026-01-01T00:00:00.000Z'
+        }
       ]
     })
 
@@ -185,5 +196,7 @@ describe('PromptViewBuilder', () => {
     expect(promptView.recentTurns[0].text.length).toBeLessThanOrEqual(280)
     expect(promptView.recentTurns[1].text.length).toBeLessThanOrEqual(280)
     expect(promptView.recentTurns[0].text.endsWith('…')).toBe(true)
+    expect(promptView.referencedArtifacts).toHaveLength(1)
+    expect(promptView.referencedArtifacts?.[0]?.summary).toContain('已截断')
   })
 })

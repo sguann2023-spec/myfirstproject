@@ -3,6 +3,7 @@ import { Tag } from 'antd'
 import { CheckCircle, Terminal, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { truncateOutput } from '../shared/truncateOutput'
 import { ToolHeader, TruncatedIndicator } from './GenericTools'
 import { TerminalOutput } from './TerminalOutput'
@@ -55,7 +56,8 @@ export function BashOutputTool({
   output?: BashOutputToolOutput
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
-  const parsedOutput = parseBashOutput(output)
+  const normalizedOutput = extractTextPreviewFromToolResult(output)
+  const parsedOutput = parseBashOutput(normalizedOutput)
 
   const getStatusConfig = (parsed: ParsedBashOutput | null) => {
     if (!parsed) return null
@@ -100,7 +102,7 @@ export function BashOutputTool({
   const truncatedStdout = truncateOutput(parsedOutput?.stdout)
   const truncatedStderr = truncateOutput(parsedOutput?.stderr)
   const truncatedError = truncateOutput(parsedOutput?.tool_use_error)
-  const truncatedRawOutput = truncateOutput(output)
+  const truncatedRawOutput = truncateOutput(normalizedOutput)
 
   const children = parsedOutput ? (
     <div className="flex flex-col gap-4">

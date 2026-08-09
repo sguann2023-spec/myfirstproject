@@ -25,7 +25,7 @@ import type { ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resource
 import { loggerService } from '@logger'
 import type { CallToolResult, ImageContent, ResourceLink, TextContent } from '@modelcontextprotocol/sdk/types.js'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
-import { limitInlineText, sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
+import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ClaudeStreamState } from './claude-stream-state'
@@ -75,7 +75,8 @@ const emptyUsage: LanguageModelUsage = {
  */
 const generateMessageId = (): string => `msg_${uuidv4().replace(/-/g, '')}`
 const limitInlineMessageText = (text: string, label: string): string => limitInlineText(text, { label })
-const limitInlineToolPayload = (value: unknown, label: string): unknown => sanitizeInlinePayload(value, { label })
+const limitInlineGeneralPayload = (value: unknown, label: string): unknown => sanitizeInlinePayload(value, { label })
+const limitInlineToolResultPayload = (value: unknown, label: string): unknown => limitInlineToolPayload(value, { label })
 
 const summarizeForLog = (value: unknown): string => {
   if (typeof value === 'string') {
@@ -104,7 +105,7 @@ const summarizeForLog = (value: unknown): string => {
  */
 function toMcpToolResult(content: AnthropicToolResultContent): CallToolResult | string {
   if (typeof content === 'string') {
-    return limitInlineMessageText(content, '工具回包')
+    return content
   }
 
   const mapped: Array<TextContent | ImageContent | AnthropicResourceLink> = content.map((item) => {
@@ -118,7 +119,7 @@ function toMcpToolResult(content: AnthropicToolResultContent): CallToolResult | 
     return item as TextContent | AnthropicResourceLink
   })
 
-  return limitInlineToolPayload({ content: mapped }, '工具回包') as CallToolResult | string
+  return { content: mapped }
 }
 
 /**
@@ -355,11 +356,11 @@ function handleAssistantToolUse(
     type: 'tool-call',
     toolCallId,
     toolName: block.name,
-    input: limitInlineToolPayload(block.input, `${block.name} 输入`),
+    input: limitInlineGeneralPayload(block.input, `${block.name} 输入`),
     providerExecuted: true,
     providerMetadata
   })
-  state.completeToolBlock(block.id, block.name, limitInlineToolPayload(block.input, `${block.name} 输入`), providerMetadata)
+  state.completeToolBlock(block.id, block.name, limitInlineGeneralPayload(block.input, `${block.name} 输入`), providerMetadata)
 }
 
 /**
@@ -432,23 +433,29 @@ function handleUserMessage(
           outputPreview: summarizeForLog(toolResult.content)
         })
         if (toolResult.is_error) {
+          const rawError = toMcpToolResult(toolResult.content)
           chunks.push({
             type: 'tool-error',
             toolCallId,
             toolName: pendingCall?.toolName ?? 'unknown',
             input: pendingCall?.input,
-            error: limitInlineToolPayload(toolResult.content, `${pendingCall?.toolName ?? 'tool'} 错误输出`),
+            error: limitInlineToolResultPayload(rawError, `${pendingCall?.toolName ?? 'tool'} 错误输出`),
+            rawError,
             providerExecuted: true
           } as AgentStreamPart)
         } else {
-          chunks.push({
-            type: 'tool-result',
-            toolCallId,
-            toolName: pendingCall?.toolName ?? 'unknown',
-            input: pendingCall?.input,
-            output: toMcpToolResult(toolResult.content),
-            providerExecuted: true
-          })
+          const rawOutput = toMcpToolResult(toolResult.content)
+          chunks.push(
+            {
+              type: 'tool-result',
+              toolCallId,
+              toolName: pendingCall?.toolName ?? 'unknown',
+              input: pendingCall?.input,
+              output: limitInlineToolResultPayload(rawOutput, `${pendingCall?.toolName ?? 'tool'} 回包`),
+              rawOutput,
+              providerExecuted: true
+            } as AgentStreamPart
+          )
         }
       }
     }

@@ -65,17 +65,6 @@ const summarizeRecentAssistantResponse = (text: string): string[] => {
 
 const summarizeRecentUserRequest = (text: string): string => toBullet(text)
 
-const summarizeArtifactHandles = (artifacts: AgentArtifact[]): string[] =>
-  buildUniqueLines(
-    artifacts.flatMap((artifact) => {
-      if (artifact.sourceType !== 'tool_result') {
-        return []
-      }
-      return extractStableStateLines(`${artifact.summary || ''}\n${artifact.content || ''}`, 4)
-    }),
-    STABLE_HANDLE_LINE_LIMIT
-  )
-
 export interface BuildRawSummaryInput {
   segment: AgentConversationSegment
   recentTurns: AgentTurn[]
@@ -125,11 +114,10 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
         return location ? `- artifact: ${truncateSummaryLine(location, 180)}` : ''
       })
       .filter(Boolean)
-    const toolResultHandles = summarizeArtifactHandles(input.artifacts)
     const previousContextLines = input.segment.continuationSummary
       ? extractStableStateLines(input.segment.continuationSummary)
       : []
-    const structuredStateLines = buildUniqueLines([...previousContextLines, ...toolResultHandles], STABLE_HANDLE_LINE_LIMIT)
+    const structuredStateLines = buildUniqueLines(previousContextLines, STABLE_HANDLE_LINE_LIMIT)
     const previousContext = structuredStateLines.length > 0 ? ['## Structured State', ...structuredStateLines] : []
 
     return [

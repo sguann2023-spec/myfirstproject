@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { loggerService } from '@logger'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
+import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStream } from '../../../interfaces/AgentStreamInterface'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
@@ -14,8 +15,11 @@ import { conversationSegmentService } from '../session-architecture/Conversation
 import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
 import type { ClaudeCodeHarnessAdapter } from './create-harness'
 import type { SessionArchitectureContext } from './query-stream'
+import { buildInlineToolResultPayload } from './tool-result-payload'
 
 const logger = loggerService.withContext('ClaudeCodePiQuery')
+
+const DEFAULT_PI_TERMINAL_TIMEOUT_MS = 120_000
 
 type PendingToolCall = {
   emittedId: string
@@ -29,6 +33,18 @@ function mapPiStopReason(reason: string | undefined): 'stop' | 'length' | 'tool-
   if (reason === 'toolUse') return 'tool-calls'
   if (reason === 'error' || reason === 'aborted') return 'error'
   return 'stop'
+}
+
+function resolvePiTerminalTimeoutMs(): number {
+  const raw = Number(process.env.PI_TERMINAL_TIMEOUT_MS ?? '')
+  if (Number.isFinite(raw) && raw >= 1_000) return raw
+  return DEFAULT_PI_TERMINAL_TIMEOUT_MS
+}
+
+function createPiTerminalTimeoutError(timeoutMs: number): Error {
+  const error = new Error(`PI assistant stream did not reach a terminal state within ${timeoutMs}ms`)
+  error.name = 'PiStreamTerminalTimeoutError'
+  return error
 }
 
 export function convertPiUsage(usage?: {
@@ -78,15 +94,9 @@ function getArtifactSourceType(toolName: string): 'read' | 'grep' | 'webfetch' |
 }
 
 function shouldOffloadToolResult(toolName: string, outputText: string): boolean {
-  const lower = toolName.toLowerCase()
-  return (
-    outputText.length >= 1500 ||
-    lower.includes('browser__screenshot') ||
-    lower.includes('browser__snapshot') ||
-    lower.includes('read') ||
-    lower.includes('grep') ||
-    lower.includes('webfetch')
-  )
+  void toolName
+  void outputText
+  return true
 }
 
 function summarizeValue(value: unknown): string {
@@ -189,8 +199,9 @@ export async function processPiHarnessQuery(input: {
   harness: ClaudeCodeHarnessAdapter
   prompt: string
   images?: Array<{ data: string; media_type: string }>
+  abortSignal?: AbortSignal
 }): Promise<void> {
-  const { stream, sessionId, architectureContext, harness, prompt, images } = input
+  const { stream, sessionId, architectureContext, harness, prompt, images, abortSignal } = input
   const runtimeBridge = harness.runtimeBridge
 
   if (!runtimeBridge) {
@@ -224,9 +235,46 @@ export async function processPiHarnessQuery(input: {
   let reasoningDeltaCount = 0
   let toolCallCount = 0
   let toolResultCount = 0
+  const terminalTimeoutMs = resolvePiTerminalTimeoutMs()
+  let terminalTimeoutHandle: NodeJS.Timeout | undefined
+  let terminalTimeoutTriggered = false
+  let externalAbortRequested = abortSignal?.aborted === true
+
+  const clearTerminalTimeout = () => {
+    if (!terminalTimeoutHandle) return
+    clearTimeout(terminalTimeoutHandle)
+    terminalTimeoutHandle = undefined
+  }
+
+  const armTerminalTimeout = () => {
+    clearTerminalTimeout()
+    terminalTimeoutHandle = setTimeout(() => {
+      terminalTimeoutTriggered = true
+      void runtimeBridge.harness.abort().catch((abortError) => {
+        void abortError
+      })
+    }, terminalTimeoutMs)
+  }
+
+  const onAbort = () => {
+    externalAbortRequested = true
+    clearTerminalTimeout()
+    void runtimeBridge.harness.abort().catch((abortError) => {
+      void abortError
+    })
+  }
+
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      onAbort()
+    } else {
+      abortSignal.addEventListener('abort', onAbort, { once: true })
+    }
+  }
 
   const unsubscribe = runtimeBridge.harness.subscribe(async (event) => {
     if (event.type === 'message_start' && event.message.role === 'assistant') {
+      armTerminalTimeout()
       currentAssistantMessageId = `pi_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       currentAssistantUsage = convertPiUsage((event.message as any).usage)
       currentAssistantStopReason = mapPiStopReason((event.message as any).stopReason)
@@ -409,6 +457,7 @@ export async function processPiHarnessQuery(input: {
     }
 
     if (event.type === 'message_end' && event.message.role === 'assistant') {
+      clearTerminalTimeout()
       latestInputTokens = Number((event.message as any).usage?.input ?? latestInputTokens)
       currentAssistantUsage = convertPiUsage((event.message as any).usage)
       currentAssistantStopReason = mapPiStopReason((event.message as any).stopReason)
@@ -475,7 +524,8 @@ export async function processPiHarnessQuery(input: {
             toolCallId: emittedToolCallId,
             toolName,
             input: pending?.input,
-            error: summarizeValue(event.result),
+            error: limitInlineToolPayload(event.result, { label: `${toolName || 'tool'} 错误输出` }),
+            rawError: event.result,
             providerExecuted: false,
             providerMetadata
           } as TextStreamPart<any>,
@@ -490,6 +540,12 @@ export async function processPiHarnessQuery(input: {
       }
 
       const output = (event.result as { content?: unknown; details?: unknown }).content ?? event.result
+      const rawOutput = event.result
+      const inlineSource = buildInlineToolResultPayload(event.result)
+      const inlineOutput = limitInlineToolPayload(
+        Array.isArray(inlineSource) ? { content: inlineSource } : inlineSource,
+        { label: `${toolName || 'tool'} 回包` }
+      )
       logger.info('[PiQuery] tool_execution_end success', {
         sessionId,
         traceId: architectureContext.traceId,
@@ -504,7 +560,8 @@ export async function processPiHarnessQuery(input: {
         toolCallId: emittedToolCallId,
         toolName,
         input: pending?.input,
-        output: Array.isArray(output) ? { content: output } : output,
+        output: inlineOutput,
+        rawOutput,
         providerExecuted: false,
         providerMetadata
       } as TextStreamPart<any>
@@ -532,6 +589,25 @@ export async function processPiHarnessQuery(input: {
         mimeType: image.media_type
       }))
     })
+    clearTerminalTimeout()
+
+    const resultStopReason = String((result as any).stopReason || '').trim()
+    if (terminalTimeoutTriggered) {
+      throw createPiTerminalTimeoutError(terminalTimeoutMs)
+    }
+    if (externalAbortRequested || abortSignal?.aborted || resultStopReason === 'aborted') {
+      await agentTurnRepository.update(currentTurn.id, {
+        assistantText: streamedAssistantText || undefined,
+        completedAt: new Date().toISOString(),
+        status: 'cancelled',
+        cumulativeInputTokens: latestInputTokens
+      })
+      emitCancelled(stream, new Error('Request aborted by client'), harness)
+      return
+    }
+    if (resultStopReason === 'error') {
+      throw new Error(String((result as any).errorMessage || 'PI harness returned an error stop reason'))
+    }
 
     const finalAssistantText = extractAssistantText(result as any) || streamedAssistantText
     const finalUsage = convertPiUsage((result as any).usage)
@@ -572,8 +648,15 @@ export async function processPiHarnessQuery(input: {
     emitLifecycleEvent(stream, 'stream-finished', harness)
     emitLifecycleEvent(stream, 'complete', harness)
   } catch (error) {
+    clearTerminalTimeout()
     const errorObj = error instanceof Error ? error : new Error(String(error))
-    const isAborted = errorObj.name === 'AbortError' || errorObj.message.includes('aborted')
+    const isTimedOut = terminalTimeoutTriggered || errorObj.name === 'PiStreamTerminalTimeoutError'
+    const isAborted =
+      !isTimedOut &&
+      (externalAbortRequested ||
+        abortSignal?.aborted === true ||
+        errorObj.name === 'AbortError' ||
+        errorObj.message.includes('aborted'))
 
     await agentTurnRepository.update(currentTurn.id, {
       assistantText: streamedAssistantText || undefined,
@@ -593,6 +676,10 @@ export async function processPiHarnessQuery(input: {
     })
     emitError(stream, errorObj, harness)
   } finally {
+    clearTerminalTimeout()
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', onAbort)
+    }
     unsubscribe()
   }
 }

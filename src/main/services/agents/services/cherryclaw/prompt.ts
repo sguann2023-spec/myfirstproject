@@ -198,7 +198,7 @@ ${evidenceLine}
 
 - The current workspace absolute path is: ${workspacePath}
 - Treat this absolute path as the workspace root for this turn.
-- Before any file-related action, first confirm the current workspace structure and the relevant target path with available workspace read tools such as Glob, Read, or Grep.
+- Before any file-related action, first confirm the current workspace structure and the relevant target path with available workspace tools such as Read or Bash.
 - When a file, command output, or JSON document is large, do not dump the full body inline into the conversation. Prefer targeted reads, filters, or scripts, and write intermediate full inputs/outputs to files inside the workspace.
 - For very large JSON, logs, transcripts, or generated text, prefer shell or code workflows such as \`jq\`, \`rg\`, \`head\`, \`tail\`, or small scripts that extract only the needed slice before responding.
 - For downloaded artifacts such as audio, images, archives, and generated files, save them inside the current workspace by default unless the user explicitly asks for another location.
@@ -211,7 +211,7 @@ ${evidenceLine}
       sections.push(`## File editing
 
 - For existing files, inspect the current content before editing.
-- For Edit and MultiEdit, copy \`old_string\` exactly from the latest Read or Grep output instead of reconstructing it from memory.
+- For Edit and MultiEdit, copy \`old_string\` exactly from the latest Read output instead of reconstructing it from memory.
 - Preserve every character exactly as read, including whitespace, indentation, emojis, quotes, and escape sequences.
 - If you need to make multiple targeted changes in the same file, prefer \`MultiEdit\` so related edits are grouped into one tool call.
 - Use \`Edit\` for a single localized change, or when you only have one verified anchor ready.

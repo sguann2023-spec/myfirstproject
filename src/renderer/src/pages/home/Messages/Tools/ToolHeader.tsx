@@ -29,6 +29,7 @@ import { renderToolChangeStats } from './MessageAgentTools/changeStats'
 import { type ToolStatus, ToolStatusIndicator } from './MessageAgentTools/GenericTools'
 import { AgentToolsType } from './MessageAgentTools/types'
 import { getMcpToolDisplayName, parseMcpToolName } from './shared/mcpToolDisplay'
+import { getDisplayToolHasError, getDisplayToolStatus } from './shared/toolDisplayState'
 
 export interface ToolHeaderProps {
   block?: ToolMessageBlock
@@ -242,8 +243,8 @@ const ToolHeader: FC<ToolHeaderProps> = ({
 
   const toolName = propToolName || tool?.name || 'Tool'
 
-  const status = propStatus || (toolResponse?.status as ToolStatus)
-  const hasError = propHasError ?? toolResponse?.response?.isError === true
+  const status = (propStatus || getDisplayToolStatus(toolResponse)) as ToolStatus
+  const hasError = getDisplayToolHasError(toolResponse, propHasError)
 
   const description = params ?? getToolDescription(toolResponse)
   const parsedPartialArgs = useMemo(() => {

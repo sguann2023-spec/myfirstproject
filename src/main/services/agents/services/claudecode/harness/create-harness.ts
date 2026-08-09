@@ -17,6 +17,7 @@ import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
+import { buildToolOutputPreview } from './tool-output-preview'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -716,9 +717,25 @@ function buildBuiltinTools(input: {
       const offset = Math.max(0, Number(params.offset ?? 1) - 1)
       const limit = typeof params.limit === 'number' ? Math.max(1, Number(params.limit)) : undefined
       const selected = limit ? lines.slice(offset, offset + limit) : lines.slice(offset)
+      const selectedText = selected.join('\n')
       return {
-        content: [{ type: 'text', text: selected.join('\n') }],
-        details: undefined
+        ...buildToolOutputPreview({
+          toolName: 'Read',
+          sections: [
+            {
+              label: '文件内容',
+              text: selectedText,
+              startLine: offset + 1
+            }
+          ],
+          emptyText: '(no content)',
+          context: {
+            filePath: resolvedPath,
+            startLine: offset + 1,
+            endLine: offset + selected.length,
+            ...(typeof limit === 'number' ? { requestedLimit: limit } : {})
+          }
+        })
       }
     }
   } as any
@@ -886,58 +903,18 @@ function buildBuiltinTools(input: {
         stderrChars: result.stderr.length
       })
       return {
-        content: [{ type: 'text', text: output || '(no output)' }],
-        details: undefined
-      }
-    }
-  } as any
-
-  const globTool: PiAgentHarnessTool = {
-    name: 'Glob',
-    label: 'Glob',
-    description: 'Find files matching a glob pattern using ripgrep file discovery.',
-    parameters: Type.Object({
-      pattern: Type.String(),
-      path: Type.Optional(Type.String())
-    }),
-    async execute(_toolCallId: string, rawParams: unknown) {
-      const params = rawParams as Record<string, unknown>
-      const result = await executeShellCommand({
-        command: `rg --files -g ${JSON.stringify(String(params.pattern ?? ''))} ${JSON.stringify(String(params.path || '.'))}`,
-        cwd,
-        env: runtimeEnvironment.env
-      })
-      if (result.exitCode && result.exitCode !== 0 && result.exitCode !== 1) {
-        throw new Error(result.stderr || `Glob failed with exit code ${result.exitCode}`)
-      }
-      return {
-        content: [{ type: 'text', text: result.stdout.trim() || '(no matches)' }],
-        details: undefined
-      }
-    }
-  } as any
-
-  const grepTool: PiAgentHarnessTool = {
-    name: 'Grep',
-    label: 'Grep',
-    description: 'Search file contents with ripgrep and return matching lines with line numbers.',
-    parameters: Type.Object({
-      pattern: Type.String(),
-      path: Type.Optional(Type.String())
-    }),
-    async execute(_toolCallId: string, rawParams: unknown) {
-      const params = rawParams as Record<string, unknown>
-      const result = await executeShellCommand({
-        command: `rg -n ${JSON.stringify(String(params.pattern ?? ''))} ${JSON.stringify(String(params.path || '.'))}`,
-        cwd,
-        env: runtimeEnvironment.env
-      })
-      if (result.exitCode && result.exitCode !== 0 && result.exitCode !== 1) {
-        throw new Error(result.stderr || `Grep failed with exit code ${result.exitCode}`)
-      }
-      return {
-        content: [{ type: 'text', text: result.stdout.trim() || '(no matches)' }],
-        details: undefined
+        ...buildToolOutputPreview({
+          toolName: 'Bash',
+          sections: [
+            { label: 'stdout', text: result.stdout },
+            { label: 'stderr', text: result.stderr }
+          ],
+          emptyText: '(no output)',
+          context: {
+            command: String(params.command ?? ''),
+            exitCode: result.exitCode ?? 0
+          }
+        })
       }
     }
   } as any
@@ -1062,8 +1039,6 @@ function buildBuiltinTools(input: {
     ['Edit', editTool],
     ['MultiEdit', multiEditTool],
     ['Bash', bashTool],
-    ['Glob', globTool],
-    ['Grep', grepTool],
     ['InspectImage', inspectImageTool],
     ['AskUserQuestion', askUserQuestionTool],
     ['TodoWrite', todoWriteTool],
@@ -1271,6 +1246,90 @@ function summarizeProviderHeaders(headers: Record<string, unknown> | undefined):
   return summary
 }
 
+function summarizeProviderMessages(messages: unknown[]): Record<string, unknown> {
+  const roleCounts: Record<string, number> = {}
+  let totalTextChars = 0
+  let totalImageParts = 0
+  let totalDataUrlParts = 0
+  let oversizedMessageCount = 0
+
+  const messagePreview = messages.slice(0, 6).map((entry, index) => {
+    const record = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {}
+    const role = typeof record.role === 'string' ? record.role : 'unknown'
+    roleCounts[role] = (roleCounts[role] ?? 0) + 1
+
+    const content = record.content
+    const contentParts = Array.isArray(content) ? content : []
+    const text = typeof content === 'string' ? content : ''
+    const textCharsFromParts = contentParts.reduce((sum, part) => {
+      if (!part || typeof part !== 'object') return sum
+      const typedPart = part as Record<string, unknown>
+      const partType = String(typedPart.type || '')
+      if (partType !== 'text' && partType !== 'input_text') return sum
+      const partText = typeof typedPart.text === 'string' ? typedPart.text : typeof typedPart.input_text === 'string' ? typedPart.input_text : ''
+      return sum + partText.length
+    }, 0)
+    const textChars = text.length + textCharsFromParts
+    totalTextChars += textChars
+
+    const imagePartStats = contentParts.reduce(
+      (acc, part) => {
+        if (!part || typeof part !== 'object') return acc
+        const typedPart = part as Record<string, unknown>
+        const partType = String(typedPart.type || '')
+        const candidateUrl =
+          typeof typedPart.image_url === 'string'
+            ? typedPart.image_url
+            : typedPart.image_url && typeof typedPart.image_url === 'object'
+              ? String((typedPart.image_url as Record<string, unknown>).url || '')
+              : typeof typedPart.source === 'string'
+                ? typedPart.source
+                : typedPart.source && typeof typedPart.source === 'object'
+                  ? String((typedPart.source as Record<string, unknown>).data || (typedPart.source as Record<string, unknown>).url || '')
+                  : ''
+        const isImagePart =
+          partType.includes('image') ||
+          partType === 'input_image' ||
+          candidateUrl.startsWith('data:image/') ||
+          candidateUrl.startsWith('http')
+        if (!isImagePart) return acc
+        acc.imageParts += 1
+        if (candidateUrl.startsWith('data:image/')) {
+          acc.dataUrlParts += 1
+        }
+        return acc
+      },
+      { imageParts: 0, dataUrlParts: 0 }
+    )
+
+    totalImageParts += imagePartStats.imageParts
+    totalDataUrlParts += imagePartStats.dataUrlParts
+    if (textChars > 50000 || imagePartStats.dataUrlParts > 0) {
+      oversizedMessageCount += 1
+    }
+
+    return {
+      index,
+      role,
+      contentType: Array.isArray(content) ? 'array' : typeof content,
+      contentPartCount: contentParts.length,
+      textChars,
+      imagePartCount: imagePartStats.imageParts,
+      dataUrlImagePartCount: imagePartStats.dataUrlParts,
+      preview: summarizeValue(record.content).slice(0, 240)
+    }
+  })
+
+  return {
+    roleCounts,
+    totalTextChars,
+    totalImageParts,
+    totalDataUrlParts,
+    oversizedMessageCount,
+    messagePreview
+  }
+}
+
 function summarizeProviderPayload(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return {
@@ -1299,6 +1358,8 @@ function summarizeProviderPayload(payload: unknown): Record<string, unknown> {
           : undefined,
     hasSystem: record.system !== undefined,
     hasInstructions: record.instructions !== undefined,
+    messageShape: summarizeProviderMessages(messages),
+    inputShape: summarizeProviderMessages(input),
     enableThinking: typeof record.enable_thinking === 'boolean' ? record.enable_thinking : undefined,
     thinking:
       record.thinking && typeof record.thinking === 'object'

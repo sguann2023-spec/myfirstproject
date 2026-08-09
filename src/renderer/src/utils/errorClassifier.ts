@@ -87,7 +87,9 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
   if (
     msg.includes('context_length_exceeded') ||
     msg.includes('too many tokens') ||
-    msg.includes('maximum context length')
+    msg.includes('maximum context length') ||
+    msg.includes('上下文过长') ||
+    msg.includes('repeated claude auto-compaction loop')
   ) {
     return { category: 'context_length', i18nKey: 'error.diagnosis.context_length', navTarget: null }
   }

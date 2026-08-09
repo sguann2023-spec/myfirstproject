@@ -17,20 +17,6 @@ export const builtinTools: Tool[] = [
     type: 'builtin'
   },
   {
-    id: 'Glob',
-    name: 'Glob',
-    description: 'Finds files based on pattern matching',
-    requirePermissions: false,
-    type: 'builtin'
-  },
-  {
-    id: 'Grep',
-    name: 'Grep',
-    description: 'Searches for patterns in file contents',
-    requirePermissions: false,
-    type: 'builtin'
-  },
-  {
     id: 'MultiEdit',
     name: 'MultiEdit',
     description: 'Performs multiple edits on a single file atomically',

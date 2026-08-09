@@ -119,15 +119,6 @@ export class BlockManager {
     blockType: MessageBlockType,
     isComplete: boolean = false
   ) {
-    logger.info('[BlockManager] smartBlockUpdate', {
-      messageId: this.deps.assistantMsgId,
-      topicId: this.deps.topicId,
-      blockId,
-      blockType,
-      isComplete,
-      isBlockTypeChanged: this._lastBlockType !== null && this._lastBlockType !== blockType,
-      changes: summarizeBlockChanges(changes)
-    })
     const isBlockTypeChanged = this._lastBlockType !== null && this._lastBlockType !== blockType
     if (isBlockTypeChanged || isComplete) {
       // 如果块类型改变，则取消上一个块的节流更新

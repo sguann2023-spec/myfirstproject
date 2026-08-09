@@ -2,6 +2,7 @@ import type { CollapseProps } from 'antd'
 import { useTranslation } from 'react-i18next'
 
 import { countLines, truncateOutput } from '../shared/truncateOutput'
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { ClickableFilePath } from './ClickableFilePath'
 import { ToolHeader, TruncatedIndicator } from './GenericTools'
 import { TerminalContainer } from './TerminalOutput'
@@ -19,9 +20,10 @@ export function GlobTool({
   output?: GlobToolOutputType
 }): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
+  const outputText = extractTextPreviewFromToolResult(output)
   // 如果有输出，计算文件数量
-  const lineCount = countLines(output)
-  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(output)
+  const lineCount = countLines(outputText)
+  const { data: truncatedOutput, isTruncated, originalLength } = truncateOutput(outputText)
 
   return {
     key: AgentToolsType.Glob,
@@ -29,7 +31,7 @@ export function GlobTool({
       <ToolHeader
         toolName={AgentToolsType.Glob}
         params={input?.pattern}
-        stats={output ? t('message.tools.units.file', { count: lineCount }) : undefined}
+        stats={outputText ? t('message.tools.units.file', { count: lineCount }) : undefined}
         variant="collapse-label"
         showStatus={false}
       />

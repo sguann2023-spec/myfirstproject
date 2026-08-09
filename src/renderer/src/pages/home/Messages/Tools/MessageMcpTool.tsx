@@ -1,5 +1,4 @@
 import { loggerService } from '@logger'
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { CopyIcon } from '@renderer/components/Icons'
 import { useCodeStyle } from '@renderer/context/CodeStyleProvider'
 import { useSettings } from '@renderer/hooks/useSettings'
@@ -35,6 +34,7 @@ import {
   ResponseSection
 } from './shared/ArgsTable'
 import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
+import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
 
@@ -241,61 +241,6 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   )
 }
 
-type ExtractedContent = {
-  text: string
-  images: Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }>
-}
-
-/**
- * Extract preview content from MCP tool response using SDK schema
- */
-const extractPreviewContent = (response: unknown): ExtractedContent => {
-  if (!response) return { text: '', images: [] }
-
-  const result = CallToolResultSchema.safeParse(response)
-  if (result.success) {
-    const contents = result.data.content
-    if (contents.length === 0) return { text: '', images: [] }
-
-    const textParts: string[] = []
-    const images: Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }> = []
-    for (const content of contents) {
-      switch (content.type) {
-        case 'text':
-          if (content.text) {
-            try {
-              const parsed = JSON.parse(content.text)
-              textParts.push(JSON.stringify(parsed, null, 2))
-            } catch {
-              textParts.push(content.text)
-            }
-          }
-          break
-        case 'image':
-          if (content.data) {
-            images.push({ source: content.data, mimeType: content.mimeType ?? 'image/png', kind: 'base64' })
-          }
-          break
-        case 'resource_link':
-          if (content.uri && (content.mimeType || '').startsWith('image/')) {
-            images.push({ source: content.uri, mimeType: content.mimeType ?? 'image/png', kind: 'url' })
-          } else if (content.uri) {
-            textParts.push(`[Resource Link: ${content.uri}]`)
-          }
-          break
-        case 'resource':
-          textParts.push(`[Resource: ${content.resource?.uri ?? 'unknown'}]`)
-          break
-      }
-    }
-
-    return { text: textParts.join('\n\n'), images }
-  }
-
-  // Fallback: return JSON string for unknown format
-  return { text: JSON.stringify(response, null, 2), images: [] }
-}
-
 // Unified tool response content component
 const ToolResponseContent: FC<{
   isExpanded: boolean
@@ -327,7 +272,7 @@ const ToolResponseContent: FC<{
     if (!isExpanded || !response) return
 
     const highlight = async () => {
-      const { text: previewContent, images } = extractPreviewContent(response)
+      const { text: previewContent, images } = extractPreviewContentFromToolResult(response)
       setResponseImages(images)
       const {
         data: truncatedContent,

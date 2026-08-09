@@ -1,5 +1,6 @@
-import { useAppDispatch } from '@renderer/store'
+import { useAppDispatch, useAppSelector } from '@renderer/store'
 import { removeBlocksThunk } from '@renderer/store/thunk/messageThunk'
+import { buildAgentSessionTopicId } from '@renderer/utils/agentSession'
 import { Typography } from 'antd'
 import { LoadingIcon } from '@renderer/components/Icons'
 import { CheckCircle, ChevronDown, ChevronUp, Circle, X } from 'lucide-react'
@@ -13,12 +14,16 @@ import { useActiveTodos } from '../hooks/useActiveTodos'
 
 const { Text } = Typography
 
-const TodoStatusIcon: FC<{ status: TodoItem['status'] }> = ({ status }) => {
+const TodoStatusIcon: FC<{ status: TodoItem['status']; sessionActive?: boolean }> = ({ status, sessionActive = false }) => {
   switch (status) {
     case 'completed':
       return <CheckCircle size={14} style={{ color: '#98E0AC' }} />
     case 'in_progress':
-      return <LoadingIcon size={14} style={{ color: 'var(--color-primary)' }} />
+      return sessionActive ? (
+        <LoadingIcon size={14} style={{ color: 'var(--color-primary)' }} />
+      ) : (
+        <Circle size={14} style={{ color: 'var(--color-primary)' }} />
+      )
     case 'pending':
     default:
       return <Circle size={14} style={{ color: 'var(--color-text-3)' }} />
@@ -27,14 +32,47 @@ const TodoStatusIcon: FC<{ status: TodoItem['status'] }> = ({ status }) => {
 
 interface PinnedTodoPanelProps {
   topicId: string
+  sessionActive?: boolean
   sessionFulfilled?: boolean
 }
 
-export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId, sessionFulfilled = false }) => {
+export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({
+  topicId,
+  sessionActive = false,
+  sessionFulfilled = false
+}) => {
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const activeTodoInfo = useActiveTodos(topicId)
   const [isCollapsed, setIsCollapsed] = useState(true)
+  const resolvedSessionActive = useAppSelector((state) => {
+    if (sessionActive) {
+      return true
+    }
+
+    const loadingByTopic = state.messages.loadingByTopic
+    if (loadingByTopic[topicId]) {
+      return true
+    }
+
+    if (!activeTodoInfo) {
+      return false
+    }
+
+    return Object.keys(activeTodoInfo.blockIdsByMessage).some((messageId) => {
+      const message = state.messages.entities[messageId]
+      if (!message) {
+        return false
+      }
+
+      if (loadingByTopic[message.topicId]) {
+        return true
+      }
+
+      const agentSessionId = message.agentSessionId?.trim()
+      return agentSessionId ? Boolean(loadingByTopic[buildAgentSessionTopicId(agentSessionId)]) : false
+    })
+  })
 
   const handleClose = useCallback(
     async (e: React.MouseEvent) => {
@@ -82,9 +120,11 @@ export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId, sessionFulf
             {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
             {isCollapsed && displayActiveTodo ? (
               <>
-                <TodoStatusIcon status={displayActiveTodo.status} />
+                  <TodoStatusIcon status={displayActiveTodo.status} sessionActive={resolvedSessionActive} />
                 <HeaderTitle>
-                  {displayActiveTodo.status === 'in_progress' ? displayActiveTodo.activeForm : displayActiveTodo.content}
+                    {displayActiveTodo.status === 'in_progress' && resolvedSessionActive
+                    ? displayActiveTodo.activeForm
+                    : displayActiveTodo.content}
                 </HeaderTitle>
               </>
             ) : (
@@ -98,9 +138,9 @@ export const PinnedTodoPanel: FC<PinnedTodoPanelProps> = ({ topicId, sessionFulf
         <TodoList $collapsed={isCollapsed}>
           {displayTodos.map((todo: TodoItem, index: number) => (
             <TodoItemRow key={`${todo.content}-${index}`} $completed={todo.status === 'completed'}>
-              <TodoStatusIcon status={todo.status} />
+                <TodoStatusIcon status={todo.status} sessionActive={resolvedSessionActive} />
               <TodoContent $completed={todo.status === 'completed'}>
-                {todo.status === 'in_progress' ? todo.activeForm : todo.content}
+                  {todo.status === 'in_progress' && resolvedSessionActive ? todo.activeForm : todo.content}
               </TodoContent>
             </TodoItemRow>
           ))}

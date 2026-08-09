@@ -31,7 +31,7 @@ import { spanManagerService } from '@renderer/services/SpanManagerService'
 import { estimateTextTokens as estimateTxtTokens, estimateUserPromptUsage } from '@renderer/services/TokenService'
 import WebSearchService from '@renderer/services/WebSearchService'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
-import { selectMessagesForTopic } from '@renderer/store/newMessage'
+import { newMessagesActions, selectMessagesForTopic } from '@renderer/store/newMessage'
 import { sendMessage as _sendMessage } from '@renderer/store/thunk/messageThunk'
 import {
   type Assistant,
@@ -342,9 +342,31 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
     }
   }, [config.showTokenCount, contextCount, estimateTokenCount, showInputEstimatedTokens])
 
+  const latestAgentSessionId = useMemo(() => {
+    for (let index = topicMessages.length - 1; index >= 0; index -= 1) {
+      const agentSessionId = topicMessages[index]?.agentSessionId?.trim()
+      if (agentSessionId) {
+        return agentSessionId
+      }
+    }
+    return null
+  }, [topicMessages])
+
   const onPause = useCallback(async () => {
     await pauseMessages()
-  }, [pauseMessages])
+
+    if (!latestAgentSessionId) {
+      return
+    }
+
+    await (window as any).api.agentSessionStream.abort(latestAgentSessionId)
+    dispatch(
+      newMessagesActions.setTopicLoading({
+        topicId: buildAgentSessionTopicId(latestAgentSessionId),
+        loading: false
+      })
+    )
+  }, [dispatch, latestAgentSessionId, pauseMessages])
 
   const clearTopic = useCallback(async () => {
     if (loading) {
@@ -537,17 +559,14 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
     </>
   )
 
-  const pinnedTodoTopicId = useMemo(() => {
-    for (let index = topicMessages.length - 1; index >= 0; index -= 1) {
-      const agentSessionId = topicMessages[index]?.agentSessionId?.trim()
-      if (agentSessionId) {
-        return buildAgentSessionTopicId(agentSessionId)
-      }
-    }
-    return topic.id
-  }, [topic.id, topicMessages])
+  const pinnedTodoTopicId = latestAgentSessionId ? buildAgentSessionTopicId(latestAgentSessionId) : topic.id
 
-  const pinnedContent = <PinnedTodoPanel topicId={pinnedTodoTopicId} />
+  const pinnedTodoSessionActive = useAppSelector((state) => {
+    const loadingByTopic = state.messages.loadingByTopic
+    return Boolean(loadingByTopic[topic.id] || loadingByTopic[pinnedTodoTopicId])
+  })
+
+  const pinnedContent = <PinnedTodoPanel topicId={pinnedTodoTopicId} sessionActive={pinnedTodoSessionActive} />
 
   return (
     <InputbarCore

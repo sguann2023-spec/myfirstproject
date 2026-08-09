@@ -50,6 +50,16 @@ export function summarizeChunkField(value: unknown): string {
   }
 }
 
+const safeSerializedLength = (value: unknown): number => {
+  if (typeof value === 'string') return value.length
+  if (value === undefined || value === null) return 0
+  try {
+    return JSON.stringify(value).length
+  } catch {
+    return String(value).length
+  }
+}
+
 export async function handleInitSystemMessage(input: {
   message: SDKMessage & { type: 'system'; subtype: 'init'; session_id?: string; slash_commands?: string[] }
   stream: { sdkSessionId?: string }
@@ -124,7 +134,7 @@ export async function handleToolResultSideEffects(input: {
   architectureContext: QueryArchitectureContext
   currentSegment: AgentConversationSegment | null
   currentTurn: AgentTurn | null
-  pendingToolCalls: Map<string, { emittedId: string; providerToolCallId: string; toolName: string; input?: unknown }>
+  pendingToolCalls: Map<string, { emittedId?: string; providerToolCallId?: string; toolName: string; input?: unknown }>
   getArtifactSourceType: (toolName: string) => 'read' | 'grep' | 'webfetch' | 'tool_result'
   shouldOffloadToolResult: (toolName: string, outputText: string) => boolean
   tryExtractFilePath: (toolInput: unknown) => string | undefined
@@ -144,7 +154,8 @@ export async function handleToolResultSideEffects(input: {
   const toolName = String(chunk.toolName || '')
   const pendingToolCall = pendingToolCalls.get(toolCallId)
   const providerToolCallId = String(pendingToolCall?.providerToolCallId || toolCallId)
-  const outputText = summarizeToolResultForArtifact(chunk.output)
+  const rawOutput = chunk.rawOutput ?? chunk.output
+  const outputText = summarizeToolResultForArtifact(rawOutput)
 
   if (currentTurn && currentSegment && shouldOffloadToolResult(toolName, outputText)) {
     const artifact = await artifactStoreService.save({
@@ -167,6 +178,9 @@ export async function handleToolResultSideEffects(input: {
       sourceType: artifact.sourceType,
       toolSubtype: artifact.toolSubtype,
       contentChars: outputText.length,
+      inlineChars: safeSerializedLength(chunk.output),
+      rawChars: outputText.length,
+      truncated: Boolean(chunk.rawOutput) && chunk.rawOutput !== chunk.output,
       storedAsArtifact: true,
       artifactId: artifact.id,
       contentHash: artifact.contentHash

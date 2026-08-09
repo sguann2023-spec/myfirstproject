@@ -4,6 +4,7 @@ import { useCodeStyle } from '@renderer/context/CodeStyleProvider'
 import type { CollapseProps } from 'antd'
 import { useMemo } from 'react'
 
+import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import { renderToolChangeStats } from './changeStats'
 import { ClickableFilePath } from './ClickableFilePath'
 import { DiffStyleToggle, useDiffStyle } from './DiffStyleToggle'
@@ -14,6 +15,7 @@ import { AgentToolsType } from './types'
 function EditToolChildren({ input, output }: { input?: EditToolInput; output?: EditToolOutput }) {
   const { activeShikiTheme, isShikiThemeDark } = useCodeStyle()
   const { diffStyle, toggleDiffStyle } = useDiffStyle()
+  const outputText = extractTextPreviewFromToolResult(output)
 
   const fileDiff = useMemo(() => {
     const fileName = input?.file_path ?? ''
@@ -39,7 +41,7 @@ function EditToolChildren({ input, output }: { input?: EditToolInput; output?: E
     <div className="relative">
       <DiffStyleToggle diffStyle={diffStyle} onToggle={toggleDiffStyle} />
       <FileDiff fileDiff={fileDiff} options={diffOptions} />
-      {output}
+      {outputText ? <div className="mt-2 whitespace-pre-wrap text-sm">{outputText}</div> : null}
     </div>
   )
 }
