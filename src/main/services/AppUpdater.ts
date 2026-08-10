@@ -347,7 +347,9 @@ export default class AppUpdater {
 
   public quitAndInstall() {
     app.isQuitting = true
-    setImmediate(() => autoUpdater.quitAndInstall(true, true))
+    const isSilent = process.platform !== 'win32'
+    logger.info('Triggering quitAndInstall', { isSilent, isForceRunAfter: true, platform: process.platform })
+    setImmediate(() => autoUpdater.quitAndInstall(isSilent, true))
   }
 
   /**

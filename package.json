@@ -1,6 +1,6 @@
 {
   "name": "@sun-guannan/vectcut",
-  "version": "1.6.8",
+  "version": "1.6.9",
   "description": "VectCut Application",
   "main": "./out/main/index.js",
   "scripts": {
@@ -150,6 +150,7 @@
     },
     "nsis": {
       "include": "build-resources/installer.nsh",
+      "disableWebInstaller": true,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",

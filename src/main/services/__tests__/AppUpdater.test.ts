@@ -1,5 +1,5 @@
 import type { UpdateInfo } from 'builder-util-runtime'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock dependencies
 vi.mock('@logger', () => ({
@@ -303,6 +303,30 @@ describe('AppUpdater', () => {
       const result = (appUpdater as any).processReleaseInfo(releaseInfo)
 
       expect(result.releaseNotes).toBeNull()
+    })
+  })
+
+  describe('quitAndInstall', () => {
+    const originalPlatform = process.platform
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform })
+    })
+
+    it('should use visible installer on Windows', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+
+      appUpdater.quitAndInstall()
+
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
+    })
+
+    it('should keep silent installer on non-Windows platforms', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+
+      appUpdater.quitAndInstall()
+
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
     })
   })
 
