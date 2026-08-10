@@ -150,7 +150,6 @@
     },
     "nsis": {
       "include": "build-resources/installer.nsh",
-      "disableWebInstaller": true,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
