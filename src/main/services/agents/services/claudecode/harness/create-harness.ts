@@ -11,7 +11,9 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 import type { TextStreamPart } from 'ai'
 import { net } from 'electron'
 
+import { isWin } from '@main/constant'
 import { loggerService } from '@logger'
+import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
@@ -177,6 +179,24 @@ function matchAllowedTool(allowedTools: string[], toolName: string): boolean {
   return allowedTools.some((pattern) => (pattern.endsWith('*') ? toolName.startsWith(pattern.slice(0, -1)) : pattern === toolName))
 }
 
+function resolveShellExecutable(env: Record<string, string>): string {
+  if (!isWin) {
+    return process.env.SHELL || '/bin/bash'
+  }
+
+  const configuredGitBashPath = validateGitBashPath(env.CLAUDE_CODE_GIT_BASH_PATH)
+  if (configuredGitBashPath) {
+    return configuredGitBashPath
+  }
+
+  const discoveredGitBashPath = findGitBash()
+  if (discoveredGitBashPath) {
+    return discoveredGitBashPath
+  }
+
+  return process.env.ComSpec || 'cmd.exe'
+}
+
 async function executeShellCommand(input: {
   command: string
   cwd: string
@@ -188,7 +208,10 @@ async function executeShellCommand(input: {
   const { command, cwd, env, timeoutSeconds, signal, onUpdate } = input
 
   return await new Promise((resolve, reject) => {
-    const child = spawn(process.env.SHELL || '/bin/bash', ['-lc', command], {
+    const shellExecutable = resolveShellExecutable(env)
+    const shellArgs = isWin && shellExecutable.toLowerCase().endsWith('cmd.exe') ? ['/d', '/s', '/c', command] : ['-lc', command]
+
+    const child = spawn(shellExecutable, shellArgs, {
       cwd,
       env: {
         ...process.env,
