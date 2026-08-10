@@ -2184,8 +2184,10 @@ const ChatShell = ({
     const url = createFilePreviewUrl(sourcePath);
     if (typeof onOpenWebPreview !== 'function' || !skillKey || !sourcePath || !url) return;
 
+    const previewKeySuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     onOpenWebPreview({
-      key: `skill-html:${sourcePath}`,
+      key: `skill-html:${sourcePath}:${previewKeySuffix}`,
       url,
       title: getSkillFolderLabel(skill) || getSkillDisplayName(skill) || getBaseName(sourcePath) || '网页预览',
       sourcePath
@@ -2201,8 +2203,10 @@ const ChatShell = ({
       return;
     }
 
+    const previewKeySuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     onOpenWebPreview({
-      key: `skill-example:${examplePath}`,
+      key: `skill-example:${examplePath}:${previewKeySuffix}`,
       url,
       title: getSkillFolderLabel(skill) || getSkillDisplayName(skill) || getBaseName(examplePath) || '示例页面',
       sourcePath: examplePath

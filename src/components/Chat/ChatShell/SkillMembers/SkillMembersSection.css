@@ -45,6 +45,8 @@
   padding: 4px;
   position: relative;
   overflow: hidden;
+  /* Keep sidebar row interactions clickable inside frameless Windows drag regions. */
+  -webkit-app-region: no-drag;
 }
 
 .chat-panel__member-group {
@@ -69,6 +71,7 @@
   text-align: left;
   position: relative;
   z-index: 1;
+  -webkit-app-region: no-drag;
 }
 
 .chat-panel__member-main:hover,
@@ -122,6 +125,7 @@
   justify-content: center;
   cursor: pointer;
   color: #8a8a8a;
+  -webkit-app-region: no-drag;
 }
 
 .chat-panel__tree-toggle:disabled {
@@ -156,6 +160,7 @@
   color: #8a8a8a;
   position: relative;
   z-index: 1;
+  -webkit-app-region: no-drag;
 }
 
 .chat-panel__member-actions-overlay {
@@ -170,6 +175,7 @@
   opacity: 0;
   pointer-events: none;
   z-index: 2;
+  -webkit-app-region: no-drag;
 }
 
 .chat-panel__member-actions-overlay::before {
