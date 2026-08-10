@@ -1,6 +1,5 @@
 import { loggerService } from '@logger'
 import type { AppDispatch } from '@renderer/store'
-import store from '@renderer/store'
 import { selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
 import type { MCPToolResponse, NormalToolResponse } from '@renderer/types'
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
@@ -32,15 +31,70 @@ interface ToolCallbacksDependencies {
   blockManager: BlockManager
   assistantMsgId: string
   dispatch: AppDispatch
+  getState: () => any
 }
 
 export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
-  const { blockManager, assistantMsgId, dispatch } = deps
+  const { blockManager, assistantMsgId, dispatch, getState } = deps
 
   // 内部维护的状态
   const toolCallIdToBlockIdMap = new Map<string, string>()
   let toolBlockId: string | null = null
   let citationBlockId: string | null = null
+
+  const normalizeToolPayloadSignature = (value: unknown): string => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) return ''
+      try {
+        return JSON.stringify(JSON.parse(trimmed))
+      } catch {
+        return trimmed
+      }
+    }
+    if (value === undefined) return ''
+    try {
+      return JSON.stringify(value) ?? ''
+    } catch {
+      return String(value)
+    }
+  }
+
+  const getAskUserQuestionDedupSignature = (toolResponse: ToolResponse): string | null => {
+    if (toolResponse.tool?.name !== 'AskUserQuestion') {
+      return null
+    }
+
+    const payload = toolResponse.arguments ?? toolResponse.partialArguments
+    const signature = normalizeToolPayloadSignature(payload)
+    return signature ? `${toolResponse.tool.name}:${signature}` : null
+  }
+
+  const findEquivalentAskUserQuestionBlockId = (toolResponse: ToolResponse): string | undefined => {
+    const signature = getAskUserQuestionDedupSignature(toolResponse)
+    if (!signature) return undefined
+
+    const state = getState()
+
+    for (const [existingToolCallId, blockId] of toolCallIdToBlockIdMap.entries()) {
+      if (existingToolCallId === toolResponse.id) continue
+
+      const block = state.messageBlocks.entities[blockId] as ToolMessageBlock | undefined
+      const existingResponse = block?.metadata?.rawMcpToolResponse as ToolResponse | undefined
+      if (!existingResponse) continue
+
+      if (getAskUserQuestionDedupSignature(existingResponse) === signature) {
+        logger.warn('Deduplicating duplicate AskUserQuestion block', {
+          existingToolCallId,
+          duplicateToolCallId: toolResponse.id,
+          blockId
+        })
+        return blockId
+      }
+    }
+
+    return undefined
+  }
 
   return {
     onToolCallPending: (toolResponse: ToolResponse) => {
@@ -51,6 +105,20 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       if (existingBlockId) {
         blockManager.smartBlockUpdate(
           existingBlockId,
+          {
+            status: MessageBlockStatus.PENDING,
+            metadata: { rawMcpToolResponse: nextToolResponse }
+          },
+          MessageBlockType.TOOL
+        )
+        return
+      }
+
+      const equivalentBlockId = findEquivalentAskUserQuestionBlockId(nextToolResponse)
+      if (equivalentBlockId) {
+        toolCallIdToBlockIdMap.set(nextToolResponse.id, equivalentBlockId)
+        blockManager.smartBlockUpdate(
+          equivalentBlockId,
           {
             status: MessageBlockStatus.PENDING,
             metadata: { rawMcpToolResponse: nextToolResponse }
@@ -92,6 +160,14 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       let existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
 
       if (!existingBlockId) {
+        const equivalentBlockId = findEquivalentAskUserQuestionBlockId(nextToolResponse)
+        if (equivalentBlockId) {
+          toolCallIdToBlockIdMap.set(nextToolResponse.id, equivalentBlockId)
+          existingBlockId = equivalentBlockId
+        }
+      }
+
+      if (!existingBlockId) {
         // Create a new tool block if one doesn't exist yet
         if (blockManager.hasInitialPlaceholder) {
           const changes = {
@@ -129,13 +205,14 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     onToolCallComplete: (toolResponse: ToolResponse) => {
       const nextToolResponse = sanitizeToolResponse(toolResponse)
       // Read resolvedInput BEFORE removing from store (removeByToolCallId deletes it)
-      const state = store.getState()
+      const state = getState()
+      const toolPermissionsState = state.toolPermissions ?? { requests: {}, resolvedInputs: {} }
       const fallbackPermission =
         nextToolResponse.tool?.name === 'AskUserQuestion'
-          ? selectUniqueActivePermissionByToolName(state.toolPermissions, 'AskUserQuestion')
+          ? selectUniqueActivePermissionByToolName(toolPermissionsState, 'AskUserQuestion')
           : undefined
       const resolvedInput =
-        (nextToolResponse?.id ? state.toolPermissions.resolvedInputs[nextToolResponse.id] : undefined) ??
+        (nextToolResponse?.id ? toolPermissionsState.resolvedInputs[nextToolResponse.id] : undefined) ??
         fallbackPermission?.resolvedInput
 
       if (nextToolResponse?.id) {

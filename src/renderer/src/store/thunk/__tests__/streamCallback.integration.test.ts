@@ -659,6 +659,100 @@ describe('streamCallback Integration Tests', () => {
     expect((toolBlock as any)?.toolName).toBe('test-tool')
   })
 
+  it('should deduplicate duplicate AskUserQuestion tool blocks with identical payloads', async () => {
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
+
+    const mockAskUserQuestionTool = {
+      id: 'ask-user-question',
+      name: 'AskUserQuestion',
+      description: 'Ask user a question',
+      type: 'provider'
+    } as any
+
+    const duplicatedPayload = {
+      questions: [
+        {
+          question: '这位技术合伙人的投入程度是怎样的？',
+          header: '投入程度',
+          options: [
+            { label: '兼职远程，业余时间做', description: '每周投入10小时以内' },
+            { label: '半职投入', description: '每周投入20小时左右' }
+          ],
+          multiSelect: false
+        }
+      ]
+    }
+
+    const chunks: Chunk[] = [
+      { type: ChunkType.LLM_RESPONSE_CREATED },
+      {
+        type: ChunkType.MCP_TOOL_STREAMING,
+        responses: [
+          {
+            id: 'ask-call-1',
+            tool: mockAskUserQuestionTool,
+            arguments: undefined,
+            status: 'streaming' as const,
+            toolCallId: 'ask-call-1',
+            partialArguments: JSON.stringify(duplicatedPayload)
+          }
+        ]
+      },
+      {
+        type: ChunkType.MCP_TOOL_STREAMING,
+        responses: [
+          {
+            id: 'ask-call-2',
+            tool: mockAskUserQuestionTool,
+            arguments: undefined,
+            status: 'streaming' as const,
+            toolCallId: 'ask-call-2',
+            partialArguments: JSON.stringify(duplicatedPayload)
+          }
+        ]
+      },
+      {
+        type: ChunkType.MCP_TOOL_PENDING,
+        responses: [
+          {
+            id: 'ask-call-1',
+            tool: mockAskUserQuestionTool,
+            arguments: duplicatedPayload,
+            status: 'pending' as const,
+            toolCallId: 'ask-call-1'
+          }
+        ]
+      },
+      {
+        type: ChunkType.MCP_TOOL_PENDING,
+        responses: [
+          {
+            id: 'ask-call-2',
+            tool: mockAskUserQuestionTool,
+            arguments: duplicatedPayload,
+            status: 'pending' as const,
+            toolCallId: 'ask-call-2'
+          }
+        ]
+      },
+      { type: ChunkType.BLOCK_COMPLETE }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const blocks = Object.values(state.messageBlocks.entities)
+    const toolBlocks = blocks.filter((block) => block?.type === MessageBlockType.TOOL)
+    const assistantMessage = state.messages.entities[mockAssistantMsgId]
+
+    expect(toolBlocks).toHaveLength(1)
+    expect(assistantMessage?.blocks.filter((blockId) => {
+      const block = state.messageBlocks.entities[blockId]
+      return block?.type === MessageBlockType.TOOL
+    })).toHaveLength(1)
+    expect((toolBlocks[0] as any)?.metadata?.rawMcpToolResponse?.tool?.name).toBe('AskUserQuestion')
+  })
+
   it('should handle image generation flow', async () => {
     const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
 
