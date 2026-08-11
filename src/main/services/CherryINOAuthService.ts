@@ -1,12 +1,14 @@
 import { loggerService } from '@logger'
 import { CHERRYIN_CONFIG } from '@shared/config/constant'
 import { createHash, randomBytes } from 'crypto'
+import Store from 'electron-store'
 import { net } from 'electron'
 import * as z from 'zod'
 
 import { reduxService } from './ReduxService'
 
 const logger = loggerService.withContext('CherryINOAuthService')
+const vectcutStore = new Store({ name: 'vectcut' })
 
 // Zod schemas for API response validation
 const BalanceDataSchema = z.object({
@@ -267,6 +269,7 @@ class CherryINOAuthService {
     const payload: { accessToken: string; refreshToken?: string } = { accessToken }
     if (refreshToken) {
       payload.refreshToken = refreshToken
+      vectcutStore.set('auth.refresh_token', refreshToken)
     }
     await reduxService.dispatch({
       type: 'llm/setCherryInTokens',

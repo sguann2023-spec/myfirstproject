@@ -1,4 +1,3 @@
-import { loggerService } from '@logger'
 import Store from 'electron-store'
 import { net } from 'electron'
 
@@ -11,32 +10,61 @@ type PendingToken = {
   expiresAt: number
 }
 
-const logger = loggerService.withContext('AgentRuntimeAuthService')
-
 export class AgentRuntimeAuthService {
-  private readonly store = new Store({ name: 'vectcut' })
+  private readonly store = new Store({ name: 'vectcut', watch: true })
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
+  private accessTokenSourceRefreshToken: string | null = null
+  private refreshPromiseSourceRefreshToken: string | null = null
+
+  constructor() {
+    this.store.onDidChange('auth.refresh_token', (newValue) => {
+      const normalizedNewValue = String(newValue || '').trim()
+      const normalizedSourceRefreshToken = String(this.accessTokenSourceRefreshToken || '').trim()
+      const matchesCurrentAccessTokenSource =
+        Boolean(normalizedNewValue) &&
+        Boolean(normalizedSourceRefreshToken) &&
+        normalizedNewValue === normalizedSourceRefreshToken
+
+      if (this.accessToken && !matchesCurrentAccessTokenSource) {
+        this.invalidateCachedAccessToken()
+      }
+    })
+  }
 
   async ensureValidAccessToken(forceRefresh = false): Promise<string> {
+    const refreshToken = String(this.store.get('auth.refresh_token') || '').trim()
+    const currentSourceRefreshToken = String(this.accessTokenSourceRefreshToken || '').trim()
+    const matchesCurrentStoreRefreshToken =
+      Boolean(refreshToken) && Boolean(currentSourceRefreshToken) && refreshToken === currentSourceRefreshToken
+
+    if (this.accessToken && !matchesCurrentStoreRefreshToken) {
+      this.invalidateCachedAccessToken()
+    }
+
     if (!forceRefresh && this.accessToken && Date.now() < this.accessToken.expiresAt - 30_000) {
       return this.accessToken.accessToken
     }
 
-    if (!forceRefresh && this.refreshPromise) {
+    if (
+      !forceRefresh &&
+      this.refreshPromise &&
+      refreshToken &&
+      refreshToken === String(this.refreshPromiseSourceRefreshToken || '').trim()
+    ) {
       return this.refreshPromise
     }
-
-    const refreshToken = String(this.store.get('auth.refresh_token') || '').trim()
     if (!refreshToken) {
       throw new Error('No refresh token found, please sign in first')
     }
 
+    this.refreshPromiseSourceRefreshToken = refreshToken
     this.refreshPromise = this.refreshAccessToken(refreshToken)
     try {
       return await this.refreshPromise
     } finally {
       this.refreshPromise = null
+      this.refreshPromiseSourceRefreshToken = null
     }
   }
 
@@ -73,21 +101,35 @@ export class AgentRuntimeAuthService {
     }
 
     const expiresIn = typeof payload.expires_in === 'number' ? payload.expires_in : 3600
+    const nextStoredRefreshToken =
+      typeof payload.refresh_token === 'string' && payload.refresh_token.trim() ? payload.refresh_token.trim() : refreshToken
+    const currentStoreRefreshToken = String(this.store.get('auth.refresh_token') || '').trim()
+
+    if (
+      currentStoreRefreshToken &&
+      currentStoreRefreshToken !== refreshToken &&
+      currentStoreRefreshToken !== nextStoredRefreshToken
+    ) {
+      throw new Error('Refresh token changed during runtime access token refresh')
+    }
+
     this.accessToken = {
       accessToken,
       expiresAt: Date.now() + expiresIn * 1000
     }
+    this.accessTokenSourceRefreshToken = nextStoredRefreshToken
 
     if (typeof payload.refresh_token === 'string' && payload.refresh_token.trim()) {
       this.store.set('auth.refresh_token', payload.refresh_token.trim())
     }
     this.store.set('auth.vectcut_api_key', accessToken)
 
-    logger.debug('Refreshed runtime access token for agent session', {
-      expiresIn
-    })
-
     return accessToken
+  }
+
+  private invalidateCachedAccessToken() {
+    this.accessToken = null
+    this.accessTokenSourceRefreshToken = null
   }
 }
 
