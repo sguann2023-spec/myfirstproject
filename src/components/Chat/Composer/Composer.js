@@ -9,7 +9,6 @@ import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from
 import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
 import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
-import { uploadToOSSWithProgress } from '../../../api/sts';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import Point2Icon from '../../../../public/point2.svg';
@@ -22,11 +21,11 @@ import {
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
+import LocalFilePreviewList from './LocalFilePreviewList/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 
 const { shell } = window.require('electron');
-const MAX_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
-const MAX_UPLOAD_COUNT = 5;
+const MAX_UPLOAD_COUNT = 100;
 const SKILL_MENTION_CLOSE_DELAY = 120;
 const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
 const MENTION_PANEL_DEFAULT_WIDTH = 180;
@@ -71,12 +70,15 @@ const getWorkspaceConfig = (session) => {
 };
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const stripUrlSearch = (value) => String(value || '').split('?')[0].split('#')[0];
 const getSkillMentionLabel = (skill) => String(
   skill?.folderName || skill?.filename || skill?.name || skill?.id || ''
 ).trim();
 const getMentionText = (attrs = {}) => `@${attrs.label || attrs.id || ''}`;
-const getFileReferenceText = (attrs = {}) => `#${attrs.name || '文件'}`;
+const getFileReferenceText = (attrs = {}) => {
+  const sourcePath = String(attrs?.sourcePath || '').trim();
+  if (sourcePath) return sourcePath;
+  return `#${attrs.name || '文件'}`;
+};
 const getFileDisplayName = (file = {}) => file.name || '文件';
 const isBlobLike = (value) => (
   Boolean(value)
@@ -883,6 +885,52 @@ const getFileKindFromType = (fileType = '') => {
   if (String(fileType).startsWith('audio/')) return 'audio';
   return 'file';
 };
+const createLocalAttachmentEntry = async (rawFile = {}) => {
+  const targetFile = isFileLike(rawFile) ? rawFile : rawFile?.originFileObj;
+  const uid = rawFile?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  if (!targetFile) return null;
+
+  const localObjectUrl = createLocalObjectUrl(targetFile);
+  const nativeFilePathGetter = window?.api?.file?.getPathForFile;
+  const sourcePath = normalizePath(
+    targetFile?.path
+    || rawFile?.path
+    || (typeof nativeFilePathGetter === 'function' ? nativeFilePathGetter(targetFile) : '')
+    || (typeof nativeFilePathGetter === 'function' ? nativeFilePathGetter(rawFile) : '')
+    || targetFile?.webkitRelativePath
+    || rawFile?.webkitRelativePath
+    || ''
+  ).trim();
+  const fileType = targetFile?.type || rawFile?.type || '';
+  const kind = getFileKindFromType(fileType);
+  const durationLabel = localObjectUrl && kind === 'video'
+    ? await readMediaDuration(localObjectUrl, 'video')
+    : '';
+
+  return {
+    uploadItem: {
+      uid,
+      name: targetFile?.name || rawFile?.name || '附件',
+      type: fileType,
+      size: targetFile?.size || rawFile?.size || 0,
+      originFileObj: targetFile,
+      status: 'done',
+    },
+    fileMeta: {
+      uid,
+      name: targetFile?.name || rawFile?.name || '附件',
+      url: '',
+      fileType,
+      thumbnailUrl: localObjectUrl,
+      previewUrl: localObjectUrl,
+      localThumbUrl: localObjectUrl,
+      localPreviewUrl: localObjectUrl,
+      durationLabel,
+      sourcePath,
+      sourceType: 'local',
+    },
+  };
+};
 const renderFilePreviewContent = (file = {}, className = '') => {
   const previewUrl = file.localPreviewUrl || file.localThumbUrl || file.previewUrl || file.thumbnailUrl || file.url;
   const kind = getFileKindFromType(file.fileType);
@@ -1414,7 +1462,7 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
           ) : (
             <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
               <Empty
-                description="你还没有创建过引用"
+                description="你还没有选择过本地文件"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 className="chat-panel__skill-mention-empty-state"
               />
@@ -1425,7 +1473,7 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => requestUploadPickerRef.current && requestUploadPickerRef.current(file.slotId)}
               >
-                上传引用
+                选择文件
               </Button>
             </div>
           )}
@@ -1957,7 +2005,7 @@ const Composer = ({
     activeTool === 'digital-human'
       ? ''
       : activeTool === 'image-pan'
-        ? '描述你想要的图片，或者上传图片然后修改'
+        ? '描述你想要的图片，或者选择本地图片后修改'
       : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
 
   requestUploadPickerRef.current = (slotId = '') => {
@@ -3159,10 +3207,7 @@ const Composer = ({
       .replace(/\]/g, '\\]');
     return `[${safeName}](${url})`;
   };
-  const uploadedMarkdownLinks = uploadedFileMeta
-    .filter((item) => item?.url)
-    .map((item) => buildMarkdownFileLink(item.name, item.url));
-  const hasUploadingFile = uploadFileList.some((item) => item?.status === 'uploading');
+  const hasSelectedLocalFile = uploadFileList.length > 0;
   const digitalHumanCompletionState = React.useMemo(
     () => getDigitalHumanTemplateCompletionState(editor),
     [editor, input]
@@ -3171,160 +3216,70 @@ const Composer = ({
     () => getAiWriteTemplateCompletionState(editor, selectedAiWritePresetId),
     [editor, input, selectedAiWritePresetId]
   );
-  const canSend = String(input || '').trim().length > 0 || uploadedMarkdownLinks.length > 0;
+  const canSend = String(input || '').trim().length > 0 || hasSelectedLocalFile;
   const isDigitalHumanSendBlocked = activeTool === 'digital-human' && !digitalHumanCompletionState.isComplete;
   const isAiWriteSendBlocked = activeTool === 'ai-write' && !aiWriteCompletionState.isComplete;
-  const isSendDisabled = !canSend || modelListLoading || hasUploadingFile || isDigitalHumanSendBlocked || isAiWriteSendBlocked;
+  const isSendDisabled = !canSend || modelListLoading || isDigitalHumanSendBlocked || isAiWriteSendBlocked;
 
-  const handleBeforeUpload = (file, batchFileList = []) => {
-    const type = String(file?.type || '');
-    const isAllowedType = type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/');
-    if (!file || !isAllowedType) {
-      message.error('仅支持上传图片、视频、音频文件');
-      return AntUpload.LIST_IGNORE;
-    }
-    if (file.size > MAX_UPLOAD_FILE_SIZE) {
-      message.error('单个文件大小不能超过 500MB，可去官网资产库上传更大文件');
-      return AntUpload.LIST_IGNORE;
-    }
-    const currentCount = uploadFileList.filter((item) => item.status !== 'removed').length;
-    const availableSlots = Math.max(0, MAX_UPLOAD_COUNT - currentCount);
-    const batchIndex = batchFileList.findIndex((item) => item.uid === file.uid);
-    if (availableSlots <= 0 || (batchIndex >= 0 && batchIndex >= availableSlots)) {
-      message.error(`最多上传 ${MAX_UPLOAD_COUNT} 个文件`);
-      return AntUpload.LIST_IGNORE;
-    }
-    return true;
-  };
-
-  const handleUploadListChange = React.useCallback((fileList) => {
-    const nextList = fileList.slice(-MAX_UPLOAD_COUNT);
-    const uidSet = new Set(nextList.map((item) => item.uid));
-    setUploadFileList(nextList);
+  const removeLocalFile = React.useCallback((uid) => {
+    setUploadFileList((prev) => prev.filter((item) => item.uid !== uid));
     setUploadedFileMeta((prev) => {
-      const removedItems = prev.filter((item) => !uidSet.has(item.uid));
-      removedItems.forEach((item) => {
-        revokeLocalObjectUrl(item?.localThumbUrl);
-      });
-      return prev.filter((item) => uidSet.has(item.uid));
+      const removedItem = prev.find((item) => item.uid === uid);
+      revokeLocalObjectUrl(removedItem?.localThumbUrl);
+      return prev.filter((item) => item.uid !== uid);
     });
   }, []);
 
-  const handleFileUpload = async ({ file, onProgress, onSuccess, onError }) => {
-    const targetFile = isFileLike(file) ? file : file?.originFileObj;
-    const uid = file?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const localThumbUrl = createLocalObjectUrl(targetFile);
-    if (!targetFile) {
-      const error = new Error('INVALID_FILE');
-      onError && onError(error);
-      return;
-    }
-    try {
-      const durationLabel = getFileKindFromType(targetFile?.type || file?.type || '') === 'video'
-        ? await readMediaDuration(localThumbUrl, 'video')
-        : '';
-      const result = await uploadToOSSWithProgress(targetFile, (event) => {
-        onProgress && onProgress({ percent: Number(event?.percent || 0) }, targetFile);
-      });
-      onSuccess && onSuccess(result, targetFile);
-      if (result?.publicUrl) {
-        const normalizedUrl = stripUrlSearch(result.publicUrl);
-        const uploadedFile = {
-          uid,
-          url: normalizedUrl,
-          name: targetFile?.name || file?.name || '附件',
-          fileType: targetFile?.type || file?.type || '',
-          thumbnailUrl: normalizedUrl,
-          previewUrl: normalizedUrl,
-          localThumbUrl,
-          localPreviewUrl: localThumbUrl,
-          durationLabel,
-        };
-        setUploadedFileMeta((prev) => {
-          const next = prev.filter((item) => item.uid !== uid);
-          const previousItem = prev.find((item) => item.uid === uid);
-          if (previousItem?.localThumbUrl && previousItem.localThumbUrl !== localThumbUrl) {
-            revokeLocalObjectUrl(previousItem.localThumbUrl);
-          }
-          next.push(uploadedFile);
-          return next;
-        });
-        const pendingSlotId = pendingTemplateSlotAutoReferenceRef.current;
-        if (pendingSlotId) {
-          syncTemplateFileReferenceNode(editor, pendingSlotId, uploadedFile);
-          pendingTemplateSlotAutoReferenceRef.current = '';
-        }
-      } else {
-        revokeLocalObjectUrl(localThumbUrl);
-      }
-      message.success('文件上传成功');
-    } catch (error) {
-      onError && onError(error);
-      revokeLocalObjectUrl(localThumbUrl);
-      message.error('文件上传失败');
-    }
-  };
-
-  const queueFilesForUpload = React.useCallback((files = []) => {
+  const queueFilesForUpload = React.useCallback(async (files = []) => {
     if (sessionSending) return;
-    const fileList = files
-      .filter((item) => isFileLike(item))
-      .map((file, index) => {
-        const uid = file.uid || `paste_${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
-        return {
-          requestFile: {
-            uid,
-            name: file.name,
-            type: file.type,
-            size: file.size,
-            originFileObj: file,
-          },
-          uploadItem: {
-            uid,
-            name: file.name || '附件',
-            type: file.type,
-            size: file.size,
-            originFileObj: file,
-            status: 'uploading',
-            percent: 0,
-          },
-        };
-      });
-    if (fileList.length === 0) return;
+    const normalizedFiles = files.filter((item) => isFileLike(item));
+    if (normalizedFiles.length === 0) return;
 
-    const batchFileList = fileList.map((item) => item.requestFile);
-    const acceptedFiles = fileList.filter((item) => handleBeforeUpload(item.requestFile, batchFileList) === true);
+    const currentCount = uploadFileList.length;
+    const availableSlots = Math.max(0, MAX_UPLOAD_COUNT - currentCount);
+    const acceptedFiles = [];
+
+    let hasOverflow = false;
+
+    normalizedFiles.forEach((file) => {
+      if (acceptedFiles.length >= availableSlots) {
+        hasOverflow = true;
+        return;
+      }
+      acceptedFiles.push(file);
+    });
+
+    if (hasOverflow) {
+      message.error(`最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
+    }
     if (acceptedFiles.length === 0) return;
 
-    setUploadFileList((prev) => [...prev, ...acceptedFiles.map((item) => item.uploadItem)].slice(-MAX_UPLOAD_COUNT));
+    const nextEntries = (await Promise.all(acceptedFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
+    if (nextEntries.length === 0) return;
 
-    acceptedFiles.forEach(({ requestFile }) => {
-      handleFileUpload({
-        file: requestFile,
-        onProgress: ({ percent }) => {
-          setUploadFileList((prev) => prev.map((item) => (
-            item.uid === requestFile.uid
-              ? { ...item, status: 'uploading', percent: Number(percent || 0) }
-              : item
-          )));
-        },
-        onSuccess: () => {
-          setUploadFileList((prev) => prev.map((item) => (
-            item.uid === requestFile.uid
-              ? { ...item, status: 'done', percent: 100 }
-              : item
-          )));
-        },
-        onError: () => {
-          setUploadFileList((prev) => prev.map((item) => (
-            item.uid === requestFile.uid
-              ? { ...item, status: 'error' }
-              : item
-          )));
-        },
-      });
-    });
-  }, [handleBeforeUpload, handleFileUpload, sessionSending]);
+    const nextUploadItems = nextEntries.map((item) => item.uploadItem);
+    const nextFileMeta = nextEntries.map((item) => item.fileMeta);
+
+    setUploadFileList((prev) => [...prev, ...nextUploadItems]);
+    setUploadedFileMeta((prev) => [...prev, ...nextFileMeta]);
+
+    const pendingSlotId = pendingTemplateSlotAutoReferenceRef.current;
+    if (pendingSlotId && nextFileMeta[0]) {
+      syncTemplateFileReferenceNode(editor, pendingSlotId, nextFileMeta[0]);
+      pendingTemplateSlotAutoReferenceRef.current = '';
+    }
+  }, [editor, sessionSending, uploadFileList]);
+
+  const handleBeforeUpload = React.useCallback((file, batchFileList = []) => {
+    const normalizedBatch = Array.isArray(batchFileList) && batchFileList.length > 0
+      ? batchFileList
+      : [file];
+    if (normalizedBatch[0]?.uid !== file?.uid) {
+      return AntUpload.LIST_IGNORE;
+    }
+    queueFilesForUpload(normalizedBatch);
+    return AntUpload.LIST_IGNORE;
+  }, [queueFilesForUpload]);
 
   React.useEffect(() => {
     queueFilesForUploadRef.current = queueFilesForUpload;
@@ -3389,21 +3344,25 @@ const Composer = ({
     );
     const imageFiles = uploadFileList
       .filter((item) => item?.status !== 'removed')
-      .map((item) => item?.originFileObj || item)
-      .filter((file) => isFileLike(file))
-      .filter((file) => {
-        const uid = String(file?.uid || '').trim();
-        const mimeType = uploadedImageTypesByUid.get(uid) || String(file?.type || '').trim();
+      .map((item) => ({
+        uid: String(item?.uid || '').trim(),
+        file: item?.originFileObj || item,
+        fileType: String(item?.type || item?.originFileObj?.type || '').trim(),
+      }))
+      .filter((item) => isFileLike(item.file))
+      .filter((item) => {
+        const mimeType = uploadedImageTypesByUid.get(item.uid) || item.fileType;
         return mimeType.toLowerCase().startsWith('image/');
       });
     if (imageFiles.length === 0) return [];
-    const payloads = await Promise.all(imageFiles.map(async (file) => {
+    const payloads = await Promise.all(imageFiles.map(async ({ uid, file, fileType }) => {
       const dataUrl = await readFileAsDataUrl(file);
       const [, base64 = ''] = dataUrl.split(',', 2);
       if (!base64) return null;
       return {
+        uid,
         data: base64,
-        media_type: String(file?.type || 'image/png').trim() || 'image/png',
+        media_type: fileType || String(file?.type || 'image/png').trim() || 'image/png',
       };
     }));
     return payloads.filter(Boolean);
@@ -3419,24 +3378,35 @@ const Composer = ({
     }
     const serializedMessage = serializeEditorMessage(editor, buildMarkdownFileLink);
     const hasMultimodalImages = selectedModelSupportsReadImage && imagePayloads.length > 0;
+    const imagePayloadByUid = new Map(imagePayloads.map((item) => [item.uid, item]));
     const imageAttachmentPreviews = hasMultimodalImages
       ? uploadedFileMeta
         .filter((item) => String(item?.fileType || '').toLowerCase().startsWith('image/'))
-        .map((item) => createFileReferenceAttrs(item, {
-          localThumbUrl: '',
-          localPreviewUrl: ''
-        }))
+        .map((item) => {
+          const payload = imagePayloadByUid.get(String(item?.uid || '').trim());
+          const dataUrl = payload ? `data:${payload.media_type};base64,${payload.data}` : item.previewUrl;
+          return createFileReferenceAttrs(item, {
+            thumbnailUrl: dataUrl || item.thumbnailUrl,
+            previewUrl: dataUrl || item.previewUrl,
+            localThumbUrl: '',
+            localPreviewUrl: ''
+          });
+        })
       : [];
-    const remainingUploadedLinks = uploadedFileMeta
-      .filter((item) => item?.url && !serializedMessage.referencedFileUids.has(item.uid))
-      .map((item) => buildMarkdownFileLink(item.name, item.url));
+    const remainingLocalReferences = uploadedFileMeta
+      .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
+      .map((item) => (
+        item?.url
+          ? buildMarkdownFileLink(item.name, item.url)
+          : getFileReferenceText(item)
+      ));
     const voiceSquareComposeParts = activeTool === 'voice-square'
       ? getVoiceSquareComposeParts(editor)
       : null;
     const text = activeTool === 'voice-square'
       ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
-    const combined = [text, ...remainingUploadedLinks].filter(Boolean).join('\n');
+    const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
     if (!combined) return;
     const nextMessage =
       activeTool === 'voice-square'
@@ -3449,7 +3419,7 @@ const Composer = ({
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
-      images: imagePayloads,
+      images: imagePayloads.map(({ data, media_type }) => ({ data, media_type })),
       imageAttachmentPreviews
     });
     if (activeTool) {
@@ -3556,47 +3526,24 @@ const Composer = ({
   return (
     <div className="chat-panel__composer">
       <div className="chat-panel__editor">
-        {uploadFileList.length > 0 ? (
-          <AntUpload
-            className="chat-panel__upload-list chat-panel__upload-list--top"
-            fileList={uploadFileList}
-            showUploadList={{
-              showPreviewIcon: false,
-              showDownloadIcon: false,
-              showRemoveIcon: true,
-            }}
-            onRemove={(file) => {
-              setUploadFileList((prev) => prev.filter((item) => item.uid !== file.uid));
-              setUploadedFileMeta((prev) => {
-                const removedItem = prev.find((item) => item.uid === file.uid);
-                revokeLocalObjectUrl(removedItem?.localThumbUrl);
-                return prev.filter((item) => item.uid !== file.uid);
-              });
-              return true;
-            }}
-            openFileDialogOnClick={false}
-          >
-            <span />
-          </AntUpload>
-        ) : null}
+        <LocalFilePreviewList
+          files={uploadedFileMeta}
+          onRemove={(file) => removeLocalFile(file?.uid)}
+        />
         <div ref={toolBarRef} className="chat-panel__tool-bar">
           <div className="chat-panel__tool-left">
             <div ref={toolLeftPrefixRef} className="chat-panel__tool-left-prefix">
               <AntUpload
-                accept="image/*,video/*,audio/*"
                 multiple
                 beforeUpload={handleBeforeUpload}
-                customRequest={handleFileUpload}
                 showUploadList={false}
-                fileList={uploadFileList}
-                onChange={({ fileList }) => handleUploadListChange(fileList)}
                 disabled={sessionSending}
               >
                 <span
                   ref={toolbarUploadTriggerRef}
                   className="chat-panel__tool-button chat-panel__tool-button--icon-only"
-                  aria-label="上传文件"
-                  title="上传文件"
+                  aria-label="选择本地文件"
+                  title="选择本地文件"
                   role="button"
                 >
                   <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
@@ -3832,15 +3779,11 @@ const Composer = ({
                       ) : null}
                     <div className="chat-panel__reference-section">
                       <div className="chat-panel__reference-section-header">
-                        <span className="chat-panel__reference-section-title">上传引用</span>
+                        <span className="chat-panel__reference-section-title">本地文件</span>
                         <AntUpload
-                          accept="image/*,video/*,audio/*"
                           multiple
                           beforeUpload={handleBeforeUpload}
-                          customRequest={handleFileUpload}
                           showUploadList={false}
-                          fileList={uploadFileList}
-                          onChange={({ fileList }) => handleUploadListChange(fileList)}
                           disabled={sessionSending}
                         >
                           <Button
@@ -3849,13 +3792,13 @@ const Composer = ({
                             className="chat-panel__reference-upload-action"
                             icon={<Plus className="chat-panel__skill-mention-empty-action-icon" />}
                           >
-                            上传
+                            选择
                           </Button>
                         </AntUpload>
                       </div>
                       {filteredUploadedFiles.length === 0 ? (
                         <div className="chat-panel__reference-empty">
-                          {uploadedFileMeta.length === 0 ? '暂无上传引用' : '没有匹配的上传文件'}
+                          {uploadedFileMeta.length === 0 ? '暂无本地文件' : '没有匹配的本地文件'}
                         </div>
                       ) : null}
                       {filteredUploadedFiles.map((file, index) => {

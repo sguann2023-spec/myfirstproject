@@ -9,6 +9,7 @@
 
 .chat-panel__editor {
   flex: 1;
+  min-width: 0;
   min-height: 205px;
   height: auto;
   display: flex;
