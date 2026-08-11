@@ -1,6 +1,8 @@
 import * as fs from 'node:fs'
 import path from 'node:path'
 
+import { getGlobalSkillsRoot } from '@main/services/agents/skills/paths'
+
 export type WorkspaceSkillSurface = {
   exists: boolean
   skillDirCount: number
@@ -12,7 +14,8 @@ export type WorkspaceSkillSurface = {
 }
 
 export async function scanWorkspaceSkillSurface(workspacePath: string): Promise<WorkspaceSkillSurface> {
-  const skillsDir = path.join(workspacePath, '.claude', 'skills')
+  void workspacePath
+  const skillsDir = getGlobalSkillsRoot()
   try {
     const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
     const skillDirNames: string[] = []

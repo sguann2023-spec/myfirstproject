@@ -28,6 +28,7 @@ import {
   HIDDEN_BUILTIN_SKILL_FOLDERS,
   isHiddenBuiltinSkillFolder
 } from './hiddenBuiltinSkills'
+import { getGlobalSkillsRoot } from './paths'
 import { SkillInstaller } from './SkillInstaller'
 
 const logger = loggerService.withContext('SkillService')
@@ -44,10 +45,9 @@ const MAX_FOLDER_NAME_LENGTH = 80
  * Skill management service.
  *
  * Runtime behavior is filesystem-first:
- * - Global library: `{dataPath}/Skills/{folderName}/`
- * - Agent runtime: `{agentWorkspace}/.claude/skills/{folderName}/`
+ * - Global library: `{userData}/Data/GlobalSkills/{folderName}/`
  *
- * We no longer rely on skills/agent_skills tables for runtime listing/toggle.
+ * We no longer rely on per-workspace skill copies for runtime listing/toggle.
  */
 export class SkillService extends BaseService {
   private static instance: SkillService | null = null
@@ -73,147 +73,52 @@ export class SkillService extends BaseService {
 
   async list(agentId?: string): Promise<InstalledSkill[]> {
     const skills = await this.listGlobalSkills()
-    if (!agentId) {
-      return skills.map((s) => ({ ...s, isEnabled: false }))
-    }
-
-    const workspace = await this.getAgentWorkspace(agentId)
-    if (!workspace) return skills.map((s) => ({ ...s, isEnabled: false }))
-
-    const localSkills = await this.listLocal(workspace)
-    const enabledFolders = new Set(localSkills.map((s) => this.sanitizeFolderName(s.filename)))
-    return skills.map((s) => ({ ...s, isEnabled: enabledFolders.has(s.folderName) }))
+    return skills.map((s) => ({ ...s, isEnabled: true }))
   }
 
   async listActive(agentId: string): Promise<InstalledSkill[]> {
-    const workspace = await this.getAgentWorkspace(agentId)
-    if (!workspace) return []
-
-    await this.reconcileAgentSkills(agentId, workspace)
-    return this.listInstalledSkillsInDirectory(path.join(workspace, '.claude', 'skills'), {
-      source: 'agent',
-      isEnabled: true
-    })
+    void agentId
+    return this.listGlobalSkills({ isEnabled: true })
   }
 
   async listActiveInWorkspace(workspace: string): Promise<InstalledSkill[]> {
-    if (!workspace) return []
-
-    await this.reconcileAgentSkills('workspace', workspace)
-    return this.listInstalledSkillsInDirectory(path.join(workspace, '.claude', 'skills'), {
-      source: 'agent',
-      isEnabled: true
-    })
+    void workspace
+    return this.listGlobalSkills({ isEnabled: true })
   }
 
   async toggle(options: SkillToggleOptions): Promise<InstalledSkill | null> {
-    const folderName = this.sanitizeFolderName(options.skillId)
-    const workspace = await this.getAgentWorkspace(options.agentId)
-    if (!workspace) return null
+    const resolved = await this.resolveExistingSkillStoragePathForName(options.skillId)
+    if (!resolved || !(await directoryExists(resolved.skillPath))) return null
 
-    const sourcePath = this.getSkillStoragePath(folderName)
-    if (!(await directoryExists(sourcePath))) return null
-
-    if (options.isEnabled) {
-      await this.linkSkill(folderName, workspace)
-    } else {
-      await this.unlinkSkill(folderName, workspace)
-    }
-
-    const base = (await this.list()).find((s) => s.folderName === folderName || s.id === folderName)
-    return base ? { ...base, isEnabled: options.isEnabled } : null
+    const candidateNames = new Set(this.getCandidateFolderNames(options.skillId))
+    candidateNames.add(resolved.folderName)
+    const base = (await this.list()).find((s) => (
+      candidateNames.has(String(s.folderName || '').trim()) ||
+      candidateNames.has(String(s.id || '').trim())
+    ))
+    return base ? { ...base, isEnabled: true } : null
   }
 
   async initSkillsForAgent(agentId: string, workspace: string | undefined): Promise<void> {
-    if (!workspace) return
-    const skills = await this.listGlobalSkills()
-    for (const skill of skills) {
-      try {
-        await this.linkSkill(skill.folderName, workspace)
-      } catch (error) {
-        logger.warn('Failed to copy skill for new agent', {
-          agentId,
-          skillId: skill.id,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
-    logger.info('Seeded workspace skills for agent', { agentId, count: skills.length })
+    void workspace
+    logger.info('Agent skill initialization uses shared global skills only', { agentId })
   }
 
   async enableForAllAgents(skillId: string, folderName: string): Promise<void> {
-    const database = await this.getDatabase()
-    const agents = await database
-      .select({ id: agentsTable.id, accessible_paths: agentsTable.accessible_paths })
-      .from(agentsTable)
-
-    for (const agent of agents) {
-      const workspace = this.parseFirstAccessiblePath(agent.accessible_paths)
-      if (!workspace || !(await directoryExists(workspace))) continue
-      try {
-        await this.linkSkill(folderName, workspace)
-      } catch (error) {
-        logger.warn('Failed to copy skill for agent', {
-          agentId: agent.id,
-          skillId,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
-    logger.info('Enabled skill for all agents (filesystem only)', { skillId, folderName, agentCount: agents.length })
+    logger.info('Skill is globally visible to all agents', { skillId, folderName })
   }
 
   async reconcileAgentSkills(_agentId: string, workspace: string): Promise<void> {
-    if (!workspace) return
-    const skillsDir = path.join(workspace, '.claude', 'skills')
-    await fs.promises.mkdir(skillsDir, { recursive: true })
-
-    let entries: fs.Dirent[] = []
-    try {
-      entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
-    } catch {
-      return
-    }
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const folderName = this.sanitizeFolderName(entry.name)
-      const sourcePath = this.getSkillStoragePath(folderName)
-      if (!(await directoryExists(sourcePath))) continue
-
-      try {
-        await this.linkSkill(folderName, workspace)
-      } catch (error) {
-        logger.warn('Failed to reconcile workspace skill copy', {
-          folderName,
-          workspace,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
+    void workspace
   }
 
   async seedWorkspaceSkillsFromGlobal(workspace: string): Promise<void> {
-    if (!workspace) return
-    const skills = await this.listGlobalSkills()
-    for (const skill of skills) {
-      try {
-        await this.linkSkill(skill.folderName, workspace)
-      } catch (error) {
-        logger.warn('Failed to seed workspace skill from global cache', {
-          workspace,
-          skillId: skill.id,
-          folderName: skill.folderName,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
-    logger.info('Seeded workspace skills from global cache', { workspace, count: skills.length })
+    logger.info('Workspace skill seeding skipped because skills are shared globally', { workspace })
   }
 
   async readFile(skillId: string, filename: string): Promise<string | null> {
-    const folderName = this.sanitizeFolderName(skillId)
-    const skillRoot = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
+    const resolved = await this.resolveExistingSkillStoragePathForName(skillId)
+    const skillRoot = resolved?.skillPath ?? this.getSkillStoragePath(this.preserveFolderName(skillId))
     const filePath = path.resolve(skillRoot, filename)
 
     // Prevent path traversal
@@ -227,8 +132,8 @@ export class SkillService extends BaseService {
   }
 
   async listFiles(skillId: string): Promise<SkillFileNode[]> {
-    const folderName = this.sanitizeFolderName(skillId)
-    const skillRoot = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
+    const resolved = await this.resolveExistingSkillStoragePathForName(skillId)
+    const skillRoot = resolved?.skillPath ?? this.getSkillStoragePath(this.preserveFolderName(skillId))
     if (!(await directoryExists(skillRoot))) return []
     try {
       return await this.buildFileTree(skillRoot, skillRoot)
@@ -238,13 +143,13 @@ export class SkillService extends BaseService {
   }
 
   async uninstallByFolderName(folderName: string): Promise<void> {
-    await this.uninstall(this.sanitizeFolderName(folderName))
+    await this.uninstall(folderName)
   }
 
   async getByFolderName(name: string): Promise<InstalledSkill | null> {
-    const folderName = this.sanitizeFolderName(name)
+    const candidateNames = new Set(this.getCandidateFolderNames(name))
     const skills = await this.listGlobalSkills()
-    return skills.find((s) => s.folderName === folderName) ?? null
+    return skills.find((s) => candidateNames.has(String(s.folderName || '').trim())) ?? null
   }
 
   /**
@@ -254,16 +159,16 @@ export class SkillService extends BaseService {
    * the path to installFromDirectory for in-place registration.
    */
   getSkillDirectory(name: string): string {
-    return this.getSkillStoragePath(this.sanitizeFolderName(name))
+    return this.getSkillStoragePath(this.preserveFolderName(name))
   }
 
   getSkillFolderName(name: string): string {
-    return this.sanitizeFolderName(name)
+    return this.preserveFolderName(name)
   }
 
   async getAgentSkillDirectory(agentId: string, name: string): Promise<string> {
-    const root = await this.getAgentSkillsRoot(agentId)
-    return path.join(root, this.sanitizeFolderName(name))
+    void agentId
+    return this.getSkillDirectory(name)
   }
 
   async listHiddenBuiltinSkills(): Promise<Array<{
@@ -302,68 +207,67 @@ export class SkillService extends BaseService {
   }
 
   getSkillDirectoryInWorkspace(workspace: string, name: string): string {
-    return path.join(workspace, '.claude', 'skills', this.sanitizeFolderName(name))
+    void workspace
+    return this.getSkillDirectory(name)
   }
 
   async getAgentSkillsRoot(agentId: string): Promise<string> {
-    const workspace = await this.getAgentWorkspace(agentId)
-    if (!workspace) {
-      throw new Error(`Agent workspace not found for "${agentId}"`)
-    }
-    return path.join(workspace, '.claude', 'skills')
+    void agentId
+    return getGlobalSkillsRoot()
   }
 
   async getActiveSkillByFolderName(agentId: string, name: string): Promise<InstalledSkill | null> {
-    const folderName = this.sanitizeFolderName(name)
+    const candidateNames = new Set(this.getCandidateFolderNames(name))
     const skills = await this.listActive(agentId)
-    return skills.find((skill) => skill.folderName === folderName || skill.id === folderName) ?? null
+    return skills.find((skill) => (
+      candidateNames.has(String(skill.folderName || '').trim()) ||
+      candidateNames.has(String(skill.id || '').trim())
+    )) ?? null
   }
 
   async getActiveSkillByFolderNameInWorkspace(workspace: string, name: string): Promise<InstalledSkill | null> {
-    const folderName = this.sanitizeFolderName(name)
+    const candidateNames = new Set(this.getCandidateFolderNames(name))
     const skills = await this.listActiveInWorkspace(workspace)
-    return skills.find((skill) => skill.folderName === folderName || skill.id === folderName) ?? null
+    return skills.find((skill) => (
+      candidateNames.has(String(skill.folderName || '').trim()) ||
+      candidateNames.has(String(skill.id || '').trim())
+    )) ?? null
   }
 
   async removeAgentLocalSkill(agentId: string, name: string): Promise<void> {
-    const workspace = await this.getAgentWorkspace(agentId)
-    if (!workspace) {
-      throw new Error(`Agent workspace not found for "${agentId}"`)
-    }
-    await this.unlinkSkill(this.sanitizeFolderName(name), workspace)
+    void agentId
+    await this.uninstall(name)
   }
 
   async removeLocalSkillFromWorkspace(workspace: string, name: string): Promise<void> {
-    await this.unlinkSkill(this.sanitizeFolderName(name), workspace)
+    void workspace
+    await this.uninstall(name)
   }
 
   async enableSkillInWorkspace(skillId: string, workspace: string): Promise<InstalledSkill | null> {
-    const folderName = this.sanitizeFolderName(skillId)
-    const sourcePath = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
+    const resolved = await this.resolveExistingSkillStoragePathForName(skillId)
+    const folderName = resolved?.folderName ?? this.preserveFolderName(skillId)
+    const sourcePath = resolved?.skillPath ?? this.getSkillStoragePath(folderName)
     if (!(await directoryExists(sourcePath))) return null
+    void workspace
 
-    await this.linkSkill(folderName, workspace)
-
-    const base = (await this.list()).find((s) => s.folderName === folderName || s.id === folderName)
+    const candidateNames = new Set(this.getCandidateFolderNames(skillId))
+    candidateNames.add(folderName)
+    const base = (await this.list()).find((s) => (
+      candidateNames.has(String(s.folderName || '').trim()) ||
+      candidateNames.has(String(s.id || '').trim())
+    ))
     return base ? { ...base, isEnabled: true } : null
   }
 
   async uninstall(skillId: string): Promise<void> {
-    const folderName = this.sanitizeFolderName(skillId)
-    const database = await this.getDatabase()
-    const agents = await database
-      .select({ id: agentsTable.id, accessible_paths: agentsTable.accessible_paths })
-      .from(agentsTable)
-    for (const agent of agents) {
-      const workspace = this.parseFirstAccessiblePath(agent.accessible_paths)
-      if (!workspace || !(await directoryExists(workspace))) continue
-      await this.unlinkSkill(folderName, workspace).catch(() => undefined)
+    const candidateNames = this.getCandidateFolderNames(skillId)
+    for (const folderName of candidateNames) {
+      for (const skillPath of this.getSkillStoragePaths(folderName)) {
+        await this.installer.uninstall(skillPath).catch(() => undefined)
+      }
     }
-
-    for (const skillPath of this.getSkillStoragePaths(folderName)) {
-      await this.installer.uninstall(skillPath).catch(() => undefined)
-    }
-    logger.info('Skill uninstalled (filesystem only)', { skillId, folderName })
+    logger.info('Skill uninstalled (filesystem only)', { skillId, folderNames: candidateNames })
   }
 
   /**
@@ -474,9 +378,13 @@ export class SkillService extends BaseService {
       return { folderName, targetPath }
     }
 
-    const targetPath = path.join(workspace, '.claude', 'skills', folderName)
+    const targetPath = this.getSkillStoragePath(folderName)
+    const legacySanitizedTargetPath = this.getSkillStoragePath(this.sanitizeFolderName(folderName))
     await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
     await fs.promises.rm(targetPath, { recursive: true, force: true })
+    if (legacySanitizedTargetPath !== targetPath) {
+      await fs.promises.rm(legacySanitizedTargetPath, { recursive: true, force: true })
+    }
     await fs.promises.cp(directoryPath, targetPath, { recursive: true })
 
     for (const excludedSubdir of normalizedExcludeSubdirs) {
@@ -494,14 +402,15 @@ export class SkillService extends BaseService {
   }
 
   /**
-   * List local skills from an agent workdir's .claude/skills/ directory.
+   * List globally shared skills visible to any session.
    */
   async listLocal(
     workdir: string,
     options: { includeHidden?: boolean } = {}
-  ): Promise<Array<{ name: string; description?: string; filename: string }>> {
-    const results: Array<{ name: string; description?: string; filename: string }> = []
-    const skillsDir = path.join(workdir, '.claude', 'skills')
+  ): Promise<Array<{ name: string; description?: string; filename: string; path: string; source: 'global' }>> {
+    void workdir
+    const results: Array<{ name: string; description?: string; filename: string; path: string; source: 'global' }> = []
+    const skillsDir = getGlobalSkillsRoot()
     const includeHidden = options.includeHidden === true
 
     try {
@@ -516,13 +425,19 @@ export class SkillService extends BaseService {
             continue
           }
           const metadata = await parseSkillMetadata(skillPath, entry.name, 'skills')
-          results.push({ name: metadata.name, description: metadata.description, filename: entry.name })
+          results.push({
+            name: metadata.name,
+            description: metadata.description,
+            filename: entry.name,
+            path: skillPath,
+            source: 'global'
+          })
         } catch {
           // No SKILL.md or parse error, skip
         }
       }
     } catch {
-      // .claude/skills/ doesn't exist
+      // Data/GlobalSkills doesn't exist
     }
 
     return results
@@ -536,37 +451,10 @@ export class SkillService extends BaseService {
    * Copy a skill directory into `{workspace}/.claude/skills/{folderName}`.
    */
   async linkSkill(folderName: string, workspace: string): Promise<void> {
+    void workspace
     const target = (await this.resolveExistingSkillStoragePath(folderName)) ?? this.getSkillStoragePath(folderName)
-    const linkPath = this.getSkillLinkPath(folderName, workspace)
-
-    try {
-      if (isHiddenBuiltinSkillFolder(folderName)) {
-        await fs.promises.rm(linkPath, { recursive: true, force: true })
-        logger.info('Hidden skill stays in global storage without workspace materialization', {
-          folderName,
-          target,
-          linkPath
-        })
-        return
-      }
-
-      // Idempotent fast-path: if copied skill already exists and version is unchanged, skip rm+cp.
-      if ((await directoryExists(linkPath)) && (await this.isSkillCopyUpToDate(target, linkPath))) {
-        logger.info('Skill copy skipped (up-to-date)', { folderName, target, linkPath })
-        return
-      }
-
-      await fs.promises.mkdir(path.dirname(linkPath), { recursive: true })
-      await fs.promises.rm(linkPath, { recursive: true, force: true })
-      await fs.promises.cp(target, linkPath, { recursive: true })
-      logger.info('Skill copied to workspace', { folderName, target, linkPath })
-    } catch (error) {
-      logger.error('Failed to copy skill to workspace', {
-        folderName,
-        linkPath,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      throw error
+    if (!(await directoryExists(target))) {
+      throw new Error(`Skill not found: ${folderName}`)
     }
   }
 
@@ -591,17 +479,7 @@ export class SkillService extends BaseService {
    */
   async unlinkSkill(folderName: string, workspace: string): Promise<void> {
     const linkPath = this.getSkillLinkPath(folderName, workspace)
-    try {
-      await fs.promises.rm(linkPath, { recursive: true, force: true })
-      logger.info('Skill removed from workspace', { folderName, linkPath })
-    } catch (error) {
-      logger.error('Failed to remove workspace skill', {
-        folderName,
-        linkPath,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      throw error
-    }
+    await fs.promises.rm(linkPath, { recursive: true, force: true }).catch(() => undefined)
   }
 
   // ===========================================================================
@@ -704,12 +582,16 @@ export class SkillService extends BaseService {
 
   private async installSkillDir(skillDir: string, source: string, sourceUrl: string | null): Promise<InstalledSkill> {
     const metadata = await parseSkillMetadata(skillDir, path.basename(skillDir), 'skills')
-    const skillsRoot = path.resolve(getDataPath('Skills'))
+    const skillsRoot = path.resolve(getGlobalSkillsRoot())
     const isInPlace = path.resolve(path.dirname(skillDir)) === skillsRoot
-    const folderName = isInPlace ? path.basename(skillDir) : this.sanitizeFolderName(metadata.filename)
+    const folderName = isInPlace ? path.basename(skillDir) : this.preserveFolderName(metadata.filename)
     const destPath = this.getSkillStoragePath(folderName)
+    const legacySanitizedDestPath = this.getSkillStoragePath(this.sanitizeFolderName(folderName))
 
     await fs.promises.mkdir(path.dirname(destPath), { recursive: true })
+    if (legacySanitizedDestPath !== destPath) {
+      await fs.promises.rm(legacySanitizedDestPath, { recursive: true, force: true })
+    }
     await this.installer.install(skillDir, destPath)
     await this.writeHiddenSkillMarkerIfNeeded(destPath, folderName)
     const stat = await fs.promises.stat(destPath)
@@ -878,8 +760,11 @@ export class SkillService extends BaseService {
   // Path helpers
   // ===========================================================================
 
-  private async listGlobalSkills(): Promise<InstalledSkill[]> {
-    return this.listInstalledSkillsInDirectory(getDataPath('Skills'), { source: 'local', isEnabled: false })
+  private async listGlobalSkills(options: { isEnabled?: boolean } = {}): Promise<InstalledSkill[]> {
+    return this.listInstalledSkillsInDirectory(getGlobalSkillsRoot(), {
+      source: 'global',
+      isEnabled: options.isEnabled ?? true
+    })
   }
 
   private async listInstalledSkillsInDirectory(
@@ -894,7 +779,7 @@ export class SkillService extends BaseService {
 
     const results = await Promise.all(
       dirs.map(async (entry) => {
-        const folderName = this.sanitizeFolderName(entry.name)
+        const folderName = entry.name
         const skillPath = path.join(root, entry.name)
         try {
           if (await this.isSkillHiddenAtPath(skillPath, folderName)) {
@@ -939,9 +824,40 @@ export class SkillService extends BaseService {
 
   private getSkillStoragePaths(folderName: string): string[] {
     if (isHiddenBuiltinSkillFolder(folderName)) {
-      return [getHiddenBuiltinSkillPath(folderName), path.join(getDataPath('Skills'), folderName)]
+      return [getHiddenBuiltinSkillPath(folderName), path.join(getGlobalSkillsRoot(), folderName)]
     }
-    return [path.join(getDataPath('Skills'), folderName)]
+    return [path.join(getGlobalSkillsRoot(), folderName)]
+  }
+
+  private async resolveExistingSkillStoragePathForName(name: string): Promise<{
+    folderName: string
+    skillPath: string
+  } | null> {
+    for (const folderName of this.getCandidateFolderNames(name)) {
+      const skillPath = await this.resolveExistingSkillStoragePath(folderName)
+      if (skillPath) {
+        return { folderName, skillPath }
+      }
+    }
+    return null
+  }
+
+  private getCandidateFolderNames(name: string): string[] {
+    const preserved = this.preserveFolderName(name)
+    const sanitized = this.sanitizeFolderName(name)
+    return Array.from(new Set([preserved, sanitized].filter(Boolean)))
+  }
+
+  private preserveFolderName(folderName: string): string {
+    let preserved = folderName.replace(/[/\\]/g, '_')
+    preserved = preserved.replace(new RegExp(String.fromCharCode(0), 'g'), '')
+    preserved = preserved.trim()
+
+    if (preserved.length > MAX_FOLDER_NAME_LENGTH) {
+      preserved = preserved.slice(0, MAX_FOLDER_NAME_LENGTH)
+    }
+
+    return preserved
   }
 
   private async resolveExistingSkillStoragePath(folderName: string): Promise<string | null> {

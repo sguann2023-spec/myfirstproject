@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { loggerService } from '@logger'
+import { getGlobalSkillsDisplayRoot } from '@main/services/agents/skills/paths'
 import type { CherryClawConfiguration } from '@types'
 
 import type { ToolGuidanceOptions } from '../claudecode/capability-router'
@@ -99,8 +100,9 @@ export class PromptBuilder {
     }
   ): string {
     const sections: string[] = []
+    const sharedSkillsRoot = getGlobalSkillsDisplayRoot()
     const preferredLocalSkillPath = opts.preferredLocalSkillFilename
-      ? `${workspacePath}/.claude/skills/${opts.preferredLocalSkillFilename}/SKILL.md`
+      ? `${sharedSkillsRoot}/${opts.preferredLocalSkillFilename}/SKILL.md`
       : ''
 
     if (opts.hasClaw) {
@@ -115,35 +117,35 @@ export class PromptBuilder {
       const activeSkillNames = options?.activeSkillNames ?? []
       const localSkillsLine =
         activeSkillNames.length > 0
-          ? `- Current workspace local skills already present under \`${workspacePath}/.claude/skills\`: ${activeSkillNames
+          ? `- Shared global skills already present under \`${sharedSkillsRoot}\`: ${activeSkillNames
               .map((name) => `\`${name}\``)
               .join(', ')}.`
-          : `- Check \`${workspacePath}/.claude/skills/<name>/SKILL.md\` before assuming the current agent does not already have the requested skill.`
+          : `- Check \`${sharedSkillsRoot}/<name>/SKILL.md\` before assuming the app does not already have the requested skill.`
       sections.push(`## Skills
 
-- Skills are an execution surface when the current request clearly matches a local workspace skill.
+- Skills are an execution surface when the current request clearly matches a shared global skill.
 - Use skill management only when the user asks to install, create, inspect, or invoke a skill.
-- When the user refers to a current, local, attached, or @mentioned skill, treat the current workspace's \`.claude/skills/<name>/SKILL.md\` as the primary source of truth.
+- When the user refers to a current, local, attached, or @mentioned skill, treat the shared global \`Data/GlobalSkills/<name>/SKILL.md\` as the primary source of truth.
 ${localSkillsLine}
 - Use \`skills\` with action \`list\` to inspect skills visible to the current agent.
 - Use \`skills\` with action \`search\` only for marketplace discovery or installation, not to decide whether a local workspace skill exists.
 - Do not infer "the skill does not exist locally" from an empty marketplace search result.
-- For implicit skill routing, use names, filenames, and descriptions only as recall hints; treat the selected local \`SKILL.md\` as the final execution source.
-- If the current request matches a local workspace skill and that skill can directly satisfy the user request, read its \`SKILL.md\` first and follow it before giving a freeform answer.
-- If the host already embeds a resolved local \`SKILL.md\` in the current turn prompt, treat that skill content as already loaded and do not waste tools rediscovering it.
-- Do not bypass a matched local skill with a general answer when the skill is clearly intended to handle the request.
+- For implicit skill routing, use names, filenames, and descriptions only as recall hints; treat the selected \`SKILL.md\` as the final execution source.
+- If the current request matches a shared skill and that skill can directly satisfy the user request, read its \`SKILL.md\` first and follow it before giving a freeform answer.
+- If the host already embeds a resolved \`SKILL.md\` in the current turn prompt, treat that skill content as already loaded and do not waste tools rediscovering it.
+- Do not bypass a matched shared skill with a general answer when the skill is clearly intended to handle the request.
 - Do not load or summarize skill internals unless the selected task actually requires that skill.`)
     }
 
     if (opts.preferredLocalSkillFilename) {
       const triggerLine =
         opts.preferredLocalSkillTriggerMode === 'explicit'
-          ? `- The user explicitly invoked the local workspace skill \`${opts.preferredLocalSkillFilename}\`.`
-          : `- The current request implicitly matches the local workspace skill \`${opts.preferredLocalSkillFilename}\`.`
+          ? `- The user explicitly invoked the shared skill \`${opts.preferredLocalSkillFilename}\`.`
+          : `- The current request implicitly matches the shared skill \`${opts.preferredLocalSkillFilename}\`.`
       const sdkLine =
         opts.preferredLocalSkillSdkDiscovered === true
-          ? '- This skill is already present under the current workspace `.claude/skills/` and should be available to the SDK project-level skill loader.'
-          : '- Ensure this skill is present under the current workspace `.claude/skills/` so the SDK can auto-discover it for this turn.'
+          ? '- This skill is already present in the shared global skills directory.'
+          : '- Ensure this skill is present in the shared global skills directory before executing this turn.'
       const evidenceLine =
         (opts.preferredLocalSkillMatchedEvidence?.length ?? 0) > 0
           ? `- Match evidence: ${opts.preferredLocalSkillMatchedEvidence!.map((item) => `\`${item}\``).join(', ')}.`

@@ -41,9 +41,6 @@ const CREATE_SKILL_PROMPT_TEMPLATE = [
   '- 如果需要固定脚本、工具或工作流，也请一起设计',
   '',
 ].join('\n');
-const buildSkillEditPrompt = (mentionLabel) => [
-  `@${mentionLabel} 执行这个技能：（例如：生成一个儿童绘本主题是勇敢的小狮子)。或者@${mentionLabel} 修改这个技能：（例如：修改这个技能的分镜数量，我想改到8个)。`
-].join('\n');
 const formatModelDisplayName = (value) => String(value || '').trim();
 const buildFileCommentMessage = ({ filePath, fileName, lineNumber, comment }) => {
   const targetPath = String(filePath || fileName || '').trim();
@@ -151,7 +148,7 @@ const Chat = ({
   }, []);
 
   const insertSkillMention = React.useCallback((skill) => {
-    const mentionLabel = String(skill?.folderName || skill?.filename || skill?.name || skill?.id || '').trim();
+    const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
     if (!mentionLabel) return;
 
     const currentText = String(input || '');
@@ -169,10 +166,42 @@ const Chat = ({
     const selectionEnd = selectionRange?.end ?? selectionStart;
     const prefix = currentText.slice(0, selectionStart);
     const suffix = currentText.slice(selectionEnd);
-    const promptText = buildSkillEditPrompt(mentionLabel);
+    const mentionText = `@${mentionLabel}`;
     const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
-    const needsTrailingBreak = suffix.length > 0 && !/^\s/.test(suffix);
-    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${promptText}${needsTrailingBreak ? '\n' : ''}${suffix}`;
+    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
+    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${mentionText}${needsTrailingSpace ? ' ' : ''}${suffix}`;
+    const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + mentionText.length;
+
+    setInput(nextText);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [input, setInput]);
+
+  const insertSkillModifyPrompt = React.useCallback((skill) => {
+    const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
+    if (!mentionLabel) return;
+
+    const currentText = String(input || '');
+    const inputElement = inputRef.current;
+    const isInputFocused = typeof inputElement?.isFocused === 'function'
+      ? inputElement.isFocused()
+      : inputElement && document.activeElement === inputElement;
+    const selectionRange = typeof inputElement?.getSelectionRange === 'function'
+      ? inputElement.getSelectionRange()
+      : {
+        start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
+        end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
+      };
+    const selectionStart = selectionRange?.start ?? currentText.length;
+    const selectionEnd = selectionRange?.end ?? selectionStart;
+    const prefix = currentText.slice(0, selectionStart);
+    const suffix = currentText.slice(selectionEnd);
+    const promptText = `修改@${mentionLabel}`;
+    const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
+    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
+    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${promptText}${needsTrailingSpace ? ' ' : ''}${suffix}`;
     const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + promptText.length;
 
     setInput(nextText);
@@ -183,7 +212,7 @@ const Chat = ({
   }, [input, setInput]);
 
   const insertQuickSkillMention = React.useCallback((skill) => {
-    const mentionLabel = String(skill?.folderName || skill?.filename || skill?.name || skill?.id || '').trim();
+    const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
     if (!mentionLabel) return;
 
     const currentText = String(input || '');
@@ -289,6 +318,7 @@ const Chat = ({
       currentModelMeta={currentModelMeta}
       onRenameSessionTitle={onRenameSessionTitle}
       onSelectSkill={insertSkillMention}
+      onModifySkill={insertSkillModifyPrompt}
       onCreateSkill={insertCreateSkillPrompt}
       onSubmitFileComment={handleSubmitFileComment}
       sessionSending={sessionSending}

@@ -86,12 +86,7 @@ const LocalSkillCard = memo<{ plugin: LocalSkill }>(({ plugin }) => (
 LocalSkillCard.displayName = 'LocalSkillCard'
 
 /**
- * Agent Skills Settings - shows the global skill library with a per-agent
- * enable/disable toggle, plus local skills from the agent workspace
- * `.claude/skills/` directory.
- *
- * The `isEnabled` field in each skill reflects the state from `agent_skills`
- * for the current agent — toggling only affects this agent's workspace.
+ * Agent Skills Settings - shows the shared global skill library.
  */
 export const InstalledSkillsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase }) => {
   const { t } = useTranslation()
@@ -129,10 +124,12 @@ export const InstalledSkillsSettings: FC<AgentOrSessionSettingsProps> = ({ agent
   }, [skills, filter])
 
   const filteredLocal = useMemo(() => {
-    if (!filter.trim()) return localPlugins
+    const globalFolders = new Set(skills.map((skill) => skill.folderName))
+    const deduped = localPlugins.filter((plugin) => !globalFolders.has(plugin.filename))
+    if (!filter.trim()) return deduped
     const q = filter.toLowerCase()
-    return localPlugins.filter((p) => p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
-  }, [localPlugins, filter])
+    return deduped.filter((p) => p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
+  }, [filter, localPlugins, skills])
 
   const handleToggle = useCallback(
     async (skill: InstalledSkill, checked: boolean) => {

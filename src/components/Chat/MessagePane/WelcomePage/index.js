@@ -51,6 +51,10 @@ const normalizeQuickSkills = (manifest, resourcePath, quickPrompts) => {
       folderName: String(item?.folderName || item?.name || '').trim(),
       description: String(item?.description || '').trim(),
       action: String(item?.action || '').trim(),
+      directoryPath: buildQuickSkillFilePath(
+        resourcePath,
+        String(item?.folderName || item?.name || '').trim()
+      ),
       previewVideoUrl: buildQuickSkillAssetUrl(resourcePath, item?.previewVideoUrl),
       remoteCoverUrl: buildQuickSkillAssetUrl(resourcePath, item?.coverUrl),
       localCoverUrl: buildQuickSkillAssetUrl(resourcePath, item?.coverPath),
@@ -61,11 +65,6 @@ const normalizeQuickSkills = (manifest, resourcePath, quickPrompts) => {
       order: Number(item?.order || 0),
     }))
     .sort((prev, next) => prev.order - next.order);
-};
-
-const getSessionWorkspacePath = (session) => {
-  const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
-  return String(config.selected_workspace_path || session?.accessible_paths?.[0] || '').trim();
 };
 
 const getSkillIdentityKeys = (skill) => {
@@ -169,7 +168,6 @@ const WelcomePage = ({
   emptyWelcomeText,
   quickPrompts,
   onQuickPrompt,
-  currentWorkspacePath,
   runtimeSessionId,
   onSelectSkill,
   childrensBookQuickPromptRef
@@ -230,31 +228,20 @@ const WelcomePage = ({
 
   React.useEffect(() => {
     let disposed = false;
+    let removeSkillsChangedListener = null;
 
     const syncInstalledSkills = async () => {
       const electronAPI = window?.['electronAPI'];
       const listLocal = electronAPI?.agentSkills?.listLocal;
-      const getSession = electronAPI?.cherryChatStream?.getSession;
-      let nextWorkspacePath = String(currentWorkspacePath || '').trim();
-
-      if (runtimeSessionId && typeof getSession === 'function') {
-        try {
-          const sessionResult = await getSession(runtimeSessionId);
-          const runtimeSession = sessionResult?.session || sessionResult?.data || sessionResult;
-          nextWorkspacePath = getSessionWorkspacePath(runtimeSession) || nextWorkspacePath;
-        } catch (error) {
-          nextWorkspacePath = String(currentWorkspacePath || '').trim();
-        }
-      }
 
       if (disposed) return;
-      if (!nextWorkspacePath || typeof listLocal !== 'function') {
+      if (typeof listLocal !== 'function') {
         setInstalledSkillLookup({});
         return;
       }
 
       try {
-        const result = await listLocal({ workdir: nextWorkspacePath });
+        const result = await listLocal({ workdir: '__global_skills__' });
         if (disposed) return;
         if (!result?.ok) {
           setInstalledSkillLookup({});
@@ -277,10 +264,26 @@ const WelcomePage = ({
 
     void syncInstalledSkills();
 
+    const agentSkills = window?.['electronAPI']?.agentSkills;
+    if (agentSkills && typeof agentSkills.onChanged === 'function') {
+      if (typeof agentSkills.subscribeChanges === 'function') {
+        void agentSkills.subscribeChanges({}).catch(() => {});
+      }
+      removeSkillsChangedListener = agentSkills.onChanged(() => {
+        void syncInstalledSkills();
+      });
+    }
+
     return () => {
       disposed = true;
+      if (typeof removeSkillsChangedListener === 'function') {
+        removeSkillsChangedListener();
+      }
+      if (agentSkills && typeof agentSkills.unsubscribeChanges === 'function') {
+        void agentSkills.unsubscribeChanges({}).catch(() => {});
+      }
     };
-  }, [currentWorkspacePath, runtimeSessionId, installedSkillRefreshKey]);
+  }, [installedSkillRefreshKey]);
 
   React.useEffect(() => {
     const targetSessionId = String(runtimeSessionId || '').trim();
@@ -323,15 +326,23 @@ const WelcomePage = ({
 
   const handleAddSkill = React.useCallback(async (item) => {
     const action = String(item?.action || '').trim();
-    if (!action || pendingAction) return;
+    const directoryPath = String(item?.directoryPath || '').trim();
+    const installFromDirectory = window?.electronAPI?.agentSkills?.installFromDirectory;
+    if (!action || !directoryPath || pendingAction || typeof installFromDirectory !== 'function') return;
     setPendingAction(action);
     try {
-      await Promise.resolve(onQuickPrompt({ label: item.name, action }));
+      const result = await installFromDirectory({ directoryPath });
+      if (!result?.success) {
+        throw new Error(result?.error || '添加技能失败');
+      }
       setInstalledSkillRefreshKey((value) => value + 1);
+      onSelectSkill?.(item);
+      setPreviewSkill(null);
+      window.toast?.success?.(`已添加技能：${item.name}`);
     } finally {
       setPendingAction('');
     }
-  }, [onQuickPrompt, pendingAction]);
+  }, [onSelectSkill, pendingAction]);
 
   const handlePreviewSkill = React.useCallback((item) => {
     if (!item?.skillMarkdownPath) return;

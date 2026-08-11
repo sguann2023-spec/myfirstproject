@@ -5,6 +5,7 @@ import { loggerService } from '@logger'
 import { app, net } from 'electron'
 import semver from 'semver'
 
+import { getGlobalSkillsRoot } from '../services/agents/skills/paths'
 import { skillService } from '../services/agents/skills/SkillService'
 import { HIDDEN_SKILL_MARKER_FILE, isHiddenBuiltinSkillFolder } from '../services/agents/skills/hiddenBuiltinSkills'
 import { getDataPath, getResourcePath } from '.'
@@ -47,10 +48,7 @@ interface BuiltinSkillSyncState {
  * Copy built-in skills from app resources to the global skills storage
  * directory.
  *
- * Storage:  {userData}/Data/Skills/{folderName}/
- *
- * Per-agent sync is filesystem-only: each existing agent gets a copied
- * `{agentWorkspace}/.claude/skills/{folderName}/` directory.
+ * Storage:  {userData}/Data/GlobalSkills/{folderName}/
  *
  * Each installed skill gets a `.version` file recording the skill version that
  * installed it. On subsequent launches the bundled version is compared with
@@ -63,7 +61,7 @@ export async function installBuiltinSkills(options?: {
   waitForRemoteSync?: boolean
 }): Promise<void> {
   const resourceSkillsPath = path.join(getResourcePath(), 'skills')
-  const globalSkillsPath = getDataPath('Skills')
+  const globalSkillsPath = getGlobalSkillsRoot()
   const distributeToAgents = options?.distributeToAgents ?? true
   const waitForRemoteSync = options?.waitForRemoteSync ?? false
 
@@ -86,7 +84,7 @@ export async function installBuiltinSkills(options?: {
   const entries = await fs.readdir(resourceSkillsPath, { withFileTypes: true })
   const dirs = entries.filter((e) => {
     if (!e.isDirectory()) return false
-    const destPath = path.join(getDataPath('Skills'), e.name)
+    const destPath = path.join(getGlobalSkillsRoot(), e.name)
     return destPath.startsWith(globalSkillsPath + path.sep)
   })
 
@@ -343,7 +341,7 @@ async function downloadAndInstallBuiltinSkill(skillName: string, entry: BuiltinS
     throw new Error(`Download failed: HTTP ${response.status}`)
   }
 
-  const downloadDir = path.join(getDataPath('Skills'), '.downloads')
+  const downloadDir = path.join(getGlobalSkillsRoot(), '.downloads')
   const zipPath = path.join(downloadDir, `${skillName}-${Date.now()}.zip`)
 
   await fs.mkdir(downloadDir, { recursive: true })
@@ -462,7 +460,7 @@ async function saveBuiltinSkillSyncState(state: BuiltinSkillSyncState): Promise<
 }
 
 function getBuiltinSkillSyncStatePath(): string {
-  return path.join(getDataPath('Skills'), SYNC_STATE_FILE)
+  return path.join(getGlobalSkillsRoot(), SYNC_STATE_FILE)
 }
 
 function inferSkillSource(localManifest: BuiltinSkillManifest, skillName: string): 'bundle' | 'remote' {

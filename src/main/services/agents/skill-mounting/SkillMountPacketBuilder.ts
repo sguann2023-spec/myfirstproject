@@ -2,6 +2,8 @@ import { readFile, stat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 
+import { getGlobalSkillsRoot } from '../skills/paths'
+
 import type {
   SkillMatchSignal,
   SkillMountMode,
@@ -32,7 +34,7 @@ export async function buildWorkspaceSkillMountPacket(args: {
   promptHintLevel: SkillMountPromptHintLevel
   sdkDiscovered: boolean
 }): Promise<SkillMountPacket> {
-  const skillMdPath = args.skill.skillMdPath ?? path.join(args.workspacePath, '.claude', 'skills', args.skill.filename, 'SKILL.md')
+  const skillMdPath = args.skill.skillMdPath ?? path.join(getGlobalSkillsRoot(), args.skill.filename, 'SKILL.md')
   const contentHash = await readFileHash(skillMdPath)
   const updatedAt = await readFileUpdatedAt(skillMdPath)
 

@@ -499,7 +499,7 @@ const buildTreeFromEntries = (rootPath, entries, directoryFlags) => {
 
 const getSkillKey = (skill) => String(skill?.id || skill?.folderName || skill?.filename || skill?.name || '').trim();
 const getSkillFolderLabel = (skill) => String(skill?.folderName || skill?.filename || skill?.id || skill?.name || '').trim();
-const getSkillDisplayName = (skill) => String(skill?.name || skill?.id || skill?.filename || '').trim();
+const getSkillDisplayName = (skill) => String(skill?.name || skill?.filename || skill?.id || '').trim();
 
 const MarqueeText = ({ text, className = '' }) => {
   const containerRef = React.useRef(null);
@@ -679,6 +679,7 @@ const ChatShell = ({
   workspaceStatus = '',
   currentModelMeta = null,
   onSelectSkill,
+  onModifySkill,
   onSubmitFileComment,
   sessionSending = false,
   webPreview = null,
@@ -1172,16 +1173,6 @@ const ChatShell = ({
         }
         return;
       }
-      if (!currentWorkspacePath) {
-        if (!cancelled) {
-          setSkills([]);
-          setSkillPreviewPaths({});
-            setSkillExamplePaths({});
-          setSkillsError('');
-          setSkillsLoading(false);
-        }
-        return;
-      }
       if (!api || typeof api.listLocal !== 'function') {
         if (!cancelled) {
           setSkills([]);
@@ -1196,7 +1187,7 @@ const ChatShell = ({
       setSkillsLoading(true);
       setSkillsError('');
       try {
-        const result = await api.listLocal({ workdir: currentWorkspacePath });
+        const result = await api.listLocal({ workdir: '__global_skills__' });
         if (cancelled) return;
         if (!result?.ok) {
           setSkills([]);
@@ -1207,16 +1198,7 @@ const ChatShell = ({
         }
         const nextSkills = Array.isArray(result.skills) ? result.skills : [];
         const normalizedSkills = nextSkills.map((skill) => {
-          const folderName = String(skill?.folderName || skill?.filename || skill?.id || skill?.name || '').trim();
-          const joinPath = window?.electronAPI?.path?.join;
-          const localSkillRoot =
-            currentWorkspacePath && folderName
-              ? normalizePath(
-                  typeof joinPath === 'function'
-                    ? joinPath(currentWorkspacePath, '.claude', 'skills', folderName)
-                    : `${currentWorkspacePath}/.claude/skills/${folderName}`
-                )
-              : '';
+          const localSkillRoot = String(skill?.path || '').trim();
 
           return localSkillRoot ? { ...skill, __skillRoot: localSkillRoot } : skill;
         });
@@ -1309,18 +1291,19 @@ const ChatShell = ({
     ? 'animation-shimmer'
     : (sessionTitleNewlyRenamed ? 'animation-reveal' : ''));
 
-  const renderSkillTooltip = (skill) => {
+  const renderSkillTooltip = (skill, actions = null) => {
     const folderLabel = getSkillFolderLabel(skill);
     const displayName = getSkillDisplayName(skill);
     if (!skill?.description && !folderLabel && !displayName) return null;
 
     return (
       <div className="chat-panel__member-tooltip">
-        <div className="chat-panel__member-tooltip-name">{folderLabel || displayName}</div>
-        {displayName && displayName !== folderLabel && (
-          <div className="chat-panel__member-tooltip-folder">{displayName}</div>
+        <div className="chat-panel__member-tooltip-name">{displayName || folderLabel}</div>
+        {folderLabel && displayName && folderLabel !== displayName && (
+          <div className="chat-panel__member-tooltip-folder">{folderLabel}</div>
         )}
         {skill?.description && <div className="chat-panel__member-tooltip-desc">{skill.description}</div>}
+        {actions}
       </div>
     );
   };
@@ -2189,10 +2172,72 @@ const ChatShell = ({
     onOpenWebPreview({
       key: `skill-html:${sourcePath}:${previewKeySuffix}`,
       url,
-      title: getSkillFolderLabel(skill) || getSkillDisplayName(skill) || getBaseName(sourcePath) || '网页预览',
+      title: getSkillDisplayName(skill) || getSkillFolderLabel(skill) || getBaseName(sourcePath) || '网页预览',
       sourcePath
     });
   }, [onOpenWebPreview, skillPreviewPaths]);
+
+  const deleteSkill = React.useCallback(async (skill) => {
+    const api = window?.electronAPI?.agentSkills;
+    const skillId = getSkillKey(skill);
+    const skillKey = getSkillKey(skill);
+    const skillLabel = getSkillDisplayName(skill) || getSkillFolderLabel(skill) || skillId;
+    if (!api || typeof api.uninstall !== 'function' || !skillId || !skillKey) return;
+
+    const deleteContent = `删除后不可恢复，确认删除「${skillLabel}」吗？`;
+    const confirmed = window?.modal?.confirm
+      ? await new Promise((resolve) => {
+          window.modal.confirm({
+            title: '确认删除技能',
+            content: deleteContent,
+            okText: '删除',
+            cancelText: '取消',
+            centered: true,
+            okType: 'danger',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        })
+      : window.confirm(deleteContent);
+    if (!confirmed) return;
+
+    try {
+      const result = await api.uninstall({ skillId });
+      if (!result?.success) {
+        throw new Error(result?.error?.message || result?.error || '删除技能失败');
+      }
+
+      setSkills((prev) => prev.filter((item) => getSkillKey(item) !== skillKey));
+      setSkillPreviewPaths((prev) => {
+        const next = { ...prev };
+        delete next[skillKey];
+        return next;
+      });
+      setSkillExamplePaths((prev) => {
+        const next = { ...prev };
+        delete next[skillKey];
+        return next;
+      });
+      setSkillTrees((prev) => {
+        const next = { ...prev };
+        delete next[skillKey];
+        return next;
+      });
+      setSkillTreeLoading((prev) => {
+        const next = { ...prev };
+        delete next[skillKey];
+        return next;
+      });
+      setExpandedSkillKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(skillKey);
+        return next;
+      });
+      message.success(`已删除技能：${skillLabel}`);
+    } catch (error) {
+      message.error(error?.message || '删除技能失败');
+    }
+  }, [getSkillDisplayName, getSkillFolderLabel, getSkillKey]);
 
   const runSkillExample = React.useCallback(async (skill) => {
     const skillKey = getSkillKey(skill);
@@ -2208,7 +2253,7 @@ const ChatShell = ({
     onOpenWebPreview({
       key: `skill-example:${examplePath}:${previewKeySuffix}`,
       url,
-      title: getSkillFolderLabel(skill) || getSkillDisplayName(skill) || getBaseName(examplePath) || '示例页面',
+      title: getSkillDisplayName(skill) || getSkillFolderLabel(skill) || getBaseName(examplePath) || '示例页面',
       sourcePath: examplePath
     });
 
@@ -2368,7 +2413,6 @@ const ChatShell = ({
           <div className="chat-panel__members-sidebar" style={membersSidebarStyle}>
             <div className="chat-panel__members-list">
             <SkillMembersSection
-              hasLockedWorkspace={hasLockedWorkspace}
               skillsLoading={skillsLoading}
               skillsError={skillsError}
               skills={skills}
@@ -2385,6 +2429,8 @@ const ChatShell = ({
               onOpenSkillWebPreview={openSkillWebPreview}
               onRunSkillExample={runSkillExample}
               onSelectSkill={onSelectSkill}
+              onModifySkill={onModifySkill}
+              onDeleteSkill={deleteSkill}
               renderSkillTooltip={renderSkillTooltip}
               renderTreeNodes={renderTreeNodes}
               getSkillKey={getSkillKey}

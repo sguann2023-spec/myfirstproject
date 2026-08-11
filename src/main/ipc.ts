@@ -1585,7 +1585,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
         broadcastSkillChanged(agentId, {
           filename: data?.folderName,
           eventType: 'copy-directory-to-workspace',
-          skillsRoot: path.join(workspace, '.claude', 'skills')
+          skillsRoot: path.dirname(data?.targetPath || '')
         })
       }
       return { success: true, data }

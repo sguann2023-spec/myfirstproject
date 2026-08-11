@@ -1,16 +1,17 @@
-import { Empty, Tooltip } from 'antd';
+import React from 'react';
+import { Empty, Popover } from 'antd';
 import {
+  AtSign,
   ChevronRight,
   Folder,
   FolderOpen,
   Link,
-  Play,
   SquarePen,
+  Trash2,
 } from 'lucide-react';
 import './SkillMembersSection.css';
 
 const SkillMembersSection = ({
-  hasLockedWorkspace,
   skillsLoading,
   skillsError,
   skills,
@@ -27,6 +28,8 @@ const SkillMembersSection = ({
   onOpenSkillWebPreview,
   onRunSkillExample,
   onSelectSkill,
+  onModifySkill,
+  onDeleteSkill,
   renderSkillTooltip,
   renderTreeNodes,
   getSkillKey,
@@ -34,7 +37,7 @@ const SkillMembersSection = ({
   getSkillDisplayName,
   childrensBookSkillLabel,
 }) => {
-  if (!hasLockedWorkspace) return null;
+  const [openTooltipSkillKey, setOpenTooltipSkillKey] = React.useState('');
 
   return (
     <>
@@ -61,16 +64,106 @@ const SkillMembersSection = ({
         const treeNodes = skillTrees[skillKey] || [];
         const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
         const isChildrensBookSkill = folderLabel === childrensBookSkillLabel || displayName === childrensBookSkillLabel;
+        const primaryLabel = displayName || folderLabel;
         const shouldForceShowActions = isChildrensBookSkill && beginnerGuideOpen && (
           beginnerGuideCurrent === 3 || beginnerGuideCurrent === 4
         );
+        const hasWebExampleAction = Boolean(skillExamplePath || skillPreviewPath);
+        const hasMentionAction = typeof onSelectSkill === 'function';
+        const hasModifyPromptAction = typeof onModifySkill === 'function';
+        const hasDeleteAction = typeof onDeleteSkill === 'function';
+        const hasActionMenu = hasWebExampleAction || hasMentionAction || hasModifyPromptAction || hasDeleteAction;
+        const isTooltipOpen = shouldForceShowActions || openTooltipSkillKey === skillKey;
+
+        const closeTooltip = () => {
+          if (!shouldForceShowActions) {
+            setOpenTooltipSkillKey((current) => (current === skillKey ? '' : current));
+          }
+        };
+
+        const tooltipActions = hasActionMenu ? (
+          <div className="chat-panel__member-tooltip-actions" onClick={(event) => event.stopPropagation()}>
+            {hasMentionAction && (
+              <button
+                type="button"
+                className="chat-panel__member-tooltip-action"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelectSkill(skill);
+                  closeTooltip();
+                }}
+                title={`使用 ${primaryLabel}`}
+                aria-label={`使用 ${primaryLabel}`}>
+                <AtSign size={14} aria-hidden="true" />
+                <span className="chat-panel__member-tooltip-action-label">使用</span>
+              </button>
+            )}
+            {hasModifyPromptAction && (
+              <button
+                type="button"
+                ref={isChildrensBookSkill ? beginnerGuideChildrensBookEditButtonRef : null}
+                className={`chat-panel__member-tooltip-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 3 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onModifySkill(skill);
+                  closeTooltip();
+                }}
+                title={`修改 ${primaryLabel}`}
+                aria-label={`修改 ${primaryLabel}`}>
+                <SquarePen size={14} aria-hidden="true" />
+                <span className="chat-panel__member-tooltip-action-label">修改</span>
+              </button>
+            )}
+            {hasWebExampleAction && (
+              <button
+                type="button"
+                ref={isChildrensBookSkill ? beginnerGuideChildrensBookRunButtonRef : null}
+                className={`chat-panel__member-tooltip-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 4 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (skillExamplePath) {
+                    void onRunSkillExample(skill);
+                  } else {
+                    onOpenSkillWebPreview(skill);
+                  }
+                  closeTooltip();
+                }}
+                title={`${primaryLabel} 网页`}
+                aria-label={`${primaryLabel} 网页`}>
+                <Link size={14} aria-hidden="true" />
+                <span className="chat-panel__member-tooltip-action-label">网页</span>
+              </button>
+            )}
+            {hasDeleteAction && (
+              <button
+                type="button"
+                className="chat-panel__member-tooltip-action chat-panel__member-tooltip-action--danger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onDeleteSkill(skill);
+                  closeTooltip();
+                }}
+                title={`删除 ${primaryLabel}`}
+                aria-label={`删除 ${primaryLabel}`}>
+                <Trash2 size={14} aria-hidden="true" />
+                <span className="chat-panel__member-tooltip-action-label">删除</span>
+              </button>
+            )}
+          </div>
+        ) : null;
 
         return (
-          <Tooltip
+          <Popover
             key={skillKey}
-            title={renderSkillTooltip(skill)}
+            content={renderSkillTooltip(skill, tooltipActions)}
             placement="leftTop"
+            trigger="hover"
             mouseEnterDelay={0.15}
+            mouseLeaveDelay={0.1}
+            open={isTooltipOpen}
+            onOpenChange={(nextOpen) => {
+              setOpenTooltipSkillKey(nextOpen ? skillKey : '');
+            }}
             classNames={{ root: 'chat-panel__member-tooltip-overlay' }}>
             <div className="chat-panel__member-group">
               <div className="chat-panel__member-item">
@@ -78,66 +171,21 @@ const SkillMembersSection = ({
                   type="button"
                   className={`chat-panel__tree-toggle chat-panel__tree-toggle--root ${isExpanded ? 'is-expanded' : ''}`}
                   onClick={() => void onToggleSkillExpanded(skill)}
-                  aria-label={`${isExpanded ? '折叠' : '展开'} ${folderLabel || displayName}`}>
+                  aria-label={`${isExpanded ? '折叠' : '展开'} ${primaryLabel}`}>
                   <ChevronRight className="chat-panel__tree-chevron" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
                   className="chat-panel__member-main"
                   onClick={() => void onToggleSkillExpanded(skill)}
-                  title={folderLabel || displayName}>
+                  title={primaryLabel}>
                   <span className="chat-panel__tree-icon" aria-hidden="true">
                     {isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />}
                   </span>
                   <span className="chat-panel__member-text">
-                    <span className="chat-panel__member-name">{folderLabel || displayName}</span>
+                    <span className="chat-panel__member-name">{primaryLabel}</span>
                   </span>
                 </button>
-                {(skillPreviewPath || skillExamplePath || typeof onSelectSkill === 'function') && (
-                  <div className={`chat-panel__member-actions-overlay ${shouldForceShowActions ? 'chat-panel__member-actions-overlay--visible' : ''}`.trim()}>
-                    {skillPreviewPath && skillPreviewPath !== skillExamplePath && (
-                      <button
-                        type="button"
-                        className="chat-panel__member-action"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenSkillWebPreview(skill);
-                        }}
-                        title="在内嵌浏览器中打开技能页面"
-                        aria-label={`在内嵌浏览器中打开 ${folderLabel || displayName}`}>
-                        <Link size={12} aria-hidden="true" />
-                      </button>
-                    )}
-                    {skillExamplePath && (
-                      <button
-                        type="button"
-                        ref={isChildrensBookSkill ? beginnerGuideChildrensBookRunButtonRef : null}
-                        className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 4 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void onRunSkillExample(skill);
-                        }}
-                        title="打开这个技能示例"
-                        aria-label={`打开 ${folderLabel || displayName} 示例`}>
-                        <Play size={12} aria-hidden="true" />
-                      </button>
-                    )}
-                    {typeof onSelectSkill === 'function' && (
-                      <button
-                        type="button"
-                        ref={isChildrensBookSkill ? beginnerGuideChildrensBookEditButtonRef : null}
-                        className={`chat-panel__member-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 3 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onSelectSkill(skill);
-                        }}
-                        title="编辑这个技能"
-                        aria-label={`编辑 ${folderLabel || displayName} 的技能网页`}>
-                        <SquarePen size={12} aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
               {isExpanded && (
                 <div className="chat-panel__member-tree">
@@ -149,7 +197,7 @@ const SkillMembersSection = ({
                 </div>
               )}
             </div>
-          </Tooltip>
+          </Popover>
         );
       })}
       <div className="chat-panel__section-divider" aria-hidden="true" />

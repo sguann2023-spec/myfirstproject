@@ -937,7 +937,7 @@ const legacyElectronAPI = {
     toggle: ({ agentId = 'vectcut_claw_default', skillId, isEnabled }: any = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_Toggle, { agentId, skillId, isEnabled }),
     installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true }: any = {}) =>
-      ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, { agentId, skillPath: directoryPath, isEnabled }),
+      ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, { agentId, directoryPath, isEnabled }),
     copyDirectoryToWorkspace: ({
       agentId = 'vectcut_claw_default',
       directoryPath,

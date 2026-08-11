@@ -71,7 +71,7 @@ const getWorkspaceConfig = (session) => {
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const getSkillMentionLabel = (skill) => String(
-  skill?.folderName || skill?.filename || skill?.name || skill?.id || ''
+  skill?.name || skill?.folderName || skill?.filename || skill?.id || ''
 ).trim();
 const getMentionText = (attrs = {}) => `@${attrs.label || attrs.id || ''}`;
 const getFileReferenceText = (attrs = {}) => {
@@ -2070,14 +2070,6 @@ const Composer = ({
         }
         return;
       }
-      if (!primarySkillWorkdir) {
-        if (!cancelled) {
-          setSkills([]);
-          setSkillsError('');
-          setSkillsLoading(false);
-        }
-        return;
-      }
       if (!api || typeof api.listLocal !== 'function') {
         if (!cancelled) {
           setSkills([]);
@@ -2090,7 +2082,7 @@ const Composer = ({
       setSkillsLoading(true);
       setSkillsError('');
       try {
-        const result = await api.listLocal({ workdir: primarySkillWorkdir });
+        const result = await api.listLocal({ workdir: '__global_skills__' });
         if (cancelled) return;
         if (!result?.ok) {
           setSkills([]);
@@ -2098,17 +2090,8 @@ const Composer = ({
           return;
         }
         const nextSkills = Array.isArray(result.skills) ? result.skills : [];
-        const joinPath = window?.electronAPI?.path?.join;
         const normalizedSkills = nextSkills.map((skill) => {
-          const folderName = getSkillMentionLabel(skill);
-          const localSkillRoot =
-            primarySkillWorkdir && folderName
-              ? normalizePath(
-                typeof joinPath === 'function'
-                  ? joinPath(primarySkillWorkdir, '.claude', 'skills', folderName)
-                  : `${primarySkillWorkdir}/.claude/skills/${folderName}`
-              )
-              : '';
+          const localSkillRoot = normalizePath(String(skill?.path || '').trim());
 
           return localSkillRoot ? { ...skill, __skillRoot: localSkillRoot } : skill;
         });
@@ -2142,7 +2125,7 @@ const Composer = ({
         void api.unsubscribeChanges({ agentId }).catch(() => {});
       }
     };
-  }, [agentId, primarySkillWorkdir, runtimeSessionId]);
+  }, [agentId, runtimeSessionId]);
 
   React.useEffect(() => () => {
     if (mentionCloseTimerRef.current) {

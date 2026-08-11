@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { getGlobalSkillsRoot } from '../skills/paths'
+
 import type { SkillTriggerMode } from './types'
 
 export type ResolvedWorkspaceSkillInvocation = {
@@ -16,9 +18,8 @@ export async function resolveWorkspaceSkillInvocation(args: {
   skillMdPath?: string
   triggerMode: SkillTriggerMode
 }): Promise<ResolvedWorkspaceSkillInvocation> {
-  const workspacePath = path.resolve(String(args.workspacePath || ''))
   const skillName = String(args.skillName || '').trim()
-  const skillMdPath = String(args.skillMdPath || '').trim() || path.join(workspacePath, '.claude', 'skills', skillName, 'SKILL.md')
+  const skillMdPath = String(args.skillMdPath || '').trim() || path.join(getGlobalSkillsRoot(), skillName, 'SKILL.md')
   const skillMarkdown = await readFile(skillMdPath, 'utf-8')
 
   return {

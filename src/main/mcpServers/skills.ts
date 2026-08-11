@@ -48,7 +48,7 @@ function buildSkillIdentifier(skill: SkillSearchResult): string {
 const SKILLS_TOOL: Tool = {
   name: 'skills',
   description:
-    "Manage Claude skills. Use 'list' first to inspect skills visible to the current agent, including local skills from the current workspace's .claude/skills directory. Use 'search' only to find skills from the marketplace, 'install' to install a marketplace skill, 'remove' to uninstall, or 'list' to see installed or agent-local skills. To author a brand-new skill, use 'init' to prepare a target directory under the current agent's .claude/skills folder, write SKILL.md and supporting files into that directory, then call 'register' to validate and enable it for the current agent.",
+    "Manage Claude skills. Use 'list' first to inspect skills visible to the current app from the shared global skills directory. Use 'search' only to find skills from the marketplace, 'install' to install a marketplace skill, 'remove' to uninstall, or 'list' to see installed shared skills. To author a brand-new skill, use 'init' to prepare a target directory under the shared global skills folder, write SKILL.md and supporting files into that directory, then call 'register' to validate it.",
   inputSchema: {
     type: 'object',
     properties: {
@@ -59,7 +59,7 @@ const SKILLS_TOOL: Tool = {
       },
       query: {
         type: 'string',
-        description: "Search query for finding skills in the marketplace only (required for 'search'). Do not use this to check whether a local workspace skill already exists."
+        description: "Search query for finding skills in the marketplace only (required for 'search'). Do not use this to check whether a shared global skill already exists."
       },
       identifier: {
         type: 'string',
@@ -69,7 +69,7 @@ const SKILLS_TOOL: Tool = {
       name: {
         type: 'string',
         description:
-          "Skill folder name. Required for 'remove' (from list results), 'init' (the new skill's folder name), and 'register' (same name passed to init). For local skills, prefer names discovered from the current workspace or from action='list'."
+          "Skill folder name. Required for 'remove' (from list results), 'init' (the new skill's folder name), and 'register' (same name passed to init). Prefer names discovered from action='list'."
       }
     },
     required: ['action']
@@ -201,8 +201,6 @@ class SkillsServer {
     const installed = await skillService.install({
       installSource: `claude-plugins:${identifier}`
     })
-    // Enable the freshly-installed skill for the CURRENT workspace when we
-    // know the active session root, otherwise fall back to the agent mapping.
     const enabled = this.workspacePath
       ? await skillService.enableSkillInWorkspace(installed.id, this.workspacePath)
       : await skillService.toggle({
@@ -216,7 +214,7 @@ class SkillsServer {
       content: [
         {
           type: 'text' as const,
-          text: `Skill installed${enabled?.isEnabled ? ' and enabled for this agent' : ' (warning: failed to enable)'}:\n  Name: ${installed.name}\n  Description: ${installed.description ?? 'N/A'}\n  Folder: ${installed.folderName}\n  Enabled: ${enabled?.isEnabled ?? false}`
+          text: `Skill installed${enabled?.isEnabled ? ' and shared globally' : ''}:\n  Name: ${installed.name}\n  Description: ${installed.description ?? 'N/A'}\n  Folder: ${installed.folderName}\n  Enabled: ${enabled?.isEnabled ?? false}`
         }
       ]
     }
@@ -238,9 +236,9 @@ class SkillsServer {
         await skillService.removeAgentLocalSkill(this.agentId, name)
       }
 
-      logger.info('Agent-local skill removed via tool', { agentId: this.agentId, name })
+      logger.info('Shared skill removed via workspace-scoped tool', { agentId: this.agentId, name })
       return {
-        content: [{ type: 'text' as const, text: `Agent-local skill "${name}" removed from this agent.` }]
+        content: [{ type: 'text' as const, text: `Shared skill "${name}" removed.` }]
       }
     }
 
@@ -269,9 +267,7 @@ class SkillsServer {
           return {
             name: skill.name,
             folder: localSkill?.filename ?? skill.folderName,
-            path: localSkill
-              ? path.join(this.workspacePath!, '.claude', 'skills', localSkill.filename)
-              : skillService.getSkillDirectory(skill.folderName),
+            path: localSkill?.path ?? skillService.getSkillDirectory(skill.folderName),
             description: skill.description ?? null,
             enabled: Boolean(localSkill)
           }
@@ -288,7 +284,7 @@ class SkillsServer {
           .map((skill) => ({
             name: skill.name,
             folder: skill.filename,
-            path: path.join(this.workspacePath!, '.claude', 'skills', skill.filename),
+            path: skill.path,
             description: skill.description ?? null,
             enabled: true
           }))
@@ -317,11 +313,6 @@ class SkillsServer {
       return { content: [{ type: 'text' as const, text: 'No skills installed.' }] }
     }
 
-    // Include the absolute on-disk path so the model can patch a skill in
-    // place via the native Read / Edit tools when it discovers the skill is
-    // outdated, incomplete, or wrong. Enabled skills should point at the
-    // current agent's live directory; disabled global skills still point at
-    // the shared global registry path.
     const results = await Promise.all(
       skills.map(async (s) => {
         const activeSkill = activeSkillMap.get(s.folderName)
@@ -329,9 +320,7 @@ class SkillsServer {
           name: s.name,
           folder: s.folderName,
           path: activeSkill
-            ? this.workspacePath
-              ? skillService.getSkillDirectoryInWorkspace(this.workspacePath, s.folderName)
-              : await skillService.getAgentSkillDirectory(this.agentId, s.folderName)
+            ? skillService.getSkillDirectory(s.folderName)
             : skillService.getSkillDirectory(s.folderName),
           description: s.description ?? null,
           enabled: Boolean(activeSkill ?? s.isEnabled)
@@ -417,7 +406,7 @@ class SkillsServer {
             skillDir,
             ``,
             `Write SKILL.md and any supporting files (scripts/, references/, assets/) directly into this directory.`,
-            `When the skill is ready, call skills with action="register" and name="${folderName}" to validate it and keep it available for the current agent.`,
+            `When the skill is ready, call skills with action="register" and name="${folderName}" to validate it and make it available to every conversation.`,
             `You can re-edit files in place and call register again to refresh.`
           ].join('\n')
         }

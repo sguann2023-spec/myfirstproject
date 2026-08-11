@@ -197,4 +197,6 @@ export interface LocalSkill {
   name: string
   description?: string
   filename: string
+  path?: string
+  source?: 'global'
 }

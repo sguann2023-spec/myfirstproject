@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import { getDataPath } from '../../../utils'
+import { getGlobalSkillsRoot } from './paths'
 
 export const HIDDEN_BUILTIN_SKILL_FOLDERS = new Set(['cutskill-creator'])
 export const HIDDEN_SKILL_MARKER_FILE = '.cherry-hidden-skill'
@@ -10,7 +10,7 @@ export function isHiddenBuiltinSkillFolder(folderName: string): boolean {
 }
 
 export function getHiddenBuiltinSkillsRoot(): string {
-  return getDataPath('GlobalSkills')
+  return getGlobalSkillsRoot()
 }
 
 export function getHiddenBuiltinSkillPath(folderName: string): string {

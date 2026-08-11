@@ -1,5 +1,5 @@
 ---
-name: travel-mixed
+name: 旅游攻略混剪
 description: 当用户要制作旅行混剪、旅拍混剪、旅行攻略口播配空镜时使用。
 ---
 

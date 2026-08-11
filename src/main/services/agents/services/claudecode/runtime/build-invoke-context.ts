@@ -1,5 +1,7 @@
 import path from 'node:path'
 
+import { getGlobalSkillsRoot } from '@main/services/agents/skills/paths'
+
 import type { GetAgentSessionResponse } from '../..'
 import type { ToolSurface } from '../tool-surface'
 import type { WorkspaceSkillSurface } from '../skills/runtime-skills'
@@ -216,7 +218,7 @@ function buildSkillRuntimeSnapshot(input: {
     visibleSkills: workspaceSkills.map((skill) => ({
       name: skill.name,
       description: skill.description,
-      filePath: skill.skillMdPath ?? path.join(cwd, '.claude', 'skills', skill.filename, 'SKILL.md'),
+      filePath: skill.skillMdPath ?? path.join(getGlobalSkillsRoot(), skill.filename, 'SKILL.md'),
       source: skill.source ?? ('workspace' as const)
     })),
     activeSkillNames: [...activeClaudeSkillNames],
