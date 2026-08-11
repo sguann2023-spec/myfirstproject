@@ -301,6 +301,7 @@ const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const WORKSPACE_CREATE_PARENT_STORE_KEY = 'chat-workspace-create-parent:v1';
 const WEB_PREVIEW_WIDTH_STORE_KEY = 'chat-web-preview-width:v1';
 const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v1';
+const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
 const TREE_LIST_MAX_ENTRIES = 20000;
 const DEFAULT_PREVIEW_PANE_WIDTH = 400;
 const DEFAULT_MEMBERS_PANEL_WIDTH = 180;
@@ -323,11 +324,20 @@ const clampMembersPanelWidth = (nextWidth, containerWidth, hasLeadingFilePreview
   const maxWidth = Math.max(MIN_MEMBERS_PANEL_WIDTH, Math.min(MAX_MEMBERS_PANEL_WIDTH, computedMaxWidth));
   return Math.min(maxWidth, Math.max(MIN_MEMBERS_PANEL_WIDTH, Math.round(Number(nextWidth) || DEFAULT_MEMBERS_PANEL_WIDTH)));
 };
-const clampWebPreviewWidth = (nextWidth, containerWidth, hasLeadingFilePreview = false, membersPanelWidth = DEFAULT_MEMBERS_PANEL_WIDTH) => {
+const clampWebPreviewWidth = (
+  nextWidth,
+  containerWidth,
+  hasLeadingFilePreview = false,
+  membersPanelWidth = DEFAULT_MEMBERS_PANEL_WIDTH,
+  membersPanelVisible = true
+) => {
   const safeContainerWidth = Number(containerWidth) || 0;
   const leadingWidth = hasLeadingFilePreview ? DEFAULT_PREVIEW_PANE_WIDTH : 0;
+  const occupiedMembersWidth = membersPanelVisible
+    ? Math.max(MIN_MEMBERS_PANEL_WIDTH, Number(membersPanelWidth) || DEFAULT_MEMBERS_PANEL_WIDTH)
+    : 0;
   const computedMaxWidth = safeContainerWidth > 0
-    ? safeContainerWidth - leadingWidth - Math.max(MIN_MEMBERS_PANEL_WIDTH, Number(membersPanelWidth) || DEFAULT_MEMBERS_PANEL_WIDTH) - MIN_MAIN_PANEL_WIDTH - MEMBERS_PANEL_RESIZER_WIDTH - WEB_PREVIEW_RESIZER_WIDTH
+    ? safeContainerWidth - leadingWidth - occupiedMembersWidth - MIN_MAIN_PANEL_WIDTH - (membersPanelVisible ? MEMBERS_PANEL_RESIZER_WIDTH : 0) - WEB_PREVIEW_RESIZER_WIDTH
     : MAX_WEB_PREVIEW_WIDTH;
   const maxWidth = Math.max(MIN_WEB_PREVIEW_WIDTH, Math.min(MAX_WEB_PREVIEW_WIDTH, computedMaxWidth));
   return Math.min(maxWidth, Math.max(MIN_WEB_PREVIEW_WIDTH, Math.round(Number(nextWidth) || DEFAULT_PREVIEW_PANE_WIDTH)));
@@ -344,6 +354,24 @@ const writeMembersPanelWidth = (width) => {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     window.localStorage.setItem(MEMBERS_PANEL_WIDTH_STORE_KEY, String(Math.round(Number(width) || DEFAULT_MEMBERS_PANEL_WIDTH)));
+  } catch (_error) {
+    // ignore storage failures
+  }
+};
+const readMembersPanelCollapsed = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return true;
+  try {
+    const rawValue = window.localStorage.getItem(MEMBERS_PANEL_COLLAPSED_STORE_KEY);
+    if (rawValue == null) return true;
+    return rawValue === 'true';
+  } catch (_error) {
+    return true;
+  }
+};
+const writeMembersPanelCollapsed = (collapsed) => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(MEMBERS_PANEL_COLLAPSED_STORE_KEY, collapsed ? 'true' : 'false');
   } catch (_error) {
     // ignore storage failures
   }
@@ -723,6 +751,7 @@ const ChatShell = ({
   const [renameWorkspaceSubmitting, setRenameWorkspaceSubmitting] = React.useState(false);
   const [filePreview, setFilePreview] = React.useState(null);
   const [membersPanelWidth, setMembersPanelWidth] = React.useState(() => readMembersPanelWidth());
+  const [membersPanelCollapsed, setMembersPanelCollapsed] = React.useState(() => readMembersPanelCollapsed());
   const [webPreviewWidth, setWebPreviewWidth] = React.useState(() => readWebPreviewWidth());
   const [isResizingMembersPanel, setIsResizingMembersPanel] = React.useState(false);
   const [isResizingWebPreview, setIsResizingWebPreview] = React.useState(false);
@@ -762,6 +791,7 @@ const ChatShell = ({
   const hasWebPreview = Boolean(webPreview);
   const showLeadingFilePreview = hasFilePreview;
   const showTrailingWebPreview = hasWebPreview;
+  const showMembersPanel = !membersPanelCollapsed;
   const isResizingAnyPanel = isResizingMembersPanel || isResizingWebPreview;
   const shouldStartBeginnerGuide = Boolean(
     beginnerGuideEligible &&
@@ -1023,6 +1053,10 @@ const ChatShell = ({
   }, [membersPanelWidth]);
 
   React.useEffect(() => {
+    writeMembersPanelCollapsed(membersPanelCollapsed);
+  }, [membersPanelCollapsed]);
+
+  React.useEffect(() => {
     writeWebPreviewWidth(webPreviewWidth);
   }, [webPreviewWidth]);
 
@@ -1041,13 +1075,24 @@ const ChatShell = ({
   React.useEffect(() => {
     const syncWebPreviewWidth = () => {
       const containerWidth = contentRef.current?.clientWidth || 0;
-      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, hasFilePreview, membersPanelWidth));
+      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, hasFilePreview, membersPanelWidth, showMembersPanel));
     };
 
     syncWebPreviewWidth();
     window.addEventListener('resize', syncWebPreviewWidth);
     return () => window.removeEventListener('resize', syncWebPreviewWidth);
-  }, [hasFilePreview, membersPanelWidth]);
+  }, [hasFilePreview, membersPanelWidth, showMembersPanel]);
+
+  React.useEffect(() => {
+    if ((shouldStartBeginnerGuide || createWorkspaceDialogOpen) && membersPanelCollapsed) {
+      setMembersPanelCollapsed(false);
+    }
+  }, [createWorkspaceDialogOpen, membersPanelCollapsed, shouldStartBeginnerGuide]);
+
+  React.useEffect(() => {
+    if (!membersPanelCollapsed) return;
+    setIsResizingMembersPanel(false);
+  }, [membersPanelCollapsed]);
 
   React.useEffect(() => {
     if (!isResizingAnyPanel) return undefined;
@@ -1973,8 +2018,9 @@ const ChatShell = ({
     setFilePreview(null);
   }, []);
 
-  const membersPanelStyle = { width: `${membersPanelWidth}px`, flexBasis: `${membersPanelWidth}px` };
-  const membersSidebarStyle = { width: `${membersPanelWidth}px`, flexBasis: `${membersPanelWidth}px` };
+  const membersPanelVisibleWidth = showMembersPanel ? membersPanelWidth : 0;
+  const membersPanelStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
+  const membersSidebarStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
   const trailingWebPreviewStyle = showTrailingWebPreview
     ? { width: `${webPreviewWidth}px`, flexBasis: `${webPreviewWidth}px` }
     : undefined;
@@ -1987,8 +2033,8 @@ const ChatShell = ({
 
   const updateWebPreviewWidth = React.useCallback((nextWidth) => {
     const containerWidth = contentRef.current?.clientWidth || 0;
-    setWebPreviewWidth(clampWebPreviewWidth(nextWidth, containerWidth, showLeadingFilePreview, membersPanelWidth));
-  }, [membersPanelWidth, showLeadingFilePreview]);
+    setWebPreviewWidth(clampWebPreviewWidth(nextWidth, containerWidth, showLeadingFilePreview, membersPanelWidth, showMembersPanel));
+  }, [membersPanelWidth, showLeadingFilePreview, showMembersPanel]);
 
   const handleMembersPanelResizeStart = React.useCallback((event) => {
     event.preventDefault();
@@ -2087,6 +2133,10 @@ const ChatShell = ({
   const resetMembersPanelWidth = React.useCallback(() => {
     updateMembersPanelWidth(DEFAULT_MEMBERS_PANEL_WIDTH);
   }, [updateMembersPanelWidth]);
+
+  const toggleMembersPanelCollapsed = React.useCallback(() => {
+    setMembersPanelCollapsed((prev) => !prev);
+  }, []);
 
   const openFilePreview = React.useCallback(async (rootPath, node) => {
     if (!rootPath || !node?.path || node.type !== 'file') return;
@@ -2399,18 +2449,28 @@ const ChatShell = ({
             />
           )}
         </div>
-        <div
-          className={`chat-panel__panel-resizer ${isResizingMembersPanel ? 'is-active' : ''}`.trim()}
-          role="separator"
-          tabIndex={0}
-          aria-label="调整工作空间宽度"
-          aria-orientation="vertical"
-          onMouseDown={handleMembersPanelResizeStart}
-          onDoubleClick={resetMembersPanelWidth}
-          onKeyDown={handleMembersPanelResizeKeyDown}
-        />
-        <div className="chat-panel__members" style={membersPanelStyle}>
-          <div className="chat-panel__members-sidebar" style={membersSidebarStyle}>
+        {showMembersPanel && (
+          <div
+            className={`chat-panel__panel-resizer ${isResizingMembersPanel ? 'is-active' : ''}`.trim()}
+            role="separator"
+            tabIndex={0}
+            aria-label="调整工作空间宽度"
+            aria-orientation="vertical"
+            onMouseDown={handleMembersPanelResizeStart}
+            onDoubleClick={resetMembersPanelWidth}
+            onKeyDown={handleMembersPanelResizeKeyDown}
+          />
+        )}
+        <div className={`chat-panel__members ${membersPanelCollapsed ? 'is-collapsed' : ''}`.trim()} style={membersPanelStyle}>
+          <button
+            type="button"
+            className={`chat-panel__members-toggle ${membersPanelCollapsed ? 'is-collapsed' : ''}`.trim()}
+            onClick={toggleMembersPanelCollapsed}
+            aria-label={membersPanelCollapsed ? '展开技能成员和工作空间' : '折叠技能成员和工作空间'}
+            title={membersPanelCollapsed ? '展开技能成员和工作空间' : '折叠技能成员和工作空间'}>
+            <ChevronRight className="chat-panel__members-toggle-icon" size={14} aria-hidden="true" />
+          </button>
+          <div className={`chat-panel__members-sidebar ${membersPanelCollapsed ? 'is-hidden' : ''}`.trim()} style={membersSidebarStyle}>
             <div className="chat-panel__members-list">
             <SkillMembersSection
               skillsLoading={skillsLoading}
