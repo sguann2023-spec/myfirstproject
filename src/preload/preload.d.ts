@@ -74,6 +74,24 @@ declare global {
         rescan: (payload?: { agentId?: string }) => Promise<{ ok: boolean; skills: any[] }>
         run: (payload: { skillName: string; args?: string[]; envVars?: Record<string, string> }) => Promise<any>
       }
+      imageGeneration: {
+        getModelList: () => Promise<any>
+        getCapabilities: (filters?: {
+          model?: string
+          tier?: string
+          ratio?: string
+          includePrices?: boolean
+        }) => Promise<any>
+      }
+      videoGeneration: {
+        getModelList: () => Promise<any>
+        getCapabilities: (filters?: {
+          model?: string
+          tier?: string
+          ratio?: string
+          includePrices?: boolean
+        }) => Promise<any>
+      }
     }
   }
 }

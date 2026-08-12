@@ -935,7 +935,16 @@ const WEB_OPEN_KEYWORDS = [
   'visit website'
 ]
 
-const CUT_CREATE_KEYWORDS = ['创建草稿', '新建草稿', 'create draft', 'new draft', 'start draft']
+const CUT_CREATE_KEYWORDS = [
+  '创建草稿',
+  '创建一个草稿',
+  '创建一个剪映草稿',
+  '创建一个剪辑草稿',
+  '新建草稿',
+  'create draft',
+  'new draft',
+  'start draft'
+]
 const CUT_TEMPLATE_KEYWORDS = ['口播模板', '模板草稿', 'koubo', 'template', '模板剪辑', '模版剪辑', '剪一下口播']
 const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
 const CUT_SUBTITLE_RECOGNITION_KEYWORDS = [

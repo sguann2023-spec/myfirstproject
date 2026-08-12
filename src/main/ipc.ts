@@ -42,6 +42,7 @@ import type { ProxyConfig } from 'electron'
 import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, webContents } from 'electron'
 import fontList from 'font-list'
 import ImageGenerateServer from './mcpServers/image-generate'
+import VideoGenerateServer from './mcpServers/video-generate'
 
 import { agentMessageRepository } from './services/agents/database'
 import { skillService } from './services/agents/skills/SkillService'
@@ -117,12 +118,19 @@ import { installBuiltinSkills } from './utils/builtinSkills'
 
 const logger = loggerService.withContext('IPC')
 const imageGenerateServer = new ImageGenerateServer()
+const videoGenerateServer = new VideoGenerateServer()
 
 void app.whenReady().then(async () => {
   try {
     await imageGenerateServer.getImageModelList()
   } catch (error) {
     logger.warn('Failed to preload image generation capabilities for IPC bridge', error as Error)
+  }
+
+  try {
+    await videoGenerateServer.getVideoModelList()
+  } catch (error) {
+    logger.warn('Failed to preload video generation capabilities for IPC bridge', error as Error)
   }
 })
 
@@ -1041,6 +1049,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.File_StopWatcher, fileManager.stopFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.Image_GetModelList, async () => imageGenerateServer.getImageModelList())
   ipcMain.handle(IpcChannel.Image_GetCapabilities, async (_, filters = {}) => imageGenerateServer.listImageCapabilities(filters))
+  ipcMain.handle(IpcChannel.Video_GetModelList, async () => videoGenerateServer.getVideoModelList())
+  ipcMain.handle(IpcChannel.Video_GetCapabilities, async (_, filters = {}) => videoGenerateServer.listVideoCapabilities(filters))
   ipcMain.handle(IpcChannel.File_PauseWatcher, fileManager.pauseFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.File_ResumeWatcher, fileManager.resumeFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.File_BatchUploadMarkdown, fileManager.batchUploadMarkdownFiles.bind(fileManager))

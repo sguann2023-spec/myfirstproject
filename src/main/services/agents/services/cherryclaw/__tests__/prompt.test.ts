@@ -192,6 +192,20 @@ describe('PromptBuilder', () => {
       expect(result).toContain('`mcp__draft-download__download_draft`')
     })
 
+    it('adds preferred draft creation guidance when routed to draft creation', () => {
+      const result = builder.buildToolGuidance('/workspace', {
+        preferredMcpTools: ['mcp__draft-management__create_draft'],
+        hasWorkspaceTools: true,
+        hasWriteTools: true
+      })
+
+      expect(result).toContain('## Tool selection for this turn')
+      expect(result).toContain('creating a VectCut draft')
+      expect(result).toContain('`mcp__draft-management__create_draft`')
+      expect(result).toContain('do not manually create local draft folders')
+      expect(result).toContain('创建一个剪辑草稿')
+    })
+
     it('adds preferred file upload guidance when routed to workspace upload', () => {
       const result = builder.buildToolGuidance('/workspace', {
         preferredMcpTools: ['mcp__file-upload__upload_file_to_oss']

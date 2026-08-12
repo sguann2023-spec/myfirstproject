@@ -1,5 +1,6 @@
 import './index.css';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
+import AiVideoIcon from '../../../../../public/ai_video.svg';
 import ImagePanIcon from '../../../../../public/image_pan.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
 
@@ -13,6 +14,11 @@ const TOOL_ITEMS = [
     id: 'image-pan',
     label: '图片',
     icon: ImagePanIcon,
+  },
+  {
+    id: 'ai-video',
+    label: '视频',
+    icon: AiVideoIcon,
   },
   {
     id: 'digital-human',

@@ -1005,6 +1005,15 @@ const legacyElectronAPI = {
       ratio?: string
       includePrices?: boolean
     } = {}) => ipcRenderer.invoke(IpcChannel.Image_GetCapabilities, filters)
+  },
+  videoGeneration: {
+    getModelList: () => ipcRenderer.invoke(IpcChannel.Video_GetModelList),
+    getCapabilities: (filters: {
+      model?: string
+      tier?: string
+      ratio?: string
+      includePrices?: boolean
+    } = {}) => ipcRenderer.invoke(IpcChannel.Video_GetCapabilities, filters)
   }
 }
 

@@ -244,6 +244,7 @@ export async function mountRuntimeMcpServers(input: {
     if (shouldMountCapability('draftCreate')) autoAllowTools.add('mcp__draft-management__create_draft')
     if (shouldMountCapability('draftUpdateMeta')) autoAllowTools.add('mcp__draft-management__modify_draft')
     if (shouldMountCapability('draftInspect')) autoAllowTools.add('mcp__draft-management__query_script')
+    allowMcpPattern('mcp__draft-management__*')
   } else {
     markSkipped('draft-management')
   }

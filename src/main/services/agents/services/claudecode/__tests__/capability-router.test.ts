@@ -562,6 +562,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const clipCreateDecision = router.select({
+      prompt: '创建一个剪辑草稿',
+      sessionId: 'session-clip-draft-create',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const updateMetaDecision = router.select({
       prompt: '把这个草稿的封面和名称改一下',
       sessionId: 'session-draft-update-meta',
@@ -646,6 +654,9 @@ describe('CapabilityRouter', () => {
     expect(createDecision.primaryDomain).toBe('cut')
     expect(createDecision.subdomains).toEqual(['draft'])
     expect(createDecision.selected.has('draftCreate')).toBe(true)
+    expect(clipCreateDecision.primaryDomain).toBe('cut')
+    expect(clipCreateDecision.subdomains).toEqual(['draft'])
+    expect(clipCreateDecision.selected.has('draftCreate')).toBe(true)
     expect(updateMetaDecision.primaryDomain).toBe('cut')
     expect(updateMetaDecision.subdomains).toEqual(['draft'])
     expect(updateMetaDecision.selected.has('draftUpdateMeta')).toBe(true)

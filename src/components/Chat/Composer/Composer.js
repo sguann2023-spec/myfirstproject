@@ -21,6 +21,7 @@ import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
+import VideoToolDetail from './VideoToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 
 const { shell } = window.require('electron');
@@ -257,6 +258,12 @@ const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-ava
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
 const IMAGE_PAN_MODEL_STORAGE_KEY = 'chat-panel:image-pan-model';
 const IMAGE_PAN_RESOLUTION_STORAGE_KEY = 'chat-panel:image-pan-resolution';
+const VIDEO_MODEL_STORAGE_KEY = 'chat-panel:video-model';
+const VIDEO_RESOLUTION_STORAGE_KEY = 'chat-panel:video-resolution';
+const VIDEO_DURATION_STORAGE_KEY = 'chat-panel:video-duration';
+const VIDEO_GENERATE_AUDIO_STORAGE_KEY = 'chat-panel:video-generate-audio';
+const VIDEO_SEEDANCE_OFFLINE_STORAGE_KEY = 'chat-panel:video-seedance-offline';
+const VIDEO_SUPER_RESOLVE_STORAGE_KEY = 'chat-panel:video-super-resolve';
 const DEFAULT_DIGITAL_HUMAN_MODE = 'seedance-avatar';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
 const DIGITAL_HUMAN_OPTION_VALUES = new Set(['seedance-avatar', 'jimeng-avatar', 'lips']);
@@ -265,6 +272,12 @@ const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider
 const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
 const DEFAULT_IMAGE_PAN_MODEL = 'seedream-4.5';
 const DEFAULT_IMAGE_PAN_RESOLUTION = '1440x2560';
+const DEFAULT_VIDEO_MODEL = 'seedance-2.0';
+const DEFAULT_VIDEO_RESOLUTION = '720x1280';
+const DEFAULT_VIDEO_DURATION = 5;
+const DEFAULT_VIDEO_GENERATE_AUDIO = true;
+const DEFAULT_VIDEO_SEEDANCE_OFFLINE = false;
+const DEFAULT_VIDEO_SUPER_RESOLVE = false;
 const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
@@ -331,6 +344,78 @@ const readPersistedImagePanResolution = () => {
     return normalizeImagePanResolution(localStorage.getItem(IMAGE_PAN_RESOLUTION_STORAGE_KEY));
   } catch (error) {
     return DEFAULT_IMAGE_PAN_RESOLUTION;
+  }
+};
+
+const normalizeVideoModel = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_VIDEO_MODEL;
+};
+
+const normalizeVideoResolution = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || DEFAULT_VIDEO_RESOLUTION;
+};
+
+const readPersistedVideoModel = () => {
+  try {
+    return normalizeVideoModel(localStorage.getItem(VIDEO_MODEL_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_VIDEO_MODEL;
+  }
+};
+
+const readPersistedVideoResolution = () => {
+  try {
+    return normalizeVideoResolution(localStorage.getItem(VIDEO_RESOLUTION_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_VIDEO_RESOLUTION;
+  }
+};
+
+const normalizeVideoDuration = (value) => {
+  const parsedValue = Number(value);
+  return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : DEFAULT_VIDEO_DURATION;
+};
+
+const readPersistedVideoDuration = () => {
+  try {
+    return normalizeVideoDuration(localStorage.getItem(VIDEO_DURATION_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_VIDEO_DURATION;
+  }
+};
+
+const normalizeBooleanStorageValue = (value, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (value === null || typeof value === 'undefined') return fallback;
+  const normalizedValue = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(normalizedValue)) return true;
+  if (['false', '0', 'no', 'off'].includes(normalizedValue)) return false;
+  return fallback;
+};
+
+const readPersistedVideoGenerateAudio = () => {
+  try {
+    return normalizeBooleanStorageValue(localStorage.getItem(VIDEO_GENERATE_AUDIO_STORAGE_KEY), DEFAULT_VIDEO_GENERATE_AUDIO);
+  } catch (error) {
+    return DEFAULT_VIDEO_GENERATE_AUDIO;
+  }
+};
+
+const readPersistedVideoSeedanceOffline = () => {
+  try {
+    return normalizeBooleanStorageValue(localStorage.getItem(VIDEO_SEEDANCE_OFFLINE_STORAGE_KEY), DEFAULT_VIDEO_SEEDANCE_OFFLINE);
+  } catch (error) {
+    return DEFAULT_VIDEO_SEEDANCE_OFFLINE;
+  }
+};
+
+const readPersistedVideoSuperResolve = () => {
+  try {
+    return normalizeBooleanStorageValue(localStorage.getItem(VIDEO_SUPER_RESOLVE_STORAGE_KEY), DEFAULT_VIDEO_SUPER_RESOLVE);
+  } catch (error) {
+    return DEFAULT_VIDEO_SUPER_RESOLVE;
   }
 };
 const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
@@ -1938,6 +2023,12 @@ const Composer = ({
   const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(() => readPersistedDigitalHumanAvatarSelection());
   const [selectedImagePanModel, setSelectedImagePanModel] = React.useState(() => readPersistedImagePanModel());
   const [selectedImagePanResolution, setSelectedImagePanResolution] = React.useState(() => readPersistedImagePanResolution());
+  const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
+  const [selectedVideoResolution, setSelectedVideoResolution] = React.useState(() => readPersistedVideoResolution());
+  const [selectedVideoDuration, setSelectedVideoDuration] = React.useState(() => readPersistedVideoDuration());
+  const [selectedVideoGenerateAudio, setSelectedVideoGenerateAudio] = React.useState(() => readPersistedVideoGenerateAudio());
+  const [selectedVideoSeedanceOffline, setSelectedVideoSeedanceOffline] = React.useState(() => readPersistedVideoSeedanceOffline());
+  const [selectedVideoSuperResolve, setSelectedVideoSuperResolve] = React.useState(() => readPersistedVideoSuperResolve());
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
@@ -2005,6 +2096,8 @@ const Composer = ({
       ? ''
       : activeTool === 'image-pan'
         ? '描述你想要的图片，或者选择本地图片后修改'
+        : activeTool === 'ai-video'
+          ? '描述你想要的视频'
       : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
 
   requestUploadPickerRef.current = (slotId = '') => {
@@ -3398,6 +3491,8 @@ const Composer = ({
         ].filter(Boolean).join(' ')
         : activeTool === 'image-pan'
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
+          : activeTool === 'ai-video'
+            ? `请使用模型 ${selectedVideoModel}，分辨率 ${selectedVideoResolution}，时长 ${selectedVideoDuration} 秒，${selectedVideoGenerateAudio ? '输出有声音' : '输出无声音'}，${selectedVideoSeedanceOffline ? '开启闲时生成' : '关闭闲时生成'}，${selectedVideoSuperResolve ? '开启超分' : '关闭超分'} 生成视频：${combined}`
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
@@ -3450,6 +3545,54 @@ const Composer = ({
       // Ignore local storage persistence failures.
     }
   }, [selectedImagePanResolution]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_MODEL_STORAGE_KEY, normalizeVideoModel(selectedVideoModel));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoModel]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_RESOLUTION_STORAGE_KEY, normalizeVideoResolution(selectedVideoResolution));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoResolution]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_DURATION_STORAGE_KEY, String(normalizeVideoDuration(selectedVideoDuration)));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoDuration]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_GENERATE_AUDIO_STORAGE_KEY, String(Boolean(selectedVideoGenerateAudio)));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoGenerateAudio]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_SEEDANCE_OFFLINE_STORAGE_KEY, String(Boolean(selectedVideoSeedanceOffline)));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoSeedanceOffline]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_SUPER_RESOLVE_STORAGE_KEY, String(Boolean(selectedVideoSuperResolve)));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoSuperResolve]);
 
   const applyAiWriteTemplate = React.useCallback((presetId) => {
     if (!editor || editor.isDestroyed) return;
@@ -3563,6 +3706,23 @@ const Composer = ({
                       onModelChange={setSelectedImagePanModel}
                       onResolutionChange={setSelectedImagePanResolution}
                       onPromptChange={handleImageTemplateApply}
+                    />
+                  ) : activeTool === 'ai-video' ? (
+                    <VideoToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedModel={selectedVideoModel}
+                      selectedResolution={selectedVideoResolution}
+                      selectedDuration={selectedVideoDuration}
+                      selectedGenerateAudio={selectedVideoGenerateAudio}
+                      selectedSeedanceOffline={selectedVideoSeedanceOffline}
+                      selectedSuperResolve={selectedVideoSuperResolve}
+                      onModelChange={setSelectedVideoModel}
+                      onResolutionChange={setSelectedVideoResolution}
+                      onDurationChange={setSelectedVideoDuration}
+                      onGenerateAudioChange={setSelectedVideoGenerateAudio}
+                      onSeedanceOfflineChange={setSelectedVideoSeedanceOffline}
+                      onSuperResolveChange={setSelectedVideoSuperResolve}
                     />
                   ) : (
                     <ToolArea

@@ -248,6 +248,15 @@ ${evidenceLine}
 - Prefer \`mcp__draft-download__download_draft\` before generic workspace or web tools.`)
     }
 
+    if (opts.preferredMcpTools?.includes('mcp__draft-management__create_draft')) {
+      sections.push(`## Tool selection for this turn
+
+- This request includes creating a VectCut draft.
+- Prefer \`mcp__draft-management__create_draft\` before generic workspace write tools.
+- If workspace file editing tools are also available, do not manually create local draft folders, draft JSON files, or blank draft scaffolding when \`mcp__draft-management__create_draft\` can satisfy the request directly.
+- Treat phrases such as "创建草稿", "创建一个草稿", "创建一个剪映草稿", and "创建一个剪辑草稿" as draft-creation requests first, not generic file-creation tasks.`)
+    }
+
     if (opts.preferredMcpTools?.includes('mcp__file-upload__upload_file_to_oss')) {
       sections.push(`## Tool selection for this turn
 
