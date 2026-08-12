@@ -3599,7 +3599,7 @@ const Composer = ({
         : activeTool === 'image-pan'
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
           : activeTool === 'ai-video'
-            ? `请使用模型 ${selectedVideoModel}，生成方式 ${VIDEO_GENERATION_MODE_LABELS[normalizeVideoGenerationMode(selectedVideoGenerationMode)] || VIDEO_GENERATION_MODE_LABELS[DEFAULT_VIDEO_GENERATION_MODE]}，分辨率 ${selectedVideoResolution}，时长 ${selectedVideoDuration} 秒，${selectedVideoGenerateAudio ? '输出有声音' : '输出无声音'}，${selectedVideoSeedanceOffline ? '开启闲时生成' : '关闭闲时生成'}，${selectedVideoSuperResolve ? '开启超分' : '关闭超分'} 生成视频：${combined}`
+            ? `请使用模型 ${selectedVideoModel}，生成方式 ${VIDEO_GENERATION_MODE_LABELS[normalizeVideoGenerationMode(selectedVideoGenerationMode)] || VIDEO_GENERATION_MODE_LABELS[DEFAULT_VIDEO_GENERATION_MODE]}，分辨率 ${selectedVideoResolution}，时长 ${selectedVideoDuration} 秒，${selectedVideoGenerateAudio ? '输出有声音' : '输出无声音'}，${selectedVideoSeedanceOffline ? '开启闲时生成' : '关闭闲时生成'}，${selectedVideoSuperResolve ? '开启超分' : '关闭超分'} 生成视频提示词：${combined}`
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {

@@ -229,6 +229,16 @@ describe('PromptBuilder', () => {
       expect(result).toContain('instead of first reading the image content with `InspectImage`')
     })
 
+    it('adds explicit Seedance reference video preservation guidance for AI video generation', () => {
+      const result = builder.buildToolGuidance('/workspace', {
+        preferredMcpTools: ['mcp__video__generate_video']
+      })
+
+      expect(result).toContain('## AI video generation')
+      expect(result).toContain('keep it as `video_url` with role `reference_video`')
+      expect(result).toContain('do not silently replace that video with extracted frame images plus separated audio')
+    })
+
     it('adds local skill execution guidance when a workspace skill is matched', () => {
       const result = builder.buildToolGuidance(
         '/workspace',

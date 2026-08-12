@@ -282,6 +282,7 @@ ${evidenceLine}
 - This turn includes AI video generation.
 - Prefer \`mcp__video__generate_video\` and keep polling with \`action="status"\` after submit until the task reaches a final status.
 - For Seedance-style multimodal generation, prefer passing a \`content\` array with text plus reference image, video, or audio items instead of flattening everything into plain text.
+- If the user provides a reference video, keep it as \`video_url\` with role \`reference_video\`; do not silently replace that video with extracted frame images plus separated audio unless the user explicitly asks for frame extraction or audio separation.
 - If local image, video, or audio references are involved, use workspace upload first when needed, or provide those local references through the video tool fields that support automatic upload.`)
     }
 

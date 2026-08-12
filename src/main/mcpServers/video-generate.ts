@@ -32,7 +32,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const VIDEO_GENERATE_TOOL: Tool = {
   name: PRIMARY_VIDEO_TOOL_NAME,
   description:
-    'Create, generate, extend, edit, or query asynchronous AI video tasks via VectCut. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or querying a previous video task. Omit action to submit a new task, or use action="status" with taskId to query an existing task. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Local file URLs and absolute local paths inside those references are uploaded automatically before submission. These tasks are asynchronous and can take several minutes or longer. After submit returns a taskId and the status is not final, continue polling with action="status" automatically instead of stopping and waiting for the user to ask again.',
+    'Create, generate, extend, edit, or query asynchronous AI video tasks via VectCut. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or querying a previous video task. Omit action to submit a new task, or use action="status" with taskId to query an existing task. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Local file URLs and absolute local paths inside those references are uploaded automatically before submission. These tasks are asynchronous and can take several minutes or longer. After submit returns a taskId and the status is not final, continue polling with action="status" automatically instead of stopping and waiting for the user to ask again.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -61,18 +61,9 @@ const VIDEO_GENERATE_TOOL: Tool = {
         type: 'string',
         description: 'Optional output resolution, such as 1280x720 or 1080x1920.'
       },
-      genDuration: {
-        type: 'number',
-        description: 'Alias of gen_duration. Optional generation duration in seconds when the chosen model supports it.'
-      },
       gen_duration: {
         type: 'number',
-        description: 'Optional generation duration in seconds when the chosen model supports it.'
-      },
-      duration: {
-        type: 'number',
-        description:
-          'Optional duration in seconds for upstream payloads that expect duration instead of gen_duration, such as some Seedance multimodal examples.'
+        description: 'Optional generation duration in seconds for video generation.'
       },
       generateAudio: {
         type: 'boolean',
@@ -90,13 +81,34 @@ const VIDEO_GENERATE_TOOL: Tool = {
         description:
           'Optional multimodal content array for Seedance-style workflows. Example items: {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Local file URLs or absolute local paths in the nested url fields are uploaded automatically.'
       },
+      generationMode: {
+        type: 'string',
+        enum: ['text_to_video', 'first_frame', 'first_last_frame', 'reference'],
+        description:
+          'Optional generation mode hint. For seedance-1.5-pro images[] uses positional semantics: 1 image = first frame, 2 images = first and last frame, >2 images = first frame, last frame, then extra reference images. For seedance-2.0 this hint helps map images into content roles such as first_frame, last_frame, or reference_image.'
+      },
+      generation_mode: {
+        type: 'string',
+        enum: ['text_to_video', 'first_frame', 'first_last_frame', 'reference'],
+        description: 'Alias of generationMode.'
+      },
+      firstFrameImage: {
+        type: 'string',
+        description:
+          'Optional explicit first frame image URL, file URL, or absolute local path. For seedance-1.5-pro it becomes the first item in images[]. For seedance-2.0 it becomes a content item with role first_frame.'
+      },
+      lastFrameImage: {
+        type: 'string',
+        description:
+          'Optional explicit last frame image URL, file URL, or absolute local path. For seedance-1.5-pro it becomes the second item in images[] when present. For seedance-2.0 it becomes a content item with role last_frame.'
+      },
       referenceImages: {
         type: 'array',
         items: {
           type: 'string'
         },
         description:
-          'Optional convenience alias for appending reference_image items into content. Each item may be a remote URL, file URL, or absolute local path.'
+          'Optional convenience alias for reference images. For seedance-2.0 these become content items with role reference_image. For seedance-1.5-pro they are appended after the first or last frame positions in images[].'
       },
       referenceVideos: {
         type: 'array',
@@ -113,6 +125,14 @@ const VIDEO_GENERATE_TOOL: Tool = {
         },
         description:
           'Optional convenience alias for appending reference_audio items into content. Each item may be a remote URL, file URL, or absolute local path.'
+      },
+      images: {
+        type: 'array',
+        items: {
+          type: 'string'
+        },
+        description:
+          'Optional image list for non-Seedance-2.0 models such as seedance-1.5-pro or veo. The first image is typically treated as the start frame, the second as the end frame, and remaining images as reference images.'
       }
     },
     additionalProperties: true
@@ -232,11 +252,11 @@ type PreparedReferenceAsset = {
 }
 
 const VIDEO_SUBMIT_FIELD_ALIASES: Record<string, string> = {
-  genDuration: 'gen_duration',
   generateAudio: 'generate_audio',
   draftId: 'draft_id',
   composeDraft: 'compose_draft',
-  trackName: 'track_name'
+  trackName: 'track_name',
+  generationMode: 'generation_mode'
 }
 
 const MULTIMODAL_REFERENCE_FIELD_MAP = {
@@ -244,6 +264,7 @@ const MULTIMODAL_REFERENCE_FIELD_MAP = {
   video_url: 'video',
   audio_url: 'audio'
 } as const
+const VIDEO_GENERATION_MODE_SET = new Set(['text_to_video', 'first_frame', 'first_last_frame', 'reference'])
 
 const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
 const LOCAL_MEDIA_PATH_HINT_PATTERN =
@@ -730,13 +751,80 @@ class VideoGenerateServer {
       .map((item) => ({ ...item }))
   }
 
-  private appendConvenienceReferenceContent(payload: Record<string, unknown>, args: Record<string, unknown>) {
+  private getStringArray(value: unknown) {
+    if (typeof value === 'string' && value.trim()) {
+      return [value.trim()]
+    }
+
+    if (!Array.isArray(value)) {
+      return [] as string[]
+    }
+
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  private isSeedance20Model(model: string) {
+    return /^seedance-2\.0(?:-fast)?$/i.test(model.trim())
+  }
+
+  private normalizeGenerationMode(mode: unknown) {
+    if (typeof mode !== 'string') {
+      return ''
+    }
+    const normalized = mode.trim().toLowerCase()
+    return VIDEO_GENERATION_MODE_SET.has(normalized) ? normalized : ''
+  }
+
+  private extractMediaUrlFromContentItem(item: Record<string, unknown>, fieldName: keyof typeof MULTIMODAL_REFERENCE_FIELD_MAP) {
+    const value = item[fieldName]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value) && typeof (value as { url?: unknown }).url === 'string') {
+      return String((value as { url: string }).url).trim()
+    }
+    return ''
+  }
+
+  private extractImageRoleFromContentItem(item: Record<string, unknown>) {
+    const role = typeof item.role === 'string' ? item.role.trim() : ''
+    if (role === 'first_frame' || role === 'last_frame' || role === 'reference_image') {
+      return role
+    }
+    return ''
+  }
+
+  private appendConvenienceReferenceContent(
+    payload: Record<string, unknown>,
+    args: Record<string, unknown>,
+    generationMode: string
+  ) {
     const content = this.normalizeContentArray(payload.content)
+    const explicitFirstFrameImage = this.getStringArray(args.firstFrameImage)[0] || ''
+    const explicitLastFrameImage = this.getStringArray(args.lastFrameImage)[0] || ''
+    const orderedImages = this.getStringArray(payload.images)
+    const referenceImages = this.getStringArray(args.referenceImages)
+
+    const appendImage = (url: string, role: 'first_frame' | 'last_frame' | 'reference_image') => {
+      if (!url) {
+        return
+      }
+      content.push({
+        type: 'image_url',
+        image_url: {
+          url
+        },
+        role
+      })
+    }
 
     const appendItems = (
       input: unknown,
-      mediaField: 'image_url' | 'video_url' | 'audio_url',
-      role: 'reference_image' | 'reference_video' | 'reference_audio'
+      mediaField: 'video_url' | 'audio_url',
+      role: 'reference_video' | 'reference_audio'
     ) => {
       if (!Array.isArray(input)) {
         return
@@ -756,7 +844,30 @@ class VideoGenerateServer {
       }
     }
 
-    appendItems(args.referenceImages, 'image_url', 'reference_image')
+    appendImage(explicitFirstFrameImage, 'first_frame')
+    appendImage(explicitLastFrameImage, 'last_frame')
+
+    if (!explicitFirstFrameImage && orderedImages.length > 0) {
+      if (generationMode === 'first_frame' || generationMode === 'first_last_frame') {
+        appendImage(orderedImages[0], 'first_frame')
+      }
+    }
+
+    if (!explicitLastFrameImage && orderedImages.length > 1 && generationMode === 'first_last_frame') {
+      appendImage(orderedImages[1], 'last_frame')
+    }
+
+    const inferredReferenceImages =
+      generationMode === 'first_last_frame'
+        ? orderedImages.slice(2)
+        : generationMode === 'first_frame'
+          ? orderedImages.slice(1)
+          : orderedImages
+
+    for (const item of [...referenceImages, ...inferredReferenceImages]) {
+      appendImage(item, 'reference_image')
+    }
+
     appendItems(args.referenceVideos, 'video_url', 'reference_video')
     appendItems(args.referenceAudios, 'audio_url', 'reference_audio')
 
@@ -765,6 +876,7 @@ class VideoGenerateServer {
     } else {
       delete payload.content
     }
+    delete payload.images
   }
 
   private async prepareContentReferences(content: Record<string, unknown>[]) {
@@ -821,7 +933,88 @@ class VideoGenerateServer {
     }
   }
 
+  private async prepareImageReferences(images: unknown, fieldName: string) {
+    const preparedReferenceAssets: PreparedReferenceAsset[] = []
+    const normalizedImages = await Promise.all(
+      this.getStringArray(images).map(async (input, index) => {
+        const prepared = await this.prepareReferenceForSubmission(input, `${fieldName}[${index}]`, 'image', 'reference_image')
+        preparedReferenceAssets.push(prepared)
+        return prepared.submittedUrl
+      })
+    )
+
+    return {
+      images: normalizedImages,
+      preparedReferenceAssets
+    }
+  }
+
+  private collectOrderedImageInputsForClassicModels(
+    payload: Record<string, unknown>,
+    args: Record<string, unknown>,
+    generationMode: string
+  ) {
+    const explicitFirstFrameImage = this.getStringArray(args.firstFrameImage)[0] || ''
+    const explicitLastFrameImage = this.getStringArray(args.lastFrameImage)[0] || ''
+    const orderedImages = this.getStringArray(payload.images)
+    const referenceImages = this.getStringArray(args.referenceImages)
+    const normalizedContent = this.normalizeContentArray(payload.content)
+
+    let inferredFirstFrameImage = ''
+    let inferredLastFrameImage = ''
+    const inferredReferenceImages: string[] = []
+
+    for (const item of normalizedContent) {
+      const imageUrl = this.extractMediaUrlFromContentItem(item, 'image_url')
+      if (!imageUrl) {
+        continue
+      }
+      const role = this.extractImageRoleFromContentItem(item)
+      if (role === 'first_frame' && !inferredFirstFrameImage) {
+        inferredFirstFrameImage = imageUrl
+      } else if (role === 'last_frame' && !inferredLastFrameImage) {
+        inferredLastFrameImage = imageUrl
+      } else {
+        inferredReferenceImages.push(imageUrl)
+      }
+    }
+
+    const fallbackImages = [...orderedImages]
+    let firstFrameImage = explicitFirstFrameImage || inferredFirstFrameImage
+    let lastFrameImage = explicitLastFrameImage || inferredLastFrameImage
+
+    if (!firstFrameImage && (generationMode === 'first_frame' || generationMode === 'first_last_frame')) {
+      firstFrameImage = fallbackImages.shift() || ''
+    }
+    if (!lastFrameImage && generationMode === 'first_last_frame') {
+      if (firstFrameImage && fallbackImages[0] === firstFrameImage) {
+        fallbackImages.shift()
+      }
+      lastFrameImage = fallbackImages.shift() || ''
+    }
+
+    const images = [
+      ...(firstFrameImage ? [firstFrameImage] : []),
+      ...(lastFrameImage ? [lastFrameImage] : []),
+      ...referenceImages,
+      ...fallbackImages,
+      ...inferredReferenceImages
+    ]
+
+    return {
+      images,
+      normalizedContent
+    }
+  }
+
   private async buildVideoSubmitPayload(args: Record<string, unknown>) {
+    if (typeof args.duration === 'number' || typeof args.genDuration === 'number') {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "Video generation only accepts 'gen_duration' for the target duration in seconds. Do not use 'duration' or 'genDuration'."
+      )
+    }
+
     const payload: Record<string, unknown> = {}
 
     for (const [rawKey, value] of Object.entries(args)) {
@@ -835,7 +1028,9 @@ class VideoGenerateServer {
         rawKey === 'task_id' ||
         rawKey === 'referenceImages' ||
         rawKey === 'referenceVideos' ||
-        rawKey === 'referenceAudios'
+        rawKey === 'referenceAudios' ||
+        rawKey === 'firstFrameImage' ||
+        rawKey === 'lastFrameImage'
       ) {
         continue
       }
@@ -848,34 +1043,115 @@ class VideoGenerateServer {
       payload.prompt = payload.prompt.trim()
     }
 
-    this.appendConvenienceReferenceContent(payload, args)
-
-    const normalizedContent = this.normalizeContentArray(payload.content)
-    const hasPrompt = typeof payload.prompt === 'string' && payload.prompt.length > 0
-    const hasContent = normalizedContent.length > 0
-
-    if (!hasPrompt && !hasContent) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        "Either 'prompt' or 'content' is required when submitting a video generation task"
-      )
-    }
-
-    const preparedContent = hasContent ? await this.prepareContentReferences(normalizedContent) : null
-    if (preparedContent && preparedContent.content.length > 0) {
-      payload.content = preparedContent.content
-    }
-
     const rawModel = typeof payload.model === 'string' ? payload.model.trim() : ''
+    const generationMode = this.normalizeGenerationMode(payload.generation_mode ?? args.generationMode)
     const modelResolution = rawModel ? await this.resolveVideoModelName(rawModel) : null
     if (modelResolution?.resolvedModel) {
       payload.model = modelResolution.resolvedModel
     }
 
+    const resolvedModel = typeof payload.model === 'string' ? payload.model.trim() : ''
+    const contentForRouting = this.normalizeContentArray(payload.content)
+    const hasImplicitSeedance20Reference =
+      !resolvedModel &&
+      (this.getStringArray(args.referenceVideos).length > 0 ||
+        this.getStringArray(args.referenceAudios).length > 0 ||
+        contentForRouting.some(
+          (item) =>
+            Boolean(this.extractMediaUrlFromContentItem(item, 'video_url')) ||
+            Boolean(this.extractMediaUrlFromContentItem(item, 'audio_url'))
+        ))
+    const isSeedance20 = this.isSeedance20Model(resolvedModel) || hasImplicitSeedance20Reference
+    let preparedReferenceAssets: PreparedReferenceAsset[] = []
+
+    if (isSeedance20) {
+      this.appendConvenienceReferenceContent(payload, args, generationMode)
+
+      const normalizedContent = this.normalizeContentArray(payload.content)
+      const hasPrompt = typeof payload.prompt === 'string' && payload.prompt.length > 0
+      const hasContent = normalizedContent.length > 0
+
+      if (!hasPrompt && !hasContent) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "Either 'prompt' or 'content' is required when submitting a video generation task"
+        )
+      }
+
+      const preparedContent = hasContent ? await this.prepareContentReferences(normalizedContent) : null
+      if (preparedContent && preparedContent.content.length > 0) {
+        payload.content = preparedContent.content
+        preparedReferenceAssets = preparedContent.preparedReferenceAssets
+      } else {
+        delete payload.content
+      }
+
+      delete payload.generation_mode
+    } else {
+      const { images: collectedImageInputs, normalizedContent } = this.collectOrderedImageInputsForClassicModels(
+        payload,
+        args,
+        generationMode
+      )
+      const promptSegments: string[] = []
+      let hasVideoReference = this.getStringArray(args.referenceVideos).length > 0
+      let hasAudioReference = this.getStringArray(args.referenceAudios).length > 0
+
+      for (const item of normalizedContent) {
+        if (typeof item.text === 'string' && item.text.trim()) {
+          promptSegments.push(item.text.trim())
+        }
+
+        if (this.extractMediaUrlFromContentItem(item, 'video_url')) {
+          hasVideoReference = true
+        }
+
+        if (this.extractMediaUrlFromContentItem(item, 'audio_url')) {
+          hasAudioReference = true
+        }
+      }
+
+      if (hasVideoReference || hasAudioReference) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Model '${resolvedModel || rawModel || 'current'}' does not support Seedance 2.0 style video/audio reference inputs. Use only prompt + images for this model, or switch to seedance-2.0 / seedance-2.0-fast.`
+        )
+      }
+
+      if ((!payload.prompt || typeof payload.prompt !== 'string' || !payload.prompt.trim()) && promptSegments.length > 0) {
+        payload.prompt = promptSegments.join('\n')
+      }
+
+      const hasPrompt = typeof payload.prompt === 'string' && payload.prompt.trim().length > 0
+      if (!hasPrompt) {
+        if (normalizedContent.length === 0 && collectedImageInputs.length === 0) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            "Either 'prompt' or 'content' is required when submitting a video generation task"
+          )
+        }
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "A non-Seedance-2.0 video model requires 'prompt'. If you passed Seedance-style content, include at least one text item or a top-level prompt."
+        )
+      }
+
+      if (collectedImageInputs.length > 0) {
+        const preparedImages = await this.prepareImageReferences(collectedImageInputs, 'images')
+        payload.images = preparedImages.images
+        preparedReferenceAssets = preparedImages.preparedReferenceAssets
+      } else {
+        delete payload.images
+      }
+
+      delete payload.content
+      delete payload.generation_mode
+    }
+
     return {
       payload,
       modelResolution,
-      preparedReferenceAssets: preparedContent?.preparedReferenceAssets ?? []
+      preparedReferenceAssets
     }
   }
 

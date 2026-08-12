@@ -181,6 +181,7 @@ type IntentRoute = {
 
 - `image`：图片生成/编辑默认可直接使用文本提示词，若还带参考图片，则应优先判断输入是远程图片链接还是本地文件；远程图片链接可直接继续，本地图片文件路径、拖入文件或 workspace 内图片必须先组合命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 上传并拿到可访问 URL 后，才能继续调用图片生成/编辑工具，禁止把本地路径直接传给远端图片生成/编辑接口
 - `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__video__generate_video`，提交后默认把它视为异步长任务，并持续用 `action="status"` 轮询到 `succeeded` / `failed` / `not_found` 等终态；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
+；如果用户给的是“参考视频”，应优先原样保留为 `video_url` + `role=reference_video`，不要默认把视频拆成抽帧图片 + 分离音频，除非用户明确要求“抽帧”“拆音轨”“提取参考图/参考音频”
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
 - `voice_conversion`：AI 变声 / 声音转换，输入应是公网可访问的原始音频链接或视频链接，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；如果用户提供的是本地文件而不是公网链接，通常需要先伴随命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
 - `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
