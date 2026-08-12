@@ -1,0 +1,2129 @@
+{
+  "version": "20260812163132",
+  "updatedAt": "2026-08-12T16:31:32Z",
+  "templateCount": 43,
+  "templates": [
+    {
+      "id": "client_video_template_001",
+      "index": 1,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/1-1.jpeg",
+      "description": "首尾帧丝滑过渡模板，适合镜头缓慢推移和自然转场。",
+      "prompt": "镜头缓慢推移，丝滑过渡",
+      "model": "seedance-1.5-pro",
+      "generationMode": "first_last_frame",
+      "generationModeLabel": "首尾帧",
+      "ratio": "9:16",
+      "resolution": "720p",
+      "size": "720x1280",
+      "durationMode": "fixed",
+      "duration": 5,
+      "durationLabel": "5秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "firstFrameUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/1-1.jpeg",
+      "lastFrameUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/1-2.jpeg",
+      "content": [
+        {
+          "type": "text",
+          "text": "镜头缓慢推移，丝滑过渡"
+        },
+        {
+          "type": "image_url",
+          "role": "first_frame",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/1-1.jpeg"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "last_frame",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/1-2.jpeg"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_video_template_002",
+      "index": 2,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/2-1.jpeg",
+      "description": "首尾帧变身模板，适合人物形态变化和镜头拉远的戏剧性画面。",
+      "prompt": "少女低头，抬头时，身体变形，毛发膨胀，变身成为狼，镜头拉远",
+      "model": "seedance-2.0",
+      "generationMode": "first_last_frame",
+      "generationModeLabel": "首尾帧",
+      "ratio": "9:16",
+      "resolution": "720p",
+      "size": "720x1280",
+      "durationMode": "fixed",
+      "duration": 5,
+      "durationLabel": "5秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "firstFrameUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/2-1.jpeg",
+      "lastFrameUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/2-2.jpeg",
+      "content": [
+        {
+          "type": "text",
+          "text": "少女低头，抬头时，身体变形，毛发膨胀，变身成为狼，镜头拉远"
+        },
+        {
+          "type": "image_url",
+          "role": "first_frame",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/2-1.jpeg"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "last_frame",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/2-2.jpeg"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_video_template_003",
+      "index": 3,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/8-1.jpeg",
+      "description": "首帧延展模板，适合城市延时和昼夜变化的镜头表达。",
+      "prompt": "城市天际线从白天过渡到日落，延时摄影。",
+      "model": "seedance-2.0-fast",
+      "generationMode": "first_frame",
+      "generationModeLabel": "首帧生成",
+      "ratio": "9:16",
+      "resolution": "720p",
+      "size": "720x1280",
+      "durationMode": "fixed",
+      "duration": 5,
+      "durationLabel": "5秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "firstFrameUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/8-1.jpeg",
+      "content": [
+        {
+          "type": "text",
+          "text": "城市天际线从白天过渡到日落，延时摄影。"
+        },
+        {
+          "type": "image_url",
+          "role": "first_frame",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/8-1.jpeg"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_video_template_004",
+      "index": 4,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_2.png",
+      "description": "参考生成编辑模板，适合保留原视频动作与运镜，替换人物形象和语言。",
+      "prompt": "将眼镜电商带货视频1中的模特换成欧美人，参考图2，语言改成英语，人物动作和运镜不变",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_2.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "将眼镜电商带货视频1中的模特换成欧美人，参考图2，语言改成英语，人物动作和运镜不变"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_2.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "seedance-template-005",
+      "index": 5,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/35_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "参考视频1的运镜，以图片1为首帧做一个科技园区的概念视频，以图中的高楼为视觉中心，同为第一视角俯冲，体现出图片1中园区的科技感",
+      "prompt": "参考视频1的运镜，以图片1为首帧做一个科技园区的概念视频，以图中的高楼为视觉中心，同为第一视角俯冲，体现出图片1中园区的科技感",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 7,
+      "durationLabel": "7秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/35_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/35_2.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考视频1的运镜，以图片1为首帧做一个科技园区的概念视频，以图中的高楼为视觉中心，同为第一视角俯冲，体现出图片1中园区的科技感"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/35_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/35_2.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/35_4.mp4"
+    },
+    {
+      "id": "seedance-template-006",
+      "index": 6,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_8.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "清新奶油画风短剧，轻快吉他卡点快切，奶油白主色 + 蜜桃粉高光，画面柔和无特效，靠表情传情。0-2 秒：快切 2 镜「图片1中的霸总不小心撞到穿着图片2的衣服的图片3中的女主（两人错愕对视）+ 霸总扯下自己的西装外套披在女主身上（手部特写）」，背景吉他声起，咖啡杯掉落 / 衣服摩擦的轻柔音效；2-6 秒：快切 3 镜「女主穿霸总外套低头偷笑（脸颊泛红特写）+ 霸总看着女主背影嘴角微扬，说“我们一起走吧”参考音频1（侧颜） + 两人在雨夜共撑一把黑伞，指尖相触快速收回（近景）」，雨天背景为图片4，每镜卡点轻鼓重拍，配雨滴落地 / 伞骨撑开的音效，画面带轻微柔雾质感；6-8 秒：慢放两人对视笑眼，画面右下角出现图片5的文字部分，左下角小字「NEW EP DAILY」，背景飘淡粉色花瓣（极简），BGM 落温柔尾音，画面定格两人同框侧脸。",
+      "prompt": "清新奶油画风短剧，轻快吉他卡点快切，奶油白主色 + 蜜桃粉高光，画面柔和无特效，靠表情传情。0-2 秒：快切 2 镜「图片1中的霸总不小心撞到穿着图片2的衣服的图片3中的女主（两人错愕对视）+ 霸总扯下自己的西装外套披在女主身上（手部特写）」，背景吉他声起，咖啡杯掉落 / 衣服摩擦的轻柔音效；2-6 秒：快切 3 镜「女主穿霸总外套低头偷笑（脸颊泛红特写）+ 霸总看着女主背影嘴角微扬，说“我们一起走吧”参考音频1（侧颜） + 两人在雨夜共撑一把黑伞，指尖相触快速收回（近景）」，雨天背景为图片4，每镜卡点轻鼓重拍，配雨滴落地 / 伞骨撑开的音效，画面带轻微柔雾质感；6-8 秒：慢放两人对视笑眼，画面右下角出现图片5的文字部分，左下角小字「NEW EP DAILY」，背景飘淡粉色花瓣（极简），BGM 落温柔尾音，画面定格两人同框侧脸。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_1.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_3.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_5.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_6.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_4.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "清新奶油画风短剧，轻快吉他卡点快切，奶油白主色 + 蜜桃粉高光，画面柔和无特效，靠表情传情。0-2 秒：快切 2 镜「图片1中的霸总不小心撞到穿着图片2的衣服的图片3中的女主（两人错愕对视）+ 霸总扯下自己的西装外套披在女主身上（手部特写）」，背景吉他声起，咖啡杯掉落 / 衣服摩擦的轻柔音效；2-6 秒：快切 3 镜「女主穿霸总外套低头偷笑（脸颊泛红特写）+ 霸总看着女主背影嘴角微扬，说“我们一起走吧”参考音频1（侧颜） + 两人在雨夜共撑一把黑伞，指尖相触快速收回（近景）」，雨天背景为图片4，每镜卡点轻鼓重拍，配雨滴落地 / 伞骨撑开的音效，画面带轻微柔雾质感；6-8 秒：慢放两人对视笑眼，画面右下角出现图片5的文字部分，左下角小字「NEW EP DAILY」，背景飘淡粉色花瓣（极简），BGM 落温柔尾音，画面定格两人同框侧脸。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_3.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_5.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_6.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_4.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/37_8.mp4"
+    },
+    {
+      "id": "seedance-template-007",
+      "index": 7,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/33_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "固定镜头，中央鱼眼镜头透过圆形孔洞向下窥视，参考视频1的鱼眼镜头，一只穿着红色新年衣服的可爱小猫看向镜头，嘴角带笑。背景是深黄色墙面、黑白波点地砖的复古走廊，暖黄壁灯点缀其间，镜头畸变带来的空间收拢感鱼眼镜头，场景模仿门上猫眼，动作参考视频2，小猫看着镜头，说“新年好！开门，seedance来啦！”",
+      "prompt": "固定镜头，中央鱼眼镜头透过圆形孔洞向下窥视，参考视频1的鱼眼镜头，一只穿着红色新年衣服的可爱小猫看向镜头，嘴角带笑。背景是深黄色墙面、黑白波点地砖的复古走廊，暖黄壁灯点缀其间，镜头畸变带来的空间收拢感鱼眼镜头，场景模仿门上猫眼，动作参考视频2，小猫看着镜头，说“新年好！开门，seedance来啦！”",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 7,
+      "durationLabel": "7秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/33_1.mp4",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/33_2.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "固定镜头，中央鱼眼镜头透过圆形孔洞向下窥视，参考视频1的鱼眼镜头，一只穿着红色新年衣服的可爱小猫看向镜头，嘴角带笑。背景是深黄色墙面、黑白波点地砖的复古走廊，暖黄壁灯点缀其间，镜头畸变带来的空间收拢感鱼眼镜头，场景模仿门上猫眼，动作参考视频2，小猫看着镜头，说“新年好！开门，seedance来啦！”"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/33_1.mp4"
+          }
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/33_2.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/33_4.mp4"
+    },
+    {
+      "id": "seedance-template-008",
+      "index": 8,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/31_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "参考图片1的版画风格，镜头从 “马上有福” 藏书票的局部细节开始，随后缓缓向后拉远，完整展现黑白木刻风格的骏马。随着镜头拉开，骏马开始流畅地迈步前行，鬃毛与鞍鞯随之轻微摆动，背景的牡丹花纹随画面放大而逐渐清晰。整个过程保持着版画的高对比度黑白块面与密集排线肌理，营造出传统艺术在动态中复活的视觉体验。0-2秒：特写，聚焦木刻版画中骏马的眼睛与鬃毛细节，黑白高对比，密集排线纹理清晰可见。2-5秒：拉镜头，从局部逐渐拉远，完整展现骏马的头部与牡丹花，线条硬朗，块面分明。5-8秒：继续拉远，露出整匹骏马与波浪形边框，骏马开始缓慢迈步，四肢呈现交替运动的流畅动画，鬃毛与鞍鞯随步伐轻微摆动。拉到全景，完整显示 “马上有福” 字样，骏马持续行走，背景的平行排线随镜头移动产生轻微的视差效果，画面渐暗结束。整体参考视频1的拉镜头运镜，画面中除了“马上有福”四字无其他文字。",
+      "prompt": "参考图片1的版画风格，镜头从 “马上有福” 藏书票的局部细节开始，随后缓缓向后拉远，完整展现黑白木刻风格的骏马。随着镜头拉开，骏马开始流畅地迈步前行，鬃毛与鞍鞯随之轻微摆动，背景的牡丹花纹随画面放大而逐渐清晰。整个过程保持着版画的高对比度黑白块面与密集排线肌理，营造出传统艺术在动态中复活的视觉体验。0-2秒：特写，聚焦木刻版画中骏马的眼睛与鬃毛细节，黑白高对比，密集排线纹理清晰可见。2-5秒：拉镜头，从局部逐渐拉远，完整展现骏马的头部与牡丹花，线条硬朗，块面分明。5-8秒：继续拉远，露出整匹骏马与波浪形边框，骏马开始缓慢迈步，四肢呈现交替运动的流畅动画，鬃毛与鞍鞯随步伐轻微摆动。拉到全景，完整显示 “马上有福” 字样，骏马持续行走，背景的平行排线随镜头移动产生轻微的视差效果，画面渐暗结束。整体参考视频1的拉镜头运镜，画面中除了“马上有福”四字无其他文字。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/31_2.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/31_1.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考图片1的版画风格，镜头从 “马上有福” 藏书票的局部细节开始，随后缓缓向后拉远，完整展现黑白木刻风格的骏马。随着镜头拉开，骏马开始流畅地迈步前行，鬃毛与鞍鞯随之轻微摆动，背景的牡丹花纹随画面放大而逐渐清晰。整个过程保持着版画的高对比度黑白块面与密集排线肌理，营造出传统艺术在动态中复活的视觉体验。0-2秒：特写，聚焦木刻版画中骏马的眼睛与鬃毛细节，黑白高对比，密集排线纹理清晰可见。2-5秒：拉镜头，从局部逐渐拉远，完整展现骏马的头部与牡丹花，线条硬朗，块面分明。5-8秒：继续拉远，露出整匹骏马与波浪形边框，骏马开始缓慢迈步，四肢呈现交替运动的流畅动画，鬃毛与鞍鞯随步伐轻微摆动。拉到全景，完整显示 “马上有福” 字样，骏马持续行走，背景的平行排线随镜头移动产生轻微的视差效果，画面渐暗结束。整体参考视频1的拉镜头运镜，画面中除了“马上有福”四字无其他文字。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/31_2.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/31_1.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/31_4.mp4"
+    },
+    {
+      "id": "seedance-template-009",
+      "index": 9,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_5.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "史诗级电影感战场视频。场景设定在广阔的古代战场沙漠，风格参考图片4，士兵穿着参考图片3。尘土飞扬的风掠过地面，天空阴云翻涌，低角度落日光线洒下，整体氛围厚重而压迫。开场为超远景大全景镜头，缓缓展现整齐列阵的大规模军队。队伍最前方矗立着一头巨大的图片2中的装甲战象，图片1中的女战士端坐在象背之上，神情平静而威严，具有统领全军的气场。镜头从远处缓慢推进（推轨/推进镜头），旗帜随风飘动，尘土在空气中漂浮，士兵轻微移动，营造真实战前氛围。切至中景，女战士目视前方，头发与披风被风吹动，画面沉稳有力量。低机位仰拍战象迈步向前，脚步落地震起沙尘，地面微微震动，气势磅礴。最后切到高空航拍大全景，镜头拉远，整支军队在沙漠战场上绵延铺展开来，规模宏大震撼。",
+      "prompt": "史诗级电影感战场视频。场景设定在广阔的古代战场沙漠，风格参考图片4，士兵穿着参考图片3。尘土飞扬的风掠过地面，天空阴云翻涌，低角度落日光线洒下，整体氛围厚重而压迫。开场为超远景大全景镜头，缓缓展现整齐列阵的大规模军队。队伍最前方矗立着一头巨大的图片2中的装甲战象，图片1中的女战士端坐在象背之上，神情平静而威严，具有统领全军的气场。镜头从远处缓慢推进（推轨/推进镜头），旗帜随风飘动，尘土在空气中漂浮，士兵轻微移动，营造真实战前氛围。切至中景，女战士目视前方，头发与披风被风吹动，画面沉稳有力量。低机位仰拍战象迈步向前，脚步落地震起沙尘，地面微微震动，气势磅礴。最后切到高空航拍大全景，镜头拉远，整支军队在沙漠战场上绵延铺展开来，规模宏大震撼。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 15,
+      "durationLabel": "15秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_4.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_3.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_1.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "史诗级电影感战场视频。场景设定在广阔的古代战场沙漠，风格参考图片4，士兵穿着参考图片3。尘土飞扬的风掠过地面，天空阴云翻涌，低角度落日光线洒下，整体氛围厚重而压迫。开场为超远景大全景镜头，缓缓展现整齐列阵的大规模军队。队伍最前方矗立着一头巨大的图片2中的装甲战象，图片1中的女战士端坐在象背之上，神情平静而威严，具有统领全军的气场。镜头从远处缓慢推进（推轨/推进镜头），旗帜随风飘动，尘土在空气中漂浮，士兵轻微移动，营造真实战前氛围。切至中景，女战士目视前方，头发与披风被风吹动，画面沉稳有力量。低机位仰拍战象迈步向前，脚步落地震起沙尘，地面微微震动，气势磅礴。最后切到高空航拍大全景，镜头拉远，整支军队在沙漠战场上绵延铺展开来，规模宏大震撼。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_4.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_3.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_1.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/6_5.mp4"
+    },
+    {
+      "id": "seedance-template-010",
+      "index": 10,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_6.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "全程使用视频1的第一视角构图，全程使用音频1作为背景音乐。第一人称视角果茶宣传广告，seedance牌「苹苹安安」苹果果茶限定款；首帧为图片1，你的手摘下一颗带晨露的阿克苏红苹果，轻脆的苹果碰撞声；2-4 秒：快速切镜，你的手将苹果块投入雪克杯，加入冰块与茶底，用力摇晃，冰块碰撞声与摇晃声卡点轻快鼓点，背景音：「鲜切现摇」；4-6 秒：第一人称成品特写，分层果茶倒入透明杯，你的手轻挤奶盖在顶部铺展，在杯身贴上粉红包标，镜头拉近看奶盖与果茶的分层纹理；6-8 秒：第一人称手持举杯，你将图片2中的果茶举到镜头前（模拟递到观众面前的视角），杯身标签清晰可见，背景音「来一口鲜爽」，尾帧定格为图片2。背景声音统一为女生音色。",
+      "prompt": "全程使用视频1的第一视角构图，全程使用音频1作为背景音乐。第一人称视角果茶宣传广告，seedance牌「苹苹安安」苹果果茶限定款；首帧为图片1，你的手摘下一颗带晨露的阿克苏红苹果，轻脆的苹果碰撞声；2-4 秒：快速切镜，你的手将苹果块投入雪克杯，加入冰块与茶底，用力摇晃，冰块碰撞声与摇晃声卡点轻快鼓点，背景音：「鲜切现摇」；4-6 秒：第一人称成品特写，分层果茶倒入透明杯，你的手轻挤奶盖在顶部铺展，在杯身贴上粉红包标，镜头拉近看奶盖与果茶的分层纹理；6-8 秒：第一人称手持举杯，你将图片2中的果茶举到镜头前（模拟递到观众面前的视角），杯身标签清晰可见，背景音「来一口鲜爽」，尾帧定格为图片2。背景声音统一为女生音色。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 12,
+      "durationLabel": "12秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_3.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_4.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_2.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "全程使用视频1的第一视角构图，全程使用音频1作为背景音乐。第一人称视角果茶宣传广告，seedance牌「苹苹安安」苹果果茶限定款；首帧为图片1，你的手摘下一颗带晨露的阿克苏红苹果，轻脆的苹果碰撞声；2-4 秒：快速切镜，你的手将苹果块投入雪克杯，加入冰块与茶底，用力摇晃，冰块碰撞声与摇晃声卡点轻快鼓点，背景音：「鲜切现摇」；4-6 秒：第一人称成品特写，分层果茶倒入透明杯，你的手轻挤奶盖在顶部铺展，在杯身贴上粉红包标，镜头拉近看奶盖与果茶的分层纹理；6-8 秒：第一人称手持举杯，你将图片2中的果茶举到镜头前（模拟递到观众面前的视角），杯身标签清晰可见，背景音「来一口鲜爽」，尾帧定格为图片2。背景声音统一为女生音色。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_3.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_4.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_2.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/32_6.mp4"
+    },
+    {
+      "id": "seedance-template-011",
+      "index": 11,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_6.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "以图片1为首帧，画面放大至飞机舷窗外，一团团云朵缓缓飘至画面中，其中一朵为彩色糖豆点缀的云朵，始终在画面中居中，然后缓缓变形为图片2中的冰淇淋，镜头推远回到机舱内，坐在窗边的图片3中的角色伸手从窗外拿进冰淇淋，吃了一口，嘴巴上沾满奶油，脸上洋溢出甜蜜的笑容，此时视频配音为音频1",
+      "prompt": "以图片1为首帧，画面放大至飞机舷窗外，一团团云朵缓缓飘至画面中，其中一朵为彩色糖豆点缀的云朵，始终在画面中居中，然后缓缓变形为图片2中的冰淇淋，镜头推远回到机舱内，坐在窗边的图片3中的角色伸手从窗外拿进冰淇淋，吃了一口，嘴巴上沾满奶油，脸上洋溢出甜蜜的笑容，此时视频配音为音频1",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 12,
+      "durationLabel": "12秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_1.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_3.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_4.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "以图片1为首帧，画面放大至飞机舷窗外，一团团云朵缓缓飘至画面中，其中一朵为彩色糖豆点缀的云朵，始终在画面中居中，然后缓缓变形为图片2中的冰淇淋，镜头推远回到机舱内，坐在窗边的图片3中的角色伸手从窗外拿进冰淇淋，吃了一口，嘴巴上沾满奶油，脸上洋溢出甜蜜的笑容，此时视频配音为音频1"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_3.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_4.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/38_6.mp4"
+    },
+    {
+      "id": "seedance-template-012",
+      "index": 12,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_7.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "参考视频1的人物动作和镜头语言，生成图片1和图片2的打斗场面，打斗背景是图片3，打斗的过程模仿《魂斗罗》像素游戏，背景音乐是音频1中的音乐，随着打斗动作还有打斗音效。",
+      "prompt": "参考视频1的人物动作和镜头语言，生成图片1和图片2的打斗场面，打斗背景是图片3，打斗的过程模仿《魂斗罗》像素游戏，背景音乐是音频1中的音乐，随着打斗动作还有打斗音效。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 6,
+      "durationLabel": "6秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_3.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_4.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_5.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考视频1的人物动作和镜头语言，生成图片1和图片2的打斗场面，打斗背景是图片3，打斗的过程模仿《魂斗罗》像素游戏，背景音乐是音频1中的音乐，随着打斗动作还有打斗音效。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_3.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_4.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_5.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/30_7.mp4"
+    },
+    {
+      "id": "seedance-template-013",
+      "index": 13,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "电影感户外徒步广告片。以图片1的群山与空旷山脊为超大全景开场，金色晨雾弥漫，镜头缓慢向前推进。切到图片2中的男人，穿着图片3的登山鞋，大步走在山径上，跟拍镜头随行，风吹动衣物与草丛，自然真实。侧脸特写，浅景深，脸上微微出汗，边缘逆光勾勒轮廓。登山鞋踩入草地与水坑的微距慢动作特写，草叶被压弯，水溅起，镜头轻微环绕展示鞋子多角度细节。最后切到山脊侧面大全景长镜头，人物沿山脊前行，剪影映衬天空。最后画面渐隐黑幕，画面中间出现小字slogan“Step Beyond Limits”",
+      "prompt": "电影感户外徒步广告片。以图片1的群山与空旷山脊为超大全景开场，金色晨雾弥漫，镜头缓慢向前推进。切到图片2中的男人，穿着图片3的登山鞋，大步走在山径上，跟拍镜头随行，风吹动衣物与草丛，自然真实。侧脸特写，浅景深，脸上微微出汗，边缘逆光勾勒轮廓。登山鞋踩入草地与水坑的微距慢动作特写，草叶被压弯，水溅起，镜头轻微环绕展示鞋子多角度细节。最后切到山脊侧面大全景长镜头，人物沿山脊前行，剪影映衬天空。最后画面渐隐黑幕，画面中间出现小字slogan“Step Beyond Limits”",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 12,
+      "durationLabel": "12秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_1.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_3.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "电影感户外徒步广告片。以图片1的群山与空旷山脊为超大全景开场，金色晨雾弥漫，镜头缓慢向前推进。切到图片2中的男人，穿着图片3的登山鞋，大步走在山径上，跟拍镜头随行，风吹动衣物与草丛，自然真实。侧脸特写，浅景深，脸上微微出汗，边缘逆光勾勒轮廓。登山鞋踩入草地与水坑的微距慢动作特写，草叶被压弯，水溅起，镜头轻微环绕展示鞋子多角度细节。最后切到山脊侧面大全景长镜头，人物沿山脊前行，剪影映衬天空。最后画面渐隐黑幕，画面中间出现小字slogan“Step Beyond Limits”"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_3.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/4_4.mp4"
+    },
+    {
+      "id": "seedance-template-014",
+      "index": 14,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "3D动画电影风格叙事短片，温暖夕阳草地或老街广场场景，环境为柔和彩色自然光。图片2中的老人独自站在画面中央，全身黑白灰色（monochrome grayscale），与彩色环境形成强烈对比。远景建立后镜头缓慢推进。图片1中的男孩从画面一侧走入，彩色、有生命力，小心翼翼看向老人轻声说“Papa?”，然后慢慢靠近。随后男孩突然跑过去抱住老人，进入慢动作，拥抱动作参考视频1。两人拥抱时，从接触处开始老人身体颜色从灰色逐渐扩散恢复彩色（smooth warm color transition），从头到脚变回正常色彩。最后两人相拥，中景停顿，男孩眼角含泪说“I missed you so much”，夕阳暖光包围，画面淡出。",
+      "prompt": "3D动画电影风格叙事短片，温暖夕阳草地或老街广场场景，环境为柔和彩色自然光。图片2中的老人独自站在画面中央，全身黑白灰色（monochrome grayscale），与彩色环境形成强烈对比。远景建立后镜头缓慢推进。图片1中的男孩从画面一侧走入，彩色、有生命力，小心翼翼看向老人轻声说“Papa?”，然后慢慢靠近。随后男孩突然跑过去抱住老人，进入慢动作，拥抱动作参考视频1。两人拥抱时，从接触处开始老人身体颜色从灰色逐渐扩散恢复彩色（smooth warm color transition），从头到脚变回正常色彩。最后两人相拥，中景停顿，男孩眼角含泪说“I missed you so much”，夕阳暖光包围，画面淡出。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_3.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_2.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "3D动画电影风格叙事短片，温暖夕阳草地或老街广场场景，环境为柔和彩色自然光。图片2中的老人独自站在画面中央，全身黑白灰色（monochrome grayscale），与彩色环境形成强烈对比。远景建立后镜头缓慢推进。图片1中的男孩从画面一侧走入，彩色、有生命力，小心翼翼看向老人轻声说“Papa?”，然后慢慢靠近。随后男孩突然跑过去抱住老人，进入慢动作，拥抱动作参考视频1。两人拥抱时，从接触处开始老人身体颜色从灰色逐渐扩散恢复彩色（smooth warm color transition），从头到脚变回正常色彩。最后两人相拥，中景停顿，男孩眼角含泪说“I missed you so much”，夕阳暖光包围，画面淡出。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_3.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_2.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/3_4.mp4"
+    },
+    {
+      "id": "seedance-template-015",
+      "index": 15,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/34_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "参考视频1中的旋转运镜，生成从中国古建筑内部向上仰拍的天井。深邃的八角形木质穹顶结构布满了繁复的木雕细节，层叠的梁架与精巧的垂花雕刻在明暗对比中尽显古朴厚重的质感。穹顶中央的开口将澄澈的蓝天与白云框入其中，天空中飞过一群鸟，参考视频2，营造出一种连接天地、静谧悠远的中式美学氛围。",
+      "prompt": "参考视频1中的旋转运镜，生成从中国古建筑内部向上仰拍的天井。深邃的八角形木质穹顶结构布满了繁复的木雕细节，层叠的梁架与精巧的垂花雕刻在明暗对比中尽显古朴厚重的质感。穹顶中央的开口将澄澈的蓝天与白云框入其中，天空中飞过一群鸟，参考视频2，营造出一种连接天地、静谧悠远的中式美学氛围。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/34_1.mp4",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/34_2.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考视频1中的旋转运镜，生成从中国古建筑内部向上仰拍的天井。深邃的八角形木质穹顶结构布满了繁复的木雕细节，层叠的梁架与精巧的垂花雕刻在明暗对比中尽显古朴厚重的质感。穹顶中央的开口将澄澈的蓝天与白云框入其中，天空中飞过一群鸟，参考视频2，营造出一种连接天地、静谧悠远的中式美学氛围。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/34_1.mp4"
+          }
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/34_2.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/34_4.mp4"
+    },
+    {
+      "id": "seedance-template-016",
+      "index": 16,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/14_3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "参考图片1的画面画风，为音频1生成一个音乐MV",
+      "prompt": "参考图片1的画面画风，为音频1生成一个音乐MV",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/14_1.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/14_2.wav"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考图片1的画面画风，为音频1生成一个音乐MV"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/14_1.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/14_2.wav"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/14_3.mp4"
+    },
+    {
+      "id": "seedance-template-017",
+      "index": 17,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_10.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "8秒智性博弈式战斗动漫片段，贴合复仇主题。0-3秒：图片1中女主转身坐下，转镜头，女主下了一步棋子，并说“你输了”，参考图片2的分镜画面，女主声音参考音频1中的御姐音色，背景参考图片3。3-4秒：快速摇镜头，转向对面特写图片4中的男人面部，男人说：“怎么会！”，参考图片5的分镜画面，男人咬牙切齿，对结果很不满。4-6秒：切镜头，俯拍，女人下了一步棋，对面的人们惊叹，参考图片6的分镜画面。6-8秒：镜头迅速向下摇，画面黑屏转场，后画面渐亮，昏暗室内，女人看着窗外月色静静地说“我们走着瞧”，参考图片7的分镜画面。",
+      "prompt": "8秒智性博弈式战斗动漫片段，贴合复仇主题。0-3秒：图片1中女主转身坐下，转镜头，女主下了一步棋子，并说“你输了”，参考图片2的分镜画面，女主声音参考音频1中的御姐音色，背景参考图片3。3-4秒：快速摇镜头，转向对面特写图片4中的男人面部，男人说：“怎么会！”，参考图片5的分镜画面，男人咬牙切齿，对结果很不满。4-6秒：切镜头，俯拍，女人下了一步棋，对面的人们惊叹，参考图片6的分镜画面。6-8秒：镜头迅速向下摇，画面黑屏转场，后画面渐亮，昏暗室内，女人看着窗外月色静静地说“我们走着瞧”，参考图片7的分镜画面。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_1.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_4.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_5.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_6.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_7.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_8.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_3.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "8秒智性博弈式战斗动漫片段，贴合复仇主题。0-3秒：图片1中女主转身坐下，转镜头，女主下了一步棋子，并说“你输了”，参考图片2的分镜画面，女主声音参考音频1中的御姐音色，背景参考图片3。3-4秒：快速摇镜头，转向对面特写图片4中的男人面部，男人说：“怎么会！”，参考图片5的分镜画面，男人咬牙切齿，对结果很不满。4-6秒：切镜头，俯拍，女人下了一步棋，对面的人们惊叹，参考图片6的分镜画面。6-8秒：镜头迅速向下摇，画面黑屏转场，后画面渐亮，昏暗室内，女人看着窗外月色静静地说“我们走着瞧”，参考图片7的分镜画面。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_4.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_5.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_6.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_7.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_8.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_3.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/36_10.mp4"
+    },
+    {
+      "id": "seedance-template-018",
+      "index": 18,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "韩剧生活氛围感短片，温馨自然、轻松甜感、真实日常风格。场景设定在温暖小餐馆内，暖黄色灯光，木质桌椅，窗外傍晚柔光洒入，人群轻微虚化，环境有生活气息与烟火感。镜头1：中远景慢推镜头，餐馆整体环境，人声与碗筷声作为环境音。图片1女生与图片2男生面对面坐在桌旁，气氛轻松。镜头2：桌面对拍中景，两人聊天微笑。热气腾腾的面碗在前景，画面浅景深，背景柔焦。镜头3：近景特写女生低头吃面，动作参考视频1，突然狼吞虎咽大口吸面，脸颊鼓鼓，真实可爱。镜头4：面条晃动、汤汁飞溅一点点，嘴角沾到油渍。轻微慢动作，增加喜剧感。镜头5：半身特写，女生抬头发现男生在看她，愣住，害羞微笑，眼神闪躲。镜头6：男生温柔靠近，轻轻用纸巾替她擦嘴，动作自然细腻，说：“천천히 먹어. 아무도 안 뺏어.”。镜头7：两人对视微笑，气氛安静甜蜜。镜头缓慢拉远，餐馆灯光温暖包围，画面淡出。整体风格：韩剧剧照质感、自然手持跟拍、柔光滤镜、浅景深、暖色调、真实生活感、轻微慢动作、情绪细腻、电影级构图、4K高细节。",
+      "prompt": "韩剧生活氛围感短片，温馨自然、轻松甜感、真实日常风格。场景设定在温暖小餐馆内，暖黄色灯光，木质桌椅，窗外傍晚柔光洒入，人群轻微虚化，环境有生活气息与烟火感。镜头1：中远景慢推镜头，餐馆整体环境，人声与碗筷声作为环境音。图片1女生与图片2男生面对面坐在桌旁，气氛轻松。镜头2：桌面对拍中景，两人聊天微笑。热气腾腾的面碗在前景，画面浅景深，背景柔焦。镜头3：近景特写女生低头吃面，动作参考视频1，突然狼吞虎咽大口吸面，脸颊鼓鼓，真实可爱。镜头4：面条晃动、汤汁飞溅一点点，嘴角沾到油渍。轻微慢动作，增加喜剧感。镜头5：半身特写，女生抬头发现男生在看她，愣住，害羞微笑，眼神闪躲。镜头6：男生温柔靠近，轻轻用纸巾替她擦嘴，动作自然细腻，说：“천천히 먹어. 아무도 안 뺏어.”。镜头7：两人对视微笑，气氛安静甜蜜。镜头缓慢拉远，餐馆灯光温暖包围，画面淡出。整体风格：韩剧剧照质感、自然手持跟拍、柔光滤镜、浅景深、暖色调、真实生活感、轻微慢动作、情绪细腻、电影级构图、4K高细节。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 16,
+      "durationLabel": "16秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_2.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_1.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_3.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "韩剧生活氛围感短片，温馨自然、轻松甜感、真实日常风格。场景设定在温暖小餐馆内，暖黄色灯光，木质桌椅，窗外傍晚柔光洒入，人群轻微虚化，环境有生活气息与烟火感。镜头1：中远景慢推镜头，餐馆整体环境，人声与碗筷声作为环境音。图片1女生与图片2男生面对面坐在桌旁，气氛轻松。镜头2：桌面对拍中景，两人聊天微笑。热气腾腾的面碗在前景，画面浅景深，背景柔焦。镜头3：近景特写女生低头吃面，动作参考视频1，突然狼吞虎咽大口吸面，脸颊鼓鼓，真实可爱。镜头4：面条晃动、汤汁飞溅一点点，嘴角沾到油渍。轻微慢动作，增加喜剧感。镜头5：半身特写，女生抬头发现男生在看她，愣住，害羞微笑，眼神闪躲。镜头6：男生温柔靠近，轻轻用纸巾替她擦嘴，动作自然细腻，说：“천천히 먹어. 아무도 안 뺏어.”。镜头7：两人对视微笑，气氛安静甜蜜。镜头缓慢拉远，餐馆灯光温暖包围，画面淡出。整体风格：韩剧剧照质感、自然手持跟拍、柔光滤镜、浅景深、暖色调、真实生活感、轻微慢动作、情绪细腻、电影级构图、4K高细节。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_2.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_3.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/1_4.mp4"
+    },
+    {
+      "id": "seedance-template-019",
+      "index": 19,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "第一视角厨房烘焙 vlog，轻微广角，沉浸式手持感，全程不出现人脸，只看到双手与手臂，视角参考图片1。镜头1：俯视视角，双手在厨房岛台翻开菜谱书，书页内容为图片2，晨光洒入，轻微晃动记录感。镜头2：镜头垂直向下，双手在撒面粉的台面揉面、按压、折叠，面粉飞散，近景质感细节。镜头3：双手将准备好的生苹果派举到镜头前展示，苹果派参考图片3。镜头4：黑屏字幕倒计时，“200°C 30mins”。镜头5：恢复第一视角，双手端起刚出炉冒热气的苹果派，金黄酥皮，暖光氛围。",
+      "prompt": "第一视角厨房烘焙 vlog，轻微广角，沉浸式手持感，全程不出现人脸，只看到双手与手臂，视角参考图片1。镜头1：俯视视角，双手在厨房岛台翻开菜谱书，书页内容为图片2，晨光洒入，轻微晃动记录感。镜头2：镜头垂直向下，双手在撒面粉的台面揉面、按压、折叠，面粉飞散，近景质感细节。镜头3：双手将准备好的生苹果派举到镜头前展示，苹果派参考图片3。镜头4：黑屏字幕倒计时，“200°C 30mins”。镜头5：恢复第一视角，双手端起刚出炉冒热气的苹果派，金黄酥皮，暖光氛围。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "参考生成",
+      "templateCategory": "参考生成",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 15,
+      "durationLabel": "15秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_1.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_3.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "第一视角厨房烘焙 vlog，轻微广角，沉浸式手持感，全程不出现人脸，只看到双手与手臂，视角参考图片1。镜头1：俯视视角，双手在厨房岛台翻开菜谱书，书页内容为图片2，晨光洒入，轻微晃动记录感。镜头2：镜头垂直向下，双手在撒面粉的台面揉面、按压、折叠，面粉飞散，近景质感细节。镜头3：双手将准备好的生苹果派举到镜头前展示，苹果派参考图片3。镜头4：黑屏字幕倒计时，“200°C 30mins”。镜头5：恢复第一视角，双手端起刚出炉冒热气的苹果派，金黄酥皮，暖光氛围。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_3.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/reference/5_4.mp4"
+    },
+    {
+      "id": "seedance-template-020",
+      "index": 20,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/44_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "将视频1中模特走秀穿着的衣服换成图片1中的衣服",
+      "prompt": "将视频1中模特走秀穿着的衣服换成图片1中的衣服",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/44_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/44_2.jpeg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "将视频1中模特走秀穿着的衣服换成图片1中的衣服"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/44_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/44_2.jpeg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/44_4.mp4"
+    },
+    {
+      "id": "seedance-template-021",
+      "index": 21,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-02__result01__IhllbG.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "保持原有的高空俯瞰轨迹，要把 视频1 中平缓滑行的普通无人机运镜转换成带有大幅度侧倾、快速俯冲翻转的 FPV 穿越机竞技视角。",
+      "prompt": "保持原有的高空俯瞰轨迹，要把 视频1 中平缓滑行的普通无人机运镜转换成带有大幅度侧倾、快速俯冲翻转的 FPV 穿越机竞技视角。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 6,
+      "durationLabel": "6秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-02__ref01__video1__HKk7b5.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "保持原有的高空俯瞰轨迹，要把 视频1 中平缓滑行的普通无人机运镜转换成带有大幅度侧倾、快速俯冲翻转的 FPV 穿越机竞技视角。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-02__ref01__video1__HKk7b5.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-02__result01__IhllbG.mp4"
+    },
+    {
+      "id": "seedance-template-022",
+      "index": 22,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-03__result01__OHVEbO.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "保持视频1香水主体不变，氛围感不变，产品级光线，将光线运动修改为，从左到右扫光，丁达尔效应",
+      "prompt": "保持视频1香水主体不变，氛围感不变，产品级光线，将光线运动修改为，从左到右扫光，丁达尔效应",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 16,
+      "durationLabel": "16秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-03__ref01__video1__Hch5bw.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "保持视频1香水主体不变，氛围感不变，产品级光线，将光线运动修改为，从左到右扫光，丁达尔效应"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-03__ref01__video1__Hch5bw.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-03__result01__OHVEbO.mp4"
+    },
+    {
+      "id": "seedance-template-023",
+      "index": 23,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/39_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "将视频1礼盒中的香水替换成图片1中的面霜，运镜不变",
+      "prompt": "将视频1礼盒中的香水替换成图片1中的面霜，运镜不变",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 6,
+      "durationLabel": "6秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/39_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/39_2.jpeg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "将视频1礼盒中的香水替换成图片1中的面霜，运镜不变"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/39_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/39_2.jpeg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/39_4.mp4"
+    },
+    {
+      "id": "seedance-template-024",
+      "index": 24,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/16_3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "将视频1中所有出现的狗粮包装袋统一替换为图片1中的新包装样式。自动识别并跟踪视频内每一帧中的所有狗粮袋（包括前景、中景、远景、不同角度、运动状态、遮挡状态），对其进行完整替换。新包装需严格匹配原始位置、大小、透视角度、光影方向、运动轨迹与遮挡关系，实现自然贴合与真实融合。仅替换包装外观（图案/颜色/品牌/造型），保持原有动作、人物、环境、镜头运动、节奏与其他所有元素完全不变。禁止改变背景、构图、光线、景深、摄像机运动或新增/删除物体。整体效果真实自然、无穿帮、无漂移、无闪烁、无风格变化。",
+      "prompt": "将视频1中所有出现的狗粮包装袋统一替换为图片1中的新包装样式。自动识别并跟踪视频内每一帧中的所有狗粮袋（包括前景、中景、远景、不同角度、运动状态、遮挡状态），对其进行完整替换。新包装需严格匹配原始位置、大小、透视角度、光影方向、运动轨迹与遮挡关系，实现自然贴合与真实融合。仅替换包装外观（图案/颜色/品牌/造型），保持原有动作、人物、环境、镜头运动、节奏与其他所有元素完全不变。禁止改变背景、构图、光线、景深、摄像机运动或新增/删除物体。整体效果真实自然、无穿帮、无漂移、无闪烁、无风格变化。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 16,
+      "durationLabel": "16秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/16_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/16_2.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "将视频1中所有出现的狗粮包装袋统一替换为图片1中的新包装样式。自动识别并跟踪视频内每一帧中的所有狗粮袋（包括前景、中景、远景、不同角度、运动状态、遮挡状态），对其进行完整替换。新包装需严格匹配原始位置、大小、透视角度、光影方向、运动轨迹与遮挡关系，实现自然贴合与真实融合。仅替换包装外观（图案/颜色/品牌/造型），保持原有动作、人物、环境、镜头运动、节奏与其他所有元素完全不变。禁止改变背景、构图、光线、景深、摄像机运动或新增/删除物体。整体效果真实自然、无穿帮、无漂移、无闪烁、无风格变化。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/16_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/16_2.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/16_3.mp4"
+    },
+    {
+      "id": "seedance-template-025",
+      "index": 25,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-05__result01__CFzib3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "赋予画面艺术生命力，要把 视频1 真实拍摄的风景视频天空替换成具有强烈旋转笔触和厚堆颜料感的油画风格，画面抽帧效果",
+      "prompt": "赋予画面艺术生命力，要把 视频1 真实拍摄的风景视频天空替换成具有强烈旋转笔触和厚堆颜料感的油画风格，画面抽帧效果",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 11,
+      "durationLabel": "11秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-05__ref01__video1__FQWWbq.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "赋予画面艺术生命力，要把 视频1 真实拍摄的风景视频天空替换成具有强烈旋转笔触和厚堆颜料感的油画风格，画面抽帧效果"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-05__ref01__video1__FQWWbq.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-05__result01__CFzib3.mp4"
+    },
+    {
+      "id": "seedance-template-026",
+      "index": 26,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-01__result01__WKn9b4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "保持视频画面内容，要把 视频1 变为第一视角，剧烈晃动的手持摄影，无稳定器，边跑边拍，剧烈摇摆，呼吸感强烈",
+      "prompt": "保持视频画面内容，要把 视频1 变为第一视角，剧烈晃动的手持摄影，无稳定器，边跑边拍，剧烈摇摆，呼吸感强烈",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-01__ref01__video1__V952bO.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "保持视频画面内容，要把 视频1 变为第一视角，剧烈晃动的手持摄影，无稳定器，边跑边拍，剧烈摇摆，呼吸感强烈"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-01__ref01__video1__V952bO.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-03-01__result01__WKn9b4.mp4"
+    },
+    {
+      "id": "seedance-template-027",
+      "index": 27,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/17_2.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "以视频1中的相机为参考，复制相同的外观设计、尺寸比例、颜色和材质，生成一个一模一样但全新的相机。机身干净光滑，没有任何划痕、磨损或使用痕迹。除机身变新外，不改变镜头位置、构图、光线、背景和拍摄角度。",
+      "prompt": "以视频1中的相机为参考，复制相同的外观设计、尺寸比例、颜色和材质，生成一个一模一样但全新的相机。机身干净光滑，没有任何划痕、磨损或使用痕迹。除机身变新外，不改变镜头位置、构图、光线、背景和拍摄角度。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/17_1.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "以视频1中的相机为参考，复制相同的外观设计、尺寸比例、颜色和材质，生成一个一模一样但全新的相机。机身干净光滑，没有任何划痕、磨损或使用痕迹。除机身变新外，不改变镜头位置、构图、光线、背景和拍摄角度。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/17_1.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/17_2.mp4"
+    },
+    {
+      "id": "seedance-template-028",
+      "index": 28,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-01__result01__KdCnbv.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "根据背景音乐的节奏点，要把 视频1 中的休闲连帽衫替换成 图片1 ，并且整个画面画风修改为2D-3D混合漫画渲染，高饱和撞色对比，半粗黑漫画描边，阴影用网点纸纹理表现，手绘线条颗粒感，分镜式破碎边缘，动态速度线点缀，轻微RGB色彩错位印刷故障感，所有材质用平涂+渐变块表现明暗，无写实光影，赛博朋克元素（霓虹、全息、义体、浮空建筑）均为漫画平涂质感，金属/荧光材质用网点+高光块表现反光",
+      "prompt": "根据背景音乐的节奏点，要把 视频1 中的休闲连帽衫替换成 图片1 ，并且整个画面画风修改为2D-3D混合漫画渲染，高饱和撞色对比，半粗黑漫画描边，阴影用网点纸纹理表现，手绘线条颗粒感，分镜式破碎边缘，动态速度线点缀，轻微RGB色彩错位印刷故障感，所有材质用平涂+渐变块表现明暗，无写实光影，赛博朋克元素（霓虹、全息、义体、浮空建筑）均为漫画平涂质感，金属/荧光材质用网点+高光块表现反光",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-01__ref01__video1__VL2Qbc.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-01__ref02__image1__Vfcebz.jpg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "根据背景音乐的节奏点，要把 视频1 中的休闲连帽衫替换成 图片1 ，并且整个画面画风修改为2D-3D混合漫画渲染，高饱和撞色对比，半粗黑漫画描边，阴影用网点纸纹理表现，手绘线条颗粒感，分镜式破碎边缘，动态速度线点缀，轻微RGB色彩错位印刷故障感，所有材质用平涂+渐变块表现明暗，无写实光影，赛博朋克元素（霓虹、全息、义体、浮空建筑）均为漫画平涂质感，金属/荧光材质用网点+高光块表现反光"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-01__ref01__video1__VL2Qbc.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-01__ref02__image1__Vfcebz.jpg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-01__result01__KdCnbv.mp4"
+    },
+    {
+      "id": "seedance-template-029",
+      "index": 29,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/45_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "去除视频1中镜子内和人物旁的摄像穿帮部分，并将视频1中的背景音替换成音频1",
+      "prompt": "去除视频1中镜子内和人物旁的摄像穿帮部分，并将视频1中的背景音替换成音频1",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 7,
+      "durationLabel": "7秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/45_1.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/45_2.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "去除视频1中镜子内和人物旁的摄像穿帮部分，并将视频1中的背景音替换成音频1"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/45_1.mp4"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/45_2.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/45_4.mp4"
+    },
+    {
+      "id": "seedance-template-030",
+      "index": 30,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-03__result01__WROYb2.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "要把视频里 视频1 的银质酒杯成 图片1 具有中式风格的陶瓷器皿，环境改为当代新中式美学风格，无传统水墨泼墨、无诗词题字、无写意留白式意象化表达，所有东方元素自然融入当代生活化场景，不堆砌雕花/龙凤/古风符号，低饱和莫兰迪国风配色（炭黑/天青/赭石/米白/松绿为主），无艳俗撞色，线条流畅清晰，动态自然符合日常逻辑",
+      "prompt": "要把视频里 视频1 的银质酒杯成 图片1 具有中式风格的陶瓷器皿，环境改为当代新中式美学风格，无传统水墨泼墨、无诗词题字、无写意留白式意象化表达，所有东方元素自然融入当代生活化场景，不堆砌雕花/龙凤/古风符号，低饱和莫兰迪国风配色（炭黑/天青/赭石/米白/松绿为主），无艳俗撞色，线条流畅清晰，动态自然符合日常逻辑",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-03__ref01__video1__Gw7hbf.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-03__ref02__image1__ZLKCbZ.jpg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "要把视频里 视频1 的银质酒杯成 图片1 具有中式风格的陶瓷器皿，环境改为当代新中式美学风格，无传统水墨泼墨、无诗词题字、无写意留白式意象化表达，所有东方元素自然融入当代生活化场景，不堆砌雕花/龙凤/古风符号，低饱和莫兰迪国风配色（炭黑/天青/赭石/米白/松绿为主），无艳俗撞色，线条流畅清晰，动态自然符合日常逻辑"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-03__ref01__video1__Gw7hbf.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-03__ref02__image1__ZLKCbZ.jpg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-03__result01__WROYb2.mp4"
+    },
+    {
+      "id": "seedance-template-031",
+      "index": 31,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-02__result01__AflHbV.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "保持镜头运镜不变，要把画面中 视频1 的葱郁夏季树林替换成 图片1 银装素裹、枝头挂满冰晶的极寒冬季景观。",
+      "prompt": "保持镜头运镜不变，要把画面中 视频1 的葱郁夏季树林替换成 图片1 银装素裹、枝头挂满冰晶的极寒冬季景观。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-02__ref01__video1__BhA0b7.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-02__ref02__image1__XSGkbO.jpg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "保持镜头运镜不变，要把画面中 视频1 的葱郁夏季树林替换成 图片1 银装素裹、枝头挂满冰晶的极寒冬季景观。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-02__ref01__video1__BhA0b7.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-02__ref02__image1__XSGkbO.jpg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-02__result01__AflHbV.mp4"
+    },
+    {
+      "id": "seedance-template-032",
+      "index": 32,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/47_3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "将视频1的拍摄角度改为从两个演员的背后俯拍，唱词为“seedance”，人物特征不改变，背景是坐满人的观众席",
+      "prompt": "将视频1的拍摄角度改为从两个演员的背后俯拍，唱词为“seedance”，人物特征不改变，背景是坐满人的观众席",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/47_1.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "将视频1的拍摄角度改为从两个演员的背后俯拍，唱词为“seedance”，人物特征不改变，背景是坐满人的观众席"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/47_1.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/47_3.mp4"
+    },
+    {
+      "id": "seedance-template-033",
+      "index": 33,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "将眼镜电商带货视频1中的模特换成欧美人，参考图片1，语言改成英语，人物动作和运镜不变",
+      "prompt": "将眼镜电商带货视频1中的模特换成欧美人，参考图片1，语言改成英语，人物动作和运镜不变",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_2.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "将眼镜电商带货视频1中的模特换成欧美人，参考图片1，语言改成英语，人物动作和运镜不变"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_2.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/40_4.mp4"
+    },
+    {
+      "id": "seedance-template-034",
+      "index": 34,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/46_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "将视频1中的房子外立面墙壁刷成蓝色，天气和光线参考图片1的雪天",
+      "prompt": "将视频1中的房子外立面墙壁刷成蓝色，天气和光线参考图片1的雪天",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/46_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/46_2.jpeg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "将视频1中的房子外立面墙壁刷成蓝色，天气和光线参考图片1的雪天"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/46_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/46_2.jpeg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/46_4.mp4"
+    },
+    {
+      "id": "seedance-template-035",
+      "index": 35,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/43_3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "删除视频1镜头前走过去的路人，视频运镜等不改变",
+      "prompt": "删除视频1镜头前走过去的路人，视频运镜等不改变",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/43_1.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "删除视频1镜头前走过去的路人，视频运镜等不改变"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/43_1.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/43_3.mp4"
+    },
+    {
+      "id": "seedance-template-036",
+      "index": 36,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-02__result01__KRr3b3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "保持原视频中人物说话的节奏和情感，要把 视频1 中的船长替换成 图片1 的机械人，动画风格，2D手绘逐帧质感，水彩+丙烯厚涂结合的柔和笔触，色彩柔和高饱和低对比，空气通透充满呼吸感，阳光穿过空气形成暖金色丁达尔光，可见细微的金粉尘粒/花粉/水汽悬浮，线条柔软无尖锐棱角，所有物体边缘带轻微手绘笔触感，无完美平滑边缘，整体充满温暖治愈的人文气息，细节充满生活化的磨损痕迹，机械/食物/自然均带柔软的温度感",
+      "prompt": "保持原视频中人物说话的节奏和情感，要把 视频1 中的船长替换成 图片1 的机械人，动画风格，2D手绘逐帧质感，水彩+丙烯厚涂结合的柔和笔触，色彩柔和高饱和低对比，空气通透充满呼吸感，阳光穿过空气形成暖金色丁达尔光，可见细微的金粉尘粒/花粉/水汽悬浮，线条柔软无尖锐棱角，所有物体边缘带轻微手绘笔触感，无完美平滑边缘，整体充满温暖治愈的人文气息，细节充满生活化的磨损痕迹，机械/食物/自然均带柔软的温度感",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 16,
+      "durationLabel": "16秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-02__ref01__video1__R4FQbb.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-02__ref02__image1__AhxtbY.jpg"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "保持原视频中人物说话的节奏和情感，要把 视频1 中的船长替换成 图片1 的机械人，动画风格，2D手绘逐帧质感，水彩+丙烯厚涂结合的柔和笔触，色彩柔和高饱和低对比，空气通透充满呼吸感，阳光穿过空气形成暖金色丁达尔光，可见细微的金粉尘粒/花粉/水汽悬浮，线条柔软无尖锐棱角，所有物体边缘带轻微手绘笔触感，无完美平滑边缘，整体充满温暖治愈的人文气息，细节充满生活化的磨损痕迹，机械/食物/自然均带柔软的温度感"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-02__ref01__video1__R4FQbb.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-02__ref02__image1__AhxtbY.jpg"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-02__result01__KRr3b3.mp4"
+    },
+    {
+      "id": "seedance-template-037",
+      "index": 37,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/41_3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "8秒视频，视频1的背景改为周围环绕橙红色针垫花、黄色黄金球花、白色满天星与绿色枝叶，右下角点缀半颗新鲜桃子，柔和的暖光营造慵懒精致的氛围，色彩层次丰富，细节细腻，充满高级感与复古情调",
+      "prompt": "8秒视频，视频1的背景改为周围环绕橙红色针垫花、黄色黄金球花、白色满天星与绿色枝叶，右下角点缀半颗新鲜桃子，柔和的暖光营造慵懒精致的氛围，色彩层次丰富，细节细腻，充满高级感与复古情调",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/41_1.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "8秒视频，视频1的背景改为周围环绕橙红色针垫花、黄色黄金球花、白色满天星与绿色枝叶，右下角点缀半颗新鲜桃子，柔和的暖光营造慵懒精致的氛围，色彩层次丰富，细节细腻，充满高级感与复古情调"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/41_1.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/41_3.mp4"
+    },
+    {
+      "id": "seedance-template-038",
+      "index": 38,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-01__result01__PRDdbZ.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "复刻的 视频1 全部运镜轨迹、街道路网布局、所有建筑/商铺/公共设施/物体的位置、轮廓、占地面积、镜头高度/角度/焦距，完全不改动原有空间结构，无新增建筑、无删除原有物体、无道路偏移、无任何运镜变化，仅将所有物体的外观状态修改为末世废墟，长满绿植效果",
+      "prompt": "复刻的 视频1 全部运镜轨迹、街道路网布局、所有建筑/商铺/公共设施/物体的位置、轮廓、占地面积、镜头高度/角度/焦距，完全不改动原有空间结构，无新增建筑、无删除原有物体、无道路偏移、无任何运镜变化，仅将所有物体的外观状态修改为末世废墟，长满绿植效果",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-01__ref01__video1__Aqxjbm.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "复刻的 视频1 全部运镜轨迹、街道路网布局、所有建筑/商铺/公共设施/物体的位置、轮廓、占地面积、镜头高度/角度/焦距，完全不改动原有空间结构，无新增建筑、无删除原有物体、无道路偏移、无任何运镜变化，仅将所有物体的外观状态修改为末世废墟，长满绿植效果"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-01__ref01__video1__Aqxjbm.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-02-01__result01__PRDdbZ.mp4"
+    },
+    {
+      "id": "seedance-template-039",
+      "index": 39,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/42_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "在视频1的左侧后方位置加入图片1中弹吉他的男人，背景音乐加入吉他的声音",
+      "prompt": "在视频1的左侧后方位置加入图片1中弹吉他的男人，背景音乐加入吉他的声音",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/42_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/42_2.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "在视频1的左侧后方位置加入图片1中弹吉他的男人，背景音乐加入吉他的声音"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/42_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/42_2.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/42_4.mp4"
+    },
+    {
+      "id": "seedance-template-040",
+      "index": 40,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-04__result01__XpIhbd.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "彻底改变画面质感，要把视频中 视频1 摊煎饼替换成具有手工捏制纹理、色彩明快的 3D 粘土动画风格。",
+      "prompt": "彻底改变画面质感，要把视频中 视频1 摊煎饼替换成具有手工捏制纹理、色彩明快的 3D 粘土动画风格。",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-04__ref01__video1__Ay2Fbl.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "彻底改变画面质感，要把视频中 视频1 摊煎饼替换成具有手工捏制纹理、色彩明快的 3D 粘土动画风格。"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-04__ref01__video1__Ay2Fbl.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/media/tpl-doc-20260408150656-edit-01-04__result01__XpIhbd.mp4"
+    },
+    {
+      "id": "seedance-template-041",
+      "index": 41,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/8_3.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "把视频1中的猫换成图片1中的狮子，侧躺在女孩腿上，温柔地跟女孩互动",
+      "prompt": "把视频1中的猫换成图片1中的狮子，侧躺在女孩腿上，温柔地跟女孩互动",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 13,
+      "durationLabel": "13秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/8_1.mp4"
+      ],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/8_2.png"
+      ],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "把视频1中的猫换成图片1中的狮子，侧躺在女孩腿上，温柔地跟女孩互动"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/8_1.mp4"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/8_2.png"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/8_3.mp4"
+    },
+    {
+      "id": "seedance-template-042",
+      "index": 42,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/12_2.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "视频1是一段日本花火大会的动漫片段，帮我修复视频的色彩",
+      "prompt": "视频1是一段日本花火大会的动漫片段，帮我修复视频的色彩",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 16,
+      "durationLabel": "16秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/12_1.mp4"
+      ],
+      "referenceImageUrls": [],
+      "referenceAudioUrls": [],
+      "content": [
+        {
+          "type": "text",
+          "text": "视频1是一段日本花火大会的动漫片段，帮我修复视频的色彩"
+        },
+        {
+          "type": "video_url",
+          "role": "reference_video",
+          "video_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/12_1.mp4"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/12_2.mp4"
+    },
+    {
+      "id": "seedance-template-043",
+      "index": 43,
+      "cover": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_4.mp4?x-tos-process=video/snapshot,t_0,h_600",
+      "description": "图片2中的女主播在图片图片1的场景中说开场词，台词为音频1",
+      "prompt": "图片2中的女主播在图片图片1的场景中说开场词，台词为音频1",
+      "model": "seedance-2.0",
+      "generationMode": "reference",
+      "generationModeLabel": "视频编辑",
+      "templateCategory": "视频编辑",
+      "ratio": "16:9",
+      "resolution": "720p",
+      "size": "1280x720",
+      "durationMode": "fixed",
+      "duration": 9,
+      "durationLabel": "9秒",
+      "generateAudio": true,
+      "seedanceOffline": false,
+      "superResolve": false,
+      "referenceVideoUrls": [],
+      "referenceImageUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_2.png",
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_1.png"
+      ],
+      "referenceAudioUrls": [
+        "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_3.mp3"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "图片2中的女主播在图片图片1的场景中说开场词，台词为音频1"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_1.png"
+          }
+        },
+        {
+          "type": "audio_url",
+          "role": "reference_audio",
+          "audio_url": {
+            "url": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_3.mp3"
+          }
+        }
+      ],
+      "previewVideoUrl": "https://ark-common-storage-prod-cn-beijing.tos-cn-beijing.volces.com/presets/experience/gen_video/templates/reference/edit/15_4.mp4"
+    }
+  ]
+}

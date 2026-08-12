@@ -2,8 +2,10 @@ import React from 'react';
 import { DownOutlined, InfoCircleOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { Popover, Tooltip } from 'antd';
 import ChatModelsTipIcon from '../../../../../public/chat_models_tip.svg';
+import ImageTemplateIcon from '../../../../../public/image_template.svg';
 import Point2Icon from '../../../../../public/point2.svg';
 import ScreenRatioIcon from '../../../../../public/screen_ratio.svg';
+import VideoTemplatePopover from '../VideoTemplatePopover/index';
 import './index.css';
 
 const RATIO_ORDER = ['9:16', '2:3', '3:4', '1:1', '4:3', '3:2', '16:9', '21:9'];
@@ -237,9 +239,11 @@ const VideoResolutionSelect = ({
   onGenerateAudioChange = null,
   onSeedanceOfflineChange = null,
   onSuperResolveChange = null,
+  onTemplateApply = null,
   disabled = false,
 }) => {
   const [open, setOpen] = React.useState(false);
+  const [templateOpen, setTemplateOpen] = React.useState(false);
   const durationTrackRef = React.useRef(null);
   const [canScrollDurationLeft, setCanScrollDurationLeft] = React.useState(false);
   const [canScrollDurationRight, setCanScrollDurationRight] = React.useState(false);
@@ -377,6 +381,13 @@ const VideoResolutionSelect = ({
     setTier(nextTier);
     if (onChange) onChange(nextSize);
   };
+
+  const handleApplyTemplate = React.useCallback((template) => {
+    setTemplateOpen(false);
+    if (onTemplateApply) {
+      onTemplateApply(template);
+    }
+  }, [onTemplateApply]);
 
   const panel = (
     <div className="chat-panel__video-resolution-panel">
@@ -604,6 +615,29 @@ const VideoResolutionSelect = ({
             ) : null}
           </span>
           <DownOutlined className={`chat-panel__video-resolution-trigger-arrow ${open ? 'is-open' : ''}`} aria-hidden="true" />
+        </button>
+      </Popover>
+      <Popover
+        trigger="click"
+        placement="topLeft"
+        open={disabled ? false : templateOpen}
+        onOpenChange={setTemplateOpen}
+        content={<VideoTemplatePopover onApplyTemplate={handleApplyTemplate} />}
+        align={{ offset: [-420, -12] }}
+        overlayClassName="chat-panel__video-template-popover"
+      >
+        <button
+          type="button"
+          className={`chat-panel__video-template-trigger ${templateOpen ? 'is-open' : ''}`}
+          disabled={disabled}
+        >
+          <img
+            className="chat-panel__video-template-trigger-icon"
+            src={ImageTemplateIcon}
+            alt=""
+            aria-hidden="true"
+          />
+          <span className="chat-panel__video-template-trigger-text">模版</span>
         </button>
       </Popover>
       <span className="chat-panel__video-resolution-price">

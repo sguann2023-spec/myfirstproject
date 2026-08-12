@@ -64,7 +64,7 @@ const LocalFilePreviewList = ({ files = [], onRemove }) => {
   if (!Array.isArray(files) || files.length === 0) return null;
 
   return (
-    <div className="chat-panel__local-file-preview-list" aria-label="本地文件预览">
+    <div className="chat-panel__local-file-preview-list" aria-label="文件预览">
       <div className="chat-panel__local-file-preview-scroll">
         {files.map((file) => {
           const isImage = getFileKindFromType(file.fileType) === 'image';

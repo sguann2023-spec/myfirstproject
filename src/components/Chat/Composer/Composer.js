@@ -1037,6 +1037,90 @@ const createLocalAttachmentEntry = async (rawFile = {}) => {
     },
   };
 };
+const TEMPLATE_MEDIA_ROLE_LABELS = {
+  first_frame: '首帧',
+  last_frame: '尾帧',
+  reference_image: '参考图片',
+  reference_video: '参考视频',
+  reference_audio: '参考音频',
+};
+const getRemoteMediaUrlFileName = (value = '') => {
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return '';
+  try {
+    const parsedUrl = new URL(normalizedValue);
+    return decodeURIComponent(getBaseName(parsedUrl.pathname || ''));
+  } catch (_error) {
+    return decodeURIComponent(getBaseName(normalizedValue.split('?')[0] || ''));
+  }
+};
+const getTemplateMediaTypeByContentItem = (item = {}) => {
+  const itemType = String(item?.type || '').trim();
+  if (itemType === 'image_url') return 'image/jpeg';
+  if (itemType === 'video_url') return 'video/mp4';
+  if (itemType === 'audio_url') return 'audio/mpeg';
+  return '';
+};
+const getTemplateMediaUrlByContentItem = (item = {}) => {
+  const itemType = String(item?.type || '').trim();
+  if (itemType === 'image_url') return String(item?.image_url?.url || '').trim();
+  if (itemType === 'video_url') return String(item?.video_url?.url || '').trim();
+  if (itemType === 'audio_url') return String(item?.audio_url?.url || '').trim();
+  return '';
+};
+const createRemoteAttachmentEntry = async ({ uid, name, url, fileType, sourceType = 'remote', sourceLabel = '' } = {}) => {
+  const normalizedUrl = String(url || '').trim();
+  if (!normalizedUrl) return null;
+  const resolvedName = String(name || '').trim() || getRemoteMediaUrlFileName(normalizedUrl) || '附件';
+  const resolvedFileType = String(fileType || '').trim() || guessFileTypeFromName(resolvedName);
+  const kind = getFileKindFromType(resolvedFileType);
+  const durationLabel = kind === 'video'
+    ? await readMediaDuration(normalizedUrl, 'video')
+    : kind === 'audio'
+      ? await readMediaDuration(normalizedUrl, 'audio')
+      : '';
+
+  return {
+    uid: String(uid || '').trim() || `remote:${normalizedUrl}`,
+    name: resolvedName,
+    url: normalizedUrl,
+    fileType: resolvedFileType,
+    thumbnailUrl: normalizedUrl,
+    previewUrl: normalizedUrl,
+    localThumbUrl: '',
+    localPreviewUrl: '',
+    durationLabel,
+    sourcePath: normalizedUrl,
+    sourceType,
+    sourceLabel,
+  };
+};
+const createVideoTemplateAttachmentEntries = async (template = {}) => {
+  const contentItems = Array.isArray(template?.content) ? template.content : [];
+  const mediaItems = contentItems.filter((item) => ['image_url', 'video_url', 'audio_url'].includes(String(item?.type || '').trim()));
+  const entries = await Promise.all(mediaItems.map(async (item, index) => {
+    const url = getTemplateMediaUrlByContentItem(item);
+    if (!url) return null;
+
+    const role = String(item?.role || '').trim();
+    const roleLabel = TEMPLATE_MEDIA_ROLE_LABELS[role] || '素材';
+    const fileNameFromUrl = getRemoteMediaUrlFileName(url);
+    const fallbackExtension = getFileExtension(fileNameFromUrl);
+    const resolvedName = fallbackExtension ? `${roleLabel}.${fallbackExtension}` : roleLabel;
+    const guessedFileType = guessFileTypeFromName(fileNameFromUrl);
+
+    return createRemoteAttachmentEntry({
+      uid: `video-template:${template?.id || 'template'}:${role || 'media'}:${index}`,
+      name: resolvedName,
+      url,
+      fileType: guessedFileType !== 'text/plain' ? guessedFileType : getTemplateMediaTypeByContentItem(item),
+      sourceType: 'video_template',
+      sourceLabel: String(template?.id || '').trim(),
+    });
+  }));
+
+  return entries.filter(Boolean);
+};
 const renderFilePreviewContent = (file = {}, className = '') => {
   const previewUrl = file.localPreviewUrl || file.localThumbUrl || file.previewUrl || file.thumbnailUrl || file.url;
   const kind = getFileKindFromType(file.fileType);
@@ -3640,6 +3724,14 @@ const Composer = ({
     });
   }, [editor, setInput]);
 
+  const handleVideoTemplateMediaApply = React.useCallback(async (template) => {
+    const nextTemplateAttachments = await createVideoTemplateAttachmentEntries(template);
+    setUploadedFileMeta((prev) => {
+      const retainedItems = (Array.isArray(prev) ? prev : []).filter((item) => String(item?.sourceType || '').trim() !== 'video_template');
+      return [...retainedItems, ...nextTemplateAttachments];
+    });
+  }, []);
+
   const handleToolSelect = React.useCallback((toolId) => {
     const nextTool = activeTool === toolId ? null : toolId;
     setActiveTool(nextTool);
@@ -3692,8 +3784,8 @@ const Composer = ({
                 <span
                   ref={toolbarUploadTriggerRef}
                   className="chat-panel__tool-button chat-panel__tool-button--icon-only"
-                  aria-label="选择本地文件"
-                  title="选择本地文件"
+                  aria-label="选择文件"
+                  title="选择文件"
                   role="button"
                 >
                   <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
@@ -3756,6 +3848,8 @@ const Composer = ({
                       onGenerateAudioChange={setSelectedVideoGenerateAudio}
                       onSeedanceOfflineChange={setSelectedVideoSeedanceOffline}
                       onSuperResolveChange={setSelectedVideoSuperResolve}
+                      onPromptChange={handleImageTemplateApply}
+                      onTemplateMediaChange={handleVideoTemplateMediaApply}
                     />
                   ) : (
                     <ToolArea

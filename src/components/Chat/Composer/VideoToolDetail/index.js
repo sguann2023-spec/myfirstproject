@@ -52,6 +52,33 @@ const getGenerationModeIcon = (mode) => {
   return null;
 };
 
+const normalizeTemplateDuration = (value) => {
+  const numericValue = Number(value);
+  return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : null;
+};
+
+const pickResolutionByTemplate = (capabilityMap, template) => {
+  const nextModel = String(template?.model || '').trim();
+  const nextRatio = String(template?.ratio || '').trim();
+  const nextResolution = String(template?.resolution || '').trim().toLowerCase();
+  const nextSize = String(template?.size || '').trim();
+  if (nextSize) {
+    return nextSize;
+  }
+  const resolutions = capabilityMap?.[nextModel]?.resolutions;
+  if (!resolutions || typeof resolutions !== 'object') return '';
+
+  const tierItems = resolutions[nextResolution] || resolutions[nextResolution.toUpperCase()] || [];
+  const matchedByRatio = (Array.isArray(tierItems) ? tierItems : []).find(
+    (item) => String(item?.ratio || '').trim() === nextRatio
+  );
+  return String(matchedByRatio?.size || '').trim();
+};
+
+const buildVideoTemplatePrompt = (template) => {
+  return String(template?.prompt || '').trim();
+};
+
 const renderModelContent = (model, label, description = '') => {
   const icon = getModelIcon(model);
   return (
@@ -123,6 +150,8 @@ const VideoToolDetail = ({
   onGenerateAudioChange = null,
   onSeedanceOfflineChange = null,
   onSuperResolveChange = null,
+  onPromptChange = null,
+  onTemplateMediaChange = null,
 }) => {
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
   const [modePickerOpen, setModePickerOpen] = React.useState(false);
@@ -263,6 +292,53 @@ const VideoToolDetail = ({
     selectedLabel: renderModeSelectedLabel(item.value, item.label, modePickerOpen),
   })), [modePickerOpen, resolvedGenerationModeOptions]);
 
+  const handleApplyTemplate = React.useCallback((template) => {
+    const nextModel = String(template?.model || '').trim();
+    const nextGenerationMode = String(template?.generationMode || '').trim();
+    const nextResolution = pickResolutionByTemplate(capabilityMap, template);
+    const nextDuration = normalizeTemplateDuration(template?.duration);
+    const nextPrompt = buildVideoTemplatePrompt(template);
+
+    if (nextModel && onModelChange) {
+      onModelChange(nextModel);
+    }
+    if (nextGenerationMode && onGenerationModeChange) {
+      onGenerationModeChange(nextGenerationMode);
+    }
+    if (nextResolution && onResolutionChange) {
+      onResolutionChange(nextResolution);
+    }
+    if (nextDuration !== null && onDurationChange) {
+      onDurationChange(nextDuration);
+    }
+    if (typeof template?.generateAudio === 'boolean' && onGenerateAudioChange) {
+      onGenerateAudioChange(template.generateAudio);
+    }
+    if (typeof template?.seedanceOffline === 'boolean' && onSeedanceOfflineChange) {
+      onSeedanceOfflineChange(template.seedanceOffline);
+    }
+    if (typeof template?.superResolve === 'boolean' && onSuperResolveChange) {
+      onSuperResolveChange(template.superResolve);
+    }
+    if (nextPrompt && onPromptChange) {
+      onPromptChange(nextPrompt);
+    }
+    if (onTemplateMediaChange) {
+      onTemplateMediaChange(template);
+    }
+  }, [
+    capabilityMap,
+    onDurationChange,
+    onGenerateAudioChange,
+    onGenerationModeChange,
+    onModelChange,
+    onPromptChange,
+    onResolutionChange,
+    onSeedanceOfflineChange,
+    onSuperResolveChange,
+    onTemplateMediaChange,
+  ]);
+
   return (
     <div className="chat-panel__tool-detail-area">
       <Tooltip title="点击退出">
@@ -340,6 +416,7 @@ const VideoToolDetail = ({
           onGenerateAudioChange={onGenerateAudioChange}
           onSeedanceOfflineChange={onSeedanceOfflineChange}
           onSuperResolveChange={onSuperResolveChange}
+          onTemplateApply={handleApplyTemplate}
           disabled={disabled}
         />
       </div>
