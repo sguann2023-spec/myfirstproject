@@ -1124,14 +1124,16 @@ async function createMcpClientBridge(serverKey: string, config: NonNullable<Opti
       serverKey,
       client,
       async close() {
-        await transport.close()
+        await Promise.allSettled([client.close(), transport.close()])
       }
     }
   }
 
   if (config.type === 'sdk') {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
-    const serverInstance = (config as { instance?: { connect?: (transport: unknown) => Promise<void> } }).instance
+    const serverInstance = (config as {
+      instance?: { connect?: (transport: unknown) => Promise<void>; close?: () => Promise<void> }
+    }).instance
     if (!serverInstance || typeof serverInstance.connect !== 'function') return null
     await serverInstance.connect(serverTransport)
     await client.connect(clientTransport)
@@ -1139,8 +1141,12 @@ async function createMcpClientBridge(serverKey: string, config: NonNullable<Opti
       serverKey,
       client,
       async close() {
-        await clientTransport.close()
-        await serverTransport.close()
+        await Promise.allSettled([
+          client.close(),
+          clientTransport.close(),
+          serverTransport.close(),
+          typeof serverInstance.close === 'function' ? serverInstance.close() : Promise.resolve()
+        ])
       }
     }
   }

@@ -73,6 +73,15 @@ async function listTools(server: VideoGenerateServerInstance) {
   return listHandler({ method: 'tools/list', params: {} }, {})
 }
 
+async function listToolsFromMcpServer(mcpServer: VideoGenerateServerInstance['mcpServer']) {
+  const handlers = (mcpServer.server as any)._requestHandlers
+  const listHandler = handlers?.get('tools/list')
+  if (!listHandler) {
+    throw new Error('No tools/list handler registered')
+  }
+  return listHandler({ method: 'tools/list', params: {} }, {})
+}
+
 function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
   return {
     ok,
@@ -238,6 +247,17 @@ describe('VideoGenerateServer', () => {
     })
     expect(second).toEqual(first)
     expect(mockNetFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('should create a fresh MCP server instance for each bridge session', async () => {
+    const server = createServer()
+
+    const freshMcpServer = server.createMcpServer()
+    const originalTools = await listTools(server)
+    const freshTools = await listToolsFromMcpServer(freshMcpServer)
+
+    expect(freshMcpServer).not.toBe(server.mcpServer)
+    expect(freshTools.tools).toEqual(originalTools.tools)
   })
 
   it('should submit a basic video generation task', async () => {

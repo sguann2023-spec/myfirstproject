@@ -264,7 +264,11 @@ class ImageGenerateServer {
   private imageModelListCache: CachedImageModelList | null = null
 
   constructor() {
-    this.mcpServer = new McpServer(
+    this.mcpServer = this.createMcpServer()
+  }
+
+  public createMcpServer(): McpServer {
+    const mcpServer = new McpServer(
       {
         name: 'image',
         version: '1.0.0'
@@ -275,15 +279,16 @@ class ImageGenerateServer {
         }
       }
     )
-    this.setupHandlers()
+    this.setupHandlers(mcpServer)
+    return mcpServer
   }
 
-  private setupHandlers() {
-    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  private setupHandlers(mcpServer: McpServer) {
+    mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [IMAGE_GENERATE_TOOL, IMAGE_CAPABILITIES_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 

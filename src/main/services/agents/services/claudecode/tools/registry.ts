@@ -168,7 +168,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (shouldMountCapability('image')) {
-    mountMcpServer('image', { type: 'sdk', name: 'image', instance: imageGenerateServer.mcpServer })
+    mountMcpServer('image', { type: 'sdk', name: 'image', instance: imageGenerateServer.createMcpServer() })
     autoAllowTools.add('mcp__image__generate_or_edit_image')
     autoAllowTools.add('mcp__image__generate_image')
     allowMcpPattern('mcp__image__*')
@@ -177,7 +177,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (shouldMountCapability('video')) {
-    mountMcpServer('video', { type: 'sdk', name: 'video', instance: videoGenerateServer.mcpServer })
+    mountMcpServer('video', { type: 'sdk', name: 'video', instance: videoGenerateServer.createMcpServer() })
     autoAllowTools.add('mcp__video__generate_video')
     autoAllowTools.add('mcp__video__get_video_capabilities')
     allowMcpPattern('mcp__video__*')

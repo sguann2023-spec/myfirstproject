@@ -77,6 +77,15 @@ async function listTools(server: ImageGenerateServerInstance) {
   return listHandler({ method: 'tools/list', params: {} }, {})
 }
 
+async function listToolsFromMcpServer(mcpServer: ImageGenerateServerInstance['mcpServer']) {
+  const handlers = (mcpServer.server as any)._requestHandlers
+  const listHandler = handlers?.get('tools/list')
+  if (!listHandler) {
+    throw new Error('No tools/list handler registered')
+  }
+  return listHandler({ method: 'tools/list', params: {} }, {})
+}
+
 function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
   return {
     ok,
@@ -226,6 +235,17 @@ describe('ImageGenerateServer', () => {
     })
     expect(secondResult).toEqual(firstResult)
     expect(mockNetFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('should create a fresh MCP server instance for each bridge session', async () => {
+    const server = createServer()
+
+    const freshMcpServer = server.createMcpServer()
+    const originalTools = await listTools(server)
+    const freshTools = await listToolsFromMcpServer(freshMcpServer)
+
+    expect(freshMcpServer).not.toBe(server.mcpServer)
+    expect(freshTools.tools).toEqual(originalTools.tools)
   })
 
   it('should omit prices when includePrices is false', async () => {

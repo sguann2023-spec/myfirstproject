@@ -681,5 +681,6 @@ export async function processPiHarnessQuery(input: {
       abortSignal.removeEventListener('abort', onAbort)
     }
     unsubscribe()
+    await Promise.allSettled(runtimeBridge.mcpClients.map((client) => client.close()))
   }
 }
