@@ -1,9 +1,15 @@
+import { stat as fsStat } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
+
+import { ossUploadService } from '@main/services/OssUploadService'
 
 const logger = loggerService.withContext('MCPServer:ImageGenerate')
 
@@ -18,11 +24,16 @@ const PRIMARY_IMAGE_TOOL_NAME = 'generate_or_edit_image'
 const LEGACY_IMAGE_TOOL_NAME = 'generate_image'
 const IMAGE_TASK_WAIT_TIME = '3-5 minutes'
 const IMAGE_CAPABILITIES_CACHE_TTL_MS = 5 * 60 * 1000
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_ai_image_reference_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, restyle, or query asynchronous AI image tasks via VectCut. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. These tasks are asynchronous and typically take 3-5 minutes. After submitting a task, if the response contains a taskId and the status is not final, you should continue polling with action="status" automatically instead of stopping and waiting for the user to ask again. Treat image generation and image editing as long-running tasks. Only stop when the task reaches a final status such as success, failed, or error, or when a reasonable timeout is reached. Omit action to submit a new generation/edit task, or use action="status" with taskId to query an existing task.',
+    'Create, generate, edit, restyle, or query asynchronous AI image tasks via VectCut. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Reference images may be remote URLs, file URLs, or absolute local paths; local files are uploaded automatically before submission. These tasks are asynchronous and typically take 3-5 minutes. After submitting a task, if the response contains a taskId and the status is not final, you should continue polling with action="status" automatically instead of stopping and waiting for the user to ask again. Treat image generation and image editing as long-running tasks. Only stop when the task reaches a final status such as success, failed, or error, or when a reasonable timeout is reached. Omit action to submit a new generation/edit task, or use action="status" with taskId to query an existing task.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -57,26 +68,28 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional multiple source/reference image URLs. Use for multi-image editing, style mixing, composition fusion, or generating from several existing images.'
+          'Optional multiple source/reference image URLs, file URLs, or absolute local paths. Local files are uploaded automatically before submission.'
       },
       sourceImage: {
         type: 'string',
-        description: 'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks.'
+        description:
+          'Alias of referenceImages. Optional single source image URL, file URL, or absolute local path for editing or image-to-image tasks.'
       },
       sourceImages: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks.'
+        description:
+          'Alias of referenceImages. Optional multiple source image URLs, file URLs, or absolute local paths for editing or fusion tasks.'
       },
       baseImage: {
         type: 'string',
-        description: 'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle.'
+        description: 'Alias of referenceImages. Optional base image URL, file URL, or absolute local path to modify, enhance, or restyle.'
       },
       editImage: {
         type: 'string',
-        description: 'Alias of referenceImages. Optional image URL to edit or retouch.'
+        description: 'Alias of referenceImages. Optional image URL, file URL, or absolute local path to edit or retouch.'
       },
       composeDraft: {
         type: 'boolean',
@@ -190,6 +203,12 @@ type CachedImageModelList = {
   expiresAt: number
 }
 
+type PreparedReferenceImage = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'remote_url' | 'local_file'
+}
+
 const IMAGE_SUBMIT_FIELD_ALIASES: Record<string, string> = {
   referenceImages: 'reference_images',
   sourceImage: 'reference_images',
@@ -225,6 +244,15 @@ const IMAGE_SUBMIT_FIELD_ALIASES: Record<string, string> = {
   backgroundBlur: 'background_blur',
   flipHorizontal: 'flip_horizontal',
   mixType: 'mix_type'
+}
+
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
+const LOCAL_IMAGE_PATH_HINT_PATTERN =
+  /^(file:\/\/|\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])|[\\/]|.+\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?)(?:[?#].*)?$/i
+const IMAGE_MODEL_ALIASES: Record<string, string[]> = {
+  gptimage2: ['gpt-image-2-all'],
+  'gpt-image-2': ['gpt-image-2-all'],
+  'gpt-image-2-all': ['gpt-image-2-all']
 }
 
 class ImageGenerateServer {
@@ -396,6 +424,65 @@ class ImageGenerateServer {
     }
   }
 
+  private normalizeReferenceImageInput(value: unknown, fieldName: string) {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' contains an empty image reference`)
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private async uploadLocalReferenceImage(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private async prepareReferenceImageForSubmission(
+    input: unknown,
+    fieldName: string
+  ): Promise<PreparedReferenceImage> {
+    const normalizedSource = this.normalizeReferenceImageInput(input, fieldName)
+
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_url'
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      const message = `'${fieldName}' must use remote URLs, file URLs, or absolute local paths; upload local reference images first if needed`
+      if (LOCAL_IMAGE_PATH_HINT_PATTERN.test(normalizedSource)) {
+        throw new McpError(ErrorCode.InvalidParams, message)
+      }
+      throw new McpError(ErrorCode.InvalidParams, message)
+    }
+
+    const stats = await fsStat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `'${fieldName}' must point to a local file when using an absolute local path`
+      )
+    }
+
+    const uploaded = await this.uploadLocalReferenceImage(normalizedSource)
+    return {
+      originalInput: normalizedSource,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_file'
+    }
+  }
+
   public async getImageModelList(forceRefresh = false) {
     if (!forceRefresh && this.imageModelListCache && Date.now() < this.imageModelListCache.expiresAt) {
       return {
@@ -537,6 +624,14 @@ class ImageGenerateServer {
       return null
     }
 
+    const aliasedModels = IMAGE_MODEL_ALIASES[normalizedRequestedModel] ?? []
+    for (const aliasTarget of aliasedModels) {
+      const matchedAliasTarget = availableModels.find((model) => model === aliasTarget)
+      if (matchedAliasTarget) {
+        return { model: matchedAliasTarget, score: 0.995, matchType: 'alias' }
+      }
+    }
+
     let bestMatch: { model: string; score: number; matchType: string } | null = null
 
     for (const candidate of availableModels) {
@@ -644,6 +739,15 @@ class ImageGenerateServer {
         .filter(Boolean)
     }
 
+    const preparedReferenceImages = Array.isArray(payload.reference_images)
+      ? await Promise.all(
+          payload.reference_images.map((item) => this.prepareReferenceImageForSubmission(item, 'reference_images'))
+        )
+      : []
+    if (preparedReferenceImages.length > 0) {
+      payload.reference_images = preparedReferenceImages.map((item) => item.submittedUrl)
+    }
+
     const rawModel = typeof payload.model === 'string' ? payload.model.trim() : ''
     const modelResolution = rawModel ? await this.resolveImageModelName(rawModel) : null
     if (modelResolution?.resolvedModel) {
@@ -653,12 +757,14 @@ class ImageGenerateServer {
     payload.prompt = prompt
     return {
       payload,
-      modelResolution
+      modelResolution,
+      preparedReferenceImages
     }
   }
 
   private async submitImageTask(args: Record<string, unknown>) {
-    const { payload, modelResolution } = await this.buildImageSubmitPayload(args)
+    const { payload, modelResolution, preparedReferenceImages } = await this.buildImageSubmitPayload(args)
+    const hasUploadedLocalReferenceImage = preparedReferenceImages.some((item) => item.sourceKind === 'local_file')
     const response = await this.requestWithAuth(IMAGE_GENERATE_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -688,6 +794,12 @@ class ImageGenerateServer {
             requested_model: modelResolution.requestedModel,
             resolved_model: modelResolution.resolvedModel,
             model_match_type: modelResolution.matchType
+          }
+        : {}),
+      ...(hasUploadedLocalReferenceImage
+        ? {
+            reference_images: preparedReferenceImages.map((item) => item.submittedUrl),
+            reference_images_prepared: preparedReferenceImages
           }
         : {}),
       ...result

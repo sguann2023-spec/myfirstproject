@@ -451,6 +451,27 @@ describe('CapabilityRouter', () => {
     expect(imageDecision.primaryDomain).toBe('ai_media')
     expect(imageDecision.subdomains).toEqual(['image'])
     expect(imageDecision.selected.has('image')).toBe(true)
+    expect(imageDecision.preferredMcpTools).toContain('mcp__image__generate_or_edit_image')
+  })
+
+  it('routes local reference image generation to ai_media.image with workspace upload', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '参考这张本地图片 /tmp/reference-style.png，生成一张新的海报',
+      sessionId: 'session-local-reference-image',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('ai_media')
+    expect(decision.subdomains).toEqual(['image'])
+    expect(decision.selected.has('image')).toBe(true)
+    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
+    expect(decision.preferredMcpTools).toContain('mcp__image__generate_or_edit_image')
   })
 
   it('keeps near-match doubao speech prompts on speech instead of seed audio', () => {

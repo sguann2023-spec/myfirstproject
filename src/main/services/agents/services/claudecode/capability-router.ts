@@ -601,6 +601,10 @@ const AUDIO_FILE_REFERENCE_PATTERN = new RegExp(
   `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff|aif|amr)(?:\\b|$)`,
   'i'
 )
+const IMAGE_FILE_REFERENCE_PATTERN = new RegExp(
+  `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?)(?:\\b|$)`,
+  'i'
+)
 const PATH_LIKE_PATTERN =
   /(?:^|[\s"'`“”‘’(（[【])(?:\.{1,2}\/|~\/|\/|[A-Za-z]:[\\/])[^\s"'`“”‘’()（）[\]【】<>《》]+/i
 const SPECIAL_FILENAME_PATTERN =
@@ -994,11 +998,18 @@ const hasSubtitleTemplateIntent = (text: string) =>
     /(音频|视频|audio|video)/.test(text))
 
 const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
+const hasImageFileReference = (text: string) => IMAGE_FILE_REFERENCE_PATTERN.test(text)
 
 const hasLocalMediaContext = (text: string) =>
   hasMediaFileReference(text) ||
   /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
   /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
+
+const hasLocalImageContext = (text: string) =>
+  hasImageFileReference(text) ||
+  (PATH_LIKE_PATTERN.test(text) && /(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图)/.test(text)) ||
+  /(本地|工作区|workspace).{0,8}(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图)/.test(text) ||
+  /(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图).{0,8}(本地|工作区|workspace)/.test(text)
 
 const hasSubtitleRecognitionIntent = (text: string) =>
   (hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
@@ -1405,6 +1416,23 @@ export class CapabilityRouter {
         hasVideoConcat
       const hasWorkspaceDownloadIntent = hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft
       const hasWebDownloadIntent = hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft
+      const hasAiImageIntent =
+        args.imageCount > 0 ||
+        hasAnyKeyword(text, [
+          '生成图',
+          '生成图片',
+          '画一张',
+          '做张图',
+          '海报',
+          '配图',
+          '修图',
+          '换背景',
+          '抠图',
+          'image',
+          'cover',
+          'poster'
+        ]) ||
+        (text.includes('封面') && !hasDraftUpdateIntent)
       const hasImplicitBrowserUrlIntent =
         hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
 
@@ -1429,7 +1457,8 @@ export class CapabilityRouter {
         /(?:上传|传).{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
         /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
-        ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
+        ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
+        (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text))
       ) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
@@ -1442,24 +1471,7 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'webDownload', 'prompt:web-download')
       }
 
-      if (
-        args.imageCount > 0 ||
-        hasAnyKeyword(text, [
-          '生成图',
-          '生成图片',
-          '画一张',
-          '做张图',
-          '海报',
-          '配图',
-          '修图',
-          '换背景',
-          '抠图',
-          'image',
-          'cover',
-          'poster'
-        ]) ||
-        (text.includes('封面') && !hasDraftUpdateIntent)
-      ) {
+      if (hasAiImageIntent) {
         addCapabilityReason(
           selected,
           reasons,
@@ -2048,6 +2060,7 @@ function classifyIntent(args: {
   if (args.selected.has('workspaceDownload') || args.selected.has('webDownload') || args.selected.has('mediaDownload')) {
     preferredMcpTools.add('mcp__filesystem-server__download')
   }
+  if (args.selected.has('image')) preferredMcpTools.add('mcp__image__generate_or_edit_image')
   if (args.selected.has('speech')) preferredMcpTools.add('mcp__speech__generate_speech')
   if (args.selected.has('voiceConversion')) {
     preferredMcpTools.add('mcp__voice-conversion__submit_voice_conversion_task')

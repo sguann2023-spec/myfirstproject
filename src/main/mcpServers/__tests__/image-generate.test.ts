@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStat, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
+  mockStat: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockUploadLocalFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -21,6 +23,16 @@ vi.mock('electron-store', () => ({
     set(key: string, value: unknown) {
       return mockStoreSet(key, value)
     }
+  }
+}))
+
+vi.mock('node:fs/promises', () => ({
+  stat: mockStat
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -76,8 +88,15 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 
 describe('ImageGenerateServer', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    mockNetFetch.mockReset()
+    mockStat.mockReset()
+    mockStoreGet.mockReset()
+    mockStoreSet.mockReset()
+    mockUploadLocalFile.mockReset()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+    mockStat.mockResolvedValue({
+      isFile: () => true
+    })
   })
 
   it('should expose only the generate_or_edit_image tool', async () => {
@@ -376,6 +395,77 @@ describe('ImageGenerateServer', () => {
       action: 'submit',
       task_id: 'task-legacy-123'
     })
+  })
+
+  it('should upload local reference images before submitting the image task', async () => {
+    mockUploadLocalFile.mockResolvedValue({
+      signedPublicUrl: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1'
+    })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-local-ref-123',
+          status: 'queued'
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, {
+      prompt: '参考这张图的字体风格，生成一张新的海报',
+      referenceImage: '/tmp/reference-style.png'
+    })
+
+    expect(mockUploadLocalFile).toHaveBeenCalledWith('/tmp/reference-style.png', {
+      bucket: 'oss-hangzhou-mp4',
+      region: 'oss-cn-hangzhou',
+      folder: 'agent_tmp/{uid}',
+      objectKeyPrefix: 'vectcut_ai_image_reference_',
+      signExpiresSeconds: 3600
+    })
+    expect(JSON.parse(String(mockNetFetch.mock.calls[1]?.[1]?.body))).toEqual({
+      prompt: '参考这张图的字体风格，生成一张新的海报',
+      reference_images: ['https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1']
+    })
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      provider: 'vectcut',
+      action: 'submit',
+      task_id: 'task-local-ref-123',
+      reference_images: ['https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1'],
+      reference_images_prepared: [
+        {
+          originalInput: '/tmp/reference-style.png',
+          submittedUrl: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1',
+          sourceKind: 'local_file'
+        }
+      ]
+    })
+  })
+
+  it('should reject relative local reference image paths', async () => {
+    mockNetFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        access_token: 'access-token',
+        expires_in: 3600
+      })
+    )
+
+    const server = createServer()
+    const result = await callTool(server, {
+      prompt: '参考这张图生成一张新的海报',
+      referenceImage: 'reference-style.png'
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(
+      "'reference_images' must use remote URLs, file URLs, or absolute local paths; upload local reference images first if needed"
+    )
   })
 
   it('should accept editing-style image aliases and map them to reference fields', async () => {

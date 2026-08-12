@@ -255,6 +255,16 @@ ${evidenceLine}
 - Prefer \`mcp__file-upload__upload_file_to_oss\` before generic workspace or web tools.`)
     }
 
+    if (
+      opts.preferredMcpTools?.includes('mcp__file-upload__upload_file_to_oss') &&
+      opts.preferredMcpTools?.includes('mcp__image__generate_or_edit_image')
+    ) {
+      sections.push(`## Image references
+
+- This turn may use local reference images for image generation or editing.
+- If a reference image is a local file path, file URL, or workspace image, upload it first and use the returned URL when calling \`mcp__image__generate_or_edit_image\`.`)
+    }
+
     return sections.join('\n\n')
   }
 

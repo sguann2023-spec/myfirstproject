@@ -202,6 +202,17 @@ describe('PromptBuilder', () => {
       expect(result).toContain('`mcp__file-upload__upload_file_to_oss`')
     })
 
+    it('adds local image reference upload guidance when image generation also needs upload', () => {
+      const result = builder.buildToolGuidance('/workspace', {
+        preferredMcpTools: ['mcp__file-upload__upload_file_to_oss', 'mcp__image__generate_or_edit_image']
+      })
+
+      expect(result).toContain('## Image references')
+      expect(result).toContain('local reference images')
+      expect(result).toContain('upload it first')
+      expect(result).toContain('`mcp__image__generate_or_edit_image`')
+    })
+
     it('adds local skill execution guidance when a workspace skill is matched', () => {
       const result = builder.buildToolGuidance(
         '/workspace',
