@@ -100,10 +100,12 @@ type SubtitleRecognitionTaskStatusResponse = {
 class SubtitleRecognitionServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
+  private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(workspacePath?: string) {
+    this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
         name: 'subtitle-recognition',
@@ -371,7 +373,8 @@ class SubtitleRecognitionServer {
       const artifact = await persistWorkspaceJsonArtifact({
         toolName: 'subtitle-recognition',
         taskId,
-        payload: responsePayload
+        payload: responsePayload,
+        workspaceRoot: this.workspacePath
       })
 
       if (artifact) {

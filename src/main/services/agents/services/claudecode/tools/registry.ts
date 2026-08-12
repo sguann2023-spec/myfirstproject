@@ -357,7 +357,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (shouldMountCapability('subtitleRecognition')) {
-    const subtitleRecognitionServer = new SubtitleRecognitionServer()
+    const subtitleRecognitionServer = new SubtitleRecognitionServer(cwd)
     mountMcpServer('subtitle-recognition', {
       type: 'sdk',
       name: 'subtitle-recognition',
@@ -371,7 +371,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (shouldMountCapability('videoUnderstand')) {
-    const videoUnderstandServer = new VideoUnderstandServer()
+    const videoUnderstandServer = new VideoUnderstandServer(cwd)
     mountMcpServer('video-understand', {
       type: 'sdk',
       name: 'video-understand',

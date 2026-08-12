@@ -5,6 +5,7 @@ type PersistWorkspaceJsonArtifactInput = {
   toolName: string
   taskId?: string
   payload: unknown
+  workspaceRoot?: string
 }
 
 type PersistWorkspaceJsonArtifactResult = {
@@ -22,7 +23,7 @@ function sanitizePathSegment(value: string): string {
 export async function persistWorkspaceJsonArtifact(
   input: PersistWorkspaceJsonArtifactInput
 ): Promise<PersistWorkspaceJsonArtifactResult | null> {
-  const workspaceRoot = String(process.env.WORKSPACE_ROOT || '').trim()
+  const workspaceRoot = String(input.workspaceRoot || process.env.WORKSPACE_ROOT || '').trim()
   if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
     return null
   }
