@@ -208,9 +208,11 @@ describe('PromptBuilder', () => {
       })
 
       expect(result).toContain('## Image references')
-      expect(result).toContain('local reference images')
+      expect(result).toContain('reference-driven image generation')
       expect(result).toContain('upload it first')
       expect(result).toContain('`mcp__image__generate_or_edit_image`')
+      expect(result).toContain('prefer using `mcp__image__generate_or_edit_image` directly')
+      expect(result).toContain('instead of first reading the image content with `InspectImage`')
     })
 
     it('adds local skill execution guidance when a workspace skill is matched', () => {
