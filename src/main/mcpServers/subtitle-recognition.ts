@@ -5,6 +5,8 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import Store from 'electron-store'
 import { net } from 'electron'
 
+import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
+
 const logger = loggerService.withContext('MCPServer:SubtitleRecognition')
 
 const API_HOST = 'https://open.vectcut.com'
@@ -257,6 +259,20 @@ class SubtitleRecognitionServer {
     }
   }
 
+  private summarizeTaskStatusResult(result: SubtitleRecognitionTaskStatusResponse) {
+    const content = typeof result.result?.content === 'string' ? result.result.content : ''
+    const segments = Array.isArray(result.result?.segments) ? result.result.segments : []
+
+    return {
+      has_result: Boolean(result.result),
+      content_chars: content.length,
+      segment_count: segments.length,
+      result_mode: result.result?.mode,
+      effect_mode: result.result?.effect_mode,
+      error: result.result?.error || ''
+    }
+  }
+
   private resolveEffectMode(value: unknown): SubtitleRecognitionEffectMode {
     const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
     if (!normalized) {
@@ -344,12 +360,43 @@ class SubtitleRecognitionServer {
       success: result.success
     })
 
-    return this.formatJsonResult({
+    const responsePayload = {
       provider: 'vectcut',
       action: 'status',
       mode: 'subtitle_recognition',
       ...result
-    })
+    }
+
+    if (result.result) {
+      const artifact = await persistWorkspaceJsonArtifact({
+        toolName: 'subtitle-recognition',
+        taskId,
+        payload: responsePayload
+      })
+
+      if (artifact) {
+        return this.formatJsonResult({
+          provider: 'vectcut',
+          action: 'status',
+          mode: result.mode || 'subtitle_recognition',
+          error: result.error || '',
+          message: result.message || '',
+          progress: result.progress,
+          success: result.success,
+          status: result.status,
+          task_id: result.task_id,
+          url: result.url,
+          artifact: {
+            storage: 'workspace_file',
+            file_path: artifact.filePath,
+            relative_path: artifact.relativePath
+          },
+          result_summary: this.summarizeTaskStatusResult(result)
+        })
+      }
+    }
+
+    return this.formatJsonResult(responsePayload)
   }
 }
 

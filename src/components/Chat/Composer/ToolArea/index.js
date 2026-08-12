@@ -1,15 +1,9 @@
 import './index.css';
-import AiWriteIcon from '../../../../../public/ai_write.svg';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
 import ImagePanIcon from '../../../../../public/image_pan.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
 
 const TOOL_ITEMS = [
-  {
-    id: 'ai-write',
-    label: '文案',
-    icon: AiWriteIcon,
-  },
   {
     id: 'voice-square',
     label: '音频',

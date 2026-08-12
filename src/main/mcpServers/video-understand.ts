@@ -5,6 +5,8 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import Store from 'electron-store'
 import { net } from 'electron'
 
+import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
+
 const logger = loggerService.withContext('MCPServer:VideoUnderstand')
 
 const API_HOST = 'https://open.vectcut.com'
@@ -267,6 +269,19 @@ class VideoUnderstandServer {
     }
   }
 
+  private summarizeTaskStatusResult(result: VideoUnderstandTaskStatusResponse) {
+    const resultObject = result.result && typeof result.result === 'object' ? result.result : null
+    const output = resultObject && typeof resultObject.output === 'object' ? (resultObject.output as Record<string, unknown>) : null
+    const videoDetail = typeof output?.video_detail === 'string' ? output.video_detail : ''
+
+    return {
+      has_result: Boolean(resultObject),
+      result_keys: resultObject ? Object.keys(resultObject) : [],
+      output_keys: output ? Object.keys(output) : [],
+      video_detail_chars: videoDetail.length
+    }
+  }
+
   private resolveModel(value: unknown): typeof VIDEO_UNDERSTAND_MODEL {
     const normalized = typeof value === 'string' ? value.trim() : ''
     if (!normalized) {
@@ -378,12 +393,44 @@ class VideoUnderstandServer {
       success: result.success
     })
 
-    return this.formatJsonResult({
+    const responsePayload = {
       provider: 'vectcut',
       action: 'status',
       mode: 'video_understand',
       ...result
-    })
+    }
+
+    if (result.result) {
+      const artifact = await persistWorkspaceJsonArtifact({
+        toolName: 'video-understand',
+        taskId,
+        payload: responsePayload
+      })
+
+      if (artifact) {
+        return this.formatJsonResult({
+          provider: 'vectcut',
+          action: 'status',
+          mode: 'video_understand',
+          task_id: result.task_id,
+          status: result.status,
+          progress: result.progress,
+          message: result.message || '',
+          prompt: result.prompt,
+          video_url: result.video_url,
+          error: result.error || '',
+          success: result.success,
+          artifact: {
+            storage: 'workspace_file',
+            file_path: artifact.filePath,
+            relative_path: artifact.relativePath
+          },
+          result_summary: this.summarizeTaskStatusResult(result)
+        })
+      }
+    }
+
+    return this.formatJsonResult(responsePayload)
   }
 }
 

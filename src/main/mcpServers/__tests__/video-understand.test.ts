@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 
 const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
@@ -71,9 +74,21 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 }
 
 describe('VideoUnderstandServer', () => {
+  let workspaceRoot: string
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+  })
+
+  beforeEach(async () => {
+    workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'video-understand-test-'))
+    vi.stubEnv('WORKSPACE_ROOT', workspaceRoot)
+  })
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined)
   })
 
   it('should expose submit and status tools', async () => {
@@ -221,7 +236,34 @@ describe('VideoUnderstandServer', () => {
       })
     )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload).toEqual({
+      provider: 'vectcut',
+      action: 'status',
+      mode: 'video_understand',
+      task_id: 'task-status-789',
+      status: 'success',
+      progress: 100,
+      message: '任务处理完成',
+      prompt: '总结一下画面内容',
+      video_url: 'https://example.com/source.mp4',
+      error: '',
+      success: true,
+      artifact: {
+        storage: 'workspace_file',
+        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'video-understand', 'task-status-789.json'),
+        relative_path: path.join('.capcut', 'tool-results', 'video-understand', 'task-status-789.json')
+      },
+      result_summary: {
+        has_result: true,
+        result_keys: ['output'],
+        output_keys: ['video_detail'],
+        video_detail_chars: '画面中是一条街道和路过的人群'.length
+      }
+    })
+
+    const storedText = await fs.readFile(payload.artifact.file_path, 'utf8')
+    expect(JSON.parse(storedText)).toEqual({
       provider: 'vectcut',
       action: 'status',
       mode: 'video_understand',

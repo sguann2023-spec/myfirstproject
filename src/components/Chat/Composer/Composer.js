@@ -12,7 +12,6 @@ import './Composer.css';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import Point2Icon from '../../../../public/point2.svg';
-import AiWriteToolDetail from './AiWriteToolDetail/index';
 import {
   getDefaultAiWritePresetId,
   getAiWriteFields,
@@ -3458,12 +3457,6 @@ const Composer = ({
     editor.commands.focus('end');
   }, [editor]);
 
-  const handleAiWritePresetSelect = React.useCallback((presetId) => {
-    setSelectedAiWritePresetId(presetId);
-    if (activeTool !== 'ai-write') return;
-    applyAiWriteTemplate(presetId);
-  }, [activeTool, applyAiWriteTemplate]);
-
   const handleImageTemplateApply = React.useCallback((prompt) => {
     setInput(String(prompt || ''));
     if (!editor || editor.isDestroyed) return;
@@ -3560,13 +3553,6 @@ const Composer = ({
                       onModeChange={setSelectedDigitalHumanMode}
                       onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
-                    />
-                  ) : activeTool === 'ai-write' ? (
-                    <AiWriteToolDetail
-                      disabled={sessionSending}
-                      onBack={handleToolDetailBack}
-                      selectedPresetId={selectedAiWritePresetId}
-                      onPresetSelect={handleAiWritePresetSelect}
                     />
                   ) : activeTool === 'image-pan' ? (
                     <ImagePanToolDetail

@@ -14,6 +14,7 @@ import { net } from 'electron'
 import { isWin } from '@main/constant'
 import { loggerService } from '@logger'
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
+import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
@@ -309,6 +310,40 @@ function extractToolText(value: unknown): string {
   return toPiContentArray(value)
     .map((part) => (part.type === 'text' ? part.text : `[image:${part.mimeType}]`))
     .join('\n')
+}
+
+type PiToolPayload = {
+  content: Array<PiTextContent | PiImageContent>
+  details: unknown
+}
+
+function splitPiToolPayload(value: unknown): PiToolPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      content: toPiContentArray(value),
+      details: undefined
+    }
+  }
+
+  const record = value as Record<string, unknown>
+  const contentSource = 'content' in record ? record.content : value
+
+  if ('structuredContent' in record) {
+    return {
+      content: toPiContentArray(contentSource),
+      details: record.structuredContent
+    }
+  }
+
+  const { content: _content, ...rest } = record
+  return {
+    content: toPiContentArray(contentSource),
+    details: Object.keys(rest).length > 0 ? rest : undefined
+  }
+}
+
+export function buildLimitedPiToolPayload(value: unknown, label: string): PiToolPayload {
+  return splitPiToolPayload(limitInlineToolPayload(value, { label }))
 }
 
 function resolveToolPath(filePath: string, cwd: string): string {
@@ -1180,9 +1215,16 @@ async function buildMcpTools(input: {
                   messageChars: typeof progress.message === 'string' ? progress.message.length : 0
                 })
                 if (typeof progress.message === 'string' && progress.message.trim()) {
+                  const progressPayload = buildLimitedPiToolPayload(
+                    {
+                      content: [{ type: 'text', text: progress.message }],
+                      structuredContent: progress
+                    },
+                    `${namespacedName} 进度`
+                  )
                   onUpdate?.({
-                    content: [{ type: 'text', text: progress.message }],
-                    details: progress
+                    content: progressPayload.content,
+                    details: progressPayload.details
                   })
                 }
               }
@@ -1211,9 +1253,10 @@ async function buildMcpTools(input: {
             serverKey,
             contentPreview: extractToolText((result as { content?: unknown }).content).slice(0, 500)
           })
+          const limitedPayload = buildLimitedPiToolPayload(result, `${namespacedName} 回包`)
           return {
-            content: toPiContentArray((result as { content?: unknown }).content),
-            details: (result as { structuredContent?: unknown }).structuredContent ?? result
+            content: limitedPayload.content,
+            details: limitedPayload.details
           }
         }
       } as any

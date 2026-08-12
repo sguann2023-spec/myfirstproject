@@ -349,8 +349,8 @@ type IntentRoute = {
 - `text_delete` -> `mcp__draft-elements__remove_text`
 - `text_update` -> `mcp__draft-elements__modify_text`
 - `subtitle_srt` -> `mcp__draft-elements__add_subtitle`
-- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task` / `mcp__subtitle-recognition__get_subtitle_recognition_task_status`
-- `video_understand` -> `mcp__video-understand__submit_video_detail_task` / `mcp__video-understand__get_video_detail_task_status`
+- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task` / `mcp__subtitle-recognition__get_subtitle_recognition_task_status`（状态查询在返回长 JSON 结果时，优先将完整结果写入 workspace 本地 `.capcut/tool-results/subtitle-recognition/<taskId>.json`，工具只返回摘要与文件路径）
+- `video_understand` -> `mcp__video-understand__submit_video_detail_task` / `mcp__video-understand__get_video_detail_task_status`（状态查询在返回长 JSON 结果时，优先将完整结果写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径）
 - `text_intro_animation_list` -> `mcp__draft-elements__get_text_intro_types`
 - `text_outro_animation_list` -> `mcp__draft-elements__get_text_outro_types`
 - `text_loop_animation_list` -> `mcp__draft-elements__get_text_loop_anim_types`

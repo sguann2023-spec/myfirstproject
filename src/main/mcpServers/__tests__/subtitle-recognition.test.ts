@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 
 const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
@@ -71,9 +74,21 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 }
 
 describe('SubtitleRecognitionServer', () => {
+  let workspaceRoot: string
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+  })
+
+  beforeEach(async () => {
+    workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'subtitle-recognition-test-'))
+    vi.stubEnv('WORKSPACE_ROOT', workspaceRoot)
+  })
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined)
   })
 
   it('should expose submit and status tools', async () => {
@@ -221,7 +236,35 @@ describe('SubtitleRecognitionServer', () => {
       })
     )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload).toEqual({
+      provider: 'vectcut',
+      action: 'status',
+      mode: 'asr',
+      error: '',
+      message: 'llm_asr 队列任务处理完成',
+      progress: 100,
+      success: true,
+      status: 'success',
+      task_id: 'task-status-789',
+      url: 'https://example.com/source.mp4',
+      artifact: {
+        storage: 'workspace_file',
+        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'subtitle-recognition', 'task-status-789.json'),
+        relative_path: path.join('.capcut', 'tool-results', 'subtitle-recognition', 'task-status-789.json')
+      },
+      result_summary: {
+        has_result: true,
+        content_chars: '识别出的完整字幕文本'.length,
+        segment_count: 1,
+        result_mode: 'asr',
+        effect_mode: 'llm',
+        error: ''
+      }
+    })
+
+    const storedText = await fs.readFile(payload.artifact.file_path, 'utf8')
+    expect(JSON.parse(storedText)).toEqual({
       provider: 'vectcut',
       action: 'status',
       mode: 'asr',

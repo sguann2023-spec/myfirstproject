@@ -263,6 +263,29 @@
 .chat-panel__workspace-header-actions {
   display: inline-flex;
   align-items: center;
+  gap: 2px;
+}
+
+.chat-panel__member-action {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #8a8a8a;
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
+}
+
+.chat-panel__member-action:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .chat-panel__members-create-btn {
