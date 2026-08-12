@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -15,7 +15,6 @@ const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const DEFAULT_BUCKET = 'jianying-upload-tmp'
 const DEFAULT_REGION = 'oss-cn-hangzhou'
 const MAX_FILE_SIZE = 500 * 1024 * 1024
-const SIGN_EXPIRES_SECONDS = 24 * 60 * 60
 const DEFAULT_OBJECT_KEY_PREFIX = 'vectcut_koubo_tmp_file_'
 
 type CredentialsResponse = {
@@ -27,6 +26,31 @@ type CredentialsResponse = {
     AccessKeySecret?: string
     SecurityToken?: string
   }
+}
+
+type AgentTmpInitResponse = {
+  success?: boolean
+  error?: string
+  message?: string
+  file_name?: string
+  object_key?: string
+  upload?: {
+    upload_url?: string
+    host?: string
+    form_data?: Record<string, string>
+  }
+  download?: {
+    signed_url?: string
+  }
+  signed_url?: string
+}
+
+type AgentTmpUploadInit = {
+  fileName: string
+  objectKey: string
+  uploadUrl: string
+  formData: Record<string, string>
+  signedUrl: string
 }
 
 type UploadedImage = {
@@ -99,7 +123,11 @@ class OssUploadService {
     form.append('success_action_status', '200')
     form.append('Signature', signature)
     form.append('Content-Type', mediaType || 'application/octet-stream')
-    form.append('file', new Blob([buffer], { type: mediaType || 'application/octet-stream' }), pathBasename(objectKey))
+    form.append(
+      'file',
+      new Blob([new Uint8Array(buffer)], { type: mediaType || 'application/octet-stream' }),
+      pathBasename(objectKey)
+    )
 
     logger.info('Uploading multimodal image to OSS', {
       bucket,
@@ -149,91 +177,86 @@ class OssUploadService {
 
     const requestedBucket = String(options.bucket || DEFAULT_BUCKET).trim() || DEFAULT_BUCKET
     const requestedFolder = this.resolveUploadFolder(options.folder)
-    const credentials = await this.getCredentials({
-      bucket_name: requestedBucket,
-      folder: requestedFolder
-    })
-    const bucket = String(credentials.bucket_name || requestedBucket).trim() || requestedBucket
-    const region = String(credentials.region || options.region || DEFAULT_REGION).trim() || DEFAULT_REGION
-    const uploadHost = `https://${bucket}.${region}.aliyuncs.com`
-    const creds = credentials.credentials || {}
-    const accessKeyId = String(creds.AccessKeyId || '').trim()
-    const accessKeySecret = String(creds.AccessKeySecret || '').trim()
-    const securityToken = String(creds.SecurityToken || '').trim()
-
-    if (!accessKeyId || !accessKeySecret) {
-      throw new Error('STS_INVALID')
-    }
+    const bucket = requestedBucket
+    const region = String(options.region || DEFAULT_REGION).trim() || DEFAULT_REGION
 
     const bytes = await fs.readFile(normalizedPath)
-    const hash = createHash('sha256').update(bytes).digest('hex')
     const contentType = this.resolveContentType(normalizedPath, options.contentType)
-    const ext = path.extname(normalizedPath).trim() || this.detectExtension(contentType) || '.bin'
-    const keyPrefix = this.buildKeyPrefix(credentials.key_prefix || requestedFolder)
-    const objectKeyPrefix = String(options.objectKeyPrefix || DEFAULT_OBJECT_KEY_PREFIX).trim() || DEFAULT_OBJECT_KEY_PREFIX
-    const objectKey = `${keyPrefix}${objectKeyPrefix}${hash}${ext}`
-    const policy = this.makePolicyBase64(keyPrefix, securityToken)
-    const signature = this.hmacSha1Base64(policy, accessKeySecret)
-    const form = new FormData()
-    form.append('key', objectKey)
-    form.append('policy', policy)
-    form.append('OSSAccessKeyId', accessKeyId)
-    if (securityToken) {
-      form.append('x-oss-security-token', securityToken)
-    }
-    form.append('success_action_status', '200')
-    form.append('Signature', signature)
-    form.append('Content-Type', contentType)
-    form.append('file', new Blob([bytes], { type: contentType }), pathBasename(objectKey))
+    const fileName = this.resolveUploadFileName(normalizedPath, contentType)
+    const upload = await this.initAgentTmpUpload(fileName)
 
     logger.info('Uploading local file to OSS', {
       filePath: normalizedPath,
-      bucket,
-      region,
-      keyPrefix,
-      objectKey,
+      bucket: requestedBucket,
+      region: options.region || DEFAULT_REGION,
+      objectKey: upload.objectKey,
       size: stats.size,
       contentType
     })
 
-    const response = await net.fetch(uploadHost, {
-      method: 'POST',
-      body: form
-    })
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`UPLOAD_FAILED:${response.status}:${body}`)
-    }
-
-    const publicUrl = this.buildPublicUrl(bucket, options.publicEndpoint, uploadHost, objectKey)
-    const signedPublicUrl = this.buildSignedPublicUrl(
-      bucket,
-      objectKey,
-      accessKeyId,
-      accessKeySecret,
-      securityToken,
-      uploadHost,
-      options.publicEndpoint,
-      options.signExpiresSeconds
-    )
+    await this.uploadBytesWithForm(upload.uploadUrl, upload.formData, bytes, upload.fileName, contentType)
+    const ossLocation = this.parseOssLocation(upload.uploadUrl)
+    const folder = this.resolveObjectFolder(upload.objectKey, requestedFolder)
+    const publicUrl = upload.signedUrl
+    const signedPublicUrl = upload.signedUrl
 
     logger.info('Uploaded local file to OSS', {
       filePath: normalizedPath,
-      objectKey,
+      objectKey: upload.objectKey,
       publicUrl,
       signedPublicUrl
     })
 
     return {
-      objectKey,
-      folder: requestedFolder,
+      objectKey: upload.objectKey,
+      folder,
       publicUrl,
       signedPublicUrl,
-      bucket,
-      region,
+      bucket: ossLocation.bucket || bucket,
+      region: ossLocation.region || region,
       contentType,
       size: stats.size
+    }
+  }
+
+  private async initAgentTmpUpload(fileName: string): Promise<AgentTmpUploadInit> {
+    const response = await this.authenticatedJsonFetch('/sts/upload/agent_tmp/init', {
+      file_name: fileName
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`STS_UPLOAD_INIT_FAILED:${response.status}:${body}`)
+    }
+
+    const payload = (await response.json()) as AgentTmpInitResponse
+    if (payload.success === false) {
+      throw new Error(String(payload.error || payload.message || 'STS_UPLOAD_INIT_FAILED'))
+    }
+
+    const upload = payload.upload
+    const uploadUrl = String(upload?.upload_url || upload?.host || '').trim()
+    const signedUrl = String(payload.download?.signed_url || payload.signed_url || '').trim()
+    const objectKey = String(payload.object_key || '').trim()
+    const responseFileName = String(payload.file_name || fileName).trim() || fileName
+    const formData = this.normalizeUploadFormData(upload?.form_data)
+
+    if (!uploadUrl) {
+      throw new Error('STS_UPLOAD_INIT_INVALID:missing upload_url')
+    }
+    if (!signedUrl) {
+      throw new Error('STS_UPLOAD_INIT_INVALID:missing signed_url')
+    }
+    if (!objectKey) {
+      throw new Error('STS_UPLOAD_INIT_INVALID:missing object_key')
+    }
+
+    return {
+      fileName: responseFileName,
+      objectKey,
+      uploadUrl,
+      formData,
+      signedUrl
     }
   }
 
@@ -342,6 +365,35 @@ class OssUploadService {
 
   private hmacSha1Base64(message: string, secret: string): string {
     return createHmac('sha1', secret).update(message).digest('base64')
+  }
+
+  private async uploadBytesWithForm(
+    uploadUrl: string,
+    rawFormData: Record<string, string>,
+    bytes: Buffer,
+    fileName: string,
+    contentType: string
+  ) {
+    const form = new FormData()
+    Object.entries(rawFormData).forEach(([key, value]) => {
+      form.append(key, value)
+    })
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: contentType }), fileName)
+
+    const response = await net.fetch(uploadUrl, {
+      method: 'POST',
+      body: form
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`UPLOAD_FAILED:${response.status}:${body}`)
+    }
+
+    const body = (await response.text().catch(() => '')).trim()
+    if (body.startsWith('<Error') || body.includes('<Error>')) {
+      throw new Error(`UPLOAD_FAILED:200:${body}`)
+    }
   }
 
   private makePolicyBase64(prefix: string, securityToken: string): string {
@@ -453,38 +505,54 @@ class OssUploadService {
     return isCname ? `https://${endpoint}/${objectKey}` : `https://${bucket}.${endpoint}/${objectKey}`
   }
 
-  private buildSignedPublicUrl(
-    bucket: string,
-    objectKey: string,
-    accessKeyId: string,
-    accessKeySecret: string,
-    securityToken: string,
-    uploadHost: string,
-    publicEndpoint?: string,
-    signExpiresSeconds?: number
-  ): string {
-    const endpoint = String(publicEndpoint || '')
-      .replace(/^https?:\/\//, '')
-      .replace(/\/+$/, '')
-    const isOfficial = endpoint.includes('aliyuncs.com') || endpoint.includes('oss-')
-    const expires = Math.floor(Date.now() / 1000) + (signExpiresSeconds ?? SIGN_EXPIRES_SECONDS)
-    const canonicalResource = `/${bucket}/${objectKey}${securityToken ? `?security-token=${securityToken}` : ''}`
-    const stringToSign = `GET\n\n\n${expires}\n${canonicalResource}`
-    const signature = createHmac('sha1', accessKeySecret).update(stringToSign).digest('base64')
-    const base = endpoint
-      ? isOfficial
-        ? `https://${bucket}.${endpoint}/${objectKey}`
-        : `https://${endpoint}/${objectKey}`
-      : `${uploadHost}/${objectKey}`
-    const query = new URLSearchParams({
-      OSSAccessKeyId: accessKeyId,
-      Expires: String(expires),
-      Signature: signature
-    })
-    if (securityToken) {
-      query.set('security-token', securityToken)
+  private normalizeUploadFormData(rawFormData: unknown): Record<string, string> {
+    if (!rawFormData || typeof rawFormData !== 'object' || Array.isArray(rawFormData)) {
+      throw new Error('STS_UPLOAD_INIT_INVALID:missing form_data')
     }
-    return `${base}?${query.toString()}`
+
+    return Object.fromEntries(
+      Object.entries(rawFormData).map(([key, value]) => [key, String(value ?? '')])
+    )
+  }
+
+  private resolveUploadFileName(filePath: string, contentType: string): string {
+    const baseName = path.basename(filePath).trim()
+    if (baseName) {
+      return baseName
+    }
+
+    const ext = this.detectExtension(contentType) || '.bin'
+    return `${DEFAULT_OBJECT_KEY_PREFIX}${randomUUID()}${ext}`
+  }
+
+  private resolveObjectFolder(objectKey: string, fallbackFolder: string): string {
+    const normalizedObjectKey = String(objectKey || '').trim()
+    if (!normalizedObjectKey) {
+      return fallbackFolder
+    }
+
+    const folder = path.posix.dirname(normalizedObjectKey)
+    return folder === '.' ? fallbackFolder : folder
+  }
+
+  private parseOssLocation(uploadUrl: string): { bucket: string; region: string } {
+    try {
+      const { hostname } = new URL(uploadUrl)
+      const match = hostname.match(/^([^.]+)\.(oss-[^.]+)\.aliyuncs\.com$/)
+      if (match) {
+        return {
+          bucket: match[1] || '',
+          region: match[2] || ''
+        }
+      }
+    } catch {
+      // Ignore parse failures and fall back to configured values.
+    }
+
+    return {
+      bucket: '',
+      region: ''
+    }
   }
 }
 

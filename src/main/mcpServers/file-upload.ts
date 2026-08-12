@@ -13,7 +13,6 @@ const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
 const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
 const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
 const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_koubo_tmp_file_'
-const FILE_UPLOAD_PUBLIC_ENDPOINT = 'https://player.install-ai-guider.top'
 const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 
 const UPLOAD_FILE_TO_OSS_TOOL: Tool = {
@@ -103,7 +102,6 @@ class FileUploadServer {
       folder: FILE_UPLOAD_FOLDER_TEMPLATE,
       contentType,
       objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
-      publicEndpoint: FILE_UPLOAD_PUBLIC_ENDPOINT,
       signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
     })
 

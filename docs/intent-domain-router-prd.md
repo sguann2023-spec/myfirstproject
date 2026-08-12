@@ -127,7 +127,7 @@ type IntentRoute = {
 - `Read` / `Bash`：当返回内容特别长（如大文件、长日志、长命令输出）时，允许工具内部先做一层“结果整理/摘要预览”，优先返回结构化的关键信息、统计信息、命中片段、头尾片段、错误摘要或下一步可继续读取的定位信息，而不是把整段原文直接塞进模型上下文
 - `Read` / `Bash`：工具内摘要只负责改善可读性与上下文利用率，不替代原始结果持久化；系统侧仍应保留完整 `rawOutput`，模型消费侧仅使用工具提供的 `inline/summary` 结果，并保留统一的 `16KB` 硬截断兜底
 - `download`：当用户需要把远程文件、图片、音频、视频链接下载到当前 workspace 时使用；应优先保存到当前工作空间内的目标目录，而不是系统 Downloads；适用于通用文件落地，不负责媒体裁剪、抽帧、拼接等后处理
-- `upload`：当用户需要上传本地文件并拿到可复用 URL 时使用；逻辑上先获取临时 STS，再上传到 OSS 并返回基于 OSS 官方域名的 `public url` / `signed public url`，不走 `player.install-ai-guider.top`；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错
+- `upload`：当用户需要上传本地文件并拿到可复用 URL 时使用；统一走 `POST https://open.vectcut.com/sts/upload/agent_tmp/init`：先传 `file_name` 获取 `upload.upload_url`、`upload.form_data`、`download.signed_url` 与 `object_key`，再把本地文件按返回表单直传到 OSS，并返回 `download.signed_url` 作为后续提交给远端能力的可访问 URL；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错；凡是本文提到的 MCP 工具需要上传本地文件时，无论是显式命中 `workspace.upload`，还是工具内部自动上传本地素材，都应复用这条 `/sts/upload/agent_tmp/init` 链路
 
 ### 3. `web`
 
@@ -170,8 +170,8 @@ type IntentRoute = {
 
 已接入工具：
 
-- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`；若输入里带参考图片且图片是本地文件路径、拖入文件或 workspace 内文件，需先伴随命中 `workspace.upload` 上传并拿到可访问 URL，再继续调用图片生成/编辑工具
-- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；若输入里带本地图片 / 视频 / 音频参考素材，优先伴随命中 `workspace.upload`，或通过视频生成工具内置的本地素材自动上传能力处理后再提交
+- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`；若输入里带参考图片且图片是本地文件路径、拖入文件或 workspace 内文件，需先伴随命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 上传并拿到可访问 URL，再继续调用图片生成/编辑工具
+- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；若输入里带本地图片 / 视频 / 音频参考素材，应先伴随命中 `workspace.upload`，或由视频生成工具内部复用同一条 `/sts/upload/agent_tmp/init` 链路自动上传后再提交
 - `speech` -> `mcp__speech__generate_speech`
 - `voice_conversion` -> `mcp__voice-conversion__submit_voice_conversion_task` / `mcp__voice-conversion__get_voice_conversion_task_status`
 - `seed_audio` -> `mcp__seed-audio__generate_seed_audio`
@@ -179,10 +179,10 @@ type IntentRoute = {
 
 说明：
 
-- `image`：图片生成/编辑默认可直接使用文本提示词，若还带参考图片，则应优先判断输入是远程图片链接还是本地文件；远程图片链接可直接继续，本地图片文件路径、拖入文件或 workspace 内图片必须先组合命中 `workspace.upload`，上传并拿到可访问 URL 后，才能继续调用图片生成/编辑工具，禁止把本地路径直接传给远端图片生成/编辑接口
+- `image`：图片生成/编辑默认可直接使用文本提示词，若还带参考图片，则应优先判断输入是远程图片链接还是本地文件；远程图片链接可直接继续，本地图片文件路径、拖入文件或 workspace 内图片必须先组合命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 上传并拿到可访问 URL 后，才能继续调用图片生成/编辑工具，禁止把本地路径直接传给远端图片生成/编辑接口
 - `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__video__generate_video`，提交后默认把它视为异步长任务，并持续用 `action="status"` 轮询到 `succeeded` / `failed` / `not_found` 等终态；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
-- `voice_conversion`：AI 变声 / 声音转换，输入应是公网可访问的原始音频链接或视频链接，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；如果用户提供的是本地文件而不是公网链接，通常需要先伴随命中 `workspace.upload`
+- `voice_conversion`：AI 变声 / 声音转换，输入应是公网可访问的原始音频链接或视频链接，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；如果用户提供的是本地文件而不是公网链接，通常需要先伴随命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
 - `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
 
 ### 5. `skills`
@@ -393,11 +393,11 @@ type IntentRoute = {
 
 - `audio_extract` / `audio_concat` / `frame_capture` / `media_duration` / `media_trim` / `video_concat`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到首个源文件同目录；若输入是远程 URL，则可退回临时目录
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
-- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；底层走异步 ASR 任务提交 + 状态查询链路；输入必须是服务端可访问的远程 `url`，若用户给的是本地音视频文件，必须先命中 `workspace.upload` 获取 OSS URL 后再进入该子能力；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
-- `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；若用户给的是本地视频文件，必须先命中 `workspace.upload` 获取服务端可访问的 URL 后再进入该子能力
+- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；底层走异步 ASR 任务提交 + 状态查询链路；输入必须是服务端可访问的远程 `url`，若用户给的是本地音视频文件，必须先命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL 后再进入该子能力；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
+- `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；若用户给的是本地视频文件，必须先命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 获取服务端可访问的 URL 后再进入该子能力
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
-- `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`
- - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；输入要求为服务端可访问的远程视频链接，若用户给的是本地视频文件，必须先命中 `workspace.upload` 获取 URL 后再进入该子能力；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
+- `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
+- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；输入要求为服务端可访问的远程视频链接，若用户给的是本地视频文件，必须先命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 获取 URL 后再进入该子能力；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
 - `draft_download`：专用于下载剪映草稿；当当前句子或前文上下文里已经出现 `草稿` / `draft` / `draft_id` / `draft_url` / `dfd_` 等草稿标识时，下载语义应优先命中 `draft_download`，不要误落到 `workspace.download` 或 `media_download`
@@ -412,8 +412,8 @@ type IntentRoute = {
 - 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
 - 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
-- `subtitle_recognition` 仅接受音频/视频链接；若输入是本地文件路径、拖入文件或 workspace 内文件，必须先组合命中 `workspace.upload`，拿到 OSS 官方 URL 后再执行字幕识别，禁止把本地路径直接传给远端字幕识别接口
-- `video_understand` 仅接受服务端可访问的视频链接；若输入是本地视频文件路径、拖入文件或 workspace 内视频，必须先组合命中 `workspace.upload`，拿到 OSS 官方 URL 后再执行视频理解，禁止把本地路径直接传给远端视频理解接口
+- `subtitle_recognition` 仅接受音频/视频链接；若输入是本地文件路径、拖入文件或 workspace 内文件，必须先组合命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 拿到临时可访问 URL 后再执行字幕识别，禁止把本地路径直接传给远端字幕识别接口
+- `video_understand` 仅接受服务端可访问的视频链接；若输入是本地视频文件路径、拖入文件或 workspace 内视频，必须先组合命中 `workspace.upload`，通过 `/sts/upload/agent_tmp/init` 拿到临时可访问 URL 后再执行视频理解，禁止把本地路径直接传给远端视频理解接口
 - 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
 - 当用户明确表达“添加字幕模版”“套字幕样式”“把字幕加回草稿”“识别后按某种样式上屏”时，应命中 `subtitle_template`；其核心目标是样式化字幕并回写草稿，而非只返回识别结果
 - 若一句话里同时出现“识别字幕”和“添加模版/加回草稿/上屏”等表述，应以最终目标判断；最终目标是拿到字幕文本或时间轴时命中 `subtitle_recognition`，最终目标是生成带样式字幕并写回草稿时命中 `subtitle_template`

@@ -273,7 +273,7 @@ describe('KouboTemplateServer', () => {
       }
     )
     mockUploadLocalFile.mockResolvedValue({
-      signedPublicUrl: 'https://player.install-ai-guider.top/agent_tmp/demo/source.mp4?token=1'
+      signedPublicUrl: 'https://open.vectcut.com/download/agent_tmp/demo/source.mp4?token=1'
     })
     mockNetFetch
       .mockResolvedValueOnce(
@@ -299,13 +299,12 @@ describe('KouboTemplateServer', () => {
       region: 'oss-cn-hangzhou',
       folder: 'agent_tmp/{uid}',
       objectKeyPrefix: 'vectcut_koubo_tmp_file_',
-      publicEndpoint: 'https://player.install-ai-guider.top',
       signExpiresSeconds: 3600
     })
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       agent_id: 'koubo_custom_agent',
       params: {
-        video_url: ['https://player.install-ai-guider.top/agent_tmp/demo/source.mp4?token=1']
+        video_url: ['https://open.vectcut.com/download/agent_tmp/demo/source.mp4?token=1']
       }
     })
     expect(JSON.parse(result.content[0].text)).toEqual({
@@ -317,7 +316,7 @@ describe('KouboTemplateServer', () => {
       source_summary: [
         {
           original_input: '/tmp/source.mp4',
-          submitted_url: 'https://player.install-ai-guider.top/agent_tmp/demo/source.mp4?token=1',
+          submitted_url: 'https://open.vectcut.com/download/agent_tmp/demo/source.mp4?token=1',
           source_kind: 'local_video',
           file_size_bytes: 134217728
         }

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -74,7 +73,7 @@ describe('OssUploadService', () => {
     }
   })
 
-  it('uploads local files with user-scoped folder, custom public endpoint and hash-based object key', async () => {
+  it('uploads local files through the agent tmp init flow and returns the signed download url', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -85,35 +84,38 @@ describe('OssUploadService', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
-          bucket_name: 'oss-hangzhou-mp4',
-          region: 'oss-cn-hangzhou',
-          key_prefix: 'agent_tmp/user-123',
-          credentials: {
-            AccessKeyId: 'ak',
-            AccessKeySecret: 'sk',
-            SecurityToken: 'st'
+          success: true,
+          file_name: 'demo.mp3',
+          object_key: 'agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3',
+          upload: {
+            upload_url: 'https://oss-hangzhou-mp4.oss-cn-hangzhou.aliyuncs.com',
+            form_data: {
+              key: 'agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3',
+              policy: 'policy-value',
+              OSSAccessKeyId: 'ak',
+              Signature: 'sig'
+            }
+          },
+          download: {
+            signed_url: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1'
           }
         })
       )
       .mockResolvedValueOnce(mockJsonResponse({}, true, 200))
 
     const bytes = await fs.readFile(tempFilePath)
-    const hash = createHash('sha256').update(bytes).digest('hex')
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
     const result = await ossUploadService.uploadLocalFile(tempFilePath, {
       bucket: 'oss-hangzhou-mp4',
       region: 'oss-cn-hangzhou',
       folder: 'agent_tmp/{uid}',
       objectKeyPrefix: 'vectcut_koubo_tmp_file_',
-      publicEndpoint: 'https://player.install-ai-guider.top',
       signExpiresSeconds: 3600
     })
-    nowSpy.mockRestore()
 
     expect(mockStoreSet).toHaveBeenCalledWith('auth.refresh_token', 'refresh-token-next')
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
-      'https://open.vectcut.com/sts/get_credentials',
+      'https://open.vectcut.com/sts/upload/agent_tmp/init',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -121,8 +123,7 @@ describe('OssUploadService', () => {
           'Content-Type': 'application/json'
         }),
         body: JSON.stringify({
-          bucket_name: 'oss-hangzhou-mp4',
-          folder: 'agent_tmp/user-123'
+          file_name: path.basename(tempFilePath)
         })
       })
     )
@@ -134,13 +135,12 @@ describe('OssUploadService', () => {
         body: expect.any(FormData)
       })
     )
-    expect(result.objectKey).toBe(`agent_tmp/user-123/vectcut_koubo_tmp_file_${hash}.mp3`)
+    expect(result.objectKey).toBe('agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3')
     expect(result.folder).toBe('agent_tmp/user-123')
-    expect(result.publicUrl).toBe(`https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_${hash}.mp3`)
-    expect(result.signedPublicUrl).toContain(
-      `https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_${hash}.mp3?`
+    expect(result.publicUrl).toBe('https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1')
+    expect(result.signedPublicUrl).toBe(
+      'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1'
     )
-    expect(result.signedPublicUrl).toContain('Expires=1700003600')
     expect(result.bucket).toBe('oss-hangzhou-mp4')
     expect(result.region).toBe('oss-cn-hangzhou')
     expect(result.contentType).toBe('audio/mpeg')

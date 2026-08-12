@@ -62,10 +62,10 @@ describe('FileUploadServer', () => {
 
   it('should upload a local file with fixed OSS options', async () => {
     mockUploadLocalFile.mockResolvedValue({
-      objectKey: 'agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3',
+      objectKey: 'agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3',
       folder: 'agent_tmp/user-123',
-      publicUrl: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3',
-      signedPublicUrl: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3?token=1',
+      publicUrl: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1',
+      signedPublicUrl: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1',
       bucket: 'oss-hangzhou-mp4',
       region: 'oss-cn-hangzhou',
       contentType: 'audio/mpeg',
@@ -83,14 +83,13 @@ describe('FileUploadServer', () => {
       folder: 'agent_tmp/{uid}',
       contentType: undefined,
       objectKeyPrefix: 'vectcut_koubo_tmp_file_',
-      publicEndpoint: 'https://player.install-ai-guider.top',
       signExpiresSeconds: 3600
     })
     expect(JSON.parse(result.content[0].text)).toEqual({
-      public_url: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3?token=1'
+      public_url: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1'
     })
     expect(result.structuredContent).toEqual({
-      public_url: 'https://player.install-ai-guider.top/agent_tmp/user-123/vectcut_koubo_tmp_file_hash.mp3?token=1'
+      public_url: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_server.mp3?token=1'
     })
     expect(result.content).toHaveLength(1)
   })
