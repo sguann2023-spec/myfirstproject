@@ -19,6 +19,7 @@ import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
 import SystemServer from '@main/mcpServers/system'
+import type VideoGenerateServer from '@main/mcpServers/video-generate'
 import VideoUnderstandServer from '@main/mcpServers/video-understand'
 import VoiceConversionServer from '@main/mcpServers/voice-conversion'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
@@ -52,6 +53,7 @@ export async function mountRuntimeMcpServers(input: {
   autonomousEnabled: boolean
   isAssistant: boolean
   imageGenerateServer: ImageGenerateServer
+  videoGenerateServer: VideoGenerateServer
   getOrCreateBrowserServer: (sessionId: string) => Promise<BrowserServer>
   resolveSourceChannel: (agentId: string, sessionId: string) => Promise<string | undefined>
 }): Promise<RuntimeMcpRegistryResult> {
@@ -66,6 +68,7 @@ export async function mountRuntimeMcpServers(input: {
     autonomousEnabled,
     isAssistant,
     imageGenerateServer,
+    videoGenerateServer,
     getOrCreateBrowserServer,
     resolveSourceChannel
   } = input
@@ -171,6 +174,15 @@ export async function mountRuntimeMcpServers(input: {
     allowMcpPattern('mcp__image__*')
   } else {
     markSkipped('image')
+  }
+
+  if (shouldMountCapability('video')) {
+    mountMcpServer('video', { type: 'sdk', name: 'video', instance: videoGenerateServer.mcpServer })
+    autoAllowTools.add('mcp__video__generate_video')
+    autoAllowTools.add('mcp__video__get_video_capabilities')
+    allowMcpPattern('mcp__video__*')
+  } else {
+    markSkipped('video')
   }
 
   if (shouldMountCapability('speech')) {

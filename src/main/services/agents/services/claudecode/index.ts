@@ -11,6 +11,7 @@ import type {
 import { loggerService } from '@logger'
 import BrowserServer from '@main/mcpServers/browser/server'
 import ImageGenerateServer from '@main/mcpServers/image-generate'
+import VideoGenerateServer from '@main/mcpServers/video-generate'
 import {
   getNodeProxyConfigFromEnvironment,
   getProxyProtocol
@@ -302,6 +303,7 @@ class ClaudeCodeService implements AgentServiceInterface {
   private claudeProxyBootstrapPath: string
   private browserServers = new Map<string, BrowserServer>()
   private readonly imageGenerateServer: ImageGenerateServer
+  private readonly videoGenerateServer: VideoGenerateServer
   private readonly capabilityRouter = new CapabilityRouter({
     forceMountAllRuntimeMcpTools: shouldMountAllRuntimeMcpTools
   })
@@ -313,6 +315,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     )
     this.claudeProxyBootstrapPath = toAsarUnpackedPath(path.join(app.getAppPath(), 'out', 'proxy', 'index.js'))
     this.imageGenerateServer = new ImageGenerateServer()
+    this.videoGenerateServer = new VideoGenerateServer()
 
     void app.whenReady().then(async () => {
       try {
@@ -322,6 +325,17 @@ class ClaudeCodeService implements AgentServiceInterface {
         })
       } catch (error) {
         logger.warn('Failed to preload image model list', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+
+      try {
+        const payload = await this.videoGenerateServer.getVideoModelList()
+        logger.info('Preloaded video model list', {
+          count: payload.models.length
+        })
+      } catch (error) {
+        logger.warn('Failed to preload video model list', {
           error: error instanceof Error ? error.message : String(error)
         })
       }
@@ -840,7 +854,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       autoAllowTools,
       autonomousEnabled,
       isAssistant,
-      imageGenerateServer: new ImageGenerateServer(),
+      imageGenerateServer: this.imageGenerateServer,
+      videoGenerateServer: this.videoGenerateServer,
       getOrCreateBrowserServer: (sessionId) => this.getOrCreateBrowserServer(sessionId),
       resolveSourceChannel: (agentId, sessionId) => this.resolveSourceChannel(agentId, sessionId)
     })

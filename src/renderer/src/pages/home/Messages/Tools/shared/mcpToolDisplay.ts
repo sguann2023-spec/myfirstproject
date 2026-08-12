@@ -36,6 +36,10 @@ function translateWithFallback(t: TFunction, key: string, fallback: string): str
   return translated === key ? fallback : translated
 }
 
+function shouldUseWideColon(...values: string[]): boolean {
+  return values.some((value) => /[\u3400-\u9fff]/.test(value))
+}
+
 export function parseMcpToolName(rawName?: string): McpToolNameParts {
   const name = String(rawName || '').trim()
   if (name.startsWith('mcp__')) {
@@ -81,5 +85,5 @@ export function getMcpToolDisplayName(
     return localizedTool
   }
 
-  return `${localizedServer}: ${localizedTool}`
+  return `${localizedServer}${shouldUseWideColon(localizedServer, localizedTool) ? '：' : ': '}${localizedTool}`
 }

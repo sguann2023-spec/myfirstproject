@@ -1,30 +1,175 @@
+import { stat as fsStat } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { loggerService } from '@logger'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Tool } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
-const logger = loggerService.withContext('VideoGenerateServer')
+import { ossUploadService } from '@main/services/OssUploadService'
+
+const logger = loggerService.withContext('MCPServer:VideoGenerate')
 
 const API_HOST = 'https://open.vectcut.com'
+const VIDEO_GENERATE_ENDPOINT = '/cut_jianying/generate_ai_video'
+const VIDEO_TASK_STATUS_ENDPOINT = '/cut_jianying/aivideo/task_status'
 const VIDEO_MODEL_CAPABILITIES_ENDPOINT = '/llm/video/model_capabilities'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
+const PRIMARY_VIDEO_TOOL_NAME = 'generate_video'
+const VIDEO_TASK_WAIT_TIME = '5-30 minutes'
 const VIDEO_CAPABILITIES_CACHE_TTL_MS = 5 * 60 * 1000
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_ai_video_reference_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 
-const VIDEO_MODEL_ALIASES: Record<string, string[]> = {
-  seedance20: ['seedance-2.0'],
-  'seedance-2-0': ['seedance-2.0'],
-  seedance20fast: ['seedance-2.0-fast'],
-  'seedance-2-0-fast': ['seedance-2.0-fast'],
-  doubaoseedance20: ['seedance-2.0'],
-  doubaoseedance20260128: ['seedance-2.0'],
-  doubaoseedance20fast: ['seedance-2.0-fast'],
-  doubaoseedance20fast260128: ['seedance-2.0-fast'],
+const VIDEO_GENERATE_TOOL: Tool = {
+  name: PRIMARY_VIDEO_TOOL_NAME,
+  description:
+    'Create, generate, extend, edit, or query asynchronous AI video tasks via VectCut. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or querying a previous video task. Omit action to submit a new task, or use action="status" with taskId to query an existing task. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Local file URLs and absolute local paths inside those references are uploaded automatically before submission. These tasks are asynchronous and can take several minutes or longer. After submit returns a taskId and the status is not final, continue polling with action="status" automatically instead of stopping and waiting for the user to ask again.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['submit', 'status'],
+        description:
+          'submit creates a new long-running task, status queries a previous task. After submit returns a taskId, keep using status to poll automatically until the task finishes. Defaults to submit.'
+      },
+      prompt: {
+        type: 'string',
+        description:
+          'Optional text prompt for generic text-to-video or image-to-video workflows. Provide this or a content array with at least one text item.'
+      },
+      taskId: {
+        type: 'string',
+        description:
+          'Task ID returned by submit. Required when action is status. Use this to continue polling long-running video tasks until they reach a final status.'
+      },
+      model: {
+        type: 'string',
+        description:
+          'Optional video model, such as seedance-2.0, seedance-2.0-fast, veo3.1, veo3.1-pro, or grok-video-3. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities.'
+      },
+      resolution: {
+        type: 'string',
+        description: 'Optional output resolution, such as 1280x720 or 1080x1920.'
+      },
+      genDuration: {
+        type: 'number',
+        description: 'Alias of gen_duration. Optional generation duration in seconds when the chosen model supports it.'
+      },
+      gen_duration: {
+        type: 'number',
+        description: 'Optional generation duration in seconds when the chosen model supports it.'
+      },
+      duration: {
+        type: 'number',
+        description:
+          'Optional duration in seconds for upstream payloads that expect duration instead of gen_duration, such as some Seedance multimodal examples.'
+      },
+      generateAudio: {
+        type: 'boolean',
+        description: 'Alias of generate_audio. Whether the generated video should include audio when the chosen model supports it.'
+      },
+      generate_audio: {
+        type: 'boolean',
+        description: 'Whether the generated video should include audio when the chosen model supports it.'
+      },
+      content: {
+        type: 'array',
+        items: {
+          type: 'object'
+        },
+        description:
+          'Optional multimodal content array for Seedance-style workflows. Example items: {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Local file URLs or absolute local paths in the nested url fields are uploaded automatically.'
+      },
+      referenceImages: {
+        type: 'array',
+        items: {
+          type: 'string'
+        },
+        description:
+          'Optional convenience alias for appending reference_image items into content. Each item may be a remote URL, file URL, or absolute local path.'
+      },
+      referenceVideos: {
+        type: 'array',
+        items: {
+          type: 'string'
+        },
+        description:
+          'Optional convenience alias for appending reference_video items into content. Each item may be a remote URL, file URL, or absolute local path.'
+      },
+      referenceAudios: {
+        type: 'array',
+        items: {
+          type: 'string'
+        },
+        description:
+          'Optional convenience alias for appending reference_audio items into content. Each item may be a remote URL, file URL, or absolute local path.'
+      }
+    },
+    additionalProperties: true
+  }
+}
+
+const VIDEO_CAPABILITIES_TOOL: Tool = {
+  name: 'get_video_capabilities',
+  description:
+    'Get supported AI video generation models, generation duration options, supported resolutions, first-frame or first-last-frame support, multimodal reference support, audio generation support, super-resolution support, and optional pricing information from VectCut.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      model: {
+        type: 'string',
+        description: 'Optional model name to inspect, such as seedance-2.0, veo3.1, or grok-video-3.'
+      },
+      tier: {
+        type: 'string',
+        description: 'Optional resolution tier filter, such as 480p, 720p, or 1080p.'
+      },
+      ratio: {
+        type: 'string',
+        description: 'Optional aspect ratio filter, such as 16:9 or 9:16.'
+      },
+      includePrices: {
+        type: 'boolean',
+        description: 'Whether to include prices in the response. Defaults to true.'
+      }
+    },
+    additionalProperties: false
+  }
 }
 
 type PendingToken = {
   accessToken: string
   expiresAt: number
+}
+
+type VideoSubmitResponse = {
+  status?: string
+  task_id?: string
+  error?: string
+  [key: string]: unknown
+}
+
+type VideoTaskStatusResponse = {
+  draft_error?: string
+  draft_id?: string
+  draft_url?: string
+  id?: string
+  progress?: number
+  status?: string
+  task_id?: string
+  video_url?: string
+  error?: string
+  [key: string]: unknown
 }
 
 type ResolutionItem = {
@@ -70,12 +215,93 @@ type CachedVideoModelList = {
   expiresAt: number
 }
 
+type PreparedReferenceAsset = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'remote_url' | 'local_file'
+  mediaType: 'image' | 'video' | 'audio'
+  role?: string
+}
+
+const VIDEO_SUBMIT_FIELD_ALIASES: Record<string, string> = {
+  genDuration: 'gen_duration',
+  generateAudio: 'generate_audio',
+  draftId: 'draft_id',
+  composeDraft: 'compose_draft',
+  trackName: 'track_name'
+}
+
+const MULTIMODAL_REFERENCE_FIELD_MAP = {
+  image_url: 'image',
+  video_url: 'video',
+  audio_url: 'audio'
+} as const
+
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
+const LOCAL_MEDIA_PATH_HINT_PATTERN =
+  /^(file:\/\/|\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])|[\\/]|.+\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?|mp4|mov|m4v|avi|mkv|webm|mp3|wav|m4a|aac|flac|ogg)(?:[?#].*)?$/i
+const VIDEO_MODEL_ALIASES: Record<string, string[]> = {
+  seedance20: ['seedance-2.0'],
+  'seedance-2-0': ['seedance-2.0'],
+  seedance20fast: ['seedance-2.0-fast'],
+  'seedance-2-0-fast': ['seedance-2.0-fast'],
+  doubaoseedance20: ['seedance-2.0'],
+  doubaoseedance20260128: ['seedance-2.0'],
+  doubaoseedance20fast: ['seedance-2.0-fast'],
+  doubaoseedance20fast260128: ['seedance-2.0-fast']
+}
+
 class VideoGenerateServer {
+  public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
   private capabilitiesCache: CachedVideoCapabilities | null = null
   private videoModelListCache: CachedVideoModelList | null = null
+
+  constructor() {
+    this.mcpServer = new McpServer(
+      {
+        name: 'video',
+        version: '1.0.0'
+      },
+      {
+        capabilities: {
+          tools: {}
+        }
+      }
+    )
+    this.setupHandlers()
+  }
+
+  private setupHandlers() {
+    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [VIDEO_GENERATE_TOOL, VIDEO_CAPABILITIES_TOOL]
+    }))
+
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const toolName = request.params.name
+      const args = request.params.arguments ?? {}
+
+      try {
+        switch (toolName) {
+          case PRIMARY_VIDEO_TOOL_NAME:
+            return await this.generateVideo(args as Record<string, unknown>)
+          case 'get_video_capabilities':
+            return await this.getVideoCapabilities(args as Record<string, unknown>)
+          default:
+            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.error(`Tool error: ${toolName}`, { error: message })
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          isError: true
+        }
+      }
+    })
+  }
 
   private async ensureValidAccessToken(forceRefresh = false): Promise<string> {
     if (!forceRefresh && this.accessToken && Date.now() < this.accessToken.expiresAt - 30_000) {
@@ -145,20 +371,117 @@ class VideoGenerateServer {
     return accessToken
   }
 
-  private async requestWithAuth(endpoint: string): Promise<Response> {
-    const buildRequest = async (accessToken: string) =>
-      net.fetch(`${API_HOST}${endpoint}`, {
-        method: 'GET',
+  private async requestWithAuth(
+    endpoint: string,
+    options: {
+      method?: 'GET' | 'POST'
+      body?: Record<string, unknown>
+      query?: Record<string, string | number | boolean>
+    }
+  ): Promise<Response> {
+    const token = await this.ensureValidAccessToken()
+    const method = options.method ?? 'POST'
+
+    const buildUrl = () => {
+      const url = new URL(`${API_HOST}${endpoint}`)
+      for (const [key, value] of Object.entries(options.query ?? {})) {
+        url.searchParams.set(key, String(value))
+      }
+      return url.toString()
+    }
+
+    const doFetch = async (accessToken: string): Promise<Response> =>
+      net.fetch(buildUrl(), {
+        method,
         headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+          Authorization: `Bearer ${accessToken}`,
+          ...(options.body ? { 'Content-Type': 'application/json' } : {})
+        },
+        ...(options.body ? { body: JSON.stringify(options.body) } : {})
       })
 
-    let response = await buildRequest(await this.ensureValidAccessToken())
+    let response = await doFetch(token)
     if (response.status === 401) {
-      response = await buildRequest(await this.ensureValidAccessToken(true))
+      const refreshedToken = await this.ensureValidAccessToken(true)
+      response = await doFetch(refreshedToken)
     }
     return response
+  }
+
+  private formatJsonResult(payload: Record<string, unknown>) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(payload, null, 2)
+        }
+      ]
+    }
+  }
+
+  private normalizeReferenceInput(value: unknown, fieldName: string) {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' contains an empty media reference`)
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private async uploadLocalReferenceFile(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private async prepareReferenceForSubmission(
+    input: unknown,
+    fieldName: string,
+    mediaType: 'image' | 'video' | 'audio',
+    role?: string
+  ): Promise<PreparedReferenceAsset> {
+    const normalizedSource = this.normalizeReferenceInput(input, fieldName)
+
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_url',
+        mediaType,
+        role
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      const message = `'${fieldName}' must use remote URLs, file URLs, or absolute local paths; upload local references first if needed`
+      if (LOCAL_MEDIA_PATH_HINT_PATTERN.test(normalizedSource)) {
+        throw new McpError(ErrorCode.InvalidParams, message)
+      }
+      throw new McpError(ErrorCode.InvalidParams, message)
+    }
+
+    const stats = await fsStat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `'${fieldName}' must point to a local file when using an absolute local path`
+      )
+    }
+
+    const uploaded = await this.uploadLocalReferenceFile(normalizedSource)
+    return {
+      originalInput: normalizedSource,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_file',
+      mediaType,
+      role
+    }
   }
 
   public async getVideoModelList(forceRefresh = false) {
@@ -207,7 +530,7 @@ class VideoGenerateServer {
     const resolvedModelFilter = modelFilter ? this.findClosestModelMatch(modelFilter, availableModels) : null
 
     if (modelFilter && !resolvedModelFilter) {
-      throw new Error(`Unknown video model: ${modelFilter}`)
+      throw new McpError(ErrorCode.InvalidParams, `Unknown video model: ${modelFilter}`)
     }
 
     const targetModels = modelFilter ? [resolvedModelFilter!.model] : availableModels
@@ -244,7 +567,9 @@ class VideoGenerateServer {
       return this.capabilitiesCache
     }
 
-    const response = await this.requestWithAuth(VIDEO_MODEL_CAPABILITIES_ENDPOINT)
+    const response = await this.requestWithAuth(VIDEO_MODEL_CAPABILITIES_ENDPOINT, {
+      method: 'GET'
+    })
     if (!response.ok) {
       const body = await response.text().catch(() => '')
       throw new Error(`Video model capabilities query failed (${response.status}): ${body || 'unknown error'}`)
@@ -358,6 +683,268 @@ class VideoGenerateServer {
     return bestMatch
   }
 
+  private async resolveVideoModelName(requestedModel: string) {
+    const trimmedRequestedModel = requestedModel.trim()
+    if (!trimmedRequestedModel) {
+      return null
+    }
+
+    const { models: availableModels } = await this.getVideoModelList()
+    const closestMatch = this.findClosestModelMatch(trimmedRequestedModel, availableModels)
+
+    if (!closestMatch) {
+      return {
+        requestedModel: trimmedRequestedModel,
+        resolvedModel: trimmedRequestedModel,
+        matchType: 'unresolved'
+      }
+    }
+
+    return {
+      requestedModel: trimmedRequestedModel,
+      resolvedModel: closestMatch.model,
+      matchType: closestMatch.matchType
+    }
+  }
+
+  private normalizeContentArray(content: unknown) {
+    if (!Array.isArray(content)) {
+      return [] as Record<string, unknown>[]
+    }
+
+    return content
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => ({ ...item }))
+  }
+
+  private appendConvenienceReferenceContent(payload: Record<string, unknown>, args: Record<string, unknown>) {
+    const content = this.normalizeContentArray(payload.content)
+
+    const appendItems = (
+      input: unknown,
+      mediaField: 'image_url' | 'video_url' | 'audio_url',
+      role: 'reference_image' | 'reference_video' | 'reference_audio'
+    ) => {
+      if (!Array.isArray(input)) {
+        return
+      }
+
+      for (const item of input) {
+        if (typeof item !== 'string' || !item.trim()) {
+          continue
+        }
+        content.push({
+          type: mediaField,
+          [mediaField]: {
+            url: item.trim()
+          },
+          role
+        })
+      }
+    }
+
+    appendItems(args.referenceImages, 'image_url', 'reference_image')
+    appendItems(args.referenceVideos, 'video_url', 'reference_video')
+    appendItems(args.referenceAudios, 'audio_url', 'reference_audio')
+
+    if (content.length > 0) {
+      payload.content = content
+    } else {
+      delete payload.content
+    }
+  }
+
+  private async prepareContentReferences(content: Record<string, unknown>[]) {
+    const preparedReferenceAssets: PreparedReferenceAsset[] = []
+
+    const normalizedContent = await Promise.all(
+      content.map(async (item, index) => {
+        const nextItem = { ...item }
+        const role = typeof nextItem.role === 'string' ? nextItem.role : undefined
+
+        for (const [fieldName, mediaType] of Object.entries(MULTIMODAL_REFERENCE_FIELD_MAP) as Array<
+          [keyof typeof MULTIMODAL_REFERENCE_FIELD_MAP, (typeof MULTIMODAL_REFERENCE_FIELD_MAP)[keyof typeof MULTIMODAL_REFERENCE_FIELD_MAP]]
+        >) {
+          const currentValue = nextItem[fieldName]
+          if (typeof currentValue === 'string' && currentValue.trim()) {
+            const prepared = await this.prepareReferenceForSubmission(
+              currentValue,
+              `content[${index}].${fieldName}`,
+              mediaType,
+              role
+            )
+            nextItem[fieldName] = prepared.submittedUrl
+            preparedReferenceAssets.push(prepared)
+            continue
+          }
+
+          if (
+            currentValue &&
+            typeof currentValue === 'object' &&
+            !Array.isArray(currentValue) &&
+            typeof (currentValue as { url?: unknown }).url === 'string'
+          ) {
+            const prepared = await this.prepareReferenceForSubmission(
+              (currentValue as { url: string }).url,
+              `content[${index}].${fieldName}.url`,
+              mediaType,
+              role
+            )
+            nextItem[fieldName] = {
+              ...(currentValue as Record<string, unknown>),
+              url: prepared.submittedUrl
+            }
+            preparedReferenceAssets.push(prepared)
+          }
+        }
+
+        return nextItem
+      })
+    )
+
+    return {
+      content: normalizedContent,
+      preparedReferenceAssets
+    }
+  }
+
+  private async buildVideoSubmitPayload(args: Record<string, unknown>) {
+    const payload: Record<string, unknown> = {}
+
+    for (const [rawKey, value] of Object.entries(args)) {
+      if (value === undefined) {
+        continue
+      }
+
+      if (
+        rawKey === 'action' ||
+        rawKey === 'taskId' ||
+        rawKey === 'task_id' ||
+        rawKey === 'referenceImages' ||
+        rawKey === 'referenceVideos' ||
+        rawKey === 'referenceAudios'
+      ) {
+        continue
+      }
+
+      const key = VIDEO_SUBMIT_FIELD_ALIASES[rawKey] ?? rawKey
+      payload[key] = value
+    }
+
+    if (typeof payload.prompt === 'string') {
+      payload.prompt = payload.prompt.trim()
+    }
+
+    this.appendConvenienceReferenceContent(payload, args)
+
+    const normalizedContent = this.normalizeContentArray(payload.content)
+    const hasPrompt = typeof payload.prompt === 'string' && payload.prompt.length > 0
+    const hasContent = normalizedContent.length > 0
+
+    if (!hasPrompt && !hasContent) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "Either 'prompt' or 'content' is required when submitting a video generation task"
+      )
+    }
+
+    const preparedContent = hasContent ? await this.prepareContentReferences(normalizedContent) : null
+    if (preparedContent && preparedContent.content.length > 0) {
+      payload.content = preparedContent.content
+    }
+
+    const rawModel = typeof payload.model === 'string' ? payload.model.trim() : ''
+    const modelResolution = rawModel ? await this.resolveVideoModelName(rawModel) : null
+    if (modelResolution?.resolvedModel) {
+      payload.model = modelResolution.resolvedModel
+    }
+
+    return {
+      payload,
+      modelResolution,
+      preparedReferenceAssets: preparedContent?.preparedReferenceAssets ?? []
+    }
+  }
+
+  private async submitVideoTask(args: Record<string, unknown>) {
+    const { payload, modelResolution, preparedReferenceAssets } = await this.buildVideoSubmitPayload(args)
+    const hasUploadedLocalReference = preparedReferenceAssets.some((item) => item.sourceKind === 'local_file')
+    const response = await this.requestWithAuth(VIDEO_GENERATE_ENDPOINT, {
+      method: 'POST',
+      body: payload
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Video generation task submission failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as VideoSubmitResponse
+
+    logger.info('AI video generation task submitted', {
+      taskId: result.task_id,
+      model: typeof payload.model === 'string' ? payload.model : undefined,
+      requestedModel: modelResolution?.requestedModel,
+      modelMatchType: modelResolution?.matchType
+    })
+
+    return this.formatJsonResult({
+      provider: 'vectcut',
+      action: 'submit',
+      estimated_wait_time: VIDEO_TASK_WAIT_TIME,
+      polling_hint:
+        'AI video tasks are asynchronous and may take several minutes or longer. Use action="status" with taskId to query progress until a final status is reached.',
+      ...(modelResolution?.requestedModel
+        ? {
+            requested_model: modelResolution.requestedModel,
+            resolved_model: modelResolution.resolvedModel,
+            model_match_type: modelResolution.matchType
+          }
+        : {}),
+      ...(hasUploadedLocalReference
+        ? {
+            prepared_references: preparedReferenceAssets
+          }
+        : {}),
+      ...result
+    })
+  }
+
+  private async getVideoTaskStatus(taskId: string) {
+    const response = await this.requestWithAuth(VIDEO_TASK_STATUS_ENDPOINT, {
+      method: 'GET',
+      query: {
+        task_id: taskId
+      }
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Video generation task status query failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as VideoTaskStatusResponse
+
+    logger.info('AI video generation task status queried', {
+      taskId,
+      status: result.status,
+      progress: result.progress
+    })
+
+    return this.formatJsonResult({
+      provider: 'vectcut',
+      action: 'status',
+      ...(result.status && !['succeeded', 'failed', 'not_found'].includes(result.status)
+        ? {
+            estimated_wait_time: VIDEO_TASK_WAIT_TIME,
+            polling_hint: 'AI video tasks are asynchronous and may remain queued or running for several minutes.'
+          }
+        : {}),
+      ...result,
+      ...(result.task_id ? {} : { task_id: taskId })
+    })
+  }
+
   private normalizeModelCapability(
     model: string,
     capability: VideoModelCapability | undefined,
@@ -413,6 +1000,47 @@ class VideoGenerateServer {
     }
 
     return normalized
+  }
+
+  private async getVideoCapabilities(args: Record<string, unknown>) {
+    const result = await this.listVideoCapabilities({
+      model: typeof args.model === 'string' ? args.model : undefined,
+      tier: typeof args.tier === 'string' ? args.tier : undefined,
+      ratio: typeof args.ratio === 'string' ? args.ratio : undefined,
+      includePrices: typeof args.includePrices === 'boolean' ? args.includePrices : undefined
+    })
+
+    return this.formatJsonResult({
+      provider: 'vectcut',
+      action: 'capabilities',
+      ...(result.requestedModel ? { requested_model: result.requestedModel } : {}),
+      ...(result.resolvedModel ? { resolved_model: result.resolvedModel } : {}),
+      models: result.models
+    })
+  }
+
+  private async generateVideo(args: Record<string, unknown>) {
+    const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'submit'
+
+    if (action === 'status') {
+      const taskId =
+        typeof args.taskId === 'string' && args.taskId.trim()
+          ? args.taskId.trim()
+          : typeof args.task_id === 'string' && args.task_id.trim()
+            ? args.task_id.trim()
+            : ''
+
+      if (!taskId) {
+        throw new McpError(ErrorCode.InvalidParams, "'taskId'/'task_id' is required for video task status queries")
+      }
+      return this.getVideoTaskStatus(taskId)
+    }
+
+    if (action !== 'submit') {
+      throw new McpError(ErrorCode.InvalidParams, `Unsupported action: ${action}`)
+    }
+
+    return this.submitVideoTask(args)
   }
 }
 

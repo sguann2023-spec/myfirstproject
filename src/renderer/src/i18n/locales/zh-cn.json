@@ -2532,6 +2532,7 @@
           "subtitle_recognition": "字幕识别",
           "system": "系统",
           "subtitle_template": "字幕模板",
+          "video": "视频",
           "video_understand": "视频理解",
           "voice_conversion": "声音转换",
           "zcaceres_fetch": "网页抓取"
@@ -2678,6 +2679,10 @@
           "subtitle_template": {
             "generate_smart_subtitle": "智能字幕生成",
             "get_smart_subtitle_task_status": "查询字幕任务状态"
+          },
+          "video": {
+            "generate_video": "生成视频",
+            "get_video_capabilities": "查看视频模型"
           },
           "system": {
             "open_deeplink": "打开跳转链接"

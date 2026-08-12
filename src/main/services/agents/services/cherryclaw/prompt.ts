@@ -276,6 +276,15 @@ ${evidenceLine}
 - Only read the image content first when the user explicitly asks to analyze, describe, extract, or understand the reference image itself.`)
     }
 
+    if (opts.preferredMcpTools?.includes('mcp__video__generate_video')) {
+      sections.push(`## AI video generation
+
+- This turn includes AI video generation.
+- Prefer \`mcp__video__generate_video\` and keep polling with \`action="status"\` after submit until the task reaches a final status.
+- For Seedance-style multimodal generation, prefer passing a \`content\` array with text plus reference image, video, or audio items instead of flattening everything into plain text.
+- If local image, video, or audio references are involved, use workspace upload first when needed, or provide those local references through the video tool fields that support automatic upload.`)
+    }
+
     return sections.join('\n\n')
   }
 

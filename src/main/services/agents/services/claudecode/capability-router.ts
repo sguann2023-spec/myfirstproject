@@ -8,6 +8,7 @@ export type RuntimeCapability =
   | 'webDownload'
   | 'uploadFile'
   | 'image'
+  | 'video'
   | 'speech'
   | 'voiceConversion'
   | 'seedAudio'
@@ -160,6 +161,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
     if (activeDomain.domain === 'ai_media') {
       if (activeDomain.subdomains.includes('image') && !selected.has('image')) {
         addCapabilityReason(selected, reasons, 'image', 'intent:ai_media.image')
+      }
+      if (activeDomain.subdomains.includes('video') && !selected.has('video')) {
+        addCapabilityReason(selected, reasons, 'video', 'intent:ai_media.video')
       }
       if (activeDomain.subdomains.includes('speech') && !selected.has('speech')) {
         addCapabilityReason(selected, reasons, 'speech', 'intent:ai_media.speech')
@@ -387,6 +391,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'webDownload',
   'uploadFile',
   'image',
+  'video',
   'speech',
   'voiceConversion',
   'seedAudio',
@@ -458,6 +463,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'webDownload',
   'uploadFile',
   'image',
+  'video',
   'speech',
   'voiceConversion',
   'seedAudio',
@@ -945,7 +951,17 @@ const CUT_CREATE_KEYWORDS = [
   'new draft',
   'start draft'
 ]
-const CUT_TEMPLATE_KEYWORDS = ['口播模板', '模板草稿', 'koubo', 'template', '模板剪辑', '模版剪辑', '剪一下口播']
+const CUT_TEMPLATE_KEYWORDS = [
+  '口播模板',
+  '口播模版',
+  '模板草稿',
+  'koubo',
+  'template',
+  '模板剪辑',
+  '模版剪辑',
+  '口播剪辑',
+  '剪一下口播'
+]
 const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
 const CUT_SUBTITLE_RECOGNITION_KEYWORDS = [
   '字幕识别',
@@ -1025,11 +1041,7 @@ const hasSubtitleRecognitionIntent = (text: string) =>
     ((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
       /(字幕|文案|台词|时间轴)/.test(text)) ||
     (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text))) &&
-  (hasAudioSubject(text) || hasVideoSubject(text) || hasMediaFileReference(text) || hasUrlLikeText(text)) &&
-  !hasSubtitleTemplateIntent(text) &&
-  !/(添加到草稿|加回草稿|回写草稿|写回草稿|(?:加回|写回|添加到).{0,6}草稿|(?:给|帮|把|将).{0,12}上屏|字幕模板|字幕模版|样式模板|样式模版|套字幕样式|套模版|套模板)/.test(
-    text
-  )
+  (hasAudioSubject(text) || hasVideoSubject(text) || hasMediaFileReference(text) || hasUrlLikeText(text))
 
 const hasVideoUnderstandIntent = (text: string) =>
   (hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
@@ -1037,14 +1049,8 @@ const hasVideoUnderstandIntent = (text: string) =>
       /讲了什么/.test(text) ||
       /有什么/.test(text) ||
       /出现了什么/.test(text)) &&
-      /(画面|镜头|场景|人物|动作|内容)/.test(text)) ||
-    ((/(理解|分析|总结|概括|描述|识别|看懂)/.test(text) || /讲了什么|出现了什么|有什么/.test(text)) &&
-      (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text)))) &&
-  (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text)) &&
-  !hasSubtitleRecognitionIntent(text) &&
-  !hasSubtitleTemplateIntent(text) &&
-  !hasCutDraftContext(text) &&
-  !/(声音|音频|音轨|字幕|台词|文案|上屏|模板|模版|草稿)/.test(text)
+      /(画面|镜头|场景|人物|动作|内容)/.test(text))) &&
+  (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text))
 
 const CUT_LOOKUP_KEYWORDS = ['查看', '看下', '看一下', '查询', '列出', '有哪些', '可用', '支持', '列表']
 const hasCutDraftContext = (text: string) => /(草稿|draft|dfd_)/.test(text)
@@ -1154,8 +1160,7 @@ const hasFrameCaptureIntent = (text: string) =>
 
 const hasMediaDurationIntent = (text: string) =>
   (hasAudioSubject(text) || hasVideoSubject(text)) &&
-  /(时长|duration|多长|长度)/.test(text) &&
-  !hasCutDraftContext(text)
+  /(时长|duration|多长|长度)/.test(text)
 
 const hasMediaTrimIntent = (text: string) =>
   (hasAudioSubject(text) || hasVideoSubject(text)) &&
@@ -1164,13 +1169,11 @@ const hasMediaTrimIntent = (text: string) =>
 
 const hasAudioConcatIntent = (text: string) =>
   hasAudioSubject(text) &&
-  /(拼接|拼在一起|合并|接在一起|串起来|concat|concatenate|merge)/.test(text) &&
-  !hasCutDraftContext(text)
+  /(拼接|拼在一起|合并|接在一起|串起来|concat|concatenate|merge)/.test(text)
 
 const hasVideoConcatIntent = (text: string) =>
   (hasVideoSubject(text) || hasVideoFileReference(text)) &&
-  /(拼接|拼在一起|合并|接在一起|串起来|concat|concatenate|merge)/.test(text) &&
-  !hasCutDraftContext(text)
+  /(拼接|拼在一起|合并|接在一起|串起来|concat|concatenate|merge)/.test(text)
 
 const hasDownloadKeyword = (text: string) =>
   hasAnyKeyword(text, WORKSPACE_DOWNLOAD_KEYWORDS) || /(下载|保存).{0,12}(本地|工作区|workspace|下来)/.test(text)
@@ -1442,6 +1445,34 @@ export class CapabilityRouter {
           'poster'
         ]) ||
         (text.includes('封面') && !hasDraftUpdateIntent)
+      const hasAiVideoIntent =
+        (hasAnyKeyword(text, [
+          '生成视频',
+          '视频生成',
+          '文生视频',
+          '图生视频',
+          'ai视频',
+          'AI视频',
+          '生成一段视频',
+          '做一段视频',
+          '做个视频',
+          'veo3.1',
+          'veo3.1-pro',
+          'seedance-1.5-pro',
+          'seedance-2.0',
+          'seedance-2.0-fast',
+          'grok-video-3'
+        ]) ||
+          /(?:生成|做|创建|产出).{0,24}(?:视频|video|短片|片段)/.test(text) ||
+          /(?:视频|video).{0,16}(?:生成|文生|图生)/.test(text) ||
+          /text to video|image to video/i.test(text)) &&
+        !/(剪辑|流程|文案|脚本|教程)/.test(text) &&
+        !hasAnyKeyword(text, ['数字人', '口播', '唇形', '唇动', 'lip sync', 'lipsync', 'image driven'])
+      const hasAiVideoParameterContext =
+        hasAiVideoIntent &&
+        (/(模型|分辨率|时长|duration|gen_duration|超分|闲时生成|首帧|尾帧|首尾帧|静音|无声|无声音|有声|声音)/.test(text) ||
+          /seedance|veo|grok-video/i.test(text))
+      const hasExplicitSpeechGenerationIntent = /(语音合成|生成语音|配音|朗读|念出来|tts|音色|旁白|speech)/i.test(text)
       const hasImplicitBrowserUrlIntent =
         hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
 
@@ -1467,7 +1498,9 @@ export class CapabilityRouter {
         /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
         ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text))
+        (hasTemplateIntent && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
+        (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text)) ||
+        (hasAiVideoIntent && !hasUrlLikeText(args.prompt) && (hasLocalImageContext(text) || hasLocalMediaContext(text)))
       ) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
@@ -1489,6 +1522,10 @@ export class CapabilityRouter {
         )
       }
 
+      if (hasAiVideoIntent) {
+        addCapabilityReason(selected, reasons, 'video', 'prompt:video-generate')
+      }
+
       const shouldGenerateSeedAudio = hasSeedAudioIntent(text)
       const shouldConvertVoice = hasVoiceConversionIntent(text)
 
@@ -1501,7 +1538,8 @@ export class CapabilityRouter {
       if (
         hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio']) &&
         !shouldGenerateSeedAudio &&
-        !shouldConvertVoice
+        !shouldConvertVoice &&
+        !(hasAiVideoParameterContext && !hasExplicitSpeechGenerationIntent)
       ) {
         addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
       }
@@ -1521,7 +1559,8 @@ export class CapabilityRouter {
           'lip sync',
           'lipsync',
           'image driven'
-        ])
+        ]) &&
+        !hasTemplateIntent
       ) {
         addCapabilityReason(selected, reasons, 'digitalHuman', 'prompt:digital-human')
       }
@@ -1659,7 +1698,9 @@ export class CapabilityRouter {
       }
 
       if (hasMediaDuration) {
-        addCapabilityReason(selected, reasons, 'mediaDuration', 'prompt:media-duration')
+        if (!hasAiVideoParameterContext) {
+          addCapabilityReason(selected, reasons, 'mediaDuration', 'prompt:media-duration')
+        }
       }
 
       if (hasMediaTrim) {
@@ -1990,7 +2031,9 @@ function classifyIntent(args: {
     hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
   const hasExplicitWebOpenIntent =
     hasAnyKeyword(text, WEB_OPEN_KEYWORDS) ||
-    /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,20}(网页|页面|网站|百度|官网|首页|[^\s，。！？\n]{1,20}网)(?=$|[，。！？\s])/.test(text)
+    /(打开|访问|进入)(一下|一下子|下|帮我打开|帮忙打开)?[^，。！？\n]{0,24}(网页|页面|网站|链接|url|官网|首页|[^\s，。！？\n]{1,20}网)/i.test(
+      text
+    )
   const hasWebOpenIntent =
     hasImplicitWebUrlOpenIntent || hasExplicitWebOpenIntent
   const hasWebSearchIntent =
@@ -2027,7 +2070,7 @@ function classifyIntent(args: {
   if (args.selected.has('browser') || hasAnyKeyword(text, WEB_BROWSER_KEYWORDS) || hasImplicitWebUrlOpenIntent || hasWebOpenIntent) {
     addDomainSubdomain('web', 'browser', 'prompt:web-browser')
   }
-  if (hasWebOpenIntent && !hasWebDownloadIntent && !hasWorkspaceDownloadIntent) preferredMcpTools.add('mcp__browser__open')
+  if (hasWebOpenIntent) preferredMcpTools.add('mcp__browser__open')
   if (hasAnyKeyword(text, WEB_FETCH_KEYWORDS)) addDomainSubdomain('web', 'fetch', 'prompt:web-fetch')
   if (hasAnyKeyword(text, WEB_SCREENSHOT_KEYWORDS)) addDomainSubdomain('web', 'screenshot', 'prompt:web-screenshot')
   if (hasAnyKeyword(text, ['浏览器自动化', '自动操作页面', '网页执行', 'browser execute'])) {
@@ -2035,6 +2078,7 @@ function classifyIntent(args: {
   }
 
   if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
+  if (args.selected.has('video')) addDomainSubdomain('ai_media', 'video', 'capability:video')
   if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')
   if (args.selected.has('voiceConversion')) {
     addDomainSubdomain('ai_media', 'voice_conversion', 'capability:voice-conversion')
@@ -2070,6 +2114,7 @@ function classifyIntent(args: {
     preferredMcpTools.add('mcp__filesystem-server__download')
   }
   if (args.selected.has('image')) preferredMcpTools.add('mcp__image__generate_or_edit_image')
+  if (args.selected.has('video')) preferredMcpTools.add('mcp__video__generate_video')
   if (args.selected.has('speech')) preferredMcpTools.add('mcp__speech__generate_speech')
   if (args.selected.has('voiceConversion')) {
     preferredMcpTools.add('mcp__voice-conversion__submit_voice_conversion_task')

@@ -9,7 +9,9 @@ describe('mcpToolDisplay', () => {
         'message.tools.mcp.servers.subtitle_template': '字幕模板',
         'message.tools.mcp.tools.subtitle_template.generate_smart_subtitle': '智能字幕生成',
         'message.tools.mcp.servers.image': '图像',
-        'message.tools.mcp.tools.image.generate_or_edit_image': '生成或编辑图片'
+        'message.tools.mcp.tools.image.generate_or_edit_image': '生成或编辑图片',
+        'message.tools.mcp.servers.video': '视频',
+        'message.tools.mcp.tools.video.generate_video': '生成视频'
       } as Record<string, string>
     )[key] ?? key) as any
 
@@ -27,7 +29,17 @@ describe('mcpToolDisplay', () => {
         toolName: 'generate_smart_subtitle',
         t
       })
-    ).toBe('字幕模板: 智能字幕生成')
+    ).toBe('字幕模板：智能字幕生成')
+  })
+
+  it('uses full-width colon for localized Chinese MCP display names', () => {
+    expect(
+      getMcpToolDisplayName({
+        serverName: 'video',
+        toolName: 'generate_video',
+        t
+      })
+    ).toBe('视频：生成视频')
   })
 
   it('falls back to humanized English for unknown MCP tools', () => {

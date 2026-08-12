@@ -2532,6 +2532,7 @@
           "subtitle_recognition": "Subtitle Recognition",
           "system": "System",
           "subtitle_template": "Subtitle Template",
+          "video": "Video",
           "video_understand": "Video Understanding",
           "voice_conversion": "Voice Conversion",
           "zcaceres_fetch": "Web Fetch"
@@ -2678,6 +2679,10 @@
           "subtitle_template": {
             "generate_smart_subtitle": "Generate Smart Subtitle",
             "get_smart_subtitle_task_status": "Check Subtitle Task Status"
+          },
+          "video": {
+            "generate_video": "Generate Video",
+            "get_video_capabilities": "View Video Models"
           },
           "system": {
             "open_deeplink": "Open Link"

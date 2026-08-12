@@ -387,7 +387,7 @@ describe('CapabilityRouter', () => {
     expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
   })
 
-  it('routes speech, seed audio, image, and digital human requests to ai_media', () => {
+  it('routes speech, seed audio, image, video, and digital human requests to ai_media', () => {
     const router = new CapabilityRouter()
 
     const speechDecision = router.select({
@@ -430,6 +430,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const videoDecision = router.select({
+      prompt: '生成一个 9:16 的 AI 视频',
+      sessionId: 'session-video-generate',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
 
     expect(speechDecision.primaryDomain).toBe('ai_media')
     expect(speechDecision.subdomains).toEqual(['speech'])
@@ -452,6 +460,10 @@ describe('CapabilityRouter', () => {
     expect(imageDecision.subdomains).toEqual(['image'])
     expect(imageDecision.selected.has('image')).toBe(true)
     expect(imageDecision.preferredMcpTools).toContain('mcp__image__generate_or_edit_image')
+    expect(videoDecision.primaryDomain).toBe('ai_media')
+    expect(videoDecision.subdomains).toEqual(['video'])
+    expect(videoDecision.selected.has('video')).toBe(true)
+    expect(videoDecision.preferredMcpTools).toContain('mcp__video__generate_video')
   })
 
   it('routes local reference image generation to ai_media.image with workspace upload', () => {
@@ -472,6 +484,48 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('uploadFile')).toBe(true)
     expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
     expect(decision.preferredMcpTools).toContain('mcp__image__generate_or_edit_image')
+  })
+
+  it('routes local reference video generation to ai_media.video with workspace upload', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '参考本地图片 /tmp/start-frame.png 和本地音频 /tmp/bgm.mp3，生成一个 9:16 的宣传视频',
+      sessionId: 'session-local-reference-video',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('ai_media')
+    expect(decision.subdomains).toEqual(['video'])
+    expect(decision.selected.has('video')).toBe(true)
+    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
+    expect(decision.preferredMcpTools).toContain('mcp__video__generate_video')
+  })
+
+  it('routes explicit video generation parameter prompts to ai_media.video instead of speech or media duration', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt:
+        '请使用模型 seedance-1.5-pro，分辨率 496x864，时长 4 秒，输出无声音，关闭闲时生成，开启超分 生成视频：清晨海边悬崖上云层缓慢流动，镜头平稳推进，电影感自然风景，无人物，无字幕',
+      sessionId: 'session-explicit-video-params',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('ai_media')
+    expect(decision.subdomains).toEqual(['video'])
+    expect(decision.selected.has('video')).toBe(true)
+    expect(decision.selected.has('speech')).toBe(false)
+    expect(decision.selected.has('mediaDuration')).toBe(false)
+    expect(decision.preferredMcpTools).toContain('mcp__video__generate_video')
+    expect(decision.preferredMcpTools).not.toContain('mcp__speech__generate_speech')
   })
 
   it('keeps near-match doubao speech prompts on speech instead of seed audio', () => {
@@ -650,6 +704,30 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const kouboVariantDecision = router.select({
+      prompt: '口播模版',
+      sessionId: 'session-koubo-template-variant',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const kouboEditDecision = router.select({
+      prompt: '口播剪辑',
+      sessionId: 'session-koubo-edit',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const localKouboDecision = router.select({
+      prompt: '给这个本地视频 sample.mp4 做口播模版',
+      sessionId: 'session-local-koubo-template',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
 
     expect(createDecision.primaryDomain).toBe('cut')
     expect(createDecision.subdomains).toEqual(['draft'])
@@ -703,7 +781,23 @@ describe('CapabilityRouter', () => {
     expect(templateDecision.primaryDomain).toBe('cut')
     expect(templateDecision.subdomains).toEqual(['template'])
     expect(templateDecision.selected.has('kouboTemplate')).toBe(true)
+    expect(templateDecision.selected.has('digitalHuman')).toBe(false)
     expect(templateDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
+    expect(kouboVariantDecision.primaryDomain).toBe('cut')
+    expect(kouboVariantDecision.subdomains).toEqual(['template'])
+    expect(kouboVariantDecision.selected.has('kouboTemplate')).toBe(true)
+    expect(kouboVariantDecision.selected.has('digitalHuman')).toBe(false)
+    expect(kouboEditDecision.primaryDomain).toBe('cut')
+    expect(kouboEditDecision.subdomains).toEqual(['template'])
+    expect(kouboEditDecision.selected.has('kouboTemplate')).toBe(true)
+    expect(kouboEditDecision.selected.has('digitalHuman')).toBe(false)
+    expect(localKouboDecision.primaryDomain).toBe('cut')
+    expect(localKouboDecision.subdomains).toEqual(['template'])
+    expect(localKouboDecision.selected.has('kouboTemplate')).toBe(true)
+    expect(localKouboDecision.selected.has('uploadFile')).toBe(true)
+    expect(localKouboDecision.selected.has('digitalHuman')).toBe(false)
+    expect(localKouboDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
+    expect(localKouboDecision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
   })
 
   it('allows cut and ai_media domains to combine in the same request', () => {
@@ -738,6 +832,141 @@ describe('CapabilityRouter', () => {
           domain: 'ai_media',
           role: 'support',
           subdomains: ['speech']
+        })
+      ])
+    )
+  })
+
+  it('allows cut and ai_media.video to combine in the same request', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '给这个草稿添加 srt 字幕，同时按同样主题再生成一个无字幕的 AI 视频',
+      sessionId: 'session-cut-ai-video-combined',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('video')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__video__generate_video')
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'cut'
+        }),
+        expect.objectContaining({
+          domain: 'ai_media',
+          subdomains: ['video']
+        })
+      ])
+    )
+    expect(decision.primaryDomain === 'cut' || decision.primaryDomain === 'ai_media').toBe(true)
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'cut'
+        }),
+        expect.objectContaining({
+          domain: 'ai_media',
+          subdomains: ['video']
+        })
+      ])
+    )
+  })
+
+  it('allows subtitle recognition and subtitle template to coexist in the same request', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '识别这个视频里的字幕并写回草稿，再套一个字幕模板',
+      sessionId: 'session-subtitle-recognition-template-combined',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.selected.has('subtitleRecognition')).toBe(true)
+    expect(decision.selected.has('subtitleTemplate')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__subtitle-recognition__submit_subtitle_recognition_task')
+    expect(decision.preferredMcpTools).toContain('mcp__subtitle-template__generate_smart_subtitle')
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['analysis', 'template']))
+  })
+
+  it('allows video understanding in draft context', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '分析这个草稿里的视频画面内容，再总结成一段文案',
+      sessionId: 'session-video-understand-draft-context',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.selected.has('videoUnderstand')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__video-understand__submit_video_detail_task')
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['analysis']))
+  })
+
+  it('allows media duration and video concat in draft context', () => {
+    const router = new CapabilityRouter()
+
+    const durationDecision = router.select({
+      prompt: '这个草稿里的视频时长多长',
+      sessionId: 'session-media-duration-draft-context',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const concatDecision = router.select({
+      prompt: '把两个本地视频拼接起来并加入草稿',
+      sessionId: 'session-video-concat-draft-context',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(durationDecision.primaryDomain).toBe('cut')
+    expect(durationDecision.selected.has('mediaDuration')).toBe(true)
+    expect(durationDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__get_media_duration')
+
+    expect(concatDecision.primaryDomain).toBe('cut')
+    expect(concatDecision.selected.has('videoConcat')).toBe(true)
+    expect(concatDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__concatenate_video_files')
+  })
+
+  it('allows browser and media download to coexist for explicit open and download requests', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '打开这个视频网页并下载到本地 https://example.com/demo.mp4',
+      sessionId: 'session-browser-download-combined',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('mediaDownload')).toBe(true)
+    expect(decision.selected.has('browser')).toBe(true)
+    expect(decision.preferredMcpTools).toContain('mcp__filesystem-server__download')
+    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'cut'
+        }),
+        expect.objectContaining({
+          domain: 'web',
+          subdomains: expect.arrayContaining(['browser'])
         })
       ])
     )
