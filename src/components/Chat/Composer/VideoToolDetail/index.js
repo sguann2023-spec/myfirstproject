@@ -1,15 +1,26 @@
 import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
 import { Select, Tooltip } from 'antd';
+import { Clapperboard } from 'lucide-react';
 import './index.css';
 import VideoResolutionSelect from '../VideoResolutionSelect/index';
 import ImageModelJimengBlackIcon from '../../../../../public/image_model_jimeng_black.svg';
 import AiVideoSelectedIcon from '../../../../../public/ai_video_selected.svg';
+import FirstFrameIcon from '../../../../../public/first_frame.svg';
+import FirstLastFrameIcon from '../../../../../public/first_last_frame.svg';
+import ReferenceGenIcon from '../../../../../public/reference_gen.svg';
 
 const VIDEO_MODEL_OPTIONS = [
   { value: 'seedance-2.0', label: 'Seedance 2.0' },
   { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
   { value: 'seedance-1.5-pro', label: 'Seedance 1.5 Pro' },
+];
+
+const VIDEO_GENERATION_MODE_OPTIONS = [
+  { value: 'text_to_video', label: '文生视频' },
+  { value: 'first_frame', label: '首帧生成' },
+  { value: 'first_last_frame', label: '首尾帧' },
+  { value: 'reference', label: '参考生成' },
 ];
 
 const VIDEO_RESOLUTION_OPTIONS = [
@@ -30,6 +41,14 @@ const normalizeModelLabel = (model) => {
 const getModelIcon = (model) => {
   const normalized = String(model || '').trim().toLowerCase();
   if (normalized.startsWith('seedance-') || normalized.startsWith('doubao-seedance-')) return ImageModelJimengBlackIcon;
+  return null;
+};
+
+const getGenerationModeIcon = (mode) => {
+  const normalized = String(mode || '').trim();
+  if (normalized === 'first_frame') return FirstFrameIcon;
+  if (normalized === 'first_last_frame') return FirstLastFrameIcon;
+  if (normalized === 'reference') return ReferenceGenIcon;
   return null;
 };
 
@@ -59,16 +78,46 @@ const renderSelectedLabel = (text, open = false, icon = null) => (
   </span>
 );
 
+const renderModeContent = (value, label) => (
+  <span className="chat-panel__video-mode-option">
+    {getGenerationModeIcon(value) ? (
+      <img className="chat-panel__video-mode-option-image" src={getGenerationModeIcon(value)} alt="" aria-hidden="true" />
+    ) : (
+      <Clapperboard className="chat-panel__video-mode-option-icon" aria-hidden="true" />
+    )}
+    <span>{label}</span>
+  </span>
+);
+
+const renderModeSelectedLabel = (value, text, open = false) => (
+  <span className="chat-panel__video-selected">
+    <span className="chat-panel__model-option-main">
+      {getGenerationModeIcon(value) ? (
+        <img className="chat-panel__video-mode-option-image" src={getGenerationModeIcon(value)} alt="" aria-hidden="true" />
+      ) : (
+        <Clapperboard className="chat-panel__video-mode-option-icon" aria-hidden="true" />
+      )}
+      <span className="chat-panel__model-option-text">{text}</span>
+    </span>
+    <DownOutlined
+      className={`chat-panel__video-selected-arrow ${open ? 'is-open' : ''}`}
+      aria-hidden="true"
+    />
+  </span>
+);
+
 const VideoToolDetail = ({
   disabled = false,
   onBack,
   selectedModel = 'seedance-2.0',
+  selectedGenerationMode = 'text_to_video',
   selectedResolution = '720x1280',
   selectedDuration = 5,
   selectedGenerateAudio = true,
   selectedSeedanceOffline = false,
   selectedSuperResolve = false,
   onModelChange = null,
+  onGenerationModeChange = null,
   onResolutionChange = null,
   onDurationChange = null,
   onGenerateAudioChange = null,
@@ -76,6 +125,7 @@ const VideoToolDetail = ({
   onSuperResolveChange = null,
 }) => {
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
+  const [modePickerOpen, setModePickerOpen] = React.useState(false);
   const [capabilityModels, setCapabilityModels] = React.useState([]);
 
   React.useEffect(() => {
@@ -148,6 +198,17 @@ const VideoToolDetail = ({
     [capabilityMap, selectedModel]
   );
 
+  const resolvedGenerationModeOptions = React.useMemo(() => {
+    const modes = Array.isArray(activeCapability?.generation_modes) ? activeCapability.generation_modes : [];
+    if (modes.length === 0) return VIDEO_GENERATION_MODE_OPTIONS;
+    return modes
+      .map((item) => ({
+        value: String(item?.value || '').trim(),
+        label: String(item?.label || '').trim(),
+      }))
+      .filter((item) => item.value && item.label);
+  }, [activeCapability]);
+
   React.useEffect(() => {
     if (capabilityModels.length === 0) return;
     if (!resolvedModelOptions.some((item) => item.value === selectedModel) && resolvedModelOptions[0]?.value) {
@@ -161,6 +222,13 @@ const VideoToolDetail = ({
       onResolutionChange && onResolutionChange(resolvedResolutionOptions[0].value);
     }
   }, [capabilityModels.length, onResolutionChange, resolvedResolutionOptions, selectedResolution]);
+
+  React.useEffect(() => {
+    if (resolvedGenerationModeOptions.length === 0) return;
+    if (!resolvedGenerationModeOptions.some((item) => item.value === selectedGenerationMode) && resolvedGenerationModeOptions[0]?.value) {
+      onGenerationModeChange && onGenerationModeChange(resolvedGenerationModeOptions[0].value);
+    }
+  }, [onGenerationModeChange, resolvedGenerationModeOptions, selectedGenerationMode]);
 
   React.useEffect(() => {
     if (!activeCapability) return;
@@ -188,6 +256,12 @@ const VideoToolDetail = ({
     label: renderModelContent(item.value, item.label, item.description),
     selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value)),
   })), [modelPickerOpen, resolvedModelOptions]);
+
+  const generationModeOptions = React.useMemo(() => resolvedGenerationModeOptions.map((item) => ({
+    value: item.value,
+    label: renderModeContent(item.value, item.label),
+    selectedLabel: renderModeSelectedLabel(item.value, item.label, modePickerOpen),
+  })), [modePickerOpen, resolvedGenerationModeOptions]);
 
   return (
     <div className="chat-panel__tool-detail-area">
@@ -231,9 +305,31 @@ const VideoToolDetail = ({
           )}
           optionRender={(option) => option.data.label}
         />
+        <Select
+          size="small"
+          variant="borderless"
+          className="chat-panel__model-picker chat-panel__video-picker chat-panel__video-mode-picker"
+          classNames={{ popup: { root: 'chat-panel__video-picker-dropdown chat-panel__video-mode-picker-dropdown' } }}
+          value={selectedGenerationMode}
+          options={generationModeOptions}
+          optionLabelProp="selectedLabel"
+          onChange={(value) => onGenerationModeChange && onGenerationModeChange(value)}
+          onOpenChange={setModePickerOpen}
+          disabled={disabled}
+          popupMatchSelectWidth={false}
+          getPopupContainer={() => document.body}
+          popupRender={(menu) => (
+            <div className="chat-panel__video-picker-popup" onPointerDown={(event) => event.stopPropagation()}>
+              <div className="chat-panel__video-picker-title">生成方式</div>
+              {menu}
+            </div>
+          )}
+          optionRender={(option) => option.data.label}
+        />
         <VideoResolutionSelect
           model={selectedModel}
           capabilities={capabilityMap}
+          generationMode={selectedGenerationMode}
           value={selectedResolution}
           duration={selectedDuration}
           generateAudio={selectedGenerateAudio}
@@ -253,6 +349,7 @@ const VideoToolDetail = ({
 
 export {
   VIDEO_MODEL_OPTIONS,
+  VIDEO_GENERATION_MODE_OPTIONS,
   VIDEO_RESOLUTION_OPTIONS,
 };
 

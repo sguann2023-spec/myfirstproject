@@ -259,6 +259,7 @@ const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avat
 const IMAGE_PAN_MODEL_STORAGE_KEY = 'chat-panel:image-pan-model';
 const IMAGE_PAN_RESOLUTION_STORAGE_KEY = 'chat-panel:image-pan-resolution';
 const VIDEO_MODEL_STORAGE_KEY = 'chat-panel:video-model';
+const VIDEO_GENERATION_MODE_STORAGE_KEY = 'chat-panel:video-generation-mode';
 const VIDEO_RESOLUTION_STORAGE_KEY = 'chat-panel:video-resolution';
 const VIDEO_DURATION_STORAGE_KEY = 'chat-panel:video-duration';
 const VIDEO_GENERATE_AUDIO_STORAGE_KEY = 'chat-panel:video-generate-audio';
@@ -273,11 +274,19 @@ const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
 const DEFAULT_IMAGE_PAN_MODEL = 'seedream-4.5';
 const DEFAULT_IMAGE_PAN_RESOLUTION = '1440x2560';
 const DEFAULT_VIDEO_MODEL = 'seedance-2.0';
+const DEFAULT_VIDEO_GENERATION_MODE = 'text_to_video';
 const DEFAULT_VIDEO_RESOLUTION = '720x1280';
 const DEFAULT_VIDEO_DURATION = 5;
 const DEFAULT_VIDEO_GENERATE_AUDIO = true;
 const DEFAULT_VIDEO_SEEDANCE_OFFLINE = false;
 const DEFAULT_VIDEO_SUPER_RESOLVE = false;
+const VIDEO_GENERATION_MODE_VALUES = new Set(['text_to_video', 'first_frame', 'first_last_frame', 'reference']);
+const VIDEO_GENERATION_MODE_LABELS = {
+  text_to_video: '文生视频',
+  first_frame: '首帧生成',
+  first_last_frame: '首尾帧',
+  reference: '参考生成',
+};
 const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
@@ -352,6 +361,11 @@ const normalizeVideoModel = (value) => {
   return normalizedValue || DEFAULT_VIDEO_MODEL;
 };
 
+const normalizeVideoGenerationMode = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return VIDEO_GENERATION_MODE_VALUES.has(normalizedValue) ? normalizedValue : DEFAULT_VIDEO_GENERATION_MODE;
+};
+
 const normalizeVideoResolution = (value) => {
   const normalizedValue = String(value || '').trim();
   return normalizedValue || DEFAULT_VIDEO_RESOLUTION;
@@ -362,6 +376,14 @@ const readPersistedVideoModel = () => {
     return normalizeVideoModel(localStorage.getItem(VIDEO_MODEL_STORAGE_KEY));
   } catch (error) {
     return DEFAULT_VIDEO_MODEL;
+  }
+};
+
+const readPersistedVideoGenerationMode = () => {
+  try {
+    return normalizeVideoGenerationMode(localStorage.getItem(VIDEO_GENERATION_MODE_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_VIDEO_GENERATION_MODE;
   }
 };
 
@@ -2024,6 +2046,7 @@ const Composer = ({
   const [selectedImagePanModel, setSelectedImagePanModel] = React.useState(() => readPersistedImagePanModel());
   const [selectedImagePanResolution, setSelectedImagePanResolution] = React.useState(() => readPersistedImagePanResolution());
   const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
+  const [selectedVideoGenerationMode, setSelectedVideoGenerationMode] = React.useState(() => readPersistedVideoGenerationMode());
   const [selectedVideoResolution, setSelectedVideoResolution] = React.useState(() => readPersistedVideoResolution());
   const [selectedVideoDuration, setSelectedVideoDuration] = React.useState(() => readPersistedVideoDuration());
   const [selectedVideoGenerateAudio, setSelectedVideoGenerateAudio] = React.useState(() => readPersistedVideoGenerateAudio());
@@ -3492,7 +3515,7 @@ const Composer = ({
         : activeTool === 'image-pan'
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
           : activeTool === 'ai-video'
-            ? `请使用模型 ${selectedVideoModel}，分辨率 ${selectedVideoResolution}，时长 ${selectedVideoDuration} 秒，${selectedVideoGenerateAudio ? '输出有声音' : '输出无声音'}，${selectedVideoSeedanceOffline ? '开启闲时生成' : '关闭闲时生成'}，${selectedVideoSuperResolve ? '开启超分' : '关闭超分'} 生成视频：${combined}`
+            ? `请使用模型 ${selectedVideoModel}，生成方式 ${VIDEO_GENERATION_MODE_LABELS[normalizeVideoGenerationMode(selectedVideoGenerationMode)] || VIDEO_GENERATION_MODE_LABELS[DEFAULT_VIDEO_GENERATION_MODE]}，分辨率 ${selectedVideoResolution}，时长 ${selectedVideoDuration} 秒，${selectedVideoGenerateAudio ? '输出有声音' : '输出无声音'}，${selectedVideoSeedanceOffline ? '开启闲时生成' : '关闭闲时生成'}，${selectedVideoSuperResolve ? '开启超分' : '关闭超分'} 生成视频：${combined}`
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
@@ -3553,6 +3576,14 @@ const Composer = ({
       // Ignore local storage persistence failures.
     }
   }, [selectedVideoModel]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_GENERATION_MODE_STORAGE_KEY, normalizeVideoGenerationMode(selectedVideoGenerationMode));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedVideoGenerationMode]);
 
   React.useEffect(() => {
     try {
@@ -3712,12 +3743,14 @@ const Composer = ({
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}
                       selectedModel={selectedVideoModel}
+                      selectedGenerationMode={selectedVideoGenerationMode}
                       selectedResolution={selectedVideoResolution}
                       selectedDuration={selectedVideoDuration}
                       selectedGenerateAudio={selectedVideoGenerateAudio}
                       selectedSeedanceOffline={selectedVideoSeedanceOffline}
                       selectedSuperResolve={selectedVideoSuperResolve}
                       onModelChange={setSelectedVideoModel}
+                      onGenerationModeChange={setSelectedVideoGenerationMode}
                       onResolutionChange={setSelectedVideoResolution}
                       onDurationChange={setSelectedVideoDuration}
                       onGenerateAudioChange={setSelectedVideoGenerateAudio}

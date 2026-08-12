@@ -134,6 +134,32 @@ describe('VideoGenerateServer', () => {
               seedance_offline_supported: false,
               super_resolve_supported: true,
               gen_durations: [4, 5, 6],
+              generation_modes: [
+                {
+                  value: 'text_to_video',
+                  label: '文生视频',
+                  price_group: 'standard',
+                  offline_price_group: ''
+                },
+                {
+                  value: 'first_frame',
+                  label: '首帧生成',
+                  price_group: 'standard',
+                  offline_price_group: ''
+                },
+                {
+                  value: 'first_last_frame',
+                  label: '首尾帧',
+                  price_group: 'standard',
+                  offline_price_group: ''
+                },
+                {
+                  value: 'reference',
+                  label: '参考生成',
+                  price_group: 'reference_video',
+                  offline_price_group: ''
+                }
+              ],
               resolutions: {
                 '720p': [
                   { ratio: '16:9', size: '1280x720' },
@@ -195,6 +221,32 @@ describe('VideoGenerateServer', () => {
           seedance_offline_supported: false,
           super_resolve_supported: true,
           gen_durations: [4, 5, 6],
+          generation_modes: [
+            {
+              value: 'text_to_video',
+              label: '文生视频',
+              price_group: 'standard',
+              offline_price_group: ''
+            },
+            {
+              value: 'first_frame',
+              label: '首帧生成',
+              price_group: 'standard',
+              offline_price_group: ''
+            },
+            {
+              value: 'first_last_frame',
+              label: '首尾帧',
+              price_group: 'standard',
+              offline_price_group: ''
+            },
+            {
+              value: 'reference',
+              label: '参考生成',
+              price_group: 'reference_video',
+              offline_price_group: ''
+            }
+          ],
           resolutions: {
             '720p': [{ ratio: '9:16', size: '720x1280' }]
           },

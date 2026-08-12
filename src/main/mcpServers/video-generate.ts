@@ -177,6 +177,13 @@ type ResolutionItem = {
   size?: string
 }
 
+type VideoGenerationMode = {
+  value?: string
+  label?: string
+  price_group?: string
+  offline_price_group?: string
+}
+
 type VideoPriceEntry = {
   project_id?: string
   resource_points_per_unit?: number
@@ -195,6 +202,7 @@ type VideoModelCapability = {
   seedance_offline_supported?: boolean
   super_resolve_supported?: boolean
   gen_durations?: number[]
+  generation_modes?: VideoGenerationMode[]
   resolutions?: Record<string, ResolutionItem[]>
 }
 
@@ -997,6 +1005,14 @@ class VideoGenerateServer {
       seedance_offline_supported: Boolean(capability?.seedance_offline_supported),
       super_resolve_supported: Boolean(capability?.super_resolve_supported),
       gen_durations: Array.isArray(capability?.gen_durations) ? capability.gen_durations : [],
+      generation_modes: Array.isArray(capability?.generation_modes)
+        ? capability.generation_modes.map((item) => ({
+            value: typeof item?.value === 'string' ? item.value : '',
+            label: typeof item?.label === 'string' ? item.label : '',
+            price_group: typeof item?.price_group === 'string' ? item.price_group : '',
+            offline_price_group: typeof item?.offline_price_group === 'string' ? item.offline_price_group : ''
+          }))
+        : [],
       resolutions: normalizedResolutions
     }
 

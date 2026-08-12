@@ -80,6 +80,11 @@ const TRIGGER_STATUS_LABELS = {
 };
 
 const getModelCapability = (capabilities, model) => capabilities?.[model] || {};
+const normalizeGenerationModeValue = (value) => {
+  const normalizedValue = String(value || '').trim();
+  return normalizedValue || 'text_to_video';
+};
+
 const normalizeDurationValue = (value) => {
   const parsedValue = Number(value);
   return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
@@ -96,6 +101,22 @@ const findTierPriceEntry = (tierPrices, tier) => {
 
   const matchedKey = Object.keys(tierPrices).find((key) => String(key || '').trim().toLowerCase() === normalizedTier);
   return matchedKey ? tierPrices[matchedKey] : null;
+};
+
+const findGenerationModeConfig = (generationModes, generationMode) => {
+  const normalizedGenerationMode = normalizeGenerationModeValue(generationMode);
+  return (Array.isArray(generationModes) ? generationModes : []).find(
+    (item) => String(item?.value || '').trim() === normalizedGenerationMode
+  ) || null;
+};
+
+const findPriceEntryByGroup = (priceMap, groupName, tier) => {
+  const normalizedGroupName = String(groupName || '').trim().toLowerCase();
+  if (!normalizedGroupName || !priceMap || typeof priceMap !== 'object') return null;
+
+  const matchedKey = Object.keys(priceMap).find((key) => String(key || '').trim().toLowerCase() === normalizedGroupName);
+  if (!matchedKey) return null;
+  return findTierPriceEntry(priceMap[matchedKey], tier);
 };
 
 const getPriceGroupFlags = (groupName) => {
@@ -115,6 +136,8 @@ const pickVideoPriceEntry = (
   priceMap,
   tier,
   {
+    generationMode = 'text_to_video',
+    generationModeConfig = null,
     generateAudioSupported = false,
     generateAudio = true,
     seedanceOffline = false,
@@ -123,6 +146,15 @@ const pickVideoPriceEntry = (
   } = {}
 ) => {
   if (!priceMap || typeof priceMap !== 'object') return null;
+  const preferredGroupName = seedanceOffline
+    ? String(generationModeConfig?.offline_price_group || '').trim()
+    : String(generationModeConfig?.price_group || '').trim();
+  const preferredEntry = findPriceEntryByGroup(priceMap, preferredGroupName, tier);
+  if (preferredEntry) {
+    return preferredEntry;
+  }
+
+  const normalizedGenerationMode = normalizeGenerationModeValue(generationMode);
 
   const candidates = Object.entries(priceMap)
     .map(([groupName, tierPrices]) => ({
@@ -151,6 +183,10 @@ const pickVideoPriceEntry = (
       if (generateAudioSupported && generateAudio && flags.audioOn) score += 3;
       if (generateAudioSupported && !generateAudio && flags.audioOff) score += 3;
       if (superResolveSupported && superResolve && flags.superResolve) score += 3;
+      if (normalizedGenerationMode === 'first_frame' && flags.firstFrameExtend) score += 5;
+      if (normalizedGenerationMode === 'reference' && flags.referenceVideo) score += 5;
+      if (normalizedGenerationMode === 'text_to_video' && flags.standard) score += 2;
+      if (normalizedGenerationMode === 'first_last_frame' && flags.firstFrameExtend) score += 2;
 
       return {
         entry,
@@ -190,6 +226,7 @@ const RatioIcon = ({ ratio, active = false }) => {
 const VideoResolutionSelect = ({
   model,
   capabilities,
+  generationMode = 'text_to_video',
   value,
   duration = 5,
   generateAudio = true,
@@ -245,6 +282,10 @@ const VideoResolutionSelect = ({
   const generateAudioSupported = Boolean(modelCapability?.generate_audio_supported);
   const seedanceOfflineSupported = Boolean(modelCapability?.seedance_offline_supported);
   const superResolveSupported = Boolean(modelCapability?.super_resolve_supported);
+  const generationModeConfig = React.useMemo(
+    () => findGenerationModeConfig(modelCapability?.generation_modes, generationMode),
+    [generationMode, modelCapability]
+  );
   const durationOptions = React.useMemo(() => {
     const rawDurations = Array.isArray(modelCapability?.gen_durations) ? modelCapability.gen_durations : [];
     const normalizedDurations = rawDurations
@@ -257,6 +298,8 @@ const VideoResolutionSelect = ({
     : durationOptions[0];
   const triggerPriceText = React.useMemo(() => {
     const priceEntry = pickVideoPriceEntry(modelCapability?.price, tier, {
+      generationMode,
+      generationModeConfig,
       generateAudioSupported,
       generateAudio,
       seedanceOffline,
@@ -267,6 +310,8 @@ const VideoResolutionSelect = ({
   }, [
     generateAudio,
     generateAudioSupported,
+    generationMode,
+    generationModeConfig,
     modelCapability,
     resolvedDuration,
     seedanceOffline,
