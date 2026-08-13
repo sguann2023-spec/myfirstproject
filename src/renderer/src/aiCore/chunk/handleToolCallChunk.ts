@@ -74,6 +74,7 @@ export class ToolCallChunkHandler {
   private static globalActiveToolCalls = new Map<string, ToolcallsMap>()
 
   private activeToolCalls = ToolCallChunkHandler.globalActiveToolCalls
+  private ownedToolCallIds = new Set<string>()
   constructor(
     private onChunk: (chunk: Chunk) => void,
     private mcpTools: MCPTool[]
@@ -131,7 +132,17 @@ export class ToolCallChunkHandler {
    * 实例方法：添加活跃工具调用
    */
   private addActiveToolCall(toolCallId: string, map: ToolcallsMap): boolean {
-    return ToolCallChunkHandler.addActiveToolCallImpl(toolCallId, map)
+    const added = ToolCallChunkHandler.addActiveToolCallImpl(toolCallId, map)
+    if (added) {
+      this.ownedToolCallIds.add(toolCallId)
+    }
+    return added
+  }
+
+  private removeActiveToolCall(toolCallId: string): void {
+    this.clearToolCallWatchdog(toolCallId)
+    this.activeToolCalls.delete(toolCallId)
+    this.ownedToolCallIds.delete(toolCallId)
   }
 
   /**
@@ -483,8 +494,7 @@ export class ToolCallChunkHandler {
     }
 
     // 从活跃调用中移除（交互结束后整个实例会被丢弃）
-    this.clearToolCallWatchdog(toolCallId)
-    this.activeToolCalls.delete(toolCallId)
+    this.removeActiveToolCall(toolCallId)
     logger.info('🔧 [ToolCallChunkHandler] Tool result received', {
       toolCallId,
       toolName: toolCallInfo.toolName,
@@ -538,8 +548,7 @@ export class ToolCallChunkHandler {
       responseRaw: error,
       toolCallId: toolCallId
     }
-    this.clearToolCallWatchdog(toolCallId)
-    this.activeToolCalls.delete(toolCallId)
+    this.removeActiveToolCall(toolCallId)
     logger.warn('🔧 [ToolCallChunkHandler] Tool error received', {
       toolCallId,
       toolName: toolCallInfo.toolName,
@@ -551,6 +560,54 @@ export class ToolCallChunkHandler {
         type: ChunkType.MCP_TOOL_COMPLETE,
         responses: [toolResponse]
       })
+    }
+  }
+
+  public finalizeOpenToolCalls(status: 'error' | 'cancelled', reason: string): void {
+    const activeOwnedToolCallIds = [...this.ownedToolCallIds].filter((toolCallId) => this.activeToolCalls.has(toolCallId))
+    if (activeOwnedToolCallIds.length === 0) {
+      return
+    }
+
+    for (const toolCallId of activeOwnedToolCallIds) {
+      const toolCallInfo = this.activeToolCalls.get(toolCallId)
+      if (!toolCallInfo) {
+        this.ownedToolCallIds.delete(toolCallId)
+        continue
+      }
+
+      const normalizedReason = reason.trim() || 'Tool call did not reach a terminal state before the stream ended.'
+      const response = normalizeToCallToolResult(normalizedReason, {
+        isError: status === 'error'
+      })
+      const toolResponse: MCPToolResponse | NormalToolResponse = {
+        id: toolCallInfo.toolCallId,
+        tool: toolCallInfo.tool,
+        arguments: toolCallInfo.args,
+        status,
+        response,
+        responseRaw: normalizedReason,
+        toolCallId
+      }
+
+      logger.warn('🔧 [ToolCallChunkHandler] Finalized dangling tool call after stream end', {
+        toolCallId,
+        toolName: toolCallInfo.toolName,
+        status,
+        reason: normalizedReason,
+        lastStage: toolCallInfo.lastStage || 'unknown',
+        partialArgumentsPreview: summarizeForLog(toolCallInfo.streamingArgs || ''),
+        argsPreview: summarizeForLog(toolCallInfo.args)
+      })
+
+      this.removeActiveToolCall(toolCallId)
+
+      if (this.onChunk) {
+        this.onChunk({
+          type: ChunkType.MCP_TOOL_COMPLETE,
+          responses: [toolResponse]
+        })
+      }
     }
   }
 }

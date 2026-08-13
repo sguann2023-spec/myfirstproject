@@ -28,6 +28,13 @@ type PendingToolCall = {
   input?: unknown
 }
 
+type PiToolCallSnapshot = {
+  contentIndex: number
+  id: string
+  name: string
+  arguments: unknown
+}
+
 function mapPiStopReason(reason: string | undefined): 'stop' | 'length' | 'tool-calls' | 'error' {
   if (reason === 'length') return 'length'
   if (reason === 'toolUse') return 'tool-calls'
@@ -147,6 +154,50 @@ function summarizePiContent(value: unknown): {
     textChars,
     types
   }
+}
+
+function extractPiToolCallSnapshots(message: { content?: unknown }): PiToolCallSnapshot[] {
+  if (!Array.isArray(message.content)) {
+    return []
+  }
+
+  return message.content.flatMap((part, contentIndex) => {
+    if (!part || typeof part !== 'object') {
+      return []
+    }
+
+    const record = part as Record<string, unknown>
+    if (String(record.type || '') !== 'toolCall') {
+      return []
+    }
+
+    const nested = record.toolCall && typeof record.toolCall === 'object'
+      ? (record.toolCall as Record<string, unknown>)
+      : record
+    const id = String(nested.id || record.id || '').trim()
+    const name = String(nested.name || record.name || '').trim()
+    const args =
+      nested.arguments !== undefined
+        ? nested.arguments
+        : nested.input !== undefined
+          ? nested.input
+          : record.arguments !== undefined
+            ? record.arguments
+            : record.input
+
+    if (!id || !name) {
+      return []
+    }
+
+    return [
+      {
+        contentIndex,
+        id,
+        name,
+        arguments: args
+      }
+    ]
+  })
 }
 
 async function ensurePiSegmentAndTurn(input: {
@@ -270,6 +321,80 @@ export async function processPiHarnessQuery(input: {
     } else {
       abortSignal.addEventListener('abort', onAbort, { once: true })
     }
+  }
+
+  const ensureToolBlockId = (contentIndex: number): string => {
+    const blockKey = `${currentAssistantMessageId}:${contentIndex}`
+    if (!blockIds.has(blockKey)) {
+      blockIds.set(blockKey, `pi_tool_${currentAssistantMessageId}_${contentIndex}`)
+    }
+    return blockIds.get(blockKey)!
+  }
+
+  const registerPendingPiToolCall = (input: {
+    toolCallId: string
+    emittedToolCallId: string
+    toolName: string
+    toolInput: unknown
+    providerMetadata: ProviderMetadata
+    source: 'toolcall_end' | 'message_end_snapshot'
+  }): void => {
+    const { toolCallId, emittedToolCallId, toolName, toolInput, providerMetadata, source } = input
+    if (pendingToolCalls.has(toolCallId) || pendingToolCalls.has(emittedToolCallId)) {
+      return
+    }
+
+    toolCallCount += 1
+    const pendingToolCall: PendingToolCall = {
+      emittedId: emittedToolCallId,
+      providerToolCallId: toolCallId,
+      toolName,
+      input: toolInput
+    }
+    pendingToolCalls.set(toolCallId, pendingToolCall)
+    pendingToolCalls.set(emittedToolCallId, pendingToolCall)
+
+    if (source === 'message_end_snapshot') {
+      logger.warn('[PiQuery] recovered missing toolcall_end from assistant message_end snapshot', {
+        sessionId,
+        traceId: architectureContext.traceId,
+        toolCallId,
+        emittedToolCallId,
+        toolName,
+        toolCallCount
+      })
+    } else {
+      logger.info('[PiQuery] assistant toolcall_end', {
+        sessionId,
+        traceId: architectureContext.traceId,
+        toolCallId,
+        emittedToolCallId,
+        toolName,
+        toolCallCount
+      })
+    }
+
+    emitChunk(
+      stream,
+      {
+        type: 'tool-call',
+        toolCallId: emittedToolCallId,
+        toolName,
+        input: toolInput,
+        providerExecuted: false,
+        providerMetadata
+      } as TextStreamPart<any>,
+      harness
+    )
+    emitChunk(
+      stream,
+      {
+        type: 'tool-input-end',
+        id: emittedToolCallId,
+        providerMetadata
+      } as TextStreamPart<any>,
+      harness
+    )
   }
 
   const unsubscribe = runtimeBridge.harness.subscribe(async (event) => {
@@ -419,36 +544,14 @@ export async function processPiHarnessQuery(input: {
           const toolCall = assistantEvent.toolCall as { id: string; name: string; arguments: unknown }
           const providerToolCallId = String(toolCall.id || blockId)
           const emittedToolCallId = blockId
-          toolCallCount += 1
-          const pendingToolCall: PendingToolCall = {
-            emittedId: emittedToolCallId,
-            providerToolCallId,
-            toolName: String(toolCall.name || ''),
-            input: toolCall.arguments
-          }
-          pendingToolCalls.set(providerToolCallId, pendingToolCall)
-          pendingToolCalls.set(emittedToolCallId, pendingToolCall)
-          logger.info('[PiQuery] assistant toolcall_end', {
-            sessionId,
-            traceId: architectureContext.traceId,
+          registerPendingPiToolCall({
             toolCallId: providerToolCallId,
             emittedToolCallId,
             toolName: String(toolCall.name || ''),
-            toolCallCount
+            toolInput: toolCall.arguments,
+            providerMetadata,
+            source: 'toolcall_end'
           })
-          emitChunk(
-            stream,
-            {
-              type: 'tool-call',
-              toolCallId: emittedToolCallId,
-              toolName: String(toolCall.name || ''),
-              input: toolCall.arguments,
-              providerExecuted: false,
-              providerMetadata
-            } as TextStreamPart<any>,
-            harness
-          )
-          emitChunk(stream, { type: 'tool-input-end', id: emittedToolCallId, providerMetadata } as TextStreamPart<any>, harness)
           return
         }
         default:
@@ -461,6 +564,26 @@ export async function processPiHarnessQuery(input: {
       latestInputTokens = Number((event.message as any).usage?.input ?? latestInputTokens)
       currentAssistantUsage = convertPiUsage((event.message as any).usage)
       currentAssistantStopReason = mapPiStopReason((event.message as any).stopReason)
+      const messageEndToolCalls = extractPiToolCallSnapshots(event.message as { content?: unknown })
+      for (const toolCall of messageEndToolCalls) {
+        const emittedToolCallId = ensureToolBlockId(toolCall.contentIndex)
+        const providerMetadata = {
+          ...providerMetadataBase,
+          raw: {
+            ...(providerMetadataBase.raw as Record<string, unknown>),
+            assistantEventType: 'message_end',
+            toolCallRecovery: true
+          }
+        }
+        registerPendingPiToolCall({
+          toolCallId: toolCall.id,
+          emittedToolCallId,
+          toolName: toolCall.name,
+          toolInput: toolCall.arguments,
+          providerMetadata,
+          source: 'message_end_snapshot'
+        })
+      }
       logger.info('[PiQuery] assistant message_end', {
         sessionId,
         traceId: architectureContext.traceId,
@@ -681,6 +804,6 @@ export async function processPiHarnessQuery(input: {
       abortSignal.removeEventListener('abort', onAbort)
     }
     unsubscribe()
-    await Promise.allSettled(runtimeBridge.mcpClients.map((client) => client.close()))
+    await Promise.allSettled((runtimeBridge.mcpClients ?? []).map((client) => client.close()))
   }
 }

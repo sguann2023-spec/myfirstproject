@@ -56,4 +56,74 @@ describe('TextStreamAccumulator', () => {
       'tool:Bash'
     ])
   })
+
+  it('accumulates token usage across agent steps', () => {
+    const accumulator = new TextStreamAccumulator()
+
+    accumulator.add({
+      type: 'finish-step',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150
+      }
+    } as any)
+    accumulator.add({
+      type: 'finish',
+      totalUsage: {
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30
+      }
+    } as any)
+
+    expect(accumulator.getUsage()).toEqual({
+      prompt_tokens: 120,
+      completion_tokens: 60,
+      total_tokens: 180
+    })
+  })
+
+  it('does not double count preview usage before a step finishes', () => {
+    const accumulator = new TextStreamAccumulator()
+
+    accumulator.add({
+      type: 'usage',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150
+      }
+    } as any)
+    accumulator.add({
+      type: 'finish-step',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150
+      }
+    } as any)
+    accumulator.add({
+      type: 'usage',
+      usage: {
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30
+      }
+    } as any)
+    accumulator.add({
+      type: 'finish',
+      totalUsage: {
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30
+      }
+    } as any)
+
+    expect(accumulator.getUsage()).toEqual({
+      prompt_tokens: 120,
+      completion_tokens: 60,
+      total_tokens: 180
+    })
+  })
 })

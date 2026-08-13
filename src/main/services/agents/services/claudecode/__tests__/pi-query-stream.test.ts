@@ -294,4 +294,114 @@ describe('processPiHarnessQuery', () => {
     expect(stream.events.map((event) => event.type)).not.toContain('complete')
     expect(stream.events.map((event) => event.type)).not.toContain('cancelled')
   })
+
+  it('recovers a missing toolcall_end from the final assistant snapshot before surfacing terminated', async () => {
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        await harnessStub.emitAgentEvent({
+          type: 'message_start',
+          message: {
+            role: 'assistant',
+            content: [],
+            usage: {},
+            stopReason: 'pending'
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'toolcall_start',
+            contentIndex: 0,
+            partial: {
+              content: [
+                {
+                  name: 'mcp__video__generate_video'
+                }
+              ]
+            }
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'toolcall_delta',
+            contentIndex: 0,
+            delta: '{"action":"status","taskId":"task-1"}{"action":"status","taskId":"task-1"}'
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            model: 'model-1',
+            usage: {},
+            stopReason: 'error',
+            errorMessage: 'terminated',
+            content: [
+              {
+                type: 'toolCall',
+                toolCall: {
+                  id: 'provider-tool-1',
+                  name: 'mcp__video__generate_video',
+                  arguments: {
+                    action: 'status',
+                    taskId: 'task-1'
+                  }
+                }
+              }
+            ]
+          }
+        })
+        return {
+          role: 'assistant',
+          content: [
+            {
+              type: 'toolCall',
+              toolCall: {
+                id: 'provider-tool-1',
+                name: 'mcp__video__generate_video',
+                arguments: {
+                  action: 'status',
+                  taskId: 'task-1'
+                }
+              }
+            }
+          ],
+          stopReason: 'error',
+          errorMessage: 'terminated',
+          usage: {}
+        }
+      }
+    })
+    const stream = createStreamRecorder()
+
+    await processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1',
+        topicId: 'topic-1',
+        currentPrompt: 'hello',
+        activeSegment,
+        currentTurn,
+        promptEnvelope: {
+          systemPromptVersion: 'v1',
+          systemPromptHash: 'hash-1',
+          systemPrompt: 'system'
+        },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+
+    const chunkTypes = stream.events
+      .filter((event): event is AgentStreamEvent & { chunk: { type: string } } => event.type === 'chunk' && Boolean(event.chunk))
+      .map((event) => event.chunk.type)
+
+    expect(chunkTypes).toContain('tool-call')
+    expect(chunkTypes).toContain('tool-input-end')
+    expect(stream.events.map((event) => event.type)).toContain('error')
+  })
 })

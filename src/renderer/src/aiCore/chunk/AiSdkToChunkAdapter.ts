@@ -35,6 +35,10 @@ export class AiSdkToChunkAdapter {
   private getSessionWasCleared?: () => boolean
   private providerId?: string
   private idleTimeout?: IdleTimeoutHandle
+  private terminalToolCleanup: { status: 'error' | 'cancelled' | 'completed'; reason: string } = {
+    status: 'completed',
+    reason: ''
+  }
 
   constructor(
     private onChunk: (chunk: Chunk) => void,
@@ -64,6 +68,17 @@ export class AiSdkToChunkAdapter {
   private resetTimingState() {
     this.responseStartTimestamp = null
     this.firstTokenTimestamp = null
+  }
+
+  private finalizeDanglingToolCalls() {
+    const cleanupStatus = this.terminalToolCleanup.status === 'cancelled' ? 'cancelled' : 'error'
+    const cleanupReason =
+      this.terminalToolCleanup.reason ||
+      (this.terminalToolCleanup.status === 'cancelled'
+        ? 'Request was aborted before the tool call completed.'
+        : 'The stream ended before the tool call completed.')
+
+    this.toolCallHandler.finalizeOpenToolCalls(cleanupStatus, cleanupReason)
   }
 
   /**
@@ -107,6 +122,10 @@ export class AiSdkToChunkAdapter {
     }
     this.resetTimingState()
     this.responseStartTimestamp = Date.now()
+    this.terminalToolCleanup = {
+      status: 'completed',
+      reason: ''
+    }
     // Reset state at the start of stream
     this.isFirstChunk = true
     this.hasTextContent = false
@@ -141,6 +160,7 @@ export class AiSdkToChunkAdapter {
       this.resetTimingState()
       // Clean up the idle timeout timer when the stream ends
       this.idleTimeout?.cleanup()
+      this.finalizeDanglingToolCalls()
     }
   }
 
@@ -441,12 +461,20 @@ export class AiSdkToChunkAdapter {
         })
         break
       case 'abort':
+        this.terminalToolCleanup = {
+          status: 'cancelled',
+          reason: 'Request was aborted before the tool call completed.'
+        }
         this.onChunk({
           type: ChunkType.ERROR,
           error: new DOMException('Request was aborted', 'AbortError')
         })
         break
       case 'error':
+        this.terminalToolCleanup = {
+          status: 'error',
+          reason: formatErrorMessage(chunk.error)
+        }
         this.onChunk({
           type: ChunkType.ERROR,
           error: AISDKError.isInstance(chunk.error)

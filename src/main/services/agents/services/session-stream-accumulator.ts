@@ -37,7 +37,8 @@ export class TextStreamAccumulator {
   >()
   private readonly toolCallOrder: string[] = []
   private initSlashCommands: string[] = []
-  private latestUsage?: PersistedUsage
+  private committedUsage?: PersistedUsage
+  private pendingUsage?: PersistedUsage
 
   private flushTextBuffer(): void {
     if (!this.textBuffer) {
@@ -191,7 +192,18 @@ export class TextStreamAccumulator {
             totalTokens?: number | null
           }
         }
-        this.setUsageFromSdk(usagePart.usage)
+        this.setPendingUsageFromSdk(usagePart.usage)
+        break
+      }
+      case 'finish-step': {
+        const finishStepPart = chunk as {
+          usage?: {
+            inputTokens?: number | null
+            outputTokens?: number | null
+            totalTokens?: number | null
+          }
+        }
+        this.commitUsageFromSdk(finishStepPart.usage)
         break
       }
       case 'finish': {
@@ -202,7 +214,7 @@ export class TextStreamAccumulator {
             totalTokens?: number | null
           }
         }
-        this.setUsageFromSdk(finishPart.totalUsage)
+        this.commitUsageFromSdk(finishPart.totalUsage)
         break
       }
       default:
@@ -210,13 +222,23 @@ export class TextStreamAccumulator {
     }
   }
 
-  private setUsageFromSdk(usage?: {
+  private static addUsage(base?: PersistedUsage, delta?: PersistedUsage): PersistedUsage | undefined {
+    if (!base) return delta ? { ...delta } : undefined
+    if (!delta) return { ...base }
+    return {
+      prompt_tokens: base.prompt_tokens + delta.prompt_tokens,
+      completion_tokens: base.completion_tokens + delta.completion_tokens,
+      total_tokens: base.total_tokens + delta.total_tokens
+    }
+  }
+
+  private normalizeUsageFromSdk(usage?: {
     inputTokens?: number | null
     outputTokens?: number | null
     totalTokens?: number | null
-  }): void {
+  }): PersistedUsage | undefined {
     if (!usage) {
-      return
+      return undefined
     }
 
     const promptTokens = Number(usage.inputTokens ?? 0)
@@ -224,14 +246,41 @@ export class TextStreamAccumulator {
     const totalTokens = Number(usage.totalTokens ?? promptTokens + completionTokens)
 
     if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
-      return
+      return undefined
     }
 
-    this.latestUsage = {
+    return {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       total_tokens: totalTokens
     }
+  }
+
+  private setPendingUsageFromSdk(usage?: {
+    inputTokens?: number | null
+    outputTokens?: number | null
+    totalTokens?: number | null
+  }): void {
+    const normalizedUsage = this.normalizeUsageFromSdk(usage)
+    if (!normalizedUsage) {
+      return
+    }
+
+    this.pendingUsage = normalizedUsage
+  }
+
+  private commitUsageFromSdk(usage?: {
+    inputTokens?: number | null
+    outputTokens?: number | null
+    totalTokens?: number | null
+  }): void {
+    const normalizedUsage = this.normalizeUsageFromSdk(usage) ?? this.pendingUsage
+    if (!normalizedUsage) {
+      return
+    }
+
+    this.committedUsage = TextStreamAccumulator.addUsage(this.committedUsage, normalizedUsage)
+    this.pendingUsage = undefined
   }
 
   getText(): string {
@@ -250,7 +299,7 @@ export class TextStreamAccumulator {
   }
 
   getUsage(): PersistedUsage | undefined {
-    return this.latestUsage ? { ...this.latestUsage } : undefined
+    return TextStreamAccumulator.addUsage(this.committedUsage, this.pendingUsage)
   }
 
   summarizeState(): Record<string, unknown> {
@@ -262,7 +311,7 @@ export class TextStreamAccumulator {
       toolCallCount: this.toolCallOrder.length,
       toolResultCount: this.toolResults.size,
       slashCommandCount: this.initSlashCommands.length,
-      hasUsage: Boolean(this.latestUsage)
+      hasUsage: Boolean(this.getUsage())
     }
   }
 
