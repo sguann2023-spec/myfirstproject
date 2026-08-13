@@ -3196,14 +3196,13 @@ const Composer = ({
     });
   }, [activeSuggestionUid, expandedReferenceNodeKeys, insertFileReference, referenceQuery, toggleReferenceNodeExpanded]);
 
-  const renderReferenceSection = React.useCallback((title, rootNodeKey, label, nodes, rootPath, sourceType) => {
+  const renderReferenceRoot = React.useCallback((rootNodeKey, label, nodes, rootPath, sourceType) => {
     const hasNodes = Array.isArray(nodes) && nodes.length > 0;
     const forceExpanded = Boolean(referenceQuery);
     const isExpanded = forceExpanded || expandedReferenceNodeKeys.has(rootNodeKey);
 
     return (
-      <div key={rootNodeKey} className="chat-panel__reference-section">
-        <div className="chat-panel__reference-section-title">{title}</div>
+      <React.Fragment key={rootNodeKey}>
         <button
           type="button"
           className="chat-panel__reference-tree-item chat-panel__reference-tree-item--root"
@@ -3231,7 +3230,7 @@ const Composer = ({
         {isExpanded && !hasNodes ? (
           <div className="chat-panel__reference-empty">没有可引用的文件</div>
         ) : null}
-      </div>
+      </React.Fragment>
     );
   }, [expandedReferenceNodeKeys, referenceQuery, renderReferenceTreeNodes, toggleReferenceNodeExpanded]);
 
@@ -4196,25 +4195,31 @@ const Composer = ({
                     {!referenceTreesLoading && referenceTreesError ? (
                       <div className="chat-panel__skill-mention-empty">{referenceTreesError}</div>
                     ) : null}
-                    {!referenceTreesLoading && !referenceTreesError && filteredSkillReferenceGroups.map((group) => (
-                      renderReferenceSection(
-                        '技能成员',
-                        `skill-root:${group.skillKey}`,
-                        group.label,
-                        group.nodes,
-                        group.rootPath,
-                        'skill'
-                      )
-                    ))}
+                    {!referenceTreesLoading && !referenceTreesError && filteredSkillReferenceGroups.length > 0 ? (
+                      <div className="chat-panel__reference-section">
+                        <div className="chat-panel__reference-section-title">技能成员</div>
+                        {filteredSkillReferenceGroups.map((group) => (
+                          renderReferenceRoot(
+                            `skill-root:${group.skillKey}`,
+                            group.label,
+                            group.nodes,
+                            group.rootPath,
+                            'skill'
+                          )
+                        ))}
+                      </div>
+                    ) : null}
                     {!referenceTreesLoading && !referenceTreesError && primarySkillWorkdir ? (
-                      renderReferenceSection(
-                        '工作空间',
-                        `workspace-root:${primarySkillWorkdir}`,
-                        workspaceReferenceRootLabel,
-                        filteredWorkspaceReferenceNodes,
-                        primarySkillWorkdir,
-                        'workspace'
-                      )
+                      <div className="chat-panel__reference-section">
+                        <div className="chat-panel__reference-section-title">工作空间</div>
+                        {renderReferenceRoot(
+                          `workspace-root:${primarySkillWorkdir}`,
+                          workspaceReferenceRootLabel,
+                          filteredWorkspaceReferenceNodes,
+                          primarySkillWorkdir,
+                          'workspace'
+                        )}
+                      </div>
                     ) : null}
                     {!referenceTreesLoading
                     && !referenceTreesError
