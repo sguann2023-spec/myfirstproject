@@ -1,4 +1,5 @@
 import { File, FileAudio, FileVideo, X } from 'lucide-react';
+import FirstFrameIcon from '../../../../../public/first_frame.svg';
 import './index.css';
 
 const getFileDisplayName = (file = {}) => file.name || '文件';
@@ -60,18 +61,97 @@ const renderFileThumb = (file = {}) => {
   );
 };
 
-const LocalFilePreviewList = ({ files = [], onRemove }) => {
-  if (!Array.isArray(files) || files.length === 0) return null;
+const renderPlaceholderThumb = () => {
+  return (
+    <span className="chat-panel__local-file-preview-placeholder-thumb-content" aria-hidden="true">
+      <img src={FirstFrameIcon} alt="" aria-hidden="true" />
+    </span>
+  );
+};
+
+const buildOrderedPreviewEntries = (files = [], placeholders = [], slotOrder = []) => {
+  const resolvedFiles = Array.isArray(files) ? files : [];
+  const resolvedPlaceholders = Array.isArray(placeholders) ? placeholders : [];
+  if (!Array.isArray(slotOrder) || slotOrder.length === 0) {
+    return [
+      ...resolvedFiles.map((file) => ({ type: 'file', key: `file:${file.uid || file.name}`, value: file })),
+      ...resolvedPlaceholders.map((placeholder) => ({ type: 'placeholder', key: `placeholder:${placeholder.key || placeholder.label}`, value: placeholder })),
+    ];
+  }
+
+  const orderedEntries = [];
+  const usedFileKeys = new Set();
+  const usedPlaceholderKeys = new Set();
+
+  slotOrder.forEach((slotKey) => {
+    const normalizedSlotKey = String(slotKey || '').trim();
+    if (!normalizedSlotKey) return;
+
+    const matchedFile = resolvedFiles.find((file) => String(file?.slotId || '').trim() === normalizedSlotKey);
+    if (matchedFile) {
+      const fileKey = `file:${matchedFile.uid || matchedFile.name}`;
+      usedFileKeys.add(fileKey);
+      orderedEntries.push({ type: 'file', key: fileKey, value: matchedFile });
+      return;
+    }
+
+    const matchedPlaceholder = resolvedPlaceholders.find((placeholder) => String(placeholder?.key || '').trim() === normalizedSlotKey);
+    if (matchedPlaceholder) {
+      const placeholderKey = `placeholder:${matchedPlaceholder.key || matchedPlaceholder.label}`;
+      usedPlaceholderKeys.add(placeholderKey);
+      orderedEntries.push({ type: 'placeholder', key: placeholderKey, value: matchedPlaceholder });
+    }
+  });
+
+  resolvedFiles.forEach((file) => {
+    const fileKey = `file:${file.uid || file.name}`;
+    if (usedFileKeys.has(fileKey)) return;
+    orderedEntries.push({ type: 'file', key: fileKey, value: file });
+  });
+  resolvedPlaceholders.forEach((placeholder) => {
+    const placeholderKey = `placeholder:${placeholder.key || placeholder.label}`;
+    if (usedPlaceholderKeys.has(placeholderKey)) return;
+    orderedEntries.push({ type: 'placeholder', key: placeholderKey, value: placeholder });
+  });
+
+  return orderedEntries;
+};
+
+const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], onRemove, onAddFile }) => {
+  const resolvedFiles = Array.isArray(files) ? files : [];
+  const resolvedPlaceholders = Array.isArray(placeholders) ? placeholders : [];
+  if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0) return null;
+  const previewEntries = buildOrderedPreviewEntries(resolvedFiles, resolvedPlaceholders, slotOrder);
 
   return (
     <div className="chat-panel__local-file-preview-list" aria-label="文件预览">
       <div className="chat-panel__local-file-preview-scroll">
-        {files.map((file) => {
+        {previewEntries.map((entry) => {
+          if (entry.type === 'placeholder') {
+            const placeholder = entry.value;
+            return (
+              <button
+                key={entry.key}
+                type="button"
+                className="chat-panel__local-file-preview-placeholder"
+                onClick={() => onAddFile && onAddFile(placeholder)}
+              >
+                <span className="chat-panel__local-file-preview-placeholder-thumb">
+                  {renderPlaceholderThumb()}
+                  <span className="chat-panel__local-file-preview-placeholder-label">
+                    {placeholder.label || '上传文件'}
+                  </span>
+                </span>
+              </button>
+            );
+          }
+
+          const file = entry.value;
           const isImage = getFileKindFromType(file.fileType) === 'image';
 
           return (
             <div
-              key={file.uid || file.name}
+              key={entry.key}
               className={`chat-panel__local-file-preview-item ${isImage ? 'chat-panel__local-file-preview-item--image' : ''}`}
             >
               <button

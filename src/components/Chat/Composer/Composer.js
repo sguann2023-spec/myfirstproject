@@ -287,6 +287,27 @@ const VIDEO_GENERATION_MODE_LABELS = {
   first_last_frame: '首尾帧',
   reference: '参考生成',
 };
+const IMAGE_PAN_UPLOAD_MAX_COUNT = 10;
+const IMAGE_PAN_PLACEHOLDER_CONFIG = [
+  { key: 'image_pan', label: '图片', kind: 'image' },
+];
+const VIDEO_REFERENCE_UPLOAD_MAX_COUNT = 10;
+const VIDEO_FRAME_SLOT_ORDER = {
+  first_frame: 0,
+  last_frame: 1,
+};
+const VIDEO_GENERATION_PLACEHOLDER_CONFIG = {
+  first_frame: [
+    { key: 'first_frame', label: '首帧图', kind: 'image' },
+  ],
+  first_last_frame: [
+    { key: 'first_frame', label: '首帧图', kind: 'image' },
+    { key: 'last_frame', label: '尾帧图', kind: 'image' },
+  ],
+  reference: [
+    { key: 'reference', label: `参考内容`, kind: 'file' },
+  ],
+};
 const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
@@ -415,6 +436,66 @@ const normalizeBooleanStorageValue = (value, fallback = false) => {
   if (['true', '1', 'yes', 'on'].includes(normalizedValue)) return true;
   if (['false', '0', 'no', 'off'].includes(normalizedValue)) return false;
   return fallback;
+};
+
+const isImageFileType = (fileType = '') => String(fileType || '').toLowerCase().startsWith('image/');
+const isVideoFileType = (fileType = '') => String(fileType || '').toLowerCase().startsWith('video/');
+const isAudioFileType = (fileType = '') => String(fileType || '').toLowerCase().startsWith('audio/');
+const getResolvedUploadFileType = (file = {}) => {
+  const explicitType = String(file?.type || file?.originFileObj?.type || '').trim();
+  if (explicitType) return explicitType;
+  return guessFileTypeFromName(file?.name || file?.originFileObj?.name || '');
+};
+const isSupportedVideoReferenceFile = (file = {}) => {
+  const resolvedType = getResolvedUploadFileType(file);
+  return isImageFileType(resolvedType) || isVideoFileType(resolvedType) || isAudioFileType(resolvedType);
+};
+const isVideoFrameSlotId = (value) => Object.prototype.hasOwnProperty.call(VIDEO_FRAME_SLOT_ORDER, String(value || '').trim());
+const sortItemsByVideoFrameSlot = (items = []) => (
+  [...items].sort((left, right) => {
+    const leftSlotId = String(left?.slotId || '').trim();
+    const rightSlotId = String(right?.slotId || '').trim();
+    const leftOrder = Object.prototype.hasOwnProperty.call(VIDEO_FRAME_SLOT_ORDER, leftSlotId)
+      ? VIDEO_FRAME_SLOT_ORDER[leftSlotId]
+      : Number.MAX_SAFE_INTEGER;
+    const rightOrder = Object.prototype.hasOwnProperty.call(VIDEO_FRAME_SLOT_ORDER, rightSlotId)
+      ? VIDEO_FRAME_SLOT_ORDER[rightSlotId]
+      : Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder;
+  })
+);
+const getVideoModeUploadLimit = (mode) => {
+  const normalizedMode = normalizeVideoGenerationMode(mode);
+  if (normalizedMode === 'first_frame') {
+    return {
+      maxCount: 1,
+      imageOnly: true,
+      typeErrorMessage: '首帧生成模式仅支持上传图片',
+    };
+  }
+  if (normalizedMode === 'first_last_frame') {
+    return {
+      maxCount: 2,
+      imageOnly: true,
+      typeErrorMessage: '首尾帧模式仅支持上传图片',
+    };
+  }
+  if (normalizedMode === 'reference') {
+    return {
+      maxCount: VIDEO_REFERENCE_UPLOAD_MAX_COUNT,
+      imageOnly: false,
+      accept: 'image/*,video/*,audio/*',
+      validateFile: isSupportedVideoReferenceFile,
+      typeErrorMessage: '参考生成模式仅支持上传图片、视频、音频',
+    };
+  }
+  return {
+    maxCount: MAX_UPLOAD_COUNT,
+    imageOnly: false,
+    accept: undefined,
+    validateFile: null,
+    typeErrorMessage: '',
+  };
 };
 
 const readPersistedVideoGenerateAudio = () => {
@@ -3358,6 +3439,79 @@ const Composer = ({
     return candidateValue && candidateValue === String(model || '').trim();
   }) || null;
   const selectedModelSupportsReadImage = Boolean(selectedModelConfig?.read_image);
+  const normalizedSelectedVideoGenerationMode = React.useMemo(
+    () => normalizeVideoGenerationMode(selectedVideoGenerationMode),
+    [selectedVideoGenerationMode]
+  );
+  const videoModeUploadLimit = React.useMemo(
+    () => getVideoModeUploadLimit(normalizedSelectedVideoGenerationMode),
+    [normalizedSelectedVideoGenerationMode]
+  );
+  const imagePanUploadLimit = React.useMemo(() => ({
+    maxCount: IMAGE_PAN_UPLOAD_MAX_COUNT,
+    imageOnly: true,
+    accept: 'image/*',
+    validateFile: null,
+    typeErrorMessage: '图片模式仅支持上传图片',
+  }), []);
+  const activeUploadLimit = React.useMemo(() => {
+    if (activeTool === 'ai-video') return videoModeUploadLimit;
+    if (activeTool === 'image-pan') return imagePanUploadLimit;
+    return {
+      maxCount: MAX_UPLOAD_COUNT,
+      imageOnly: false,
+      accept: undefined,
+      validateFile: null,
+      typeErrorMessage: '',
+    };
+  }, [activeTool, imagePanUploadLimit, videoModeUploadLimit]);
+  const uploadAccept = React.useMemo(() => {
+    if (activeUploadLimit.imageOnly) return 'image/*';
+    return activeUploadLimit.accept;
+  }, [activeUploadLimit]);
+  const imagePanUploadPlaceholders = React.useMemo(() => {
+    if (activeTool !== 'image-pan') return [];
+    const uploadedImageCount = uploadedFileMeta.filter((item) => isImageFileType(item?.fileType)).length;
+    return uploadedImageCount >= IMAGE_PAN_UPLOAD_MAX_COUNT ? [] : IMAGE_PAN_PLACEHOLDER_CONFIG;
+  }, [activeTool, uploadedFileMeta]);
+  const videoUploadPlaceholders = React.useMemo(() => {
+    if (activeTool !== 'ai-video') return [];
+
+    if (normalizedSelectedVideoGenerationMode === 'reference') {
+      return uploadedFileMeta.length >= VIDEO_REFERENCE_UPLOAD_MAX_COUNT
+        ? []
+        : VIDEO_GENERATION_PLACEHOLDER_CONFIG.reference;
+    }
+
+    const configuredSlots = VIDEO_GENERATION_PLACEHOLDER_CONFIG[normalizedSelectedVideoGenerationMode] || [];
+    if (configuredSlots.length === 0) return [];
+
+    const occupiedSlotIds = new Set(
+      uploadedFileMeta
+        .filter((item) => isImageFileType(item?.fileType))
+        .map((item) => String(item?.slotId || '').trim())
+        .filter(Boolean)
+    );
+    if (occupiedSlotIds.size > 0) {
+      return configuredSlots.filter((item) => !occupiedSlotIds.has(String(item?.key || '').trim()));
+    }
+
+    const uploadedImageCount = uploadedFileMeta.filter((item) => isImageFileType(item?.fileType)).length;
+    return configuredSlots.slice(Math.min(uploadedImageCount, configuredSlots.length));
+  }, [activeTool, normalizedSelectedVideoGenerationMode, uploadedFileMeta]);
+  const videoPreviewSlotOrder = React.useMemo(() => {
+    if (activeTool !== 'ai-video') return [];
+    return (VIDEO_GENERATION_PLACEHOLDER_CONFIG[normalizedSelectedVideoGenerationMode] || []).map((item) => item.key);
+  }, [activeTool, normalizedSelectedVideoGenerationMode]);
+  const activeUploadPlaceholders = React.useMemo(() => {
+    if (activeTool === 'ai-video') return videoUploadPlaceholders;
+    if (activeTool === 'image-pan') return imagePanUploadPlaceholders;
+    return [];
+  }, [activeTool, imagePanUploadPlaceholders, videoUploadPlaceholders]);
+  const activePreviewSlotOrder = React.useMemo(() => {
+    if (activeTool === 'ai-video') return videoPreviewSlotOrder;
+    return [];
+  }, [activeTool, videoPreviewSlotOrder]);
 
   const groupedModelOptions = availableModelOptions.length > 0
     ? [
@@ -3416,14 +3570,29 @@ const Composer = ({
     if (sessionSending) return;
     const normalizedFiles = files.filter((item) => isFileLike(item));
     if (normalizedFiles.length === 0) return;
+    const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
+    const isPendingVideoFrameSlot = activeTool === 'ai-video' && isVideoFrameSlotId(pendingSlotId);
 
-    const currentCount = uploadFileList.length;
-    const availableSlots = Math.max(0, MAX_UPLOAD_COUNT - currentCount);
+    const { imageOnly, maxCount, typeErrorMessage, validateFile } = activeUploadLimit;
+    const typeFilteredFiles = imageOnly
+      ? normalizedFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
+      : typeof validateFile === 'function'
+        ? normalizedFiles.filter((item) => validateFile(item))
+        : normalizedFiles;
+    if (typeFilteredFiles.length !== normalizedFiles.length) {
+      message.error(typeErrorMessage);
+    }
+    if (typeFilteredFiles.length === 0) return;
+
+    const currentCount = imageOnly
+      ? uploadedFileMeta.filter((item) => isImageFileType(item?.fileType)).length
+      : uploadedFileMeta.length;
+    const availableSlots = Math.max(0, maxCount - currentCount);
     const acceptedFiles = [];
 
     let hasOverflow = false;
 
-    normalizedFiles.forEach((file) => {
+    typeFilteredFiles.forEach((file) => {
       if (acceptedFiles.length >= availableSlots) {
         hasOverflow = true;
         return;
@@ -3432,25 +3601,48 @@ const Composer = ({
     });
 
     if (hasOverflow) {
-      message.error(`最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
+      message.error(activeTool === 'ai-video' || activeTool === 'image-pan'
+        ? `当前模式最多上传 ${maxCount} 个文件`
+        : `最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
     }
     if (acceptedFiles.length === 0) return;
+    const resolvedAcceptedFiles = isPendingVideoFrameSlot ? acceptedFiles.slice(0, 1) : acceptedFiles;
+    if (isPendingVideoFrameSlot && acceptedFiles.length > 1) {
+      message.error('当前槽位一次只能上传 1 张图片');
+    }
 
-    const nextEntries = (await Promise.all(acceptedFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
+    const nextEntries = (await Promise.all(resolvedAcceptedFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
     if (nextEntries.length === 0) return;
 
-    const nextUploadItems = nextEntries.map((item) => item.uploadItem);
-    const nextFileMeta = nextEntries.map((item) => item.fileMeta);
+    const nextUploadItems = nextEntries.map((item) => (
+      isPendingVideoFrameSlot
+        ? { ...item.uploadItem, slotId: pendingSlotId }
+        : item.uploadItem
+    ));
+    const nextFileMeta = nextEntries.map((item) => (
+      isPendingVideoFrameSlot
+        ? { ...item.fileMeta, slotId: pendingSlotId, slotLabel: TEMPLATE_MEDIA_ROLE_LABELS[pendingSlotId] || '' }
+        : item.fileMeta
+    ));
 
-    setUploadFileList((prev) => [...prev, ...nextUploadItems]);
-    setUploadedFileMeta((prev) => [...prev, ...nextFileMeta]);
+    setUploadFileList((prev) => {
+      if (!isPendingVideoFrameSlot) return [...prev, ...nextUploadItems];
+      const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== pendingSlotId);
+      return sortItemsByVideoFrameSlot([...retainedItems, ...nextUploadItems]);
+    });
+    setUploadedFileMeta((prev) => {
+      if (!isPendingVideoFrameSlot) return [...prev, ...nextFileMeta];
+      const replacedItem = prev.find((item) => String(item?.slotId || '').trim() === pendingSlotId);
+      revokeLocalObjectUrl(replacedItem?.localThumbUrl);
+      const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== pendingSlotId);
+      return sortItemsByVideoFrameSlot([...retainedItems, ...nextFileMeta]);
+    });
 
-    const pendingSlotId = pendingTemplateSlotAutoReferenceRef.current;
     if (pendingSlotId && nextFileMeta[0]) {
       syncTemplateFileReferenceNode(editor, pendingSlotId, nextFileMeta[0]);
       pendingTemplateSlotAutoReferenceRef.current = '';
     }
-  }, [editor, sessionSending, uploadFileList]);
+  }, [activeTool, activeUploadLimit, editor, sessionSending, uploadedFileMeta]);
 
   const handleBeforeUpload = React.useCallback((file, batchFileList = []) => {
     const normalizedBatch = Array.isArray(batchFileList) && batchFileList.length > 0
@@ -3770,13 +3962,17 @@ const Composer = ({
       <div className="chat-panel__editor">
         <LocalFilePreviewList
           files={uploadedFileMeta}
+          placeholders={activeUploadPlaceholders}
+          slotOrder={activePreviewSlotOrder}
           onRemove={(file) => removeLocalFile(file?.uid)}
+          onAddFile={(placeholder) => requestUploadPickerRef.current(placeholder?.key || '')}
         />
         <div ref={toolBarRef} className="chat-panel__tool-bar">
           <div className="chat-panel__tool-left">
             <div ref={toolLeftPrefixRef} className="chat-panel__tool-left-prefix">
               <AntUpload
                 multiple
+                accept={uploadAccept}
                 beforeUpload={handleBeforeUpload}
                 showUploadList={false}
                 disabled={sessionSending}
@@ -4038,6 +4234,7 @@ const Composer = ({
                         <span className="chat-panel__reference-section-title">本地文件</span>
                         <AntUpload
                           multiple
+                          accept={uploadAccept}
                           beforeUpload={handleBeforeUpload}
                           showUploadList={false}
                           disabled={sessionSending}
