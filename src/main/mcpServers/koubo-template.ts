@@ -69,7 +69,7 @@ const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' |
 const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   name: 'submit_koubo_template_task',
   description:
-    'Submit an asynchronous VectCut talking-head template task for source speaking video media. Inputs may be remote URLs, file URLs, or absolute local paths. Local videos are uploaded automatically. Koubo template only accepts video input, and local video files must not exceed 500MB.',
+    'Submit an asynchronous VectCut talking-head template task for source speaking video media. Prefer remotely accessible video URLs, typically obtained by running workspace upload first for local files. File URLs and absolute local paths remain supported as a compatibility fallback and local videos are uploaded automatically. Koubo template only accepts video input, and local video files must not exceed 500MB.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -84,14 +84,16 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
       },
       videoUrl: {
         type: 'string',
-        description: 'Single source talking-head video URL, file URL, or absolute local path.'
+        description:
+          'Single source talking-head video URL. Prefer a remotely accessible URL produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback.'
       },
       videoUrls: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Source talking-head video URLs, file URLs, or absolute local paths. Most templates require exactly one.'
+        description:
+          'Source talking-head video URLs. Prefer remotely accessible URLs produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback. Most templates require exactly one.'
       },
       textContent: {
         type: 'string',

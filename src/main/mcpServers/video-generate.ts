@@ -32,7 +32,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const VIDEO_GENERATE_TOOL: Tool = {
   name: PRIMARY_VIDEO_TOOL_NAME,
   description:
-    'Create, generate, extend, edit, or query asynchronous AI video tasks via VectCut. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or querying a previous video task. Omit action to submit a new task, or use action="status" with taskId to query an existing task. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Local file URLs and absolute local paths inside those references are uploaded automatically before submission. These tasks are asynchronous and can take several minutes or longer. After submit returns a taskId and the status is not final, continue polling with action="status" automatically instead of stopping and waiting for the user to ask again.',
+    'Create, generate, extend, edit, or query asynchronous AI video tasks via VectCut. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or querying a previous video task. Omit action to submit a new task, or use action="status" with taskId to query an existing task. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Prefer passing remotely accessible reference URLs, typically obtained by running workspace upload first for local files. Local file URLs and absolute local paths inside those references remain supported as a compatibility fallback and are uploaded automatically before submission. These tasks are asynchronous and can take several minutes or longer. After submit returns a taskId and the status is not final, continue polling with action="status" automatically instead of stopping and waiting for the user to ask again.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -79,7 +79,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'object'
         },
         description:
-          'Optional multimodal content array for Seedance-style workflows. Example items: {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Local file URLs or absolute local paths in the nested url fields are uploaded automatically.'
+          'Optional multimodal content array for Seedance-style workflows. Example items: {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Prefer remotely accessible URLs produced by workspace upload for local files. Local file URLs or absolute local paths in the nested url fields remain supported as a compatibility fallback and are uploaded automatically.'
       },
       generationMode: {
         type: 'string',
@@ -116,7 +116,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional convenience alias for appending reference_video items into content. Each item may be a remote URL, file URL, or absolute local path.'
+          'Optional convenience alias for appending reference_video items into content. Prefer remote URLs, typically produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback.'
       },
       referenceAudios: {
         type: 'array',
@@ -124,7 +124,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional convenience alias for appending reference_audio items into content. Each item may be a remote URL, file URL, or absolute local path.'
+          'Optional convenience alias for appending reference_audio items into content. Prefer remote URLs, typically produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback.'
       },
       images: {
         type: 'array',

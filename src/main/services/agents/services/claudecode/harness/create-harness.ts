@@ -25,6 +25,8 @@ import { buildToolOutputPreview } from './tool-output-preview'
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
 const MAX_RECORDED_PROJECTION_EVENTS = 200
+const WORKSPACE_UPLOAD_TOOL_NAME = 'mcp__file-upload__upload_file_to_oss'
+const WORKSPACE_UPLOAD_TIMEOUT_MS = 3 * 60 * 1000
 
 export type ClaudeCodeHarnessProjectionEvent = {
   kind: 'chunk' | 'lifecycle' | 'error'
@@ -1196,6 +1198,8 @@ async function buildMcpTools(input: {
           onUpdate?: (value: { content: Array<PiTextContent | PiImageContent>; details: unknown }) => void
         ) {
           const params = (rawParams ?? {}) as Record<string, unknown>
+          const requestTimeoutMs =
+            namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : undefined
           logger.info('[AgentCore] mcp tool execute start', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1203,13 +1207,15 @@ async function buildMcpTools(input: {
             toolName: namespacedName,
             toolCallId,
             serverKey,
-            paramKeys: Object.keys(params)
+            paramKeys: Object.keys(params),
+            requestTimeoutMs
           })
           const result = await bridge.client.callTool(
             { name: tool.name, arguments: params },
             undefined,
             {
               signal,
+              timeout: requestTimeoutMs,
               onprogress(progress) {
                 logger.info('[AgentCore] mcp tool execute update', {
                   traceId: invokeContext.runtime.traceId,

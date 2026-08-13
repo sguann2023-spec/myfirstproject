@@ -56,14 +56,14 @@ type SubtitleTemplateKey = keyof typeof SUBTITLE_TEMPLATE_AGENT_IDS
 const GENERATE_SMART_SUBTITLE_TOOL: Tool = {
   name: 'generate_smart_subtitle',
   description:
-    'Add a subtitle template to an audio or video source, optionally continue editing an existing draft, and create a new VectCut draft with stylized subtitles. Accepts a remote URL, file URL, or absolute local path. Local files are uploaded automatically, and local videos longer than 10 minutes are converted to audio before upload.',
+    'Add a subtitle template to an audio or video source, optionally continue editing an existing draft, and create a new VectCut draft with stylized subtitles. Prefer a remotely accessible source URL, typically obtained by running workspace upload first for local files. File URLs and absolute local paths remain supported as a compatibility fallback; local files are uploaded automatically, and local videos longer than 10 minutes are converted to audio before upload.',
   inputSchema: {
     type: 'object',
     properties: {
       url: {
         type: 'string',
         description:
-          'Required source audio or video URL, file URL, or absolute local path. Local files are uploaded automatically before submission. Local videos longer than 10 minutes are converted to audio first.'
+          'Required source audio or video URL. Prefer a remotely accessible URL produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback. Local videos longer than 10 minutes are converted to audio before upload.'
       },
       template: {
         type: 'string',

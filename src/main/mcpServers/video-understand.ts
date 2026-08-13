@@ -20,7 +20,7 @@ const VIDEO_UNDERSTAND_MODEL = 'gpt-5.6-luna'
 const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
   name: 'submit_video_detail_task',
   description:
-    'Submit an asynchronous video understanding task for one or more remote video URLs. This analyzes visual content only and does not describe audio.',
+    'Submit an asynchronous video understanding task for one or more remote video URLs. This analyzes visual content only and does not describe audio. If the source is a local file, run workspace upload first and pass the returned URL here.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -35,25 +35,25 @@ const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
       },
       videoUrl: {
         type: 'string',
-        description: 'Single remote video URL.'
+        description: 'Single remote video URL. Use workspace upload first for local files.'
       },
       video_url: {
         type: 'string',
-        description: 'Alias of videoUrl. Uses the same semantics as the VectCut API docs.'
+        description: 'Alias of videoUrl. Uses the same semantics as the VectCut API docs. Use workspace upload first for local files.'
       },
       videoUrls: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Multiple remote video URLs.'
+        description: 'Multiple remote video URLs. Use workspace upload first for local files.'
       },
       video_urls: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Alias of videoUrls. Uses the same semantics as the VectCut API docs.'
+        description: 'Alias of videoUrls. Uses the same semantics as the VectCut API docs. Use workspace upload first for local files.'
       }
     },
     additionalProperties: true

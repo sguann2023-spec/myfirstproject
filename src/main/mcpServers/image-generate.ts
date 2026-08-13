@@ -33,7 +33,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, restyle, or query asynchronous AI image tasks via VectCut. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Reference images may be remote URLs, file URLs, or absolute local paths; local files are uploaded automatically before submission. These tasks are asynchronous and typically take 3-5 minutes. After submitting a task, if the response contains a taskId and the status is not final, you should continue polling with action="status" automatically instead of stopping and waiting for the user to ask again. Treat image generation and image editing as long-running tasks. Only stop when the task reaches a final status such as success, failed, or error, or when a reasonable timeout is reached. Omit action to submit a new generation/edit task, or use action="status" with taskId to query an existing task.',
+    'Create, generate, edit, restyle, or query asynchronous AI image tasks via VectCut. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Prefer passing remotely accessible reference image URLs, typically obtained by running workspace upload first for local files. Local file URLs and absolute local paths remain supported as a compatibility fallback and are uploaded automatically before submission. These tasks are asynchronous and typically take 3-5 minutes. After submitting a task, if the response contains a taskId and the status is not final, you should continue polling with action="status" automatically instead of stopping and waiting for the user to ask again. Treat image generation and image editing as long-running tasks. Only stop when the task reaches a final status such as success, failed, or error, or when a reasonable timeout is reached. Omit action to submit a new generation/edit task, or use action="status" with taskId to query an existing task.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -68,12 +68,12 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional multiple source/reference image URLs, file URLs, or absolute local paths. Local files are uploaded automatically before submission.'
+          'Optional multiple source/reference image URLs. Prefer running workspace upload first for local files. File URLs and absolute local paths remain supported as a compatibility fallback and are uploaded automatically before submission.'
       },
       sourceImage: {
         type: 'string',
         description:
-          'Alias of referenceImages. Optional single source image URL, file URL, or absolute local path for editing or image-to-image tasks.'
+          'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks. Prefer running workspace upload first for local files; file URLs and absolute local paths remain supported as a compatibility fallback.'
       },
       sourceImages: {
         type: 'array',
@@ -81,11 +81,12 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Alias of referenceImages. Optional multiple source image URLs, file URLs, or absolute local paths for editing or fusion tasks.'
+          'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks. Prefer running workspace upload first for local files; file URLs and absolute local paths remain supported as a compatibility fallback.'
       },
       baseImage: {
         type: 'string',
-        description: 'Alias of referenceImages. Optional base image URL, file URL, or absolute local path to modify, enhance, or restyle.'
+        description:
+          'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle. Prefer running workspace upload first for local files; file URLs and absolute local paths remain supported as a compatibility fallback.'
       },
       editImage: {
         type: 'string',

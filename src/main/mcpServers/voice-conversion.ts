@@ -17,25 +17,25 @@ const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const SUBMIT_VOICE_CONVERSION_TASK_TOOL: Tool = {
   name: 'submit_voice_conversion_task',
   description:
-    'Submit an asynchronous voice conversion task for a remote audio or video URL and a target voice ID. This keeps the source performance and converts the voice timbre instead of re-synthesizing text with TTS.',
+    'Submit an asynchronous voice conversion task for a remote audio or video URL and a target voice ID. This keeps the source performance and converts the voice timbre instead of re-synthesizing text with TTS. If the source is a local file, run workspace upload first and pass the returned URL here.',
   inputSchema: {
     type: 'object',
     properties: {
       audioUrl: {
         type: 'string',
-        description: 'Source audio URL. Provide this or videoUrl.'
+        description: 'Source audio URL. Provide this or videoUrl. Use workspace upload first for local files.'
       },
       audio_url: {
         type: 'string',
-        description: 'Alias of audioUrl. Uses the same semantics as the VectCut API docs.'
+        description: 'Alias of audioUrl. Uses the same semantics as the VectCut API docs. Use workspace upload first for local files.'
       },
       videoUrl: {
         type: 'string',
-        description: 'Source video URL. Provide this or audioUrl.'
+        description: 'Source video URL. Provide this or audioUrl. Use workspace upload first for local files.'
       },
       video_url: {
         type: 'string',
-        description: 'Alias of videoUrl. Uses the same semantics as the VectCut API docs.'
+        description: 'Alias of videoUrl. Uses the same semantics as the VectCut API docs. Use workspace upload first for local files.'
       },
       voiceId: {
         type: 'string',

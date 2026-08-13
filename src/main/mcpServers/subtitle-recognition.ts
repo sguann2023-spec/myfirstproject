@@ -22,13 +22,13 @@ type SubtitleRecognitionEffectMode = (typeof SUBTITLE_RECOGNITION_EFFECT_MODES)[
 const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   name: 'submit_subtitle_recognition_task',
   description:
-    'Submit an asynchronous subtitle recognition task for a remote audio or video URL. This extracts subtitle text and timed segments only, without writing anything back into a draft.',
+    'Submit an asynchronous subtitle recognition task for a remote audio or video URL. This extracts subtitle text and timed segments only, without writing anything back into a draft. If the source is a local file, run workspace upload first and pass the returned URL here.',
   inputSchema: {
     type: 'object',
     properties: {
       url: {
         type: 'string',
-        description: 'Required remotely accessible audio or video URL.'
+        description: 'Required remotely accessible audio or video URL. Use workspace upload first for local files.'
       },
       effectMode: {
         type: 'string',
