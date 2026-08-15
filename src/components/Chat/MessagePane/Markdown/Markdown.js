@@ -15,18 +15,20 @@ const normalizeLatexBrackets = (text) => {
     .replace(/\\\(([\s\S]*?)\\\)/g, (_m, expr) => `$${String(expr || '').trim()}$`);
 };
 
-const Markdown = ({ content }) => {
+const Markdown = ({ content, components }) => {
   const normalizedContent = React.useMemo(() => normalizeLatexBrackets(content), [content]);
+  const mergedComponents = React.useMemo(() => ({
+    code: (props) => <CodeBlock {...props} />,
+    pre: ({ children }) => <>{children}</>,
+    ...(components || {})
+  }), [components]);
 
   return (
     <div className="chat-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
-        components={{
-          code: (props) => <CodeBlock {...props} />,
-          pre: ({ children }) => <>{children}</>,
-        }}
+        components={mergedComponents}
       >
         {normalizedContent}
       </ReactMarkdown>

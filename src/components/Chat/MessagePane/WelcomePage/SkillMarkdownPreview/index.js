@@ -42,6 +42,9 @@ const SkillMarkdownPreview = ({
     content: '',
     error: ''
   });
+  const markdownComponents = React.useMemo(() => ({
+    a: ({ children }) => <span className="chat-panel__skill-preview-link-text">{children}</span>
+  }), []);
 
   React.useEffect(() => {
     let disposed = false;
@@ -163,7 +166,7 @@ const SkillMarkdownPreview = ({
             <section className="chat-panel__skill-preview-section">
               <div className="chat-panel__skill-preview-section-label">技能内容</div>
               <div className="chat-panel__skill-preview-markdown">
-                <Markdown content={state.content} />
+                <Markdown content={state.content} components={markdownComponents} />
               </div>
             </section>
           </>

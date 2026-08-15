@@ -220,6 +220,17 @@
   line-height: 1.75;
 }
 
+.chat-file-preview__markdown-content .chat-markdown a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: none;
+  cursor: default;
+}
+
+.chat-file-preview__markdown-link-text {
+  color: inherit;
+}
+
 .chat-file-preview__comment-anchor {
   position: absolute;
   width: 1px;

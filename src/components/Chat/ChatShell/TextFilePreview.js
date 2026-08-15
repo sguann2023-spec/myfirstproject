@@ -172,6 +172,19 @@ const CodePreview = ({ content, language }) => {
 
 const MarkdownPreview = ({ content }) => {
   const lineCount = React.useMemo(() => getLineCount(content), [content]);
+  const markdownComponents = React.useMemo(() => ({
+    a: ({ children }) => <span className="chat-file-preview__markdown-link-text">{children}</span>
+  }), []);
+  const handleMarkdownClickCapture = React.useCallback((event) => {
+    const target = event.target;
+    const linkElement = target instanceof Element ? target.closest('a[href]') : null;
+    if (!linkElement) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
 
   return (
     <div className="chat-file-preview__markdown-shell">
@@ -189,8 +202,11 @@ const MarkdownPreview = ({ content }) => {
           </div>
         ))}
       </div>
-      <div className="chat-file-preview__markdown-content">
-        <Markdown content={content} />
+      <div
+        className="chat-file-preview__markdown-content"
+        onClickCapture={handleMarkdownClickCapture}
+      >
+        <Markdown content={content} components={markdownComponents} />
       </div>
     </div>
   );

@@ -112,6 +112,17 @@
   width: 100%;
 }
 
+.chat-panel__skill-preview-markdown a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: none;
+  cursor: default;
+}
+
+.chat-panel__skill-preview-link-text {
+  color: inherit;
+}
+
 .chat-panel__skill-preview-video {
   width: 100%;
   height: 220px;
