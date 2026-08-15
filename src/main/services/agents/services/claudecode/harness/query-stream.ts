@@ -155,29 +155,6 @@ async function applyCompactionIfNeeded(
     maxLineChars: 160
   })
 
-  logger.info('[SummaryCompose] raw-summary', {
-    topicId: architectureContext.topicId,
-    traceId: architectureContext.traceId,
-    turnId: currentTurn.id,
-    segmentId: currentSegment.id,
-    rawSummaryChars: rawSummary.length,
-    rawSummaryLines: rawSummary.split('\n').length
-  })
-  logger.info('[SummaryCompose] compressed-summary', {
-    topicId: architectureContext.topicId,
-    traceId: architectureContext.traceId,
-    turnId: currentTurn.id,
-    segmentId: currentSegment.id,
-    rawSummaryChars: rawSummary.length,
-    compressedSummaryChars: continuationSummary.length,
-    rawSummaryLines: rawSummary.split('\n').length,
-    compressedSummaryLines: continuationSummary.split('\n').length,
-    compressionRatio: rawSummary.length > 0 ? continuationSummary.length / rawSummary.length : 1,
-    maxChars: 1200,
-    maxLines: 24,
-    maxLineChars: 160
-  })
-
   await conversationSegmentService.markSegmentCompacted(currentSegment.id, {
     rawSummary,
     continuationSummary,

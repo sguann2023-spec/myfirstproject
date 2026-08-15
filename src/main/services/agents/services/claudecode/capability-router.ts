@@ -92,7 +92,6 @@ export type CapabilityDecision = {
   subdomains: string[]
   companionDomains: IntentDomain[]
   domainReasons: string[]
-  preferredMcpTools: string[]
   preferredLocalSkillFilename?: string
   preferredLocalSkillTriggerMode?: SkillTriggerMode
   preferredLocalSkillMatchedBy?: SkillMatchSignal[]
@@ -111,7 +110,6 @@ export type ToolGuidanceOptions = {
   hasWorkspaceTools?: boolean
   hasWriteTools?: boolean
   hasAgenticTools?: boolean
-  preferredMcpTools?: string[]
   preferredLocalSkillFilename?: string
   preferredLocalSkillTriggerMode?: SkillTriggerMode
   preferredLocalSkillMatchedBy?: SkillMatchSignal[]
@@ -1856,7 +1854,6 @@ export class CapabilityRouter {
       subdomains,
       companionDomains,
       domainReasons,
-      preferredMcpTools,
       toolLayer,
       toolLayerReasons
     } = classifyIntent({
@@ -1881,7 +1878,6 @@ export class CapabilityRouter {
       subdomains,
       companionDomains,
       domainReasons,
-      preferredMcpTools,
       preferredLocalSkillFilename: subdomains.includes('invoke_skill') ? matchedWorkspaceSkill?.skill.filename : undefined,
       preferredLocalSkillTriggerMode: subdomains.includes('invoke_skill') ? matchedWorkspaceSkill?.triggerMode : undefined,
       preferredLocalSkillMatchedBy: subdomains.includes('invoke_skill') ? matchedWorkspaceSkill?.matchedBy : undefined,
@@ -1909,7 +1905,6 @@ export function buildToolGuidanceOptions(args: {
     hasWorkspaceTools: hasWorkspaceAccess(decision.toolLayer),
     hasWriteTools: decision.toolLayer === 'workspace-write' || decision.toolLayer === 'agentic',
     hasAgenticTools: decision.toolLayer === 'agentic',
-    preferredMcpTools: decision.preferredMcpTools,
     preferredLocalSkillFilename: decision.preferredLocalSkillFilename,
     preferredLocalSkillTriggerMode: decision.preferredLocalSkillTriggerMode,
     preferredLocalSkillMatchedBy: decision.preferredLocalSkillMatchedBy,
@@ -1931,12 +1926,10 @@ function classifyIntent(args: {
   subdomains: string[]
   companionDomains: IntentDomain[]
   domainReasons: string[]
-  preferredMcpTools: string[]
   toolLayer: RuntimeToolLayer
   toolLayerReasons: string[]
 } {
   const domainReasons: string[] = []
-  const preferredMcpTools = new Set<string>()
   const text = args.normalizedPrompt
   const domainSubdomains = new Map<IntentDomain, Set<string>>()
   const addDomainSubdomain = (domain: IntentDomain, subdomain: string, reason: string) => {
@@ -2070,7 +2063,6 @@ function classifyIntent(args: {
   if (args.selected.has('browser') || hasAnyKeyword(text, WEB_BROWSER_KEYWORDS) || hasImplicitWebUrlOpenIntent || hasWebOpenIntent) {
     addDomainSubdomain('web', 'browser', 'prompt:web-browser')
   }
-  if (hasWebOpenIntent) preferredMcpTools.add('mcp__browser__open')
   if (hasAnyKeyword(text, WEB_FETCH_KEYWORDS)) addDomainSubdomain('web', 'fetch', 'prompt:web-fetch')
   if (hasAnyKeyword(text, WEB_SCREENSHOT_KEYWORDS)) addDomainSubdomain('web', 'screenshot', 'prompt:web-screenshot')
   if (hasAnyKeyword(text, ['浏览器自动化', '自动操作页面', '网页执行', 'browser execute'])) {
@@ -2108,68 +2100,6 @@ function classifyIntent(args: {
   if (args.selected.has('system')) addDomainSubdomain('auxiliary', 'system', 'capability:system')
 
   if (args.selected.has('copylab')) addDomainSubdomain('scrapt', 'derive_prompt', 'capability:copylab')
-
-  if (args.selected.has('uploadFile')) preferredMcpTools.add('mcp__file-upload__upload_file_to_oss')
-  if (args.selected.has('workspaceDownload') || args.selected.has('webDownload') || args.selected.has('mediaDownload')) {
-    preferredMcpTools.add('mcp__filesystem-server__download')
-  }
-  if (args.selected.has('image')) preferredMcpTools.add('mcp__image__generate_or_edit_image')
-  if (args.selected.has('video')) preferredMcpTools.add('mcp__video__generate_video')
-  if (args.selected.has('speech')) preferredMcpTools.add('mcp__speech__generate_speech')
-  if (args.selected.has('voiceConversion')) {
-    preferredMcpTools.add('mcp__voice-conversion__submit_voice_conversion_task')
-  }
-  if (args.selected.has('seedAudio')) preferredMcpTools.add('mcp__seed-audio__generate_seed_audio')
-  if (args.selected.has('audioExtract')) preferredMcpTools.add('mcp__ffmpeg-media__extract_audio_from_video')
-  if (args.selected.has('audioConcat')) preferredMcpTools.add('mcp__ffmpeg-media__concatenate_audio_files')
-  if (args.selected.has('frameCapture')) preferredMcpTools.add('mcp__ffmpeg-media__capture_frame_at_timestamp')
-  if (args.selected.has('mediaDuration')) preferredMcpTools.add('mcp__ffmpeg-media__get_media_duration')
-  if (args.selected.has('mediaTrim')) preferredMcpTools.add('mcp__ffmpeg-media__trim_media_segment')
-  if (args.selected.has('videoConcat')) preferredMcpTools.add('mcp__ffmpeg-media__concatenate_video_files')
-  if (args.selected.has('textAdd')) preferredMcpTools.add('mcp__draft-elements__add_text')
-  if (args.selected.has('textAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_text')
-  if (args.selected.has('textDelete')) preferredMcpTools.add('mcp__draft-elements__remove_text')
-  if (args.selected.has('textUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_text')
-  if (args.selected.has('subtitleRecognition')) preferredMcpTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
-  if (args.selected.has('videoUnderstand')) preferredMcpTools.add('mcp__video-understand__submit_video_detail_task')
-  if (args.selected.has('subtitleSrt')) preferredMcpTools.add('mcp__draft-elements__add_subtitle')
-  if (args.selected.has('textIntroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_intro_types')
-  if (args.selected.has('textOutroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_outro_types')
-  if (args.selected.has('textLoopAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_text_loop_anim_types')
-  if (args.selected.has('fontList')) preferredMcpTools.add('mcp__draft-elements__get_font_types')
-  if (args.selected.has('imageAdd')) preferredMcpTools.add('mcp__draft-elements__add_image')
-  if (args.selected.has('imageAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_image')
-  if (args.selected.has('imageUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_image')
-  if (args.selected.has('imageDelete')) preferredMcpTools.add('mcp__draft-elements__remove_image')
-  if (args.selected.has('videoAdd')) preferredMcpTools.add('mcp__draft-elements__add_video')
-  if (args.selected.has('videoAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_video')
-  if (args.selected.has('videoUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_video')
-  if (args.selected.has('videoDelete')) preferredMcpTools.add('mcp__draft-elements__remove_video')
-  if (args.selected.has('transitionTypeList')) preferredMcpTools.add('mcp__draft-elements__get_transition_types')
-  if (args.selected.has('audioAdd')) preferredMcpTools.add('mcp__draft-elements__add_audio')
-  if (args.selected.has('audioAddBatch')) preferredMcpTools.add('mcp__draft-elements__add_batch_audio')
-  if (args.selected.has('audioUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_audio')
-  if (args.selected.has('audioDelete')) preferredMcpTools.add('mcp__draft-elements__remove_audio')
-  if (args.selected.has('audioEffectTypeList')) preferredMcpTools.add('mcp__draft-elements__get_audio_effect_types')
-  if (args.selected.has('keyframeAdd')) preferredMcpTools.add('mcp__draft-elements__add_video_keyframe')
-  if (args.selected.has('effectAdd')) preferredMcpTools.add('mcp__draft-elements__add_effect')
-  if (args.selected.has('effectUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_effect')
-  if (args.selected.has('effectDelete')) preferredMcpTools.add('mcp__draft-elements__remove_effect')
-  if (args.selected.has('characterEffectTypeList')) preferredMcpTools.add('mcp__draft-elements__get_video_character_effect_types')
-  if (args.selected.has('sceneEffectTypeList')) preferredMcpTools.add('mcp__draft-elements__get_video_scene_effect_types')
-  if (args.selected.has('filterAdd')) preferredMcpTools.add('mcp__draft-elements__add_filter')
-  if (args.selected.has('filterUpdate')) preferredMcpTools.add('mcp__draft-elements__modify_filter')
-  if (args.selected.has('filterDelete')) preferredMcpTools.add('mcp__draft-elements__remove_filter')
-  if (args.selected.has('filterTypeList')) preferredMcpTools.add('mcp__draft-elements__get_filter_types')
-  if (args.selected.has('imageIntroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_intro_animation_types')
-  if (args.selected.has('imageOutroAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_outro_animation_types')
-  if (args.selected.has('imageLoopAnimationList')) preferredMcpTools.add('mcp__draft-elements__get_combo_animation_types')
-  if (args.selected.has('draftCreate')) preferredMcpTools.add('mcp__draft-management__create_draft')
-  if (args.selected.has('draftUpdateMeta')) preferredMcpTools.add('mcp__draft-management__modify_draft')
-  if (args.selected.has('draftInspect')) preferredMcpTools.add('mcp__draft-management__query_script')
-  if (args.selected.has('draftDownload')) preferredMcpTools.add('mcp__draft-download__download_draft')
-  if (args.selected.has('subtitleTemplate')) preferredMcpTools.add('mcp__subtitle-template__generate_smart_subtitle')
-  if (args.selected.has('kouboTemplate')) preferredMcpTools.add('mcp__koubo-template__submit_koubo_template_task')
 
   if (args.selected.has('audioExtract')) addDomainSubdomain('cut', 'audio_extract', 'capability:audio-extract')
   if (args.selected.has('audioConcat')) addDomainSubdomain('cut', 'audio_concat', 'capability:audio-concat')
@@ -2365,7 +2295,6 @@ function classifyIntent(args: {
     subdomains,
     companionDomains,
     domainReasons: domainReasons.length ? domainReasons : ['chat:default'],
-    preferredMcpTools: Array.from(preferredMcpTools).sort(),
     toolLayer,
     toolLayerReasons: toolLayerReasons.length ? toolLayerReasons : ['prompt:chat']
   }

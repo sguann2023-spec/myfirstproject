@@ -2258,6 +2258,7 @@ const HomePage = () => {
       return {
         ...message,
         storeAssistantMessageId: null,
+        retryStatusText: '',
         content: nextContent,
         blocks: nextBlocks,
         usage: snapshot?.usage ? { ...snapshot.usage } : message?.usage,
@@ -2789,11 +2790,23 @@ const HomePage = () => {
         };
 
       if (payload.type === 'chunk') {
+        const chunkType = String(payload?.chunk?.type || '');
+        if (chunkType === 'retry-status') {
+          updateChatAssistantMessage(chatId, assistantMessageId, {
+            retryStatusText: String(payload?.chunk?.text || '').trim()
+          });
+          return;
+        }
+
         const chunkStart = getPerfTimestamp();
         streamController?.pushChunk(payload.chunk || {});
         const pushChunkDurationMs = Math.round((getPerfTimestamp() - chunkStart) * 100) / 100;
-        const chunkType = String(payload?.chunk?.type || '');
         const isVisibleAssistantTextChunk = chunkType === 'text-start' || chunkType === 'text-delta';
+        if (isVisibleAssistantTextChunk) {
+          updateChatAssistantMessage(chatId, assistantMessageId, {
+            retryStatusText: ''
+          });
+        }
         if (perfEntry) {
           perfEntry.chunkCount += 1;
           perfEntry.totalPushChunkMs += pushChunkDurationMs;
@@ -2823,6 +2836,7 @@ const HomePage = () => {
         if (!useRendererStoreStreaming) {
           applySnapshot(null);
         }
+        updateChatAssistantMessage(chatId, assistantMessageId, { retryStatusText: '' });
         setChatSessionInFlight(chatId, false, 'chunk.stream-finished');
         return;
       }
@@ -2837,6 +2851,7 @@ const HomePage = () => {
           if (requestId) {
             chatPendingByRequestIdRef.current.delete(requestId);
           }
+          updateChatAssistantMessage(chatId, assistantMessageId, { retryStatusText: '' });
           setChatSessionSending(chatId, false, 'chunk.error.aborted');
           setChatSessionInFlight(chatId, false, 'chunk.error.aborted');
           setChatSessionFulfilled(chatId, false, 'chunk.error.aborted');
@@ -2863,6 +2878,7 @@ const HomePage = () => {
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
         }
+        updateChatAssistantMessage(chatId, assistantMessageId, { retryStatusText: '' });
         setChatSessionSending(chatId, false, 'chunk.error');
         setChatSessionInFlight(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
@@ -2883,6 +2899,7 @@ const HomePage = () => {
         if (requestId) {
           chatPendingByRequestIdRef.current.delete(requestId);
         }
+        updateChatAssistantMessage(chatId, assistantMessageId, { retryStatusText: '' });
         setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSessionInFlight(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
@@ -3767,6 +3784,7 @@ const HomePage = () => {
       model: chatModelMeta,
       modelId: chatModel,
       storeAssistantMessageId: null,
+      retryStatusText: '',
     };
     setChatSessions((prev) => {
       const updated = prev.map((item) => {

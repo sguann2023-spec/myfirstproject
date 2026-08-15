@@ -20,6 +20,8 @@ import { buildInlineToolResultPayload } from './tool-result-payload'
 const logger = loggerService.withContext('ClaudeCodePiQuery')
 
 const DEFAULT_PI_TERMINAL_TIMEOUT_MS = 120_000
+const PI_NETWORK_RETRY_LIMIT = 5
+const PI_NETWORK_RETRY_BASE_DELAY_MS = 800
 
 type PendingToolCall = {
   emittedId: string
@@ -52,6 +54,54 @@ function createPiTerminalTimeoutError(timeoutMs: number): Error {
   const error = new Error(`PI assistant stream did not reach a terminal state within ${timeoutMs}ms`)
   error.name = 'PiStreamTerminalTimeoutError'
   return error
+}
+
+function isRetriablePiError(error: Error): boolean {
+  const name = String(error.name || '').trim()
+  const message = String(error.message || '').trim()
+  const normalized = `${name} ${message}`.toLowerCase()
+
+  return (
+    name === 'PiStreamTerminalTimeoutError'
+    || /\b502\b|\b503\b|\b504\b/.test(message)
+    || normalized.includes('connection error')
+    || normalized.includes('socket hang up')
+    || normalized.includes('ecconnreset')
+    || normalized.includes('econnreset')
+    || normalized.includes('connection reset')
+    || normalized.includes('network error')
+    || normalized.includes('fetch failed')
+    || normalized.includes('upstream request failed')
+    || normalized.includes('上游请求失败')
+    || normalized.includes('timed out')
+    || normalized.includes('timeout')
+  )
+}
+
+function buildPiRetryStatusText(attempt: number, maxRetries: number): string {
+  return `第${attempt}/${maxRetries}次重试`
+}
+
+async function waitForPiRetryDelay(delayMs: number, abortSignal?: AbortSignal): Promise<void> {
+  if (delayMs <= 0) return
+  if (abortSignal?.aborted) {
+    throw new DOMException('Request was aborted', 'AbortError')
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => {
+      abortSignal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+
+    const onAbort = () => {
+      clearTimeout(timeoutHandle)
+      abortSignal?.removeEventListener('abort', onAbort)
+      reject(new DOMException('Request was aborted', 'AbortError'))
+    }
+
+    abortSignal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 export function convertPiUsage(usage?: {
@@ -286,6 +336,7 @@ export async function processPiHarnessQuery(input: {
   let reasoningDeltaCount = 0
   let toolCallCount = 0
   let toolResultCount = 0
+  let currentAttempt = 1
   const terminalTimeoutMs = resolvePiTerminalTimeoutMs()
   let terminalTimeoutHandle: NodeJS.Timeout | undefined
   let terminalTimeoutTriggered = false
@@ -393,6 +444,19 @@ export async function processPiHarnessQuery(input: {
         id: emittedToolCallId,
         providerMetadata
       } as TextStreamPart<any>,
+      harness
+    )
+  }
+
+  const emitRetryStatusChunk = (attempt: number): void => {
+    emitChunk(
+      stream,
+      ({
+        type: 'retry-status',
+        attempt,
+        maxRetries: PI_NETWORK_RETRY_LIMIT,
+        text: buildPiRetryStatusText(attempt, PI_NETWORK_RETRY_LIMIT)
+      } as unknown) as TextStreamPart<any>,
       harness
     )
   }
@@ -705,31 +769,122 @@ export async function processPiHarnessQuery(input: {
   })
 
   try {
-    const result = await runtimeBridge.harness.prompt(prompt, {
-      images: images?.map((image) => ({
-        type: 'image',
-        data: image.data,
-        mimeType: image.media_type
-      }))
-    })
-    clearTerminalTimeout()
+    let result: unknown
+    for (let attemptIndex = 0; attemptIndex <= PI_NETWORK_RETRY_LIMIT; attemptIndex += 1) {
+      currentAttempt = attemptIndex + 1
+      terminalTimeoutTriggered = false
+      result = undefined
 
-    const resultStopReason = String((result as any).stopReason || '').trim()
-    if (terminalTimeoutTriggered) {
-      throw createPiTerminalTimeoutError(terminalTimeoutMs)
+      try {
+        result = await runtimeBridge.harness.prompt(prompt, {
+          images: images?.map((image) => ({
+            type: 'image',
+            data: image.data,
+            mimeType: image.media_type
+          }))
+        })
+      } catch (error) {
+        clearTerminalTimeout()
+        const errorObj = error instanceof Error ? error : new Error(String(error))
+        const hasVisibleOrSideEffects = textDeltaCount > 0 || toolCallCount > 0 || toolResultCount > 0
+        const shouldRetry =
+          !externalAbortRequested
+          && abortSignal?.aborted !== true
+          && !hasVisibleOrSideEffects
+          && attemptIndex < PI_NETWORK_RETRY_LIMIT
+          && isRetriablePiError(errorObj)
+
+        if (!shouldRetry) {
+          throw errorObj
+        }
+
+        const retryAttempt = attemptIndex + 1
+        logger.warn('[PiQuery] prompt attempt failed before any visible output, scheduling retry', {
+          sessionId,
+          traceId: architectureContext.traceId,
+          attempt: retryAttempt,
+          maxRetries: PI_NETWORK_RETRY_LIMIT,
+          error: errorObj.message,
+          currentAttempt,
+          textDeltaCount,
+          toolCallCount,
+          toolResultCount
+        })
+        emitRetryStatusChunk(retryAttempt)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryAttempt, abortSignal)
+        continue
+      }
+
+      clearTerminalTimeout()
+
+      const resultStopReason = String((result as any).stopReason || '').trim()
+      if (terminalTimeoutTriggered) {
+        const timeoutError = createPiTerminalTimeoutError(terminalTimeoutMs)
+        const hasVisibleOrSideEffects = textDeltaCount > 0 || toolCallCount > 0 || toolResultCount > 0
+        const shouldRetry =
+          !externalAbortRequested
+          && abortSignal?.aborted !== true
+          && !hasVisibleOrSideEffects
+          && attemptIndex < PI_NETWORK_RETRY_LIMIT
+
+        if (!shouldRetry) {
+          throw timeoutError
+        }
+
+        const retryAttempt = attemptIndex + 1
+        logger.warn('[PiQuery] prompt attempt timed out before any visible output, scheduling retry', {
+          sessionId,
+          traceId: architectureContext.traceId,
+          attempt: retryAttempt,
+          maxRetries: PI_NETWORK_RETRY_LIMIT,
+          timeoutMs: terminalTimeoutMs
+        })
+        emitRetryStatusChunk(retryAttempt)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryAttempt, abortSignal)
+        continue
+      }
+      if (externalAbortRequested || abortSignal?.aborted || resultStopReason === 'aborted') {
+        await agentTurnRepository.update(currentTurn.id, {
+          assistantText: streamedAssistantText || undefined,
+          completedAt: new Date().toISOString(),
+          status: 'cancelled',
+          cumulativeInputTokens: latestInputTokens
+        })
+        emitCancelled(stream, new Error('Request aborted by client'), harness)
+        return
+      }
+      if (resultStopReason === 'error') {
+        const resultError = new Error(String((result as any).errorMessage || 'PI harness returned an error stop reason'))
+        const hasVisibleOrSideEffects = textDeltaCount > 0 || toolCallCount > 0 || toolResultCount > 0
+        const shouldRetry =
+          !externalAbortRequested
+          && abortSignal?.aborted !== true
+          && !hasVisibleOrSideEffects
+          && attemptIndex < PI_NETWORK_RETRY_LIMIT
+          && isRetriablePiError(resultError)
+
+        if (!shouldRetry) {
+          throw resultError
+        }
+
+        const retryAttempt = attemptIndex + 1
+        logger.warn('[PiQuery] prompt attempt ended with retriable stopReason=error before any visible output, scheduling retry', {
+          sessionId,
+          traceId: architectureContext.traceId,
+          attempt: retryAttempt,
+          maxRetries: PI_NETWORK_RETRY_LIMIT,
+          error: resultError.message
+        })
+        emitRetryStatusChunk(retryAttempt)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryAttempt, abortSignal)
+        continue
+      }
+
+      break
     }
-    if (externalAbortRequested || abortSignal?.aborted || resultStopReason === 'aborted') {
-      await agentTurnRepository.update(currentTurn.id, {
-        assistantText: streamedAssistantText || undefined,
-        completedAt: new Date().toISOString(),
-        status: 'cancelled',
-        cumulativeInputTokens: latestInputTokens
-      })
-      emitCancelled(stream, new Error('Request aborted by client'), harness)
-      return
-    }
-    if (resultStopReason === 'error') {
-      throw new Error(String((result as any).errorMessage || 'PI harness returned an error stop reason'))
+
+    if (!result) {
+      throw new Error('PI harness did not return a result after retries')
     }
 
     const finalAssistantText = extractAssistantText(result as any) || streamedAssistantText
@@ -738,6 +893,7 @@ export async function processPiHarnessQuery(input: {
       sessionId,
       traceId: architectureContext.traceId,
       piSessionId: harness.invokeContext.projection.piSessionId,
+      attemptsUsed: currentAttempt,
       stopReason: (result as any).stopReason,
       errorMessage: (result as any).errorMessage,
       resultContent: summarizePiContent((result as any).content),
@@ -795,6 +951,7 @@ export async function processPiHarnessQuery(input: {
 
     logger.error('Pi harness query failed', {
       sessionId,
+      attemptsUsed: currentAttempt,
       error: errorObj.message
     })
     emitError(stream, errorObj, harness)

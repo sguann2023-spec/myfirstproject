@@ -844,7 +844,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.additionalDirectories = additionalDirectories
     }
 
-    const { mountedRuntimeMcpServers, skippedRuntimeMcpServers } = await mountRuntimeMcpServers({
+    const { mountedRuntimeMcpServers } = await mountRuntimeMcpServers({
       options,
       session,
       apiConfig,
@@ -875,7 +875,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       companionDomains: capabilityDecision.companionDomains,
       selectedCapabilities: Array.from(capabilityDecision.selected).sort(),
       mountedRuntimeMcpServers,
-      skippedRuntimeMcpServers,
       toolGuidanceOptions,
       activeClaudeSkillCount: activeClaudeSkillNames.length,
       preferredLocalSkillSdkDiscovered,

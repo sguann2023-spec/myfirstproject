@@ -134,12 +134,18 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
 
   if (isLoading) {
     const loadingId = `${messageId}-placeholder`;
+    const loadingLabel = String(message?.retryStatusText || '').trim();
     entities[loadingId] = {
       id: loadingId,
       messageId,
       type: MessageBlockType.UNKNOWN,
       status: MessageBlockStatus.PROCESSING,
-      createdAt
+      createdAt,
+      metadata: loadingLabel
+        ? {
+          loadingLabel
+        }
+        : undefined
     };
     blockIds.push(loadingId);
   }

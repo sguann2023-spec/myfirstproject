@@ -40,9 +40,11 @@ const PlaceholderBlock: React.FC<PlaceholderBlockProps> = ({ block }) => {
   }, [block])
 
   if (block.status === MessageBlockStatus.PROCESSING && block.type === MessageBlockType.UNKNOWN) {
+    const loadingLabel = String(block.metadata?.loadingLabel || '').trim()
     return (
       <MessageContentLoading ref={rootRef}>
         <BeatLoader color="var(--color-text-1)" size={8} speedMultiplier={0.8} />
+        {loadingLabel ? <MessageContentLoadingLabel>{loadingLabel}</MessageContentLoadingLabel> : null}
       </MessageContentLoading>
     )
   }
@@ -52,8 +54,15 @@ const MessageContentLoading = styled.div`
   display: flex;
   flex-direction: row;
   align-items: center;
+  gap: 10px;
   height: 32px;
   margin-top: -5px;
   margin-bottom: 5px;
+`
+
+const MessageContentLoadingLabel = styled.span`
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-3);
 `
 export default React.memo(PlaceholderBlock)

@@ -13,7 +13,6 @@ const makeDecision = (args: Partial<CapabilityDecision> & Pick<CapabilityDecisio
   subdomains: [],
   companionDomains: [],
   domainReasons: ['chat:default'],
-  preferredMcpTools: [],
   toolLayer: args.toolLayer,
   toolLayerReasons: ['prompt:chat'],
   ...args
@@ -64,8 +63,20 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Read', 'Bash'])
-    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'Read'])
+    expect(surface.toolsOption).toEqual([
+      'InspectImage',
+      'AskUserQuestion',
+      'Read',
+      'Bash',
+      'Write',
+      'Edit',
+      'MultiEdit',
+      'NotebookRead',
+      'NotebookEdit',
+      'Task',
+      'TodoWrite'
+    ])
+    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'NotebookRead', 'Read', 'TodoWrite'])
   })
 
   it('adds InspectImage, AskUserQuestion and Bash to web turns while keeping workspace builtins hidden', () => {
@@ -80,8 +91,8 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'WebSearch', 'WebFetch', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'WebSearch', 'WebFetch', 'Bash'])
     expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__browser__*', 'mcp__search__*'])
   })
 

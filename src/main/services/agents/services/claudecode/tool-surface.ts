@@ -59,18 +59,18 @@ const ALL_BUILTIN_TOOLS = Array.from(
 
 const collectDomainBuiltinTools = (decision: CapabilityDecision): string[] => {
   const tools = new Set<string>()
-  const applyDomain = (domain: IntentDomain, subdomains: string[]) => {
+  const applyDomain = (domain: IntentDomain) => {
     const domainMap = DOMAIN_SUBDOMAIN_BUILTINS[domain]
     if (!domainMap) return
-    for (const subdomain of subdomains) {
-      for (const tool of domainMap[subdomain] ?? []) {
+    for (const domainTools of Object.values(domainMap)) {
+      for (const tool of domainTools) {
         tools.add(tool)
       }
     }
   }
 
   for (const activeDomain of decision.activeDomains) {
-    applyDomain(activeDomain.domain, activeDomain.subdomains)
+    applyDomain(activeDomain.domain)
   }
 
   if (decision.activeDomains.some((activeDomain) => ['web', 'cut'].includes(activeDomain.domain))) {

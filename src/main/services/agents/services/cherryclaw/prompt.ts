@@ -234,58 +234,6 @@ ${evidenceLine}
 - Prefer deterministic scripts and tests for repeatable work.`)
     }
 
-    if (opts.preferredMcpTools?.includes('mcp__browser__open')) {
-      sections.push(`## Tool selection for this turn
-
-- This request includes opening an external webpage.
-- Prefer \`mcp__browser__open\` before other web or navigation tools.`)
-    }
-
-    if (opts.preferredMcpTools?.includes('mcp__draft-download__download_draft')) {
-      sections.push(`## Tool selection for this turn
-
-- This request includes downloading a VectCut draft.
-- Prefer \`mcp__draft-download__download_draft\` before generic workspace or web tools.`)
-    }
-
-    if (opts.preferredMcpTools?.includes('mcp__draft-management__create_draft')) {
-      sections.push(`## Tool selection for this turn
-
-- This request includes creating a VectCut draft.
-- Prefer \`mcp__draft-management__create_draft\` before generic workspace write tools.
-- If workspace file editing tools are also available, do not manually create local draft folders, draft JSON files, or blank draft scaffolding when \`mcp__draft-management__create_draft\` can satisfy the request directly.
-- Treat phrases such as "创建草稿", "创建一个草稿", "创建一个剪映草稿", and "创建一个剪辑草稿" as draft-creation requests first, not generic file-creation tasks.`)
-    }
-
-    if (opts.preferredMcpTools?.includes('mcp__file-upload__upload_file_to_oss')) {
-      sections.push(`## Tool selection for this turn
-
-- This request includes uploading a local file to VectCut OSS.
-- Prefer \`mcp__file-upload__upload_file_to_oss\` before generic workspace or web tools.`)
-    }
-
-    if (
-      opts.preferredMcpTools?.includes('mcp__file-upload__upload_file_to_oss') &&
-      opts.preferredMcpTools?.includes('mcp__image__generate_or_edit_image')
-    ) {
-      sections.push(`## Image references
-
-- This turn may use local reference images for image editing or other reference-driven image generation.
-- If a reference image is a local file path, file URL, or workspace image, upload it first and use the returned URL when calling \`mcp__image__generate_or_edit_image\`.
-- When the user is editing an image or clearly wants the model to follow a reference image, prefer using \`mcp__image__generate_or_edit_image\` directly instead of first reading the image content with \`InspectImage\`.
-- Only read the image content first when the user explicitly asks to analyze, describe, extract, or understand the reference image itself.`)
-    }
-
-    if (opts.preferredMcpTools?.includes('mcp__video__generate_video')) {
-      sections.push(`## AI video generation
-
-- This turn includes AI video generation.
-- Prefer \`mcp__video__generate_video\` and keep polling with \`action="status"\` after submit until the task reaches a final status.
-- For Seedance-style multimodal generation, prefer passing a \`content\` array with text plus reference image, video, or audio items instead of flattening everything into plain text.
-- If the user provides a reference video, keep it as \`video_url\` with role \`reference_video\`; do not silently replace that video with extracted frame images plus separated audio unless the user explicitly asks for frame extraction or audio separation.
-- If local image, video, or audio references are involved, upload them first with workspace upload and then pass the returned URLs into \`mcp__video__generate_video\`. Automatic upload inside the video tool is only a compatibility fallback, not the preferred path.`)
-    }
-
     return sections.join('\n\n')
   }
 

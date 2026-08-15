@@ -1055,7 +1055,7 @@ function buildBuiltinTools(input: {
     name: 'TodoWrite',
     label: 'TodoWrite',
     description: 'Record a task checklist for progress tracking.',
-    parameters: Type.Any(),
+    parameters: Type.Object({}, { additionalProperties: true }),
     async execute(_toolCallId: string, rawParams: unknown) {
       const params = rawParams as Record<string, unknown>
       return {
@@ -1069,7 +1069,7 @@ function buildBuiltinTools(input: {
     name: 'Task',
     label: 'Task',
     description: 'Record a delegated subtask request. Full sub-agent dispatch is not yet wired in the pi bridge.',
-    parameters: Type.Any(),
+    parameters: Type.Object({}, { additionalProperties: true }),
     async execute(_toolCallId: string, rawParams: unknown) {
       const params = rawParams as Record<string, unknown>
       return {
@@ -1244,6 +1244,7 @@ async function buildMcpTools(input: {
           )
 
           if ((result as { isError?: boolean }).isError) {
+            const failedOutput = extractToolText((result as { content?: unknown }).content)
             logger.warn('[AgentCore] mcp tool execute failed', {
               traceId: invokeContext.runtime.traceId,
               topicId: invokeContext.projection.topicId,
@@ -1251,11 +1252,12 @@ async function buildMcpTools(input: {
               toolName: namespacedName,
               toolCallId,
               serverKey,
-              outputPreview: extractToolText((result as { content?: unknown }).content).slice(0, 500)
+              outputPreview: failedOutput.slice(0, 500)
             })
-            throw new Error(extractToolText((result as { content?: unknown }).content))
+            throw new Error(failedOutput)
           }
 
+          const limitedPayload = buildLimitedPiToolPayload(result, `${namespacedName} 回包`)
           logger.info('[AgentCore] mcp tool execute success', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1265,7 +1267,6 @@ async function buildMcpTools(input: {
             serverKey,
             contentPreview: extractToolText((result as { content?: unknown }).content).slice(0, 500)
           })
-          const limitedPayload = buildLimitedPiToolPayload(result, `${namespacedName} 回包`)
           return {
             content: limitedPayload.content,
             details: limitedPayload.details
@@ -1324,129 +1325,6 @@ function summarizeProviderHeaders(headers: Record<string, unknown> | undefined):
   return summary
 }
 
-function summarizeProviderMessages(messages: unknown[]): Record<string, unknown> {
-  const roleCounts: Record<string, number> = {}
-  let totalTextChars = 0
-  let totalImageParts = 0
-  let totalDataUrlParts = 0
-  let oversizedMessageCount = 0
-
-  const messagePreview = messages.slice(0, 6).map((entry, index) => {
-    const record = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {}
-    const role = typeof record.role === 'string' ? record.role : 'unknown'
-    roleCounts[role] = (roleCounts[role] ?? 0) + 1
-
-    const content = record.content
-    const contentParts = Array.isArray(content) ? content : []
-    const text = typeof content === 'string' ? content : ''
-    const textCharsFromParts = contentParts.reduce((sum, part) => {
-      if (!part || typeof part !== 'object') return sum
-      const typedPart = part as Record<string, unknown>
-      const partType = String(typedPart.type || '')
-      if (partType !== 'text' && partType !== 'input_text') return sum
-      const partText = typeof typedPart.text === 'string' ? typedPart.text : typeof typedPart.input_text === 'string' ? typedPart.input_text : ''
-      return sum + partText.length
-    }, 0)
-    const textChars = text.length + textCharsFromParts
-    totalTextChars += textChars
-
-    const imagePartStats = contentParts.reduce(
-      (acc, part) => {
-        if (!part || typeof part !== 'object') return acc
-        const typedPart = part as Record<string, unknown>
-        const partType = String(typedPart.type || '')
-        const candidateUrl =
-          typeof typedPart.image_url === 'string'
-            ? typedPart.image_url
-            : typedPart.image_url && typeof typedPart.image_url === 'object'
-              ? String((typedPart.image_url as Record<string, unknown>).url || '')
-              : typeof typedPart.source === 'string'
-                ? typedPart.source
-                : typedPart.source && typeof typedPart.source === 'object'
-                  ? String((typedPart.source as Record<string, unknown>).data || (typedPart.source as Record<string, unknown>).url || '')
-                  : ''
-        const isImagePart =
-          partType.includes('image') ||
-          partType === 'input_image' ||
-          candidateUrl.startsWith('data:image/') ||
-          candidateUrl.startsWith('http')
-        if (!isImagePart) return acc
-        acc.imageParts += 1
-        if (candidateUrl.startsWith('data:image/')) {
-          acc.dataUrlParts += 1
-        }
-        return acc
-      },
-      { imageParts: 0, dataUrlParts: 0 }
-    )
-
-    totalImageParts += imagePartStats.imageParts
-    totalDataUrlParts += imagePartStats.dataUrlParts
-    if (textChars > 50000 || imagePartStats.dataUrlParts > 0) {
-      oversizedMessageCount += 1
-    }
-
-    return {
-      index,
-      role,
-      contentType: Array.isArray(content) ? 'array' : typeof content,
-      contentPartCount: contentParts.length,
-      textChars,
-      imagePartCount: imagePartStats.imageParts,
-      dataUrlImagePartCount: imagePartStats.dataUrlParts,
-      preview: summarizeValue(record.content).slice(0, 240)
-    }
-  })
-
-  return {
-    roleCounts,
-    totalTextChars,
-    totalImageParts,
-    totalDataUrlParts,
-    oversizedMessageCount,
-    messagePreview
-  }
-}
-
-function summarizeProviderPayload(payload: unknown): Record<string, unknown> {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return {
-      type: Array.isArray(payload) ? 'array' : typeof payload,
-      preview: summarizeValue(payload).slice(0, 240)
-    }
-  }
-
-  const record = payload as Record<string, unknown>
-  const messages = Array.isArray(record.messages) ? record.messages : []
-  const input = Array.isArray(record.input) ? record.input : []
-  const tools = Array.isArray(record.tools) ? record.tools : []
-
-  return {
-    keys: Object.keys(record),
-    model: typeof record.model === 'string' ? record.model : undefined,
-    stream: typeof record.stream === 'boolean' ? record.stream : undefined,
-    messageCount: messages.length,
-    inputCount: input.length,
-    toolCount: tools.length,
-    toolChoice:
-      typeof record.tool_choice === 'string'
-        ? record.tool_choice
-        : record.tool_choice && typeof record.tool_choice === 'object'
-          ? summarizeValue(record.tool_choice)
-          : undefined,
-    hasSystem: record.system !== undefined,
-    hasInstructions: record.instructions !== undefined,
-    messageShape: summarizeProviderMessages(messages),
-    inputShape: summarizeProviderMessages(input),
-    enableThinking: typeof record.enable_thinking === 'boolean' ? record.enable_thinking : undefined,
-    thinking:
-      record.thinking && typeof record.thinking === 'object'
-        ? summarizeValue(record.thinking)
-        : undefined,
-    reasoning: record.reasoning && typeof record.reasoning === 'object' ? Object.keys(record.reasoning as Record<string, unknown>) : undefined
-  }
-}
-
 function normalizeProviderPayload(input: {
   payload: unknown
   providerApiType: 'anthropic-messages' | 'openai-completions'
@@ -1499,18 +1377,6 @@ function wrapPiApiModuleWithLogging(input: {
             providerApiType,
             invokeContext
           })
-          logger.info('[AgentCore] pi provider request payload', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            providerApiType,
-            modelId: String((payloadModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
-            baseUrl: String((payloadModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-            headers: summarizeProviderHeaders((typedOptions.headers as Record<string, unknown> | undefined) || undefined),
-            hasApiKey: Boolean(typedOptions.apiKey),
-            timeoutMs: typedOptions.timeoutMs,
-            payload: summarizeProviderPayload(payload)
-          })
           const originalOnPayload = typeof typedOptions.onPayload === "function" ? typedOptions.onPayload : undefined
           return originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
         },
@@ -1556,19 +1422,6 @@ function wrapPiApiModuleWithLogging(input: {
             payload,
             providerApiType,
             invokeContext
-          })
-          logger.info('[AgentCore] pi provider request payload', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            providerApiType,
-            method: 'streamSimple',
-            modelId: String((payloadModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
-            baseUrl: String((payloadModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-            headers: summarizeProviderHeaders((typedOptions.headers as Record<string, unknown> | undefined) || undefined),
-            hasApiKey: Boolean(typedOptions.apiKey),
-            timeoutMs: typedOptions.timeoutMs,
-            payload: summarizeProviderPayload(payload)
           })
           const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
           return originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined

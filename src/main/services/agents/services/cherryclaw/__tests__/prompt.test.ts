@@ -182,63 +182,6 @@ describe('PromptBuilder', () => {
       expect(result.length).toBeLessThan(700)
     })
 
-    it('adds preferred draft download guidance when routed to draft download', () => {
-      const result = builder.buildToolGuidance('/workspace', {
-        preferredMcpTools: ['mcp__draft-download__download_draft']
-      })
-
-      expect(result).toContain('## Tool selection for this turn')
-      expect(result).toContain('downloading a VectCut draft')
-      expect(result).toContain('`mcp__draft-download__download_draft`')
-    })
-
-    it('adds preferred draft creation guidance when routed to draft creation', () => {
-      const result = builder.buildToolGuidance('/workspace', {
-        preferredMcpTools: ['mcp__draft-management__create_draft'],
-        hasWorkspaceTools: true,
-        hasWriteTools: true
-      })
-
-      expect(result).toContain('## Tool selection for this turn')
-      expect(result).toContain('creating a VectCut draft')
-      expect(result).toContain('`mcp__draft-management__create_draft`')
-      expect(result).toContain('do not manually create local draft folders')
-      expect(result).toContain('创建一个剪辑草稿')
-    })
-
-    it('adds preferred file upload guidance when routed to workspace upload', () => {
-      const result = builder.buildToolGuidance('/workspace', {
-        preferredMcpTools: ['mcp__file-upload__upload_file_to_oss']
-      })
-
-      expect(result).toContain('## Tool selection for this turn')
-      expect(result).toContain('uploading a local file to VectCut OSS')
-      expect(result).toContain('`mcp__file-upload__upload_file_to_oss`')
-    })
-
-    it('adds local image reference upload guidance when image generation also needs upload', () => {
-      const result = builder.buildToolGuidance('/workspace', {
-        preferredMcpTools: ['mcp__file-upload__upload_file_to_oss', 'mcp__image__generate_or_edit_image']
-      })
-
-      expect(result).toContain('## Image references')
-      expect(result).toContain('reference-driven image generation')
-      expect(result).toContain('upload it first')
-      expect(result).toContain('`mcp__image__generate_or_edit_image`')
-      expect(result).toContain('prefer using `mcp__image__generate_or_edit_image` directly')
-      expect(result).toContain('instead of first reading the image content with `InspectImage`')
-    })
-
-    it('adds explicit Seedance reference video preservation guidance for AI video generation', () => {
-      const result = builder.buildToolGuidance('/workspace', {
-        preferredMcpTools: ['mcp__video__generate_video']
-      })
-
-      expect(result).toContain('## AI video generation')
-      expect(result).toContain('keep it as `video_url` with role `reference_video`')
-      expect(result).toContain('do not silently replace that video with extracted frame images plus separated audio')
-    })
-
     it('adds local skill execution guidance when a workspace skill is matched', () => {
       const result = builder.buildToolGuidance(
         '/workspace',

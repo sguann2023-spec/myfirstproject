@@ -35,7 +35,6 @@ type RuntimeMcpServerConfig = NonNullable<Options['mcpServers']>[string]
 
 export type RuntimeMcpRegistryResult = {
   mountedRuntimeMcpServers: string[]
-  skippedRuntimeMcpServers: string[]
 }
 
 export async function mountRuntimeMcpServers(input: {
@@ -93,34 +92,33 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   const mountedRuntimeMcpServers: string[] = []
-  const skippedRuntimeMcpServers: string[] = []
+  const hasActiveDomain = (domain: CapabilityDecision['activeDomains'][number]['domain']) =>
+    capabilityDecision.activeDomains.some((entry) => entry.domain === domain)
+  const hasWorkspaceDomain = hasActiveDomain('workspace')
+  const hasWebDomain = hasActiveDomain('web')
+  const hasAiMediaDomain = hasActiveDomain('ai_media')
+  const hasCutDomain = hasActiveDomain('cut')
+  const hasSkillsDomain = hasActiveDomain('skills')
+  const hasAuxiliaryDomain = hasActiveDomain('auxiliary')
+  const hasScraptDomain = hasActiveDomain('scrapt')
   const shouldMountCapability = (capability: RuntimeCapability) => capabilityDecision.selected.has(capability)
   const mountMcpServer = (key: string, config: RuntimeMcpServerConfig) => {
     options.mcpServers![key] = config
     mountedRuntimeMcpServers.push(key)
-  }
-  const markSkipped = (key: string) => {
-    skippedRuntimeMcpServers.push(key)
   }
   const allowMcpPattern = (pattern: string) => {
     addAutoAllowedTool(toolSurface, pattern)
     options.allowedTools = toolSurface.allowedToolsOption
   }
 
-  if (
-    shouldMountCapability('workspaceDownload') ||
-    shouldMountCapability('webDownload') ||
-    shouldMountCapability('mediaDownload')
-  ) {
+  if (hasWorkspaceDomain || hasWebDomain || hasCutDomain) {
     const fileSystemServer = new FileSystemServer(cwd)
     mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem-server', instance: fileSystemServer.mcpServer })
     autoAllowTools.add('mcp__filesystem-server__download')
     allowMcpPattern('mcp__filesystem-server__*')
-  } else {
-    markSkipped('filesystem')
   }
 
-  if (shouldMountCapability('browser')) {
+  if (hasWebDomain) {
     const browserServer = await getOrCreateBrowserServer(session.id)
     mountMcpServer('browser', { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer })
     for (const toolName of [
@@ -145,56 +143,44 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add(toolName)
     }
     allowMcpPattern('mcp__browser__*')
-  } else {
-    markSkipped('browser')
   }
 
-  if (shouldMountCapability('search')) {
+  if (hasWebDomain) {
     const zhipuSearchServer = new ZhipuSearchServer()
     mountMcpServer('search', { type: 'sdk', name: 'search', instance: zhipuSearchServer.mcpServer })
     autoAllowTools.add('mcp__search__web_search')
     allowMcpPattern('mcp__search__*')
-  } else {
-    markSkipped('search')
   }
 
-  if (shouldMountCapability('uploadFile')) {
+  if (hasWorkspaceDomain) {
     const fileUploadServer = new FileUploadServer()
     mountMcpServer('file-upload', { type: 'sdk', name: 'file-upload', instance: fileUploadServer.mcpServer })
     autoAllowTools.add('mcp__file-upload__upload_file_to_oss')
     allowMcpPattern('mcp__file-upload__*')
-  } else {
-    markSkipped('file-upload')
   }
 
-  if (shouldMountCapability('image')) {
+  if (hasAiMediaDomain) {
     mountMcpServer('image', { type: 'sdk', name: 'image', instance: imageGenerateServer.createMcpServer() })
     autoAllowTools.add('mcp__image__generate_or_edit_image')
     autoAllowTools.add('mcp__image__generate_image')
     allowMcpPattern('mcp__image__*')
-  } else {
-    markSkipped('image')
   }
 
-  if (shouldMountCapability('video')) {
+  if (hasAiMediaDomain) {
     mountMcpServer('video', { type: 'sdk', name: 'video', instance: videoGenerateServer.createMcpServer() })
     autoAllowTools.add('mcp__video__generate_video')
     autoAllowTools.add('mcp__video__get_video_capabilities')
     allowMcpPattern('mcp__video__*')
-  } else {
-    markSkipped('video')
   }
 
-  if (shouldMountCapability('speech')) {
+  if (hasAiMediaDomain) {
     const speechGenerateServer = new SpeechGenerateServer()
     mountMcpServer('speech', { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer })
     autoAllowTools.add('mcp__speech__generate_speech')
     allowMcpPattern('mcp__speech__*')
-  } else {
-    markSkipped('speech')
   }
 
-  if (shouldMountCapability('voiceConversion')) {
+  if (hasAiMediaDomain) {
     const voiceConversionServer = new VoiceConversionServer()
     mountMcpServer('voice-conversion', {
       type: 'sdk',
@@ -204,27 +190,16 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__voice-conversion__submit_voice_conversion_task')
     autoAllowTools.add('mcp__voice-conversion__get_voice_conversion_task_status')
     allowMcpPattern('mcp__voice-conversion__*')
-  } else {
-    markSkipped('voice-conversion')
   }
 
-  if (shouldMountCapability('seedAudio')) {
+  if (hasAiMediaDomain) {
     const seedAudioServer = new SeedAudioServer()
     mountMcpServer('seed-audio', { type: 'sdk', name: 'seed-audio', instance: seedAudioServer.mcpServer })
     autoAllowTools.add('mcp__seed-audio__generate_seed_audio')
     allowMcpPattern('mcp__seed-audio__*')
-  } else {
-    markSkipped('seed-audio')
   }
 
-  if (
-    shouldMountCapability('audioExtract') ||
-    shouldMountCapability('audioConcat') ||
-    shouldMountCapability('frameCapture') ||
-    shouldMountCapability('mediaDuration') ||
-    shouldMountCapability('mediaTrim') ||
-    shouldMountCapability('videoConcat')
-  ) {
+  if (hasCutDomain) {
     const ffmpegMediaServer = new FfmpegMediaServer()
     mountMcpServer('ffmpeg-media', {
       type: 'sdk',
@@ -238,15 +213,9 @@ export async function mountRuntimeMcpServers(input: {
     if (shouldMountCapability('mediaTrim')) autoAllowTools.add('mcp__ffmpeg-media__trim_media_segment')
     if (shouldMountCapability('videoConcat')) autoAllowTools.add('mcp__ffmpeg-media__concatenate_video_files')
     allowMcpPattern('mcp__ffmpeg-media__*')
-  } else {
-    markSkipped('ffmpeg-media')
   }
 
-  if (
-    shouldMountCapability('draftCreate') ||
-    shouldMountCapability('draftUpdateMeta') ||
-    shouldMountCapability('draftInspect')
-  ) {
+  if (hasCutDomain) {
     const draftManagementServer = new DraftManagementServer()
     mountMcpServer('draft-management', {
       type: 'sdk',
@@ -257,11 +226,9 @@ export async function mountRuntimeMcpServers(input: {
     if (shouldMountCapability('draftUpdateMeta')) autoAllowTools.add('mcp__draft-management__modify_draft')
     if (shouldMountCapability('draftInspect')) autoAllowTools.add('mcp__draft-management__query_script')
     allowMcpPattern('mcp__draft-management__*')
-  } else {
-    markSkipped('draft-management')
   }
 
-  if (shouldMountCapability('draftDownload')) {
+  if (hasCutDomain) {
     const draftDownloadServer = new DraftDownloadServer()
     mountMcpServer('draft-download', {
       type: 'sdk',
@@ -270,48 +237,9 @@ export async function mountRuntimeMcpServers(input: {
     })
     autoAllowTools.add('mcp__draft-download__download_draft')
     allowMcpPattern('mcp__draft-download__*')
-  } else {
-    markSkipped('draft-download')
   }
 
-  if (
-    shouldMountCapability('textAdd') ||
-    shouldMountCapability('textAddBatch') ||
-    shouldMountCapability('textDelete') ||
-    shouldMountCapability('textUpdate') ||
-    shouldMountCapability('subtitleSrt') ||
-    shouldMountCapability('textIntroAnimationList') ||
-    shouldMountCapability('textOutroAnimationList') ||
-    shouldMountCapability('textLoopAnimationList') ||
-    shouldMountCapability('fontList') ||
-    shouldMountCapability('imageAdd') ||
-    shouldMountCapability('imageAddBatch') ||
-    shouldMountCapability('imageUpdate') ||
-    shouldMountCapability('imageDelete') ||
-    shouldMountCapability('videoAdd') ||
-    shouldMountCapability('videoAddBatch') ||
-    shouldMountCapability('videoUpdate') ||
-    shouldMountCapability('videoDelete') ||
-    shouldMountCapability('transitionTypeList') ||
-    shouldMountCapability('audioAdd') ||
-    shouldMountCapability('audioAddBatch') ||
-    shouldMountCapability('audioUpdate') ||
-    shouldMountCapability('audioDelete') ||
-    shouldMountCapability('audioEffectTypeList') ||
-    shouldMountCapability('keyframeAdd') ||
-    shouldMountCapability('effectAdd') ||
-    shouldMountCapability('effectUpdate') ||
-    shouldMountCapability('effectDelete') ||
-    shouldMountCapability('characterEffectTypeList') ||
-    shouldMountCapability('sceneEffectTypeList') ||
-    shouldMountCapability('filterAdd') ||
-    shouldMountCapability('filterUpdate') ||
-    shouldMountCapability('filterDelete') ||
-    shouldMountCapability('filterTypeList') ||
-    shouldMountCapability('imageIntroAnimationList') ||
-    shouldMountCapability('imageOutroAnimationList') ||
-    shouldMountCapability('imageLoopAnimationList')
-  ) {
+  if (hasCutDomain) {
     const draftElementsServer = new DraftElementsServer()
     mountMcpServer('draft-elements', {
       type: 'sdk',
@@ -365,11 +293,9 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add('mcp__draft-elements__get_combo_animation_types')
     }
     allowMcpPattern('mcp__draft-elements__*')
-  } else {
-    markSkipped('draft-elements')
   }
 
-  if (shouldMountCapability('subtitleRecognition')) {
+  if (hasCutDomain) {
     const subtitleRecognitionServer = new SubtitleRecognitionServer(cwd)
     mountMcpServer('subtitle-recognition', {
       type: 'sdk',
@@ -379,11 +305,9 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
     autoAllowTools.add('mcp__subtitle-recognition__get_subtitle_recognition_task_status')
     allowMcpPattern('mcp__subtitle-recognition__*')
-  } else {
-    markSkipped('subtitle-recognition')
   }
 
-  if (shouldMountCapability('videoUnderstand')) {
+  if (hasCutDomain) {
     const videoUnderstandServer = new VideoUnderstandServer(cwd)
     mountMcpServer('video-understand', {
       type: 'sdk',
@@ -393,11 +317,9 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__video-understand__submit_video_detail_task')
     autoAllowTools.add('mcp__video-understand__get_video_detail_task_status')
     allowMcpPattern('mcp__video-understand__*')
-  } else {
-    markSkipped('video-understand')
   }
 
-  if (shouldMountCapability('subtitleTemplate')) {
+  if (hasCutDomain) {
     const subtitleTemplateServer = new SubtitleTemplateServer()
     mountMcpServer('subtitle-template', {
       type: 'sdk',
@@ -407,11 +329,9 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__subtitle-template__generate_smart_subtitle')
     autoAllowTools.add('mcp__subtitle-template__get_smart_subtitle_task_status')
     allowMcpPattern('mcp__subtitle-template__*')
-  } else {
-    markSkipped('subtitle-template')
   }
 
-  if (shouldMountCapability('copylab')) {
+  if (hasScraptDomain) {
     const socialCopywritingServer = new SocialCopywritingServer()
     mountMcpServer('copylab', {
       type: 'sdk',
@@ -420,11 +340,9 @@ export async function mountRuntimeMcpServers(input: {
     })
     autoAllowTools.add('mcp__copylab__derive_copy_prompt')
     allowMcpPattern('mcp__copylab__*')
-  } else {
-    markSkipped('copylab')
   }
 
-  if (shouldMountCapability('digitalHuman')) {
+  if (hasAiMediaDomain) {
     const digitalHumanServer = new DigitalHumanServer()
     mountMcpServer('digital-human', {
       type: 'sdk',
@@ -436,11 +354,9 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__digital-human__create_image_driven_digital_human')
     autoAllowTools.add('mcp__digital-human__get_image_driven_digital_human_status')
     allowMcpPattern('mcp__digital-human__*')
-  } else {
-    markSkipped('digital-human')
   }
 
-  if (shouldMountCapability('kouboTemplate')) {
+  if (hasCutDomain) {
     const kouboTemplateServer = new KouboTemplateServer()
     mountMcpServer('koubo-template', {
       type: 'sdk',
@@ -450,29 +366,23 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__koubo-template__submit_koubo_template_task')
     autoAllowTools.add('mcp__koubo-template__get_koubo_template_task_status')
     allowMcpPattern('mcp__koubo-template__*')
-  } else {
-    markSkipped('koubo-template')
   }
 
-  if (shouldMountCapability('system')) {
+  if (hasAuxiliaryDomain) {
     const systemServer = new SystemServer()
     mountMcpServer('system', { type: 'sdk', name: 'system', instance: systemServer.mcpServer })
     autoAllowTools.add('mcp__system__open_deeplink')
     allowMcpPattern('mcp__system__*')
-  } else {
-    markSkipped('system')
   }
 
-  if (shouldMountCapability('skills')) {
+  if (hasSkillsDomain) {
     const skillsServer = new SkillsServer(session.agent_id, cwd)
     mountMcpServer('skills', { type: 'sdk', name: 'skills', instance: skillsServer.mcpServer })
     autoAllowTools.add('mcp__skills__skills')
     allowMcpPattern('mcp__skills__*')
-  } else {
-    markSkipped('skills')
   }
 
-  if (shouldMountCapability('agentMemory')) {
+  if (hasAuxiliaryDomain) {
     const workspaceMemoryServer = new WorkspaceMemoryServer(session.agent_id)
     mountMcpServer('agent-memory', {
       type: 'sdk',
@@ -481,11 +391,9 @@ export async function mountRuntimeMcpServers(input: {
     })
     autoAllowTools.add('mcp__agent-memory__memory')
     allowMcpPattern('mcp__agent-memory__*')
-  } else {
-    markSkipped('agent-memory')
   }
 
-  if (autonomousEnabled && shouldMountCapability('claw')) {
+  if (autonomousEnabled && hasAuxiliaryDomain) {
     const sourceChannelId = await resolveSourceChannel(session.agent_id, session.id)
     const clawServer = new ClawServer(session.agent_id, sourceChannelId)
     mountMcpServer('claw', { type: 'sdk', name: 'claw', instance: clawServer.mcpServer })
@@ -498,11 +406,9 @@ export async function mountRuntimeMcpServers(input: {
       agentId: session.agent_id,
       totalMcpServers: Object.keys(options.mcpServers).length
     })
-  } else {
-    markSkipped('claw')
   }
 
-  if (isAssistant && shouldMountCapability('assistant')) {
+  if (isAssistant && hasAuxiliaryDomain) {
     const assistantServer = new AssistantServer()
     mountMcpServer('assistant', { type: 'sdk', name: 'assistant', instance: assistantServer.mcpServer })
     autoAllowTools.add('mcp__assistant__navigate')
@@ -517,14 +423,11 @@ export async function mountRuntimeMcpServers(input: {
       agentId: session.agent_id,
       totalMcpServers: Object.keys(options.mcpServers).length
     })
-  } else {
-    markSkipped('assistant')
   }
 
   options.allowedTools = Array.from(autoAllowTools).sort()
 
   return {
-    mountedRuntimeMcpServers,
-    skippedRuntimeMcpServers
+    mountedRuntimeMcpServers
   }
 }

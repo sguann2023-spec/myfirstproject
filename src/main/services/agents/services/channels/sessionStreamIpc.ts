@@ -24,9 +24,95 @@ let agentServicePromise: Promise<import('../AgentService').AgentService | null> 
 const providerModelIdCache = new Map<string, string>()
 const logger = loggerService.withContext('SessionStreamIpc')
 const DEFAULT_RUNTIME_AGENT_ID = CHERRY_CLAW_AGENT_ID
+const SESSION_MESSAGE_START_RETRY_LIMIT = 5
+const SESSION_MESSAGE_START_RETRY_BASE_DELAY_MS = 800
+const SESSION_MESSAGE_START_TIMEOUT_MS = 15_000
 
 function getDefaultAgentWorkspacePath(agentId: string): string {
   return path.join(getDataPath(), 'Agents', agentId)
+}
+
+function createSessionMessageStartTimeoutError(timeoutMs: number): Error {
+  const error = new Error(`Session message stream did not start within ${timeoutMs}ms`)
+  error.name = 'SessionMessageStartTimeoutError'
+  return error
+}
+
+function isRetriableSessionStartError(error: Error): boolean {
+  const name = String(error.name || '').trim()
+  const message = String(error.message || '').trim()
+  const normalized = `${name} ${message}`.toLowerCase()
+
+  return (
+    name === 'SessionMessageStartTimeoutError'
+    || /\b502\b|\b503\b|\b504\b/.test(message)
+    || normalized.includes('connection error')
+    || normalized.includes('socket hang up')
+    || normalized.includes('econnreset')
+    || normalized.includes('ecconnreset')
+    || normalized.includes('connection reset')
+    || normalized.includes('network error')
+    || normalized.includes('fetch failed')
+    || normalized.includes('enotfound')
+    || normalized.includes('getaddrinfo')
+    || normalized.includes('upstream request failed')
+    || normalized.includes('上游请求失败')
+    || normalized.includes('timed out')
+    || normalized.includes('timeout')
+  )
+}
+
+function buildRetryStatusText(attempt: number, maxRetries: number): string {
+  return `第${attempt}/${maxRetries}次重试`
+}
+
+async function waitForRetryDelay(delayMs: number, abortSignal?: AbortSignal): Promise<void> {
+  if (delayMs <= 0) return
+  if (abortSignal?.aborted) {
+    throw new DOMException('Request was aborted', 'AbortError')
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => {
+      abortSignal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+
+    const onAbort = () => {
+      clearTimeout(timeoutHandle)
+      abortSignal?.removeEventListener('abort', onAbort)
+      reject(new DOMException('Request was aborted', 'AbortError'))
+    }
+
+    abortSignal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+async function createSessionMessageWithTimeout<T>(
+  factory: Promise<T>,
+  timeoutMs: number,
+  abortSignal?: AbortSignal
+): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race<T>([
+      factory,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(createSessionMessageStartTimeoutError(timeoutMs))
+        }, timeoutMs)
+        abortSignal?.addEventListener(
+          'abort',
+          () => {
+            reject(new DOMException('Request was aborted', 'AbortError'))
+          },
+          { once: true }
+        )
+      })
+    ])
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+  }
 }
 
 async function getSessionMessageService() {
@@ -448,8 +534,6 @@ export function registerSessionStreamIpc(): void {
         }
       }
 
-      const abortController = new AbortController()
-      activeAbortControllers.set(sessionId, { controller: abortController, requestId })
       sessionStreamBus.publish(sessionId, {
         sessionId,
         agentId: session.agent_id,
@@ -457,12 +541,91 @@ export function registerSessionStreamIpc(): void {
         type: 'started'
       })
       const streamStartedAt = Date.now()
-      const { stream, streamFinished, completion } = await sessionMessageService.createSessionMessage(
-        session,
-        { content, model: effectiveModel || undefined, effort: payload?.effort, thinking: payload?.thinking },
-        abortController,
-        { persist: true, displayContent: content, images }
-      )
+      let stream: ReadableStream<any> | undefined
+      let streamFinished: Promise<void> | undefined
+      let completion: Promise<any> | undefined
+
+      for (let attemptIndex = 0; attemptIndex <= SESSION_MESSAGE_START_RETRY_LIMIT; attemptIndex += 1) {
+        if (isRequestCancelled(requestId)) {
+          const activeRequest = activeAbortControllers.get(sessionId)
+          if (activeRequest?.requestId === requestId) {
+            activeAbortControllers.delete(sessionId)
+          }
+          return { ok: true, requestId }
+        }
+        const attemptNumber = attemptIndex + 1
+        const abortController = new AbortController()
+        activeAbortControllers.set(sessionId, { controller: abortController, requestId })
+
+        try {
+          const startedStream = await createSessionMessageWithTimeout(
+            sessionMessageService.createSessionMessage(
+              session,
+              { content, model: effectiveModel || undefined, effort: payload?.effort, thinking: payload?.thinking },
+              abortController,
+              { persist: true, displayContent: content, images }
+            ),
+            SESSION_MESSAGE_START_TIMEOUT_MS,
+            abortController.signal
+          )
+          stream = startedStream.stream
+          streamFinished = startedStream.streamFinished
+          completion = startedStream.completion
+          break
+        } catch (error) {
+          const errorObj = error instanceof Error ? error : new Error(String(error))
+          const requestCancelled = isRequestCancelled(requestId) || abortController.signal.aborted
+          if (requestCancelled) {
+            const activeRequest = activeAbortControllers.get(sessionId)
+            if (activeRequest?.requestId === requestId) {
+              activeAbortControllers.delete(sessionId)
+            }
+            return { ok: true, requestId }
+          }
+          const shouldRetry =
+            attemptIndex < SESSION_MESSAGE_START_RETRY_LIMIT
+            && isRetriableSessionStartError(errorObj)
+
+          if (!shouldRetry) {
+            throw errorObj
+          }
+
+          if (!abortController.signal.aborted) {
+            abortController.abort()
+          }
+          logger.warn('[SessionStreamIpc] createSessionMessage startup failed before first stream, scheduling retry', {
+            sessionId,
+            requestId,
+            attempt: attemptNumber,
+            maxRetries: SESSION_MESSAGE_START_RETRY_LIMIT,
+            error: errorObj.message
+          })
+          sessionStreamBus.publish(sessionId, {
+            sessionId,
+            agentId: session.agent_id,
+            requestId,
+            type: 'chunk',
+            chunk: {
+              type: 'retry-status',
+              attempt: attemptNumber,
+              maxRetries: SESSION_MESSAGE_START_RETRY_LIMIT,
+              text: buildRetryStatusText(attemptNumber, SESSION_MESSAGE_START_RETRY_LIMIT)
+            } as any
+          })
+          await waitForRetryDelay(SESSION_MESSAGE_START_RETRY_BASE_DELAY_MS * attemptNumber)
+          if (isRequestCancelled(requestId)) {
+            const activeRequest = activeAbortControllers.get(sessionId)
+            if (activeRequest?.requestId === requestId) {
+              activeAbortControllers.delete(sessionId)
+            }
+            return { ok: true, requestId }
+          }
+        }
+      }
+
+      if (!stream || !streamFinished || !completion) {
+        throw new Error('Session message stream did not initialize after retries')
+      }
       logger.info('[SessionStreamIpc][TRACE] createSessionMessage resolved', {
         sessionId,
         elapsedMs: Date.now() - streamStartedAt
@@ -592,6 +755,12 @@ export function registerSessionStreamIpc(): void {
 
       return { ok: true, requestId }
     } catch (error) {
+      const sessionId = String(payload?.sessionId || '').trim()
+      const requestId = String(payload?.requestId || '').trim()
+      const activeRequest = sessionId ? activeAbortControllers.get(sessionId) : undefined
+      if (activeRequest && (!requestId || activeRequest.requestId === requestId)) {
+        activeAbortControllers.delete(sessionId)
+      }
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   }

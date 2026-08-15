@@ -145,7 +145,6 @@ describe('CapabilityRouter', () => {
         subdomains: expect.arrayContaining(['browser'])
       })
     ])
-    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
     expect(decision.toolLayer).toBe('web')
     expect(decision.selected.has('browser')).toBe(true)
   })
@@ -166,8 +165,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(['draft'])
     expect(decision.selected.has('draftDownload')).toBe(true)
     expect(decision.selected.has('browser')).toBe(false)
-    expect(decision.preferredMcpTools).toContain('mcp__draft-download__download_draft')
-    expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
   })
 
   it('routes multi media url downloads to cut.media_download instead of browser', () => {
@@ -187,8 +184,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(expect.arrayContaining(['media']))
     expect(decision.selected.has('mediaDownload')).toBe(true)
     expect(decision.selected.has('browser')).toBe(false)
-    expect(decision.preferredMcpTools).toContain('mcp__filesystem-server__download')
-    expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
   })
 
   it('routes generic url download requests to web.download instead of browser', () => {
@@ -207,8 +202,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(expect.arrayContaining(['download']))
     expect(decision.selected.has('webDownload')).toBe(true)
     expect(decision.selected.has('browser')).toBe(false)
-    expect(decision.preferredMcpTools).toContain('mcp__filesystem-server__download')
-    expect(decision.preferredMcpTools).not.toContain('mcp__browser__open')
   })
 
   it('treats open website phrasing as browser intent', () => {
@@ -226,7 +219,6 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('web')
     expect(decision.subdomains).toContain('browser')
     expect(decision.selected.has('browser')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
   })
 
   it('treats open site-name phrasing as browser intent', () => {
@@ -244,7 +236,6 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('web')
     expect(decision.subdomains).toContain('browser')
     expect(decision.selected.has('browser')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
   })
 
   it('does not treat site-name mentions alone as web search intent', () => {
@@ -384,7 +375,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(expect.arrayContaining(['upload', 'read']))
     expect(decision.toolLayer).toBe('workspace-read')
     expect(decision.selected.has('uploadFile')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
   })
 
   it('routes speech, seed audio, image, video, and digital human requests to ai_media', () => {
@@ -442,28 +432,23 @@ describe('CapabilityRouter', () => {
     expect(speechDecision.primaryDomain).toBe('ai_media')
     expect(speechDecision.subdomains).toEqual(['speech'])
     expect(speechDecision.selected.has('speech')).toBe(true)
-    expect(speechDecision.preferredMcpTools).toContain('mcp__speech__generate_speech')
     expect(voiceConversionDecision.primaryDomain).toBe('ai_media')
     expect(voiceConversionDecision.subdomains).toEqual(['voice_conversion'])
     expect(voiceConversionDecision.selected.has('voiceConversion')).toBe(true)
     expect(voiceConversionDecision.selected.has('speech')).toBe(false)
-    expect(voiceConversionDecision.preferredMcpTools).toContain('mcp__voice-conversion__submit_voice_conversion_task')
     expect(seedAudioDecision.primaryDomain).toBe('ai_media')
     expect(seedAudioDecision.subdomains).toEqual(['seed_audio'])
     expect(seedAudioDecision.selected.has('seedAudio')).toBe(true)
     expect(seedAudioDecision.selected.has('speech')).toBe(false)
-    expect(seedAudioDecision.preferredMcpTools).toContain('mcp__seed-audio__generate_seed_audio')
     expect(digitalHumanDecision.primaryDomain).toBe('ai_media')
     expect(digitalHumanDecision.subdomains).toEqual(['digital_human'])
     expect(digitalHumanDecision.selected.has('digitalHuman')).toBe(true)
     expect(imageDecision.primaryDomain).toBe('ai_media')
     expect(imageDecision.subdomains).toEqual(['image'])
     expect(imageDecision.selected.has('image')).toBe(true)
-    expect(imageDecision.preferredMcpTools).toContain('mcp__image__generate_or_edit_image')
     expect(videoDecision.primaryDomain).toBe('ai_media')
     expect(videoDecision.subdomains).toEqual(['video'])
     expect(videoDecision.selected.has('video')).toBe(true)
-    expect(videoDecision.preferredMcpTools).toContain('mcp__video__generate_video')
   })
 
   it('routes local reference image generation to ai_media.image with workspace upload', () => {
@@ -482,8 +467,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(['image'])
     expect(decision.selected.has('image')).toBe(true)
     expect(decision.selected.has('uploadFile')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
-    expect(decision.preferredMcpTools).toContain('mcp__image__generate_or_edit_image')
   })
 
   it('routes local reference video generation to ai_media.video with workspace upload', () => {
@@ -502,8 +485,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(['video'])
     expect(decision.selected.has('video')).toBe(true)
     expect(decision.selected.has('uploadFile')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
-    expect(decision.preferredMcpTools).toContain('mcp__video__generate_video')
   })
 
   it('routes explicit video generation parameter prompts to ai_media.video instead of speech or media duration', () => {
@@ -524,8 +505,6 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('video')).toBe(true)
     expect(decision.selected.has('speech')).toBe(false)
     expect(decision.selected.has('mediaDuration')).toBe(false)
-    expect(decision.preferredMcpTools).toContain('mcp__video__generate_video')
-    expect(decision.preferredMcpTools).not.toContain('mcp__speech__generate_speech')
   })
 
   it('keeps near-match doubao speech prompts on speech instead of seed audio', () => {
@@ -544,7 +523,6 @@ describe('CapabilityRouter', () => {
     expect(nearMatchDecision.subdomains).toEqual(['speech'])
     expect(nearMatchDecision.selected.has('speech')).toBe(true)
     expect(nearMatchDecision.selected.has('seedAudio')).toBe(false)
-    expect(nearMatchDecision.preferredMcpTools).not.toContain('mcp__seed-audio__generate_seed_audio')
   })
 
   it('keeps voice-based TTS prompts on speech instead of voice conversion', () => {
@@ -563,8 +541,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(['speech'])
     expect(decision.selected.has('speech')).toBe(true)
     expect(decision.selected.has('voiceConversion')).toBe(false)
-    expect(decision.preferredMcpTools).toContain('mcp__speech__generate_speech')
-    expect(decision.preferredMcpTools).not.toContain('mcp__voice-conversion__submit_voice_conversion_task')
   })
 
   it('routes changing the previous voice into a target voice id to voice conversion', () => {
@@ -583,7 +559,6 @@ describe('CapabilityRouter', () => {
     expect(decision.subdomains).toEqual(['voice_conversion'])
     expect(decision.selected.has('voiceConversion')).toBe(true)
     expect(decision.selected.has('speech')).toBe(false)
-    expect(decision.preferredMcpTools).toContain('mcp__voice-conversion__submit_voice_conversion_task')
   })
 
   it('routes the alternate exact phrase 豆包语言生成 to seed audio', () => {
@@ -602,7 +577,6 @@ describe('CapabilityRouter', () => {
     expect(alternatePhraseDecision.subdomains).toEqual(['seed_audio'])
     expect(alternatePhraseDecision.selected.has('seedAudio')).toBe(true)
     expect(alternatePhraseDecision.selected.has('speech')).toBe(false)
-    expect(alternatePhraseDecision.preferredMcpTools).toContain('mcp__seed-audio__generate_seed_audio')
   })
 
   it('routes cut tasks into the cut domain', () => {
@@ -748,41 +722,30 @@ describe('CapabilityRouter', () => {
     expect(draftDecision.primaryDomain).toBe('cut')
     expect(draftDecision.subdomains).toEqual(['draft'])
     expect(draftDecision.selected.has('draftDownload')).toBe(true)
-    expect(draftDecision.preferredMcpTools).toContain('mcp__draft-download__download_draft')
     expect(subtitleTemplateDecision.primaryDomain).toBe('cut')
     expect(subtitleTemplateDecision.subdomains).toEqual(['template'])
     expect(subtitleTemplateDecision.selected.has('subtitleTemplate')).toBe(true)
     expect(subtitleTemplateDecision.selected.has('kouboTemplate')).toBe(false)
-    expect(subtitleTemplateDecision.preferredMcpTools).toContain('mcp__subtitle-template__generate_smart_subtitle')
     expect(subtitleRecognitionDecision.primaryDomain).toBe('cut')
     expect(subtitleRecognitionDecision.subdomains).toEqual(['analysis'])
     expect(subtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(subtitleRecognitionDecision.selected.has('subtitleTemplate')).toBe(false)
     expect(subtitleRecognitionDecision.selected.has('kouboTemplate')).toBe(false)
-    expect(subtitleRecognitionDecision.preferredMcpTools).toContain(
-      'mcp__subtitle-recognition__submit_subtitle_recognition_task'
-    )
     expect(localSubtitleRecognitionDecision.primaryDomain).toBe('cut')
     expect(localSubtitleRecognitionDecision.subdomains).toEqual(['analysis'])
     expect(localSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(localSubtitleRecognitionDecision.selected.has('uploadFile')).toBe(true)
-    expect(localSubtitleRecognitionDecision.preferredMcpTools).toContain(
-      'mcp__subtitle-recognition__submit_subtitle_recognition_task'
-    )
     expect(videoUnderstandDecision.primaryDomain).toBe('cut')
     expect(videoUnderstandDecision.subdomains).toEqual(['analysis'])
     expect(videoUnderstandDecision.selected.has('videoUnderstand')).toBe(true)
-    expect(videoUnderstandDecision.preferredMcpTools).toContain('mcp__video-understand__submit_video_detail_task')
     expect(localVideoUnderstandDecision.primaryDomain).toBe('cut')
     expect(localVideoUnderstandDecision.subdomains).toEqual(['analysis'])
     expect(localVideoUnderstandDecision.selected.has('videoUnderstand')).toBe(true)
     expect(localVideoUnderstandDecision.selected.has('uploadFile')).toBe(true)
-    expect(localVideoUnderstandDecision.preferredMcpTools).toContain('mcp__video-understand__submit_video_detail_task')
     expect(templateDecision.primaryDomain).toBe('cut')
     expect(templateDecision.subdomains).toEqual(['template'])
     expect(templateDecision.selected.has('kouboTemplate')).toBe(true)
     expect(templateDecision.selected.has('digitalHuman')).toBe(false)
-    expect(templateDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
     expect(kouboVariantDecision.primaryDomain).toBe('cut')
     expect(kouboVariantDecision.subdomains).toEqual(['template'])
     expect(kouboVariantDecision.selected.has('kouboTemplate')).toBe(true)
@@ -796,8 +759,6 @@ describe('CapabilityRouter', () => {
     expect(localKouboDecision.selected.has('kouboTemplate')).toBe(true)
     expect(localKouboDecision.selected.has('uploadFile')).toBe(true)
     expect(localKouboDecision.selected.has('digitalHuman')).toBe(false)
-    expect(localKouboDecision.preferredMcpTools).toContain('mcp__koubo-template__submit_koubo_template_task')
-    expect(localKouboDecision.preferredMcpTools).toContain('mcp__file-upload__upload_file_to_oss')
   })
 
   it('allows cut and ai_media domains to combine in the same request', () => {
@@ -817,9 +778,6 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('draftCreate')).toBe(true)
     expect(decision.selected.has('audioAdd')).toBe(true)
     expect(decision.selected.has('speech')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__draft-management__create_draft')
-    expect(decision.preferredMcpTools).toContain('mcp__draft-elements__add_audio')
-    expect(decision.preferredMcpTools).toContain('mcp__speech__generate_speech')
     expect(decision.companionDomains).toContain('ai_media')
     expect(decision.activeDomains).toEqual(
       expect.arrayContaining([
@@ -850,7 +808,6 @@ describe('CapabilityRouter', () => {
     })
 
     expect(decision.selected.has('video')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__video__generate_video')
     expect(decision.activeDomains).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -891,8 +848,6 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('cut')
     expect(decision.selected.has('subtitleRecognition')).toBe(true)
     expect(decision.selected.has('subtitleTemplate')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__subtitle-recognition__submit_subtitle_recognition_task')
-    expect(decision.preferredMcpTools).toContain('mcp__subtitle-template__generate_smart_subtitle')
     expect(decision.subdomains).toEqual(expect.arrayContaining(['analysis', 'template']))
   })
 
@@ -910,7 +865,6 @@ describe('CapabilityRouter', () => {
 
     expect(decision.primaryDomain).toBe('cut')
     expect(decision.selected.has('videoUnderstand')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__video-understand__submit_video_detail_task')
     expect(decision.subdomains).toEqual(expect.arrayContaining(['analysis']))
   })
 
@@ -936,11 +890,9 @@ describe('CapabilityRouter', () => {
 
     expect(durationDecision.primaryDomain).toBe('cut')
     expect(durationDecision.selected.has('mediaDuration')).toBe(true)
-    expect(durationDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__get_media_duration')
 
     expect(concatDecision.primaryDomain).toBe('cut')
     expect(concatDecision.selected.has('videoConcat')).toBe(true)
-    expect(concatDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__concatenate_video_files')
   })
 
   it('allows browser and media download to coexist for explicit open and download requests', () => {
@@ -957,8 +909,6 @@ describe('CapabilityRouter', () => {
 
     expect(decision.selected.has('mediaDownload')).toBe(true)
     expect(decision.selected.has('browser')).toBe(true)
-    expect(decision.preferredMcpTools).toContain('mcp__filesystem-server__download')
-    expect(decision.preferredMcpTools).toContain('mcp__browser__open')
     expect(decision.activeDomains).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1138,43 +1088,30 @@ describe('CapabilityRouter', () => {
 
     expect(textAddDecision.primaryDomain).toBe('cut')
     expect(textAddDecision.subdomains).toEqual(['edit'])
-    expect(textAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_text')
     expect(textBatchDecision.primaryDomain).toBe('cut')
     expect(textBatchDecision.subdomains).toEqual(['edit'])
-    expect(textBatchDecision.preferredMcpTools).toContain('mcp__draft-elements__add_batch_text')
     expect(subtitleSrtDecision.primaryDomain).toBe('cut')
     expect(subtitleSrtDecision.subdomains).toEqual(['edit'])
-    expect(subtitleSrtDecision.preferredMcpTools).toContain('mcp__draft-elements__add_subtitle')
     expect(fontListDecision.primaryDomain).toBe('cut')
     expect(fontListDecision.subdomains).toEqual(['edit'])
-    expect(fontListDecision.preferredMcpTools).toContain('mcp__draft-elements__get_font_types')
     expect(imageUpdateDecision.primaryDomain).toBe('cut')
     expect(imageUpdateDecision.subdomains).toEqual(['edit'])
-    expect(imageUpdateDecision.preferredMcpTools).toContain('mcp__draft-elements__modify_image')
     expect(imageLoopAnimationDecision.primaryDomain).toBe('cut')
     expect(imageLoopAnimationDecision.subdomains).toEqual(['edit'])
-    expect(imageLoopAnimationDecision.preferredMcpTools).toContain('mcp__draft-elements__get_combo_animation_types')
     expect(videoAddDecision.primaryDomain).toBe('cut')
     expect(videoAddDecision.subdomains).toEqual(['edit'])
-    expect(videoAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_video')
     expect(videoUpdateDecision.primaryDomain).toBe('cut')
     expect(videoUpdateDecision.subdomains).toEqual(['edit'])
-    expect(videoUpdateDecision.preferredMcpTools).toContain('mcp__draft-elements__modify_video')
     expect(videoIntroAnimationDecision.primaryDomain).toBe('cut')
     expect(videoIntroAnimationDecision.subdomains).toEqual(['edit'])
-    expect(videoIntroAnimationDecision.preferredMcpTools).toContain('mcp__draft-elements__get_intro_animation_types')
     expect(transitionTypeDecision.primaryDomain).toBe('cut')
     expect(transitionTypeDecision.subdomains).toEqual(['edit'])
-    expect(transitionTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_transition_types')
     expect(audioAddDecision.primaryDomain).toBe('cut')
     expect(audioAddDecision.subdomains).toEqual(['edit'])
-    expect(audioAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_audio')
     expect(audioEffectTypeDecision.primaryDomain).toBe('cut')
     expect(audioEffectTypeDecision.subdomains).toEqual(['edit'])
-    expect(audioEffectTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_audio_effect_types')
     expect(audioExtractDecision.primaryDomain).toBe('cut')
     expect(audioExtractDecision.subdomains).toEqual(['media'])
-    expect(audioExtractDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__extract_audio_from_video')
     expect(fileAudioExtractDecision.primaryDomain).toBe('cut')
     expect(fileAudioExtractDecision.subdomains).toEqual(['media'])
     expect(fileAudioExtractDecision.companionDomains).toContain('workspace')
@@ -1192,25 +1129,18 @@ describe('CapabilityRouter', () => {
         })
       ])
     )
-    expect(fileAudioExtractDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__extract_audio_from_video')
     expect(frameCaptureDecision.primaryDomain).toBe('cut')
     expect(frameCaptureDecision.subdomains).toEqual(['media'])
-    expect(frameCaptureDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__capture_frame_at_timestamp')
     expect(mediaDurationDecision.primaryDomain).toBe('cut')
     expect(mediaDurationDecision.subdomains).toEqual(['media'])
-    expect(mediaDurationDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__get_media_duration')
     expect(mediaTrimDecision.primaryDomain).toBe('cut')
     expect(mediaTrimDecision.subdomains).toEqual(['media'])
-    expect(mediaTrimDecision.preferredMcpTools).toContain('mcp__ffmpeg-media__trim_media_segment')
     expect(keyframeAddDecision.primaryDomain).toBe('cut')
     expect(keyframeAddDecision.subdomains).toEqual(['edit'])
-    expect(keyframeAddDecision.preferredMcpTools).toContain('mcp__draft-elements__add_video_keyframe')
     expect(sceneEffectTypeDecision.primaryDomain).toBe('cut')
     expect(sceneEffectTypeDecision.subdomains).toEqual(['edit'])
-    expect(sceneEffectTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_video_scene_effect_types')
     expect(filterTypeDecision.primaryDomain).toBe('cut')
     expect(filterTypeDecision.subdomains).toEqual(['edit'])
-    expect(filterTypeDecision.preferredMcpTools).toContain('mcp__draft-elements__get_filter_types')
     expect(imageUpdateDecision.selected.has('image')).toBe(false)
     expect(audioAddDecision.selected.has('speech')).toBe(false)
   })
