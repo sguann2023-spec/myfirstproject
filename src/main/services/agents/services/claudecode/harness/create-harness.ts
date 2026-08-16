@@ -182,6 +182,36 @@ function matchAllowedTool(allowedTools: string[], toolName: string): boolean {
   return allowedTools.some((pattern) => (pattern.endsWith('*') ? toolName.startsWith(pattern.slice(0, -1)) : pattern === toolName))
 }
 
+function resolveWorkspaceUploadArguments(
+  invokeContext: ClaudeCodeInvokeContext,
+  rawParams: Record<string, unknown>
+): Record<string, unknown> {
+  const params = { ...rawParams }
+  const filePath = typeof params.filePath === 'string' ? params.filePath.trim() : ''
+  const base64Data = typeof params.base64Data === 'string' ? params.base64Data.trim() : ''
+  const dataUrl = typeof params.dataUrl === 'string' ? params.dataUrl.trim() : ''
+  if (filePath || base64Data || dataUrl) {
+    return params
+  }
+
+  const attachedImages = Array.isArray(invokeContext.runtime.images) ? invokeContext.runtime.images : []
+  if (attachedImages.length === 0) {
+    return params
+  }
+
+  const requestedIndex = Number(params.attachmentIndex ?? params.imageIndex ?? params.image_index ?? (attachedImages.length === 1 ? 1 : 0))
+  const normalizedIndex = Number.isFinite(requestedIndex) ? Math.max(1, Math.floor(requestedIndex)) : 0
+  const image = normalizedIndex > 0 ? attachedImages[normalizedIndex - 1] : undefined
+  if (!image?.data) {
+    return params
+  }
+
+  params.base64Data = image.data
+  params.contentType = typeof params.contentType === 'string' && params.contentType.trim() ? params.contentType : image.mediaType
+  params.attachmentIndex = normalizedIndex
+  return params
+}
+
 function resolveShellExecutable(env: Record<string, string>): string {
   if (!isWin) {
     return process.env.SHELL || '/bin/bash'
@@ -1197,7 +1227,11 @@ async function buildMcpTools(input: {
           signal?: AbortSignal,
           onUpdate?: (value: { content: Array<PiTextContent | PiImageContent>; details: unknown }) => void
         ) {
-          const params = (rawParams ?? {}) as Record<string, unknown>
+          const originalParams = (rawParams ?? {}) as Record<string, unknown>
+          const params =
+            namespacedName === WORKSPACE_UPLOAD_TOOL_NAME
+              ? resolveWorkspaceUploadArguments(invokeContext, originalParams)
+              : originalParams
           const requestTimeoutMs =
             namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : undefined
           logger.info('[AgentCore] mcp tool execute start', {

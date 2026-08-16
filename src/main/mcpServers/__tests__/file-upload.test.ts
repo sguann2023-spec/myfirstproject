@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockUploadLocalFile } = vi.hoisted(() => ({
-  mockUploadLocalFile: vi.fn()
+const { mockUploadLocalFile, mockUploadImageBase64 } = vi.hoisted(() => ({
+  mockUploadLocalFile: vi.fn(),
+  mockUploadImageBase64: vi.fn()
 }))
 
 vi.mock('@logger', () => ({
@@ -17,7 +18,8 @@ vi.mock('@logger', () => ({
 
 vi.mock('@main/services/OssUploadService', () => ({
   ossUploadService: {
-    uploadLocalFile: mockUploadLocalFile
+    uploadLocalFile: mockUploadLocalFile,
+    uploadImageBase64: mockUploadImageBase64
   }
 }))
 
@@ -116,5 +118,38 @@ describe('FileUploadServer', () => {
     expect(result.content[0].text).toContain(
       '文件大小不能超过 500MB， 如有需要请去官网资产库上传：https://www.vectcut.com/materials'
     )
+  })
+
+  it('should upload base64 image data directly', async () => {
+    mockUploadImageBase64.mockResolvedValue({
+      objectKey: 'agent_tmp/user-123/vectcut_koubo_tmp_file_image.png',
+      publicUrl: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_image.png?token=1'
+    })
+
+    const server = createServer()
+    const result = await callTool(server, {
+      base64Data: 'aGVsbG8=',
+      contentType: 'image/png'
+    })
+
+    expect(mockUploadImageBase64).toHaveBeenCalledWith('aGVsbG8=', 'image/png')
+    expect(result.structuredContent).toEqual({
+      public_url: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_image.png?token=1',
+      object_key: 'agent_tmp/user-123/vectcut_koubo_tmp_file_image.png'
+    })
+  })
+
+  it('should parse data urls before uploading', async () => {
+    mockUploadImageBase64.mockResolvedValue({
+      objectKey: 'agent_tmp/user-123/vectcut_koubo_tmp_file_image.png',
+      publicUrl: 'https://open.vectcut.com/download/agent_tmp/user-123/vectcut_koubo_tmp_file_image.png?token=1'
+    })
+
+    const server = createServer()
+    await callTool(server, {
+      dataUrl: 'data:image/png;base64,aGVsbG8='
+    })
+
+    expect(mockUploadImageBase64).toHaveBeenCalledWith('aGVsbG8=', 'image/png')
   })
 })

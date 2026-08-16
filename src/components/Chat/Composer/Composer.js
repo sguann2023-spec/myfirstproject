@@ -3768,6 +3768,7 @@ const Composer = ({
       : [];
     const remainingLocalReferences = uploadedFileMeta
       .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
+      .filter((item) => !(hasMultimodalImages && String(item?.fileType || '').toLowerCase().startsWith('image/')))
       .map((item) => (
         item?.url
           ? buildMarkdownFileLink(item.name, item.url)

@@ -170,8 +170,8 @@ type IntentRoute = {
 
 已接入工具：
 
-- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`
-- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成
+- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`；当引用本地参考图、截图、剪贴板图片等素材时，允许先通过 `workspace.upload`（`mcp__file-upload__upload_file_to_oss`）上传；其中截图/剪贴板图片可直接走附件图的 `base64` / `dataUrl` 上传，不强依赖本地文件路径
+- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；当引用截图、首帧参考图、剪贴板图片等无稳定 `filePath` 的图片素材时，同样应优先走 `workspace.upload` 的 `base64` / 附件上传语义，再将返回 URL 交给视频生成能力
 - `speech` -> `mcp__speech__generate_speech`
 - `voice_conversion` -> `mcp__voice-conversion__submit_voice_conversion_task` / `mcp__voice-conversion__get_voice_conversion_task_status`
 - `seed_audio` -> `mcp__seed-audio__generate_seed_audio`
