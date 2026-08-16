@@ -125,3 +125,32 @@ export async function addPreset({
     height,
   });
 }
+
+export async function addBatchPreset({
+  preset_ids,
+  replacements = [],
+  starts,
+  ends,
+  target_starts,
+  target_ends,
+  draft_id,
+} = {}) {
+  if (!Array.isArray(preset_ids) || preset_ids.length === 0) {
+    throw new Error('preset_ids is required');
+  }
+  if (!Array.isArray(starts) || starts.length === 0) {
+    throw new Error('starts is required');
+  }
+  if (!Array.isArray(ends) || ends.length === 0) {
+    throw new Error('ends is required');
+  }
+  return http.postJson(`${BASE_URL}/cut_jianying/add_batch_preset`, {
+    preset_ids,
+    replacements,
+    starts,
+    ends,
+    target_starts,
+    target_ends,
+    draft_id,
+  });
+}

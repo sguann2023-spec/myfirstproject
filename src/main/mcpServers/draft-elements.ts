@@ -24,6 +24,8 @@ const ENDPOINTS = {
   get_font_types: '/cut_jianying/get_font_types',
   add_image: '/cut_jianying/add_image',
   add_batch_image: '/cut_jianying/add_batch_image',
+  add_preset: '/cut_jianying/add_preset',
+  add_batch_preset: '/cut_jianying/add_batch_preset',
   modify_image: '/cut_jianying/modify_image',
   remove_image: '/cut_jianying/remove_image',
   add_video: '/cut_jianying/add_video',
@@ -425,6 +427,55 @@ const TOOLS: Tool[] = [
       mix_type: { type: 'string', description: 'Optional blend mode.' }
     },
     ['image_urls', 'ends']
+  ),
+  toolWithArgs(
+    'add_preset',
+    'Add a single preset segment into a VectCut draft. Use this when the user already has a preset_id and wants to replace text, image, video, or audio placeholders.',
+    {
+      presetId: { type: 'string', description: 'Required preset ID alias of preset_id.' },
+      preset_id: { type: 'string', description: 'Required preset ID.' },
+      replacements: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Optional replacement entries for preset placeholders such as text, image, video, or audio.'
+      },
+      targetStart: { type: 'number', description: 'Optional timeline start alias of target_start.' },
+      target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
+      draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
+      draft_id: { type: 'string', description: 'Optional draft ID.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      trackName: { type: 'string', description: 'Optional track name alias of track_name.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      width: { type: 'number', description: 'Optional canvas width.' },
+      height: { type: 'number', description: 'Optional canvas height.' }
+    },
+    ['preset_id']
+  ),
+  toolWithArgs(
+    'add_batch_preset',
+    'Add multiple preset segments into a VectCut draft in one request. Use this for batch preset insertion with optional per-segment replacements and target ranges.',
+    {
+      presetIds: { type: 'array', items: { type: 'string' }, description: 'Required preset IDs alias of preset_ids.' },
+      preset_ids: { type: 'array', items: { type: 'string' }, description: 'Required preset IDs.' },
+      replacements: {
+        type: 'array',
+        items: { type: 'array', items: { type: 'object' } },
+        description: 'Optional nested replacement list, one replacement list per preset segment.'
+      },
+      starts: { type: 'array', items: { type: 'number' }, description: 'Required source start times in seconds.' },
+      ends: { type: 'array', items: { type: 'number' }, description: 'Required source end times in seconds.' },
+      targetStarts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times alias of target_starts.' },
+      target_starts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times in seconds.' },
+      targetEnds: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times alias of target_ends.' },
+      target_ends: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times in seconds.' },
+      draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
+      draft_id: { type: 'string', description: 'Optional draft ID.' }
+    },
+    ['preset_ids', 'starts', 'ends']
   ),
   toolWithArgs(
     'modify_image',
@@ -973,6 +1024,8 @@ const ARG_ALIASES: Record<string, string> = {
   lineSpacing: 'line_spacing',
   imageUrl: 'image_url',
   imageUrls: 'image_urls',
+  presetId: 'preset_id',
+  presetIds: 'preset_ids',
   videoUrl: 'video_url',
   videoUrls: 'video_urls',
   audioUrl: 'audio_url',
@@ -1019,6 +1072,8 @@ const MUTATION_REQUIRED_FIELDS: Record<string, string[]> = {
   add_subtitle: ['srt'],
   add_image: ['image_url', 'end'],
   add_batch_image: ['image_urls', 'ends'],
+  add_preset: ['preset_id'],
+  add_batch_preset: ['preset_ids', 'starts', 'ends'],
   modify_image: ['draft_id', 'material_id'],
   remove_image: ['draft_id', 'material_id'],
   add_video: ['video_url'],

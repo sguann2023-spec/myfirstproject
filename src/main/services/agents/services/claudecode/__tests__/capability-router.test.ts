@@ -646,6 +646,22 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const presetDecision = router.select({
+      prompt: '把这个 preset_id 加到草稿里，并替换里面的文字和图片',
+      sessionId: 'session-add-preset',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const batchPresetDecision = router.select({
+      prompt: '批量添加 3 个预设片段，按顺序排到时间线上',
+      sessionId: 'session-add-batch-preset',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const localSubtitleRecognitionDecision = router.select({
       prompt: '把这个本地音频文件 sample.wav 识别成字幕',
       sessionId: 'session-local-subtitle-recognition',
@@ -731,6 +747,14 @@ describe('CapabilityRouter', () => {
     expect(subtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(subtitleRecognitionDecision.selected.has('subtitleTemplate')).toBe(false)
     expect(subtitleRecognitionDecision.selected.has('kouboTemplate')).toBe(false)
+    expect(presetDecision.primaryDomain).toBe('cut')
+    expect(presetDecision.subdomains).toEqual(['edit'])
+    expect(presetDecision.selected.has('presetAdd')).toBe(true)
+    expect(presetDecision.selected.has('kouboTemplate')).toBe(false)
+    expect(batchPresetDecision.primaryDomain).toBe('cut')
+    expect(batchPresetDecision.subdomains).toEqual(['edit'])
+    expect(batchPresetDecision.selected.has('presetAddBatch')).toBe(true)
+    expect(batchPresetDecision.selected.has('kouboTemplate')).toBe(false)
     expect(localSubtitleRecognitionDecision.primaryDomain).toBe('cut')
     expect(localSubtitleRecognitionDecision.subdomains).toEqual(['analysis'])
     expect(localSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)

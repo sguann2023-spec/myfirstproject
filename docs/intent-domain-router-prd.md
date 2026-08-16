@@ -309,6 +309,8 @@ type IntentRoute = {
 - `font_list`
 - `image_add`
 - `image_add_batch`
+- `add_preset`
+- `add_batch_preset`
 - `image_update`
 - `image_delete`
 - `video_add`
@@ -363,6 +365,8 @@ type IntentRoute = {
 - `font_list` -> `mcp__draft-elements__get_font_types`
 - `image_add` -> `mcp__draft-elements__add_image`
 - `image_add_batch` -> `mcp__draft-elements__add_batch_image`
+- `add_preset` -> `mcp__draft-elements__add_preset`
+- `add_batch_preset` -> `mcp__draft-elements__add_batch_preset`
 - `image_update` -> `mcp__draft-elements__modify_image`
 - `image_delete` -> `mcp__draft-elements__remove_image`
 - `video_add` -> `mcp__draft-elements__add_video`
@@ -399,6 +403,7 @@ type IntentRoute = {
 - `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；输入应为已完成前置上传后的服务端可访问视频链接
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
+- `add_preset` / `add_batch_preset`：预设片段能力，面向用户预先在剪映中制作并上传、已拿到 `preset_id` 的预设模版；`add_preset` 用于添加单个预设片段，支持通过 `replacements` 替换其中的图片、视频、文字、音频等素材，支持 `target_start`、`track_name`、位移缩放旋转以及画布尺寸参数，未传 `draft_id` 时默认生成新草稿；`add_batch_preset` 用于一次插入多个预设片段，核心参数是 `preset_ids`、`starts`、`ends`，并可选传入 `target_starts`、`target_ends` 控制各片段目标时间范围；适合字幕片段、混剪素材、批量画中画等重复结构内容生成
 - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；输入要求为服务端可访问的远程视频链接，应消费已完成前置上传后的 URL；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
@@ -419,6 +424,8 @@ type IntentRoute = {
 - 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
 - 当用户明确表达“添加字幕模版”“套字幕样式”“把字幕加回草稿”“识别后按某种样式上屏”时，应命中 `subtitle_template`；其核心目标是样式化字幕并回写草稿，而非只返回识别结果
 - 若一句话里同时出现“识别字幕”和“添加模版/加回草稿/上屏”等表述，应以最终目标判断；最终目标是拿到字幕文本或时间轴时命中 `subtitle_recognition`，最终目标是生成带样式字幕并写回草稿时命中 `subtitle_template`
+- 用户提到“添加预设片段”“插入一个预设模板”“把某个 preset 加到草稿里”“替换预设里的图片/文字/视频/音频”时，应命中 `add_preset`
+- 用户提到“批量添加预设”“一次插入多个预设片段”“按多个 preset_id 顺序插入”“批量替换多个预设内容”时，应命中 `add_batch_preset`
 - 当用户提供远程音频/图片/视频 URL，后续又要求本地 `ffmpeg` 处理（如拼接、裁剪、抽帧）时，推荐组合命中 `media_download`，先下载到 workspace 再处理，避免远程临时链接失效或 `ffprobe` / `ffmpeg` 直接读取失败
 - 若“下载”请求同时满足草稿标识和普通 URL 特征，应以 `draft_download` 为最高优先级；只有在没有任何草稿上下文时，才考虑 `workspace.download` 或 `media_download`
 - 对 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat`，如果输入媒体文件位于当前 workspace 且用户未指定输出路径，默认应将新文件生成在首个源文件同目录，而不是系统临时目录；`media_duration` 为只读探测，不生成新文件
@@ -588,6 +595,8 @@ type IntentRoute = {
 | `把这个本地音频文件识别成字幕` | `cut + workspace` | `["subtitle_recognition", "upload"]` | 先上传再识别，禁止直接传本地路径 |
 | `把这段视频的字幕提取出来，但不要上屏` | `cut` | `["subtitle_recognition"]` | 只提取字幕内容，不写回草稿 |
 | `先识别这段音频字幕，再按字幕模版加回草稿` | `cut` | `["subtitle_template"]` | 目标是样式化字幕并回写草稿 |
+| `把这个 preset_id 加到草稿里，并替换里面的文字和图片` | `cut` | `["add_preset"]` | 单个预设片段插入，允许 replacements 覆盖素材 |
+| `批量添加 3 个预设片段，按顺序排到时间线上` | `cut` | `["add_batch_preset"]` | 多个预设批量插入，可按目标时间范围控制落点 |
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
 | `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 识别后按字幕样式模版上屏并写回草稿 |

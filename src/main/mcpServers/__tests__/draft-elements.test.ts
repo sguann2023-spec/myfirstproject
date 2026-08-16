@@ -99,6 +99,8 @@ describe('DraftElementsServer', () => {
       'get_font_types',
       'add_image',
       'add_batch_image',
+      'add_preset',
+      'add_batch_preset',
       'modify_image',
       'remove_image',
       'add_video',
@@ -158,6 +160,14 @@ describe('DraftElementsServer', () => {
     )
     expect(Object.keys(toolsByName.get('add_batch_image').inputSchema.properties)).toEqual(
       expect.arrayContaining(['width', 'transition', 'mask_type', 'background_blur', 'mix_type'])
+    )
+    expect(toolsByName.get('add_preset').inputSchema.required).toEqual(['preset_id'])
+    expect(Object.keys(toolsByName.get('add_preset').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['preset_id', 'replacements', 'target_start', 'track_name', 'rotation'])
+    )
+    expect(toolsByName.get('add_batch_preset').inputSchema.required).toEqual(['preset_ids', 'starts', 'ends'])
+    expect(Object.keys(toolsByName.get('add_batch_preset').inputSchema.properties)).toEqual(
+      expect.arrayContaining(['preset_ids', 'replacements', 'starts', 'ends', 'target_starts', 'target_ends'])
     )
     expect(Object.keys(toolsByName.get('modify_image').inputSchema.properties)).toEqual(
       expect.arrayContaining(['transition', 'mask_type', 'background_blur', 'mix_type'])
@@ -389,6 +399,116 @@ describe('DraftElementsServer', () => {
         draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_image_1',
         marterial_id: 'image_mat_1',
         material_id: 'image_mat_1'
+      }
+    })
+  })
+
+  it('should add preset with camelCase aliases normalized to snake_case', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_preset_1',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_preset_1'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'add_preset', {
+      presetId: 'preset_123',
+      draftId: 'dfd_preset_1',
+      targetStart: 2,
+      trackName: 'my_preset_track',
+      replacements: [{ text1: '流光剪辑' }]
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/cut_jianying/add_preset',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          preset_id: 'preset_123',
+          draft_id: 'dfd_preset_1',
+          target_start: 2,
+          track_name: 'my_preset_track',
+          replacements: [{ text1: '流光剪辑' }]
+        })
+      })
+    )
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      action: 'add_preset',
+      success: true,
+      error: '',
+      output: {
+        draft_id: 'dfd_preset_1',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_preset_1'
+      }
+    })
+  })
+
+  it('should add batch preset with camelCase aliases normalized to snake_case', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_batch_preset_1',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_batch_preset_1'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'add_batch_preset', {
+      presetIds: ['preset_a', 'preset_b'],
+      starts: [0, 0],
+      ends: [5, 3],
+      targetStarts: [2, 7],
+      targetEnds: [7, 10],
+      replacements: [[{ text1: '第一段预设' }], [{ text1: '第二段预设' }]]
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/cut_jianying/add_batch_preset',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          preset_ids: ['preset_a', 'preset_b'],
+          starts: [0, 0],
+          ends: [5, 3],
+          target_starts: [2, 7],
+          target_ends: [7, 10],
+          replacements: [[{ text1: '第一段预设' }], [{ text1: '第二段预设' }]]
+        })
+      })
+    )
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      action: 'add_batch_preset',
+      success: true,
+      error: '',
+      output: {
+        draft_id: 'dfd_batch_preset_1',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_batch_preset_1'
       }
     })
   })

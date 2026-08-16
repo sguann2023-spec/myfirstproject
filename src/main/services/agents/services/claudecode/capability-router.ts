@@ -32,6 +32,8 @@ export type RuntimeCapability =
   | 'fontList'
   | 'imageAdd'
   | 'imageAddBatch'
+  | 'presetAdd'
+  | 'presetAddBatch'
   | 'imageUpdate'
   | 'imageDelete'
   | 'videoAdd'
@@ -246,6 +248,12 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('image_add_batch') && !selected.has('imageAddBatch')) {
         addCapabilityReason(selected, reasons, 'imageAddBatch', 'intent:cut.image_add_batch')
       }
+      if (activeDomain.subdomains.includes('add_preset') && !selected.has('presetAdd')) {
+        addCapabilityReason(selected, reasons, 'presetAdd', 'intent:cut.add_preset')
+      }
+      if (activeDomain.subdomains.includes('add_batch_preset') && !selected.has('presetAddBatch')) {
+        addCapabilityReason(selected, reasons, 'presetAddBatch', 'intent:cut.add_batch_preset')
+      }
       if (activeDomain.subdomains.includes('image_update') && !selected.has('imageUpdate')) {
         addCapabilityReason(selected, reasons, 'imageUpdate', 'intent:cut.image_update')
       }
@@ -413,6 +421,8 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'fontList',
   'imageAdd',
   'imageAddBatch',
+  'presetAdd',
+  'presetAddBatch',
   'imageUpdate',
   'imageDelete',
   'videoAdd',
@@ -485,6 +495,8 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'fontList',
   'imageAdd',
   'imageAddBatch',
+  'presetAdd',
+  'presetAddBatch',
   'imageUpdate',
   'imageDelete',
   'videoAdd',
@@ -541,6 +553,8 @@ const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
   font_list: 'edit',
   image_add: 'edit',
   image_add_batch: 'edit',
+  add_preset: 'edit',
+  add_batch_preset: 'edit',
   image_update: 'edit',
   image_delete: 'edit',
   video_add: 'edit',
@@ -1100,6 +1114,18 @@ const hasImageAddIntent = (text: string) =>
 const hasImageAddBatchIntent = (text: string) =>
   hasCutDraftContext(text) && hasImageSubject(text) && /(批量|多张|一批)/.test(text) && /(添加|加上|新增|插入)/.test(text)
 
+const hasPresetSubject = (text: string) => /(预设片段|预设模板|预设模版|预设|preset_id|preset)/.test(text)
+
+const hasPresetAddIntent = (text: string) =>
+  hasPresetSubject(text) &&
+  (/(添加|加上|新增|插入|放入|加入|排到|放到)/.test(text) || /替换.{0,20}(图片|文字|视频|音频|素材)/.test(text)) &&
+  !/(批量|多个|多段|一批|顺序|依次)/.test(text)
+
+const hasPresetAddBatchIntent = (text: string) =>
+  hasPresetSubject(text) &&
+  (/(批量|多个|多段|一批|顺序|依次)/.test(text) || /多个.{0,12}preset/.test(text)) &&
+  (/(添加|加上|新增|插入|放入|加入|排到|放到)/.test(text) || /替换.{0,20}(图片|文字|视频|音频|素材)/.test(text))
+
 const hasImageUpdateIntent = (text: string) =>
   hasCutDraftContext(text) && hasImageSubject(text) && /(修改|编辑|更新|替换|改一下|改成)/.test(text)
 
@@ -1179,7 +1205,11 @@ const hasDownloadKeyword = (text: string) =>
 const hasMediaLink = (text: string) =>
   hasUrlLikeText(text) && (/\.(mp3|wav|m4a|aac|flac|ogg|mp4|mov|mkv|avi|webm|jpg|jpeg|png|gif|webp)\b/i.test(text) || /(音频|视频|图片|链接)/.test(text))
 
-const hasMediaDownloadIntent = (text: string) => hasDownloadKeyword(text) && hasMediaLink(text) && !hasDraftDownloadIntent(text)
+const hasMediaDownloadIntent = (text: string) =>
+  hasDownloadKeyword(text) &&
+  hasMediaLink(text) &&
+  !hasDraftDownloadIntent(text) &&
+  !/(网页|页面|网站).{0,12}(上的|里|中)/.test(text)
 
 const hasChatBashIntent = (text: string) =>
   hasAnyKeyword(text, CHAT_BASH_KEYWORDS) ||
@@ -1341,6 +1371,8 @@ export class CapabilityRouter {
       const hasFontList = hasFontListIntent(text)
       const hasImageAdd = hasImageAddIntent(text)
       const hasImageAddBatch = hasImageAddBatchIntent(text)
+      const hasPresetAdd = hasPresetAddIntent(text)
+      const hasPresetAddBatch = hasPresetAddBatchIntent(text)
       const hasImageUpdate = hasImageUpdateIntent(text)
       const hasImageDelete = hasImageDeleteIntent(text)
       const hasVideoAdd = hasVideoAddIntent(text)
@@ -1375,7 +1407,8 @@ export class CapabilityRouter {
       const hasImageOutroAnimationList = hasImageOutroAnimationListIntent(text)
       const hasImageLoopAnimationList = hasImageLoopAnimationListIntent(text)
       const shouldApplySubtitleTemplate = hasSubtitleTemplateIntent(text)
-      const hasTemplateIntent = hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS) && !shouldApplySubtitleTemplate
+      const hasTemplateIntent =
+        hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS) && !shouldApplySubtitleTemplate && !hasPresetSubject(text)
       const hasCutSpecificIntent =
         hasTextAdd ||
         hasTextAddBatch ||
@@ -1390,6 +1423,8 @@ export class CapabilityRouter {
         hasFontList ||
         hasImageAdd ||
         hasImageAddBatch ||
+        hasPresetAdd ||
+        hasPresetAddBatch ||
         hasImageUpdate ||
         hasImageDelete ||
         hasVideoAdd ||
@@ -1424,7 +1459,9 @@ export class CapabilityRouter {
         shouldApplySubtitleTemplate ||
         hasTemplateIntent ||
         hasVideoConcat
-      const hasWorkspaceDownloadIntent = hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft
+      const hasWebPageSourceDownloadIntent = /(网页|页面|网站).{0,12}(上的|里|中)/.test(text)
+      const hasWorkspaceDownloadIntent =
+        hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft && !hasWebPageSourceDownloadIntent
       const hasWebDownloadIntent = hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft
       const hasAiImageIntent =
         args.imageCount > 0 ||
@@ -1629,6 +1666,14 @@ export class CapabilityRouter {
 
       if (hasImageAddBatch) {
         addCapabilityReason(selected, reasons, 'imageAddBatch', 'prompt:image-add-batch')
+      }
+
+      if (hasPresetAdd) {
+        addCapabilityReason(selected, reasons, 'presetAdd', 'prompt:add-preset')
+      }
+
+      if (hasPresetAddBatch) {
+        addCapabilityReason(selected, reasons, 'presetAddBatch', 'prompt:add-batch-preset')
       }
 
       if (hasImageUpdate) {
@@ -1989,6 +2034,8 @@ function classifyIntent(args: {
     args.selected.has('fontList') ||
     args.selected.has('imageAdd') ||
     args.selected.has('imageAddBatch') ||
+    args.selected.has('presetAdd') ||
+    args.selected.has('presetAddBatch') ||
     args.selected.has('imageUpdate') ||
     args.selected.has('imageDelete') ||
     args.selected.has('videoAdd') ||
@@ -2020,6 +2067,11 @@ function classifyIntent(args: {
     args.selected.has('draftDownload') ||
     args.selected.has('subtitleTemplate') ||
     args.selected.has('kouboTemplate')
+  const suppressWorkspaceInferenceForBash =
+    args.selected.has('bash') &&
+    !hasCutSpecificIntent &&
+    !args.selected.has('workspaceDownload') &&
+    !args.selected.has('uploadFile')
   const hasImplicitWebUrlOpenIntent =
     hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
   const hasExplicitWebOpenIntent =
@@ -2034,7 +2086,7 @@ function classifyIntent(args: {
     hasAnyKeyword(text, WEB_SEARCH_KEYWORDS) ||
     /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text)
 
-  if (hasWorkspaceReadIntent) {
+  if (hasWorkspaceReadIntent && !suppressWorkspaceInferenceForBash) {
     addDomainSubdomain('workspace', 'read', 'prompt:workspace-read')
   }
   if (hasWorkspaceFindIntent) {
@@ -2050,8 +2102,12 @@ function classifyIntent(args: {
     addDomainSubdomain('workspace', 'read', 'capability:workspace-upload-implies-read')
   }
   if (hasWorkspaceWriteIntent) addDomainSubdomain('workspace', 'write', 'prompt:workspace-write')
-  if (hasWorkspaceExecuteIntent) addDomainSubdomain('workspace', 'execute', 'prompt:workspace-execute')
-  if (hasWorkspaceTaskIntent) addDomainSubdomain('workspace', 'task', 'prompt:workspace-task')
+  if (hasWorkspaceExecuteIntent && !suppressWorkspaceInferenceForBash) {
+    addDomainSubdomain('workspace', 'execute', 'prompt:workspace-execute')
+  }
+  if (hasWorkspaceTaskIntent && !suppressWorkspaceInferenceForBash) {
+    addDomainSubdomain('workspace', 'task', 'prompt:workspace-task')
+  }
   if (hasNotebookIntent) addDomainSubdomain('workspace', 'notebook', 'prompt:workspace-notebook')
 
   if (hasWebSearchIntent) {
@@ -2131,6 +2187,8 @@ function classifyIntent(args: {
   if (args.selected.has('fontList')) addDomainSubdomain('cut', 'font_list', 'capability:font-list')
   if (args.selected.has('imageAdd')) addDomainSubdomain('cut', 'image_add', 'capability:image-add')
   if (args.selected.has('imageAddBatch')) addDomainSubdomain('cut', 'image_add_batch', 'capability:image-add-batch')
+  if (args.selected.has('presetAdd')) addDomainSubdomain('cut', 'add_preset', 'capability:add-preset')
+  if (args.selected.has('presetAddBatch')) addDomainSubdomain('cut', 'add_batch_preset', 'capability:add-batch-preset')
   if (args.selected.has('imageUpdate')) addDomainSubdomain('cut', 'image_update', 'capability:image-update')
   if (args.selected.has('imageDelete')) addDomainSubdomain('cut', 'image_delete', 'capability:image-delete')
   if (args.selected.has('videoAdd')) addDomainSubdomain('cut', 'video_add', 'capability:video-add')
@@ -2211,6 +2269,7 @@ function classifyIntent(args: {
   const webScore =
     (webSubdomains.includes('browser') ? 3 : 0) +
     (webSubdomains.includes('search') ? 2 : 0) +
+    (webSubdomains.includes('download') ? 2 : 0) +
     (webSubdomains.includes('fetch') ? 2 : 0) +
     (webSubdomains.includes('execute') ? 2 : 0) +
     (webSubdomains.includes('screenshot') ? 1 : 0)

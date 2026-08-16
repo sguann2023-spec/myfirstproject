@@ -257,6 +257,8 @@ export async function mountRuntimeMcpServers(input: {
     if (shouldMountCapability('fontList')) autoAllowTools.add('mcp__draft-elements__get_font_types')
     if (shouldMountCapability('imageAdd')) autoAllowTools.add('mcp__draft-elements__add_image')
     if (shouldMountCapability('imageAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_image')
+    if (shouldMountCapability('presetAdd')) autoAllowTools.add('mcp__draft-elements__add_preset')
+    if (shouldMountCapability('presetAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_preset')
     if (shouldMountCapability('imageUpdate')) autoAllowTools.add('mcp__draft-elements__modify_image')
     if (shouldMountCapability('imageDelete')) autoAllowTools.add('mcp__draft-elements__remove_image')
     if (shouldMountCapability('videoAdd')) autoAllowTools.add('mcp__draft-elements__add_video')
