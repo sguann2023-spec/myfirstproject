@@ -112,10 +112,12 @@ const WelcomeSkillCard = ({
   onPreviewSkill,
   isLoading,
   disabled,
-  childrensBookQuickPromptRef
+  childrensBookQuickPromptRef,
+  beginnerGuideQuickSkillsViewportRef
 }) => {
   return (
     <article
+      ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
       className="chat-panel__welcome-skill-card"
       role="button"
       tabIndex={0}
@@ -170,7 +172,8 @@ const WelcomePage = ({
   onQuickPrompt,
   runtimeSessionId,
   onSelectSkill,
-  childrensBookQuickPromptRef
+  childrensBookQuickPromptRef,
+  beginnerGuideQuickSkillsViewportRef
 }) => {
   const [quickSkills, setQuickSkills] = React.useState([]);
   const [pendingAction, setPendingAction] = React.useState('');
@@ -417,6 +420,7 @@ const WelcomePage = ({
                         isLoading={pendingAction === item.action}
                         disabled={Boolean(pendingAction)}
                         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+                        beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
                       />
                     ))}
                   </div>

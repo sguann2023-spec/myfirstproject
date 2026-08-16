@@ -27,6 +27,7 @@ const MessagePane = ({
   runtimeSessionId,
   onSelectSkill,
   childrensBookQuickPromptRef,
+  beginnerGuideQuickSkillsViewportRef,
 }) => {
   const scrollContainerRef = React.useRef(null);
   const autoScrollEnabledRef = React.useRef(true);
@@ -158,6 +159,7 @@ const MessagePane = ({
               runtimeSessionId={runtimeSessionId}
               onSelectSkill={onSelectSkill}
               childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+              beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
             />
           ) : (
             <div className="chat-panel__empty">没有匹配的消息</div>

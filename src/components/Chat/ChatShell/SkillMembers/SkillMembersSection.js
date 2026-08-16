@@ -65,20 +65,15 @@ const SkillMembersSection = ({
         const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
         const isChildrensBookSkill = folderLabel === childrensBookSkillLabel || displayName === childrensBookSkillLabel;
         const primaryLabel = displayName || folderLabel;
-        const shouldForceShowActions = isChildrensBookSkill && beginnerGuideOpen && (
-          beginnerGuideCurrent === 3 || beginnerGuideCurrent === 4
-        );
         const hasWebExampleAction = Boolean(skillExamplePath || skillPreviewPath);
         const hasMentionAction = typeof onSelectSkill === 'function';
         const hasModifyPromptAction = typeof onModifySkill === 'function';
         const hasDeleteAction = typeof onDeleteSkill === 'function';
         const hasActionMenu = hasWebExampleAction || hasMentionAction || hasModifyPromptAction || hasDeleteAction;
-        const isTooltipOpen = shouldForceShowActions || openTooltipSkillKey === skillKey;
+        const isTooltipOpen = openTooltipSkillKey === skillKey;
 
         const closeTooltip = () => {
-          if (!shouldForceShowActions) {
-            setOpenTooltipSkillKey((current) => (current === skillKey ? '' : current));
-          }
+          setOpenTooltipSkillKey((current) => (current === skillKey ? '' : current));
         };
 
         const tooltipActions = hasActionMenu ? (
@@ -102,7 +97,7 @@ const SkillMembersSection = ({
               <button
                 type="button"
                 ref={isChildrensBookSkill ? beginnerGuideChildrensBookEditButtonRef : null}
-                className={`chat-panel__member-tooltip-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 3 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
+                className="chat-panel__member-tooltip-action"
                 onClick={(event) => {
                   event.stopPropagation();
                   onModifySkill(skill);
@@ -118,7 +113,7 @@ const SkillMembersSection = ({
               <button
                 type="button"
                 ref={isChildrensBookSkill ? beginnerGuideChildrensBookRunButtonRef : null}
-                className={`chat-panel__member-tooltip-action ${isChildrensBookSkill && beginnerGuideOpen && beginnerGuideCurrent === 4 ? 'chat-panel__member-action--tour-visible' : ''}`.trim()}
+                className="chat-panel__member-tooltip-action"
                 onClick={(event) => {
                   event.stopPropagation();
                   if (skillExamplePath) {

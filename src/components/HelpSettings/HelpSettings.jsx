@@ -9,6 +9,8 @@ import {
   scheduleBeginnerGuideReopen
 } from '../../shared/beginnerGuide';
 
+const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
+
 const HelpSettings = () => {
   const [pending, setPending] = useState(false);
   const [rewardLoading, setRewardLoading] = useState(true);
@@ -49,6 +51,7 @@ const HelpSettings = () => {
 
     try {
       scheduleBeginnerGuideReopen();
+      window.localStorage.setItem(MEMBERS_PANEL_COLLAPSED_STORE_KEY, 'true');
       const { ipcRenderer } = window.require('electron');
       await new Promise((resolve) => {
         window.setTimeout(resolve, 2000);

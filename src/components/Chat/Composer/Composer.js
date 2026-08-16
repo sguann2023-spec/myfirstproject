@@ -2186,6 +2186,9 @@ const Composer = ({
   agentId,
   runtimeSessionId,
   session: sessionProp = null,
+  beginnerGuideAiToolAreaRef = null,
+  beginnerGuideModelPickerRef = null,
+  beginnerGuideInputAreaRef = null,
   inputRef,
   input,
   setInput,
@@ -4049,6 +4052,7 @@ const Composer = ({
                     />
                   ) : (
                     <ToolArea
+                      toolAreaRef={beginnerGuideAiToolAreaRef}
                       disabled={sessionSending}
                       onSelect={handleToolSelect}
                     />
@@ -4078,44 +4082,46 @@ const Composer = ({
             </div>
           </div>
           <div ref={toolRightRef} className="chat-panel__tool-right">
-            <Select
-              size="small"
-              variant="borderless"
-              className="chat-panel__model-picker"
-              listHeight={356}
-              virtual={false}
-              value={model}
-              options={groupedModelOptions}
-              optionLabelProp="selectedLabel"
-              loading={modelListLoading}
-              onChange={(value) => onModelChange && onModelChange(value)}
-              onOpenChange={(open) => {
-                setModelPickerOpen(open);
-                if (!open) clearHoveredModelCard();
-              }}
-              disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}
-              popupMatchSelectWidth={false}
-              getPopupContainer={(trigger) => trigger.parentElement}
-              optionRender={(option) => {
-                const optionMeta = option?.data || {};
-                const optionValue = String(optionMeta?.value || '').trim();
-                const displayText = String(optionMeta?.displayText || optionValue).trim();
-                const icon = optionMeta?.icon || '';
-                const supportsReadImage = Boolean(optionMeta?.supportsReadImage);
-                const badges = Array.isArray(optionMeta?.badges) ? optionMeta.badges : [];
-                const optionContent = renderModelOptionInner(displayText, icon, supportsReadImage, badges);
-                return (
-                  <div
-                    className="chat-panel__model-option-trigger"
-                    onPointerEnter={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
-                    onPointerMove={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
-                    onPointerLeave={optionValue ? clearHoveredModelCard : undefined}
-                  >
-                    {optionContent}
-                  </div>
-                );
-              }}
-            />
+            <div ref={beginnerGuideModelPickerRef}>
+              <Select
+                size="small"
+                variant="borderless"
+                className="chat-panel__model-picker"
+                listHeight={356}
+                virtual={false}
+                value={model}
+                options={groupedModelOptions}
+                optionLabelProp="selectedLabel"
+                loading={modelListLoading}
+                onChange={(value) => onModelChange && onModelChange(value)}
+                onOpenChange={(open) => {
+                  setModelPickerOpen(open);
+                  if (!open) clearHoveredModelCard();
+                }}
+                disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}
+                popupMatchSelectWidth={false}
+                getPopupContainer={(trigger) => trigger.parentElement}
+                optionRender={(option) => {
+                  const optionMeta = option?.data || {};
+                  const optionValue = String(optionMeta?.value || '').trim();
+                  const displayText = String(optionMeta?.displayText || optionValue).trim();
+                  const icon = optionMeta?.icon || '';
+                  const supportsReadImage = Boolean(optionMeta?.supportsReadImage);
+                  const badges = Array.isArray(optionMeta?.badges) ? optionMeta.badges : [];
+                  const optionContent = renderModelOptionInner(displayText, icon, supportsReadImage, badges);
+                  return (
+                    <div
+                      className="chat-panel__model-option-trigger"
+                      onPointerEnter={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
+                      onPointerMove={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
+                      onPointerLeave={optionValue ? clearHoveredModelCard : undefined}
+                    >
+                      {optionContent}
+                    </div>
+                  );
+                }}
+              />
+            </div>
             <button
               type="button"
               className={`chat-panel__send-btn ${isSendDisabled && !sessionSending ? 'disabled' : ''} ${sessionSending ? 'stopping' : ''}`}
@@ -4135,7 +4141,12 @@ const Composer = ({
           </div>
         </div>
         <div
-          ref={inputWrapRef}
+          ref={(node) => {
+            inputWrapRef.current = node;
+            if (beginnerGuideInputAreaRef) {
+              beginnerGuideInputAreaRef.current = node;
+            }
+          }}
           className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''}`}
           onDragEnter={handleInputDragEnter}
           onDragOver={handleInputDragOver}

@@ -714,6 +714,10 @@ const ChatShell = ({
   onCloseWebPreview,
   onOpenWebPreview,
   childrensBookQuickPromptRef = null,
+  beginnerGuideQuickSkillsViewportRef = null,
+  beginnerGuideAiToolAreaRef = null,
+  beginnerGuideModelPickerRef = null,
+  beginnerGuideInputAreaRef = null,
   beginnerGuideDownloadPaneRef = null,
   beginnerGuideSettingsPaneRef = null,
   beginnerGuideEligible = false,
@@ -886,38 +890,23 @@ const ChatShell = ({
   const beginnerGuideSteps = React.useMemo(() => ([
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '点击这里新建工作空间。（你可以随时关闭新手引导，在设置页面再次打开。）',
-      target: () => beginnerGuideCreateWorkspaceButtonRef.current,
-      nextButtonProps: { style: { display: 'none' } }
+      description: '通过对话制作视频，试试说：创建一个新的剪辑草稿，并添加文字：你好',
+      target: () => beginnerGuideInputAreaRef?.current || null,
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '填写工作空间名称，然后点击确认创建工作空间。',
-      target: () => beginnerGuideWorkspaceDialogRef.current,
-      placement: 'top',
-      nextButtonProps: { style: { display: 'none' } }
+      description: '在这里切换AI模型。',
+      target: () => beginnerGuideModelPickerRef?.current || null,
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '接着点击这里，我会帮你创建一个技能。',
-      target: () => childrensBookQuickPromptRef?.current || null,
-      nextButtonProps: { style: { display: 'none' } }
+      description: '在这里使用AI生成工具。',
+      target: () => beginnerGuideAiToolAreaRef?.current || null,
     },
     {
       title: BEGINNER_GUIDE_TITLE,
-      description: '点这里可以编辑这个技能',
-      target: () => beginnerGuideChildrensBookEditButtonRef.current
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '点击执行，可以直接打开这个技能的示例页面。',
-      target: () => beginnerGuideChildrensBookRunButtonRef.current,
-      nextButtonProps: { style: { display: 'none' } }
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '执行完毕会触发下载，这里会显示正在下载的草稿数量。等下载完毕后，去剪映草稿箱里打开即可。',
-      target: () => beginnerGuideDownloadPaneRef?.current || null,
+      description: '这里是一个剪辑技能，你可以使用他快速制作一条视频。',
+      target: () => beginnerGuideQuickSkillsViewportRef?.current || childrensBookQuickPromptRef?.current || null,
     },
     {
       title: BEGINNER_GUIDE_TITLE,
@@ -932,7 +921,7 @@ const ChatShell = ({
   ].map((step) => ({
     ...step,
     prevButtonProps: { style: { display: 'none' } }
-  }))), [beginnerGuideDownloadPaneRef, beginnerGuideSettingsPaneRef, childrensBookQuickPromptRef, completeBeginnerGuide]);
+  }))), [beginnerGuideAiToolAreaRef, beginnerGuideDownloadPaneRef, beginnerGuideInputAreaRef, beginnerGuideModelPickerRef, beginnerGuideQuickSkillsViewportRef, beginnerGuideSettingsPaneRef, childrensBookQuickPromptRef, completeBeginnerGuide]);
 
   React.useEffect(() => {
     setResolvedSessionId(runtimeSessionId || '');
@@ -957,38 +946,25 @@ const ChatShell = ({
 
   React.useEffect(() => {
     if (!shouldStartBeginnerGuide || beginnerGuideOpen) return undefined;
-    const frameId = window.requestAnimationFrame(() => {
-      if (beginnerGuideCreateWorkspaceButtonRef.current) {
+    let frameId = 0;
+    const tryOpenGuide = () => {
+      if (beginnerGuideQuickSkillsViewportRef?.current || childrensBookQuickPromptRef?.current) {
         setBeginnerGuideCurrent(0);
         setBeginnerGuideOpen(true);
+        return;
       }
-    });
+      frameId = window.requestAnimationFrame(tryOpenGuide);
+    };
+    frameId = window.requestAnimationFrame(tryOpenGuide);
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [beginnerGuideOpen, shouldStartBeginnerGuide]);
-
-  React.useEffect(() => {
-    if (!beginnerGuideOpen) return;
-    if (beginnerGuideCurrent === 1 && !createWorkspaceDialogOpen) {
-      setBeginnerGuideCurrent(0);
-    }
-  }, [beginnerGuideCurrent, beginnerGuideOpen, createWorkspaceDialogOpen]);
-
-  React.useEffect(() => {
-    if (!beginnerGuideOpen || beginnerGuideCurrent !== 1 || !createWorkspaceDialogOpen) return undefined;
-    const frameId = window.requestAnimationFrame(() => {
-      beginnerGuideWorkspaceNameInputRef.current?.focus?.();
-    });
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [beginnerGuideCurrent, beginnerGuideOpen, createWorkspaceDialogOpen]);
+  }, [beginnerGuideOpen, beginnerGuideQuickSkillsViewportRef, childrensBookQuickPromptRef, shouldStartBeginnerGuide]);
 
   React.useEffect(() => {
     const handleChildrensBookSkillCreated = () => {
-      if (beginnerGuideOpen && beginnerGuideCurrent === 2) {
-        setBeginnerGuideCurrent(3);
+      if (beginnerGuideOpen && (beginnerGuideCurrent === 0 || beginnerGuideCurrent === 1)) {
+        setBeginnerGuideCurrent(2);
       }
     };
 
@@ -1082,12 +1058,6 @@ const ChatShell = ({
     window.addEventListener('resize', syncWebPreviewWidth);
     return () => window.removeEventListener('resize', syncWebPreviewWidth);
   }, [hasFilePreview, membersPanelWidth, showMembersPanel]);
-
-  React.useEffect(() => {
-    if ((shouldStartBeginnerGuide || createWorkspaceDialogOpen) && membersPanelCollapsed) {
-      setMembersPanelCollapsed(false);
-    }
-  }, [createWorkspaceDialogOpen, membersPanelCollapsed, shouldStartBeginnerGuide]);
 
   React.useEffect(() => {
     if (!membersPanelCollapsed) return;
@@ -1649,9 +1619,6 @@ const ChatShell = ({
         setCreateWorkspaceName('');
         setCreateWorkspaceNameError('');
         setCreateWorkspaceDialogOpen(true);
-        if (beginnerGuideOpen && beginnerGuideCurrent === 0) {
-          setBeginnerGuideCurrent(1);
-        }
         return;
       }
 
@@ -1679,13 +1646,10 @@ const ChatShell = ({
       setCreateWorkspaceName('');
       setCreateWorkspaceNameError('');
       setCreateWorkspaceDialogOpen(true);
-      if (beginnerGuideOpen && beginnerGuideCurrent === 0) {
-        setBeginnerGuideCurrent(1);
-      }
     };
 
     void openDialog();
-  }, [agentId, beginnerGuideCurrent, beginnerGuideOpen, currentWorkspacePath, recentWorkspacePaths]);
+  }, [agentId, currentWorkspacePath, recentWorkspacePaths]);
 
   const handlePickWorkspaceParentDir = React.useCallback(async () => {
     try {
@@ -1730,9 +1694,6 @@ const ChatShell = ({
       writeCreateWorkspaceParentForAgent(agentId, parentDir);
       const success = await bindWorkspaceToSession(workspacePath, { seedSkills: true });
       if (success) {
-        if (beginnerGuideOpen && beginnerGuideCurrent <= 1) {
-          setBeginnerGuideCurrent(2);
-        }
         setCreateWorkspaceDialogOpen(false);
         setCreateWorkspaceName('');
         setCreateWorkspaceNameError('');
@@ -1748,8 +1709,6 @@ const ChatShell = ({
       setCreateWorkspaceSubmitting(false);
     }
   }, [
-    beginnerGuideCurrent,
-    beginnerGuideOpen,
     bindWorkspaceToSession,
     createWorkspaceName,
     createWorkspaceParentDir,
@@ -2307,8 +2266,8 @@ const ChatShell = ({
       sourcePath: examplePath
     });
 
-    if (beginnerGuideOpen && beginnerGuideCurrent === 4) {
-      setBeginnerGuideCurrent(5);
+    if (beginnerGuideOpen && beginnerGuideCurrent === 3) {
+      setBeginnerGuideCurrent(4);
     }
   }, [beginnerGuideCurrent, beginnerGuideOpen, onOpenWebPreview, skillExamplePaths]);
 

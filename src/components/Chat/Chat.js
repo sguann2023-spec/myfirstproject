@@ -124,6 +124,10 @@ const Chat = ({
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
   const childrensBookQuickPromptRef = React.useRef(null);
+  const beginnerGuideQuickSkillsViewportRef = React.useRef(null);
+  const beginnerGuideAiToolAreaRef = React.useRef(null);
+  const beginnerGuideModelPickerRef = React.useRef(null);
+  const beginnerGuideInputAreaRef = React.useRef(null);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
   const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
   const currentWorkspacePath = React.useMemo(() => getSessionWorkspacePath(session), [session]);
@@ -326,6 +330,10 @@ const Chat = ({
       onCloseWebPreview={onCloseWebPreview}
       onOpenWebPreview={onOpenWebPreview}
       childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+      beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
+      beginnerGuideAiToolAreaRef={beginnerGuideAiToolAreaRef}
+      beginnerGuideModelPickerRef={beginnerGuideModelPickerRef}
+      beginnerGuideInputAreaRef={beginnerGuideInputAreaRef}
       beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
       beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
       onRefreshCredits={onRefreshCredits}
@@ -356,6 +364,7 @@ const Chat = ({
         runtimeSessionId={runtimeSessionId}
         onSelectSkill={insertQuickSkillMention}
         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+        beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
       />
       <ChatPinnedTodoPanel topicId={chatTopicId} sessionFulfilled={sessionFulfilled} />
       <Composer
@@ -369,6 +378,9 @@ const Chat = ({
         handleStop={onStopSending}
         sending={sending}
         sessionSending={sessionSending}
+        beginnerGuideAiToolAreaRef={beginnerGuideAiToolAreaRef}
+        beginnerGuideModelPickerRef={beginnerGuideModelPickerRef}
+        beginnerGuideInputAreaRef={beginnerGuideInputAreaRef}
         model={model}
         modelOptions={modelOptions}
         modelListLoading={modelListLoading}

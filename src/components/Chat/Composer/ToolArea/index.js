@@ -27,8 +27,8 @@ const TOOL_ITEMS = [
   },
 ];
 
-const ToolArea = ({ disabled = false, onSelect }) => (
-  <div className="chat-panel__tool-area" role="toolbar" aria-label="工具区">
+const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => (
+  <div ref={toolAreaRef} className="chat-panel__tool-area" role="toolbar" aria-label="工具区">
     {TOOL_ITEMS.map((tool) => (
       <button
         key={tool.id}
