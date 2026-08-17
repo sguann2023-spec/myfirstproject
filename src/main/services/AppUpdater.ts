@@ -82,10 +82,17 @@ interface ChannelConfig {
   feedUrls: Record<UpdateMirror, string>
 }
 
+interface CheckForUpdatesResponse {
+  currentVersion: unknown
+  updateInfo: UpdateInfo | null
+}
+
 export default class AppUpdater {
   autoUpdater: _AppUpdater = autoUpdater
   private cancellationToken: CancellationToken = new CancellationToken()
   private updateCheckResult: UpdateCheckResult | null = null
+  private checkForUpdatesPromise: Promise<CheckForUpdatesResponse> | null = null
+  private isInstallingUpdate = false
 
   private broadcastUpdateEvent(channel: string, ...args: unknown[]) {
     const windows = BrowserWindow.getAllWindows().filter((browserWindow) => !browserWindow.isDestroyed())
@@ -307,7 +314,7 @@ export default class AppUpdater {
     }
   }
 
-  public async checkForUpdates() {
+  public async checkForUpdates(): Promise<CheckForUpdatesResponse> {
     if (isWin && 'PORTABLE_EXECUTABLE_DIR' in process.env) {
       return {
         currentVersion: app.getVersion(),
@@ -315,41 +322,66 @@ export default class AppUpdater {
       }
     }
 
-    try {
-      await this._setFeedUrl()
-
-      this.updateCheckResult = await this.autoUpdater.checkForUpdates()
-      logger.info(
-        `update check result: ${this.updateCheckResult?.isUpdateAvailable}, channel: ${this.autoUpdater.channel}, currentVersion: ${this.autoUpdater.currentVersion}`
-      )
-
-      if (this.updateCheckResult?.isUpdateAvailable && !this.autoUpdater.autoDownload) {
-        // 如果 autoDownload 为 false，则需要再调用下面的函数触发下
-        // do not use await, because it will block the return of this function
-        logger.info('downloadUpdate manual by check for updates', this.cancellationToken)
-        void this.autoUpdater.downloadUpdate(this.cancellationToken).catch((error) => {
-          logger.error('downloadUpdate failed after check for updates', error as Error)
-        })
-      }
-
-      return {
-        currentVersion: this.autoUpdater.currentVersion,
-        updateInfo: this.updateCheckResult?.isUpdateAvailable ? this.updateCheckResult?.updateInfo : null
-      }
-    } catch (error) {
-      logger.error('Failed to check for update:', error as Error)
-      return {
-        currentVersion: app.getVersion(),
-        updateInfo: null
-      }
+    if (this.checkForUpdatesPromise) {
+      logger.info('Reusing in-flight update check request')
+      return this.checkForUpdatesPromise
     }
+
+    this.checkForUpdatesPromise = (async () => {
+      try {
+        await this._setFeedUrl()
+
+        this.updateCheckResult = await this.autoUpdater.checkForUpdates()
+        logger.info(
+          `update check result: ${this.updateCheckResult?.isUpdateAvailable}, channel: ${this.autoUpdater.channel}, currentVersion: ${this.autoUpdater.currentVersion}`
+        )
+
+        if (this.updateCheckResult?.isUpdateAvailable && !this.autoUpdater.autoDownload) {
+          // 如果 autoDownload 为 false，则需要再调用下面的函数触发下
+          // do not use await, because it will block the return of this function
+          logger.info('downloadUpdate manual by check for updates', this.cancellationToken)
+          void this.autoUpdater.downloadUpdate(this.cancellationToken).catch((error) => {
+            logger.error('downloadUpdate failed after check for updates', error as Error)
+          })
+        }
+
+        return {
+          currentVersion: this.autoUpdater.currentVersion,
+          updateInfo: this.updateCheckResult?.isUpdateAvailable ? this.updateCheckResult?.updateInfo : null
+        }
+      } catch (error) {
+        logger.error('Failed to check for update:', error as Error)
+        return {
+          currentVersion: app.getVersion(),
+          updateInfo: null
+        }
+      } finally {
+        this.checkForUpdatesPromise = null
+      }
+    })()
+
+    return this.checkForUpdatesPromise
   }
 
   public quitAndInstall() {
+    if (this.isInstallingUpdate) {
+      logger.info('Ignoring duplicate quitAndInstall request while install is already in progress')
+      return
+    }
+
+    this.isInstallingUpdate = true
     app.isQuitting = true
     const isSilent = process.platform !== 'win32'
     logger.info('Triggering quitAndInstall', { isSilent, isForceRunAfter: true, platform: process.platform })
-    setImmediate(() => autoUpdater.quitAndInstall(isSilent, true))
+    setImmediate(() => {
+      try {
+        autoUpdater.quitAndInstall(isSilent, true)
+      } catch (error) {
+        this.isInstallingUpdate = false
+        logger.error('Failed to start quitAndInstall', error as Error)
+        throw error
+      }
+    })
   }
 
   /**

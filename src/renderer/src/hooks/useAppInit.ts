@@ -32,6 +32,8 @@ import useUpdateHandler from './useUpdateHandler'
 const logger = loggerService.withContext('useAppInit')
 
 export function useAppInit() {
+  const view = new URLSearchParams(window.location.search).get('view')
+  const isSettingsView = view === 'settings'
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const {
@@ -82,6 +84,10 @@ export function useAppInit() {
   }, [avatar, dispatch])
 
   useEffect(() => {
+    if (isSettingsView) {
+      return
+    }
+
     const checkForUpdates = async () => {
       const { isPackaged } = await window.api.getAppInfo()
 
@@ -107,7 +113,7 @@ export function useAppInit() {
     const intervalId = setInterval(checkForUpdates, FOUR_HOURS)
 
     return () => clearInterval(intervalId)
-  }, [dispatch, autoCheckUpdate])
+  }, [dispatch, autoCheckUpdate, isSettingsView])
 
   useEffect(() => {
     if (proxyMode === 'system') {

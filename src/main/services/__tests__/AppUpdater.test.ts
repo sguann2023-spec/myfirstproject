@@ -306,10 +306,45 @@ describe('AppUpdater', () => {
     })
   })
 
+  describe('checkForUpdates', () => {
+    it('should reuse an in-flight update check request', async () => {
+      vi.spyOn(appUpdater as any, '_setFeedUrl').mockResolvedValue(undefined)
+
+      let resolveCheck: ((value: any) => void) | undefined
+      vi.mocked(autoUpdater.checkForUpdates).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCheck = resolve
+          }) as any
+      )
+
+      const firstRequest = appUpdater.checkForUpdates()
+      const secondRequest = appUpdater.checkForUpdates()
+
+      expect(secondRequest).toBe(firstRequest)
+      expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1)
+
+      resolveCheck?.({
+        isUpdateAvailable: false,
+        updateInfo: null
+      })
+
+      await expect(firstRequest).resolves.toEqual({
+        currentVersion: autoUpdater.currentVersion,
+        updateInfo: null
+      })
+    })
+  })
+
   describe('quitAndInstall', () => {
     const originalPlatform = process.platform
 
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
     afterEach(() => {
+      vi.useRealTimers()
       Object.defineProperty(process, 'platform', { value: originalPlatform })
     })
 
@@ -317,6 +352,7 @@ describe('AppUpdater', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
 
       appUpdater.quitAndInstall()
+      vi.runAllTimers()
 
       expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
     })
@@ -325,7 +361,19 @@ describe('AppUpdater', () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' })
 
       appUpdater.quitAndInstall()
+      vi.runAllTimers()
 
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
+    })
+
+    it('should ignore duplicate install requests while install is already in progress', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+
+      appUpdater.quitAndInstall()
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1)
       expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
     })
   })

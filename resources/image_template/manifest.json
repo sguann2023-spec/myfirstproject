@@ -1,7 +1,7 @@
 {
-  "version": "20260806134603",
-  "updatedAt": "2026-08-06T13:46:03Z",
-  "templateCount": 21,
+  "version": "20260817105413",
+  "updatedAt": "2026-08-17T10:54:13Z",
+  "templateCount": 29,
   "templates": [
     {
       "id": "client_image_template_001",
@@ -191,6 +191,174 @@
       "prompt": "竖版宠物市集主题宣传海报，鱼眼镜头实拍风格，活力动感，适配市集活动、宠物宣传。\n\n【背景与主体】\n1.  主背景：宠物市集草坪实拍图，鱼眼广角镜头拍摄，画面边缘做黑边喷绘肌理，强化动感；\n2.  视觉核心：画面中心一只布偶猫，表情生动，互动感强；\n3.  底部背景：橙色渐变背景，做视觉分割，突出主标题。\n\n【文字排版】\n1.  顶部品牌区：橙色圆角栏，内放「布丁宠物市集」品牌LOGO；\n2.  右上角标语区：绿色手写涂鸦字「萌宠集结 快乐赶集」；\n3.  底部主标题区：超大号白色毛笔书法字「毛孩子的狂欢」，搭配黄色涂鸦线条装饰；\n【整体风格要求】\n鱼眼镜头实拍，真实生动，橙色+鲜绿撞色，活力动感，主体突出，文字层级清晰，治愈可爱，适配宠物市集活动宣传。",
       "model": "seedream-4.0",
       "ratio": "1:1"
+    },
+    {
+      "id": "client_image_template_023",
+      "index": 23,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/023_cover.png",
+      "description": "官方示例：凌乱办公桌桌面，信息密度高，光影与细节丰富。",
+      "prompt": "一个凌乱的办公桌桌面。桌面上有一台开着的笔记本电脑，屏幕显示绿色代码；旁边一个马克杯，杯上写着“Developer”，杯口冒出热气；一本摊开的书，页面是维恩图，展示三个圆的嵌套关系，三个圆分别为灰色、蓝色和浅绿色；一个便签贴，上面画着一个思维导图，思维导图是上下结构，分为3层结构；一支钢笔，笔帽掉在旁边；钢笔旁边是一个手机，屏幕显示一条新消息通知，桌子角落是一小盆多肉植物。背景是模糊的书架。阳光从右侧照射，在桌上形成光影。",
+      "model": "seedream-5.0",
+      "ratio": "1:1"
+    },
+    {
+      "id": "client_image_template_024",
+      "index": 24,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/024_cover.png",
+      "description": "官方示例：通货膨胀成因信息图，结构清楚，图标简洁。",
+      "prompt": "绘制一张信息图，展示通货膨胀的成因，每条成因独立呈现，并配有简洁图标。",
+      "model": "seedream-5.0",
+      "ratio": "3:4"
+    },
+    {
+      "id": "client_image_template_025",
+      "index": 25,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/025_cover.png",
+      "description": "官方示例：按涂鸦位置编辑房间布局，替换物体并保持原木风。",
+      "prompt": "将房间内红色涂抹位置放入电视，蓝色涂抹位置放入沙发，不改变其他布局，确保放入物体和整张图的原木风格一致。",
+      "model": "seedream-5.0",
+      "ratio": "1:1",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/official/025_ref_1.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "将房间内红色涂抹位置放入电视，蓝色涂抹位置放入沙发，不改变其他布局，确保放入物体和整张图的原木风格一致。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/official/025_ref_1.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_026",
+      "index": 26,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/026_cover.webp",
+      "description": "官方示例：参考人物形象生成动漫手办桌面场景。",
+      "prompt": "参考图中的人物形象，做一个动漫人物手办，放在桌上，后面放置一个印有角色图像的生日礼物包装盒，盒子下面有一本书，在包装盒前面，添加一个圆形塑料底座，角色手办站在上面，将场景设置在室内，尽可能真实；生成尺寸和现在图一样；手办在图片的左边；整个图片的风格和原始图一样，大片摄影感。",
+      "model": "seedream-5.0",
+      "ratio": "16:9",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/official/026_ref_1.jpg"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考图中的人物形象，做一个动漫人物手办，放在桌上，后面放置一个印有角色图像的生日礼物包装盒，盒子下面有一本书，在包装盒前面，添加一个圆形塑料底座，角色手办站在上面，将场景设置在室内，尽可能真实；生成尺寸和现在图一样；手办在图片的左边；整个图片的风格和原始图一样，大片摄影感。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/official/026_ref_1.jpg"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_027",
+      "index": 27,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/027_cover.png",
+      "description": "官方示例：参考线性简约风格生成一组应用图标。",
+      "prompt": "参考图标的线性简约风格，设计9个不同场景下的应用 icon，包括：音乐、天气、日历、相机、聊天、地图、闹钟、购物车、笔记本，保持一致的配色。",
+      "model": "seedream-5.0",
+      "ratio": "1:1",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/official/027_ref_1.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "参考图标的线性简约风格，设计9个不同场景下的应用 icon，包括：音乐、天气、日历、相机、聊天、地图、闹钟、购物车、笔记本，保持一致的配色。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/official/027_ref_1.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_028",
+      "index": 28,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/028_cover.png",
+      "description": "官方示例：将参考形象转成羊毛毡摆件。",
+      "prompt": "图中的形象变成一个羊毛毡，下面有个小支架使得它仍然维持这个姿势，放在一个深色的书桌上。",
+      "model": "seedream-5.0",
+      "ratio": "1:1",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/official/028_ref_1.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "图中的形象变成一个羊毛毡，下面有个小支架使得它仍然维持这个姿势，放在一个深色的书桌上。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/official/028_ref_1.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_029",
+      "index": 29,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/029_cover.png",
+      "description": "官方示例：参考衣服款式生成四件不同材质和颜色的上衣。",
+      "prompt": "生成四件不同材质和颜色的上衣，衣服款式与图中女生身上的衣服一致，只要衣服，不要模特。",
+      "model": "seedream-5.0",
+      "ratio": "1:1",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/official/029_ref_1.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "生成四件不同材质和颜色的上衣，衣服款式与图中女生身上的衣服一致，只要衣服，不要模特。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/official/029_ref_1.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_030",
+      "index": 30,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/official/030_cover.jpg",
+      "description": "官方示例：根据平面图生成现代简约客厅与开放式餐厅实景图。",
+      "prompt": "根据这张平面图，生成“现代简约风精装客厅 + 开放式餐厅”的实景图（房间布局、家具位置完全匹配例图）。地中海风格配色，空间结构和方向始终与例图一致。房间立体开阔（餐桌那边是阳光挑高），由近及远分别是沙发&绿植、电视、餐桌&椅子、落地窗（不需要体现文字和手绘边缘）。",
+      "model": "seedream-5.0",
+      "ratio": "1:1",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/official/030_ref_1.jpg"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "根据这张平面图，生成“现代简约风精装客厅 + 开放式餐厅”的实景图（房间布局、家具位置完全匹配例图）。地中海风格配色，空间结构和方向始终与例图一致。房间立体开阔（餐桌那边是阳光挑高），由近及远分别是沙发&绿植、电视、餐桌&椅子、落地窗（不需要体现文字和手绘边缘）。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/official/030_ref_1.jpg"
+          }
+        }
+      ]
     }
   ]
 }

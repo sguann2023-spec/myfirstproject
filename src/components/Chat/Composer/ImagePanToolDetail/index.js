@@ -111,6 +111,7 @@ const ImagePanToolDetail = ({
   onModelChange = null,
   onResolutionChange = null,
   onPromptChange = null,
+  onTemplateMediaChange = null,
 }) => {
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
   const [capabilityModels, setCapabilityModels] = React.useState([]);
@@ -226,7 +227,10 @@ const ImagePanToolDetail = ({
     if (nextPrompt && onPromptChange) {
       onPromptChange(nextPrompt);
     }
-  }, [capabilityMap, onModelChange, onPromptChange, onResolutionChange]);
+    if (onTemplateMediaChange) {
+      onTemplateMediaChange(template);
+    }
+  }, [capabilityMap, onModelChange, onPromptChange, onResolutionChange, onTemplateMediaChange]);
 
   return (
     <div className="chat-panel__tool-detail-area">

@@ -1202,6 +1202,56 @@ const createVideoTemplateAttachmentEntries = async (template = {}) => {
 
   return entries.filter(Boolean);
 };
+const createImageTemplateAttachmentEntries = async (template = {}) => {
+  const contentItems = Array.isArray(template?.content) ? template.content : [];
+  const contentReferenceItems = contentItems.filter((item) => (
+    String(item?.type || '').trim() === 'image_url'
+    && String(item?.role || '').trim() === 'reference_image'
+  ));
+  const contentEntries = await Promise.all(contentReferenceItems.map(async (item, index) => {
+    const url = getTemplateMediaUrlByContentItem(item);
+    if (!url) return null;
+
+    const fileNameFromUrl = getRemoteMediaUrlFileName(url);
+    const fallbackExtension = getFileExtension(fileNameFromUrl);
+    const resolvedName = fallbackExtension ? `参考图片${index + 1}.${fallbackExtension}` : `参考图片${index + 1}`;
+    const guessedFileType = guessFileTypeFromName(fileNameFromUrl);
+
+    return createRemoteAttachmentEntry({
+      uid: `image-template:${template?.id || 'template'}:reference_image:${index}`,
+      name: resolvedName,
+      url,
+      fileType: guessedFileType !== 'text/plain' ? guessedFileType : 'image/jpeg',
+      sourceType: 'image_template',
+      sourceLabel: String(template?.id || '').trim(),
+    });
+  }));
+  const normalizedContentEntries = contentEntries.filter(Boolean);
+  if (normalizedContentEntries.length > 0) {
+    return normalizedContentEntries;
+  }
+
+  const referenceImageUrls = Array.isArray(template?.referenceImageUrls)
+    ? template.referenceImageUrls.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+    : [];
+  const urlEntries = await Promise.all(referenceImageUrls.map(async (url, index) => {
+    const fileNameFromUrl = getRemoteMediaUrlFileName(url);
+    const fallbackExtension = getFileExtension(fileNameFromUrl);
+    const resolvedName = fallbackExtension ? `参考图片${index + 1}.${fallbackExtension}` : `参考图片${index + 1}`;
+    const guessedFileType = guessFileTypeFromName(fileNameFromUrl);
+
+    return createRemoteAttachmentEntry({
+      uid: `image-template:${template?.id || 'template'}:reference_image_url:${index}`,
+      name: resolvedName,
+      url,
+      fileType: guessedFileType !== 'text/plain' ? guessedFileType : 'image/jpeg',
+      sourceType: 'image_template',
+      sourceLabel: String(template?.id || '').trim(),
+    });
+  }));
+
+  return urlEntries.filter(Boolean);
+};
 const renderFilePreviewContent = (file = {}, className = '') => {
   const previewUrl = file.localPreviewUrl || file.localThumbUrl || file.previewUrl || file.thumbnailUrl || file.url;
   const kind = getFileKindFromType(file.fileType);
@@ -3919,6 +3969,14 @@ const Composer = ({
     });
   }, [editor, setInput]);
 
+  const handleImageTemplateMediaApply = React.useCallback(async (template) => {
+    const nextTemplateAttachments = await createImageTemplateAttachmentEntries(template);
+    setUploadedFileMeta((prev) => {
+      const retainedItems = (Array.isArray(prev) ? prev : []).filter((item) => String(item?.sourceType || '').trim() !== 'image_template');
+      return [...retainedItems, ...nextTemplateAttachments];
+    });
+  }, []);
+
   const handleVideoTemplateMediaApply = React.useCallback(async (template) => {
     const nextTemplateAttachments = await createVideoTemplateAttachmentEntries(template);
     setUploadedFileMeta((prev) => {
@@ -4028,6 +4086,7 @@ const Composer = ({
                       onModelChange={setSelectedImagePanModel}
                       onResolutionChange={setSelectedImagePanResolution}
                       onPromptChange={handleImageTemplateApply}
+                      onTemplateMediaChange={handleImageTemplateMediaApply}
                     />
                   ) : activeTool === 'ai-video' ? (
                     <VideoToolDetail
