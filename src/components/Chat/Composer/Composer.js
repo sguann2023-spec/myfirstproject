@@ -3308,6 +3308,20 @@ const Composer = ({
       .trim();
   };
 
+  const formatModelOptionPriceMultiplier = (value) => {
+    const rawValue = String(value || '').trim();
+    if (!rawValue) return '';
+    const normalizedValue = rawValue.replace(/x$/i, '').trim();
+    const numericValue = Number(normalizedValue);
+    if (Number.isFinite(numericValue)) {
+      return `${numericValue.toFixed(2)}x`;
+    }
+    const matchedValue = normalizedValue.match(/-?\d+(?:\.\d+)?/);
+    if (!matchedValue) return '';
+    const parsedValue = Number(matchedValue[0]);
+    return Number.isFinite(parsedValue) ? `${parsedValue.toFixed(2)}x` : '';
+  };
+
   const resolveModelOptionPricing = (item) => {
     if (!item || typeof item !== 'object') return { input: '', output: '' };
     const pricing = item?.pricing && typeof item.pricing === 'object' ? item.pricing : null;
@@ -3320,13 +3334,26 @@ const Composer = ({
     return { input, output };
   };
 
-  const renderModelOptionPopoverContent = (text, description = '', priceMeta = null) => {
-    if (!description && !priceMeta?.input && !priceMeta?.output) return null;
+  const resolveModelOptionPriceMultiplier = (item) => {
+    if (!item || typeof item !== 'object') return '';
+    return formatModelOptionPriceMultiplier(
+      item?.price_multiplier_text ?? item?.pricing?.price_multiplier_text
+    );
+  };
+
+  const renderModelOptionPopoverContent = (text, description = '', priceMeta = null, priceMultiplier = '') => {
+    if (!description && !priceMultiplier && !priceMeta?.input && !priceMeta?.output) return null;
     return (
       <div className="chat-panel__model-option-popover">
         <div className="chat-panel__model-option-popover-title">{text}</div>
         {description ? (
           <div className="chat-panel__model-option-popover-description">{description}</div>
+        ) : null}
+        {priceMultiplier ? (
+          <div className="chat-panel__model-option-popover-multiplier">
+            <span>消耗速度</span>
+            <span>{priceMultiplier} 倍率</span>
+          </div>
         ) : null}
         {(priceMeta?.input || priceMeta?.output) ? (
           <div className="chat-panel__model-option-popover-section">
@@ -3350,23 +3377,28 @@ const Composer = ({
     );
   };
 
-  const renderModelOptionInner = (text, icon, supportsReadImage = false, badges = []) => (
+  const renderModelOptionInner = (text, icon, supportsReadImage = false, badges = [], priceMultiplier = '') => (
     <span className="chat-panel__model-option">
-      <span className="chat-panel__model-option-main">
-        {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
-        <span className="chat-panel__model-option-text">{text}</span>
+      <span className="chat-panel__model-option-leading">
+        <span className="chat-panel__model-option-main">
+          {icon ? <img className="chat-panel__model-option-icon" src={icon} alt="" /> : null}
+          <span className="chat-panel__model-option-text">{text}</span>
+        </span>
+        <span className="chat-panel__model-option-tags">
+          {supportsReadImage ? <span className="chat-panel__model-option-tag">识图</span> : null}
+          {Array.isArray(badges) ? badges.map((badge) => (
+            <span
+              key={badge}
+              className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
+            >
+              {badge}
+            </span>
+          )) : null}
+        </span>
       </span>
-      <span className="chat-panel__model-option-tags">
-        {supportsReadImage ? <span className="chat-panel__model-option-tag">识图</span> : null}
-        {Array.isArray(badges) ? badges.map((badge) => (
-          <span
-            key={badge}
-            className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
-          >
-            {badge}
-          </span>
-        )) : null}
-      </span>
+      {priceMultiplier ? (
+        <span className="chat-panel__model-option-multiplier">{priceMultiplier}</span>
+      ) : null}
     </span>
   );
 
@@ -3414,6 +3446,7 @@ const Composer = ({
       key: String(optionMeta.value),
       text: String(optionMeta.displayText || optionMeta.value || '').trim(),
       description: String(optionMeta.description || '').trim(),
+      priceMultiplier: String(optionMeta.priceMultiplier || '').trim(),
       priceMeta: optionMeta.priceMeta || null,
       anchorRect: normalizedAnchorRect,
       left: nextPosition.left,
@@ -3472,6 +3505,7 @@ const Composer = ({
       const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
       const supportsReadImage = Boolean(item?.read_image);
       const priceMeta = resolveModelOptionPricing(item);
+      const priceMultiplier = resolveModelOptionPriceMultiplier(item);
       return value ? {
         value,
         label: displayText,
@@ -3480,6 +3514,7 @@ const Composer = ({
         supportsReadImage,
         description: String(item?.description || '').trim(),
         badges: Array.isArray(item?.badges) ? item.badges : [],
+        priceMultiplier,
         priceMeta,
         selectedLabel: renderSelectedModelLabel(displayText, icon),
       } : null;
@@ -4167,7 +4202,8 @@ const Composer = ({
                   const icon = optionMeta?.icon || '';
                   const supportsReadImage = Boolean(optionMeta?.supportsReadImage);
                   const badges = Array.isArray(optionMeta?.badges) ? optionMeta.badges : [];
-                  const optionContent = renderModelOptionInner(displayText, icon, supportsReadImage, badges);
+                  const priceMultiplier = String(optionMeta?.priceMultiplier || '').trim();
+                  const optionContent = renderModelOptionInner(displayText, icon, supportsReadImage, badges, priceMultiplier);
                   return (
                     <div
                       className="chat-panel__model-option-trigger"
@@ -4389,7 +4425,12 @@ const Composer = ({
             top: `${hoveredModelCard.top}px`,
           }}
         >
-          {renderModelOptionPopoverContent(hoveredModelCard.text, hoveredModelCard.description, hoveredModelCard.priceMeta)}
+          {renderModelOptionPopoverContent(
+            hoveredModelCard.text,
+            hoveredModelCard.description,
+            hoveredModelCard.priceMeta,
+            hoveredModelCard.priceMultiplier,
+          )}
         </div>
       ) : null}
     </div>
