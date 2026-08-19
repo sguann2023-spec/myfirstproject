@@ -12,7 +12,6 @@ const SUMMARY_STATE_LINE_PATTERN =
 const SUMMARY_PROGRESS_LINE_PATTERN = /\b(pending|in[_ -]?progress|remaining|next|todo|step\s+\d+)\b|下一步|待处理|进行中/i
 const URL_PATTERN = /https?:\/\/[^\s`'"]+/i
 const PATH_PATTERN = /\/[^\s`'"]+/i
-
 const normalizeSummaryText = (text: string): string =>
   String(text || '')
     .replace(/```[\s\S]*?```/g, ' ')
@@ -119,8 +118,7 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
       : []
     const structuredStateLines = buildUniqueLines(previousContextLines, STABLE_HANDLE_LINE_LIMIT)
     const previousContext = structuredStateLines.length > 0 ? ['## Structured State', ...structuredStateLines] : []
-
-    return [
+    const rawSummary = [
       '## Scope',
       `- Topic ${input.segment.topicId}`,
       `- Segment ${input.segment.id}`,
@@ -136,6 +134,8 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
       '## Pending Work',
       ...(pendingWork.length > 0 ? pendingWork : ['- No pending work captured'])
     ].join('\n')
+
+    return rawSummary
   }
 
   async compressSummary(input: CompressSummaryInput): Promise<string> {
@@ -154,7 +154,9 @@ export class ConversationSummaryServiceImpl implements ConversationSummaryServic
       line.length > maxLineChars ? `${line.slice(0, maxLineChars - 1)}…` : line
     )
     const compressed = limitedLines.join('\n')
-    return compressed.length > maxChars ? `${compressed.slice(0, maxChars - 1)}…` : compressed
+    const finalSummary = compressed.length > maxChars ? `${compressed.slice(0, maxChars - 1)}…` : compressed
+
+    return finalSummary
   }
 }
 

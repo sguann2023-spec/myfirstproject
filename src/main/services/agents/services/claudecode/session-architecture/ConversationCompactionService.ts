@@ -1,5 +1,7 @@
 import type { AgentConversationSegment, AgentTurn, CompactDecision } from './types'
 
+const COMPACTION_INPUT_TOKENS_THRESHOLD = 200_000
+
 export interface EvaluateCompactionInput {
   segment: AgentConversationSegment
   completedTurn: AgentTurn
@@ -12,7 +14,9 @@ export interface ConversationCompactionService {
 
 export class ConversationCompactionServiceImpl implements ConversationCompactionService {
   async evaluate(input: EvaluateCompactionInput): Promise<CompactDecision> {
-    if (input.cumulativeInputTokens >= 100_000) {
+    const shouldCompact = input.cumulativeInputTokens >= COMPACTION_INPUT_TOKENS_THRESHOLD
+
+    if (shouldCompact) {
       return {
         shouldCompact: true,
         reason: 'input_tokens_threshold',

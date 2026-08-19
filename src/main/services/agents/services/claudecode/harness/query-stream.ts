@@ -28,7 +28,7 @@ import { conversationSegmentService } from '../session-architecture/Conversation
 import { ClaudeStreamState, transformSDKMessageToStreamParts } from '../transform'
 
 const logger = loggerService.withContext('ClaudeCodeService')
-const DEFAULT_SEGMENT_RECENT_TURNS = 4
+const DEFAULT_SEGMENT_RECENT_TURNS = 20
 const MAX_AUTO_COMPACTIONS_PER_QUERY = 2
 
 type PendingToolCall = {
@@ -82,6 +82,15 @@ type ThinkingProbe = {
   assistantReasoningChars: number
 }
 
+function summarizeCompactionPreview(text: string, maxLines = 8, maxChars = 220): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, maxLines)
+    .map((line) => (line.length > maxChars ? `${line.slice(0, maxChars - 1).trimEnd()}…` : line))
+}
+
 function getArtifactSourceType(toolName: string): 'read' | 'grep' | 'webfetch' | 'tool_result' {
   const lower = toolName.toLowerCase()
   if (lower.includes('read')) return 'read'
@@ -124,6 +133,10 @@ async function applyCompactionIfNeeded(
     completedTurn: currentTurn,
     cumulativeInputTokens: finalInputTokens
   })
+  if (!decision.shouldCompact) {
+    return
+  }
+
   logger.info('[SegmentCompact] decision', {
     topicId: architectureContext.topicId,
     traceId: architectureContext.traceId,
@@ -134,10 +147,6 @@ async function applyCompactionIfNeeded(
     reason: decision.reason ?? '',
     preserveRecentMessages: DEFAULT_SEGMENT_RECENT_TURNS
   })
-
-  if (!decision.shouldCompact) {
-    return
-  }
 
   const recentTurns = await agentTurnRepository.listBySegmentId(currentSegment.id, DEFAULT_SEGMENT_RECENT_TURNS)
   const artifacts = await agentArtifactRepository.listByTurnId(currentTurn.id)
@@ -153,6 +162,26 @@ async function applyCompactionIfNeeded(
     maxChars: 1_200,
     maxLines: 24,
     maxLineChars: 160
+  })
+
+  logger.info('[SegmentCompact] summary-output', {
+    topicId: architectureContext.topicId,
+    traceId: architectureContext.traceId,
+    turnId: currentTurn.id,
+    segmentId: currentSegment.id,
+    sourceCounts: {
+      recentTurns: recentTurns.length,
+      artifacts: artifacts.length,
+      fileChanges: fileChanges.length
+    },
+    summaryStats: {
+      rawSummaryChars: rawSummary.length,
+      rawSummaryLineCount: rawSummary.split('\n').filter(Boolean).length,
+      continuationSummaryChars: continuationSummary.length,
+      continuationSummaryLineCount: continuationSummary.split('\n').filter(Boolean).length
+    },
+    rawSummaryPreview: summarizeCompactionPreview(rawSummary),
+    continuationSummaryPreview: summarizeCompactionPreview(continuationSummary)
   })
 
   await conversationSegmentService.markSegmentCompacted(currentSegment.id, {

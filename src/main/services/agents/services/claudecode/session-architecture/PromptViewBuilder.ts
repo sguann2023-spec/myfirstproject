@@ -1,8 +1,8 @@
 import type { AgentArtifact, AgentTurn, PromptView } from './types'
 import { buildInlineToolResultText } from '../tool-result-text'
 
-const MAX_RECENT_TURN_TEXT_CHARS = 280
-const MAX_REFERENCED_ARTIFACTS = 4
+const MAX_RECENT_TURN_TEXT_CHARS = 2800
+const MAX_REFERENCED_ARTIFACTS = 20
 
 const normalizePromptTurnText = (text: string): string =>
   String(text || '')

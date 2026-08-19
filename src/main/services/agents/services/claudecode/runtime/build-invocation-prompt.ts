@@ -23,7 +23,7 @@ import type {
 import type { ToolSurface } from '../tool-surface'
 
 const promptBuilder = new PromptBuilder()
-const DEFAULT_SEGMENT_RECENT_TURNS = 4
+const DEFAULT_SEGMENT_RECENT_TURNS = 20
 const CONTINUED_SEGMENT_RECENT_TURNS = 2
 
 const buildTraceId = () => `trace_${randomUUID()}`
