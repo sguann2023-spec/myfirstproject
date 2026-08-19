@@ -37,6 +37,7 @@ import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
 import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
+import { isKouboTemplateToolName, KouboTemplateToolBody } from './MessageAgentTools/KouboTemplateTool'
 
 interface Props {
   block: ToolMessageBlock
@@ -45,7 +46,6 @@ interface Props {
 const logger = loggerService.withContext('MessageTools')
 
 const MessageMcpTool: FC<Props> = ({ block }) => {
-  const [activeKeys, setActiveKeys] = useState<string[]>([])
   const [copiedMap, setCopiedMap] = useState<Record<string, boolean>>({})
   const { t } = useTranslation()
   const { messageFont, fontSize } = useSettings()
@@ -59,6 +59,8 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   const toolResponse = block.metadata?.rawMcpToolResponse as MCPToolResponse
 
   const { id, tool, status, response, partialArguments } = toolResponse
+  const isKouboTemplate = isKouboTemplateToolName(tool?.name)
+  const [activeKeys, setActiveKeys] = useState<string[]>(() => (isKouboTemplate ? [id] : []))
   const isPending = status === 'pending'
   const isDone = status === 'done'
   const isError = status === 'error'
@@ -88,6 +90,10 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
   // Auto-expand when streaming, auto-collapse when done
   useEffect(() => {
+    if (isKouboTemplate) {
+      return
+    }
+
     if (isStreaming) {
       // Expand when streaming starts
       setActiveKeys((prev) => (prev.includes(id) ? prev : [...prev, id]))
@@ -95,7 +101,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       // Collapse when streaming ends
       setActiveKeys((prev) => prev.filter((key) => key !== id))
     }
-  }, [isStreaming, isDone, isError, id])
+  }, [isStreaming, isDone, isError, id, isKouboTemplate])
 
   if (!toolResponse) {
     return null
@@ -183,10 +189,14 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
             fontSize
           }}>
           <ToolResponseContent
+            toolName={tool?.name}
             isExpanded={activeKeys.includes(id)}
             args={isStreaming ? partialArguments : toolResponse.arguments}
             isStreaming={!!isStreaming}
-            response={isDone || isError ? toolResponse.response : undefined}
+            response={isKouboTemplate || isDone || isError ? toolResponse.response : undefined}
+            progress={progress}
+            progressMessage={progressMessage}
+            isRunning={isPending || isStreaming}
           />
         </ToolResponseContainer>
       )
@@ -243,16 +253,21 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
 // Unified tool response content component
 const ToolResponseContent: FC<{
+  toolName?: string
   isExpanded: boolean
   args: string | Record<string, unknown> | Record<string, unknown>[] | undefined
   isStreaming: boolean
   response?: unknown
-}> = ({ isExpanded, args, isStreaming, response }) => {
+  progress?: number
+  progressMessage?: string
+  isRunning?: boolean
+}> = ({ toolName, isExpanded, args, isStreaming, response, progress, progressMessage, isRunning }) => {
   const { highlightCode } = useCodeStyle()
   const [highlightedResponse, setHighlightedResponse] = useState<string>('')
   const [responseImages, setResponseImages] = useState<Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }>>([])
   const [isTruncated, setIsTruncated] = useState(false)
   const [originalLength, setOriginalLength] = useState(0)
+  const isKouboTemplate = isKouboTemplateToolName(toolName)
 
   // Parse args if it's a string (streaming partial JSON)
   const parsedArgs = useMemo(() => {
@@ -290,6 +305,18 @@ const ToolResponseContent: FC<{
   }, [isExpanded, response, highlightCode])
 
   if (!isExpanded) return null
+
+  if (isKouboTemplate) {
+    return (
+      <KouboTemplateToolBody
+        input={parsedArgs ?? args}
+        output={response}
+        progress={progress}
+        progressMessage={progressMessage}
+        isRunning={isRunning}
+      />
+    )
+  }
 
   // Handle both object and array args - for arrays, show as single entry
   const getEntries = (): Array<[string, unknown]> => {

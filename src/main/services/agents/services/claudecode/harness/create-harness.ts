@@ -14,12 +14,16 @@ import { net } from 'electron'
 import { isWin } from '@main/constant'
 import { loggerService } from '@logger'
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
+import type { MCPProgressEvent } from '@shared/config/types'
+import { IpcChannel } from '@shared/IpcChannel'
 import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
+import { windowService } from '@main/services/WindowService'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
+import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { buildToolOutputPreview } from './tool-output-preview'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
@@ -71,6 +75,8 @@ type PiPackageBridge = {
 type PiMcpClientBridge = {
   serverKey: string
   client: Client
+  timeoutMs?: number
+  longRunning?: boolean
   close(): Promise<void>
 }
 
@@ -1144,6 +1150,10 @@ function buildBuiltinTools(input: {
 
 async function createMcpClientBridge(serverKey: string, config: NonNullable<Options['mcpServers']>[string]): Promise<PiMcpClientBridge | null> {
   const client = new Client({ name: 'CapCutHelper', version: 'pi-bridge' }, { capabilities: {} })
+  const timeoutSeconds =
+    typeof (config as { timeout?: unknown }).timeout === 'number' ? Number((config as { timeout?: number }).timeout) : undefined
+  const timeoutMs = timeoutSeconds && timeoutSeconds > 0 ? timeoutSeconds * 1000 : undefined
+  const longRunning = (config as { longRunning?: unknown }).longRunning === true
 
   if (config.type === 'http') {
     const transport = new StreamableHTTPClientTransport(new URL(config.url), {
@@ -1155,6 +1165,8 @@ async function createMcpClientBridge(serverKey: string, config: NonNullable<Opti
     return {
       serverKey,
       client,
+      timeoutMs,
+      longRunning,
       async close() {
         await Promise.allSettled([client.close(), transport.close()])
       }
@@ -1172,6 +1184,8 @@ async function createMcpClientBridge(serverKey: string, config: NonNullable<Opti
     return {
       serverKey,
       client,
+      timeoutMs,
+      longRunning,
       async close() {
         await Promise.allSettled([
           client.close(),
@@ -1233,7 +1247,7 @@ async function buildMcpTools(input: {
               ? resolveWorkspaceUploadArguments(invokeContext, originalParams)
               : originalParams
           const requestTimeoutMs =
-            namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : undefined
+            namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : bridge.timeoutMs
           logger.info('[AgentCore] mcp tool execute start', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1250,6 +1264,8 @@ async function buildMcpTools(input: {
             {
               signal,
               timeout: requestTimeoutMs,
+              resetTimeoutOnProgress: bridge.longRunning,
+              maxTotalTimeout: bridge.longRunning ? requestTimeoutMs : undefined,
               onprogress(progress) {
                 logger.info('[AgentCore] mcp tool execute update', {
                   traceId: invokeContext.runtime.traceId,
@@ -1260,6 +1276,20 @@ async function buildMcpTools(input: {
                   serverKey,
                   messageChars: typeof progress.message === 'string' ? progress.message.length : 0
                 })
+                const total = Number((progress as { total?: unknown }).total || 1)
+                const current = Number((progress as { progress?: unknown }).progress || 0)
+                const normalizedProgress = total > 0 ? current / total : 0
+                const progressTargets = resolveMcpProgressCallIds(toolCallId)
+                const mainWindow = windowService.getMainWindow()
+                if (mainWindow && progressTargets.length > 0) {
+                  for (const progressCallId of progressTargets) {
+                    mainWindow.webContents.send(IpcChannel.Mcp_Progress, {
+                      callId: progressCallId,
+                      progress: normalizedProgress,
+                      message: typeof progress.message === 'string' ? progress.message : undefined
+                    } satisfies MCPProgressEvent)
+                  }
+                }
                 if (typeof progress.message === 'string' && progress.message.trim()) {
                   const progressPayload = buildLimitedPiToolPayload(
                     {

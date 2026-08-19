@@ -11,6 +11,10 @@ import {
   handleToolResultSideEffects,
   type QueryArchitectureContext
 } from './query-side-effects'
+import {
+  registerMcpProgressCallId,
+  unregisterMcpProgressCallId
+} from './mcp-progress-call-id-map'
 import { conversationSegmentService } from '../session-architecture/ConversationSegmentService'
 import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
 import type { ClaudeCodeHarnessAdapter } from './create-harness'
@@ -402,6 +406,7 @@ export async function processPiHarnessQuery(input: {
       toolName,
       input: toolInput
     }
+    registerMcpProgressCallId(toolCallId, emittedToolCallId)
     pendingToolCalls.set(toolCallId, pendingToolCall)
     pendingToolCalls.set(emittedToolCallId, pendingToolCall)
 
@@ -685,6 +690,7 @@ export async function processPiHarnessQuery(input: {
       const pending = pendingToolCalls.get(event.toolCallId)
       const toolName = pending?.toolName || event.toolName
       const emittedToolCallId = pending?.emittedId || event.toolCallId
+      unregisterMcpProgressCallId(event.toolCallId, emittedToolCallId)
       toolResultCount += 1
       const providerMetadata = {
         ...providerMetadataBase,

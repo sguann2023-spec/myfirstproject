@@ -31,7 +31,10 @@ import { addAutoAllowedTool, type ToolSurface } from '../tool-surface'
 
 const logger = loggerService.withContext('ClaudeCodeToolRegistry')
 
-type RuntimeMcpServerConfig = NonNullable<Options['mcpServers']>[string]
+type RuntimeMcpServerConfig = NonNullable<Options['mcpServers']>[string] & {
+  longRunning?: boolean
+  timeout?: number
+}
 
 export type RuntimeMcpRegistryResult = {
   mountedRuntimeMcpServers: string[]
@@ -363,10 +366,11 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('koubo-template', {
       type: 'sdk',
       name: 'koubo-template',
-      instance: kouboTemplateServer.mcpServer
+      instance: kouboTemplateServer.mcpServer,
+      longRunning: true,
+      timeout: 20 * 60
     })
     autoAllowTools.add('mcp__koubo-template__submit_koubo_template_task')
-    autoAllowTools.add('mcp__koubo-template__get_koubo_template_task_status')
     allowMcpPattern('mcp__koubo-template__*')
   }
 

@@ -1,21 +1,12 @@
-import { execFile } from 'node:child_process'
-import fs from 'node:fs'
-import fsPromises from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
-
 import { loggerService } from '@logger'
-import { ossUploadService } from '@main/services/OssUploadService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:KouboTemplate')
-const execFileAsync = promisify(execFile)
-const ffprobeStatic = require('ffprobe-static') as { path?: string }
 
 const API_HOST = 'https://open.vectcut.com'
 const KOUBO_TEMPLATE_SUBMIT_ENDPOINT = '/cut_jianying/agent/submit_agent_task'
@@ -23,14 +14,9 @@ const KOUBO_TEMPLATE_STATUS_ENDPOINT = '/cut_jianying/agent/task_status'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
-const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
-const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
-const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
-const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_koubo_tmp_file_'
-const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
-const MAX_LOCAL_VIDEO_BYTES = 500 * 1024 * 1024
-const FFPROBE_TIMEOUT_MS = 15 * 1000
-const PROCESS_MAX_BUFFER = 1024 * 1024
+const KOUBO_TEMPLATE_TASK_WAIT_TIME = '5-15 minutes'
+const KOUBO_TEMPLATE_POLL_INTERVAL_MS = 5 * 1000
+const KOUBO_TEMPLATE_POLL_TIMEOUT_MS = 20 * 60 * 1000
 
 const KOUBO_TEMPLATE_AGENT_IDS = {
   knowledge_pip: 'koubo_8f4e3d2a91c74b76a85d2c4e7f8a9b1c',
@@ -69,7 +55,7 @@ const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' |
 const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   name: 'submit_koubo_template_task',
   description:
-    'Submit an asynchronous VectCut talking-head template task for source speaking video media. Prefer remotely accessible video URLs, typically obtained by running workspace upload first for local files. File URLs and absolute local paths remain supported as a compatibility fallback and local videos are uploaded automatically. Koubo template only accepts video input, and local video files must not exceed 500MB.',
+    'Create a VectCut talking-head template result from source speaking video media and wait until the task finishes in the same tool call. This tool only accepts remotely accessible video URLs. If the source is a local file, run workspace upload first and pass the returned signed URL here. Koubo template only accepts video input.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -84,16 +70,14 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
       },
       videoUrl: {
         type: 'string',
-        description:
-          'Single source talking-head video URL. Prefer a remotely accessible URL produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback.'
+        description: 'Single remotely accessible source talking-head video URL. Use workspace upload first for local files.'
       },
       videoUrls: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description:
-          'Source talking-head video URLs. Prefer remotely accessible URLs produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback. Most templates require exactly one.'
+        description: 'Source talking-head video URLs. Use workspace upload first for local files. Most templates require exactly one.'
       },
       textContent: {
         type: 'string',
@@ -138,40 +122,31 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   }
 }
 
-const GET_KOUBO_TEMPLATE_TASK_STATUS_TOOL: Tool = {
-  name: 'get_koubo_template_task_status',
-  description: 'Query the status of a VectCut talking-head template task by task ID.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'Required task ID returned by submit_koubo_template_task.'
-      }
-    },
-    required: ['taskId'],
-    additionalProperties: false
-  }
-}
-
 type PendingToken = {
   accessToken: string
   expiresAt: number
 }
 
-type FfprobeStream = {
-  codec_type?: string
-}
-
-type FfprobeResult = {
-  streams?: FfprobeStream[]
+type ToolExecutionExtra = {
+  requestId: string | number
+  _meta?: {
+    progressToken?: ProgressToken
+  }
+  sendNotification: (notification: {
+    method: 'notifications/progress'
+    params: {
+      progressToken: ProgressToken
+      progress: number
+      total?: number
+      message?: string
+    }
+  }) => Promise<void>
 }
 
 type PreparedKouboTemplateSource = {
   originalInput: string
   submittedUrl: string
-  sourceKind: 'remote_video' | 'local_video'
-  fileSizeBytes?: number
+  sourceKind: 'remote_video'
 }
 
 type KouboTemplateSubmitResponse = {
@@ -197,17 +172,6 @@ type KouboTemplateStatusResponse = {
 
 const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
 
-const hasVideoStream = (probe: FfprobeResult) => (probe.streams || []).some((stream) => stream.codec_type === 'video')
-
-const parseJsonFromFfprobe = (rawOutput: string): FfprobeResult => {
-  const text = String(rawOutput || '').trim()
-  const jsonStart = text.indexOf('{')
-  if (jsonStart === -1) {
-    throw new Error('ffprobe did not return JSON output')
-  }
-  return JSON.parse(text.slice(jsonStart)) as FfprobeResult
-}
-
 class KouboTemplateServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
@@ -231,19 +195,17 @@ class KouboTemplateServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_KOUBO_TEMPLATE_TASK_TOOL, GET_KOUBO_TEMPLATE_TASK_STATUS_TOOL]
+      tools: [SUBMIT_KOUBO_TEMPLATE_TASK_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
         switch (toolName) {
           case 'submit_koubo_template_task':
-            return await this.submitKouboTemplateTask(args as Record<string, unknown>)
-          case 'get_koubo_template_task_status':
-            return await this.getKouboTemplateTaskStatus(args as Record<string, unknown>)
+            return await this.submitKouboTemplateTask(args as Record<string, unknown>, extra as ToolExecutionExtra)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -386,55 +348,18 @@ class KouboTemplateServer {
     return value.map((item) => String(item || '').trim()).filter(Boolean)
   }
 
-  private normalizeSource(value: unknown, fieldName: string): string {
+  private normalizeRemoteSource(value: unknown, fieldName: string): string {
     const raw = String(value || '').trim()
     if (!raw) {
       throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' contains an empty source`)
     }
-    if (raw.startsWith('file://')) {
-      return fileURLToPath(raw)
+    if (!isHttpLikeUrl(raw)) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `'${fieldName}' must be a remotely accessible URL. Upload local files first with workspace upload`
+      )
     }
     return raw
-  }
-
-  private resolveFfprobePath() {
-    const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
-    const bundled = String((ffprobeStatic as { path?: string } | undefined)?.path || '').trim()
-    const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
-    const candidates = [bundled, unpacked, 'ffprobe'].filter(Boolean)
-
-    for (const candidate of candidates) {
-      if (candidate === 'ffprobe' || fs.existsSync(candidate)) {
-        return candidate
-      }
-    }
-
-    return executableName
-  }
-
-  private async probeMedia(source: string) {
-    const ffprobePath = this.resolveFfprobePath()
-    const { stdout, stderr } = await execFileAsync(
-      ffprobePath,
-      ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', source],
-      {
-        windowsHide: true,
-        timeout: FFPROBE_TIMEOUT_MS,
-        maxBuffer: PROCESS_MAX_BUFFER
-      }
-    )
-
-    return parseJsonFromFfprobe(`${String(stdout || '')}\n${String(stderr || '')}`)
-  }
-
-  private async uploadLocalFile(filePath: string) {
-    return ossUploadService.uploadLocalFile(filePath, {
-      bucket: FILE_UPLOAD_BUCKET,
-      region: FILE_UPLOAD_REGION,
-      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
-      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
-      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
-    })
   }
 
   private ensureAudioInputNotUsed(args: Record<string, unknown>, payloadParams: Record<string, unknown>) {
@@ -450,49 +375,12 @@ class KouboTemplateServer {
   }
 
   private async prepareVideoSourceForSubmission(input: unknown, fieldName: string): Promise<PreparedKouboTemplateSource> {
-    const normalizedSource = this.normalizeSource(input, fieldName)
-
-    if (isHttpLikeUrl(normalizedSource)) {
-      return {
-        originalInput: normalizedSource,
-        submittedUrl: normalizedSource,
-        sourceKind: 'remote_video'
-      }
-    }
-
-    if (!path.isAbsolute(normalizedSource)) {
-      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must be a remote URL, file URL, or absolute local path`)
-    }
-
-    const stats = await fsPromises.stat(normalizedSource)
-    if (!stats.isFile()) {
-      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must point to a local file when using a local path`)
-    }
-    if (stats.size > MAX_LOCAL_VIDEO_BYTES) {
-      throw new McpError(ErrorCode.InvalidParams, 'Local video files for koubo template must not exceed 500MB')
-    }
-
-    const probe = await this.probeMedia(normalizedSource)
-    if (!hasVideoStream(probe)) {
-      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must point to a video file`)
-    }
-
-    const uploaded = await this.uploadLocalFile(normalizedSource)
+    const normalizedSource = this.normalizeRemoteSource(input, fieldName)
     return {
       originalInput: normalizedSource,
-      submittedUrl: uploaded.signedPublicUrl,
-      sourceKind: 'local_video',
-      fileSizeBytes: stats.size
+      submittedUrl: normalizedSource,
+      sourceKind: 'remote_video'
     }
-  }
-
-  private getRequiredTaskId(args: Record<string, unknown>): string {
-    const taskIdValue = typeof args.taskId === 'string' ? args.taskId : args.task_id
-    const taskId = typeof taskIdValue === 'string' ? taskIdValue.trim() : ''
-    if (!taskId) {
-      throw new McpError(ErrorCode.InvalidParams, "'taskId' is required")
-    }
-    return taskId
   }
 
   private resolveTemplate(args: Record<string, unknown>) {
@@ -594,44 +482,27 @@ class KouboTemplateServer {
     }
   }
 
-  private async submitKouboTemplateTask(args: Record<string, unknown>) {
-    const payload = await this.buildSubmitPayload(args)
-    const response = await this.requestWithAuth(KOUBO_TEMPLATE_SUBMIT_ENDPOINT, {
-      method: 'POST',
-      body: payload.body
-    })
+  private async sleep(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`Koubo template submission failed (${response.status}): ${body || 'unknown error'}`)
+  private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    if (!extra?._meta?.progressToken) {
+      return
     }
 
-    const result = (await response.json()) as KouboTemplateSubmitResponse
-
-    logger.info('Koubo template task submitted', {
-      template: payload.template ?? 'custom',
-      agentId: payload.body.agent_id,
-      taskId: result.task_id
-    })
-
-    return this.formatJsonResult({
-      provider: 'vectcut',
-      action: 'submit',
-      mode: 'koubo_template',
-      template: payload.template,
-      agent_id: payload.body.agent_id,
-      source_summary: payload.preparedSources.map((source) => ({
-        original_input: source.originalInput,
-        submitted_url: source.submittedUrl,
-        source_kind: source.sourceKind,
-        file_size_bytes: source.fileSizeBytes
-      })),
-      ...result
+    await extra.sendNotification({
+      method: 'notifications/progress',
+      params: {
+        progressToken: extra._meta.progressToken,
+        progress,
+        total: 100,
+        message
+      }
     })
   }
 
-  private async getKouboTemplateTaskStatus(args: Record<string, unknown>) {
-    const taskId = this.getRequiredTaskId(args)
+  private async queryKouboTemplateTaskStatus(taskId: string) {
     const response = await this.requestWithAuth(KOUBO_TEMPLATE_STATUS_ENDPOINT, {
       method: 'GET',
       query: {
@@ -652,11 +523,94 @@ class KouboTemplateServer {
       success: result.success
     })
 
+    return result
+  }
+
+  private async waitForKouboTemplateTaskResult(taskId: string, extra?: ToolExecutionExtra) {
+    const deadline = Date.now() + KOUBO_TEMPLATE_POLL_TIMEOUT_MS
+    let latestResult: KouboTemplateStatusResponse | null = null
+    let attempt = 0
+
+    while (Date.now() < deadline) {
+      attempt += 1
+      latestResult = await this.queryKouboTemplateTaskStatus(taskId)
+      const status = String(latestResult.status || '').trim().toLowerCase()
+
+      logger.info('Koubo template task poll', {
+        taskId,
+        attempt,
+        status,
+        success: latestResult.success,
+        message: latestResult.message || ''
+      })
+
+      if (status === 'processing') {
+        const mappedProgress = Math.min(90, 20 + attempt * 8)
+        await this.reportProgress(extra, mappedProgress, latestResult.message || '口播模版处理中')
+      }
+
+      if (status === 'success') {
+        await this.reportProgress(extra, 100, latestResult.message || '口播模版处理完成')
+        return latestResult
+      }
+
+      if (status === 'failed' || status === 'error') {
+        throw new Error(
+          `Koubo template task failed: ${latestResult.error || latestResult.message || latestResult.output?.error || 'unknown error'}`
+        )
+      }
+
+      await this.sleep(KOUBO_TEMPLATE_POLL_INTERVAL_MS)
+    }
+
+    throw new Error(
+      `Koubo template task timed out after ${Math.round(KOUBO_TEMPLATE_POLL_TIMEOUT_MS / 60000)} minutes while waiting for completion`
+    )
+  }
+
+  private async submitKouboTemplateTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    await this.reportProgress(extra, 5, '正在提交口播模版任务')
+    const payload = await this.buildSubmitPayload(args)
+    const response = await this.requestWithAuth(KOUBO_TEMPLATE_SUBMIT_ENDPOINT, {
+      method: 'POST',
+      body: payload.body
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Koubo template submission failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as KouboTemplateSubmitResponse
+
+    logger.info('Koubo template task submitted', {
+      template: payload.template ?? 'custom',
+      agentId: payload.body.agent_id,
+      taskId: result.task_id
+    })
+
+    const taskId = String(result.task_id || '').trim()
+    if (!taskId) {
+      throw new Error(`Koubo template submission returned no task ID: ${JSON.stringify(result)}`)
+    }
+
+    await this.reportProgress(extra, 12, '口播模版任务已提交，正在处理中')
+    const finalResult = await this.waitForKouboTemplateTaskResult(taskId, extra)
+
     return this.formatJsonResult({
       provider: 'vectcut',
-      action: 'status',
+      action: 'submit_and_wait',
       mode: 'koubo_template',
-      ...result
+      estimated_wait_time: KOUBO_TEMPLATE_TASK_WAIT_TIME,
+      template: payload.template,
+      agent_id: payload.body.agent_id,
+      source_summary: payload.preparedSources.map((source) => ({
+        original_input: source.originalInput,
+        submitted_url: source.submittedUrl,
+        source_kind: source.sourceKind
+      })),
+      ...finalResult,
+      task_id: undefined
     })
   }
 }
