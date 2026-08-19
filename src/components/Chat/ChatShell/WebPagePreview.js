@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  FileText,
   Globe,
   Plus,
   RefreshCw,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { loggerService } from '@logger';
 import { IpcChannel } from '@shared/IpcChannel';
+import TextFilePreview from './TextFilePreview';
 import './WebPagePreview.css';
 
 const normalizeUrl = (value = '') => String(value || '').trim();
@@ -17,9 +19,12 @@ const BLANK_TAB_URL = 'about:blank';
 const SEND_TO_MAIN_PREFIX = '__VECTCUT_SEND_TO_MAIN__:';
 const HOST_FILE_SELECT_PREFIX = '__VECTCUT_HOST_FILE_SELECT__:';
 const logger = loggerService.withContext('ChatShell/WebPagePreview');
+const FILE_PREVIEW_TYPE = 'file';
+const WEB_PREVIEW_TYPE = 'web';
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const readPreviewTabId = (preview, fallback = 'initial-tab') => String(preview?.tabId || fallback).trim() || fallback;
+const getPreviewType = (preview) => (String(preview?.previewType || '').trim() === FILE_PREVIEW_TYPE ? FILE_PREVIEW_TYPE : WEB_PREVIEW_TYPE);
 const getFallbackFaviconUrl = (value = '') => {
   const normalized = normalizeUrl(value);
   if (!normalized || normalized === BLANK_TAB_URL) return '';
@@ -32,14 +37,37 @@ const getFallbackFaviconUrl = (value = '') => {
   }
 };
 
-const createPreviewTab = (preview, overrides = {}) => ({
-  id: overrides.id || createTabId(),
-  previewKey: String(preview?.key || '').trim(),
-  title: normalizeUrl(preview?.title) || '新标签页',
-  url: normalizeUrl(preview?.url) || BLANK_TAB_URL,
-  favicon: overrides.favicon ?? getFallbackFaviconUrl(preview?.url),
-  webContentsId: Number(overrides.webContentsId || 0) > 0 ? Number(overrides.webContentsId) : null
-});
+const createPreviewTab = (preview, overrides = {}) => {
+  const previewType = getPreviewType(preview);
+  if (previewType === FILE_PREVIEW_TYPE) {
+    const fileName = String(preview?.name || preview?.title || '').trim() || '文件预览';
+    return {
+      id: overrides.id || createTabId(),
+      type: FILE_PREVIEW_TYPE,
+      previewKey: String(preview?.key || '').trim(),
+      title: fileName,
+      url: '',
+      favicon: '',
+      webContentsId: null,
+      activate: preview?.activate !== false,
+      filePreview: {
+        ...preview,
+        name: fileName
+      }
+    };
+  }
+
+  return {
+    id: overrides.id || createTabId(),
+    type: WEB_PREVIEW_TYPE,
+    previewKey: String(preview?.key || '').trim(),
+    title: normalizeUrl(preview?.title) || '新标签页',
+    url: normalizeUrl(preview?.url) || BLANK_TAB_URL,
+    favicon: overrides.favicon ?? getFallbackFaviconUrl(preview?.url),
+    webContentsId: Number(overrides.webContentsId || 0) > 0 ? Number(overrides.webContentsId) : null,
+    activate: preview?.activate !== false
+  };
+};
 const buildInitialPreviewTab = (preview) => createPreviewTab(preview, { id: readPreviewTabId(preview) });
 const getIpcRenderer = () => {
   try {
@@ -67,7 +95,15 @@ const isLocalHtmlPreviewUrl = (value = '') => {
   }
 };
 
-const WebPagePreview = ({ preview, onClose }) => {
+const WebPagePreview = ({
+  preview,
+  currentModelMeta = null,
+  onClose,
+  onSaveFileEdit,
+  onSubmitFileComment,
+  onTabClose,
+  submittingComment = false
+}) => {
   const webviewRef = React.useRef(null);
   const tabsRef = React.useRef(null);
   const webviewReadyRef = React.useRef(false);
@@ -81,11 +117,13 @@ const WebPagePreview = ({ preview, onClose }) => {
   const [canGoForward, setCanGoForward] = React.useState(false);
   const tabsStateRef = React.useRef([]);
   const activeTabIdRef = React.useRef(readPreviewTabId(preview));
+  const lastActiveWebTabIdRef = React.useRef(getPreviewType(preview) === FILE_PREVIEW_TYPE ? '' : readPreviewTabId(preview));
   const activeTab = React.useMemo(
     () => tabs.find((item) => item.id === activeTabId) || tabs[0] || null,
     [activeTabId, tabs]
   );
-  const targetUrl = normalizeUrl(activeTab?.url) || BLANK_TAB_URL;
+  const isActiveWebTab = activeTab?.type !== FILE_PREVIEW_TYPE;
+  const targetUrl = isActiveWebTab ? (normalizeUrl(activeTab?.url) || BLANK_TAB_URL) : BLANK_TAB_URL;
 
   React.useEffect(() => {
     const initialTab = buildInitialPreviewTab(preview);
@@ -104,6 +142,12 @@ const WebPagePreview = ({ preview, onClose }) => {
   React.useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
+
+  React.useEffect(() => {
+    if (activeTab?.type !== FILE_PREVIEW_TYPE && activeTab?.id) {
+      lastActiveWebTabIdRef.current = activeTab.id;
+    }
+  }, [activeTab]);
 
   const updateActiveTab = React.useCallback((updater) => {
     setTabs((prev) => prev.map((tab) => {
@@ -140,6 +184,13 @@ const WebPagePreview = ({ preview, onClose }) => {
     const webview = webviewRef.current;
     if (!webview) return;
 
+    if (!isActiveWebTab) {
+      setCanGoBack(false);
+      setCanGoForward(false);
+      setAddressValue('');
+      return;
+    }
+
     if (!webviewReadyRef.current) {
       setCanGoBack(false);
       setCanGoForward(false);
@@ -158,9 +209,14 @@ const WebPagePreview = ({ preview, onClose }) => {
       setCanGoForward(false);
       setAddressValue(targetUrl);
     }
-  }, [readWebviewUrl, targetUrl, updateActiveTab]);
+  }, [isActiveWebTab, readWebviewUrl, targetUrl, updateActiveTab]);
 
   const syncActiveTabFavicon = React.useCallback(async (preferredUrl = '') => {
+    if (!isActiveWebTab) {
+      updateActiveTab({ favicon: '' });
+      return;
+    }
+
     const webview = webviewRef.current;
     const fallbackFavicon = getFallbackFaviconUrl(preferredUrl || targetUrl);
     if (!webview || !webviewReadyRef.current) {
@@ -180,7 +236,7 @@ const WebPagePreview = ({ preview, onClose }) => {
     } catch (_error) {
       updateActiveTab({ favicon: fallbackFavicon });
     }
-  }, [targetUrl, updateActiveTab]);
+  }, [isActiveWebTab, targetUrl, updateActiveTab]);
 
   const syncWebviewZoomFactor = React.useCallback(async () => {
     const webview = webviewRef.current;
@@ -199,10 +255,16 @@ const WebPagePreview = ({ preview, onClose }) => {
     if (!ipcRenderer?.invoke) return Promise.resolve(null);
 
     const buildStatePayload = () => {
+      const browserTabs = tabsStateRef.current.filter((tab) => tab.type !== FILE_PREVIEW_TYPE);
+      const activeTab = tabsStateRef.current.find((tab) => tab.id === activeTabIdRef.current) || null;
+      const fallbackBrowserTabId = browserTabs.some((tab) => tab.id === lastActiveWebTabIdRef.current)
+        ? lastActiveWebTabIdRef.current
+        : (browserTabs[0]?.id || null);
+      const activeBrowserTabId = activeTab?.type === FILE_PREVIEW_TYPE ? fallbackBrowserTabId : (activeTab?.id || fallbackBrowserTabId);
       let activeWebContentsId = null;
       try {
         const webviewId = webviewRef.current?.getWebContentsId?.();
-        if (Number(webviewId) > 0) {
+        if (activeBrowserTabId && Number(webviewId) > 0) {
           activeWebContentsId = Number(webviewId);
         }
       } catch (_error) {
@@ -211,15 +273,15 @@ const WebPagePreview = ({ preview, onClose }) => {
 
       return {
         visible: true,
-        ready: Boolean(activeWebContentsId),
-        activeTabId: activeTabIdRef.current || null,
+        ready: Boolean(activeBrowserTabId && activeWebContentsId),
+        activeTabId: activeBrowserTabId || null,
         activeWebContentsId,
-        tabs: tabsStateRef.current.map((tab) => ({
+        tabs: browserTabs.map((tab) => ({
           id: tab.id,
           title: tab.title,
           url: tab.url,
-          isActive: tab.id === activeTabIdRef.current,
-          webContentsId: tab.id === activeTabIdRef.current ? activeWebContentsId : null
+          isActive: tab.id === activeBrowserTabId,
+          webContentsId: tab.id === activeBrowserTabId ? activeWebContentsId : null
         }))
       };
     };
@@ -287,11 +349,44 @@ const WebPagePreview = ({ preview, onClose }) => {
 
   React.useEffect(() => {
     const previewKey = String(preview?.key || '').trim();
-    const previewUrl = normalizeUrl(preview?.url);
-    if (!previewKey || !previewUrl || previewKey === appliedPreviewKeyRef.current) return;
+    const previewType = getPreviewType(preview);
+    const previewUrl = previewType === FILE_PREVIEW_TYPE ? '' : normalizeUrl(preview?.url);
+    if (!previewKey || (previewType !== FILE_PREVIEW_TYPE && !previewUrl)) return;
 
     appliedPreviewKeyRef.current = previewKey;
-    const previewTabId = readPreviewTabId(preview, createTabId());
+    const requestedTabId = readPreviewTabId(preview, createTabId());
+    const nextTab = createPreviewTab(preview, { id: requestedTabId });
+    const shouldActivate = nextTab.activate !== false;
+
+    if (previewType === FILE_PREVIEW_TYPE) {
+      let resolvedTabId = requestedTabId;
+      let createdNewTab = false;
+      setTabs((prev) => {
+        const matchedTab = prev.find((tab) => tab.id === requestedTabId || tab.previewKey === previewKey);
+        if (!matchedTab) {
+          createdNewTab = true;
+          shouldScrollTabsToEndRef.current = true;
+          return [...prev, nextTab];
+        }
+
+        resolvedTabId = matchedTab.id;
+        return prev.map((tab) => (
+          tab.id === matchedTab.id
+            ? {
+                ...tab,
+                ...nextTab,
+                id: matchedTab.id
+              }
+            : tab
+        ));
+      });
+      if (createdNewTab || shouldActivate) {
+        setActiveTabId(resolvedTabId);
+      }
+      return;
+    }
+
+    const previewTabId = requestedTabId;
     const hasControllerManagedTab = tabsStateRef.current.some((tab) =>
       String(tab?.previewKey || '').startsWith('mcp-browser:')
     );
@@ -342,7 +437,6 @@ const WebPagePreview = ({ preview, onClose }) => {
       return;
     }
 
-    const nextTab = createPreviewTab(preview, { id: previewTabId });
     setTabs((prev) => (
       prev.some((tab) => tab.id === previewTabId)
         ? prev.map((tab) => (
@@ -358,8 +452,10 @@ const WebPagePreview = ({ preview, onClose }) => {
         ))
         : [...prev, nextTab]
     ));
-    setActiveTabId(nextTab.id);
-    setAddressValue(nextTab.url);
+    if (shouldActivate) {
+      setActiveTabId(nextTab.id);
+      setAddressValue(nextTab.url);
+    }
   }, [preview]);
 
   React.useEffect(() => {
@@ -379,6 +475,7 @@ const WebPagePreview = ({ preview, onClose }) => {
   const handleCreateTab = React.useCallback(() => {
     const nextTab = {
       id: createTabId(),
+      type: WEB_PREVIEW_TYPE,
       previewKey: '',
       title: '新标签页',
       url: BLANK_TAB_URL
@@ -391,6 +488,10 @@ const WebPagePreview = ({ preview, onClose }) => {
 
   const handleCloseTab = React.useCallback((tabId) => {
     setTabs((prev) => {
+      const closedTab = prev.find((tab) => tab.id === tabId) || null;
+      if (closedTab && typeof onTabClose === 'function') {
+        onTabClose(closedTab);
+      }
       if (prev.length <= 1) {
         onClose?.();
         return prev;
@@ -404,7 +505,7 @@ const WebPagePreview = ({ preview, onClose }) => {
       }
       return nextTabs;
     });
-  }, [activeTabId, onClose]);
+  }, [activeTabId, onClose, onTabClose]);
 
   React.useEffect(() => {
     const webview = webviewRef.current;
@@ -727,13 +828,17 @@ const WebPagePreview = ({ preview, onClose }) => {
           }
         } else if (command === 'get_context') {
           const webview = webviewRef.current;
+          const browserTabs = tabsStateRef.current.filter((tab) => tab.type !== FILE_PREVIEW_TYPE);
+          const activeBrowserTabId = activeTabIdRef.current && browserTabs.some((tab) => tab.id === activeTabIdRef.current)
+            ? activeTabIdRef.current
+            : (browserTabs.some((tab) => tab.id === lastActiveWebTabIdRef.current) ? lastActiveWebTabIdRef.current : (browserTabs[0]?.id || null));
           const currentUrl = normalizeUrl(
             readWebviewUrl(webview) || webview?.getAttribute?.('src') || targetUrl
           ) || BLANK_TAB_URL;
           let activeWebContentsId = null;
           try {
             const webviewId = webview?.getWebContentsId?.();
-            if (Number(webviewId) > 0) {
+            if (activeBrowserTabId && Number(webviewId) > 0) {
               activeWebContentsId = Number(webviewId);
             }
           } catch (_error) {
@@ -742,15 +847,15 @@ const WebPagePreview = ({ preview, onClose }) => {
           result = {
             state: {
               visible: true,
-              ready: Boolean(activeWebContentsId),
-              activeTabId: activeTabIdRef.current || null,
+              ready: Boolean(activeBrowserTabId && activeWebContentsId),
+              activeTabId: activeBrowserTabId || null,
               activeWebContentsId,
-              tabs: tabsStateRef.current.map((tab) => ({
+              tabs: browserTabs.map((tab) => ({
                 id: tab.id,
                 title: tab.title,
-                url: tab.id === activeTabIdRef.current ? currentUrl : tab.url,
-                isActive: tab.id === activeTabIdRef.current,
-                webContentsId: tab.id === activeTabIdRef.current ? activeWebContentsId : null
+                url: tab.id === activeBrowserTabId ? currentUrl : tab.url,
+                isActive: tab.id === activeBrowserTabId,
+                webContentsId: tab.id === activeBrowserTabId ? activeWebContentsId : null
               }))
             },
             activeUrl: currentUrl
@@ -797,16 +902,16 @@ const WebPagePreview = ({ preview, onClose }) => {
 
   React.useEffect(() => {
     const webview = webviewRef.current;
-    if (!webview || !targetUrl) return;
+    if (!isActiveWebTab || !webview || !targetUrl) return;
     if ((readWebviewUrl(webview) || normalizeUrl(webview.getAttribute?.('src'))) === targetUrl) return;
 
     setLoading(true);
     webview.src = targetUrl;
-  }, [readWebviewUrl, targetUrl]);
+  }, [isActiveWebTab, readWebviewUrl, targetUrl]);
 
   React.useEffect(() => {
-    setAddressValue(targetUrl);
-  }, [targetUrl]);
+    setAddressValue(isActiveWebTab ? targetUrl : '');
+  }, [isActiveWebTab, targetUrl]);
 
   React.useEffect(() => {
     if (!shouldScrollTabsToEndRef.current) return;
@@ -844,11 +949,13 @@ const WebPagePreview = ({ preview, onClose }) => {
                   className={`chat-web-preview__tab ${isActive ? 'is-active' : ''}`.trim()}
                   onClick={() => {
                     setActiveTabId(tab.id);
-                    setAddressValue(normalizeUrl(tab.url) || BLANK_TAB_URL);
+                    setAddressValue(tab.type === FILE_PREVIEW_TYPE ? '' : (normalizeUrl(tab.url) || BLANK_TAB_URL));
                   }}
-                  title={tab.title || tab.url}>
+                  title={tab.type === FILE_PREVIEW_TYPE ? (tab.filePreview?.path || tab.title) : (tab.title || tab.url)}>
                   <span className="chat-web-preview__tab-icon" aria-hidden="true">
-                    {tab.favicon ? (
+                    {tab.type === FILE_PREVIEW_TYPE ? (
+                      <FileText size={14} />
+                    ) : tab.favicon ? (
                       <img
                         src={tab.favicon}
                         alt=""
@@ -890,65 +997,79 @@ const WebPagePreview = ({ preview, onClose }) => {
           <X size={14} />
         </button>
       </div>
-      <div className="chat-web-preview__header">
-        <div className="chat-web-preview__actions">
-          <button
-            type="button"
-            className="chat-web-preview__action"
-            disabled={!canGoBack}
-            onClick={() => webviewRef.current?.goBack?.()}
-            title="后退">
-            <ChevronLeft size={14} />
-          </button>
-          <button
-            type="button"
-            className="chat-web-preview__action"
-            disabled={!canGoForward}
-            onClick={() => webviewRef.current?.goForward?.()}
-            title="前进">
-            <ChevronRight size={14} />
-          </button>
-          <button
-            type="button"
-            className="chat-web-preview__action"
-            onClick={() => webviewRef.current?.reload?.()}
-            title="刷新">
-            <RefreshCw size={14} className={loading ? 'chat-web-preview__action-icon--spinning' : ''} />
-          </button>
+      {isActiveWebTab && (
+        <div className="chat-web-preview__header">
+          <div className="chat-web-preview__actions">
+            <button
+              type="button"
+              className="chat-web-preview__action"
+              disabled={!canGoBack}
+              onClick={() => webviewRef.current?.goBack?.()}
+              title="后退">
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              type="button"
+              className="chat-web-preview__action"
+              disabled={!canGoForward}
+              onClick={() => webviewRef.current?.goForward?.()}
+              title="前进">
+              <ChevronRight size={14} />
+            </button>
+            <button
+              type="button"
+              className="chat-web-preview__action"
+              onClick={() => webviewRef.current?.reload?.()}
+              title="刷新">
+              <RefreshCw size={14} className={loading ? 'chat-web-preview__action-icon--spinning' : ''} />
+            </button>
+          </div>
+          <div className="chat-web-preview__address-wrap">
+            <input
+              type="text"
+              className="chat-web-preview__address"
+              value={addressValue}
+              onChange={(event) => setAddressValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  navigateToAddress(addressValue);
+                }
+              }}
+              placeholder="输入网址"
+              spellCheck={false}
+            />
+          </div>
+          <div className="chat-web-preview__actions">
+            <button
+              type="button"
+              className="chat-web-preview__action"
+              onClick={handleOpenInExternalBrowser}
+              title="外部浏览器打开">
+              <ExternalLink size={14} />
+            </button>
+          </div>
         </div>
-        <div className="chat-web-preview__address-wrap">
-          <input
-            type="text"
-            className="chat-web-preview__address"
-            value={addressValue}
-            onChange={(event) => setAddressValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                navigateToAddress(addressValue);
-              }
-            }}
-            placeholder="输入网址"
-            spellCheck={false}
-          />
-        </div>
-        <div className="chat-web-preview__actions">
-          <button
-            type="button"
-            className="chat-web-preview__action"
-            onClick={handleOpenInExternalBrowser}
-            title="外部浏览器打开">
-            <ExternalLink size={14} />
-          </button>
-        </div>
-      </div>
+      )}
       <div className="chat-web-preview__body">
         <webview
           ref={webviewRef}
-          className="chat-web-preview__webview"
+          className={`chat-web-preview__webview ${!isActiveWebTab ? 'is-hidden' : ''}`.trim()}
           allowpopups={'true'}
           partition="persist:webview"
         />
+        {activeTab?.type === FILE_PREVIEW_TYPE ? (
+          <div className="chat-web-preview__file-pane">
+            <TextFilePreview
+              preview={activeTab.filePreview}
+              currentModelMeta={currentModelMeta}
+              onClose={() => handleCloseTab(activeTab.id)}
+              onSaveEdit={onSaveFileEdit}
+              onSubmitComment={onSubmitFileComment}
+              submittingComment={submittingComment}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createHighlighter } from 'shiki';
 import { Plus, X } from 'lucide-react';
 import { Button, Input, Popover } from 'antd';
-import Markdown from '../MessagePane/Markdown/Markdown';
 import './TextFilePreview.css';
 
 const PREVIEW_THEME = 'one-light';
@@ -170,49 +169,10 @@ const CodePreview = ({ content, language }) => {
   );
 };
 
-const MarkdownPreview = ({ content }) => {
-  const lineCount = React.useMemo(() => getLineCount(content), [content]);
-  const markdownComponents = React.useMemo(() => ({
-    a: ({ children }) => <span className="chat-file-preview__markdown-link-text">{children}</span>
-  }), []);
-  const handleMarkdownClickCapture = React.useCallback((event) => {
-    const target = event.target;
-    const linkElement = target instanceof Element ? target.closest('a[href]') : null;
-    if (!linkElement) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
-
-  return (
-    <div className="chat-file-preview__markdown-shell">
-      <div className="chat-file-preview__markdown-gutter" aria-hidden="true">
-        {Array.from({ length: lineCount }).map((_, index) => (
-          <div key={index} className="chat-file-preview__markdown-gutter-row">
-            <button
-              type="button"
-              className="chat-file-preview__line-action"
-              data-line-number={index + 1}
-              aria-label={`对第 ${index + 1} 行添加评论`}>
-              <Plus className="chat-file-preview__line-action-icon" size={12} strokeWidth={2.6} />
-            </button>
-            <span className="chat-file-preview__line-number">{index + 1}</span>
-          </div>
-        ))}
-      </div>
-      <div
-        className="chat-file-preview__markdown-content"
-        onClickCapture={handleMarkdownClickCapture}
-      >
-        <Markdown content={content} components={markdownComponents} />
-      </div>
-    </div>
-  );
-};
-
 const getKindLabel = (kind) => {
+  if (kind === 'image') return 'Image';
+  if (kind === 'video') return 'Video';
+  if (kind === 'audio') return 'Audio';
   if (kind === 'markdown') return 'Markdown';
   if (kind === 'code') return 'Code';
   if (kind === 'unsupported') return 'File';
@@ -223,6 +183,7 @@ const TextFilePreview = ({
   preview,
   currentModelMeta = null,
   onClose,
+  onSaveEdit,
   onSubmitComment,
   submittingComment = false
 }) => {
@@ -234,6 +195,7 @@ const TextFilePreview = ({
     kind = 'text',
     language = 'text',
     status = 'idle',
+    src = '',
     content = '',
     error = ''
   } = preview;
@@ -241,12 +203,18 @@ const TextFilePreview = ({
   const isLoading = status === 'loading';
   const isError = status === 'error';
   const isUnsupported = status === 'unsupported' || kind === 'unsupported';
+  const isMediaPreview = kind === 'image' || kind === 'video' || kind === 'audio';
   const supportsContentPreview = !isLoading && !isError && !isUnsupported;
+  const supportsEditing = supportsContentPreview && !isMediaPreview && Boolean(path);
   const modelIcon = String(currentModelMeta?.icon || '').trim();
   const modelName = String(currentModelMeta?.name || '').trim();
   const modelFallback = (modelName || 'M').charAt(0).toUpperCase();
   const bodyRef = React.useRef(null);
   const [commentDraft, setCommentDraft] = React.useState('');
+  const [editDraft, setEditDraft] = React.useState(() => String(content || ''));
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [savingEdit, setSavingEdit] = React.useState(false);
+  const supportsLineComments = supportsContentPreview && !isMediaPreview && !isEditing;
   const [commentPopover, setCommentPopover] = React.useState({
     open: false,
     lineNumber: null,
@@ -255,15 +223,47 @@ const TextFilePreview = ({
     height: 1
   });
   const canSubmitComment = Boolean(String(commentDraft || '').trim());
+  const canSaveEdit = supportsEditing && isEditing && !savingEdit && editDraft !== String(content || '');
 
   React.useEffect(() => {
+    setEditDraft(String(content || ''));
+    setIsEditing(false);
+    setSavingEdit(false);
     setCommentDraft('');
     setCommentPopover({ open: false, lineNumber: null, top: 0, left: 0, height: 1 });
-  }, [path]);
+  }, [content, path]);
 
   const closeCommentPopover = React.useCallback(() => {
     setCommentPopover((prev) => ({ ...prev, open: false }));
   }, []);
+
+  const handleStartEdit = React.useCallback(() => {
+    if (!supportsEditing) return;
+    setEditDraft(String(content || ''));
+    setIsEditing(true);
+    setCommentPopover({ open: false, lineNumber: null, top: 0, left: 0, height: 1 });
+  }, [content, supportsEditing]);
+
+  const handleCancelEdit = React.useCallback(() => {
+    setEditDraft(String(content || ''));
+    setIsEditing(false);
+    setSavingEdit(false);
+  }, [content]);
+
+  const handleSaveEdit = React.useCallback(async () => {
+    if (!canSaveEdit || typeof onSaveEdit !== 'function') return;
+
+    setSavingEdit(true);
+    const result = await onSaveEdit({
+      fileName: name,
+      filePath: path,
+      content: editDraft
+    });
+    if (result !== false) {
+      setIsEditing(false);
+    }
+    setSavingEdit(false);
+  }, [canSaveEdit, editDraft, name, onSaveEdit, path]);
 
   const handleSubmitComment = React.useCallback(async () => {
     const comment = String(commentDraft || '').trim();
@@ -355,6 +355,40 @@ const TextFilePreview = ({
             <span className="chat-file-preview__path">{path}</span>
           </div>
         </div>
+        <div className="chat-file-preview__header-actions">
+          {supportsEditing && !isEditing && (
+            <Button
+              autoInsertSpace={false}
+              type="text"
+              className="chat-file-preview__toolbar-btn"
+              onClick={handleStartEdit}>
+              编辑
+            </Button>
+          )}
+          {supportsEditing && isEditing && (
+            <>
+              <Button
+                autoInsertSpace={false}
+                type="text"
+                className="chat-file-preview__toolbar-btn"
+                disabled={savingEdit}
+                onClick={handleCancelEdit}>
+                取消
+              </Button>
+              <Button
+                autoInsertSpace={false}
+                type="primary"
+                className="chat-file-preview__toolbar-btn chat-file-preview__toolbar-btn--primary"
+                disabled={!canSaveEdit}
+                loading={savingEdit}
+                onClick={() => {
+                  void handleSaveEdit();
+                }}>
+                保存
+              </Button>
+            </>
+          )}
+        </div>
         <button
           type="button"
           className="chat-file-preview__close"
@@ -364,7 +398,7 @@ const TextFilePreview = ({
         </button>
       </div>
 
-      <div ref={bodyRef} className="chat-file-preview__body" onClick={supportsContentPreview ? handlePreviewBodyClick : undefined}>
+      <div ref={bodyRef} className="chat-file-preview__body" onClick={supportsLineComments ? handlePreviewBodyClick : undefined}>
         {isLoading && <div className="chat-file-preview__state">加载文件中...</div>}
         {isError && !isLoading && <div className="chat-file-preview__state">{error || '读取文件失败'}</div>}
         {isUnsupported && !isLoading && !isError && (
@@ -372,11 +406,50 @@ const TextFilePreview = ({
             暂不支持预览该类型文件
           </div>
         )}
-        {supportsContentPreview && kind === 'markdown' && <MarkdownPreview content={content} />}
-        {supportsContentPreview && kind !== 'markdown' && (
+        {supportsContentPreview && isEditing && (
+          <div className="chat-file-preview__editor-shell">
+            <Input.TextArea
+              value={editDraft}
+              onChange={(event) => setEditDraft(event.target.value)}
+              className="chat-file-preview__editor"
+              autoSize={false}
+              spellCheck={false}
+            />
+          </div>
+        )}
+        {supportsContentPreview && !isEditing && isMediaPreview && (
+          <div className={`chat-file-preview__media-shell chat-file-preview__media-shell--${kind}`.trim()}>
+            {kind === 'image' && (
+              <img
+                className="chat-file-preview__media chat-file-preview__media--image"
+                src={src}
+                alt={name || '图片预览'}
+                draggable={false}
+              />
+            )}
+            {kind === 'video' && (
+              <video
+                className="chat-file-preview__media chat-file-preview__media--video"
+                src={src}
+                controls
+                playsInline
+                preload="metadata"
+              />
+            )}
+            {kind === 'audio' && (
+              <audio
+                className="chat-file-preview__media chat-file-preview__media--audio"
+                src={src}
+                controls
+                preload="metadata"
+              />
+            )}
+          </div>
+        )}
+        {supportsContentPreview && !isEditing && !isMediaPreview && (
           <CodePreview content={content} language={language} />
         )}
-        {supportsContentPreview && (
+        {supportsLineComments && (
           <Popover
             open={commentPopover.open}
             arrow={false}

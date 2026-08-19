@@ -116,6 +116,7 @@ const Chat = ({
   webPreview = null,
   onCloseWebPreview,
   onOpenWebPreview,
+  onInlinePreviewVisibilityChange,
   onQuickPromptAction,
   beginnerGuideDownloadPaneRef = null,
   beginnerGuideSettingsPaneRef = null,
@@ -329,6 +330,7 @@ const Chat = ({
       webPreview={webPreview}
       onCloseWebPreview={onCloseWebPreview}
       onOpenWebPreview={onOpenWebPreview}
+      onInlinePreviewVisibilityChange={onInlinePreviewVisibilityChange}
       childrensBookQuickPromptRef={childrensBookQuickPromptRef}
       beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
       beginnerGuideAiToolAreaRef={beginnerGuideAiToolAreaRef}

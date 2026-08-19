@@ -19,6 +19,13 @@
   min-width: 0;
 }
 
+.chat-file-preview__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .chat-file-preview__name {
   font-size: 13px;
   font-weight: 500;
@@ -74,6 +81,26 @@
   color: #444444;
 }
 
+.chat-file-preview__toolbar-btn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #1f2937;
+  background-color: #f5f5f5 !important;
+}
+
+.chat-file-preview__toolbar-btn:hover,
+.chat-file-preview__toolbar-btn:focus {
+  background: #f5f5f5 !important;
+  color: #1f2937 !important;
+}
+
+.chat-file-preview__toolbar-btn--primary {
+  border: none;
+  box-shadow: none;
+}
+
 .chat-file-preview__body {
   flex: 1;
   min-height: 0;
@@ -94,6 +121,79 @@
   justify-content: center;
   text-align: center;
   color: #999;
+}
+
+.chat-file-preview__editor-shell {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+}
+
+.chat-file-preview__editor,
+.chat-file-preview__editor.ant-input,
+.chat-file-preview__editor.ant-input-textarea {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: #fff;
+}
+
+.chat-file-preview__editor .ant-input-textarea-show-count-suffix,
+.chat-file-preview__editor.ant-input-textarea .ant-input-data-count {
+  display: none;
+}
+
+.chat-file-preview__editor.ant-input,
+.chat-file-preview__editor.ant-input:focus,
+.chat-file-preview__editor.ant-input:focus-visible,
+.chat-file-preview__editor.ant-input:hover {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.chat-file-preview__editor .ant-input,
+.chat-file-preview__editor.ant-input,
+.chat-file-preview__editor.ant-input-textarea textarea {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 12px 14px 18px;
+  border: none !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  outline: none !important;
+  -webkit-appearance: none;
+  appearance: none;
+  resize: none;
+  background: #fff;
+  color: #1f2329;
+  font-size: 12px;
+  line-height: 1.75;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.chat-file-preview__editor .ant-input:focus,
+.chat-file-preview__editor .ant-input:focus-visible,
+.chat-file-preview__editor.ant-input:focus,
+.chat-file-preview__editor.ant-input:focus-visible,
+.chat-file-preview__editor.ant-input-textarea textarea:focus,
+.chat-file-preview__editor.ant-input-textarea textarea:focus-visible,
+.chat-file-preview__editor.ant-input-textarea .ant-input:focus,
+.chat-file-preview__editor.ant-input-textarea .ant-input:focus-visible {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .chat-file-preview__code {
@@ -190,6 +290,43 @@
 .chat-file-preview__code-line * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.chat-file-preview__media-shell {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #fafafa;
+}
+
+.chat-file-preview__media-shell--video {
+  background: #111111;
+}
+
+.chat-file-preview__media {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.chat-file-preview__media--image {
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.chat-file-preview__media--video {
+  width: 100%;
+  height: auto;
+  max-height: min(100%, 70vh);
+  background: #000;
+  border-radius: 10px;
+}
+
+.chat-file-preview__media--audio {
+  width: min(420px, 100%);
 }
 
 .chat-file-preview__markdown-shell {

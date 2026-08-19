@@ -275,6 +275,7 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
+  position: relative;
   background: #fff;
   overflow: hidden;
 }
@@ -287,6 +288,19 @@
   display: inline-flex;
   background: #fff;
   overflow: hidden;
+}
+
+.chat-web-preview__webview.is-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-web-preview__file-pane {
+  position: absolute;
+  inset: 0;
+  background: #fff;
 }
 
 @keyframes chat-web-preview-spin {

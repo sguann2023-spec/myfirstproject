@@ -26,7 +26,6 @@ import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
 import SkillMembersSection from './SkillMembers/SkillMembersSection';
-import TextFilePreview from './TextFilePreview';
 import WebPagePreview from './WebPagePreview';
 import { claimNewguiderReward } from '../../../api/newguiderReward';
 import { loggerService } from '@logger';
@@ -136,6 +135,7 @@ const CODE_EXTENSIONS = new Set([
 const TERMINAL_EXTENSIONS = new Set(['bash', 'command', 'fish', 'ps1', 'zsh']);
 const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
 const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
+const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'oga', 'ogg', 'opus', 'wav', 'weba']);
 const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'rar', 'tar', 'tgz', 'xz', 'zip']);
 const SPREADSHEET_EXTENSIONS = new Set(['csv', 'numbers', 'ods', 'tsv', 'xls', 'xlsx']);
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx']);
@@ -164,6 +164,9 @@ const getFileIcon = (fileName = '') => {
 };
 const getPreviewKindForFileName = (fileName = '') => {
   const extension = getFileExtension(fileName);
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image';
+  if (VIDEO_EXTENSIONS.has(extension)) return 'video';
+  if (AUDIO_EXTENSIONS.has(extension)) return 'audio';
   if (MARKDOWN_EXTENSIONS.has(extension)) return 'markdown';
   if (CODE_EXTENSIONS.has(extension) || TERMINAL_EXTENSIONS.has(extension)) return 'code';
   if (TEXT_PREVIEW_EXTENSIONS.has(extension)) return 'text';
@@ -713,6 +716,7 @@ const ChatShell = ({
   webPreview = null,
   onCloseWebPreview,
   onOpenWebPreview,
+  onInlinePreviewVisibilityChange,
   childrensBookQuickPromptRef = null,
   beginnerGuideQuickSkillsViewportRef = null,
   beginnerGuideAiToolAreaRef = null,
@@ -754,6 +758,11 @@ const ChatShell = ({
   const [renameWorkspaceError, setRenameWorkspaceError] = React.useState('');
   const [renameWorkspaceSubmitting, setRenameWorkspaceSubmitting] = React.useState(false);
   const [filePreview, setFilePreview] = React.useState(null);
+  const [panePreview, setPanePreview] = React.useState(() => (
+    webPreview?.key && webPreview?.url
+      ? { ...webPreview, previewType: 'web', activate: true }
+      : null
+  ));
   const [membersPanelWidth, setMembersPanelWidth] = React.useState(() => readMembersPanelWidth());
   const [membersPanelCollapsed, setMembersPanelCollapsed] = React.useState(() => readMembersPanelCollapsed());
   const [webPreviewWidth, setWebPreviewWidth] = React.useState(() => readWebPreviewWidth());
@@ -765,7 +774,8 @@ const ChatShell = ({
   const [beginnerGuideReopenPending, setBeginnerGuideReopenPending] = React.useState(() => isBeginnerGuideReopenPending());
   const titleInputRef = React.useRef(null);
   const renameWorkspaceInputRef = React.useRef(null);
-  const filePreviewRequestIdRef = React.useRef(0);
+  const pendingFilePreviewKeysRef = React.useRef(new Set());
+  const closedFilePreviewKeysRef = React.useRef(new Set());
   const contentRef = React.useRef(null);
   const beginnerGuideCreateWorkspaceButtonRef = React.useRef(null);
   const beginnerGuideWorkspaceDialogRef = React.useRef(null);
@@ -791,10 +801,8 @@ const ChatShell = ({
     () => dedupePaths([...(workspaceStore?.library || []), ...(workspaceStore?.recent || [])]).join('\n'),
     [workspaceStore?.library, workspaceStore?.recent]
   );
-  const hasFilePreview = Boolean(filePreview);
-  const hasWebPreview = Boolean(webPreview);
-  const showLeadingFilePreview = hasFilePreview;
-  const showTrailingWebPreview = hasWebPreview;
+  const showLeadingFilePreview = false;
+  const showTrailingWebPreview = Boolean(panePreview);
   const showMembersPanel = !membersPanelCollapsed;
   const isResizingAnyPanel = isResizingMembersPanel || isResizingWebPreview;
   const shouldStartBeginnerGuide = Boolean(
@@ -814,6 +822,15 @@ const ChatShell = ({
 
     return () => window.clearTimeout(timer);
   }, [renamingWorkspacePath]);
+
+  React.useEffect(() => {
+    if (typeof onInlinePreviewVisibilityChange !== 'function') return undefined;
+    onInlinePreviewVisibilityChange(showTrailingWebPreview);
+    return () => {
+      onInlinePreviewVisibilityChange(false);
+    };
+  }, [onInlinePreviewVisibilityChange, showTrailingWebPreview]);
+
   const dismissBeginnerGuide = React.useCallback(() => {
     setBeginnerGuideOpen(false);
     setBeginnerGuideCurrent(0);
@@ -1040,24 +1057,24 @@ const ChatShell = ({
     const syncMembersPanelWidth = () => {
       const containerWidth = contentRef.current?.clientWidth || 0;
       const trailingWidth = showTrailingWebPreview ? webPreviewWidth : 0;
-      setMembersPanelWidth((prev) => clampMembersPanelWidth(prev, containerWidth, hasFilePreview, trailingWidth));
+      setMembersPanelWidth((prev) => clampMembersPanelWidth(prev, containerWidth, showLeadingFilePreview, trailingWidth));
     };
 
     syncMembersPanelWidth();
     window.addEventListener('resize', syncMembersPanelWidth);
     return () => window.removeEventListener('resize', syncMembersPanelWidth);
-  }, [hasFilePreview, showTrailingWebPreview, webPreviewWidth]);
+  }, [showLeadingFilePreview, showTrailingWebPreview, webPreviewWidth]);
 
   React.useEffect(() => {
     const syncWebPreviewWidth = () => {
       const containerWidth = contentRef.current?.clientWidth || 0;
-      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, hasFilePreview, membersPanelWidth, showMembersPanel));
+      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, showLeadingFilePreview, membersPanelWidth, showMembersPanel));
     };
 
     syncWebPreviewWidth();
     window.addEventListener('resize', syncWebPreviewWidth);
     return () => window.removeEventListener('resize', syncWebPreviewWidth);
-  }, [hasFilePreview, membersPanelWidth, showMembersPanel]);
+  }, [showLeadingFilePreview, membersPanelWidth, showMembersPanel]);
 
   React.useEffect(() => {
     if (!membersPanelCollapsed) return;
@@ -1287,9 +1304,29 @@ const ChatShell = ({
   }, [createWorkspaceDialogOpen]);
 
   React.useEffect(() => {
+    pendingFilePreviewKeysRef.current.clear();
+    closedFilePreviewKeysRef.current.clear();
     setFilePreview(null);
-    filePreviewRequestIdRef.current += 1;
+    setPanePreview((prev) => (prev?.previewType === 'file' ? null : prev));
   }, [agentId, currentWorkspacePath, resolvedSessionId]);
+
+  React.useEffect(() => {
+    const previewKey = String(webPreview?.key || '').trim();
+    const previewUrl = String(webPreview?.url || '').trim();
+    if (previewKey && previewUrl) {
+      const nextPreview = {
+        ...webPreview,
+        previewType: 'web',
+        activate: webPreview?.activate !== false
+      };
+      setPanePreview(nextPreview);
+      return;
+    }
+
+    if (!webPreview) {
+      setPanePreview((prev) => (prev?.previewType === 'web' ? null : prev));
+    }
+  }, [webPreview]);
 
   const commitTitleEdit = () => {
     const nextTitle = String(titleDraft || '').trim() || '新对话';
@@ -1972,10 +2009,61 @@ const ChatShell = ({
     void copyDroppedFilesToWorkspace(droppedFiles);
   }, [copyDroppedFilesToWorkspace, hasDraggedFiles, hasLockedWorkspace, resetWorkspaceDragState]);
 
-  const closeFilePreview = React.useCallback(() => {
-    filePreviewRequestIdRef.current += 1;
-    setFilePreview(null);
+  const handlePreviewTabClose = React.useCallback((tab) => {
+    if (String(tab?.type || '').trim() !== 'file') return;
+
+    const previewKey = String(tab?.previewKey || '').trim();
+    if (!previewKey) return;
+
+    closedFilePreviewKeysRef.current.add(previewKey);
+    pendingFilePreviewKeysRef.current.delete(previewKey);
+    setFilePreview((prev) => (prev?.key === previewKey ? null : prev));
   }, []);
+
+  const handleSaveFilePreview = React.useCallback(async ({ filePath, content }) => {
+    const targetPath = String(filePath || '').trim();
+    if (!targetPath) return false;
+
+    const nextContent = String(content ?? '');
+    const comparableTargetPath = normalizeComparablePath(targetPath);
+    const applySavedPreview = (prev) => {
+      if (!prev || normalizeComparablePath(prev.path) !== comparableTargetPath) {
+        return prev;
+      }
+      return {
+        ...prev,
+        activate: false,
+        status: 'ready',
+        content: nextContent,
+        error: ''
+      };
+    };
+
+    try {
+      await window.api.file.write(targetPath, nextContent);
+      setFilePreview((prev) => applySavedPreview(prev));
+      setPanePreview((prev) => (
+        prev?.previewType === 'file'
+          ? applySavedPreview(prev)
+          : prev
+      ));
+      message.success('文件已保存');
+      return true;
+    } catch (error) {
+      message.error(error?.message || '保存文件失败');
+      return false;
+    }
+  }, []);
+
+  const closeInlinePreviewPane = React.useCallback(() => {
+    pendingFilePreviewKeysRef.current.forEach((previewKey) => {
+      closedFilePreviewKeysRef.current.add(previewKey);
+    });
+    pendingFilePreviewKeysRef.current.clear();
+    setFilePreview(null);
+    setPanePreview(null);
+    onCloseWebPreview?.();
+  }, [onCloseWebPreview]);
 
   const membersPanelVisibleWidth = showMembersPanel ? membersPanelWidth : 0;
   const membersPanelStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
@@ -1993,6 +2081,20 @@ const ChatShell = ({
   const updateWebPreviewWidth = React.useCallback((nextWidth) => {
     const containerWidth = contentRef.current?.clientWidth || 0;
     setWebPreviewWidth(clampWebPreviewWidth(nextWidth, containerWidth, showLeadingFilePreview, membersPanelWidth, showMembersPanel));
+  }, [membersPanelWidth, showLeadingFilePreview, showMembersPanel]);
+
+  const openInlinePreviewPane = React.useCallback((nextPreview) => {
+    if (!nextPreview) return;
+
+    const containerWidth = contentRef.current?.clientWidth || 0;
+    setWebPreviewWidth((prev) => clampWebPreviewWidth(
+      prev || DEFAULT_PREVIEW_PANE_WIDTH,
+      containerWidth,
+      showLeadingFilePreview,
+      membersPanelWidth,
+      showMembersPanel
+    ));
+    setPanePreview(nextPreview);
   }, [membersPanelWidth, showLeadingFilePreview, showMembersPanel]);
 
   const handleMembersPanelResizeStart = React.useCallback((event) => {
@@ -2103,10 +2205,14 @@ const ChatShell = ({
     const absolutePath = resolveListedEntryPath(rootPath, node.path);
     if (!absolutePath) return;
 
-    const requestId = filePreviewRequestIdRef.current + 1;
-    filePreviewRequestIdRef.current = requestId;
-
-    setFilePreview({
+    const previewKey = `file-preview:${absolutePath}`;
+    const previewTabId = `file-preview-tab:${absolutePath}`;
+    const pendingPreview = {
+      key: previewKey,
+      tabId: previewTabId,
+      title: node.name || getBaseName(absolutePath) || '文件预览',
+      previewType: 'file',
+      activate: true,
       path: absolutePath,
       name: node.name,
       kind: 'pending',
@@ -2114,7 +2220,11 @@ const ChatShell = ({
       status: 'loading',
       content: '',
       error: ''
-    });
+    };
+    closedFilePreviewKeysRef.current.delete(previewKey);
+    pendingFilePreviewKeysRef.current.add(previewKey);
+    setFilePreview(pendingPreview);
+    openInlinePreviewPane(pendingPreview);
 
     let previewKind = getPreviewKindForFileName(node.name);
     if (!previewKind) {
@@ -2129,46 +2239,74 @@ const ChatShell = ({
     const previewLanguage = previewKind === 'markdown'
       ? 'markdown'
       : (getFileExtension(node.name) || 'text');
+    const previewSrc = createFilePreviewUrl(absolutePath);
 
     if (previewKind === 'unsupported') {
-      if (filePreviewRequestIdRef.current !== requestId) return;
-      setFilePreview({
-        path: absolutePath,
-        name: node.name,
+      pendingFilePreviewKeysRef.current.delete(previewKey);
+      if (closedFilePreviewKeysRef.current.has(previewKey)) return;
+      const unsupportedPreview = {
+        ...pendingPreview,
+        activate: true,
         kind: 'unsupported',
         language: previewLanguage,
         status: 'unsupported',
         content: '',
         error: '暂不支持预览该类型文件'
-      });
+      };
+      setFilePreview(unsupportedPreview);
+      openInlinePreviewPane(unsupportedPreview);
+      return;
+    }
+
+    if (previewKind === 'image' || previewKind === 'video' || previewKind === 'audio') {
+      pendingFilePreviewKeysRef.current.delete(previewKey);
+      if (closedFilePreviewKeysRef.current.has(previewKey)) return;
+      const mediaPreview = {
+        ...pendingPreview,
+        activate: true,
+        kind: previewKind,
+        language: previewLanguage,
+        status: previewSrc ? 'ready' : 'error',
+        src: previewSrc,
+        content: '',
+        error: previewSrc ? '' : '生成预览地址失败'
+      };
+      setFilePreview(mediaPreview);
+      openInlinePreviewPane(mediaPreview);
       return;
     }
 
     try {
       const content = await window.api.file.readExternal(absolutePath, true);
-      if (filePreviewRequestIdRef.current !== requestId) return;
-      setFilePreview({
-        path: absolutePath,
-        name: node.name,
+      pendingFilePreviewKeysRef.current.delete(previewKey);
+      if (closedFilePreviewKeysRef.current.has(previewKey)) return;
+      const readyPreview = {
+        ...pendingPreview,
+        activate: false,
         kind: previewKind,
         language: previewLanguage,
         status: 'ready',
         content: String(content || ''),
         error: ''
-      });
+      };
+      setFilePreview(readyPreview);
+      openInlinePreviewPane(readyPreview);
     } catch (error) {
-      if (filePreviewRequestIdRef.current !== requestId) return;
-      setFilePreview({
-        path: absolutePath,
-        name: node.name,
+      pendingFilePreviewKeysRef.current.delete(previewKey);
+      if (closedFilePreviewKeysRef.current.has(previewKey)) return;
+      const failedPreview = {
+        ...pendingPreview,
+        activate: false,
         kind: previewKind,
         language: previewLanguage,
         status: 'error',
         content: '',
         error: error?.message || '读取文件失败'
-      });
+      };
+      setFilePreview(failedPreview);
+      openInlinePreviewPane(failedPreview);
     }
-  }, []);
+  }, [openInlinePreviewPane]);
 
   const openSkillWebPreview = React.useCallback((skill) => {
     const skillKey = getSkillKey(skill);
@@ -2396,17 +2534,6 @@ const ChatShell = ({
         {isResizingAnyPanel && <div className="chat-panel__resize-shield" aria-hidden="true" />}
         <div className="chat-panel__main">
           {children}
-        </div>
-        <div className={`chat-panel__preview-pane chat-panel__preview-pane--leading ${showLeadingFilePreview ? 'is-open' : ''}`.trim()}>
-          {showLeadingFilePreview && (
-            <TextFilePreview
-              preview={filePreview}
-              currentModelMeta={currentModelMeta}
-              onClose={closeFilePreview}
-              onSubmitComment={onSubmitFileComment}
-              submittingComment={sessionSending}
-            />
-          )}
         </div>
         {showMembersPanel && (
           <div
@@ -2683,8 +2810,16 @@ const ChatShell = ({
           ref={beginnerGuideWebPreviewPaneRef}
           className={`chat-panel__preview-pane chat-panel__preview-pane--trailing ${showTrailingWebPreview ? 'is-open' : ''}`.trim()}
           style={trailingWebPreviewStyle}>
-          {webPreview && (
-            <WebPagePreview preview={webPreview} onClose={onCloseWebPreview} />
+          {panePreview && (
+            <WebPagePreview
+              preview={panePreview}
+              currentModelMeta={currentModelMeta}
+              onClose={closeInlinePreviewPane}
+              onSaveFileEdit={handleSaveFilePreview}
+              onSubmitFileComment={onSubmitFileComment}
+              onTabClose={handlePreviewTabClose}
+              submittingComment={sessionSending}
+            />
           )}
         </div>
       </div>

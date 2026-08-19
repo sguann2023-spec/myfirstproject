@@ -1220,6 +1220,7 @@ const HomePage = () => {
   const [chatWebPreview, setChatWebPreview] = useState(null);
   const [manualChatWebPreview, setManualChatWebPreview] = useState(null);
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
+  const [chatInlinePreviewVisible, setChatInlinePreviewVisible] = useState(false);
   const activeChatWebPreviewKeyRef = useRef('');
   const chatExpandedWindowBaseWidthRef = useRef(null);
   const refreshHeaderMembership = useCallback(async () => {
@@ -1907,7 +1908,7 @@ const HomePage = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const previewVisible = selectedPane === 'chat' && Boolean(activeChatWebPreview?.url);
+    const previewVisible = selectedPane === 'chat' && (Boolean(activeChatWebPreview?.url) || chatInlinePreviewVisible);
 
     const syncWindowWidth = async () => {
       if (!window?.api?.window?.getSize || !window?.api?.window?.setSize) return;
@@ -1943,7 +1944,7 @@ const HomePage = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeChatWebPreview?.url, isFullscreen, selectedPane]);
+  }, [activeChatWebPreview?.url, chatInlinePreviewVisible, isFullscreen, selectedPane]);
 
   useEffect(() => {
     const api = window?.electronAPI?.agentSessionStream;
@@ -4384,6 +4385,7 @@ const HomePage = () => {
                 webPreview={activeChatWebPreview}
                 onCloseWebPreview={handleCloseChatWebPreview}
                 onOpenWebPreview={handleOpenChatWebPreview}
+                onInlinePreviewVisibilityChange={setChatInlinePreviewVisible}
                 onQuickPromptAction={(action) => {
                   if (action === 'bootstrap-childrens-picture-book') {
                     return handleBootstrapChildrensPictureBook();
