@@ -698,6 +698,7 @@ const WorkspaceCreateDialog = ({
 
 const ChatShell = ({
   agentId,
+  chatSessionId = '',
   runtimeSessionId,
   historyVisible = true,
   onToggleHistory,
@@ -772,6 +773,7 @@ const ChatShell = ({
   const [beginnerGuideCurrent, setBeginnerGuideCurrent] = React.useState(0);
   const [beginnerGuideDone, setBeginnerGuideDone] = React.useState(() => isBeginnerGuideCompleted());
   const [beginnerGuideReopenPending, setBeginnerGuideReopenPending] = React.useState(() => isBeginnerGuideReopenPending());
+  const previousChatSessionIdRef = React.useRef(String(chatSessionId || '').trim());
   const titleInputRef = React.useRef(null);
   const renameWorkspaceInputRef = React.useRef(null);
   const pendingFilePreviewKeysRef = React.useRef(new Set());
@@ -1304,11 +1306,18 @@ const ChatShell = ({
   }, [createWorkspaceDialogOpen]);
 
   React.useEffect(() => {
-    pendingFilePreviewKeysRef.current.clear();
-    closedFilePreviewKeysRef.current.clear();
-    setFilePreview(null);
-    setPanePreview((prev) => (prev?.previewType === 'file' ? null : prev));
-  }, [agentId, currentWorkspacePath, resolvedSessionId]);
+    const normalizedChatSessionId = String(chatSessionId || '').trim();
+    const previousChatSessionId = previousChatSessionIdRef.current;
+
+    if (previousChatSessionId && normalizedChatSessionId && previousChatSessionId !== normalizedChatSessionId) {
+      pendingFilePreviewKeysRef.current.clear();
+      closedFilePreviewKeysRef.current.clear();
+      setFilePreview(null);
+      setPanePreview((prev) => (prev?.previewType === 'file' ? null : prev));
+    }
+
+    previousChatSessionIdRef.current = normalizedChatSessionId;
+  }, [chatSessionId]);
 
   React.useEffect(() => {
     const previewKey = String(webPreview?.key || '').trim();
@@ -1324,9 +1333,17 @@ const ChatShell = ({
     }
 
     if (!webPreview) {
-      setPanePreview((prev) => (prev?.previewType === 'web' ? null : prev));
+      setPanePreview((prev) => {
+        if (prev?.previewType !== 'web') return prev;
+        if (!filePreview) return null;
+        return {
+          ...filePreview,
+          previewType: 'file',
+          activate: false
+        };
+      });
     }
-  }, [webPreview]);
+  }, [filePreview, webPreview]);
 
   const commitTitleEdit = () => {
     const nextTitle = String(titleDraft || '').trim() || '新对话';

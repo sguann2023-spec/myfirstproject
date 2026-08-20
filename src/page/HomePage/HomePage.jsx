@@ -1556,7 +1556,6 @@ const HomePage = () => {
       };
 
       const handleHideBrowserPreview = () => {
-        setManualChatWebPreview(null);
       };
 
       ipcRenderer.on(IpcChannel.BrowserPreview_EnsureVisible, handleEnsureBrowserPreview);

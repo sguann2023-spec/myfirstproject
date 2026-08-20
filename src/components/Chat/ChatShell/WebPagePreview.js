@@ -873,8 +873,7 @@ const WebPagePreview = ({
               result = { closed: tabId };
             }
           } else {
-            onClose?.();
-            result = { reset: true };
+            result = { resetIgnored: true };
           }
         } else {
           throw new Error(`未知浏览器预览命令: ${command}`);

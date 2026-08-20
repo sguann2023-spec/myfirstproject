@@ -87,6 +87,7 @@ const getSessionWorkspacePath = (session) => {
 const Chat = ({
   session,
   agentId: agentIdProp,
+  chatSessionId,
   runtimeSessionId,
   sessionFulfilled = false,
   input,
@@ -311,6 +312,7 @@ const Chat = ({
   return (
     <ChatShell
       agentId={agentId}
+      chatSessionId={chatSessionId || session?.id || ''}
       runtimeSessionId={runtimeSessionId}
       historyVisible={historyVisible}
       onToggleHistory={onToggleHistory}
