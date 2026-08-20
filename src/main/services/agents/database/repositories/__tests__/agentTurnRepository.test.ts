@@ -74,12 +74,22 @@ describe('isTurnEligibleForRecentContext', () => {
     ).toBe(false)
   })
 
-  it('excludes failed turns', () => {
+  it('includes failed turns when they contain recoverable text', () => {
     expect(
       isTurnEligibleForRecentContext({
         status: 'failed',
         userText: '用户问题',
         assistantText: '助手回答'
+      })
+    ).toBe(true)
+  })
+
+  it('excludes failed turns without any user or assistant text', () => {
+    expect(
+      isTurnEligibleForRecentContext({
+        status: 'failed',
+        userText: '',
+        assistantText: '   '
       })
     ).toBe(false)
   })
