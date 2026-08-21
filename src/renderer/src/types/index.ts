@@ -247,6 +247,18 @@ export type LegacyMessage = {
 
 export type Usage = OpenAI.Completions.CompletionUsage & {
   thoughts_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  prompt_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
+  input_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
   // OpenRouter specific fields
   cost?: number
 }

@@ -139,6 +139,7 @@ const parseModelItems = (payload) => {
         id: String(item.id || '').trim(),
         read_image: parseBooleanFlag(item.read_image ?? item.readImage),
         price_text: String(item.price_text || '').trim(),
+        price_multiplier_text: String(item.price_multiplier_text || '').trim(),
         pricing: item.pricing && typeof item.pricing === 'object' && !Array.isArray(item.pricing)
           ? { ...item.pricing }
           : undefined

@@ -1044,6 +1044,67 @@ describe('streamCallback Integration Tests', () => {
     expect((textBlock as any)?.content).toBe('AI什么也没说，重试一下试试')
   })
 
+  it('should accumulate step usage details before completion', async () => {
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
+
+    const chunks: Chunk[] = [
+      {
+        type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
+        response: {
+          usageSteps: [
+            {
+              prompt_tokens: 1200,
+              completion_tokens: 300,
+              total_tokens: 1500,
+              cache_read_input_tokens: 200,
+              cache_creation_input_tokens: 100
+            }
+          ]
+        }
+      },
+      {
+        type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
+        response: {
+          usageSteps: [
+            {
+              prompt_tokens: 800,
+              completion_tokens: 200,
+              total_tokens: 1000,
+              cache_read_input_tokens: 50,
+              cache_creation_input_tokens: 0
+            }
+          ]
+        }
+      },
+      {
+        type: ChunkType.BLOCK_COMPLETE,
+        response: {
+          usage: { prompt_tokens: 2000, completion_tokens: 500, total_tokens: 2500 },
+          metrics: { completion_tokens: 500, time_completion_millsec: 1000 }
+        }
+      }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const message = state.messages.entities[mockAssistantMsgId]
+
+    expect(message?.usage?.total_tokens).toBe(2500)
+    expect(message?.usageSteps).toHaveLength(2)
+    expect(message?.usageSteps?.[0]).toMatchObject({
+      prompt_tokens: 1200,
+      completion_tokens: 300,
+      cache_read_input_tokens: 200,
+      cache_creation_input_tokens: 100
+    })
+    expect(message?.usageSteps?.[1]).toMatchObject({
+      prompt_tokens: 800,
+      completion_tokens: 200,
+      cache_read_input_tokens: 50
+    })
+  })
+
   it('should maintain block reference integrity during streaming', async () => {
     const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
 

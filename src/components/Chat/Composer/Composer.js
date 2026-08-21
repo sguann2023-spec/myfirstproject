@@ -11,7 +11,6 @@ import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileV
 import './Composer.css';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
-import Point2Icon from '../../../../public/point2.svg';
 import {
   getDefaultAiWritePresetId,
   getAiWriteFields,
@@ -3304,6 +3303,8 @@ const Composer = ({
     }
     return String(value || '')
       .replace(/\/\s*千token/gi, '')
+      .replace(/\/\s*百万tokens/gi, '')
+      .replace(/\/\s*1,?000,?000\s*tokens/gi, '')
       .replace(/[,\s]+$/g, '')
       .trim();
   };
@@ -3322,18 +3323,6 @@ const Composer = ({
     return Number.isFinite(parsedValue) ? `${parsedValue.toFixed(2)}x` : '';
   };
 
-  const resolveModelOptionPricing = (item) => {
-    if (!item || typeof item !== 'object') return { input: '', output: '' };
-    const pricing = item?.pricing && typeof item.pricing === 'object' ? item.pricing : null;
-    const input = formatModelOptionPrice(
-      pricing?.input_resource_points_per_unit ?? pricing?.input ?? pricing?.input_price_text
-    );
-    const output = formatModelOptionPrice(
-      pricing?.output_resource_points_per_unit ?? pricing?.output ?? pricing?.output_price_text
-    );
-    return { input, output };
-  };
-
   const resolveModelOptionPriceMultiplier = (item) => {
     if (!item || typeof item !== 'object') return '';
     return formatModelOptionPriceMultiplier(
@@ -3341,8 +3330,10 @@ const Composer = ({
     );
   };
 
-  const renderModelOptionPopoverContent = (text, description = '', priceMeta = null, priceMultiplier = '') => {
-    if (!description && !priceMultiplier && !priceMeta?.input && !priceMeta?.output) return null;
+  const renderModelOptionPopoverContent = (text, description = '', priceMultiplier = '') => {
+    if (!description && !priceMultiplier) {
+      return null;
+    }
     return (
       <div className="chat-panel__model-option-popover">
         <div className="chat-panel__model-option-popover-title">{text}</div>
@@ -3353,24 +3344,6 @@ const Composer = ({
           <div className="chat-panel__model-option-popover-multiplier">
             <span>消耗速度</span>
             <span>{priceMultiplier} 倍率</span>
-          </div>
-        ) : null}
-        {(priceMeta?.input || priceMeta?.output) ? (
-          <div className="chat-panel__model-option-popover-section">
-            {priceMeta?.input ? (
-              <div className="chat-panel__model-option-popover-row">
-                <img className="chat-panel__model-option-popover-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
-                <span>{priceMeta.input} / 1,000 tokens</span>
-                <span className="chat-panel__model-option-popover-price-name">↑</span>
-              </div>
-            ) : null}
-            {priceMeta?.output ? (
-              <div className="chat-panel__model-option-popover-row">
-                <img className="chat-panel__model-option-popover-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
-                <span>{priceMeta.output} / 1,000 tokens</span>
-                <span className="chat-panel__model-option-popover-price-name">↓</span>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>
@@ -3447,7 +3420,6 @@ const Composer = ({
       text: String(optionMeta.displayText || optionMeta.value || '').trim(),
       description: String(optionMeta.description || '').trim(),
       priceMultiplier: String(optionMeta.priceMultiplier || '').trim(),
-      priceMeta: optionMeta.priceMeta || null,
       anchorRect: normalizedAnchorRect,
       left: nextPosition.left,
       top: nextPosition.top,
@@ -3495,7 +3467,6 @@ const Composer = ({
           supportsReadImage: false,
           description: '',
           badges: [],
-          priceMeta: null,
           selectedLabel: renderSelectedModelLabel(displayText, null),
         };
       }
@@ -3504,7 +3475,6 @@ const Composer = ({
       const displayText = formatModelDisplayName(labelText);
       const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
       const supportsReadImage = Boolean(item?.read_image);
-      const priceMeta = resolveModelOptionPricing(item);
       const priceMultiplier = resolveModelOptionPriceMultiplier(item);
       return value ? {
         value,
@@ -3515,7 +3485,6 @@ const Composer = ({
         description: String(item?.description || '').trim(),
         badges: Array.isArray(item?.badges) ? item.badges : [],
         priceMultiplier,
-        priceMeta,
         selectedLabel: renderSelectedModelLabel(displayText, icon),
       } : null;
     })
@@ -4428,7 +4397,6 @@ const Composer = ({
           {renderModelOptionPopoverContent(
             hoveredModelCard.text,
             hoveredModelCard.description,
-            hoveredModelCard.priceMeta,
             hoveredModelCard.priceMultiplier,
           )}
         </div>
