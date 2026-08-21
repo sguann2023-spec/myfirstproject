@@ -5,6 +5,8 @@ import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
 
@@ -31,6 +33,11 @@ const EXECUTE_WORKFLOW_TOOL: Tool = {
       workflow_id: {
         type: 'string',
         description: 'Optional saved workflow ID for running a reusable workflow.'
+      },
+      workflow_file: {
+        type: 'string',
+        description:
+          'Optional path to a local JSON file inside the current workspace. Preferred for large workflow payloads; the file should contain either {workflow_id} or top-level {inputs, script}.'
       },
       inputs: {
         type: 'object',
@@ -224,8 +231,63 @@ class CutWorkflowServer {
     }
   }
 
-  private normalizeWorkflowPayload(args: Record<string, unknown>) {
+  private async loadWorkflowPayloadFromFile(workflowFile: string): Promise<Record<string, unknown>> {
+    const workspaceRoot = String(this.workspacePath || '').trim()
+    if (!workspaceRoot) {
+      throw new McpError(ErrorCode.InvalidParams, "'workflow_file' requires a workspace root for path resolution")
+    }
+
+    const resolvedWorkspaceRoot = await fs.realpath(workspaceRoot)
+    const requestedPath = path.isAbsolute(workflowFile)
+      ? path.resolve(workflowFile)
+      : path.resolve(resolvedWorkspaceRoot, workflowFile)
+    const resolvedPath = await fs.realpath(requestedPath)
+    const relativePath = path.relative(resolvedWorkspaceRoot, resolvedPath)
+
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Access denied: Path is outside the configured workspace root: ${workflowFile}`
+      )
+    }
+
+    const rawText = await fs.readFile(resolvedPath, 'utf8')
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawText)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new McpError(ErrorCode.InvalidParams, `'workflow_file' must contain valid JSON: ${message}`)
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "'workflow_file' must contain a JSON object with either 'workflow_id' or top-level 'inputs' and 'script'"
+      )
+    }
+
+    return parsed as Record<string, unknown>
+  }
+
+  private async normalizeWorkflowPayload(args: Record<string, unknown>) {
     const payload = { ...args }
+    const workflowFile = typeof payload.workflow_file === 'string' ? payload.workflow_file.trim() : ''
+
+    if (workflowFile) {
+      const filePayload = await this.loadWorkflowPayloadFromFile(workflowFile)
+      delete payload.workflow_file
+
+      if (Object.keys(payload).length > 0) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          "'workflow_file' cannot be combined with other workflow parameters; put the full payload in the file"
+        )
+      }
+
+      return this.normalizeWorkflowPayload(filePayload)
+    }
 
     const workflowId =
       typeof payload.workflowId === 'string'
@@ -246,7 +308,7 @@ class CutWorkflowServer {
     if (!hasWorkflowId && !hasInputs && !hasScript) {
       throw new McpError(
         ErrorCode.InvalidParams,
-        "Provide either 'workflow_id'/'workflowId', or a workflow body with top-level 'inputs' and 'script'"
+        "Provide either 'workflow_file', 'workflow_id'/'workflowId', or a workflow body with top-level 'inputs' and 'script'"
       )
     }
 
@@ -288,7 +350,7 @@ class CutWorkflowServer {
   }
 
   private async executeWorkflow(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
-    const payload = this.normalizeWorkflowPayload(args)
+    const payload = await this.normalizeWorkflowPayload(args)
     await this.reportProgress(extra, 5, 'VectCut 剪辑工作流已提交，等待服务端执行完成')
 
     const response = await this.requestWithAuth(payload)

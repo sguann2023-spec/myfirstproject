@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
+import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
 
 interface McpServerToolProps {
   toolName: string
@@ -59,6 +60,7 @@ export function McpServerToolRenderer({
   const normalizedOutput = mcpText !== null ? { value: mcpText } : normalizeArgs(output)
   const normalizedProgressMessage = normalizeProgressMessage(progressMessage, progress)
   const isKouboTemplate = isKouboTemplateToolName(toolName)
+  const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
 
   return {
     key: `mcp-tool-${toolName}`,
@@ -83,9 +85,22 @@ export function McpServerToolRenderer({
             isRunning={typeof progress === 'number' && progress < 1}
           />
         ) : null}
-        {!isKouboTemplate && normalizedInput && <ToolArgsTable args={normalizedInput} title={t('message.tools.sections.input')} />}
-        {!isKouboTemplate && normalizedOutput && <ToolArgsTable args={normalizedOutput} title={t('message.tools.sections.output')} />}
-        {!isKouboTemplate && !normalizedInput && !normalizedOutput && (
+        {isSubtitleRecognition ? (
+          <SubtitleRecognitionToolBody
+            input={input}
+            output={output}
+            progress={progress}
+            progressMessage={normalizedProgressMessage}
+            isRunning={typeof progress === 'number' && progress < 1}
+          />
+        ) : null}
+        {!isKouboTemplate && !isSubtitleRecognition && normalizedInput && (
+          <ToolArgsTable args={normalizedInput} title={t('message.tools.sections.input')} />
+        )}
+        {!isKouboTemplate && !isSubtitleRecognition && normalizedOutput && (
+          <ToolArgsTable args={normalizedOutput} title={t('message.tools.sections.output')} />
+        )}
+        {!isKouboTemplate && !isSubtitleRecognition && !normalizedInput && !normalizedOutput && (
           <div className="p-3 text-foreground-500 text-xs">{t('message.tools.noData')}</div>
         )}
       </div>

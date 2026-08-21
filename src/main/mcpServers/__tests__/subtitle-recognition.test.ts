@@ -42,8 +42,8 @@ import SubtitleRecognitionServer from '../subtitle-recognition'
 
 type SubtitleRecognitionServerInstance = InstanceType<typeof SubtitleRecognitionServer>
 
-function createServer() {
-  return new SubtitleRecognitionServer()
+function createServer(workspaceRoot?: string) {
+  return new SubtitleRecognitionServer(workspaceRoot)
 }
 
 async function callTool(server: SubtitleRecognitionServerInstance, toolName: string, args: Record<string, unknown>) {
@@ -91,17 +91,14 @@ describe('SubtitleRecognitionServer', () => {
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined)
   })
 
-  it('should expose submit and status tools', async () => {
-    const server = createServer()
+  it('should expose only the submit-and-wait tool', async () => {
+    const server = createServer(workspaceRoot)
     const result = await listTools(server)
 
-    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      'submit_subtitle_recognition_task',
-      'get_subtitle_recognition_task_status'
-    ])
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['submit_subtitle_recognition_task'])
   })
 
-  it('should submit subtitle recognition task with default llm mode', async () => {
+  it('should submit subtitle recognition task, wait for completion, and return only summary plus artifact path', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -120,8 +117,27 @@ describe('SubtitleRecognitionServer', () => {
           error: ''
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          message: 'llm_asr 队列任务处理完成',
+          mode: 'asr',
+          progress: 100,
+          result: {
+            content: '识别出的完整字幕文本',
+            error: '',
+            mode: 'asr',
+            effect_mode: 'llm',
+            segments: [{ start: 0, end: 1200, text: '识别出的字幕片段' }]
+          },
+          success: true,
+          status: 'success',
+          task_id: 'task-asr-123',
+          url: 'https://example.com/source.mp4'
+        })
+      )
 
-    const server = createServer()
+    const server = createServer(workspaceRoot)
     const result = await callTool(server, 'submit_subtitle_recognition_task', {
       url: 'https://example.com/source.mp4'
     })
@@ -142,20 +158,90 @@ describe('SubtitleRecognitionServer', () => {
         })
       })
     )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      3,
+      'https://open.vectcut.com/llm/asr/asr_llm/submit_task/task_status?task_id=task-asr-123',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json'
+        })
+      })
+    )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload).toEqual({
       provider: 'vectcut',
-      action: 'submit',
+      action: 'submit_and_wait',
       mode: 'subtitle_recognition',
+      estimated_wait_time: '15-30 minutes',
       task_mode: 'asr',
       url: 'https://example.com/source.mp4',
       effect_mode: 'llm',
-      content: undefined,
+      source_summary: [
+        {
+          original_input: 'https://example.com/source.mp4',
+          submitted_url: 'https://example.com/source.mp4',
+          source_kind: 'remote_media'
+        }
+      ],
+      error: '',
+      message: 'llm_asr 队列任务处理完成',
+      progress: 100,
       success: true,
-      task_id: 'task-asr-123',
-      message_id: 'message-123',
-      status: 'pending',
-      error: ''
+      status: 'success',
+      content: '识别出的完整字幕文本',
+      recognition_mode: 'asr',
+      recognition_url: 'https://example.com/source.mp4',
+      artifact: {
+        storage: 'workspace_file',
+        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'subtitle-recognition', 'task-asr-123.json'),
+        relative_path: path.join('.capcut', 'tool-results', 'subtitle-recognition', 'task-asr-123.json')
+      },
+      result_summary: {
+        has_result: true,
+        content_chars: '识别出的完整字幕文本'.length,
+        segment_count: 1,
+        result_mode: 'asr',
+        effect_mode: 'llm',
+        error: ''
+      }
+    })
+
+    expect(payload.result).toBeUndefined()
+
+    const storedText = await fs.readFile(payload.artifact.file_path, 'utf8')
+    expect(JSON.parse(storedText)).toEqual({
+      provider: 'vectcut',
+      action: 'submit_and_wait',
+      mode: 'subtitle_recognition',
+      estimated_wait_time: '15-30 minutes',
+      task_mode: 'asr',
+      url: 'https://example.com/source.mp4',
+      effect_mode: 'llm',
+      source_summary: [
+        {
+          original_input: 'https://example.com/source.mp4',
+          submitted_url: 'https://example.com/source.mp4',
+          source_kind: 'remote_media'
+        }
+      ],
+      error: '',
+      message: 'llm_asr 队列任务处理完成',
+      progress: 100,
+      success: true,
+      status: 'success',
+      content: '识别出的完整字幕文本',
+      recognition_mode: 'asr',
+      recognition_url: 'https://example.com/source.mp4',
+      result: {
+        content: '识别出的完整字幕文本',
+        error: '',
+        mode: 'asr',
+        effect_mode: 'llm',
+        segments: [{ start: 0, end: 1200, text: '识别出的字幕片段' }]
+      }
     })
   })
 
@@ -176,8 +262,27 @@ describe('SubtitleRecognitionServer', () => {
           error: ''
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          message: 'sta 队列任务处理完成',
+          mode: 'sta',
+          progress: 100,
+          result: {
+            content: '这是一段校对后的字幕文案',
+            error: '',
+            mode: 'sta',
+            effect_mode: 'llm_vad',
+            segments: [{ start: 0, end: 1000, text: '这是一段校对后的字幕文案' }]
+          },
+          success: true,
+          status: 'success',
+          task_id: 'task-sta-456',
+          url: 'https://example.com/source.mp3'
+        })
+      )
 
-    const server = createServer()
+    const server = createServer(workspaceRoot)
     await callTool(server, 'submit_subtitle_recognition_task', {
       url: 'https://example.com/source.mp3',
       effectMode: 'llm_vad',
@@ -191,7 +296,7 @@ describe('SubtitleRecognitionServer', () => {
     })
   })
 
-  it('should query subtitle recognition task status', async () => {
+  it('should keep polling when pending status includes an empty result object', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -201,87 +306,75 @@ describe('SubtitleRecognitionServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
+          success: true,
+          task_id: 'task-poll-001',
+          status: 'pending',
+          effect_mode: 'basic',
+          error: ''
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
           error: '',
-          message: 'llm_asr 队列任务处理完成',
+          message: '任务已提交，等待处理',
+          mode: 'asr',
+          progress: 0,
+          result: {},
+          success: true,
+          status: 'pending',
+          task_id: 'task-poll-001',
+          url: 'https://example.com/source.mp3'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          message: '识别完成',
           mode: 'asr',
           progress: 100,
           result: {
-            content: '识别出的完整字幕文本',
+            content: '最终字幕结果',
             error: '',
             mode: 'asr',
-            effect_mode: 'llm',
-            segments: [{ start: 0, end: 1200, text: '识别出的字幕片段' }]
+            effect_mode: 'basic',
+            segments: [{ start: 0, end: 800, text: '最终字幕结果' }]
           },
           success: true,
           status: 'success',
-          task_id: 'task-status-789',
-          url: 'https://example.com/source.mp4'
+          task_id: 'task-poll-001',
+          url: 'https://example.com/source.mp3'
         })
       )
 
-    const server = createServer()
-    const result = await callTool(server, 'get_subtitle_recognition_task_status', {
-      taskId: 'task-status-789'
+    const server = createServer(workspaceRoot) as any
+    server.sleep = vi.fn().mockResolvedValue(undefined)
+
+    const result = await callTool(server, 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/source.mp3',
+      effectMode: 'basic'
     })
 
     expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/llm/asr/asr_llm/submit_task/task_status?task_id=task-status-789',
-      expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'Content-Type': 'application/json'
-        })
-      })
+      3,
+      'https://open.vectcut.com/llm/asr/asr_llm/submit_task/task_status?task_id=task-poll-001',
+      expect.any(Object)
+    )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
+      'https://open.vectcut.com/llm/asr/asr_llm/submit_task/task_status?task_id=task-poll-001',
+      expect.any(Object)
     )
 
     const payload = JSON.parse(result.content[0].text)
-    expect(payload).toEqual({
-      provider: 'vectcut',
-      action: 'status',
-      mode: 'asr',
-      error: '',
-      message: 'llm_asr 队列任务处理完成',
-      progress: 100,
-      success: true,
-      status: 'success',
-      task_id: 'task-status-789',
-      url: 'https://example.com/source.mp4',
-      artifact: {
-        storage: 'workspace_file',
-        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'subtitle-recognition', 'task-status-789.json'),
-        relative_path: path.join('.capcut', 'tool-results', 'subtitle-recognition', 'task-status-789.json')
-      },
-      result_summary: {
-        has_result: true,
-        content_chars: '识别出的完整字幕文本'.length,
-        segment_count: 1,
-        result_mode: 'asr',
-        effect_mode: 'llm',
-        error: ''
-      }
-    })
-
-    const storedText = await fs.readFile(payload.artifact.file_path, 'utf8')
-    expect(JSON.parse(storedText)).toEqual({
-      provider: 'vectcut',
-      action: 'status',
-      mode: 'asr',
-      error: '',
-      message: 'llm_asr 队列任务处理完成',
-      progress: 100,
-      result: {
-        content: '识别出的完整字幕文本',
-        error: '',
-        mode: 'asr',
-        effect_mode: 'llm',
-        segments: [{ start: 0, end: 1200, text: '识别出的字幕片段' }]
-      },
-      success: true,
-      status: 'success',
-      task_id: 'task-status-789',
-      url: 'https://example.com/source.mp4'
+    expect(payload.status).toBe('success')
+    expect(payload.content).toBe('最终字幕结果')
+    expect(payload.result_summary).toEqual({
+      has_result: true,
+      content_chars: '最终字幕结果'.length,
+      segment_count: 1,
+      result_mode: 'asr',
+      effect_mode: 'basic',
+      error: ''
     })
   })
 })

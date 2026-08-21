@@ -2679,7 +2679,7 @@
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "查詢字幕識別任務狀態",
-            "submit_subtitle_recognition_task": "提交字幕識別任務"
+            "submit_subtitle_recognition_task": "字幕識別"
           },
           "subtitle_template": {
             "generate_smart_subtitle": "智慧字幕生成",

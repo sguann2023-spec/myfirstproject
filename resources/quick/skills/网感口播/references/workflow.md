@@ -1,30 +1,521 @@
-# 1f9c 高级红工作流参考
+# 工作流参考
 
-本文件说明外部 Agent 如何把 ASR、模型规划和 VectCut 写草稿串起来。接口调用统一走 `scripts/koubo_1f9c_api.py`，不要依赖当前代码仓库。
+本文件说明如何组装并通过 `execute_workflow` 工具提交工作流 JSON。
 
-## 接口入口
+## 工作流 JSON 整体结构
 
-| 操作 | 脚本命令 | VectCut 接口 |
-|---|---|---|
-| 上传本地视频 | `upload-video` | `/sts/upload/agent_tmp/init` + OSS 表单上传 |
-| 查询时长 | `duration` | `/cut_jianying/get_duration` |
-| ASR 提交和轮询 | `asr submit-and-wait` | `/llm/asr/asr_llm/submit_task/*` |
-| 执行工作流 | `execute-workflow` | `/cut_jianying/execute_workflow` |
-| 查询草稿结构 | `query-script` | `/cut_jianying/query_script` |
-| 渲染预览 | `render submit-and-wait` | `/cut_jianying/generate_video` + `/cut_jianying/task_status` |
+```json
+{
+  "inputs": {
+    "draft_id": "dfd_xxx",
+    "video_path": "/path/to/source_video.mp4",
+    "audio_url": "https://oss-temp-url/audio.mp3",
+    "timeline_duration": 19.24,
+    "bgm_urls": ["https://...bgm1.MP3", "https://...bgm2.MP3"]
+  },
+  "script": [
+    {
+      "type": "action",
+      "id": "uuid_1",
+      "index": 0,
+      "action_type": "add_video",
+      "params": { ... }
+    }
+  ]
+}
+```
 
-`create-draft`、`add-video`、`add-text`、`add-audio`、`add-preset`、`add-keyframe` 只用于排查单个动作，不作为正常生产路径。
+**关键规则：**
+- `inputs` 是变量区，存放可复用的值（路径、URL、时长等）。
+- `script` 是动作序列，每个动作必须有 `type`、`id`、`index`、`action_type`、`params` 五个字段。
+- `index` 从 0 开始递增，必须连续。
+- `id` 必须全局唯一，格式建议 `uuid_N`。
 
-## 异步状态
+## inputs 中的变量引用
 
-ASR 和渲染这类异步任务都按同一状态机处理：
+`script` 的 `params` 中可以通过 `${...}` 语法引用 `inputs` 里的变量：
 
-- `status=processing`、`status=pending` 或 `success=false` 但没有失败状态时继续轮询。
-- `status=success`、`status=completed`、`status=done`、`status=finished` 或 `progress=100` 视为完成。
-- `status=failed`、`status=error`、`status=cancelled` 视为失败。
-- 轮询间隔建议 `2-5` 秒，最长等待 `1200` 秒。
+```json
+{
+  "inputs": {
+    "text": { "word": { "word": { "word": { "word": "Hello!" } } } },
+    "start": [0, 1, 2, 3],
+    "end": {
+      "time1": [
+        { "start": 5.0, "end": 10.0 },
+        { "start": 10.0, "end": 15.0 }
+      ]
+    }
+  },
+  "script": [
+    {
+      "type": "action",
+      "id": "uuid_1",
+      "index": 0,
+      "action_type": "add_text",
+      "params": {
+        "text": "${text.word.word.word.word}",
+        "start": "${start[3]}*${start[2]}",
+        "end": "${end.time1[1].start}+20",
+        "track_name": "text_main"
+      }
+    }
+  ]
+}
+```
 
-ASR 成功必须取得非空 `segments`。如果 `llm_vad` 没有有效句子，用 `effect_mode=llm` 重试一次。
+也可以引用前面步骤的返回值：`draft_id_${uuid_1.draft_id}_123`。
+
+> **注意**：实际使用时，也可以直接在 `params` 里写死具体值（字符串、数字、布尔值），不一定非要用变量引用。本技能中大部分参数都是直接写死的。
+
+## 支持的 action_type 及 params
+
+### add_video
+
+添加视频片段到草稿。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_1",
+  "index": 0,
+  "action_type": "add_video",
+  "params": {
+    "video_url": "https://example.com/video.mp4",
+    "start": 0.0,
+    "end": 5.0,
+    "target_start": 0.0,
+    "track_name": "video_main",
+    "volume": 1.0,
+    "relative_index": 100
+  }
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| video_url | string | ✅ | 视频路径或 URL |
+| start | number | ❌ | 源视频截取起始时间（秒） |
+| end | number | ❌ | 源视频截取结束时间（秒） |
+| target_start | number | ❌ | 在草稿时间轴上的起始位置（秒） |
+| track_name | string | ❌ | 轨道名 |
+| volume | number | ❌ | 音量 |
+| relative_index | number | ❌ | 层级 |
+
+**⚠️ 不支持的参数：`target_end`、`duration`。不要用！**
+
+### add_text
+
+添加文字层。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_2",
+  "index": 1,
+  "action_type": "add_text",
+  "params": {
+    "text": "你好世界",
+    "start": 0.0,
+    "end": 5.0,
+    "font": "思源粗宋",
+    "font_size": 15,
+    "font_color": "#ffffff",
+    "transform_y_px": -900,
+    "track_name": "text_main",
+    "relative_index": 10020,
+    "intro_animation": "打字机_I",
+    "intro_duration": 0.2
+  }
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| text | string | ✅ | 文字内容 |
+| start | number | ✅ | 起始时间（秒） |
+| end | number | ✅ | 结束时间（秒） |
+| font | string | ❌ | 字体名 |
+| font_size | number | ❌ | 字号 |
+| font_color | string | ❌ | 字体颜色 |
+| transform_y_px | number | ❌ | Y 偏移像素 |
+| transform_x_px | number | ❌ | X 偏移像素 |
+| track_name | string | ❌ | 轨道名 |
+| relative_index | number | ❌ | 层级 |
+| intro_animation | string | ❌ | 入场动画名 |
+| intro_duration | number | ❌ | 入场动画时长 |
+| letter_spacing | number | ❌ | 字间距 |
+| align | string | ❌ | 对齐方式 |
+| fixed_width | number | ❌ | 固定宽度 |
+
+**⚠️ 不支持的参数：`target_end`、`target_start`。不要用！**
+
+### add_audio
+
+添加音频轨道。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_3",
+  "index": 2,
+  "action_type": "add_audio",
+  "params": {
+    "audio_url": "https://example.com/bgm.MP3",
+    "start": 0.0,
+    "end": 5.0,
+    "track_name": "audio_bgm",
+    "volume": 0.8
+  }
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| audio_url | string | ✅ | 音频 URL |
+| start | number | ❌ | 源音频截取起始时间 |
+| end | number | ❌ | 源音频截取结束时间 |
+| track_name | string | ❌ | 轨道名 |
+| volume | number | ❌ | 音量（0-1） |
+
+**⚠️ 不支持的参数：`target_end`、`target_start`。不要用！**
+
+### add_subtitle
+
+添加 SRT 字幕。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_4",
+  "index": 3,
+  "action_type": "add_subtitle",
+  "params": {
+    "srt": "1\n00:00:00,000 --> 00:00:04,433\n你好\n\n2\n00:00:04,433 --> 00:00:11,360\n世界\n",
+    "track_name": "subtitle_1",
+    "font_size": 5.0
+  }
+}
+```
+
+### add_text_template
+
+添加文字模板。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_5",
+  "index": 4,
+  "action_type": "add_text_template",
+  "params": {
+    "template_id": "7373303725881822491",
+    "start": 2.0,
+    "track_name": "text_template_main"
+  }
+}
+```
+
+### add_image
+
+添加图片层。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_6",
+  "index": 5,
+  "action_type": "add_image",
+  "params": {
+    "image_url": "https://example.com/image.png",
+    "start": 5.0,
+    "end": 10.0,
+    "track_name": "image_main",
+    "scale_x": 0.8,
+    "scale_y": 0.8
+  }
+}
+```
+
+**⚠️ 不支持的参数：`target_end`。不要用！**
+
+### add_video_keyframe
+
+添加视频关键帧。支持单属性和批量两种格式。
+
+**单属性格式（推荐，简单场景）：**
+
+```json
+{
+  "type": "action",
+  "id": "uuid_7",
+  "index": 6,
+  "action_type": "add_video_keyframe",
+  "params": {
+    "track_name": "video_main",
+    "time": 10.5,
+    "property_type": "position_y_px",
+    "value": "1"
+  }
+}
+```
+
+**批量格式（多时间点、同属性）：**
+
+```json
+{
+  "type": "action",
+  "id": "uuid_8",
+  "index": 7,
+  "action_type": "add_video_keyframe",
+  "params": {
+    "track_name": "video_main",
+    "times": [10.5, 12.5],
+    "property_types": ["scale_x", "scale_x"],
+    "values": ["1.2", "1"]
+  }
+}
+```
+
+**⚠️ 批量格式关键约束：`property_types`、`times`、`values` 三个数组的长度必须完全相等！**
+
+如果需要给同一时间点设置多个不同属性（比如同时设置 scale_x 和 scale_y），必须拆成多个独立的 keyframe 步骤：
+
+```json
+// ✅ 正确：拆成两个步骤
+{ "action_type": "add_video_keyframe", "params": { "track_name": "video_main", "times": [10.11, 11.17], "property_types": ["scale_x", "scale_x"], "values": ["1.2", "1"] } }
+{ "action_type": "add_video_keyframe", "params": { "track_name": "video_main", "times": [10.11, 11.17], "property_types": ["scale_y", "scale_y"], "values": ["1.2", "1"] } }
+
+// ❌ 错误：property_types 长度 2 但 times/values 长度 4
+{ "action_type": "add_video_keyframe", "params": { "track_name": "video_main", "times": [10.11, 10.12, 11.16, 11.17], "property_types": ["scale_x", "scale_y"], "values": ["1", "1.2", "1.2", "1"] } }
+```
+
+### add_effect
+
+添加特效。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_9",
+  "index": 8,
+  "action_type": "add_effect",
+  "params": {
+    "effect_category": "scene",
+    "effect_type": "金粉闪闪",
+    "start": 0.0,
+    "end": 5.0,
+    "track_name": "effect_scene"
+  }
+}
+```
+
+### add_filter
+
+添加滤镜。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_10",
+  "index": 9,
+  "action_type": "add_filter",
+  "params": {
+    "filter_type": "清透",
+    "start": 0.0,
+    "end": 10.0,
+    "intensity": 0.8
+  }
+}
+```
+
+### add_preset
+
+添加预设模板（如提示音、贴纸等）。
+
+```json
+{
+  "type": "action",
+  "id": "uuid_11",
+  "index": 10,
+  "action_type": "add_preset",
+  "params": {
+    "preset_id": "preset_tone_emphasis",
+    "target_start": 5.0,
+    "track_name": "preset_tone_emphasis"
+  }
+}
+```
+
+## 轨道与重叠规则
+
+**同一轨道上的多个片段不能有时间重叠。** 这是最常见的报错原因。
+
+### 正确做法
+
+- 每个文字层使用独立轨道名，或者在同一轨道上按时间顺序排列（不重叠）。
+- 关键词弹出层（keyword_pop）必须使用与显示层不同的轨道名。
+- BGM 多段循环时，每段使用独立轨道名，或在同一轨道上首尾相接（不重叠）。
+
+### 轨道命名示例
+
+```
+video_main                          — 主视频轨道
+text_title_top                      — 标题上行
+text_title_bottom                   — 标题下行
+yimei_layered_top                   — 分层字幕上行（显示层）
+yimei_layered_bottom                — 分层字幕下行（显示层）
+yimei_layered_top_en                — 分层字幕上行英文
+yimei_layered_bottom_en             — 分层字幕下行英文
+yimei_layered_top_keyword_pop       — 上行关键词弹出（层级 > 显示层）
+yimei_layered_bottom_keyword_pop    — 下行关键词弹出（层级 > 显示层）
+yimei_normal_cn                     — 普通中文字幕
+yimei_normal_en                     — 普通英文字幕
+yimei_normal_keyword_pop            — 普通关键词弹出
+audio_bgm_0, audio_bgm_1, ...       — BGM 每段独立轨道
+preset_tone_emphasis                — 提示音 emphasis
+preset_tone_result                  — 提示音 result
+```
+
+### 层级（relative_index）规则
+
+关键词弹出层必须高于对应显示层：
+
+| 层 | relative_index |
+|----|---------------|
+| 普通字幕显示层 | 10020 |
+| 普通关键词弹出 | 10022 |
+| 分层上行显示层 | 10030 |
+| 分层上行关键词弹出 | 10034 |
+| 分层下行显示层 | 10032 |
+| 分层下行关键词弹出 | 10035 |
+
+## 常见错误与解决方案
+
+### 1. "第N步不支持的步骤类型: None"
+
+**原因**：步骤缺少 `type: "action"` 字段，或使用了错误的字段名。
+
+**解决**：确保每个步骤都有完整的五个字段：
+
+```json
+{
+  "type": "action",        // ← 必须有
+  "id": "uuid_N",          // ← 必须有，全局唯一
+  "index": N,              // ← 必须有，从 0 递增
+  "action_type": "add_xxx", // ← 注意是 action_type 不是 action
+  "params": { ... }         // ← 注意是 params 不是 inputs
+}
+```
+
+### 2. "New segment overlaps with existing segment"
+
+**原因**：同一轨道上有两个时间段重叠的片段。
+
+**解决**：
+- 关键词弹出层使用独立的 `_keyword_pop` 轨道
+- BGM 每段使用独立轨道名（`audio_bgm_0`、`audio_bgm_1`...）
+- 检查所有同轨道步骤的时间范围，确保不重叠
+
+### 3. "property_types、times、values 的长度必须相等"
+
+**原因**：批量关键帧的三个数组长度不一致。
+
+**解决**：不同属性拆成独立步骤。例如缩放动画需要同时控制 scale_x 和 scale_y，就拆成两个 keyframe 步骤。
+
+### 4. "unexpected keyword argument 'target_end'"
+
+**原因**：`add_video`、`add_audio`、`add_text`、`add_image` 不支持 `target_end` 参数。
+
+**解决**：移除所有 `target_end` 参数。用 `start` + `end` 控制源截取范围，用 `target_start` 控制时间轴位置。
+
+### 5. "add_audio_track() got an unexpected keyword argument 'target_end'"
+
+**原因**：同上，`add_audio` 不支持 `target_end`。
+
+**解决**：同上。
+
+## 去气口时间轴
+
+`remove_silence=true` 表示开启去气口。根据 ASR 句段生成连续目标时间轴：
+
+- 每个 ASR 句段保留 `source_index`、`text`、`source_start/source_end`、`target_start/target_end` 和 `words`。
+- 每个有效片段前后最多借用 `1.0` 秒可用静音间隙。
+- 借用不能超过源视频边界，不能与相邻片段重叠。
+- 平移后必须保证目标时间轴连续，不能出现空洞。
+- `timeline_segments` 的数量、顺序和文字必须与原始有效 ASR 段一一对应。
+
+`remove_silence=false` 表示关闭去气口。目标时间直接使用源视频时间。
+
+ASR 时间单位必须对同一次响应整体判断：只要任一句段明显是毫秒，全部句段和词级时间统一除以 `1000`。
+
+## 模型规划
+
+模型规划由 Agent 自己完成。模型输入使用时间轴后的 `segments`，输出一次性包含：
+
+- `title`：`top_title`、`bottom_title`。
+- `subtitle_items`：普通字幕、分层字幕、英文字幕、关键词、高亮、弹出层所需字段。
+- `transitions`：从 `向右`、`向左`、`竖向模糊` 中选择，每种最多一次。
+- `zoom`：最多一处缩放，包含 `source_index`、`start_ratio`、`end_ratio`。
+- `tone_effects`：`emphasis` 和 `result` 各最多一次。
+
+### 关键词弹出层规则
+
+- `normal_display_text` 和 `normal_keyword_pop_text` 长度必须等于原普通中文字幕长度。
+- `top_display_text` 和 `top_keyword_pop_text` 长度必须等于原上行中文字幕长度。
+- `bottom_display_text` 和 `bottom_keyword_pop_text` 长度必须等于原下行中文字幕长度。
+- `*_display_text` 中弹出关键词位置必须是全角空格 `\u3000`。
+- `*_keyword_pop_text` 中非关键词位置必须是全角空格 `\u3000`。
+- 弹出层位置必须复用对应原字幕层位置。
+- 弹出层层级必须高于对应原字幕显示层。
+- 没有 `打字机_I` 动画的字幕不能进入关键词弹出层。
+- 所有分层上行、下行及其英文、关键词弹出都必须使用共享轨道；同一层的多个字幕片段在同一个轨道里按时间排列。
+
+## BGM 列表
+
+从下面列表随机选择一条，循环铺满时间轴。每段 BGM 使用独立轨道名（如 `audio_bgm_0`、`audio_bgm_1`...），避免同一轨道上的时间重叠。查询 BGM 时长失败时按 `5.0` 秒切片兜底。
+
+```text
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/void.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/time_to_pretend.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/the_right_path.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/spoons_for_loons.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/night_cruising.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/Monsieur_melody.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/melody_mix.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/IV_feat.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/Golden_hour.MP3
+https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/Fight.MP3
+```
+
+## 提交工作流
+
+使用 `execute_workflow` 工具提交，传入 `inputs` 和 `script`：
+
+```
+execute_workflow(inputs={...}, script=[...])
+```
+
+也可以使用 `workflow_file` 参数传入本地 JSON 文件路径：
+
+```
+execute_workflow(workflow_file="workflow.json")
+```
+
+**⚠️ 严禁将工作流拆分为批量工具调用（add_batch_video、add_batch_text 等）。工作流只能通过 execute_workflow 提交。**
+
+## 输出校验
+
+最终至少检查：
+
+- 草稿 ID 和草稿链接非空。
+- 主视频片段覆盖目标时间轴，没有大段空白。
+- 标题存在，结束时间为 `min(5.0, timeline_duration)`。
+- 中文字幕和英文字幕数量与规划一致。
+- 关键词弹出只在命中打字机动画的字幕上出现。
+- 转场不超过三种固定类型。
+- 缩放最多一处。
+- BGM 覆盖到时间轴末尾。
 
 ## 多视频处理
 
@@ -35,8 +526,9 @@ ASR 成功必须取得非空 `segments`。如果 `llm_vad` 没有有效句子，
 3. 整理去气口时间轴。
 4. 模型生成高级红规划。
 5. 校验规划。
-6. 执行当前视频的 workflow。
-7. 查询草稿结构校验。
+6. 创建草稿。
+7. 执行当前视频的 workflow。
+8. 查询草稿结构校验。
 
 多视频返回统一使用：
 
@@ -55,95 +547,3 @@ ASR 成功必须取得非空 `segments`。如果 `llm_vad` 没有有效句子，
   ]
 }
 ```
-
-## 去气口时间轴
-
-`remove_silence=true` 表示开启去气口。根据 ASR 句段生成连续目标时间轴：
-
-- 每个 ASR 句段保留 `source_index`、`text`、`source_start/source_end`、`target_start/target_end` 和 `words`。
-- 每个有效片段前后最多借用 `1.0` 秒可用静音间隙。
-- 借用不能超过源视频边界，不能与相邻片段重叠。
-- 平移后必须保证目标时间轴连续，不能出现空洞。
-- `timeline_segments` 的数量、顺序和文字必须与原始有效 ASR 段一一对应。
-
-`remove_silence=false` 表示关闭去气口。目标时间直接使用源视频时间，主视频可以按完整视频或连续片段写入。
-
-ASR 时间单位必须对同一次响应整体判断：只要任一句段明显是毫秒，全部句段和词级时间统一除以 `1000`。
-
-## 模型规划
-
-模型规划由当前 Codex 或接入方 Agent 自己完成，不调用 VectCut 远程 LLM Chat 接口。模型输入使用时间轴后的 `segments`，输出一次性包含：
-
-- `title`：`top_title`、`bottom_title`。
-- `subtitle_items`：普通字幕、分层字幕、英文字幕、关键词、高亮、弹出层所需字段。
-- `transitions`：从 `向右`、`向左`、`竖向模糊` 中选择，每种最多一次。
-- `zoom`：最多一处，缩放 `1.2`。
-- `tone_presets`：结果音和强调音各最多一次。
-- `bgm`：从固定 BGM 列表中选择一条。
-
-规划必须遵守 `references/llm-prompts.md` 的字段和校验规则。不能跨 `source_index` 合并字幕，不能改写原文。
-
-## 工作流写入策略
-
-完成 ASR、去气口时间轴和模型规划后，不要逐条串行调用 `add_video`、`add_text`、`add_audio`、`add_preset`、`add_video_keyframe`。应该为当前视频组装一个完整 workflow，并调用：
-
-```bash
-python scripts/koubo_1f9c_api.py --api-key "$VECTCUT_API_KEY" execute-workflow --workflow-file "/tmp/koubo_1f9c_workflow.json"
-```
-
-工作流采用 `inputs + script` 结构。推荐顺序：
-
-1. `create_draft`：创建 `1080x1920` 草稿。用户自定义 `draft_name` 原样使用；多视频时追加序号；未指定时使用“高级红口播”加时间戳。
-2. `add_video`：按去气口后的 `clip_ranges` 循环添加主视频片段，轨道 `video_main`，音量 `20`，必要时带转场；所有转场的 `transition_duration` 固定为 `0.2` 秒。
-3. `add_text`：添加开头标题。
-4. `add_text`：循环添加中文、英文、关键词高亮和关键词弹出文字层。关键词弹出必须用源码的全角空格占位叠加方式：原字幕显示层使用 `*_display_text` 挖空关键词，关键词弹出层使用同长度 `*_keyword_pop_text` 只露关键词，并复用原字幕层的坐标、`fixed_width` 和 `align`。
-   分层字幕必须按层复用固定轨道：`yimei_layered_top`、`yimei_layered_bottom`、`yimei_layered_top_en`、`yimei_layered_bottom_en`；分层关键词弹出复用 `yimei_layered_top_keyword_pop` 和 `yimei_layered_bottom_keyword_pop`。不要按字幕序号创建独立分层轨道。
-5. `add_video_keyframe`：如果命中缩放句，给 `video_main` 添加缩放关键帧。
-6. `add_preset`：添加结果音和强调音，每个 preset 最多一次。
-7. `add_audio`：循环添加 BGM，铺满目标时间轴。
-
-workflow 成功只表示写入完成，仍要用 `query-script` 查询草稿结构做最终校验。若 workflow 失败，再用单个 `add-*` 命令调试定位问题。
-
-## 关键词弹出写入校验
-
-生成 workflow 前必须检查关键词弹出字段：
-
-- `normal_display_text` 和 `normal_keyword_pop_text` 长度必须等于原普通中文字幕长度。
-- `top_display_text` 和 `top_keyword_pop_text` 长度必须等于原上行中文字幕长度。
-- `bottom_display_text` 和 `bottom_keyword_pop_text` 长度必须等于原下行中文字幕长度。
-- `*_display_text` 中弹出关键词位置必须是全角空格 `\u3000`。
-- `*_keyword_pop_text` 中非关键词位置必须是全角空格 `\u3000`。
-- 弹出层位置必须复用对应原字幕层位置：普通层复用 `normal_y_px`，上行复用 `top_x_px/top_y_px/align=0/fixed_width=0.78`，下行复用 `bottom_x_px/bottom_y_px/align=2/fixed_width=0.86`。
-- 弹出层层级必须高于对应原字幕显示层：普通 `10022 > 10020`，上行 `10034 > 10030`，下行 `10035 > 10032`。
-- 没有 `打字机_I` 动画的字幕不能进入 `top_keyword_pop_texts`、`bottom_keyword_pop_texts` 或 `normal_keyword_pop_texts`。
-- 所有分层上行、下行及其英文、关键词弹出都必须使用共享轨道；同一层的多个字幕片段在同一个轨道里按时间排列。
-
-## BGM 列表
-
-从下面列表随机选择一条，查询时长后循环铺满时间轴。查询 BGM 时长失败时按 `5.0` 秒切片兜底，最多 200 段。
-
-```text
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/void.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/time_to_pretend.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/the_right_path.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/spoons_for_loons.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/night_cruising.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/Monsieur_melody.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/melody_mix.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/IV_feat.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/Golden_hour.MP3
-https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/koubo/bgm/Fight.MP3
-```
-
-## 输出校验
-
-最终至少检查：
-
-- 草稿 ID 和草稿链接非空。
-- 主视频片段覆盖目标时间轴，没有大段空白。
-- 标题存在，结束时间为 `min(5.0, timeline_duration)`。
-- 中文字幕和英文字幕数量与规划一致。
-- 关键词弹出只在命中打字机动画的字幕上出现。
-- 转场不超过三种固定类型。
-- 缩放最多一处。
-- BGM 覆盖到时间轴末尾。

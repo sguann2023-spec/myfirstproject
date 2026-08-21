@@ -1,18 +1,18 @@
 {
-  "updatedAt": "2026-08-20T10:44:35Z",
+  "updatedAt": "2026-08-21T18:30:34Z",
   "skills": {
-    "儿童绘本": {
+    "网感口播": {
       "version": "1.0.0",
-      "name": "儿童绘本",
-      "folderName": "儿童绘本",
-      "action": "bootstrap-childrens-picture-book",
+      "name": "网感口播",
+      "folderName": "网感口播",
+      "action": "bootstrap-trendy-koubo",
       "order": 1,
-      "headline": "中国传统历史故事",
-      "description": "生成儿童绘本故事。用户提到创作儿童绘本、睡前故事、幼儿故事、绘本分页内容或角色故事时触发。",
-      "websitePath": "儿童绘本/website/index.html",
-      "coverPath": "儿童绘本/website/cover.jpg",
-      "coverUrl": "https://player.install-ai-guider.top/quick/skills/儿童绘本/website/cover.jpg",
-      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/children_book/children_book.mp4"
+      "headline": "高级红双语口播模板",
+      "description": "独立制作网感口播竖屏草稿。当用户明确说“网感口播”时使用；必须要求用户提交公网视频链接或上传本地视频，只有文案不能生成；按网感口播模板生成标题、双语字幕、关键词弹出、转场、缩放、提示音和 BGM。",
+      "websitePath": "",
+      "coverPath": "",
+      "coverUrl": "",
+      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/koubo_1f9c/f95ff31e-6a92-4fcd-9b1d-c7421a031f68.mp4"
     },
     "旅游攻略混剪": {
       "version": "1.0.0",

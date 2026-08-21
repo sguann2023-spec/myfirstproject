@@ -25,8 +25,11 @@ PUBLIC_BASE_URL = "https://player.install-ai-guider.top/quick/skills"
 
 SKILL_CONFIGS = [
     {
-        "folder_name": "儿童绘本",
-        "action": "bootstrap-childrens-picture-book",
+        "folder_name": "网感口播",
+        "name": "网感口播",
+        "headline": "高级红双语口播模板",
+        "preview_video_url": "https://player.install-ai-guider.top/example/skills/koubo_1f9c/f95ff31e-6a92-4fcd-9b1d-c7421a031f68.mp4",
+        "action": "bootstrap-trendy-koubo",
         "version": "1.0.0",
         "order": 1,
     },
@@ -120,17 +123,24 @@ def build_manifest(skills_root: Path) -> dict:
         website_dir = skills_root / folder_name / "website"
         website_path = website_dir / "index.html"
         skill_md_path = skills_root / folder_name / "SKILL.md"
-        if not website_path.exists():
-            raise FileNotFoundError(f"Website file not found: {website_path}")
         if not skill_md_path.exists():
             raise FileNotFoundError(f"Skill file not found: {skill_md_path}")
 
-        content = website_path.read_text(encoding="utf-8")
-        title = extract_first(TITLE_PATTERN, content, "title")
-        preview_video_url = extract_first(VIDEO_PATTERN, content, "preview video url")
-        headline = extract_first(HEADING_PATTERN, content, "preview heading")
+        title = str(config.get("name") or folder_name).strip()
+        headline = str(config.get("headline") or "").strip()
+        preview_video_url = str(config.get("preview_video_url") or "").strip()
+        website_relative_path = ""
+        cover_path = ""
+
+        if website_path.exists():
+            content = website_path.read_text(encoding="utf-8")
+            title = extract_first(TITLE_PATTERN, content, "title")
+            preview_video_url = extract_first(VIDEO_PATTERN, content, "preview video url")
+            headline = extract_first(HEADING_PATTERN, content, "preview heading")
+            website_relative_path = website_path.relative_to(skills_root).as_posix()
+            cover_path = detect_cover_relative_path(website_dir, skills_root)
+
         description = extract_skill_description(skill_md_path)
-        cover_path = detect_cover_relative_path(website_dir, skills_root)
 
         skills[folder_name] = {
             "version": config["version"],
@@ -140,7 +150,7 @@ def build_manifest(skills_root: Path) -> dict:
             "order": config["order"],
             "headline": headline,
             "description": description,
-            "websitePath": website_path.relative_to(skills_root).as_posix(),
+            "websitePath": website_relative_path,
             "coverPath": cover_path,
             "coverUrl": build_cover_url(cover_path),
             "previewVideoUrl": preview_video_url,

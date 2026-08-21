@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockNetFetch, mockStoreGet, mockStoreSet, storeState } = vi.hoisted(() => ({
@@ -42,6 +45,10 @@ type CutWorkflowServerInstance = InstanceType<typeof CutWorkflowServer>
 
 function createServer() {
   return new CutWorkflowServer()
+}
+
+function createServerWithWorkspace(workspacePath: string) {
+  return new CutWorkflowServer(workspacePath)
 }
 
 async function callTool(server: CutWorkflowServerInstance, toolName: string, args: Record<string, unknown>) {
@@ -207,5 +214,98 @@ describe('CutWorkflowServer', () => {
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       workflow_id: 'workflow_saved_123'
     })
+  })
+
+  it('should execute a workflow from workflow_file inside the workspace', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-workflow-test-'))
+    const workflowPath = path.join(workspaceRoot, 'workflow.json')
+
+    await fs.writeFile(
+      workflowPath,
+      JSON.stringify({
+        inputs: {
+          title: '来自文件的工作流'
+        },
+        script: [
+          {
+            type: 'action',
+            id: 'step_from_file',
+            index: 0,
+            action_type: 'add_text',
+            params: {
+              text: '${inputs.title}'
+            }
+          }
+        ]
+      }),
+      'utf8'
+    )
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          error: '',
+          output: {
+            draft_id: 'dfd_workflow_from_file',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_workflow_from_file'
+          }
+        })
+      )
+
+    const server = createServerWithWorkspace(workspaceRoot)
+    await callTool(server, 'execute_workflow', {
+      workflow_file: 'workflow.json'
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      inputs: {
+        title: '来自文件的工作流'
+      },
+      script: [
+        {
+          type: 'action',
+          id: 'step_from_file',
+          index: 0,
+          action_type: 'add_text',
+          params: {
+            text: '${inputs.title}'
+          }
+        }
+      ]
+    })
+
+    await fs.rm(workspaceRoot, { recursive: true, force: true })
+  })
+
+  it('should reject workflow_file outside the configured workspace', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-workflow-test-'))
+    const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-workflow-outside-'))
+    const outsideWorkflowPath = path.join(outsideRoot, 'workflow.json')
+
+    await fs.writeFile(
+      outsideWorkflowPath,
+      JSON.stringify({
+        workflow_id: 'workflow_outside'
+      }),
+      'utf8'
+    )
+
+    const server = createServerWithWorkspace(workspaceRoot)
+    const result = await callTool(server, 'execute_workflow', {
+      workflow_file: outsideWorkflowPath
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('outside the configured workspace root')
+
+    await fs.rm(workspaceRoot, { recursive: true, force: true })
+    await fs.rm(outsideRoot, { recursive: true, force: true })
   })
 })

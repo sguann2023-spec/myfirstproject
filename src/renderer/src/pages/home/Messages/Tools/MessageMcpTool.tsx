@@ -38,6 +38,10 @@ import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './MessageAgentTools/KouboTemplateTool'
+import {
+  isSubtitleRecognitionToolName,
+  SubtitleRecognitionToolBody
+} from './MessageAgentTools/SubtitleRecognitionTool'
 
 interface Props {
   block: ToolMessageBlock
@@ -60,7 +64,8 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
   const { id, tool, status, response, partialArguments } = toolResponse
   const isKouboTemplate = isKouboTemplateToolName(tool?.name)
-  const [activeKeys, setActiveKeys] = useState<string[]>(() => (isKouboTemplate ? [id] : []))
+  const isSubtitleRecognition = isSubtitleRecognitionToolName(tool?.name)
+  const [activeKeys, setActiveKeys] = useState<string[]>(() => (isKouboTemplate || isSubtitleRecognition ? [id] : []))
   const isPending = status === 'pending'
   const isDone = status === 'done'
   const isError = status === 'error'
@@ -90,7 +95,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
   // Auto-expand when streaming, auto-collapse when done
   useEffect(() => {
-    if (isKouboTemplate) {
+    if (isKouboTemplate || isSubtitleRecognition) {
       return
     }
 
@@ -101,7 +106,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       // Collapse when streaming ends
       setActiveKeys((prev) => prev.filter((key) => key !== id))
     }
-  }, [isStreaming, isDone, isError, id, isKouboTemplate])
+  }, [isStreaming, isDone, isError, id, isKouboTemplate, isSubtitleRecognition])
 
   if (!toolResponse) {
     return null
@@ -193,7 +198,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
             isExpanded={activeKeys.includes(id)}
             args={isStreaming ? partialArguments : toolResponse.arguments}
             isStreaming={!!isStreaming}
-            response={isKouboTemplate || isDone || isError ? toolResponse.response : undefined}
+            response={isKouboTemplate || isSubtitleRecognition || isDone || isError ? toolResponse.response : undefined}
             progress={progress}
             progressMessage={progressMessage}
             isRunning={isPending || isStreaming}
@@ -268,6 +273,7 @@ const ToolResponseContent: FC<{
   const [isTruncated, setIsTruncated] = useState(false)
   const [originalLength, setOriginalLength] = useState(0)
   const isKouboTemplate = isKouboTemplateToolName(toolName)
+  const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
 
   // Parse args if it's a string (streaming partial JSON)
   const parsedArgs = useMemo(() => {
@@ -309,6 +315,18 @@ const ToolResponseContent: FC<{
   if (isKouboTemplate) {
     return (
       <KouboTemplateToolBody
+        input={parsedArgs ?? args}
+        output={response}
+        progress={progress}
+        progressMessage={progressMessage}
+        isRunning={isRunning}
+      />
+    )
+  }
+
+  if (isSubtitleRecognition) {
+    return (
+      <SubtitleRecognitionToolBody
         input={parsedArgs ?? args}
         output={response}
         progress={progress}

@@ -2,6 +2,7 @@ import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
@@ -16,13 +17,16 @@ const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const SUBTITLE_RECOGNITION_EFFECT_MODES = ['basic', 'nlp', 'llm', 'llm_vad'] as const
+const SUBTITLE_RECOGNITION_TASK_WAIT_TIME = '15-30 minutes'
+const SUBTITLE_RECOGNITION_POLL_INTERVAL_MS = 5 * 1000
+const SUBTITLE_RECOGNITION_POLL_TIMEOUT_MS = 35 * 60 * 1000
 
 type SubtitleRecognitionEffectMode = (typeof SUBTITLE_RECOGNITION_EFFECT_MODES)[number]
 
 const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   name: 'submit_subtitle_recognition_task',
   description:
-    'Submit an asynchronous subtitle recognition task for a remote audio or video URL. This extracts subtitle text and timed segments only, without writing anything back into a draft. If the source is a local file, run workspace upload first and pass the returned URL here.',
+    'Run subtitle recognition for a remote audio or video URL and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. If the source is a local file, run workspace upload first and pass the returned URL here.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -33,8 +37,8 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
       effectMode: {
         type: 'string',
         enum: [...SUBTITLE_RECOGNITION_EFFECT_MODES],
-          description:
-            'Optional recognition strength. Use basic for fast baseline ASR, nlp for fast short-video sentence splitting with a 12-character limit per line, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to llm.'
+        description:
+          'Optional recognition strength. Use basic for fast baseline ASR, nlp for fast short-video sentence splitting with a 12-character limit per line, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to llm.'
       },
       content: {
         type: 'string',
@@ -46,25 +50,25 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   }
 }
 
-const GET_SUBTITLE_RECOGNITION_TASK_STATUS_TOOL: Tool = {
-  name: 'get_subtitle_recognition_task_status',
-  description: 'Query the status of a subtitle recognition task by task ID.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'Required task ID returned by submit_subtitle_recognition_task.'
-      }
-    },
-    required: ['taskId'],
-    additionalProperties: false
-  }
-}
-
 type PendingToken = {
   accessToken: string
   expiresAt: number
+}
+
+type ToolExecutionExtra = {
+  requestId: string | number
+  _meta?: {
+    progressToken?: ProgressToken
+  }
+  sendNotification: (notification: {
+    method: 'notifications/progress'
+    params: {
+      progressToken: ProgressToken
+      progress: number
+      total?: number
+      message?: string
+    }
+  }) => Promise<void>
 }
 
 type SubtitleRecognitionSubmitResponse = {
@@ -122,19 +126,17 @@ class SubtitleRecognitionServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL, GET_SUBTITLE_RECOGNITION_TASK_STATUS_TOOL]
+      tools: [SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
         switch (toolName) {
           case 'submit_subtitle_recognition_task':
-            return await this.submitSubtitleRecognitionTask(args as Record<string, unknown>)
-          case 'get_subtitle_recognition_task_status':
-            return await this.getSubtitleRecognitionTaskStatus(args as Record<string, unknown>)
+            return await this.submitSubtitleRecognitionTask(args as Record<string, unknown>, extra as ToolExecutionExtra)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -307,43 +309,52 @@ class SubtitleRecognitionServer {
     return payload
   }
 
-  private async submitSubtitleRecognitionTask(args: Record<string, unknown>) {
-    const payload = this.buildSubmitPayload(args)
-    const response = await this.requestWithAuth(SUBTITLE_RECOGNITION_SUBMIT_ENDPOINT, {
-      method: 'POST',
-      body: payload
-    })
+  private async sleep(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`Subtitle recognition submit failed (${response.status}): ${body || 'unknown error'}`)
+  private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    if (!extra?._meta?.progressToken) {
+      return
     }
 
-    const result = (await response.json()) as SubtitleRecognitionSubmitResponse
-
-    logger.info('Subtitle recognition task submitted', {
-      effectMode: payload.effect_mode,
-      taskId: result.task_id
-    })
-
-    return this.formatJsonResult({
-      provider: 'vectcut',
-      action: 'submit',
-      mode: 'subtitle_recognition',
-      task_mode: typeof payload.content === 'string' ? 'sta' : 'asr',
-      url: payload.url,
-      effect_mode: payload.effect_mode,
-      content: payload.content,
-      ...result
+    await extra.sendNotification({
+      method: 'notifications/progress',
+      params: {
+        progressToken: extra._meta.progressToken,
+        progress,
+        total: 100,
+        message
+      }
     })
   }
 
-  private async getSubtitleRecognitionTaskStatus(args: Record<string, unknown>) {
-    const taskId = typeof args.taskId === 'string' ? args.taskId.trim() : ''
-    if (!taskId) {
-      throw new McpError(ErrorCode.InvalidParams, "'taskId' is required for get_subtitle_recognition_task_status")
-    }
+  private normalizeTaskStatus(value: unknown): string {
+    return String(value || '').trim().toLowerCase()
+  }
 
+  private isTaskCompleted(result: SubtitleRecognitionTaskStatusResponse): boolean {
+    const status = this.normalizeTaskStatus(result.status)
+    if (status === 'success' || status === 'completed' || status === 'done') {
+      return true
+    }
+    return false
+  }
+
+  private isTaskFailed(result: SubtitleRecognitionTaskStatusResponse): boolean {
+    const status = this.normalizeTaskStatus(result.status)
+    return status === 'failed' || status === 'error' || status === 'cancelled'
+  }
+
+  private mapProgress(result: SubtitleRecognitionTaskStatusResponse, attempt: number): number {
+    if (typeof result.progress === 'number' && Number.isFinite(result.progress)) {
+      const numericProgress = result.progress <= 1 ? result.progress * 100 : result.progress
+      return Math.max(15, Math.min(95, Math.round(numericProgress)))
+    }
+    return Math.min(92, 15 + attempt * 4)
+  }
+
+  private async querySubtitleRecognitionTaskStatus(taskId: string) {
     const response = await this.requestWithAuth(SUBTITLE_RECOGNITION_STATUS_ENDPOINT, {
       method: 'GET',
       query: new URLSearchParams({ task_id: taskId })
@@ -362,44 +373,131 @@ class SubtitleRecognitionServer {
       success: result.success
     })
 
-    const responsePayload = {
-      provider: 'vectcut',
-      action: 'status',
-      mode: 'subtitle_recognition',
-      ...result
+    return result
+  }
+
+  private async waitForSubtitleRecognitionTaskResult(taskId: string, extra?: ToolExecutionExtra) {
+    const deadline = Date.now() + SUBTITLE_RECOGNITION_POLL_TIMEOUT_MS
+    let attempt = 0
+
+    while (Date.now() < deadline) {
+      attempt += 1
+      const result = await this.querySubtitleRecognitionTaskStatus(taskId)
+      const status = this.normalizeTaskStatus(result.status)
+
+      logger.info('Subtitle recognition task poll', {
+        taskId,
+        attempt,
+        status,
+        success: result.success,
+        progress: result.progress,
+        message: result.message || ''
+      })
+
+      if (this.isTaskCompleted(result)) {
+        await this.reportProgress(extra, 100, result.message || '字幕识别完成')
+        return result
+      }
+
+      if (this.isTaskFailed(result)) {
+        throw new Error(
+          `Subtitle recognition task failed: ${result.error || result.result?.error || result.message || 'unknown error'}`
+        )
+      }
+
+      await this.reportProgress(extra, this.mapProgress(result, attempt), result.message || '正在识别字幕')
+      await this.sleep(SUBTITLE_RECOGNITION_POLL_INTERVAL_MS)
     }
 
-    if (result.result) {
+    throw new Error(
+      `Subtitle recognition task timed out after ${Math.round(SUBTITLE_RECOGNITION_POLL_TIMEOUT_MS / 60000)} minutes while waiting for completion`
+    )
+  }
+
+  private async submitSubtitleRecognitionTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    await this.reportProgress(extra, 5, '正在提交字幕识别任务')
+    const payload = this.buildSubmitPayload(args)
+    const response = await this.requestWithAuth(SUBTITLE_RECOGNITION_SUBMIT_ENDPOINT, {
+      method: 'POST',
+      body: payload
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Subtitle recognition submit failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as SubtitleRecognitionSubmitResponse
+
+    logger.info('Subtitle recognition task submitted', {
+      effectMode: payload.effect_mode,
+      taskId: result.task_id
+    })
+
+    const taskId = typeof result.task_id === 'string' ? result.task_id.trim() : ''
+    if (!taskId) {
+      throw new Error(`Subtitle recognition submission returned no task ID: ${JSON.stringify(result)}`)
+    }
+
+    await this.reportProgress(extra, 12, '字幕识别任务已提交，正在处理中')
+    const finalResult = await this.waitForSubtitleRecognitionTaskResult(taskId, extra)
+
+    const summaryPayload = {
+      provider: 'vectcut',
+      action: 'submit_and_wait',
+      mode: 'subtitle_recognition',
+      estimated_wait_time: SUBTITLE_RECOGNITION_TASK_WAIT_TIME,
+      task_mode: typeof payload.content === 'string' ? 'sta' : 'asr',
+      url: payload.url,
+      effect_mode: payload.effect_mode,
+      source_summary: [
+        {
+          original_input: payload.url,
+          submitted_url: payload.url,
+          source_kind: 'remote_media'
+        }
+      ],
+      error: finalResult.error || '',
+      message: finalResult.message || '',
+      progress: finalResult.progress,
+      success: finalResult.success,
+      status: finalResult.status,
+      content: typeof finalResult.result?.content === 'string' ? finalResult.result.content : '',
+      recognition_mode: finalResult.mode,
+      recognition_url: finalResult.url,
+      task_id: undefined
+    }
+
+    if (finalResult.result) {
+      const artifactPayload = {
+        ...summaryPayload,
+        result: finalResult.result
+      }
+
       const artifact = await persistWorkspaceJsonArtifact({
         toolName: 'subtitle-recognition',
         taskId,
-        payload: responsePayload,
+        payload: artifactPayload,
         workspaceRoot: this.workspacePath
       })
 
       if (artifact) {
         return this.formatJsonResult({
-          provider: 'vectcut',
-          action: 'status',
-          mode: result.mode || 'subtitle_recognition',
-          error: result.error || '',
-          message: result.message || '',
-          progress: result.progress,
-          success: result.success,
-          status: result.status,
-          task_id: result.task_id,
-          url: result.url,
+          ...summaryPayload,
           artifact: {
             storage: 'workspace_file',
             file_path: artifact.filePath,
             relative_path: artifact.relativePath
           },
-          result_summary: this.summarizeTaskStatusResult(result)
+          result_summary: this.summarizeTaskStatusResult(finalResult)
         })
       }
     }
 
-    return this.formatJsonResult(responsePayload)
+    return this.formatJsonResult({
+      ...summaryPayload,
+      result_summary: this.summarizeTaskStatusResult(finalResult)
+    })
   }
 }
 

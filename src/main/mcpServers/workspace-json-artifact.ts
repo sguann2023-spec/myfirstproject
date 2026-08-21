@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -20,11 +21,32 @@ function sanitizePathSegment(value: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+function isInternalRuntimeWorkspacePath(value: string): boolean {
+  const normalized = path.normalize(String(value || '')).toLowerCase()
+  return normalized.includes(`${path.sep}data${path.sep}workspaces${path.sep}`)
+}
+
+function resolveArtifactWorkspaceRoot(explicitWorkspaceRoot?: string): string {
+  const workspaceRoot = String(explicitWorkspaceRoot || process.env.WORKSPACE_ROOT || '').trim()
+  if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+    return ''
+  }
+
+  const devWorkspaceRoot = String(process.cwd() || '').trim()
+  const shouldPreferDevWorkspace =
+    process.env.NODE_ENV === 'development'
+    && isInternalRuntimeWorkspacePath(workspaceRoot)
+    && path.isAbsolute(devWorkspaceRoot)
+    && existsSync(path.join(devWorkspaceRoot, 'package.json'))
+
+  return shouldPreferDevWorkspace ? path.normalize(path.resolve(devWorkspaceRoot)) : workspaceRoot
+}
+
 export async function persistWorkspaceJsonArtifact(
   input: PersistWorkspaceJsonArtifactInput
 ): Promise<PersistWorkspaceJsonArtifactResult | null> {
-  const workspaceRoot = String(input.workspaceRoot || process.env.WORKSPACE_ROOT || '').trim()
-  if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+  const workspaceRoot = resolveArtifactWorkspaceRoot(input.workspaceRoot)
+  if (!workspaceRoot) {
     return null
   }
 

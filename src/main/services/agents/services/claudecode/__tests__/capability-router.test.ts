@@ -809,6 +809,29 @@ describe('CapabilityRouter', () => {
     expect(localWorkflowDecision.selected.has('uploadFile')).toBe(true)
   })
 
+  it('keeps explicit workflow execution separate from batch draft tools', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '按工作流执行这个剪辑任务，把多个文字和多个视频一次性写进草稿，不要走批量工具',
+      sessionId: 'session-cut-workflow-not-batch',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(['workflow'])
+    expect(decision.selected.has('cutWorkflow')).toBe(true)
+    expect(decision.selected.has('textAddBatch')).toBe(false)
+    expect(decision.selected.has('videoAddBatch')).toBe(false)
+    expect(decision.selected.has('audioAddBatch')).toBe(false)
+    expect(decision.selected.has('presetAddBatch')).toBe(false)
+    expect(decision.selected.has('textAdd')).toBe(false)
+    expect(decision.selected.has('videoAdd')).toBe(false)
+  })
+
   it('allows cut and ai_media domains to combine in the same request', () => {
     const router = new CapabilityRouter()
 

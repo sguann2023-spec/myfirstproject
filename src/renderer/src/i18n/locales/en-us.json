@@ -2680,7 +2680,7 @@
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "Check Subtitle Recognition Task Status",
-            "submit_subtitle_recognition_task": "Submit Subtitle Recognition Task"
+            "submit_subtitle_recognition_task": "Subtitle Recognition"
           },
           "subtitle_template": {
             "generate_smart_subtitle": "Generate Smart Subtitle",
