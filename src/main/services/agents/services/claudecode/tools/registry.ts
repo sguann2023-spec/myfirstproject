@@ -3,6 +3,7 @@ import { loggerService } from '@logger'
 import AssistantServer from '@main/mcpServers/assistant'
 import type BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
+import CutWorkflowServer from '@main/mcpServers/cut-workflow'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
@@ -334,6 +335,19 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add('mcp__subtitle-template__generate_smart_subtitle')
     autoAllowTools.add('mcp__subtitle-template__get_smart_subtitle_task_status')
     allowMcpPattern('mcp__subtitle-template__*')
+  }
+
+  if (hasCutDomain) {
+    const cutWorkflowServer = new CutWorkflowServer(cwd)
+    mountMcpServer('cut-workflow', {
+      type: 'sdk',
+      name: 'cut-workflow',
+      instance: cutWorkflowServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
+    })
+    autoAllowTools.add('mcp__cut-workflow__execute_workflow')
+    allowMcpPattern('mcp__cut-workflow__*')
   }
 
   if (hasScraptDomain) {

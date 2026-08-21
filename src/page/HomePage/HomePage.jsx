@@ -1679,9 +1679,14 @@ const HomePage = () => {
 
   useEffect(() => {
     try {
-      const rawSessions = localStorage.getItem(CHAT_STORAGE_KEY);
-      const rawActiveId = localStorage.getItem(CHAT_ACTIVE_ID_KEY);
-      const parsed = rawSessions ? JSON.parse(rawSessions) : [];
+      const storedSessions = electronStore.get(CHAT_STORAGE_KEY);
+      const storedActiveId = electronStore.get(CHAT_ACTIVE_ID_KEY);
+      const legacyRawSessions = localStorage.getItem(CHAT_STORAGE_KEY);
+      const legacyRawActiveId = localStorage.getItem(CHAT_ACTIVE_ID_KEY);
+      const parsed = Array.isArray(storedSessions)
+        ? storedSessions
+        : (storedSessions ? JSON.parse(storedSessions) : (legacyRawSessions ? JSON.parse(legacyRawSessions) : []));
+      const resolvedActiveId = String(storedActiveId || legacyRawActiveId || '').trim();
       if (Array.isArray(parsed) && parsed.length > 0) {
         const normalized = parsed
           .filter((item) => item && typeof item === 'object' && item.id)
@@ -1697,9 +1702,13 @@ const HomePage = () => {
               : [],
           }));
         if (normalized.length > 0) {
+          electronStore.set(CHAT_STORAGE_KEY, normalized);
+          electronStore.set(CHAT_ACTIVE_ID_KEY, resolvedActiveId || normalized[0].id);
+          localStorage.removeItem(CHAT_STORAGE_KEY);
+          localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
           let nextSessions = sortChatSessions(normalized);
-          let nextActiveChatId = nextSessions.some((item) => item.id === rawActiveId)
-            ? rawActiveId
+          let nextActiveChatId = nextSessions.some((item) => item.id === resolvedActiveId)
+            ? resolvedActiveId
             : nextSessions[0].id;
 
           if (shouldRestoreBeginnerGuideInFreshChat()) {
@@ -1726,7 +1735,7 @@ const HomePage = () => {
         }
       }
     } catch (error) {
-      logger.warn('Failed to load chat sessions from localStorage.', error);
+      logger.warn('Failed to load chat sessions from persistence.', error);
     }
     setActiveChatId((prev) => prev || chatSessions[0]?.id || null);
   }, []);
@@ -1760,12 +1769,14 @@ const HomePage = () => {
           ? session.messages.map((message) => normalizePersistedChatMessage(message, chatModelOptions))
           : []
       }));
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistedSessions));
+      electronStore.set(CHAT_STORAGE_KEY, persistedSessions);
       if (activeChatId) {
-        localStorage.setItem(CHAT_ACTIVE_ID_KEY, activeChatId);
+        electronStore.set(CHAT_ACTIVE_ID_KEY, activeChatId);
       }
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+      localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
     } catch (error) {
-      logger.warn('Failed to persist chat sessions to localStorage.', error);
+      logger.warn('Failed to persist chat sessions to electronStore.', error);
     }
   }, [chatSessions, activeChatId]);
 

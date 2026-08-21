@@ -718,6 +718,22 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const workflowDecision = router.select({
+      prompt: '执行这个剪辑工作流，把 add_text 和 add_video 一次性写进草稿',
+      sessionId: 'session-cut-workflow',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const localWorkflowDecision = router.select({
+      prompt: '用这个本地视频 sample.mp4 执行剪辑工作流',
+      sessionId: 'session-local-cut-workflow',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
 
     expect(createDecision.primaryDomain).toBe('cut')
     expect(createDecision.subdomains).toEqual(['draft'])
@@ -783,6 +799,14 @@ describe('CapabilityRouter', () => {
     expect(localKouboDecision.selected.has('kouboTemplate')).toBe(true)
     expect(localKouboDecision.selected.has('uploadFile')).toBe(true)
     expect(localKouboDecision.selected.has('digitalHuman')).toBe(false)
+    expect(workflowDecision.primaryDomain).toBe('cut')
+    expect(workflowDecision.subdomains).toEqual(['workflow'])
+    expect(workflowDecision.selected.has('cutWorkflow')).toBe(true)
+    expect(workflowDecision.selected.has('kouboTemplate')).toBe(false)
+    expect(localWorkflowDecision.primaryDomain).toBe('cut')
+    expect(localWorkflowDecision.subdomains).toEqual(['workflow'])
+    expect(localWorkflowDecision.selected.has('cutWorkflow')).toBe(true)
+    expect(localWorkflowDecision.selected.has('uploadFile')).toBe(true)
   })
 
   it('allows cut and ai_media domains to combine in the same request', () => {

@@ -59,6 +59,7 @@ export type RuntimeCapability =
   | 'imageIntroAnimationList'
   | 'imageOutroAnimationList'
   | 'imageLoopAnimationList'
+  | 'cutWorkflow'
   | 'subtitleTemplate'
   | 'draftCreate'
   | 'draftUpdateMeta'
@@ -329,6 +330,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('image_loop_animation_list') && !selected.has('imageLoopAnimationList')) {
         addCapabilityReason(selected, reasons, 'imageLoopAnimationList', 'intent:cut.image_loop_animation_list')
       }
+      if (activeDomain.subdomains.includes('workflow') && !selected.has('cutWorkflow')) {
+        addCapabilityReason(selected, reasons, 'cutWorkflow', 'intent:cut.workflow')
+      }
       if (activeDomain.subdomains.includes('draft_create') && !selected.has('draftCreate')) {
         addCapabilityReason(selected, reasons, 'draftCreate', 'intent:cut.draft_create')
       }
@@ -448,6 +452,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'imageIntroAnimationList',
   'imageOutroAnimationList',
   'imageLoopAnimationList',
+  'cutWorkflow',
   'subtitleTemplate',
   'draftCreate',
   'draftUpdateMeta',
@@ -522,6 +527,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'imageIntroAnimationList',
   'imageOutroAnimationList',
   'imageLoopAnimationList',
+  'cutWorkflow',
   'subtitleTemplate',
   'draftCreate',
   'draftUpdateMeta',
@@ -580,6 +586,7 @@ const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
   image_intro_animation_list: 'edit',
   image_outro_animation_list: 'edit',
   image_loop_animation_list: 'edit',
+  workflow: 'workflow',
   subtitle_recognition: 'analysis',
   video_understand: 'analysis',
   draft_create: 'draft',
@@ -974,6 +981,7 @@ const CUT_TEMPLATE_KEYWORDS = [
   '口播剪辑',
   '剪一下口播'
 ]
+const CUT_WORKFLOW_EXACT_KEYWORDS = ['剪辑工作流', '剪映工作流', '执行工作流', 'execute_workflow', 'workflow_id']
 const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
 const CUT_SUBTITLE_RECOGNITION_KEYWORDS = [
   '字幕识别',
@@ -1033,6 +1041,12 @@ const hasSubtitleTemplateIntent = (text: string) =>
     /(字幕模板|字幕模版|字幕样式|字幕风格|样式模板|样式模版)/.test(text)) ||
   (/(字幕样式|字幕风格|字幕模板|字幕模版|样式模板|样式模版)/.test(text) &&
     /(音频|视频|audio|video)/.test(text))
+
+const hasCutWorkflowIntent = (text: string) =>
+  hasAnyKeyword(text, CUT_WORKFLOW_EXACT_KEYWORDS) ||
+  ((text.includes('工作流') || text.includes('workflow')) &&
+    (/(剪辑|剪映|草稿|时间线|timeline)/.test(text) ||
+      /create_draft|add_text|add_image|add_video|add_audio|add_subtitle|add_preset|add_video_keyframe/.test(text)))
 
 const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
 const hasImageFileReference = (text: string) => IMAGE_FILE_REFERENCE_PATTERN.test(text)
@@ -1508,6 +1522,7 @@ export class CapabilityRouter {
         (/(模型|分辨率|时长|duration|gen_duration|超分|闲时生成|首帧|尾帧|首尾帧|静音|无声|无声音|有声|声音)/.test(text) ||
           /seedance|veo|grok-video/i.test(text))
       const hasExplicitSpeechGenerationIntent = /(语音合成|生成语音|配音|朗读|念出来|tts|音色|旁白|speech)/i.test(text)
+      const hasCutWorkflow = hasCutWorkflowIntent(text)
       const hasImplicitBrowserUrlIntent =
         hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
 
@@ -1533,6 +1548,7 @@ export class CapabilityRouter {
         /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
         ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
+        (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
         (hasTemplateIntent && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
         (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text)) ||
         (hasAiVideoIntent && !hasUrlLikeText(args.prompt) && (hasLocalImageContext(text) || hasLocalMediaContext(text)))
@@ -1806,6 +1822,10 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'imageLoopAnimationList', 'prompt:image-loop-animation-list')
       }
 
+      if (hasCutWorkflow) {
+        addCapabilityReason(selected, reasons, 'cutWorkflow', 'prompt:cut-workflow')
+      }
+
       if (shouldApplySubtitleTemplate) {
         addCapabilityReason(selected, reasons, 'subtitleTemplate', 'prompt:subtitle-template')
       }
@@ -2061,6 +2081,7 @@ function classifyIntent(args: {
     args.selected.has('imageIntroAnimationList') ||
     args.selected.has('imageOutroAnimationList') ||
     args.selected.has('imageLoopAnimationList') ||
+    args.selected.has('cutWorkflow') ||
     args.selected.has('draftCreate') ||
     args.selected.has('draftUpdateMeta') ||
     args.selected.has('draftInspect') ||
@@ -2226,6 +2247,7 @@ function classifyIntent(args: {
   if (args.selected.has('imageLoopAnimationList')) {
     addDomainSubdomain('cut', 'image_loop_animation_list', 'capability:image-loop-animation-list')
   }
+  if (args.selected.has('cutWorkflow')) addDomainSubdomain('cut', 'workflow', 'capability:cut-workflow')
   if (args.selected.has('draftCreate')) addDomainSubdomain('cut', 'draft_create', 'capability:draft-create')
   if (args.selected.has('draftUpdateMeta')) addDomainSubdomain('cut', 'draft_update_meta', 'capability:draft-update-meta')
   if (args.selected.has('draftInspect')) addDomainSubdomain('cut', 'draft_inspect', 'capability:draft-inspect')

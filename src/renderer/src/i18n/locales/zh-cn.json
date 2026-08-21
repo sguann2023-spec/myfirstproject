@@ -2517,6 +2517,7 @@
           "cherry_dify_knowledge_server": "Dify 知识库",
           "claw": "Claw",
           "copylab": "文案反推",
+          "cut_workflow": "剪辑工作流",
           "digital_human": "数字人",
           "draft_elements": "草稿处理",
           "draft_download": "草稿下载",
@@ -2579,6 +2580,9 @@
           },
           "copylab": {
             "derive_copy_prompt": "提取文案提示词"
+          },
+          "cut_workflow": {
+            "execute_workflow": "执行工作流"
           },
           "digital_human": {
             "create_image_driven_digital_human": "创建图片驱动数字人",

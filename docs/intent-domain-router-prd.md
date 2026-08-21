@@ -336,6 +336,7 @@ type IntentRoute = {
 - `image_intro_animation_list`
 - `image_outro_animation_list`
 - `image_loop_animation_list`
+- `workflow`：执行剪辑工作流
 - `subtitle_template`
 - `template`
 
@@ -392,6 +393,7 @@ type IntentRoute = {
 - `image_intro_animation_list` -> `mcp__draft-elements__get_intro_animation_types`
 - `image_outro_animation_list` -> `mcp__draft-elements__get_outro_animation_types`
 - `image_loop_animation_list` -> `mcp__draft-elements__get_combo_animation_types`
+- `workflow` -> `mcp__cut-workflow__execute_workflow`
 - `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle` / `mcp__subtitle-template__get_smart_subtitle_task_status`
 - `template` -> `mcp__koubo-template__submit_koubo_template_task` / `mcp__koubo-template__get_koubo_template_task_status`
 
@@ -402,6 +404,7 @@ type IntentRoute = {
 - `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；底层走异步 ASR 任务提交 + 状态查询链路；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
 - `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；输入应为已完成前置上传后的服务端可访问视频链接
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
+- `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流批量执行多个剪辑动作；适合批量添加字幕、循环插入素材、一次性写入复杂草稿等场景；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；若工作流里引用本地音视频图片，应先通过 `workspace.upload` 转成远程可访问 URL，再写入工作流 JSON
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
 - `add_preset` / `add_batch_preset`：预设片段能力，面向用户预先在剪映中制作并上传、已拿到 `preset_id` 的预设模版；`add_preset` 用于添加单个预设片段，支持通过 `replacements` 替换其中的图片、视频、文字、音频等素材，支持 `target_start`、`track_name`、位移缩放旋转以及画布尺寸参数，未传 `draft_id` 时默认生成新草稿；`add_batch_preset` 用于一次插入多个预设片段，核心参数是 `preset_ids`、`starts`、`ends`，并可选传入 `target_starts`、`target_ends` 控制各片段目标时间范围；适合字幕片段、混剪素材、批量画中画等重复结构内容生成
 - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；输入要求为服务端可访问的远程视频链接，应消费已完成前置上传后的 URL；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
@@ -418,6 +421,7 @@ type IntentRoute = {
 - 用户提到“把两个视频拼在一起”“合并多个视频片段”“拼接视频文件”“把几段视频接成一个”时，应优先命中 `video_concat`
 - 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
 - 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
+- 用户提到“执行剪辑工作流”“运行 workflow_id”“把 inputs + script 一次性写进草稿”“调用 execute_workflow”时，应优先命中 `workflow`
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
 - `subtitle_recognition` 仅接受音频/视频链接；若输入原始形态是本地文件路径、拖入文件或 workspace 内文件，应先通过独立前置的 `workspace.upload` 转成临时可访问 URL，再执行字幕识别；禁止把本地路径直接传给远端字幕识别接口
 - `video_understand` 仅接受服务端可访问的视频链接；若输入原始形态是本地视频文件路径、拖入文件或 workspace 内视频，应先通过独立前置的 `workspace.upload` 转成临时可访问 URL，再执行视频理解；禁止把本地路径直接传给远端视频理解接口
@@ -600,6 +604,7 @@ type IntentRoute = {
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
 | `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 识别后按字幕样式模版上屏并写回草稿 |
+| `执行这个剪辑工作流，把多个 add_text 和 add_video 一次写进草稿` | `cut` | `["workflow"]` | 长耗时远端工作流执行 |
 | `剪一下口播` | `cut` | `["template"]` | 剪辑任务，后续可再细分 |
 | `模版剪辑` | `cut` | `["template"]` | 剪辑任务 |
 | `看下这个草稿内容对不对` | `cut` | `["draft_inspect"]` | 主动查看草稿内容 |

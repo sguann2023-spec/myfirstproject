@@ -2517,6 +2517,7 @@
           "cherry_dify_knowledge_server": "Dify Knowledge",
           "claw": "Claw",
           "copylab": "Copy Reverse Engineering",
+          "cut_workflow": "Cut Workflow",
           "digital_human": "Digital Human",
           "draft_elements": "Draft Processing",
           "draft_download": "Draft Download",
@@ -2579,6 +2580,9 @@
           },
           "copylab": {
             "derive_copy_prompt": "Extract Copy Prompt"
+          },
+          "cut_workflow": {
+            "execute_workflow": "Execute Workflow"
           },
           "digital_human": {
             "create_image_driven_digital_human": "Create Image-Driven Digital Human",
