@@ -42,6 +42,7 @@ const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
 const CHAT_SNAPSHOT_THROTTLE_MS = 100;
+const CHAT_PERSIST_DEBOUNCE_MS = 800;
 const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
@@ -903,6 +904,25 @@ const shouldHydrateChatSessionFromHistory = (session) => {
   });
 };
 
+const shouldPersistChatSessionMessages = (session) => {
+  if (!session || !Array.isArray(session.messages)) return false;
+  const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+  if (!runtimeSessionId) return true;
+  return shouldHydrateChatSessionFromHistory(session);
+};
+
+const serializeChatSessionsForPersistence = (sessions = [], modelOptions = []) => (
+  (Array.isArray(sessions) ? sessions : []).map((session) => ({
+    ...session,
+    runtimeSessionId: String(session?.runtimeSessionId || '').trim(),
+    messages: shouldPersistChatSessionMessages(session)
+      ? (Array.isArray(session?.messages)
+          ? session.messages.map((message) => normalizePersistedChatMessage(message, modelOptions))
+          : [])
+      : []
+  }))
+);
+
 const countVisibleAssistantMessages = (messages = []) => (
   (Array.isArray(messages) ? messages : []).reduce((count, message) => {
     if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
@@ -1214,6 +1234,7 @@ const HomePage = () => {
   const chatHistoryHydratingRef = useRef(new Set());
   const chatHistoryHydrateSettledRef = useRef(new Set());
   const chatDeferredSessionChangeHydrateRef = useRef(new Map());
+  const chatPersistTimerRef = useRef(null);
   const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -1702,10 +1723,12 @@ const HomePage = () => {
               : [],
           }));
         if (normalized.length > 0) {
-          electronStore.set(CHAT_STORAGE_KEY, normalized);
-          electronStore.set(CHAT_ACTIVE_ID_KEY, resolvedActiveId || normalized[0].id);
-          localStorage.removeItem(CHAT_STORAGE_KEY);
-          localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
+          if (legacyRawSessions || legacyRawActiveId) {
+            electronStore.set(CHAT_STORAGE_KEY, serializeChatSessionsForPersistence(normalized));
+            electronStore.set(CHAT_ACTIVE_ID_KEY, resolvedActiveId || normalized[0].id);
+            localStorage.removeItem(CHAT_STORAGE_KEY);
+            localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
+          }
           let nextSessions = sortChatSessions(normalized);
           let nextActiveChatId = nextSessions.some((item) => item.id === resolvedActiveId)
             ? resolvedActiveId
@@ -1762,23 +1785,33 @@ const HomePage = () => {
   }, [chatModelOptions]);
 
   useEffect(() => {
-    try {
-      const persistedSessions = (Array.isArray(chatSessions) ? chatSessions : []).map((session) => ({
-        ...session,
-        messages: Array.isArray(session?.messages)
-          ? session.messages.map((message) => normalizePersistedChatMessage(message, chatModelOptions))
-          : []
-      }));
-      electronStore.set(CHAT_STORAGE_KEY, persistedSessions);
-      if (activeChatId) {
-        electronStore.set(CHAT_ACTIVE_ID_KEY, activeChatId);
-      }
-      localStorage.removeItem(CHAT_STORAGE_KEY);
-      localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
-    } catch (error) {
-      logger.warn('Failed to persist chat sessions to electronStore.', error);
+    if (chatPersistTimerRef.current) {
+      clearTimeout(chatPersistTimerRef.current);
     }
-  }, [chatSessions, activeChatId]);
+
+    chatPersistTimerRef.current = setTimeout(() => {
+      try {
+        const persistedSessions = serializeChatSessionsForPersistence(chatSessions, chatModelOptions);
+        electronStore.set(CHAT_STORAGE_KEY, persistedSessions);
+        if (activeChatId) {
+          electronStore.set(CHAT_ACTIVE_ID_KEY, activeChatId);
+        }
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+        localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
+      } catch (error) {
+        logger.warn('Failed to persist chat sessions to electronStore.', error);
+      } finally {
+        chatPersistTimerRef.current = null;
+      }
+    }, CHAT_PERSIST_DEBOUNCE_MS);
+
+    return () => {
+      if (chatPersistTimerRef.current) {
+        clearTimeout(chatPersistTimerRef.current);
+        chatPersistTimerRef.current = null;
+      }
+    };
+  }, [chatSessions, activeChatId, chatModelOptions]);
 
   useEffect(() => {
     const nextChatToAgent = new Map();
@@ -2313,6 +2346,10 @@ const HomePage = () => {
         if (entry?.timer) clearTimeout(entry.timer);
       });
       chatSnapshotThrottleByRequestIdRef.current.clear();
+      if (chatPersistTimerRef.current) {
+        clearTimeout(chatPersistTimerRef.current);
+        chatPersistTimerRef.current = null;
+      }
     };
   }, []);
 

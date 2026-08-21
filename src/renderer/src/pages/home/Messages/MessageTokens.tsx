@@ -41,6 +41,11 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + message.id, false)
   }
 
+  const getUsageList = () =>
+    Array.isArray(message.usageSteps) && message.usageSteps.length > 0
+      ? (message.usageSteps as MessageUsageWithCacheDetails[])
+      : ([message?.usage as MessageUsageWithCacheDetails | undefined].filter(Boolean) as MessageUsageWithCacheDetails[])
+
   const getCacheInputTokens = (usage?: MessageUsageWithCacheDetails) => {
     const cacheReadTokens =
       Number(
@@ -106,23 +111,32 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getPrice = () => {
-    if (Array.isArray(message.usageSteps) && message.usageSteps.length > 0) {
-      return message.usageSteps.reduce(
-        (total: number, usageStep: Message['usage']) => total + getUsagePrice(usageStep as MessageUsageWithCacheDetails),
-        0
-      )
-    }
+    return getUsageList().reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
+  }
 
-    return getUsagePrice(message?.usage as MessageUsageWithCacheDetails | undefined)
+  const getAggregatedUsage = () => {
+    return getUsageList().reduce(
+      (total, usage) => {
+        const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
+        const completionTokens = Number(usage?.completion_tokens ?? 0) || 0
+        const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
+
+        total.prompt_tokens += promptTokens
+        total.completion_tokens += completionTokens
+        total.total_tokens += totalTokens
+
+        return total
+      },
+      {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      }
+    )
   }
 
   const getCacheReadSummaryString = () => {
-    const usageList =
-      Array.isArray(message.usageSteps) && message.usageSteps.length > 0
-        ? (message.usageSteps as MessageUsageWithCacheDetails[])
-        : ([message?.usage as MessageUsageWithCacheDetails | undefined].filter(Boolean) as MessageUsageWithCacheDetails[])
-
-    const cacheReadTokens = usageList.reduce((total, usage) => total + getCacheInputTokens(usage).cacheReadTokens, 0)
+    const cacheReadTokens = getUsageList().reduce((total, usage) => total + getCacheInputTokens(usage).cacheReadTokens, 0)
     if (cacheReadTokens <= 0) {
       return ''
     }
@@ -138,12 +152,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getCacheSavingString = () => {
-    const usageList =
-      Array.isArray(message.usageSteps) && message.usageSteps.length > 0
-        ? (message.usageSteps as MessageUsageWithCacheDetails[])
-        : ([message?.usage as MessageUsageWithCacheDetails | undefined].filter(Boolean) as MessageUsageWithCacheDetails[])
-
-    const cacheReadTokens = usageList.reduce((total, usage) => total + getCacheInputTokens(usage).cacheReadTokens, 0)
+    const cacheReadTokens = getUsageList().reduce((total, usage) => total + getCacheInputTokens(usage).cacheReadTokens, 0)
     if (cacheReadTokens <= 0) {
       return ''
     }
@@ -183,6 +192,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   if (message.role === 'assistant') {
     let metricsText = ''
     let hasMetrics = false
+    const aggregatedUsage = getAggregatedUsage()
     const cacheReadSummaryText = getCacheReadSummaryString()
     const cacheSavingText = getCacheSavingString()
     if (message?.metrics?.completion_tokens && message?.metrics?.time_completion_millsec) {
@@ -198,9 +208,9 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     const tokensInfo = (
       <span className="tokens">
         Tokens:
-        <span>{message?.usage?.total_tokens}</span>
-        <span>↑{message?.usage?.prompt_tokens}</span>
-        <span>↓{message?.usage?.completion_tokens}</span>
+        <span>{aggregatedUsage.total_tokens}</span>
+        <span>↑{aggregatedUsage.prompt_tokens}</span>
+        <span>↓{aggregatedUsage.completion_tokens}</span>
         {cacheReadSummaryText ? <span>{cacheReadSummaryText}</span> : null}
         <span>{getPriceString()}</span>
         {cacheSavingText ? <span>{cacheSavingText}</span> : null}
