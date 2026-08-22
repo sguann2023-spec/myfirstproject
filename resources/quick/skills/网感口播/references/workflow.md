@@ -437,12 +437,17 @@ preset_tone_result                  — 提示音 result
 
 ## 去气口时间轴
 
-`remove_silence=true` 表示开启去气口。根据 ASR 句段生成连续目标时间轴：
+`remove_silence=true` 表示开启去气口。根据 ASR 句段生成目标时间轴：
 
 - 每个 ASR 句段保留 `source_index`、`text`、`source_start/source_end`、`target_start/target_end` 和 `words`。
 - 每个有效片段前后最多借用 `1.0` 秒可用静音间隙。
 - 借用不能超过源视频边界，不能与相邻片段重叠。
-- 平移后必须保证目标时间轴连续，不能出现空洞。
+- **字幕/文字层与时间戳对齐**：每条字幕的显示时间直接等于该句段的 `target_start` 到 `target_end`，不做额外偏移。
+- **主视频比文字前后各多 0.3 秒**：每个视频片段的实际显示时间 = `target_start - 0.3` 开始，到 `target_end + 0.3` 结束（即比对应文字早 0.3s 出现、晚 0.3s 消失）。如果片段时长不足 0.6 秒，则不额外扩展，视频与文字同起止。
+- **相邻视频片段重叠处理**：计算相邻两段文字的间隔 `gap = 下一段 target_start - 上一段 target_end`。
+  - 如果 `gap ≥ 0.6s`：两段视频自然重叠 0.6s，利用转场效果平滑过渡即可。
+  - 如果 `gap < 0.6s`：不重叠，取两段文字的中间点 `mid = (上一段 target_end + 下一段 target_start) / 2` 作为切割点——上一段视频到 `mid` 结束，下一段视频从 `mid` 开始，直接连贯拼接。
+- 时间轴总时长 = 最后一段视频的实际结束时间。
 - `timeline_segments` 的数量、顺序和文字必须与原始有效 ASR 段一一对应。
 
 `remove_silence=false` 表示关闭去气口。目标时间直接使用源视频时间。

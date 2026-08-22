@@ -16,6 +16,18 @@ type PersistedUsage = {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  prompt_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
+  input_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
 }
 
 export class TextStreamAccumulator {
@@ -39,6 +51,7 @@ export class TextStreamAccumulator {
   private initSlashCommands: string[] = []
   private committedUsage?: PersistedUsage
   private pendingUsage?: PersistedUsage
+  private readonly committedUsageSteps: PersistedUsage[] = []
 
   private flushTextBuffer(): void {
     if (!this.textBuffer) {
@@ -225,10 +238,28 @@ export class TextStreamAccumulator {
   private static addUsage(base?: PersistedUsage, delta?: PersistedUsage): PersistedUsage | undefined {
     if (!base) return delta ? { ...delta } : undefined
     if (!delta) return { ...base }
+    const baseCacheRead = Number(base.cache_read_input_tokens ?? 0) || 0
+    const baseCacheWrite = Number(base.cache_creation_input_tokens ?? 0) || 0
+    const deltaCacheRead = Number(delta.cache_read_input_tokens ?? 0) || 0
+    const deltaCacheWrite = Number(delta.cache_creation_input_tokens ?? 0) || 0
+    const cacheReadTokens = baseCacheRead + deltaCacheRead
+    const cacheWriteTokens = baseCacheWrite + deltaCacheWrite
     return {
       prompt_tokens: base.prompt_tokens + delta.prompt_tokens,
       completion_tokens: base.completion_tokens + delta.completion_tokens,
-      total_tokens: base.total_tokens + delta.total_tokens
+      total_tokens: base.total_tokens + delta.total_tokens,
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: cacheWriteTokens,
+      prompt_tokens_details: {
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      },
+      input_tokens_details: {
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      }
     }
   }
 
@@ -236,6 +267,10 @@ export class TextStreamAccumulator {
     inputTokens?: number | null
     outputTokens?: number | null
     totalTokens?: number | null
+    inputTokenDetails?: {
+      cacheReadTokens?: number | null
+      cacheWriteTokens?: number | null
+    }
   }): PersistedUsage | undefined {
     if (!usage) {
       return undefined
@@ -244,6 +279,8 @@ export class TextStreamAccumulator {
     const promptTokens = Number(usage.inputTokens ?? 0)
     const completionTokens = Number(usage.outputTokens ?? 0)
     const totalTokens = Number(usage.totalTokens ?? promptTokens + completionTokens)
+    const cacheReadTokens = Number(usage.inputTokenDetails?.cacheReadTokens ?? 0) || 0
+    const cacheWriteTokens = Number(usage.inputTokenDetails?.cacheWriteTokens ?? 0) || 0
 
     if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
       return undefined
@@ -252,7 +289,19 @@ export class TextStreamAccumulator {
     return {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
-      total_tokens: totalTokens
+      total_tokens: totalTokens,
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: cacheWriteTokens,
+      prompt_tokens_details: {
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      },
+      input_tokens_details: {
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      }
     }
   }
 
@@ -260,6 +309,10 @@ export class TextStreamAccumulator {
     inputTokens?: number | null
     outputTokens?: number | null
     totalTokens?: number | null
+    inputTokenDetails?: {
+      cacheReadTokens?: number | null
+      cacheWriteTokens?: number | null
+    }
   }): void {
     const normalizedUsage = this.normalizeUsageFromSdk(usage)
     if (!normalizedUsage) {
@@ -273,12 +326,23 @@ export class TextStreamAccumulator {
     inputTokens?: number | null
     outputTokens?: number | null
     totalTokens?: number | null
+    inputTokenDetails?: {
+      cacheReadTokens?: number | null
+      cacheWriteTokens?: number | null
+    }
   }): void {
     const normalizedUsage = this.normalizeUsageFromSdk(usage) ?? this.pendingUsage
     if (!normalizedUsage) {
       return
     }
 
+    const lastCommittedUsage = this.committedUsageSteps[this.committedUsageSteps.length - 1]
+    if (lastCommittedUsage && JSON.stringify(lastCommittedUsage) === JSON.stringify(normalizedUsage)) {
+      this.pendingUsage = undefined
+      return
+    }
+
+    this.committedUsageSteps.push({ ...normalizedUsage })
     this.committedUsage = TextStreamAccumulator.addUsage(this.committedUsage, normalizedUsage)
     this.pendingUsage = undefined
   }
@@ -300,6 +364,10 @@ export class TextStreamAccumulator {
 
   getUsage(): PersistedUsage | undefined {
     return TextStreamAccumulator.addUsage(this.committedUsage, this.pendingUsage)
+  }
+
+  getUsageSteps(): PersistedUsage[] {
+    return this.committedUsageSteps.map((usage) => ({ ...usage }))
   }
 
   summarizeState(): Record<string, unknown> {

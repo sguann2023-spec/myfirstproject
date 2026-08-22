@@ -3,6 +3,7 @@ import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
 import type { Message } from '@renderer/types/newMessage'
 import { Popover } from 'antd'
 import { t } from 'i18next'
+import React from 'react'
 import styled from 'styled-components'
 
 interface MessageTokensProps {
@@ -41,10 +42,10 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + message.id, false)
   }
 
-  const getUsageList = () =>
+  const getUsageSteps = () =>
     Array.isArray(message.usageSteps) && message.usageSteps.length > 0
       ? (message.usageSteps as MessageUsageWithCacheDetails[])
-      : ([message?.usage as MessageUsageWithCacheDetails | undefined].filter(Boolean) as MessageUsageWithCacheDetails[])
+      : []
 
   const getCacheInputTokens = (usage?: MessageUsageWithCacheDetails) => {
     const cacheReadTokens =
@@ -110,33 +111,102 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     return (inputTokens * inputPointPerThousand + outputTokens * outputPointPerThousand) / 1000
   }
 
-  const getPrice = () => {
-    return getUsageList().reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
+  const getDisplayUsage = (): MessageUsageWithCacheDetails | undefined => {
+    const directUsage = message?.usage as MessageUsageWithCacheDetails | undefined
+    const usageSteps = getUsageSteps()
+
+    if (usageSteps.length > 0) {
+      return usageSteps.reduce(
+        (total, usage) => {
+          const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
+          const completionTokens = Number(usage?.completion_tokens ?? 0) || 0
+          const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
+          const { cacheReadTokens, cacheWriteTokens } = getCacheInputTokens(usage)
+
+          total.prompt_tokens += promptTokens
+          total.completion_tokens += completionTokens
+          total.total_tokens += totalTokens
+          total.cache_read_input_tokens += cacheReadTokens
+          total.cache_creation_input_tokens += cacheWriteTokens
+
+          return total
+        },
+        {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          prompt_tokens_details: {
+            cached_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_write_tokens: 0
+          },
+          input_tokens_details: {
+            cached_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_write_tokens: 0
+          }
+        }
+      )
+    }
+
+    if (!directUsage) {
+      return undefined
+    }
+
+    const directCache = getCacheInputTokens(directUsage)
+    const promptTokens = Number(directUsage?.prompt_tokens ?? 0) || 0
+    const completionTokens = Number(directUsage?.completion_tokens ?? 0) || 0
+    const totalTokens = Number(directUsage?.total_tokens ?? promptTokens + completionTokens) || 0
+    const cacheReadTokens = directCache.cacheReadTokens
+    const cacheWriteTokens = directCache.cacheWriteTokens
+
+    return {
+      ...(directUsage ?? {}),
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: cacheWriteTokens,
+      prompt_tokens_details: {
+        ...(directUsage?.prompt_tokens_details ?? {}),
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      },
+      input_tokens_details: {
+        ...(directUsage?.input_tokens_details ?? {}),
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      }
+    }
   }
 
+  const getPrice = () => {
+    const usageSteps = getUsageSteps()
+    if (usageSteps.length > 0) {
+      return usageSteps.reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
+    }
+
+    return getUsagePrice(getDisplayUsage())
+  }
+
+  const usageSteps = getUsageSteps()
+  const displayUsage = getDisplayUsage()
+
   const getAggregatedUsage = () => {
-    return getUsageList().reduce(
-      (total, usage) => {
-        const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
-        const completionTokens = Number(usage?.completion_tokens ?? 0) || 0
-        const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
-
-        total.prompt_tokens += promptTokens
-        total.completion_tokens += completionTokens
-        total.total_tokens += totalTokens
-
-        return total
-      },
-      {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0
-      }
-    )
+    const usage = displayUsage
+    return {
+      prompt_tokens: Number(usage?.prompt_tokens ?? 0) || 0,
+      completion_tokens: Number(usage?.completion_tokens ?? 0) || 0,
+      total_tokens: Number(usage?.total_tokens ?? 0) || 0
+    }
   }
 
   const getCacheReadSummaryString = () => {
-    const cacheReadTokens = getUsageList().reduce((total, usage) => total + getCacheInputTokens(usage).cacheReadTokens, 0)
+    const cacheReadTokens = getCacheInputTokens(displayUsage).cacheReadTokens
     if (cacheReadTokens <= 0) {
       return ''
     }
@@ -152,7 +222,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getCacheSavingString = () => {
-    const cacheReadTokens = getUsageList().reduce((total, usage) => total + getCacheInputTokens(usage).cacheReadTokens, 0)
+    const cacheReadTokens = getCacheInputTokens(displayUsage).cacheReadTokens
     if (cacheReadTokens <= 0) {
       return ''
     }
@@ -177,7 +247,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     return `| ${t('settings.messages.estimated_price')}: ${price.toFixed(2)}点`
   }
 
-  if (!message.usage) {
+  if (!message.usage && usageSteps.length === 0) {
     return null
   }
 

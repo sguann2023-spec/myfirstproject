@@ -65,7 +65,11 @@ describe('TextStreamAccumulator', () => {
       usage: {
         inputTokens: 100,
         outputTokens: 50,
-        totalTokens: 150
+        totalTokens: 150,
+        inputTokenDetails: {
+          cacheReadTokens: 40,
+          cacheWriteTokens: 10
+        }
       }
     } as any)
     accumulator.add({
@@ -73,15 +77,67 @@ describe('TextStreamAccumulator', () => {
       totalUsage: {
         inputTokens: 20,
         outputTokens: 10,
-        totalTokens: 30
+        totalTokens: 30,
+        inputTokenDetails: {
+          cacheReadTokens: 5,
+          cacheWriteTokens: 0
+        }
       }
     } as any)
 
     expect(accumulator.getUsage()).toEqual({
       prompt_tokens: 120,
       completion_tokens: 60,
-      total_tokens: 180
+      total_tokens: 180,
+      cache_read_input_tokens: 45,
+      cache_creation_input_tokens: 10,
+      prompt_tokens_details: {
+        cached_tokens: 45,
+        cache_creation_input_tokens: 10,
+        cache_write_tokens: 10
+      },
+      input_tokens_details: {
+        cached_tokens: 45,
+        cache_creation_input_tokens: 10,
+        cache_write_tokens: 10
+      }
     })
+    expect(accumulator.getUsageSteps()).toEqual([
+      {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        cache_read_input_tokens: 40,
+        cache_creation_input_tokens: 10,
+        prompt_tokens_details: {
+          cached_tokens: 40,
+          cache_creation_input_tokens: 10,
+          cache_write_tokens: 10
+        },
+        input_tokens_details: {
+          cached_tokens: 40,
+          cache_creation_input_tokens: 10,
+          cache_write_tokens: 10
+        }
+      },
+      {
+        prompt_tokens: 20,
+        completion_tokens: 10,
+        total_tokens: 30,
+        cache_read_input_tokens: 5,
+        cache_creation_input_tokens: 0,
+        prompt_tokens_details: {
+          cached_tokens: 5,
+          cache_creation_input_tokens: 0,
+          cache_write_tokens: 0
+        },
+        input_tokens_details: {
+          cached_tokens: 5,
+          cache_creation_input_tokens: 0,
+          cache_write_tokens: 0
+        }
+      }
+    ])
   })
 
   it('does not double count preview usage before a step finishes', () => {
@@ -123,7 +179,67 @@ describe('TextStreamAccumulator', () => {
     expect(accumulator.getUsage()).toEqual({
       prompt_tokens: 120,
       completion_tokens: 60,
-      total_tokens: 180
+      total_tokens: 180,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      prompt_tokens_details: {
+        cached_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_write_tokens: 0
+      },
+      input_tokens_details: {
+        cached_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_write_tokens: 0
+      }
     })
+  })
+
+  it('does not double count identical finish-step and finish usage', () => {
+    const accumulator = new TextStreamAccumulator()
+
+    accumulator.add({
+      type: 'finish-step',
+      usage: {
+        inputTokens: 325,
+        outputTokens: 351,
+        totalTokens: 39844,
+        inputTokenDetails: {
+          cacheReadTokens: 39168,
+          cacheWriteTokens: 0
+        }
+      }
+    } as any)
+    accumulator.add({
+      type: 'finish',
+      totalUsage: {
+        inputTokens: 325,
+        outputTokens: 351,
+        totalTokens: 39844,
+        inputTokenDetails: {
+          cacheReadTokens: 39168,
+          cacheWriteTokens: 0
+        }
+      }
+    } as any)
+
+    expect(accumulator.getUsage()).toEqual({
+      prompt_tokens: 325,
+      completion_tokens: 351,
+      total_tokens: 39844,
+      cache_read_input_tokens: 39168,
+      cache_creation_input_tokens: 0,
+      prompt_tokens_details: {
+        cached_tokens: 39168,
+        cache_creation_input_tokens: 0,
+        cache_write_tokens: 0
+      },
+      input_tokens_details: {
+        cached_tokens: 39168,
+        cache_creation_input_tokens: 0,
+        cache_write_tokens: 0
+      }
+    })
+    expect(accumulator.getUsageSteps()).toHaveLength(1)
   })
 })

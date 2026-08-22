@@ -219,6 +219,9 @@ ${evidenceLine}
 - Use \`Edit\` for a single localized change, or when you only have one verified anchor ready.
 - Prefer the smallest unique snippet that can anchor the change instead of replacing a large block or whole function.
 - If an edit fails because the string was not found or the file changed after reading, read the file again and retry with a freshly copied, smaller snippet.
+- When writing large files, long JSON, heavily escaped text, or multiple files in one task, avoid emitting multiple large write payloads in a single assistant message.
+- Prefer sequential writes and smaller steps over parallel large writes.
+- For large generated bodies, prefer local scripts or shell heredocs over streaming the full content through a single oversized write payload.
 - For creates, moves, renames, deletes, and path selection, do not guess folders or filenames that have not been verified inside the current workspace.
 - Do not default to the user's Downloads folder when a workspace path is available.
 - Avoid broad rewrites when a local change is enough.

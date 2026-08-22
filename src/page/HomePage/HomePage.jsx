@@ -946,6 +946,21 @@ const countStructuredAssistantBlocks = (messages = []) => (
   }, 0)
 );
 
+const countAssistantUsageSteps = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    const usageSteps = Array.isArray(message?.usageSteps) ? message.usageSteps : [];
+    return count + usageSteps.length;
+  }, 0)
+);
+
+const countAssistantPricedUsageMessages = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    return message?.usage && message?.model?.pricing ? count + 1 : count;
+  }, 0)
+);
+
 const hasUnstableAssistantToolBlocks = (messages = []) => {
   const seenToolCallIds = new Set();
   for (const message of Array.isArray(messages) ? messages : []) {
@@ -980,11 +995,15 @@ const shouldApplyHydratedMessages = ({
   const beforeVisibleAssistantCount = countVisibleAssistantMessages(currentMessages);
   const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
   const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
+  const beforeAssistantUsageStepCount = countAssistantUsageSteps(currentMessages);
+  const beforePricedUsageMessageCount = countAssistantPricedUsageMessages(currentMessages);
   const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
   const beforeHasInterruptedAssistantState = (Array.isArray(currentMessages) ? currentMessages : []).some(hasInterruptedAssistantState);
   const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
+  const afterAssistantUsageStepCount = countAssistantUsageSteps(hydratedMessages);
+  const afterPricedUsageMessageCount = countAssistantPricedUsageMessages(hydratedMessages);
   const afterHasInterruptedAssistantState = (Array.isArray(hydratedMessages) ? hydratedMessages : []).some(hasInterruptedAssistantState);
 
   return (
@@ -993,6 +1012,8 @@ const shouldApplyHydratedMessages = ({
     || afterMissingAssistantCount < beforeMissingAssistantCount
     || afterVisibleAssistantCount > beforeVisibleAssistantCount
     || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
+    || afterAssistantUsageStepCount > beforeAssistantUsageStepCount
+    || afterPricedUsageMessageCount > beforePricedUsageMessageCount
     || (beforeHasInterruptedAssistantState && !afterHasInterruptedAssistantState)
     || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
   );
@@ -1010,6 +1031,9 @@ const summarizeHydrateMessageCollection = (messages = []) => {
       contentChars: String(message?.content || '').length,
       blockCount: blocks.length,
       blockTypes: blocks.map((block) => String(block?.type || 'unknown')),
+      usageStepsCount: Array.isArray(message?.usageSteps) ? message.usageSteps.length : 0,
+      hasUsage: Boolean(message?.usage),
+      hasPricing: Boolean(message?.model?.pricing),
       imageBlockCount: imageBlocks.length,
       dataUrlImageBlockCount: imageBlocks.filter((block) => String(block?.url || '').startsWith('data:image/')).length
     };
@@ -1114,6 +1138,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     model: modelMeta,
     modelId: modelId || undefined,
     usage: sourceMessage?.usage ? { ...sourceMessage.usage } : undefined,
+    usageSteps: Array.isArray(sourceMessage?.usageSteps)
+      ? sourceMessage.usageSteps.map((usageStep) => ({ ...usageStep }))
+      : undefined,
     metrics: sourceMessage?.metrics ? { ...sourceMessage.metrics } : undefined,
     error: sourceMessage?.error || null,
       aborted: hasInterruptedAssistantState({
@@ -1354,7 +1381,11 @@ const HomePage = () => {
           currentMessageCount: currentMessages.length,
           hydratedMessageCount: hydratedMessages.length,
           currentStructuredAssistantBlockCount: countStructuredAssistantBlocks(currentMessages),
-          hydratedStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages)
+          hydratedStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages),
+          currentAssistantUsageStepCount: countAssistantUsageSteps(currentMessages),
+          hydratedAssistantUsageStepCount: countAssistantUsageSteps(hydratedMessages),
+          currentPricedUsageMessageCount: countAssistantPricedUsageMessages(currentMessages),
+          hydratedPricedUsageMessageCount: countAssistantPricedUsageMessages(hydratedMessages)
         });
         logger.warn('[CTXLOSS][HistoryHydrate] persisted-sync-skip', {
           chatId: normalizedChatId,
@@ -2107,6 +2138,10 @@ const HomePage = () => {
             afterMissingAssistantCount: countMissingVisibleAssistantMessages(hydratedMessages),
             beforeStructuredAssistantBlockCount: countStructuredAssistantBlocks(activeChatSession.messages),
             afterStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages),
+            beforeAssistantUsageStepCount: countAssistantUsageSteps(activeChatSession.messages),
+            afterAssistantUsageStepCount: countAssistantUsageSteps(hydratedMessages),
+            beforePricedUsageMessageCount: countAssistantPricedUsageMessages(activeChatSession.messages),
+            afterPricedUsageMessageCount: countAssistantPricedUsageMessages(hydratedMessages),
             messageCount: hydratedMessages.length
           });
           logger.warn('[CTXLOSS][HistoryHydrate] active-sync-skip', {

@@ -196,8 +196,8 @@ describe('SubtitleRecognitionServer', () => {
       recognition_url: 'https://example.com/source.mp4',
       artifact: {
         storage: 'workspace_file',
-        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'subtitle-recognition', 'task-asr-123.json'),
-        relative_path: path.join('.capcut', 'tool-results', 'subtitle-recognition', 'task-asr-123.json')
+        file_path: path.join(workspaceRoot, 'task-asr-123.json'),
+        relative_path: 'task-asr-123.json'
       },
       result_summary: {
         has_result: true,

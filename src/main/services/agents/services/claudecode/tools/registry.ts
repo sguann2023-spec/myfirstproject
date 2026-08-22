@@ -306,7 +306,9 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('subtitle-recognition', {
       type: 'sdk',
       name: 'subtitle-recognition',
-      instance: subtitleRecognitionServer.mcpServer
+      instance: subtitleRecognitionServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
     })
     autoAllowTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
     allowMcpPattern('mcp__subtitle-recognition__*')

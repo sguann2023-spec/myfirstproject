@@ -358,7 +358,7 @@ type IntentRoute = {
 - `text_delete` -> `mcp__draft-elements__remove_text`
 - `text_update` -> `mcp__draft-elements__modify_text`
 - `subtitle_srt` -> `mcp__draft-elements__add_subtitle`
-- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task`（单工具封装任务提交 + 轮询直到完成，不再对 Agent 暴露独立的 task_status 工具；回包中的字幕内容可能很长，完整结果优先写入 workspace 本地 `.capcut/tool-results/subtitle-recognition/<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理，MCP tool 超时与前端运行态展示可参考 `mcp__koubo-template__submit_koubo_template_task` / `KouboTemplateTool.tsx`）
+- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task`（单工具封装任务提交 + 轮询直到完成，不再对 Agent 暴露独立的 task_status 工具；支持 `basic`、`nlp`、`llm`、`llm_vad` 四个档位；回包中的字幕内容可能很长，完整结果优先直接写入当前 workspace 根目录下的 `<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理，MCP tool 超时与前端运行态展示可参考 `mcp__koubo-template__submit_koubo_template_task` / `KouboTemplateTool.tsx`）
 - `video_understand` -> `mcp__video-understand__submit_video_detail_task` / `mcp__video-understand__get_video_detail_task_status`（状态查询在返回长 JSON 结果时，优先将完整结果写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径）
 - `text_intro_animation_list` -> `mcp__draft-elements__get_text_intro_types`
 - `text_outro_animation_list` -> `mcp__draft-elements__get_text_outro_types`
@@ -401,7 +401,7 @@ type IntentRoute = {
 
 - `audio_extract` / `audio_concat` / `frame_capture` / `media_duration` / `media_trim` / `video_concat`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到首个源文件同目录；若输入是远程 URL，则可退回临时目录
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
-- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；返回结果中的字幕 JSON 可能很大，完整内容优先落盘到 workspace 本地 `.capcut/tool-results/subtitle-recognition/<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
+- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；返回结果中的字幕 JSON 可能很大，完整内容优先直接落盘到当前 workspace 根目录下的 `<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
 - `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；输入应为已完成前置上传后的服务端可访问视频链接
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
 - `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流 DSL 执行包含 `if` / `loop` / 多步骤编排在内的复杂剪辑流程；它不是“批量工具”的别名。`add_batch_*` 这类工具只表示单个平铺批量操作，不具备工作流分支、循环和编排语义。只要用户明确表达“执行工作流 / workflow / workflow_id / execute_workflow”，就必须优先命中 `workflow`，不能因为句子里同时出现“批量”“多个”“一次性”而退化到 `text_add_batch`、`image_add_batch`、`video_add_batch`、`audio_add_batch`、`add_batch_preset` 等批量工具；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；若工作流里引用本地音视频图片，应先通过 `workspace.upload` 转成远程可访问 URL，再写入工作流 JSON

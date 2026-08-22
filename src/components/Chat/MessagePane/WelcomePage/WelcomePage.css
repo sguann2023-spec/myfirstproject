@@ -102,37 +102,6 @@
   padding: 0;
 }
 
-.chat-panel__welcome-skills-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 999px;
-  background: #fff;
-  color: #444;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 1;
-}
-
-.chat-panel__welcome-skills-arrow:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.chat-panel__welcome-skills-arrow:first-of-type {
-  left: -16px;
-}
-
-.chat-panel__welcome-skills-arrow:last-of-type {
-  right: -16px;
-}
-
 .chat-panel__welcome-skill-card {
   width: 190px;
   flex: 0 0 190px;

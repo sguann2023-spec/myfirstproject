@@ -969,9 +969,66 @@ const fetchAndProcessAgentResponseImpl = async (
       text: Promise.resolve('')
     })
 
+    const syncHomeAssistantUsageFromPersistedSession = async (persistedSessionId: string) => {
+      if (!persistedSessionId) {
+        return
+      }
+
+      try {
+        const historicalMessages = await window.electron?.ipcRenderer.invoke(IpcChannel.AgentMessage_GetHistory, {
+          sessionId: persistedSessionId
+        })
+        if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
+          return
+        }
+
+        const latestPersistedAssistant = [...historicalMessages]
+          .reverse()
+          .find((persistedMsg) => persistedMsg?.message?.role === 'assistant' && persistedMsg?.message?.status === 'success')
+
+        const persistedMessage = latestPersistedAssistant?.message
+        if (!persistedMessage) {
+          return
+        }
+
+        const usage = persistedMessage.usage
+        const usageSteps = persistedMessage.usageSteps
+        if (!usage && (!Array.isArray(usageSteps) || usageSteps.length === 0)) {
+          return
+        }
+
+        dispatch(
+          newMessagesActions.updateMessage({
+            topicId,
+            messageId: assistantMessage.id,
+            updates: {
+              usage,
+              usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
+            }
+          })
+        )
+        await saveUpdatesToDB(
+          assistantMessage.id,
+          topicId,
+          {
+            usage,
+            usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
+          },
+          []
+        )
+      } catch (error) {
+        logger.error('Failed to sync persisted agent usage back to home chat message', error as Error, {
+          topicId,
+          assistantMessageId: assistantMessage.id,
+          sessionId: persistedSessionId
+        })
+      }
+    }
+
     if (latestAgentSessionId) {
       await persistAgentSessionId(latestAgentSessionId)
     }
+    await syncHomeAssistantUsageFromPersistedSession(agentSession.sessionId)
 
     await renameAgentSessionIfNeeded(agentSession, topicId, getState)
   } catch (error: any) {

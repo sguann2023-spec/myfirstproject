@@ -35,6 +35,18 @@ type PersistedUsage = {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  prompt_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
+  input_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
 }
 
 export type CreateMessageOptions = {
@@ -240,7 +252,8 @@ export class SessionMessageService extends BaseService {
                     headlessAssistantMsgId,
                     options?.images,
                     req.model,
-                    accumulator.getUsage()
+                    accumulator.getUsage(),
+                    accumulator.getUsageSteps()
                   )
                     .then(resolveCompletion)
                     .catch((err) => {
@@ -270,7 +283,8 @@ export class SessionMessageService extends BaseService {
                       headlessAssistantMsgId,
                       options?.images,
                       req.model,
-                      usage
+                      usage,
+                      accumulator.getUsageSteps()
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -321,7 +335,8 @@ export class SessionMessageService extends BaseService {
     assistantMsgId: string,
     images?: Array<{ data: string; media_type: string }>,
     modelId?: string,
-    usage?: PersistedUsage
+    usage?: PersistedUsage,
+    usageSteps?: PersistedUsage[]
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
     const userMsgId = randomUUID()
@@ -388,7 +403,8 @@ export class SessionMessageService extends BaseService {
         status: 'success',
         blocks: assistantBlocks.map((block) => block.id),
         modelId: modelId || session.model,
-        usage
+        usage,
+        usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
       },
       blocks: assistantBlocks
     } as AgentPersistedMessage
@@ -407,6 +423,7 @@ export class SessionMessageService extends BaseService {
       assistantBlockCount: assistantBlocks.length,
       assistantToolBlockCount: assistantBlocks.filter((block) => block.type === 'tool').length,
       assistantUsage: usage,
+      assistantUsageStepsCount: usageSteps?.length ?? 0,
       assistantBlockTypes: assistantBlocks.map((block) => String(block.type || 'unknown')),
       assistantTextChars: assistantBlocks
         .filter((block) => typeof (block as { content?: unknown }).content === 'string')

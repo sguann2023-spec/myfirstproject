@@ -478,7 +478,8 @@ class SubtitleRecognitionServer {
         toolName: 'subtitle-recognition',
         taskId,
         payload: artifactPayload,
-        workspaceRoot: this.workspacePath
+        workspaceRoot: this.workspacePath,
+        relativeDirSegments: []
       })
 
       if (artifact) {
