@@ -18,12 +18,12 @@
     --raw asr_raw_result.json \
     --duration 45.4273 \
     [--output timeline.json] \
-    [--video-pad 0.3] \
+    [--video-pad 0] \
     [--overlap-threshold 0.6] \
     [--transition-duration 0.6]
 
 规则（来自 SKILL.md）：
-  - 主视频比文字前后各多 VIDEO_PAD 秒（默认 0.3s）
+  - 主视频比文字前后各多 VIDEO_PAD 秒（默认 0s）
   - 相邻片段间距 ≥ OVERLAP_THRESHOLD 时重叠过渡（时长 TRANSITION_DURATION）
   - 相邻片段间距 < OVERLAP_THRESHOLD 时取中间点切割连贯拼接
   - 去气口后目标时间轴连续排列
@@ -40,7 +40,7 @@ def build_timeline(
     raw_path: str,
     video_duration: float,
     output_path: str,
-    video_pad: float = 0.3,
+    video_pad: float = 0,
     overlap_threshold: float = 0.6,
     transition_duration: float = 0.6
 ) -> dict:
@@ -225,7 +225,7 @@ def main():
                         help='视频总时长（秒）')
     parser.add_argument('--output', '-o', default='timeline.json',
                         help='输出文件路径')
-    parser.add_argument('--video-pad', type=float, default=0.3,
+    parser.add_argument('--video-pad', type=float, default=0,
                         help='视频前后扩展时长（秒）')
     parser.add_argument('--overlap-threshold', type=float, default=0.6,
                         help='重叠转场间距阈值（秒）')
