@@ -139,6 +139,7 @@ export type SkillSearchResult = z.infer<typeof SkillSearchResultSchema>
 
 export const InstalledSkillSchema = z.object({
   id: z.string(),
+  remoteId: z.string().nullable().optional(),
   name: z.string(),
   description: z.string().nullable(),
   folderName: z.string(),
@@ -148,6 +149,7 @@ export const InstalledSkillSchema = z.object({
   author: z.string().nullable(),
   tags: z.array(z.string()),
   contentHash: z.string(),
+  path: z.string().optional(),
   isEnabled: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number()

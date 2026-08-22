@@ -447,6 +447,8 @@ class SkillsServer {
       )
     }
 
+    await skillService.registerExistingSkill(folderName)
+
     logger.info('Skill registered via tool', {
       agentId: this.agentId,
       folderName,

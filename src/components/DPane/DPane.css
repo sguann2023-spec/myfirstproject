@@ -44,6 +44,15 @@
   background-color: #EBEBEB;     /* 悬停灰色背景 */
 }
 
+.d-pane-skill-icon {
+  /* Match the #333 unselected color used by the other sidebar SVG icons. */
+  filter: grayscale(1) brightness(0.36);
+}
+
+.d-pane-skill-icon.is-selected {
+  filter: none;
+}
+
 .d-pane-body {
   display: none;
 }
