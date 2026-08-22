@@ -46,7 +46,15 @@ description: 独立制作网感口播竖屏草稿。当用户明确说“网感�
    3. **翻译与关键词 → 文件 3**。对文件 2 中的清洗后分句进行英文翻译，并提取每句关键词，翻译结果和关键词一起保存为当前工作空间下的第三个文件（如 `{workspace}/asr_translation_keywords.json`）。
 6. 整理时间轴。**【读取 `references/workflow.md` 获取时间轴计算规则】**。调用技能目录下的脚本自动计算时间轴：`python3 {skill_dir}/scripts/build_timeline.py --cleaned {workspace}/asr_cleaned_sentences.json --raw {workspace}/asr_raw_result.json --duration {视频时长} --output {workspace}/timeline.json`。脚本自动完成：计算相邻语句间距、判断过渡方式（重叠转场 vs 中间点切割）、计算每段源视频范围和目标时间轴、映射词级时间、验证连续性。LLM 审阅脚本输出确认无误即可，无需手动编写计算代码。
 7. 做一次语义规划。**【读取 `references/llm-prompts.md` 和 `references/style_config.md`】**，根据其中的规则一次生成标题、字幕排版、英文字幕、关键词、转场、缩放和提示音规划。规划时不能合并相邻 ASR 句子，不能改写原文。
-8. 校验规划结果。检查标题不超过模板限制，字幕能按 `source_index` 回拼 ASR 原文，三种转场各最多一次，缩放最多一处，关键词必须来自当前句。失败时按参考文件重试一次，仍失败则记录当前视频失败原因。
+8. 校验规划结果。依次检查以下项目，任何一项不合格必须修正后再继续：
+   - 标题字数：`top_title` 和 `bottom_title` 每行 ≤8 个字符，超过的必须截断或重写。
+   - 字幕回拼：字幕能按 `source_index` 回拼 ASR 原文。
+   - 转场：三种转场各最多一次。
+   - 缩放：最多一处。
+   - 关键词：必须来自当前句。
+   - **位置参数**：组装工作流后，逐层检查每个 `add_text` 步骤的 `transform_x_px`、`transform_y_px`、`align`、`fixed_width` 是否与 `workflow.md`「字幕层位置硬约束」表格一致。不一致的必须修正。
+   - **关键词弹出**：每个关键词弹出层必须包含 `intro_animation=左移弹动`、`font_size=15`、`shadow_enabled=true`、`shadow_color=#ffffff`、正确的 `intro_duration`。缺少任何一项必须补上。
+   失败时按参考文件重试一次，仍失败则记录当前视频失败原因。
 9. 创建草稿。调用 `create_draft` 工具创建草稿，分辨率是1080x1920的竖屏草稿，获取 `draft_id`，后续步骤使用该草稿 ID。
 10. 组装并执行工作流。**【读取 `references/workflow.md` 获取 workflow JSON 格式和提交规则】**。把添加主视频片段、标题、双语字幕、关键词弹出、转场、缩放关键帧、提示音和 BGM 组装成 workflow（不包含 `create_draft` 步骤），在 workflow 的 `inputs` 中传入第 9 步获取的 `draft_id`，先保存workflow的请求内容为文件，再调用工作流执行工具，减少串行接口调用。本地视频无需上传为临时链接，工作流中直接使用本地文件路径即可。
 
@@ -97,6 +105,10 @@ description: 独立制作网感口播竖屏草稿。当用户明确说“网感�
     - 动作类型字段是 `action_type`（不是 `action`）
     - 参数字段是 `params`（不是 `inputs`）
     - `inputs` 是顶层输入变量定义，支持嵌套结构和引用语法如 `${video_path}`、`${draft_id}`
+    - **提交前校验**：保存 workflow 文件后、调用执行工具前，用脚本扫描所有 `add_text` 步骤：
+      1. 检查每个字幕层的 `transform_y_px` 是否与「字幕层位置硬约束」表格一致（下行中文必须 -931，上行英文必须 -635，下行英文必须 -1100，普通中文必须 -526，普通英文必须 -700）。
+      2. 检查每个关键词弹出层是否包含 `intro_animation=左移弹动`、`font_size=15`、`shadow_enabled=true`、`shadow_color=#ffffff`。
+      3. 发现不一致时直接修正 workflow 文件后再提交，不要带着错误提交。
 11. 查询草稿并校验。工作流成功后读取返回的草稿 ID 和草稿链接，再查询草稿结构，确认主视频、标题、双语字幕、关键词弹出、转场、缩放、提示音和 BGM 都已写入。
 12. 返回结果。返回 `草稿` 列表。每项包含视频来源、处理状态、草稿 ID、草稿链接、时间轴时长、ASR 句数和字幕数量；然后直接下载草稿。
 

@@ -148,7 +148,48 @@
 | align | string | ❌ | 对齐方式 |
 | fixed_width | number | ❌ | 固定宽度 |
 
-**⚠️ 不支持的参数：`target_end`、`target_start`。不要用！**
+**⚠️ 不支持的参数：`target_end`、`target_start`、`transition`、`transition_duration`。不要用！**
+
+> **重要**：`add_text` 不支持转场参数。转场（`transition`、`transition_duration`）只能用在 `add_video` 和 `add_image` 上。给 `add_text` 添加转场参数会导致工作流执行失败。
+
+### 字幕层位置硬约束（必须严格遵守，禁止自行编造坐标）
+
+组装工作流时，每种字幕层的 `transform_x_px`、`transform_y_px`、`align`、`fixed_width`、`font_size` 必须严格使用 `style_config.md` 中定义的值。以下是必须直接写入工作流的精确参数：
+
+#### 普通字幕
+
+| 轨道 | transform_y_px | font_size | fixed_width | align |
+|------|---------------|-----------|-------------|-------|
+| `yimei_normal_cn` | `-526` | `15` | `0.82` | 不设置 |
+| `yimei_normal_en` | `-700` | `6.5` | `0.82` | 不设置 |
+
+#### 分层字幕
+
+| 轨道 | transform_x_px | transform_y_px | font_size | fixed_width | align |
+|------|---------------|---------------|-----------|-------------|-------|
+| `yimei_layered_top` | `394` | `-468` | `15` | `0.78` | `0` |
+| `yimei_layered_bottom` | `-573` | `-931` | `15` | `0.86` | `2` |
+| `yimei_layered_top_en` | `394` | `-635` | `6.5` | `0.78` | `0` |
+| `yimei_layered_bottom_en` | `-573` | `-1100` | `6.5` | `0.82` | `2` |
+
+#### 关键词弹出层
+
+| 轨道 | transform_x_px | transform_y_px | font_size | fixed_width | align |
+|------|---------------|---------------|-----------|-------------|-------|
+| `yimei_normal_cn_keyword_pop` | 不设置 | `-526` | `17` | `0.82` | 不设置 |
+| `yimei_layered_top_keyword_pop` | `394` | `-468` | `17` | `0.78` | `0` |
+| `yimei_layered_bottom_keyword_pop` | `-573` | `-931` | `17` | `0.86` | `2` |
+
+**关键词弹出层样式（所有轨道统一）：**
+- 字体：`思源粗宋`
+- 颜色：`#A81C23`
+- 字号：`15`
+- 阴影：`shadow_enabled=true`，`shadow_color=#ffffff`
+- 动画：`intro_animation=左移弹动`
+- 普通/下行弹出时长：`intro_duration=0.25`
+- 上行弹出时长：`intro_duration=0.16`
+
+**⚠️ 禁止自行估算或编造坐标值。如果不确定某个值，回读 `style_config.md` 获取。**
 
 ### add_audio
 
@@ -475,6 +516,14 @@ ASR 时间单位必须对同一次响应整体判断：只要任一句段明显�
 - 弹出层层级必须高于对应原字幕显示层。
 - 没有 `打字机_I` 动画的字幕不能进入关键词弹出层。
 - 所有分层上行、下行及其英文、关键词弹出都必须使用共享轨道；同一层的多个字幕片段在同一个轨道里按时间排列。
+- **关键词弹出层必须设置以下参数（禁止遗漏）**：
+  - `intro_animation=左移弹动`
+  - `font_size=15`
+  - `font_color=#A81C23`
+  - `shadow_enabled=true`，`shadow_color=#ffffff`
+  - 上行弹出时长 `intro_duration=0.16`
+  - 普通/下行弹出时长 `intro_duration=0.25`
+  - 各轨道 `fixed_width` 和 `align` 与对应显示层完全一致（见「字幕层位置硬约束」表格）
 
 ## BGM 列表
 
