@@ -509,6 +509,7 @@ export type AgentThinkingConfig = z.infer<typeof AgentThinkingConfigSchema>
 export const CreateSessionMessageRequestSchema = z.object({
   content: z.string().min(1, 'Content must be a valid string'),
   model: z.string().trim().min(1).optional(),
+  createdAt: z.number().refine(Number.isFinite, 'createdAt must be a finite number').optional(),
   effort: AgentEffortSchema.optional(),
   thinking: AgentThinkingConfigSchema.optional()
 })

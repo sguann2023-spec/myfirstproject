@@ -36,6 +36,17 @@ type MessagePricingWithPreciseFields = NonNullable<Message['model']>['pricing'] 
   precise_cache_write_resource_points_per_unit?: number
 }
 
+const formatTokenCount = (value: number) => {
+  const normalizedValue = Number(value) || 0
+  if (Math.abs(normalizedValue) >= 1_000_000) {
+    return `${(normalizedValue / 1_000_000).toFixed(2)}M`
+  }
+  if (Math.abs(normalizedValue) >= 1_000) {
+    return `${(normalizedValue / 1_000).toFixed(2)}K`
+  }
+  return String(normalizedValue)
+}
+
 const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   // const { generating } = useRuntime()
   const locateMessage = () => {
@@ -218,7 +229,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
       ) || 0
     void uncachedInputPointPerMillion
 
-    return `| 缓存命中 ${cacheReadTokens}`
+    return `| 缓存命中 ${formatTokenCount(cacheReadTokens)}`
   }
 
   const getCacheSavingString = () => {
@@ -239,7 +250,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     }
 
     const savingPercent = (((uncachedInputPointPerMillion - cacheReadPointPerMillion) / uncachedInputPointPerMillion) * 100).toFixed(0)
-    return `(节约 ${savingPercent}%)`
+    return `(节省 ${savingPercent}%)`
   }
 
   const getPriceString = () => {
@@ -254,7 +265,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   if (message.role === 'user') {
     return (
       <MessageMetadata className="message-tokens" onClick={locateMessage}>
-        {`Tokens: ${message?.usage?.total_tokens}`}
+        {`Tokens: ${formatTokenCount(Number(message?.usage?.total_tokens ?? 0))}`}
       </MessageMetadata>
     )
   }
@@ -278,9 +289,9 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     const tokensInfo = (
       <span className="tokens">
         Tokens:
-        <span>{aggregatedUsage.total_tokens}</span>
-        <span>↑{aggregatedUsage.prompt_tokens}</span>
-        <span>↓{aggregatedUsage.completion_tokens}</span>
+        <span>{formatTokenCount(aggregatedUsage.total_tokens)}</span>
+        <span>↑{formatTokenCount(aggregatedUsage.prompt_tokens)}</span>
+        <span>↓{formatTokenCount(aggregatedUsage.completion_tokens)}</span>
         {cacheReadSummaryText ? <span>{cacheReadSummaryText}</span> : null}
         <span>{getPriceString()}</span>
         {cacheSavingText ? <span>{cacheSavingText}</span> : null}

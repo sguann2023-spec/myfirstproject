@@ -4070,6 +4070,7 @@ const HomePage = () => {
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: text,
+        createdAt: userMessage.createdAt,
         requestId,
         model: chatModel,
         images
@@ -4264,6 +4265,7 @@ const HomePage = () => {
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: String(prevUser.content || ''),
+        createdAt: Number(prevUser.createdAt) || undefined,
         requestId,
         model: chatModel
       });

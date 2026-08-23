@@ -253,7 +253,8 @@ export class SessionMessageService extends BaseService {
                     options?.images,
                     req.model,
                     accumulator.getUsage(),
-                    accumulator.getUsageSteps()
+                    accumulator.getUsageSteps(),
+                    req.createdAt
                   )
                     .then(resolveCompletion)
                     .catch((err) => {
@@ -284,7 +285,8 @@ export class SessionMessageService extends BaseService {
                       options?.images,
                       req.model,
                       usage,
-                      accumulator.getUsageSteps()
+                      accumulator.getUsageSteps(),
+                      req.createdAt
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -336,9 +338,14 @@ export class SessionMessageService extends BaseService {
     images?: Array<{ data: string; media_type: string }>,
     modelId?: string,
     usage?: PersistedUsage,
-    usageSteps?: PersistedUsage[]
+    usageSteps?: PersistedUsage[],
+    userCreatedAt?: number
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
+    const normalizedUserCreatedAt =
+      typeof userCreatedAt === 'number' && Number.isFinite(userCreatedAt)
+        ? new Date(userCreatedAt).toISOString()
+        : now
     const userMsgId = randomUUID()
     const userBlockId = randomUUID()
     const topicId = `agent-session:${session.id}`
@@ -358,7 +365,7 @@ export class SessionMessageService extends BaseService {
           id: randomUUID(),
           messageId: userMsgId,
           type: 'image',
-          createdAt: now,
+          createdAt: normalizedUserCreatedAt,
           status: 'success',
           url: `data:${img.media_type};base64,${img.data}`
         })
@@ -371,7 +378,7 @@ export class SessionMessageService extends BaseService {
         role: 'user' as const,
         assistantId: session.agent_id,
         topicId,
-        createdAt: now,
+        createdAt: normalizedUserCreatedAt,
         status: 'success',
         blocks: [userBlockId, ...imageBlocks.map((b) => b.id)]
       },
@@ -380,7 +387,7 @@ export class SessionMessageService extends BaseService {
           id: userBlockId,
           messageId: userMsgId,
           type: 'main_text',
-          createdAt: now,
+          createdAt: normalizedUserCreatedAt,
           status: 'success',
           content: userContent
         },
@@ -412,7 +419,7 @@ export class SessionMessageService extends BaseService {
     const result = await agentMessageRepository.persistExchange({
       sessionId: session.id,
       agentSessionId,
-      user: { payload: userPayload, createdAt: now },
+      user: { payload: userPayload, createdAt: normalizedUserCreatedAt },
       assistant: { payload: assistantPayload, createdAt: now }
     })
 
