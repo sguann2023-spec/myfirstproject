@@ -67,7 +67,7 @@ export function McpServerToolRenderer({
     label: (
       <ToolHeader
         toolName={toolName}
-        icon={<Wrench size={14} style={{ marginLeft: 11, marginRight: 11 }} />}
+        icon={<Wrench size={14} />}
         params={normalizedProgressMessage || t('message.tools.labels.mcpServerTool')}
         stats={typeof progress === 'number' && progress > 0 ? `${Math.round(progress * 100)}%` : undefined}
         variant="collapse-label"
