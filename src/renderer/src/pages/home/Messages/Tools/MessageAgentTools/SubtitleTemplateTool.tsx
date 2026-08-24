@@ -1,12 +1,12 @@
 import { Spin } from 'antd'
-import { Film } from 'lucide-react'
+import { Film, FileAudio } from 'lucide-react'
 import { parse as parsePartialJson } from 'partial-json'
 import { useMemo } from 'react'
 import styled from 'styled-components'
 
 import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 
-type KouboTemplateToolProps = {
+type SubtitleTemplateToolProps = {
   input?: unknown
   output?: unknown
   progress?: number
@@ -14,7 +14,14 @@ type KouboTemplateToolProps = {
   isRunning?: boolean
 }
 
-type KouboTemplateResult = {
+type SubtitleTemplateInput = {
+  url?: string
+  template?: string
+  agentId?: string
+  draftId?: string
+}
+
+type SubtitleTemplateResult = {
   template?: string | null
   agent_id?: string
   status?: string
@@ -32,25 +39,18 @@ type KouboTemplateResult = {
   }
 }
 
-type KouboTemplateInput = {
-  template?: string
-  agentId?: string
-  agent_id?: string
-  videoUrl?: string
-  video_url?: string
-  videoUrls?: string[]
-  video_urls?: string[]
-}
-
-const KOUBO_TEMPLATE_TOOL_NAMES = new Set(['submit_koubo_template_task', 'mcp__koubo-template__submit_koubo_template_task'])
+const SUBTITLE_TEMPLATE_TOOL_NAMES = new Set([
+  'generate_smart_subtitle',
+  'mcp__subtitle-template__generate_smart_subtitle'
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseInput(input: unknown): KouboTemplateInput | null {
+function parseInput(input: unknown): SubtitleTemplateInput | null {
   if (isRecord(input)) {
-    return input as KouboTemplateInput
+    return input as SubtitleTemplateInput
   }
 
   if (typeof input !== 'string' || !input.trim()) {
@@ -59,13 +59,13 @@ function parseInput(input: unknown): KouboTemplateInput | null {
 
   try {
     const parsed = parsePartialJson(input)
-    return isRecord(parsed) ? (parsed as KouboTemplateInput) : null
+    return isRecord(parsed) ? (parsed as SubtitleTemplateInput) : null
   } catch {
     return null
   }
 }
 
-function parseOutput(output: unknown): KouboTemplateResult | null {
+function parseOutput(output: unknown): SubtitleTemplateResult | null {
   const text = extractTextPreviewFromToolResult(output).trim()
   if (!text) {
     return null
@@ -73,22 +73,21 @@ function parseOutput(output: unknown): KouboTemplateResult | null {
 
   try {
     const parsed = JSON.parse(text)
-    return isRecord(parsed) ? (parsed as KouboTemplateResult) : null
+    return isRecord(parsed) ? (parsed as SubtitleTemplateResult) : null
   } catch {
     return null
   }
 }
 
-function getPrimaryVideoUrl(input: KouboTemplateInput | null, result: KouboTemplateResult | null): string | undefined {
-  const inputCandidate =
-    input?.videoUrl ||
-    input?.video_url ||
-    input?.videoUrls?.[0] ||
-    input?.video_urls?.[0] ||
-    result?.source_summary?.[0]?.submitted_url ||
-    result?.source_summary?.[0]?.original_input
+function getPrimarySourceUrl(input: SubtitleTemplateInput | null, result: SubtitleTemplateResult | null): string | undefined {
+  const candidate = input?.url || result?.source_summary?.[0]?.submitted_url || result?.source_summary?.[0]?.original_input
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined
+}
 
-  return typeof inputCandidate === 'string' && inputCandidate.trim() ? inputCandidate.trim() : undefined
+function isLikelyVideoSource(url?: string): boolean {
+  if (!url) return false
+  const normalized = url.split('?')[0].toLowerCase()
+  return ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.m3u8'].some((suffix) => normalized.endsWith(suffix))
 }
 
 function buildPreviewSrc(source?: string): string | undefined {
@@ -102,35 +101,51 @@ function buildPreviewSrc(source?: string): string | undefined {
   }
 }
 
-export function isKouboTemplateToolName(toolName?: string): boolean {
+export function isSubtitleTemplateToolName(toolName?: string): boolean {
   if (!toolName) return false
-  return KOUBO_TEMPLATE_TOOL_NAMES.has(toolName)
+  return SUBTITLE_TEMPLATE_TOOL_NAMES.has(toolName)
 }
 
-export function KouboTemplateToolBody({ input, output, progress, progressMessage, isRunning }: KouboTemplateToolProps) {
+export function SubtitleTemplateToolBody({
+  input,
+  output,
+  progress,
+  progressMessage,
+  isRunning
+}: SubtitleTemplateToolProps) {
   const parsedInput = useMemo(() => parseInput(input), [input])
   const parsedOutput = useMemo(() => parseOutput(output), [output])
   const outputText = useMemo(() => extractTextPreviewFromToolResult(output).trim(), [output])
 
-  const videoUrl = useMemo(() => getPrimaryVideoUrl(parsedInput, parsedOutput), [parsedInput, parsedOutput])
-  const previewSrc = useMemo(() => buildPreviewSrc(videoUrl), [videoUrl])
+  const sourceUrl = useMemo(() => getPrimarySourceUrl(parsedInput, parsedOutput), [parsedInput, parsedOutput])
   const draftUrl =
     parsedOutput?.output?.draft_url && parsedOutput.output.draft_url.trim() ? parsedOutput.output.draft_url.trim() : undefined
   const taskMessage = (progressMessage || parsedOutput?.message || outputText || '').trim()
   const statusText = parsedOutput?.status?.trim()
-  const processingText = taskMessage || statusText || '口播模版处理中'
+  const processingText = taskMessage || statusText || '字幕模版处理中'
   const normalizedStatus = String(parsedOutput?.status || '').trim().toLowerCase()
   const isCompleted = normalizedStatus === 'success' || parsedOutput?.success === true
-  const showProcessing = Boolean(isRunning && !isCompleted)
+  const isFailed = normalizedStatus === 'failed' || normalizedStatus === 'error' || normalizedStatus === 'cancelled'
+  const showProcessing = Boolean(isRunning && !isCompleted && !isFailed)
   const showProgressPercent = typeof progress === 'number' && progress > 0 && progress < 1
+  const showVideoPreview = isLikelyVideoSource(sourceUrl)
+  const previewSrc = useMemo(() => buildPreviewSrc(sourceUrl), [sourceUrl])
 
   return (
     <Container>
       <LeftSection>
-        {previewSrc && (
+        {showVideoPreview && previewSrc ? (
           <PreviewSection>
             <VideoPreview src={previewSrc} muted playsInline preload="auto" />
           </PreviewSection>
+        ) : (
+          <SourceCard>
+            <SourceTitleRow>
+              <FileAudio size={16} />
+              <StatusTitle>源素材</StatusTitle>
+            </SourceTitleRow>
+            <SourceValue>{sourceUrl || '未提供素材地址'}</SourceValue>
+          </SourceCard>
         )}
       </LeftSection>
 
@@ -139,7 +154,7 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
           <ProcessingState>
             <ProcessingTitleRow>
               <Spin size="small" />
-              <StatusTitle>正在处理口播模版</StatusTitle>
+              <StatusTitle>正在处理字幕模版</StatusTitle>
             </ProcessingTitleRow>
             <ProcessingMessage>
               {processingText}
@@ -153,7 +168,7 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
             <ProcessingState>
               <ProcessingTitleRow>
                 <Film size={16} />
-                <StatusTitle>已完成 </StatusTitle>
+                <StatusTitle>已完成</StatusTitle>
               </ProcessingTitleRow>
               <ResultLinkRow>
                 <ResultLinkText>下载草稿</ResultLinkText>
@@ -164,7 +179,7 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
 
         {!showProcessing && !(isCompleted && draftUrl) && (taskMessage || statusText) && (
           <StatusCard>
-            <StatusTitle>{statusText || '处理结果'}</StatusTitle>
+            <StatusTitle>{statusText || (isFailed ? '处理失败' : '处理结果')}</StatusTitle>
             {taskMessage && <StatusMessage>{taskMessage}</StatusMessage>}
           </StatusCard>
         )}
@@ -209,6 +224,32 @@ const VideoPreview = styled.video`
   background: var(--color-background-mute, var(--color-background-soft));
   border: 1px solid var(--color-border);
   object-fit: cover;
+`
+
+const SourceCard = styled.div`
+  width: 200px;
+  min-height: 160px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-background-soft);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+`
+
+const SourceTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`
+
+const SourceValue = styled.div`
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-2);
+  word-break: break-word;
 `
 
 const ProcessingState = styled.div`

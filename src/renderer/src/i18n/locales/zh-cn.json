@@ -2683,8 +2683,7 @@
             "submit_subtitle_recognition_task": "字幕识别"
           },
           "subtitle_template": {
-            "generate_smart_subtitle": "智能字幕生成",
-            "get_smart_subtitle_task_status": "查询字幕任务状态"
+            "generate_smart_subtitle": "智能字幕生成"
           },
           "video": {
             "generate_video": "生成视频",

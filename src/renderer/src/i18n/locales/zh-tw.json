@@ -2682,8 +2682,7 @@
             "submit_subtitle_recognition_task": "字幕識別"
           },
           "subtitle_template": {
-            "generate_smart_subtitle": "智慧字幕生成",
-            "get_smart_subtitle_task_status": "查詢字幕任務狀態"
+            "generate_smart_subtitle": "智慧字幕生成"
           },
           "system": {
             "open_deeplink": "開啟跳轉連結"

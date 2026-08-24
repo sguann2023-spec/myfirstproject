@@ -1550,7 +1550,6 @@ export class CapabilityRouter {
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
         ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
         (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasTemplateIntent && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
         (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text)) ||
         (hasAiVideoIntent && !hasUrlLikeText(args.prompt) && (hasLocalImageContext(text) || hasLocalMediaContext(text)))
       ) {

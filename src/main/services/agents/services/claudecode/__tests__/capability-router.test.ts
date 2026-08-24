@@ -797,7 +797,7 @@ describe('CapabilityRouter', () => {
     expect(localKouboDecision.primaryDomain).toBe('cut')
     expect(localKouboDecision.subdomains).toEqual(['template'])
     expect(localKouboDecision.selected.has('kouboTemplate')).toBe(true)
-    expect(localKouboDecision.selected.has('uploadFile')).toBe(true)
+    expect(localKouboDecision.selected.has('uploadFile')).toBe(false)
     expect(localKouboDecision.selected.has('digitalHuman')).toBe(false)
     expect(workflowDecision.primaryDomain).toBe('cut')
     expect(workflowDecision.subdomains).toEqual(['workflow'])

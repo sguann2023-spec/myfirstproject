@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   mockExecFile,
@@ -116,13 +116,18 @@ function createServer() {
   return new SubtitleTemplateServer()
 }
 
-async function callTool(server: SubtitleTemplateServerInstance, toolName: string, args: Record<string, unknown>) {
+async function callTool(
+  server: SubtitleTemplateServerInstance,
+  toolName: string,
+  args: Record<string, unknown>,
+  extra: Record<string, unknown> = {}
+) {
   const handlers = (server.mcpServer.server as any)._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (!callToolHandler) {
     throw new Error('No tools/call handler registered')
   }
-  return callToolHandler({ method: 'tools/call', params: { name: toolName, arguments: args } }, {})
+  return callToolHandler({ method: 'tools/call', params: { name: toolName, arguments: args } }, extra)
 }
 
 async function listTools(server: SubtitleTemplateServerInstance) {
@@ -145,6 +150,7 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 
 describe('SubtitleTemplateServer', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.clearAllMocks()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
     mockExistsSync.mockReturnValue(false)
@@ -155,17 +161,18 @@ describe('SubtitleTemplateServer', () => {
     mockUnlink.mockResolvedValue(undefined)
   })
 
-  it('should expose generate and status tools', async () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('should expose only the long-running subtitle template tool', async () => {
     const server = createServer()
     const result = await listTools(server)
 
-    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      'generate_smart_subtitle',
-      'get_smart_subtitle_task_status'
-    ])
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['generate_smart_subtitle'])
   })
 
-  it('should submit subtitle template task with default template', async () => {
+  it('should submit subtitle template task and wait for the final result', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -176,6 +183,20 @@ describe('SubtitleTemplateServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
+          task_id: '924E4C927BEE000216140F22DDDA345F'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          message: '成功',
+          output: {
+            draft_id: 'dfd_cat_1775226770_5deb0396',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_cat_1775226770_5deb0396&is_capcut=0',
+            video_url: ''
+          },
+          status: 'success',
+          success: true,
           task_id: '924E4C927BEE000216140F22DDDA345F'
         })
       )
@@ -203,20 +224,46 @@ describe('SubtitleTemplateServer', () => {
         })
       })
     )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      3,
+      'https://open.vectcut.com/cut_jianying/smart_subtitle_task_status?task_id=924E4C927BEE000216140F22DDDA345F',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json'
+        })
+      })
+    )
 
     expect(JSON.parse(result.content[0].text)).toEqual({
       provider: 'vectcut',
-      action: 'submit',
+      action: 'submit_and_wait',
       mode: 'subtitle_template',
+      estimated_wait_time: '15-30 minutes',
       template: 'luxury_black_shadow',
       agent_id: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
       source_kind: 'remote_url',
       source_url: 'https://example.com/source.mp4',
       original_input: 'https://example.com/source.mp4',
+      source_summary: [
+        {
+          original_input: 'https://example.com/source.mp4',
+          submitted_url: 'https://example.com/source.mp4',
+          source_kind: 'remote_url'
+        }
+      ],
       extracted_audio: false,
-      duration_seconds: undefined,
-      draft_id: undefined,
-      task_id: '924E4C927BEE000216140F22DDDA345F'
+      task_id: '924E4C927BEE000216140F22DDDA345F',
+      error: '',
+      message: '成功',
+      output: {
+        draft_id: 'dfd_cat_1775226770_5deb0396',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_cat_1775226770_5deb0396&is_capcut=0',
+        video_url: ''
+      },
+      status: 'success',
+      success: true
     })
   })
 
@@ -233,9 +280,22 @@ describe('SubtitleTemplateServer', () => {
           task_id: 'task-subtitle-custom'
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          message: 'ok',
+          output: {
+            draft_id: 'dfd_existing_123',
+            draft_url: 'https://example.com/draft',
+            video_url: ''
+          },
+          status: 'success',
+          success: true,
+          task_id: 'task-subtitle-custom'
+        })
+      )
 
     const server = createServer()
-    await callTool(server, 'generate_smart_subtitle', {
+    const result = await callTool(server, 'generate_smart_subtitle', {
       template: 'new_youth_double',
       url: 'https://example.com/source.mp3',
       draftId: 'dfd_existing_123',
@@ -248,6 +308,16 @@ describe('SubtitleTemplateServer', () => {
       draft_id: 'dfd_existing_123',
       add_media: false
     })
+
+    expect(JSON.parse(result.content[0].text)).toEqual(
+      expect.objectContaining({
+        template: 'new_youth_double',
+        input_draft_id: 'dfd_existing_123',
+        task_id: 'task-subtitle-custom',
+        status: 'success',
+        success: true
+      })
+    )
   })
 
   it('should upload a local audio file before submitting subtitle template generation', async () => {
@@ -278,6 +348,30 @@ describe('SubtitleTemplateServer', () => {
           task_id: 'task-local-audio'
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          message: '完成',
+          output: {
+            draft_id: 'dfd_local_audio',
+            draft_url: 'https://example.com/local-audio-draft',
+            video_url: ''
+          },
+          status: 'success',
+          success: true,
+          task_id: 'task-local-audio'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_local_audio',
+            draft_url: 'https://example.com/local-audio-draft',
+            material_id: 'audio_mat_local'
+          },
+          success: true
+        })
+      )
 
     const server = createServer()
     const result = await callTool(server, 'generate_smart_subtitle', {
@@ -294,25 +388,44 @@ describe('SubtitleTemplateServer', () => {
     })
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       agent_id: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
-      url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/source.mp3?token=1'
+      url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/source.mp3?token=1',
+      add_media: false
     })
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'submit',
-      mode: 'subtitle_template',
-      template: 'luxury_black_shadow',
-      agent_id: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
-      source_kind: 'local_audio',
-      source_url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/source.mp3?token=1',
-      original_input: '/tmp/source.mp3',
-      extracted_audio: false,
-      duration_seconds: 12.34,
-      draft_id: undefined,
-      task_id: 'task-local-audio'
-    })
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
+      'https://open.vectcut.com/cut_jianying/add_audio',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          draft_id: 'dfd_local_audio',
+          audio_url: '/tmp/source.mp3'
+        })
+      })
+    )
+    expect(JSON.parse(result.content[0].text)).toEqual(
+      expect.objectContaining({
+        source_kind: 'local_audio',
+        source_url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/source.mp3?token=1',
+        original_input: '/tmp/source.mp3',
+        extracted_audio: false,
+        duration_seconds: 12.34,
+        task_id: 'task-local-audio',
+        restored_original_media: {
+          action: 'add_audio',
+          original_input: '/tmp/source.mp3',
+          success: true,
+          error: '',
+          output: {
+            draft_id: 'dfd_local_audio',
+            draft_url: 'https://example.com/local-audio-draft',
+            material_id: 'audio_mat_local'
+          }
+        }
+      })
+    )
   })
 
-  it('should extract audio from a long local video before upload and submission', async () => {
+  it('should extract audio from a local video, submit without embedding media, and add the original video back to the draft', async () => {
     mockExecFile.mockImplementation(
       (
         _command: unknown,
@@ -353,6 +466,30 @@ describe('SubtitleTemplateServer', () => {
           task_id: 'task-long-video'
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          message: '成功',
+          output: {
+            draft_id: 'dfd_long_video',
+            draft_url: 'https://example.com/long-video-draft',
+            video_url: ''
+          },
+          status: 'success',
+          success: true,
+          task_id: 'task-long-video'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_long_video',
+            draft_url: 'https://example.com/long-video-draft',
+            material_id: 'video_mat_local'
+          },
+          success: true
+        })
+      )
 
     const server = createServer()
     const result = await callTool(server, 'generate_smart_subtitle', {
@@ -370,25 +507,44 @@ describe('SubtitleTemplateServer', () => {
     expect(mockUnlink).toHaveBeenCalledWith('/tmp/subtitle-template/video_audio.mp3')
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       agent_id: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
-      url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/video_audio.mp3?token=1'
+      url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/video_audio.mp3?token=1',
+      add_media: false
     })
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'submit',
-      mode: 'subtitle_template',
-      template: 'luxury_black_shadow',
-      agent_id: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
-      source_kind: 'local_video_audio_extracted',
-      source_url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/video_audio.mp3?token=1',
-      original_input: '/tmp/video.mp4',
-      extracted_audio: true,
-      duration_seconds: 601,
-      draft_id: undefined,
-      task_id: 'task-long-video'
-    })
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
+      'https://open.vectcut.com/cut_jianying/add_video',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          draft_id: 'dfd_long_video',
+          video_url: '/tmp/video.mp4'
+        })
+      })
+    )
+    expect(JSON.parse(result.content[0].text)).toEqual(
+      expect.objectContaining({
+        source_kind: 'local_video_audio_extracted',
+        source_url: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/video_audio.mp3?token=1',
+        original_input: '/tmp/video.mp4',
+        extracted_audio: true,
+        duration_seconds: 601,
+        task_id: 'task-long-video',
+        restored_original_media: {
+          action: 'add_video',
+          original_input: '/tmp/video.mp4',
+          success: true,
+          error: '',
+          output: {
+            draft_id: 'dfd_long_video',
+            draft_url: 'https://example.com/long-video-draft',
+            material_id: 'video_mat_local'
+          }
+        }
+      })
+    )
   })
 
-  it('should query subtitle template task status', async () => {
+  it('should poll status updates and report progress notifications', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -398,52 +554,90 @@ describe('SubtitleTemplateServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
-          error: '',
+          task_id: 'task-progress'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          message: '处理中',
+          status: 'processing',
+          success: false,
+          task_id: 'task-progress'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
           message: '成功',
           output: {
-            draft_id: 'dfd_cat_1775226770_5deb0396',
-            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_cat_1775226770_5deb0396&is_capcut=0',
+            draft_id: 'dfd_progress',
+            draft_url: 'https://example.com/progress-draft',
             video_url: ''
           },
-          purchase_link: 'https://www.vectcut.com',
           status: 'success',
           success: true,
-          task_id: '924E4C927BEE00007FAD0F2342006823'
+          task_id: 'task-progress'
         })
       )
 
+    const sendNotification = vi.fn().mockResolvedValue(undefined)
     const server = createServer()
-    const result = await callTool(server, 'get_smart_subtitle_task_status', {
-      taskId: '924E4C927BEE00007FAD0F2342006823'
-    })
-
-    expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/cut_jianying/smart_subtitle_task_status?task_id=924E4C927BEE00007FAD0F2342006823',
-      expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'Content-Type': 'application/json'
-        })
-      })
+    const promise = callTool(
+      server,
+      'generate_smart_subtitle',
+      { url: 'https://example.com/progress.mp4' },
+      {
+        requestId: 'req-1',
+        _meta: { progressToken: 'progress-token' },
+        sendNotification
+      }
     )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'status',
-      mode: 'subtitle_template',
-      error: '',
-      message: '成功',
-      output: {
-        draft_id: 'dfd_cat_1775226770_5deb0396',
-        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_cat_1775226770_5deb0396&is_capcut=0',
-        video_url: ''
-      },
-      purchase_link: 'https://www.vectcut.com',
-      status: 'success',
-      success: true,
-      task_id: '924E4C927BEE00007FAD0F2342006823'
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(sendNotification).toHaveBeenCalledTimes(4)
+    expect(sendNotification).toHaveBeenNthCalledWith(1, {
+      method: 'notifications/progress',
+      params: {
+        progressToken: 'progress-token',
+        progress: 5,
+        total: 100,
+        message: '正在提交字幕模版任务'
+      }
     })
+    expect(sendNotification).toHaveBeenNthCalledWith(2, {
+      method: 'notifications/progress',
+      params: {
+        progressToken: 'progress-token',
+        progress: 10,
+        total: 100,
+        message: '字幕模版任务已提交，预计 15-30 分钟完成'
+      }
+    })
+    expect(sendNotification).toHaveBeenNthCalledWith(3, {
+      method: 'notifications/progress',
+      params: {
+        progressToken: 'progress-token',
+        progress: 14,
+        total: 100,
+        message: '处理中'
+      }
+    })
+    expect(sendNotification).toHaveBeenNthCalledWith(4, {
+      method: 'notifications/progress',
+      params: {
+        progressToken: 'progress-token',
+        progress: 100,
+        total: 100,
+        message: '成功'
+      }
+    })
+    expect(JSON.parse(result.content[0].text)).toEqual(
+      expect.objectContaining({
+        task_id: 'task-progress',
+        status: 'success',
+        success: true
+      })
+    )
   })
 })

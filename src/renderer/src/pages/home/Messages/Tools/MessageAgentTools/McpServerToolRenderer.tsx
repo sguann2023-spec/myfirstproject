@@ -7,6 +7,7 @@ import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
 import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
+import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
 
 interface McpServerToolProps {
   toolName: string
@@ -61,6 +62,7 @@ export function McpServerToolRenderer({
   const normalizedProgressMessage = normalizeProgressMessage(progressMessage, progress)
   const isKouboTemplate = isKouboTemplateToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
+  const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
 
   return {
     key: `mcp-tool-${toolName}`,
@@ -94,15 +96,28 @@ export function McpServerToolRenderer({
             isRunning={typeof progress === 'number' && progress < 1}
           />
         ) : null}
-        {!isKouboTemplate && !isSubtitleRecognition && normalizedInput && (
+        {isSubtitleTemplate ? (
+          <SubtitleTemplateToolBody
+            input={input}
+            output={output}
+            progress={progress}
+            progressMessage={normalizedProgressMessage}
+            isRunning={typeof progress === 'number' && progress < 1}
+          />
+        ) : null}
+        {!isKouboTemplate && !isSubtitleRecognition && !isSubtitleTemplate && normalizedInput && (
           <ToolArgsTable args={normalizedInput} title={t('message.tools.sections.input')} />
         )}
-        {!isKouboTemplate && !isSubtitleRecognition && normalizedOutput && (
+        {!isKouboTemplate && !isSubtitleRecognition && !isSubtitleTemplate && normalizedOutput && (
           <ToolArgsTable args={normalizedOutput} title={t('message.tools.sections.output')} />
         )}
-        {!isKouboTemplate && !isSubtitleRecognition && !normalizedInput && !normalizedOutput && (
+        {!isKouboTemplate &&
+        !isSubtitleRecognition &&
+        !isSubtitleTemplate &&
+        !normalizedInput &&
+        !normalizedOutput ? (
           <div className="p-3 text-foreground-500 text-xs">{t('message.tools.noData')}</div>
-        )}
+        ) : null}
       </div>
     )
   }

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet, storeState } = vi.hoisted(() => ({
+const { mockNetFetch, mockStat, mockStoreGet, mockStoreSet, mockUploadLocalFile, storeState } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
+  mockStat: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn(),
+  mockUploadLocalFile: vi.fn(),
   storeState: new Map<string, unknown>()
 }))
 
@@ -22,6 +24,18 @@ vi.mock('electron-store', () => ({
     set(key: string, value: unknown) {
       return mockStoreSet(key, value)
     }
+  }
+}))
+
+vi.mock('node:fs/promises', () => ({
+  default: {
+    stat: mockStat
+  }
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -83,6 +97,10 @@ describe('KouboTemplateServer', () => {
       storeState.set(key, value)
     })
     storeState.set('auth.refresh_token', 'refresh-token')
+    mockStat.mockResolvedValue({
+      isFile: () => true,
+      size: 1024
+    })
   })
 
   it('should expose submit and status tools', async () => {
@@ -226,7 +244,7 @@ describe('KouboTemplateServer', () => {
     })
   })
 
-  it('should reject local video paths and require workspace upload first', async () => {
+  it('should upload local video paths automatically before submitting', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -234,6 +252,25 @@ describe('KouboTemplateServer', () => {
           expires_in: 3600
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'task-local-video'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'success',
+          success: true,
+          output: {
+            draft_id: 'draft-local',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-local',
+            video_url: 'https://example.com/local.mp4'
+          }
+        })
+      )
+    mockUploadLocalFile.mockResolvedValue({
+      signedPublicUrl: 'https://oss.example.com/source.mp4?token=1'
+    })
 
     const server = createServer()
     const result = await callTool(server, 'submit_koubo_template_task', {
@@ -241,8 +278,42 @@ describe('KouboTemplateServer', () => {
       videoUrl: '/tmp/source.mp4'
     })
 
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain('must be a remotely accessible URL')
+    expect(mockUploadLocalFile).toHaveBeenCalledWith('/tmp/source.mp4', {
+      bucket: 'oss-hangzhou-mp4',
+      region: 'oss-cn-hangzhou',
+      folder: 'agent_tmp/{uid}',
+      objectKeyPrefix: 'vectcut_koubo_template_',
+      signExpiresSeconds: 3600
+    })
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      agent_id: 'koubo_custom_agent',
+      params: {
+        video_url: ['https://oss.example.com/source.mp4?token=1']
+      }
+    })
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      action: 'submit_and_wait',
+      mode: 'koubo_template',
+      estimated_wait_time: '5-15 minutes',
+      template: null,
+      agent_id: 'koubo_custom_agent',
+      source_summary: [
+        {
+          original_input: '/tmp/source.mp4',
+          submitted_url: 'https://oss.example.com/source.mp4?token=1',
+          source_kind: 'local_video',
+          file_size_bytes: 1024
+        }
+      ],
+      status: 'success',
+      success: true,
+      output: {
+        draft_id: 'draft-local',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-local',
+        video_url: 'https://example.com/local.mp4'
+      }
+    })
   })
 
   it('should reject audio input', async () => {

@@ -2683,8 +2683,7 @@
             "submit_subtitle_recognition_task": "Subtitle Recognition"
           },
           "subtitle_template": {
-            "generate_smart_subtitle": "Generate Smart Subtitle",
-            "get_smart_subtitle_task_status": "Check Subtitle Task Status"
+            "generate_smart_subtitle": "Generate Smart Subtitle"
           },
           "video": {
             "generate_video": "Generate Video",

@@ -12,6 +12,7 @@ import { getResourcePath } from '@main/utils'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
@@ -31,10 +32,14 @@ const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
 const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
 const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_subtitle_template_'
 const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
-const LONG_VIDEO_THRESHOLD_SECONDS = 10 * 60
 const FFMPEG_TIMEOUT_MS = 5 * 60 * 1000
 const FFPROBE_TIMEOUT_MS = 15 * 1000
 const PROCESS_MAX_BUFFER = 1024 * 1024
+const SUBTITLE_TEMPLATE_TASK_WAIT_TIME = '15-30 minutes'
+const SUBTITLE_TEMPLATE_POLL_INTERVAL_MS = 5 * 1000
+const SUBTITLE_TEMPLATE_POLL_TIMEOUT_MS = 35 * 60 * 1000
+const ADD_VIDEO_ENDPOINT = '/cut_jianying/add_video'
+const ADD_AUDIO_ENDPOINT = '/cut_jianying/add_audio'
 
 const SUBTITLE_TEMPLATE_AGENT_IDS = {
   luxury_black_shadow: 'asr_42da310c1e4347ddb2c96dd2a5d055c2',
@@ -56,14 +61,14 @@ type SubtitleTemplateKey = keyof typeof SUBTITLE_TEMPLATE_AGENT_IDS
 const GENERATE_SMART_SUBTITLE_TOOL: Tool = {
   name: 'generate_smart_subtitle',
   description:
-    'Add a subtitle template to an audio or video source, optionally continue editing an existing draft, and create a new VectCut draft with stylized subtitles. Prefer a remotely accessible source URL, typically obtained by running workspace upload first for local files. File URLs and absolute local paths remain supported as a compatibility fallback; local files are uploaded automatically, and local videos longer than 10 minutes are converted to audio before upload.',
+    'Add a subtitle template to an audio or video source, optionally continue editing an existing draft, and wait for the same tool call to finish with the final draft result. Remotely accessible source URLs are accepted directly, and file URLs or absolute local paths are also supported and handled internally by the tool. Local audio files are uploaded automatically, and local video files are converted to audio before upload. For local files, the template stage skips embedding source media and the original local audio or video is added back into the draft after generation completes.',
   inputSchema: {
     type: 'object',
     properties: {
       url: {
         type: 'string',
         description:
-          'Required source audio or video URL. Prefer a remotely accessible URL produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback. Local videos longer than 10 minutes are converted to audio before upload.'
+          'Required source audio or video URL. Remotely accessible URLs are accepted directly, and file URLs or absolute local paths are also supported and handled internally. Local audio files are uploaded directly, and local video files are converted to audio before upload.'
       },
       template: {
         type: 'string',
@@ -94,25 +99,25 @@ const GENERATE_SMART_SUBTITLE_TOOL: Tool = {
   }
 }
 
-const GET_SMART_SUBTITLE_TASK_STATUS_TOOL: Tool = {
-  name: 'get_smart_subtitle_task_status',
-  description: 'Query the status of a subtitle template task by task ID.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'Required task ID returned by generate_smart_subtitle.'
-      }
-    },
-    required: ['taskId'],
-    additionalProperties: false
-  }
-}
-
 type PendingToken = {
   accessToken: string
   expiresAt: number
+}
+
+type ToolExecutionExtra = {
+  requestId: string | number
+  _meta?: {
+    progressToken?: ProgressToken
+  }
+  sendNotification?: (notification: {
+    method: 'notifications/progress'
+    params: {
+      progressToken: ProgressToken
+      progress: number
+      total?: number
+      message?: string
+    }
+  }) => Promise<void>
 }
 
 type FfprobeStream = {
@@ -130,7 +135,7 @@ type FfprobeResult = {
 type PreparedSubtitleTemplateSource = {
   originalInput: string
   submittedUrl: string
-  sourceKind: 'remote_url' | 'local_audio' | 'local_video' | 'local_video_audio_extracted'
+  sourceKind: 'remote_url' | 'local_audio' | 'local_video_audio_extracted'
   extractedAudio: boolean
   durationSeconds?: number | null
 }
@@ -153,6 +158,19 @@ type SmartSubtitleStatusResponse = {
   status?: 'processing' | 'success' | 'failed'
   success?: boolean
   task_id?: string
+  [key: string]: unknown
+}
+
+type AddMediaResponse = {
+  error?: string
+  output?: {
+    draft_id?: string
+    draft_url?: string
+    material_id?: string
+    marterial_id?: string
+    [key: string]: unknown
+  }
+  success?: boolean
   [key: string]: unknown
 }
 
@@ -214,19 +232,17 @@ class SubtitleTemplateServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [GENERATE_SMART_SUBTITLE_TOOL, GET_SMART_SUBTITLE_TASK_STATUS_TOOL]
+      tools: [GENERATE_SMART_SUBTITLE_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
         switch (toolName) {
           case 'generate_smart_subtitle':
-            return await this.generateSmartSubtitle(args as Record<string, unknown>)
-          case 'get_smart_subtitle_task_status':
-            return await this.getSmartSubtitleTaskStatus(args as Record<string, unknown>)
+            return await this.generateSmartSubtitle(args as Record<string, unknown>, extra as ToolExecutionExtra)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -456,29 +472,18 @@ class SubtitleTemplateServer {
         throw new McpError(ErrorCode.InvalidParams, 'The local video does not contain an audio stream')
       }
 
-      if (durationSeconds !== null && durationSeconds > LONG_VIDEO_THRESHOLD_SECONDS) {
-        const extractedAudioPath = await this.extractAudioForSubtitleTemplate(normalizedSource)
-        try {
-          const uploaded = await this.uploadLocalFile(extractedAudioPath, 'audio/mpeg')
-          return {
-            originalInput: normalizedSource,
-            submittedUrl: uploaded.signedPublicUrl,
-            sourceKind: 'local_video_audio_extracted',
-            extractedAudio: true,
-            durationSeconds
-          }
-        } finally {
-          await fsPromises.unlink(extractedAudioPath).catch(() => undefined)
+      const extractedAudioPath = await this.extractAudioForSubtitleTemplate(normalizedSource)
+      try {
+        const uploaded = await this.uploadLocalFile(extractedAudioPath, 'audio/mpeg')
+        return {
+          originalInput: normalizedSource,
+          submittedUrl: uploaded.signedPublicUrl,
+          sourceKind: 'local_video_audio_extracted',
+          extractedAudio: true,
+          durationSeconds
         }
-      }
-
-      const uploaded = await this.uploadLocalFile(normalizedSource)
-      return {
-        originalInput: normalizedSource,
-        submittedUrl: uploaded.signedPublicUrl,
-        sourceKind: 'local_video',
-        extractedAudio: false,
-        durationSeconds
+      } finally {
+        await fsPromises.unlink(extractedAudioPath).catch(() => undefined)
       }
     }
 
@@ -542,7 +547,9 @@ class SubtitleTemplateServer {
       payload.draft_id = args.draftId.trim()
     }
 
-    if (typeof args.addMedia === 'boolean') {
+    if (preparedSource.sourceKind !== 'remote_url') {
+      payload.add_media = false
+    } else if (typeof args.addMedia === 'boolean') {
       payload.add_media = args.addMedia
     }
 
@@ -556,48 +563,45 @@ class SubtitleTemplateServer {
     }
   }
 
-  private async generateSmartSubtitle(args: Record<string, unknown>) {
-    const preparedSource = await this.prepareSourceForSubmission(args.url)
-    const { payload, template } = this.buildGeneratePayload(args, preparedSource)
-    const response = await this.requestWithAuth(SUBTITLE_TEMPLATE_GENERATE_ENDPOINT, {
-      method: 'POST',
-      body: payload
-    })
+  private async sleep(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`Subtitle template generation failed (${response.status}): ${body || 'unknown error'}`)
+  private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    if (!extra?._meta?.progressToken || typeof extra.sendNotification !== 'function') {
+      return
     }
 
-    const result = (await response.json()) as SmartSubtitleGenerateResponse
-
-    logger.info('Subtitle template task submitted', {
-      template,
-      taskId: result.task_id
-    })
-
-    return this.formatJsonResult({
-      provider: 'vectcut',
-      action: 'submit',
-      mode: 'subtitle_template',
-      template,
-      agent_id: payload.agent_id,
-      source_kind: preparedSource.sourceKind,
-      source_url: preparedSource.submittedUrl,
-      original_input: preparedSource.originalInput,
-      extracted_audio: preparedSource.extractedAudio,
-      duration_seconds: preparedSource.durationSeconds ?? undefined,
-      draft_id: payload.draft_id,
-      task_id: result.task_id
+    await extra.sendNotification({
+      method: 'notifications/progress',
+      params: {
+        progressToken: extra._meta.progressToken,
+        progress,
+        total: 100,
+        message
+      }
     })
   }
 
-  private async getSmartSubtitleTaskStatus(args: Record<string, unknown>) {
-    const taskId = typeof args.taskId === 'string' ? args.taskId.trim() : ''
-    if (!taskId) {
-      throw new McpError(ErrorCode.InvalidParams, "'taskId' is required for get_smart_subtitle_task_status")
-    }
+  private normalizeTaskStatus(value: unknown): string {
+    return String(value || '').trim().toLowerCase()
+  }
 
+  private isTaskCompleted(result: SmartSubtitleStatusResponse): boolean {
+    const status = this.normalizeTaskStatus(result.status)
+    return status === 'success' || result.success === true
+  }
+
+  private isTaskFailed(result: SmartSubtitleStatusResponse): boolean {
+    const status = this.normalizeTaskStatus(result.status)
+    return status === 'failed' || status === 'error' || status === 'cancelled'
+  }
+
+  private mapProgress(attempt: number): number {
+    return Math.min(92, 12 + attempt * 2)
+  }
+
+  private async querySmartSubtitleTaskStatus(taskId: string) {
     const response = await this.requestWithAuth(SUBTITLE_TEMPLATE_STATUS_ENDPOINT, {
       method: 'GET',
       query: new URLSearchParams({ task_id: taskId })
@@ -616,11 +620,151 @@ class SubtitleTemplateServer {
       success: result.success
     })
 
+    return result
+  }
+
+  private async addOriginalLocalMediaToDraft(
+    preparedSource: PreparedSubtitleTemplateSource,
+    draftId: string
+  ): Promise<AddMediaResponse> {
+    const isVideoSource = preparedSource.sourceKind === 'local_video_audio_extracted'
+    const endpoint = isVideoSource ? ADD_VIDEO_ENDPOINT : ADD_AUDIO_ENDPOINT
+    const body = isVideoSource
+      ? {
+          draft_id: draftId,
+          video_url: preparedSource.originalInput
+        }
+      : {
+          draft_id: draftId,
+          audio_url: preparedSource.originalInput
+        }
+
+    const response = await this.requestWithAuth(endpoint, {
+      method: 'POST',
+      body
+    })
+
+    if (!response.ok) {
+      const rawBody = await response.text().catch(() => '')
+      throw new Error(`Adding original local media back to draft failed (${response.status}): ${rawBody || 'unknown error'}`)
+    }
+
+    return (await response.json()) as AddMediaResponse
+  }
+
+  private async waitForSmartSubtitleTaskResult(taskId: string, extra?: ToolExecutionExtra) {
+    const deadline = Date.now() + SUBTITLE_TEMPLATE_POLL_TIMEOUT_MS
+    let attempt = 0
+
+    while (Date.now() < deadline) {
+      attempt += 1
+      const result = await this.querySmartSubtitleTaskStatus(taskId)
+      const status = this.normalizeTaskStatus(result.status)
+
+      logger.info('Subtitle template task poll', {
+        taskId,
+        attempt,
+        status,
+        success: result.success,
+        message: result.message || ''
+      })
+
+      if (this.isTaskCompleted(result)) {
+        await this.reportProgress(extra, 100, result.message || '字幕模版处理完成')
+        return result
+      }
+
+      if (this.isTaskFailed(result)) {
+        throw new Error(`Subtitle template task failed: ${result.error || result.message || 'unknown error'}`)
+      }
+
+      await this.reportProgress(extra, this.mapProgress(attempt), result.message || '正在处理字幕模版')
+      await this.sleep(SUBTITLE_TEMPLATE_POLL_INTERVAL_MS)
+    }
+
+    throw new Error(
+      `Subtitle template task timed out after ${Math.round(SUBTITLE_TEMPLATE_POLL_TIMEOUT_MS / 60000)} minutes while waiting for completion`
+    )
+  }
+
+  private async generateSmartSubtitle(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    await this.reportProgress(extra, 5, '正在提交字幕模版任务')
+    const preparedSource = await this.prepareSourceForSubmission(args.url)
+    const { payload, template } = this.buildGeneratePayload(args, preparedSource)
+    const response = await this.requestWithAuth(SUBTITLE_TEMPLATE_GENERATE_ENDPOINT, {
+      method: 'POST',
+      body: payload
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Subtitle template generation failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const submitResult = (await response.json()) as SmartSubtitleGenerateResponse
+
+    logger.info('Subtitle template task submitted', {
+      template,
+      taskId: submitResult.task_id
+    })
+
+    const taskId = typeof submitResult.task_id === 'string' ? submitResult.task_id.trim() : ''
+    if (!taskId) {
+      throw new Error(`Subtitle template submission returned no task ID: ${JSON.stringify(submitResult)}`)
+    }
+
+    await this.reportProgress(extra, 10, '字幕模版任务已提交，预计 15-30 分钟完成')
+    const finalResult = await this.waitForSmartSubtitleTaskResult(taskId, extra)
+    const finalDraftId =
+      typeof finalResult.output?.draft_id === 'string' && finalResult.output.draft_id.trim()
+        ? finalResult.output.draft_id.trim()
+        : typeof payload.draft_id === 'string' && payload.draft_id.trim()
+          ? payload.draft_id.trim()
+          : ''
+    const shouldAddOriginalLocalMediaBack = preparedSource.sourceKind !== 'remote_url'
+    let addMediaResult: AddMediaResponse | null = null
+
+    if (shouldAddOriginalLocalMediaBack) {
+      if (!finalDraftId) {
+        throw new Error('Subtitle template finished without a draft ID, cannot add the original local media back to the draft')
+      }
+
+      await this.reportProgress(extra, 98, '字幕模版已完成，正在回填原始本地媒体')
+      addMediaResult = await this.addOriginalLocalMediaToDraft(preparedSource, finalDraftId)
+    }
+
     return this.formatJsonResult({
       provider: 'vectcut',
-      action: 'status',
+      action: 'submit_and_wait',
       mode: 'subtitle_template',
-      ...result
+      estimated_wait_time: SUBTITLE_TEMPLATE_TASK_WAIT_TIME,
+      template,
+      agent_id: payload.agent_id,
+      source_kind: preparedSource.sourceKind,
+      source_url: preparedSource.submittedUrl,
+      original_input: preparedSource.originalInput,
+      source_summary: [
+        {
+          original_input: preparedSource.originalInput,
+          submitted_url: preparedSource.submittedUrl,
+          source_kind: preparedSource.sourceKind
+        }
+      ],
+      extracted_audio: preparedSource.extractedAudio,
+      duration_seconds: preparedSource.durationSeconds ?? undefined,
+      input_draft_id: payload.draft_id,
+      task_id: taskId,
+      restored_original_media:
+        shouldAddOriginalLocalMediaBack && addMediaResult
+          ? {
+              action: preparedSource.sourceKind === 'local_video_audio_extracted' ? 'add_video' : 'add_audio',
+              original_input: preparedSource.originalInput,
+              success: addMediaResult.success,
+              error: addMediaResult.error || '',
+              output: addMediaResult.output
+            }
+          : undefined,
+      ...finalResult
     })
   }
 }

@@ -394,7 +394,7 @@ type IntentRoute = {
 - `image_outro_animation_list` -> `mcp__draft-elements__get_outro_animation_types`
 - `image_loop_animation_list` -> `mcp__draft-elements__get_combo_animation_types`
 - `workflow` -> `mcp__cut-workflow__execute_workflow`
-- `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle` / `mcp__subtitle-template__get_smart_subtitle_task_status`
+- `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle`
 - `template` -> `mcp__koubo-template__submit_koubo_template_task` / `mcp__koubo-template__get_koubo_template_task_status`
 
 说明：
@@ -403,11 +403,11 @@ type IntentRoute = {
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
 - `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；返回结果中的字幕 JSON 可能很大，完整内容优先直接落盘到当前 workspace 根目录下的 `<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
 - `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；输入应为已完成前置上传后的服务端可访问视频链接
-- `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
+- `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`；对 Agent 暴露为单个长耗时工具，内部自行完成异步任务提交与轮询，不再拆成独立状态查询工具；整体耗时通常为 `15~30` 分钟，完成后直接返回最终草稿结果；若输入是本地文件，则字幕模版阶段只提交音频素材（本地视频先抽取音频并上传，本地音频直接上传），并强制不在该阶段把素材写入草稿，待模板草稿生成完成后再把原始本地视频或音频补回草稿
 - `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流 DSL 执行包含 `if` / `loop` / 多步骤编排在内的复杂剪辑流程；它不是“批量工具”的别名。`add_batch_*` 这类工具只表示单个平铺批量操作，不具备工作流分支、循环和编排语义。只要用户明确表达“执行工作流 / workflow / workflow_id / execute_workflow”，就必须优先命中 `workflow`，不能因为句子里同时出现“批量”“多个”“一次性”而退化到 `text_add_batch`、`image_add_batch`、`video_add_batch`、`audio_add_batch`、`add_batch_preset` 等批量工具；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；若工作流里引用本地音视频图片，应先通过 `workspace.upload` 转成远程可访问 URL，再写入工作流 JSON
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
 - `add_preset` / `add_batch_preset`：预设片段能力，面向用户预先在剪映中制作并上传、已拿到 `preset_id` 的预设模版；`add_preset` 用于添加单个预设片段，支持通过 `replacements` 替换其中的图片、视频、文字、音频等素材，支持 `target_start`、`track_name`、位移缩放旋转以及画布尺寸参数，未传 `draft_id` 时默认生成新草稿；`add_batch_preset` 用于一次插入多个预设片段，核心参数是 `preset_ids`、`starts`、`ends`，并可选传入 `target_starts`、`target_ends` 控制各片段目标时间范围；适合字幕片段、混剪素材、批量画中画等重复结构内容生成
-- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；输入要求为服务端可访问的远程视频链接，应消费已完成前置上传后的 URL；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
+- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；远程视频链接可直接传入，本地视频文件路径或 `file://` URL 也允许直接传入并由工具内部自行处理，无需单独前置 `workspace.upload`；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
 - `draft_download`：专用于下载剪映草稿；当当前句子或前文上下文里已经出现 `草稿` / `draft` / `draft_id` / `draft_url` / `dfd_` 等草稿标识时，下载语义应优先命中 `draft_download`，不要误落到 `workspace.download` 或 `media_download`

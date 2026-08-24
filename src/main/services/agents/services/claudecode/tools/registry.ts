@@ -331,10 +331,11 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('subtitle-template', {
       type: 'sdk',
       name: 'subtitle-template',
-      instance: subtitleTemplateServer.mcpServer
+      instance: subtitleTemplateServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
     })
     autoAllowTools.add('mcp__subtitle-template__generate_smart_subtitle')
-    autoAllowTools.add('mcp__subtitle-template__get_smart_subtitle_task_status')
     allowMcpPattern('mcp__subtitle-template__*')
   }
 
