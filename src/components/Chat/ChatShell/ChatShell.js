@@ -62,6 +62,14 @@ const getBaseName = (value) => {
   const segments = normalized.split('/').filter(Boolean);
   return segments[segments.length - 1] || normalized;
 };
+const areSameFileName = (left, right) => {
+  const normalizedLeft = String(left || '').trim();
+  const normalizedRight = String(right || '').trim();
+  if (isWindows) {
+    return normalizedLeft.toLowerCase() === normalizedRight.toLowerCase();
+  }
+  return normalizedLeft === normalizedRight;
+};
 const splitFileName = (value = '') => {
   const normalized = String(value || '').trim();
   const extensionIndex = normalized.lastIndexOf('.');
@@ -1733,7 +1741,6 @@ const ChatShell = ({
       const folderName = String(checkResult?.safeName || normalizedName).trim();
       if (!folderName) {
         window.toast.error('工作空间名称无效');
-        setCreateWorkspaceSubmitting(false);
         return;
       }
       if (checkResult?.requestedExists) {
@@ -1755,12 +1762,7 @@ const ChatShell = ({
         setCreateWorkspaceNameError('');
       }
     } catch (error) {
-      const message = String(error?.message || '');
-      if (message.includes('exists') || message.includes('already exists')) {
-        setCreateWorkspaceNameError(`名称“${normalizedName}”已被占用`);
-        return;
-      }
-      window.toast.error('新建工作空间失败');
+      window.toast.error(error?.message || '新建工作空间失败');
     } finally {
       setCreateWorkspaceSubmitting(false);
     }
@@ -1803,25 +1805,25 @@ const ChatShell = ({
       setRenameWorkspaceError('名称不能为空');
       return;
     }
+    if (areSameFileName(requestedName, currentName)) {
+      setRenamingWorkspacePath('');
+      setRenameWorkspaceDraft('');
+      setRenameWorkspaceError('');
+      return;
+    }
 
     try {
       setRenameWorkspaceSubmitting(true);
       setRenameWorkspaceError('');
 
-      const { safeName, exists } = await window.api.file.checkFileName(parentDir, requestedName, false);
+      const { safeName, requestedExists } = await window.api.file.checkFileName(parentDir, requestedName, false);
       const nextName = String(safeName || requestedName).trim();
       if (!nextName) {
         setRenameWorkspaceError('工作空间名称无效');
         return;
       }
-      if (nextName === currentName) {
-        setRenamingWorkspacePath('');
-        setRenameWorkspaceDraft('');
-        setRenameWorkspaceError('');
-        return;
-      }
-      if (exists) {
-        setRenameWorkspaceError(`名称“${nextName}”已被占用`);
+      if (requestedExists) {
+        setRenameWorkspaceError(`名称“${requestedName}”已被占用`);
         return;
       }
 
