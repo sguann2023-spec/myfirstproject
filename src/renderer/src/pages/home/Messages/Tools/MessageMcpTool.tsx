@@ -448,8 +448,22 @@ const CollapseContainer = styled(Collapse)`
   --status-color-success: var(--color-primary, green);
   border-radius: 7px;
   border: none;
-  background-color: var(--color-background);
+  background-color: transparent;
   overflow: hidden;
+
+  &.ant-collapse,
+  .ant-collapse-item,
+  .ant-collapse-item.ant-collapse-item-active,
+  .ant-collapse-header {
+    background: transparent !important;
+  }
+
+  .ant-collapse-item > .ant-collapse-header,
+  .ant-collapse-item.ant-collapse-item-active > .ant-collapse-header,
+  .ant-collapse-item > .ant-collapse-content,
+  .ant-collapse-item.ant-collapse-item-active > .ant-collapse-content {
+    background: transparent !important;
+  }
 
   .ant-collapse-header {
     padding: 8px 10px !important;
