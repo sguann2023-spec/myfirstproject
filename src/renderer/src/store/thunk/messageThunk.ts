@@ -993,7 +993,16 @@ const fetchAndProcessAgentResponseImpl = async (
 
         const usage = persistedMessage.usage
         const usageSteps = persistedMessage.usageSteps
-        if (!usage && (!Array.isArray(usageSteps) || usageSteps.length === 0)) {
+        const metrics = persistedMessage.metrics
+        const createdAt = persistedMessage.createdAt
+        const updatedAt = persistedMessage.updatedAt
+        if (
+          !usage &&
+          (!Array.isArray(usageSteps) || usageSteps.length === 0) &&
+          !metrics &&
+          !createdAt &&
+          !updatedAt
+        ) {
           return
         }
 
@@ -1003,7 +1012,10 @@ const fetchAndProcessAgentResponseImpl = async (
             messageId: assistantMessage.id,
             updates: {
               usage,
-              usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
+              usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined,
+              metrics,
+              createdAt: createdAt || assistantMessage.createdAt,
+              updatedAt: updatedAt || assistantMessage.updatedAt
             }
           })
         )
@@ -1012,7 +1024,10 @@ const fetchAndProcessAgentResponseImpl = async (
           topicId,
           {
             usage,
-            usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
+            usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined,
+            metrics,
+            createdAt: createdAt || assistantMessage.createdAt,
+            updatedAt: updatedAt || assistantMessage.updatedAt
           },
           []
         )

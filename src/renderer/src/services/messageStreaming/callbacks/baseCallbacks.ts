@@ -412,6 +412,7 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       const latestMessage = getState().messages.entities[assistantMsgId]
       const messageUpdates = {
         status,
+        updatedAt: new Date().toISOString(),
         metrics: response?.metrics,
         usage: response?.usage,
         usageSteps: latestMessage?.usageSteps
