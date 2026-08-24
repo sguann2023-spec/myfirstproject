@@ -807,11 +807,13 @@ const ChatShell = ({
   const showTrailingWebPreview = Boolean(panePreview);
   const showMembersPanel = !membersPanelCollapsed;
   const isResizingAnyPanel = isResizingMembersPanel || isResizingWebPreview;
-  const shouldStartBeginnerGuide = Boolean(
+  const shouldAutoStartBeginnerGuide = Boolean(
     beginnerGuideEligible &&
-    (!beginnerGuideDone || beginnerGuideReopenPending) &&
+    !beginnerGuideDone &&
     !hasLockedWorkspace
   );
+  const shouldForceReopenBeginnerGuide = Boolean(beginnerGuideReopenPending);
+  const shouldStartBeginnerGuide = shouldAutoStartBeginnerGuide || shouldForceReopenBeginnerGuide;
   React.useEffect(() => {
     if (!renamingWorkspacePath) return;
     const input = renameWorkspaceInputRef.current;
@@ -967,7 +969,7 @@ const ChatShell = ({
     if (!shouldStartBeginnerGuide || beginnerGuideOpen) return undefined;
     let frameId = 0;
     const tryOpenGuide = () => {
-      if (beginnerGuideQuickSkillsViewportRef?.current || childrensBookQuickPromptRef?.current) {
+      if (beginnerGuideInputAreaRef?.current) {
         setBeginnerGuideCurrent(0);
         setBeginnerGuideOpen(true);
         return;
@@ -978,7 +980,7 @@ const ChatShell = ({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [beginnerGuideOpen, beginnerGuideQuickSkillsViewportRef, childrensBookQuickPromptRef, shouldStartBeginnerGuide]);
+  }, [beginnerGuideInputAreaRef, beginnerGuideOpen, shouldStartBeginnerGuide]);
 
   React.useEffect(() => {
     const handleChildrensBookSkillCreated = () => {

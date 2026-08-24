@@ -4,7 +4,7 @@ import { Check, LoaderCircle, Plus } from 'lucide-react';
 import SkillMarkdownPreview from './SkillMarkdownPreview';
 import './WelcomePage.css';
 
-const CHILDRENS_BOOK_TOUR_ACTION = 'bootstrap-childrens-picture-book';
+const BEGINNER_GUIDE_QUICK_SKILL_ACTION = 'bootstrap-trendy-koubo';
 const QUICK_SKILLS_ROOT_RELATIVE_PATH = 'quick/skills';
 const QUICK_SKILLS_MANIFEST_RELATIVE_PATH = 'quick/skills/manifest.json';
 let quickSkillsPromise = null;
@@ -117,7 +117,7 @@ const WelcomeSkillCard = ({
 }) => {
   return (
     <article
-      ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
+      ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
       className="chat-panel__welcome-skill-card"
       role="button"
       tabIndex={0}
@@ -144,7 +144,7 @@ const WelcomeSkillCard = ({
                 type="button"
                 className={`chat-panel__welcome-skill-add${isLoading ? ' chat-panel__welcome-skill-add--loading' : ''}`}
                 aria-label="添加技能"
-                ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? childrensBookQuickPromptRef : null}
+                ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? childrensBookQuickPromptRef : null}
                 onClick={(event) => {
                   event.stopPropagation();
                   onAddSkill(item);
@@ -360,13 +360,13 @@ const WelcomePage = ({
                 </div>
               </div>
             ) : (
-              <div className="chat-panel__quick-prompts">
+                <div className="chat-panel__quick-prompts">
                 {(Array.isArray(quickPrompts) ? quickPrompts : []).map((item) => (
                   <button
                     key={item.label}
                     type="button"
                     className="chat-panel__quick-prompt"
-                    ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? childrensBookQuickPromptRef : null}
+                    ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? childrensBookQuickPromptRef : null}
                     onClick={() => onQuickPrompt(item.action ? item : item.prompt)}
                   >
                     {item.label}
