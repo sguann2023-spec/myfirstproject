@@ -37,7 +37,7 @@ const Container = styled.div`
 
       > .ant-collapse-header {
         padding: 8px 12px !important;
-        background: var(--color-background);
+        background: transparent;
         border: 1px solid var(--color-border);
         border-radius: 0.75rem !important;
         display: flex;

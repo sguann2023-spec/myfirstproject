@@ -1,12 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockUploadLocalFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -38,12 +40,18 @@ vi.mock('@logger', () => ({
   }
 }))
 
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
+  }
+}))
+
 import VideoUnderstandServer from '../video-understand'
 
 type VideoUnderstandServerInstance = InstanceType<typeof VideoUnderstandServer>
 
-function createServer() {
-  return new VideoUnderstandServer()
+function createServer(workspaceRoot?: string) {
+  return new VideoUnderstandServer(workspaceRoot)
 }
 
 async function callTool(server: VideoUnderstandServerInstance, toolName: string, args: Record<string, unknown>) {
@@ -76,32 +84,24 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 describe('VideoUnderstandServer', () => {
   let workspaceRoot: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
-  })
-
-  beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'video-understand-test-'))
-    vi.stubEnv('WORKSPACE_ROOT', workspaceRoot)
   })
 
   afterEach(async () => {
-    vi.unstubAllEnvs()
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined)
   })
 
-  it('should expose submit and status tools', async () => {
-    const server = createServer()
+  it('should expose only the submit-and-wait tool', async () => {
+    const server = createServer(workspaceRoot)
     const result = await listTools(server)
 
-    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      'submit_video_detail_task',
-      'get_video_detail_task_status'
-    ])
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['submit_video_detail_task'])
   })
 
-  it('should submit single video understand task with aliases', async () => {
+  it('should submit a remote video task and poll until completion', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -120,11 +120,29 @@ describe('VideoUnderstandServer', () => {
           task_id: 'task-123'
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'task-123',
+          status: 'success',
+          progress: 1,
+          message: '任务处理完成',
+          prompt: '总结一下画面内容',
+          video_url: 'https://example.com/source.mp4',
+          result: {
+            output: {
+              video_detail: '画面中是一条街道和路过的人群'
+            }
+          },
+          error: '',
+          success: true
+        })
+      )
 
-    const server = createServer()
+    const server = createServer(workspaceRoot)
     const result = await callTool(server, 'submit_video_detail_task', {
       video_url: 'https://example.com/source.mp4',
-      prompt: '总结一下画面内容'
+      prompt: '总结一下画面内容',
+      fps: 2
     })
 
     expect(mockStoreSet).toHaveBeenCalledWith('auth.refresh_token', 'refresh-token-next')
@@ -140,119 +158,42 @@ describe('VideoUnderstandServer', () => {
         body: JSON.stringify({
           video_url: 'https://example.com/source.mp4',
           model: 'gpt-5.6-luna',
-          prompt: '总结一下画面内容'
+          prompt: '总结一下画面内容',
+          fps: 2
         })
       })
     )
-
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'submit',
-      mode: 'video_understand',
-      request: {
-        video_url: 'https://example.com/source.mp4',
-        model: 'gpt-5.6-luna',
-        prompt: '总结一下画面内容'
-      },
-      error: '',
-      message_id: 'message-123',
-      queue_name: 'video-detail-task',
-      status: 'queued',
-      success: true,
-      task_id: 'task-123'
-    })
-  })
-
-  it('should submit multi video understand task with fps list', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          error: '',
-          message_id: 'message-456',
-          queue_name: 'video-detail-task',
-          status: 'queued',
-          success: true,
-          task_id: 'task-456'
-        })
-      )
-
-    const server = createServer()
-    await callTool(server, 'submit_video_detail_task', {
-      videoUrls: ['https://example.com/a.mp4', 'https://example.com/b.mp4']
-    })
-
-    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      video_urls: ['https://example.com/a.mp4', 'https://example.com/b.mp4'],
-      model: 'gpt-5.6-luna'
-    })
-  })
-
-  it('should query video understand task status', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          task_id: 'task-status-789',
-          status: 'success',
-          progress: 100,
-          message: '任务处理完成',
-          prompt: '总结一下画面内容',
-          video_url: 'https://example.com/source.mp4',
-          result: {
-            output: {
-              video_detail: '画面中是一条街道和路过的人群'
-            }
-          },
-          error: '',
-          success: true
-        })
-      )
-
-    const server = createServer()
-    const result = await callTool(server, 'get_video_detail_task_status', {
-      task_id: 'task-status-789'
-    })
-
     expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/llm/video_detail/submit/task_status?task_id=task-status-789',
-      expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'Content-Type': 'application/json'
-        })
-      })
+      3,
+      'https://open.vectcut.com/llm/video_detail/submit/task_status?task_id=task-123',
+      expect.objectContaining({ method: 'GET' })
     )
 
     const payload = JSON.parse(result.content[0].text)
     expect(payload).toEqual({
       provider: 'vectcut',
-      action: 'status',
+      action: 'submit_and_wait',
       mode: 'video_understand',
-      task_id: 'task-status-789',
+      estimated_wait_time: '15-30 minutes',
+      task_id: 'task-123',
       status: 'success',
-      progress: 100,
+      progress: 1,
       message: '任务处理完成',
       prompt: '总结一下画面内容',
       video_url: 'https://example.com/source.mp4',
       error: '',
       success: true,
+      source_summary: [
+        {
+          original_input: 'https://example.com/source.mp4',
+          submitted_url: 'https://example.com/source.mp4',
+          source_kind: 'remote_video'
+        }
+      ],
       artifact: {
         storage: 'workspace_file',
-        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'video-understand', 'task-status-789.json'),
-        relative_path: path.join('.capcut', 'tool-results', 'video-understand', 'task-status-789.json')
+        file_path: path.join(workspaceRoot, '.capcut', 'tool-results', 'video-understand', 'task-123.json'),
+        relative_path: path.join('.capcut', 'tool-results', 'video-understand', 'task-123.json')
       },
       result_summary: {
         has_result: true,
@@ -265,11 +206,25 @@ describe('VideoUnderstandServer', () => {
     const storedText = await fs.readFile(payload.artifact.file_path, 'utf8')
     expect(JSON.parse(storedText)).toEqual({
       provider: 'vectcut',
-      action: 'status',
+      action: 'submit_and_wait',
       mode: 'video_understand',
-      task_id: 'task-status-789',
+      estimated_wait_time: '15-30 minutes',
+      request: {
+        video_url: 'https://example.com/source.mp4',
+        model: 'gpt-5.6-luna',
+        prompt: '总结一下画面内容',
+        fps: 2
+      },
+      source_summary: [
+        {
+          original_input: 'https://example.com/source.mp4',
+          submitted_url: 'https://example.com/source.mp4',
+          source_kind: 'remote_video'
+        }
+      ],
+      task_id: 'task-123',
       status: 'success',
-      progress: 100,
+      progress: 1,
       message: '任务处理完成',
       prompt: '总结一下画面内容',
       video_url: 'https://example.com/source.mp4',
@@ -281,5 +236,68 @@ describe('VideoUnderstandServer', () => {
       error: '',
       success: true
     })
+  })
+
+  it('should upload local video before submitting', async () => {
+    const localVideoPath = path.join(workspaceRoot, 'local-source.mp4')
+    await fs.writeFile(localVideoPath, 'video')
+
+    mockUploadLocalFile.mockResolvedValue({
+      signedPublicUrl: 'https://oss.example.com/local-source.mp4?token=1'
+    })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'queued',
+          success: true,
+          task_id: 'task-local'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'task-local',
+          status: 'success',
+          progress: 1,
+          message: '任务处理完成',
+          result: {
+            output: {
+              video_detail: '本地视频分析完成'
+            }
+          },
+          success: true
+        })
+      )
+
+    const server = createServer(workspaceRoot)
+    const result = await callTool(server, 'submit_video_detail_task', {
+      videoUrl: localVideoPath
+    })
+
+    expect(mockUploadLocalFile).toHaveBeenCalledWith(localVideoPath, {
+      bucket: 'oss-hangzhou-mp4',
+      region: 'oss-cn-hangzhou',
+      folder: 'agent_tmp/{uid}',
+      objectKeyPrefix: 'vectcut_video_understand_',
+      signExpiresSeconds: 3600
+    })
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      video_url: 'https://oss.example.com/local-source.mp4?token=1',
+      model: 'gpt-5.6-luna'
+    })
+
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.source_summary).toEqual([
+      {
+        original_input: localVideoPath,
+        submitted_url: 'https://oss.example.com/local-source.mp4?token=1',
+        source_kind: 'local_video'
+      }
+    ])
   })
 })

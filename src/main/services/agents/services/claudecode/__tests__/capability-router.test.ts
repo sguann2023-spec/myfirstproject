@@ -451,7 +451,7 @@ describe('CapabilityRouter', () => {
     expect(videoDecision.selected.has('video')).toBe(true)
   })
 
-  it('routes local reference image generation to ai_media.image with workspace upload', () => {
+  it('routes local reference image generation to ai_media.image without forcing workspace upload', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -466,10 +466,10 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('ai_media')
     expect(decision.subdomains).toEqual(['image'])
     expect(decision.selected.has('image')).toBe(true)
-    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.selected.has('uploadFile')).toBe(false)
   })
 
-  it('routes local reference video generation to ai_media.video with workspace upload', () => {
+  it('routes local reference video generation to ai_media.video without forcing workspace upload', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -484,7 +484,7 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('ai_media')
     expect(decision.subdomains).toEqual(['video'])
     expect(decision.selected.has('video')).toBe(true)
-    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.selected.has('uploadFile')).toBe(false)
   })
 
   it('routes explicit video generation parameter prompts to ai_media.video instead of speech or media duration', () => {
@@ -718,6 +718,22 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const workflowDecision = router.select({
+      prompt: '执行这个剪辑工作流，把 add_text 和 add_video 一次性写进草稿',
+      sessionId: 'session-cut-workflow',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const localWorkflowDecision = router.select({
+      prompt: '用这个本地视频 sample.mp4 执行剪辑工作流',
+      sessionId: 'session-local-cut-workflow',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
 
     expect(createDecision.primaryDomain).toBe('cut')
     expect(createDecision.subdomains).toEqual(['draft'])
@@ -781,8 +797,39 @@ describe('CapabilityRouter', () => {
     expect(localKouboDecision.primaryDomain).toBe('cut')
     expect(localKouboDecision.subdomains).toEqual(['template'])
     expect(localKouboDecision.selected.has('kouboTemplate')).toBe(true)
-    expect(localKouboDecision.selected.has('uploadFile')).toBe(true)
+    expect(localKouboDecision.selected.has('uploadFile')).toBe(false)
     expect(localKouboDecision.selected.has('digitalHuman')).toBe(false)
+    expect(workflowDecision.primaryDomain).toBe('cut')
+    expect(workflowDecision.subdomains).toEqual(['workflow'])
+    expect(workflowDecision.selected.has('cutWorkflow')).toBe(true)
+    expect(workflowDecision.selected.has('kouboTemplate')).toBe(false)
+    expect(localWorkflowDecision.primaryDomain).toBe('cut')
+    expect(localWorkflowDecision.subdomains).toEqual(['workflow'])
+    expect(localWorkflowDecision.selected.has('cutWorkflow')).toBe(true)
+    expect(localWorkflowDecision.selected.has('uploadFile')).toBe(true)
+  })
+
+  it('keeps explicit workflow execution separate from batch draft tools', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '按工作流执行这个剪辑任务，把多个文字和多个视频一次性写进草稿，不要走批量工具',
+      sessionId: 'session-cut-workflow-not-batch',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(['workflow'])
+    expect(decision.selected.has('cutWorkflow')).toBe(true)
+    expect(decision.selected.has('textAddBatch')).toBe(false)
+    expect(decision.selected.has('videoAddBatch')).toBe(false)
+    expect(decision.selected.has('audioAddBatch')).toBe(false)
+    expect(decision.selected.has('presetAddBatch')).toBe(false)
+    expect(decision.selected.has('textAdd')).toBe(false)
+    expect(decision.selected.has('videoAdd')).toBe(false)
   })
 
   it('allows cut and ai_media domains to combine in the same request', () => {

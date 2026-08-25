@@ -1,10 +1,10 @@
 import React from 'react';
 import { Tooltip } from 'antd';
-import { Check, ChevronLeft, ChevronRight, LoaderCircle, Plus } from 'lucide-react';
+import { Check, LoaderCircle, Plus } from 'lucide-react';
 import SkillMarkdownPreview from './SkillMarkdownPreview';
 import './WelcomePage.css';
 
-const CHILDRENS_BOOK_TOUR_ACTION = 'bootstrap-childrens-picture-book';
+const BEGINNER_GUIDE_QUICK_SKILL_ACTION = 'bootstrap-trendy-koubo';
 const QUICK_SKILLS_ROOT_RELATIVE_PATH = 'quick/skills';
 const QUICK_SKILLS_MANIFEST_RELATIVE_PATH = 'quick/skills/manifest.json';
 let quickSkillsPromise = null;
@@ -117,7 +117,7 @@ const WelcomeSkillCard = ({
 }) => {
   return (
     <article
-      ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
+      ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
       className="chat-panel__welcome-skill-card"
       role="button"
       tabIndex={0}
@@ -144,7 +144,7 @@ const WelcomeSkillCard = ({
                 type="button"
                 className={`chat-panel__welcome-skill-add${isLoading ? ' chat-panel__welcome-skill-add--loading' : ''}`}
                 aria-label="添加技能"
-                ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? childrensBookQuickPromptRef : null}
+                ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? childrensBookQuickPromptRef : null}
                 onClick={(event) => {
                   event.stopPropagation();
                   onAddSkill(item);
@@ -180,31 +180,6 @@ const WelcomePage = ({
   const [previewSkill, setPreviewSkill] = React.useState(null);
   const [installedSkillLookup, setInstalledSkillLookup] = React.useState({});
   const [installedSkillRefreshKey, setInstalledSkillRefreshKey] = React.useState(0);
-  const skillsViewportRef = React.useRef(null);
-  const [scrollState, setScrollState] = React.useState({
-    canScrollLeft: false,
-    canScrollRight: false,
-    isScrollable: false
-  });
-
-  const updateScrollState = React.useCallback(() => {
-    const element = skillsViewportRef.current;
-    if (!element) {
-      setScrollState({
-        canScrollLeft: false,
-        canScrollRight: false,
-        isScrollable: false
-      });
-      return;
-    }
-
-    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
-    setScrollState({
-      canScrollLeft: element.scrollLeft > 4,
-      canScrollRight: element.scrollLeft < maxScrollLeft - 4,
-      isScrollable: maxScrollLeft > 4
-    });
-  }, []);
 
   React.useEffect(() => {
     let disposed = false;
@@ -299,34 +274,6 @@ const WelcomePage = ({
     });
   }, [runtimeSessionId]);
 
-  React.useEffect(() => {
-    updateScrollState();
-    const element = skillsViewportRef.current;
-    if (!element) return undefined;
-
-    const handleScroll = () => {
-      updateScrollState();
-    };
-
-    element.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', updateScrollState);
-
-    return () => {
-      element.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', updateScrollState);
-    };
-  }, [quickSkills, updateScrollState]);
-
-  const scrollSkills = React.useCallback((direction) => {
-    const element = skillsViewportRef.current;
-    if (!element) return;
-    const distance = 280;
-    element.scrollBy({
-      left: direction === 'left' ? -distance : distance,
-      behavior: 'smooth'
-    });
-  }, []);
-
   const handleAddSkill = React.useCallback(async (item) => {
     const action = String(item?.action || '').trim();
     const directoryPath = String(item?.directoryPath || '').trim();
@@ -395,21 +342,7 @@ const WelcomePage = ({
             </div>
             {shouldRenderQuickSkills ? (
               <div className="chat-panel__welcome-skills-shell">
-                {scrollState.isScrollable ? (
-                  <button
-                    type="button"
-                    className="chat-panel__welcome-skills-arrow"
-                    aria-label="向左滚动"
-                    onClick={() => scrollSkills('left')}
-                    disabled={!scrollState.canScrollLeft}
-                  >
-                    <ChevronLeft size={18} strokeWidth={2.2} />
-                  </button>
-                ) : null}
-                <div
-                  ref={skillsViewportRef}
-                  className="chat-panel__welcome-skills-viewport"
-                >
+                <div className="chat-panel__welcome-skills-viewport">
                   <div className="chat-panel__welcome-skills-track">
                     {quickSkillItems.map((item) => (
                       <WelcomeSkillCard
@@ -425,26 +358,15 @@ const WelcomePage = ({
                     ))}
                   </div>
                 </div>
-                {scrollState.isScrollable ? (
-                  <button
-                    type="button"
-                    className="chat-panel__welcome-skills-arrow"
-                    aria-label="向右滚动"
-                    onClick={() => scrollSkills('right')}
-                    disabled={!scrollState.canScrollRight}
-                  >
-                    <ChevronRight size={18} strokeWidth={2.2} />
-                  </button>
-                ) : null}
               </div>
             ) : (
-              <div className="chat-panel__quick-prompts">
+                <div className="chat-panel__quick-prompts">
                 {(Array.isArray(quickPrompts) ? quickPrompts : []).map((item) => (
                   <button
                     key={item.label}
                     type="button"
                     className="chat-panel__quick-prompt"
-                    ref={item.action === CHILDRENS_BOOK_TOUR_ACTION ? childrensBookQuickPromptRef : null}
+                    ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? childrensBookQuickPromptRef : null}
                     onClick={() => onQuickPrompt(item.action ? item : item.prompt)}
                   >
                     {item.label}

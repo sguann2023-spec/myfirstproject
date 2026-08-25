@@ -28,9 +28,12 @@ import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import appStore from '../../renderer/src/store';
-import { updateOneBlock } from '../../renderer/src/store/messageBlock';
+import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
+import { newMessagesActions } from '../../renderer/src/store/newMessage';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
+import { MessageBlockStatus } from '../../renderer/src/types/newMessage';
+import { createImageBlock, createMainTextBlock, createMessage } from '../../renderer/src/utils/messageUtils/create';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
 import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
@@ -43,11 +46,13 @@ const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
 const CHAT_SNAPSHOT_THROTTLE_MS = 100;
+const CHAT_PERSIST_DEBOUNCE_MS = 800;
 const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
+const QUICK_TRENDY_KOUBO_SKILL_NAME = '网感口播';
 const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
 const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
 const QUICK_SWEATER_SELLING_SKILL_NAME = '毛衣带货口播';
@@ -501,6 +506,41 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const getPerfTimestamp = () =>
   (typeof globalThis?.performance?.now === 'function' ? globalThis.performance.now() : Date.now());
 
+const syncLegacyUserMessageToRendererStore = ({
+  topicId,
+  assistantId,
+  userMessage,
+  images,
+}) => {
+  const state = appStore.getState();
+  if (state?.messages?.entities?.[userMessage.id]) {
+    return;
+  }
+
+  const textBlock = createMainTextBlock(userMessage.id, String(userMessage.content || ''), {
+    status: MessageBlockStatus.SUCCESS,
+  });
+  const imageBlocks = (Array.isArray(images) ? images : []).map((image) =>
+    createImageBlock(
+      userMessage.id,
+      {
+        url: `data:${image.media_type};base64,${image.data}`,
+      },
+      {
+        status: MessageBlockStatus.SUCCESS,
+      }
+    )
+  );
+  const blocks = [textBlock, ...imageBlocks];
+  const rendererMessage = createMessage('user', topicId, assistantId, {
+    id: userMessage.id,
+    blocks: blocks.map((block) => block.id),
+  });
+
+  appStore.dispatch(newMessagesActions.addMessage({ topicId, message: rendererMessage }));
+  appStore.dispatch(upsertManyBlocks(blocks));
+};
+
 const summarizeBlocksForPerf = (blocks) => {
   const list = Array.isArray(blocks) ? blocks : [];
   const summary = {
@@ -904,6 +944,25 @@ const shouldHydrateChatSessionFromHistory = (session) => {
   });
 };
 
+const shouldPersistChatSessionMessages = (session) => {
+  if (!session || !Array.isArray(session.messages)) return false;
+  const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+  if (!runtimeSessionId) return true;
+  return shouldHydrateChatSessionFromHistory(session);
+};
+
+const serializeChatSessionsForPersistence = (sessions = [], modelOptions = []) => (
+  (Array.isArray(sessions) ? sessions : []).map((session) => ({
+    ...session,
+    runtimeSessionId: String(session?.runtimeSessionId || '').trim(),
+    messages: shouldPersistChatSessionMessages(session)
+      ? (Array.isArray(session?.messages)
+          ? session.messages.map((message) => normalizePersistedChatMessage(message, modelOptions))
+          : [])
+      : []
+  }))
+);
+
 const countVisibleAssistantMessages = (messages = []) => (
   (Array.isArray(messages) ? messages : []).reduce((count, message) => {
     if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
@@ -925,6 +984,212 @@ const countStructuredAssistantBlocks = (messages = []) => (
     return count + blocks.filter((block) => isStructuredBlockObject(block)).length;
   }, 0)
 );
+
+const countAssistantUsageSteps = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    const usageSteps = Array.isArray(message?.usageSteps) ? message.usageSteps : [];
+    return count + usageSteps.length;
+  }, 0)
+);
+
+const countAssistantPricedUsageMessages = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    return message?.usage && message?.model?.pricing ? count + 1 : count;
+  }, 0)
+);
+
+const HYDRATED_IMAGE_TOOL_NAMES = new Set([
+  'generate_or_edit_image',
+  'mcp__image__generate_or_edit_image',
+  'generate_image',
+  'mcp__image__generate_image'
+]);
+
+const inferPersistedImageAttachmentFileType = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return 'image/png';
+
+  const dataUrlMatch = normalized.match(/^data:(image\/[^;,]+)[;,]/i);
+  if (dataUrlMatch?.[1]) {
+    return dataUrlMatch[1];
+  }
+
+  if (normalized.includes('.jpg') || normalized.includes('.jpeg')) return 'image/jpeg';
+  if (normalized.includes('.webp')) return 'image/webp';
+  if (normalized.includes('.gif')) return 'image/gif';
+  if (normalized.includes('.bmp')) return 'image/bmp';
+  if (normalized.includes('.svg')) return 'image/svg+xml';
+  if (normalized.includes('.avif')) return 'image/avif';
+  return 'image/png';
+};
+
+const normalizePersistedImageAttachments = (attachments = []) => (
+  (Array.isArray(attachments) ? attachments : []).reduce((acc, attachment, index) => {
+    if (!attachment || typeof attachment !== 'object') return acc;
+    const previewUrl = String(
+      attachment?.previewUrl
+      || attachment?.thumbnailUrl
+      || attachment?.url
+      || ''
+    ).trim();
+    if (!previewUrl) return acc;
+    const fileType = String(attachment?.fileType || '').trim() || inferPersistedImageAttachmentFileType(previewUrl);
+    acc.push({
+      ...attachment,
+      uid: String(attachment?.uid || `persisted-image-${index}`),
+      name: String(attachment?.name || `图片 ${index + 1}`),
+      fileType,
+      url: String(attachment?.url || previewUrl).trim(),
+      previewUrl,
+      thumbnailUrl: String(attachment?.thumbnailUrl || previewUrl).trim(),
+    });
+    return acc;
+  }, [])
+);
+
+const buildPersistedUserImageAttachmentsFromBlocks = (blocks = []) => (
+  (Array.isArray(blocks) ? blocks : []).reduce((acc, block, index) => {
+    if (!isStructuredBlockObject(block)) return acc;
+    if (String(block?.type || '').toLowerCase() !== 'image') return acc;
+    const previewUrl = String(block?.url || '').trim();
+    if (!previewUrl) return acc;
+    acc.push({
+      uid: String(block?.id || `persisted-image-block-${index}`),
+      name: `图片 ${acc.length + 1}`,
+      fileType: inferPersistedImageAttachmentFileType(previewUrl),
+      url: previewUrl,
+      previewUrl,
+      thumbnailUrl: previewUrl,
+    });
+    return acc;
+  }, [])
+);
+
+const getPersistedUserImagePreviewSources = (message = {}) => (
+  (Array.isArray(message?.imageAttachments) ? message.imageAttachments : []).reduce((acc, attachment) => {
+    const previewUrl = String(
+      attachment?.previewUrl
+      || attachment?.thumbnailUrl
+      || attachment?.url
+      || ''
+    ).trim();
+    if (!previewUrl) return acc;
+    acc.push(previewUrl);
+    return acc;
+  }, [])
+);
+
+const enhancePersistedImageGenerationArguments = (toolName, args, userPreviewSources = []) => {
+  if (!HYDRATED_IMAGE_TOOL_NAMES.has(String(toolName || ''))) {
+    return args;
+  }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return args;
+  }
+
+  const referenceImages = Array.isArray(args.referenceImages)
+    ? args.referenceImages
+    : Array.isArray(args.reference_images)
+      ? args.reference_images
+      : [];
+  if (!referenceImages.length || userPreviewSources.length === 0) {
+    return args;
+  }
+
+  const existingPrepared = Array.isArray(args.reference_images_prepared) ? args.reference_images_prepared : [];
+  const referenceImagesPrepared = referenceImages.reduce((acc, item, index) => {
+    const originalInput = typeof item === 'string' ? item : String(item ?? '');
+    const existingItem = existingPrepared[index];
+    const previewUrl = String(
+      existingItem?.previewUrl
+      || existingItem?.preview_url
+      || userPreviewSources[index]
+      || ''
+    ).trim();
+    if (!previewUrl) {
+      return acc;
+    }
+    acc.push({
+      originalInput,
+      submittedUrl: String(
+        existingItem?.submittedUrl
+        || existingItem?.submitted_url
+        || originalInput
+      ).trim() || originalInput,
+      previewUrl,
+      sourceKind: previewUrl.startsWith('file://') || previewUrl.startsWith('data:') ? 'local_file' : 'remote_url'
+    });
+    return acc;
+  }, []);
+
+  if (referenceImagesPrepared.length === 0) {
+    return args;
+  }
+
+  return {
+    ...args,
+    reference_images_prepared: referenceImagesPrepared
+  };
+};
+
+const enhancePersistedHydratedMessages = (messages = []) => {
+  let latestUserImagePreviewSources = [];
+
+  return (Array.isArray(messages) ? messages : []).map((message) => {
+    if (!message || typeof message !== 'object') return message;
+
+    if (String(message?.role || '').toLowerCase() === 'user') {
+      latestUserImagePreviewSources = getPersistedUserImagePreviewSources(message);
+      return message;
+    }
+
+    if (!Array.isArray(message?.blocks) || message.blocks.length === 0) {
+      return message;
+    }
+
+    let changed = false;
+    const nextBlocks = message.blocks.map((block) => {
+      if (!isStructuredBlockObject(block)) return block;
+      const rawToolResponse = block?.metadata?.rawMcpToolResponse;
+      const toolName = String(rawToolResponse?.tool?.name || block?.toolName || '').trim();
+      if (!HYDRATED_IMAGE_TOOL_NAMES.has(toolName)) {
+        return block;
+      }
+
+      const nextArguments = enhancePersistedImageGenerationArguments(
+        toolName,
+        rawToolResponse?.arguments,
+        latestUserImagePreviewSources
+      );
+      if (nextArguments === rawToolResponse?.arguments) {
+        return block;
+      }
+
+      changed = true;
+      return {
+        ...block,
+        metadata: {
+          ...block.metadata,
+          rawMcpToolResponse: {
+            ...rawToolResponse,
+            arguments: nextArguments
+          }
+        }
+      };
+    });
+
+    if (!changed) {
+      return message;
+    }
+
+    return {
+      ...message,
+      blocks: nextBlocks
+    };
+  });
+};
 
 const hasUnstableAssistantToolBlocks = (messages = []) => {
   const seenToolCallIds = new Set();
@@ -960,11 +1225,15 @@ const shouldApplyHydratedMessages = ({
   const beforeVisibleAssistantCount = countVisibleAssistantMessages(currentMessages);
   const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
   const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
+  const beforeAssistantUsageStepCount = countAssistantUsageSteps(currentMessages);
+  const beforePricedUsageMessageCount = countAssistantPricedUsageMessages(currentMessages);
   const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
   const beforeHasInterruptedAssistantState = (Array.isArray(currentMessages) ? currentMessages : []).some(hasInterruptedAssistantState);
   const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
+  const afterAssistantUsageStepCount = countAssistantUsageSteps(hydratedMessages);
+  const afterPricedUsageMessageCount = countAssistantPricedUsageMessages(hydratedMessages);
   const afterHasInterruptedAssistantState = (Array.isArray(hydratedMessages) ? hydratedMessages : []).some(hasInterruptedAssistantState);
 
   return (
@@ -973,6 +1242,8 @@ const shouldApplyHydratedMessages = ({
     || afterMissingAssistantCount < beforeMissingAssistantCount
     || afterVisibleAssistantCount > beforeVisibleAssistantCount
     || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
+    || afterAssistantUsageStepCount > beforeAssistantUsageStepCount
+    || afterPricedUsageMessageCount > beforePricedUsageMessageCount
     || (beforeHasInterruptedAssistantState && !afterHasInterruptedAssistantState)
     || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
   );
@@ -990,6 +1261,9 @@ const summarizeHydrateMessageCollection = (messages = []) => {
       contentChars: String(message?.content || '').length,
       blockCount: blocks.length,
       blockTypes: blocks.map((block) => String(block?.type || 'unknown')),
+      usageStepsCount: Array.isArray(message?.usageSteps) ? message.usageSteps.length : 0,
+      hasUsage: Boolean(message?.usage),
+      hasPricing: Boolean(message?.model?.pricing),
       imageBlockCount: imageBlocks.length,
       dataUrlImageBlockCount: imageBlocks.filter((block) => String(block?.url || '').startsWith('data:image/')).length
     };
@@ -1083,17 +1357,30 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const modelId = String(
     modelMeta?.id || resolveMessageModelId(sourceMessage?.model, sourceMessage?.modelId)
   ).trim();
+  const imageAttachments = role === 'user'
+    ? (() => {
+        const normalizedAttachments = normalizePersistedImageAttachments(sourceMessage?.imageAttachments);
+        if (normalizedAttachments.length > 0) {
+          return normalizedAttachments;
+        }
+        return buildPersistedUserImageAttachmentsFromBlocks(normalizedBlocks);
+      })()
+    : undefined;
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
     role,
     content: limitInlineText(content, { label: '历史消息内容' }),
-    blocks: role === 'assistant' ? normalizedBlocks : [],
+    blocks: normalizedBlocks,
+    ...(role === 'user' && imageAttachments.length > 0 ? { imageAttachments } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
     modelId: modelId || undefined,
     usage: sourceMessage?.usage ? { ...sourceMessage.usage } : undefined,
+    usageSteps: Array.isArray(sourceMessage?.usageSteps)
+      ? sourceMessage.usageSteps.map((usageStep) => ({ ...usageStep }))
+      : undefined,
     metrics: sourceMessage?.metrics ? { ...sourceMessage.metrics } : undefined,
     error: sourceMessage?.error || null,
       aborted: hasInterruptedAssistantState({
@@ -1234,6 +1521,7 @@ const HomePage = () => {
   const chatHistoryHydratingRef = useRef(new Set());
   const chatHistoryHydrateSettledRef = useRef(new Set());
   const chatDeferredSessionChangeHydrateRef = useRef(new Map());
+  const chatPersistTimerRef = useRef(null);
   const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -1326,9 +1614,9 @@ const HomePage = () => {
         return;
       }
 
-      const hydratedMessages = historicalMessages
+      const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
         .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptionsRef.current))
-        .filter((message) => message?.id);
+        .filter((message) => message?.id));
       const hasAssistantContent = hydratedMessages.some((message) => (
         message.role === 'assistant' && String(message.content || '').trim()
       ));
@@ -1352,7 +1640,11 @@ const HomePage = () => {
           currentMessageCount: currentMessages.length,
           hydratedMessageCount: hydratedMessages.length,
           currentStructuredAssistantBlockCount: countStructuredAssistantBlocks(currentMessages),
-          hydratedStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages)
+          hydratedStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages),
+          currentAssistantUsageStepCount: countAssistantUsageSteps(currentMessages),
+          hydratedAssistantUsageStepCount: countAssistantUsageSteps(hydratedMessages),
+          currentPricedUsageMessageCount: countAssistantPricedUsageMessages(currentMessages),
+          hydratedPricedUsageMessageCount: countAssistantPricedUsageMessages(hydratedMessages)
         });
         logger.warn('[CTXLOSS][HistoryHydrate] persisted-sync-skip', {
           chatId: normalizedChatId,
@@ -1699,9 +1991,14 @@ const HomePage = () => {
 
   useEffect(() => {
     try {
-      const rawSessions = localStorage.getItem(CHAT_STORAGE_KEY);
-      const rawActiveId = localStorage.getItem(CHAT_ACTIVE_ID_KEY);
-      const parsed = rawSessions ? JSON.parse(rawSessions) : [];
+      const storedSessions = electronStore.get(CHAT_STORAGE_KEY);
+      const storedActiveId = electronStore.get(CHAT_ACTIVE_ID_KEY);
+      const legacyRawSessions = localStorage.getItem(CHAT_STORAGE_KEY);
+      const legacyRawActiveId = localStorage.getItem(CHAT_ACTIVE_ID_KEY);
+      const parsed = Array.isArray(storedSessions)
+        ? storedSessions
+        : (storedSessions ? JSON.parse(storedSessions) : (legacyRawSessions ? JSON.parse(legacyRawSessions) : []));
+      const resolvedActiveId = String(storedActiveId || legacyRawActiveId || '').trim();
       if (Array.isArray(parsed) && parsed.length > 0) {
         const normalized = parsed
           .filter((item) => item && typeof item === 'object' && item.id)
@@ -1717,9 +2014,15 @@ const HomePage = () => {
               : [],
           }));
         if (normalized.length > 0) {
+          if (legacyRawSessions || legacyRawActiveId) {
+            electronStore.set(CHAT_STORAGE_KEY, serializeChatSessionsForPersistence(normalized));
+            electronStore.set(CHAT_ACTIVE_ID_KEY, resolvedActiveId || normalized[0].id);
+            localStorage.removeItem(CHAT_STORAGE_KEY);
+            localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
+          }
           let nextSessions = sortChatSessions(normalized);
-          let nextActiveChatId = nextSessions.some((item) => item.id === rawActiveId)
-            ? rawActiveId
+          let nextActiveChatId = nextSessions.some((item) => item.id === resolvedActiveId)
+            ? resolvedActiveId
             : nextSessions[0].id;
 
           if (shouldRestoreBeginnerGuideInFreshChat()) {
@@ -1746,7 +2049,7 @@ const HomePage = () => {
         }
       }
     } catch (error) {
-      logger.warn('Failed to load chat sessions from localStorage.', error);
+      logger.warn('Failed to load chat sessions from persistence.', error);
     }
     setActiveChatId((prev) => prev || chatSessions[0]?.id || null);
   }, []);
@@ -1773,21 +2076,33 @@ const HomePage = () => {
   }, [chatModelOptions]);
 
   useEffect(() => {
-    try {
-      const persistedSessions = (Array.isArray(chatSessions) ? chatSessions : []).map((session) => ({
-        ...session,
-        messages: Array.isArray(session?.messages)
-          ? session.messages.map((message) => normalizePersistedChatMessage(message, chatModelOptions))
-          : []
-      }));
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistedSessions));
-      if (activeChatId) {
-        localStorage.setItem(CHAT_ACTIVE_ID_KEY, activeChatId);
-      }
-    } catch (error) {
-      logger.warn('Failed to persist chat sessions to localStorage.', error);
+    if (chatPersistTimerRef.current) {
+      clearTimeout(chatPersistTimerRef.current);
     }
-  }, [chatSessions, activeChatId]);
+
+    chatPersistTimerRef.current = setTimeout(() => {
+      try {
+        const persistedSessions = serializeChatSessionsForPersistence(chatSessions, chatModelOptions);
+        electronStore.set(CHAT_STORAGE_KEY, persistedSessions);
+        if (activeChatId) {
+          electronStore.set(CHAT_ACTIVE_ID_KEY, activeChatId);
+        }
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+        localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
+      } catch (error) {
+        logger.warn('Failed to persist chat sessions to electronStore.', error);
+      } finally {
+        chatPersistTimerRef.current = null;
+      }
+    }, CHAT_PERSIST_DEBOUNCE_MS);
+
+    return () => {
+      if (chatPersistTimerRef.current) {
+        clearTimeout(chatPersistTimerRef.current);
+        chatPersistTimerRef.current = null;
+      }
+    };
+  }, [chatSessions, activeChatId, chatModelOptions]);
 
   useEffect(() => {
     const nextChatToAgent = new Map();
@@ -2047,9 +2362,9 @@ const HomePage = () => {
           return;
         }
 
-        const hydratedMessages = historicalMessages
+        const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
           .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptions))
-          .filter((message) => message?.id);
+          .filter((message) => message?.id));
         const hasAssistantContent = hydratedMessages.some((message) => (
           message.role === 'assistant' && String(message.content || '').trim()
         ));
@@ -2082,6 +2397,10 @@ const HomePage = () => {
             afterMissingAssistantCount: countMissingVisibleAssistantMessages(hydratedMessages),
             beforeStructuredAssistantBlockCount: countStructuredAssistantBlocks(activeChatSession.messages),
             afterStructuredAssistantBlockCount: countStructuredAssistantBlocks(hydratedMessages),
+            beforeAssistantUsageStepCount: countAssistantUsageSteps(activeChatSession.messages),
+            afterAssistantUsageStepCount: countAssistantUsageSteps(hydratedMessages),
+            beforePricedUsageMessageCount: countAssistantPricedUsageMessages(activeChatSession.messages),
+            afterPricedUsageMessageCount: countAssistantPricedUsageMessages(hydratedMessages),
             messageCount: hydratedMessages.length
           });
           logger.warn('[CTXLOSS][HistoryHydrate] active-sync-skip', {
@@ -2322,6 +2641,10 @@ const HomePage = () => {
         if (entry?.timer) clearTimeout(entry.timer);
       });
       chatSnapshotThrottleByRequestIdRef.current.clear();
+      if (chatPersistTimerRef.current) {
+        clearTimeout(chatPersistTimerRef.current);
+        chatPersistTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -3406,6 +3729,91 @@ const HomePage = () => {
     }
   }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
 
+  const handleBootstrapTrendyKoubo = useCallback(async () => {
+    const target = await prepareQuickSkillTargetSession('正在准备网感口播技能...');
+    const session = target.session;
+
+    try {
+      const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
+      const quickSkillDir = resolveQuickSkillDirectory(appInfo, QUICK_TRENDY_KOUBO_SKILL_NAME);
+      if (!quickSkillDir) {
+        throw new Error('定位网感口播技能目录失败');
+      }
+
+      const agentSessionId = await ensureAgentSessionForChat(session.id);
+      let workspacePath = target.workspacePath;
+      if (!workspacePath) {
+        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+        if (!appDataPath) {
+          throw new Error('创建新工作空间失败');
+        }
+
+        const workspaceParentDir = joinLocalPath(
+          appDataPath,
+          'Data',
+          'Workspaces',
+          DEFAULT_RUNTIME_AGENT_ID
+        );
+        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        await window.api.file.mkdir(workspacePath);
+        await seedWorkspaceSkeleton(workspacePath);
+      }
+
+      const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
+        ? ensuredSession.session.configuration
+        : {};
+      const updateResult = await window.electronAPI.cherryChatStream.updateSession({
+        sessionId: agentSessionId,
+        agent_id: DEFAULT_RUNTIME_AGENT_ID,
+        accessible_paths: [workspacePath],
+        configuration: {
+          ...configuration,
+          selected_workspace_path: workspacePath
+        }
+      });
+      if (!updateResult?.ok || !updateResult?.session) {
+        throw new Error(updateResult?.error || '绑定新工作空间失败');
+      }
+
+      const copySkillResult = await window.electronAPI.agentSkills.copyDirectoryToWorkspace({
+        directoryPath: quickSkillDir,
+        workspace: workspacePath
+      });
+      if (!copySkillResult?.success) {
+        throw new Error(copySkillResult?.error || '复制技能到工作空间失败');
+      }
+
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(markWorkspaceVisited(workspaceStore, workspacePath));
+      setChatSessions((prev) =>
+        prev.map((item) => (
+          item.id === session.id
+            ? {
+              ...item,
+              runtimeSessionId: agentSessionId,
+              accessible_paths: [workspacePath],
+              configuration: {
+                ...(item?.configuration && typeof item.configuration === 'object' ? item.configuration : {}),
+                selected_workspace_path: workspacePath
+              },
+              updatedAt: Date.now()
+            }
+            : item
+        ))
+      );
+      window.toast?.success?.(
+        target.reusedCurrentSession
+          ? '已将网感口播技能添加到当前工作空间'
+          : '已新建对话和工作空间，并创建网感口播技能'
+      );
+    } catch (error) {
+      window.toast?.error?.(error?.message || '快捷短语执行失败');
+    } finally {
+      setChatWorkspaceStatus(session.id, '');
+    }
+  }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
+
   const handleBootstrapSweaterSelling = useCallback(async () => {
     const target = await prepareQuickSkillTargetSession('正在准备毛衣带货口播技能...');
     const session = target.session;
@@ -3879,12 +4287,20 @@ const HomePage = () => {
         }
       }
 
+      syncLegacyUserMessageToRendererStore({
+        topicId: `home-chat-${targetSessionId}`,
+        assistantId: DEFAULT_RUNTIME_AGENT_ID,
+        userMessage,
+        images,
+      });
+
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
         `home-chat-${targetSessionId}`,
         DEFAULT_RUNTIME_AGENT_ID,
-        chatModel
+        chatModel,
+        userMessage.id
       );
       updateChatAssistantMessage(targetSessionId, assistantMessageId, {
         storeAssistantMessageId: streamController.assistantMessageId
@@ -3921,6 +4337,7 @@ const HomePage = () => {
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: text,
+        createdAt: userMessage.createdAt,
         requestId,
         model: chatModel,
         images
@@ -4077,12 +4494,23 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
+      syncLegacyUserMessageToRendererStore({
+        topicId: `home-chat-${activeChatId}`,
+        assistantId: DEFAULT_RUNTIME_AGENT_ID,
+        userMessage: prevUser,
+        images: Array.isArray(prevUser.imageAttachments)
+          ? prevUser.imageAttachments
+              .filter((item) => typeof item?.data === 'string' && typeof item?.media_type === 'string')
+              .map((item) => ({ data: item.data, media_type: item.media_type }))
+          : [],
+      });
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
         `home-chat-${activeChatId}`,
         DEFAULT_RUNTIME_AGENT_ID,
-        chatModel
+        chatModel,
+        prevUser.id
       );
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
@@ -4115,6 +4543,7 @@ const HomePage = () => {
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,
         content: String(prevUser.content || ''),
+        createdAt: Number(prevUser.createdAt) || undefined,
         requestId,
         model: chatModel
       });
@@ -4419,6 +4848,9 @@ const HomePage = () => {
                 onQuickPromptAction={(action) => {
                   if (action === 'bootstrap-childrens-picture-book') {
                     return handleBootstrapChildrensPictureBook();
+                  }
+                  if (action === 'bootstrap-trendy-koubo') {
+                    return handleBootstrapTrendyKoubo();
                   }
                   if (action === 'bootstrap-live-clipping') {
                     return handleBootstrapLiveClipping();

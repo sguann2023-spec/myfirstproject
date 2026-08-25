@@ -91,6 +91,17 @@ function getPrimaryVideoUrl(input: KouboTemplateInput | null, result: KouboTempl
   return typeof inputCandidate === 'string' && inputCandidate.trim() ? inputCandidate.trim() : undefined
 }
 
+function buildPreviewSrc(source?: string): string | undefined {
+  if (!source) return undefined
+  if (/^(https?:|data:|file:)/i.test(source)) return source
+  if (!source.startsWith('/')) return undefined
+  try {
+    return new URL(`file://${source}`).toString()
+  } catch {
+    return `file://${source}`
+  }
+}
+
 export function isKouboTemplateToolName(toolName?: string): boolean {
   if (!toolName) return false
   return KOUBO_TEMPLATE_TOOL_NAMES.has(toolName)
@@ -102,6 +113,7 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
   const outputText = useMemo(() => extractTextPreviewFromToolResult(output).trim(), [output])
 
   const videoUrl = useMemo(() => getPrimaryVideoUrl(parsedInput, parsedOutput), [parsedInput, parsedOutput])
+  const previewSrc = useMemo(() => buildPreviewSrc(videoUrl), [videoUrl])
   const draftUrl =
     parsedOutput?.output?.draft_url && parsedOutput.output.draft_url.trim() ? parsedOutput.output.draft_url.trim() : undefined
   const taskMessage = (progressMessage || parsedOutput?.message || outputText || '').trim()
@@ -115,9 +127,9 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
   return (
     <Container>
       <LeftSection>
-        {videoUrl && (
+        {previewSrc && (
           <PreviewSection>
-            <VideoPreview src={videoUrl} muted playsInline preload="metadata" />
+            <VideoPreview src={previewSrc} muted playsInline preload="auto" />
           </PreviewSection>
         )}
       </LeftSection>

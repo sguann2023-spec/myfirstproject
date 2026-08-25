@@ -853,6 +853,7 @@ const fetchAndProcessAgentResponseImpl = async (
       getState,
       topicId,
       assistantMsgId: assistantMessage.id,
+      userMessageId,
       saveUpdatesToDB,
       assistant
     })
@@ -969,9 +970,81 @@ const fetchAndProcessAgentResponseImpl = async (
       text: Promise.resolve('')
     })
 
+    const syncHomeAssistantUsageFromPersistedSession = async (persistedSessionId: string) => {
+      if (!persistedSessionId) {
+        return
+      }
+
+      try {
+        const historicalMessages = await window.electron?.ipcRenderer.invoke(IpcChannel.AgentMessage_GetHistory, {
+          sessionId: persistedSessionId
+        })
+        if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
+          return
+        }
+
+        const latestPersistedAssistant = [...historicalMessages]
+          .reverse()
+          .find((persistedMsg) => persistedMsg?.message?.role === 'assistant' && persistedMsg?.message?.status === 'success')
+
+        const persistedMessage = latestPersistedAssistant?.message
+        if (!persistedMessage) {
+          return
+        }
+
+        const usage = persistedMessage.usage
+        const usageSteps = persistedMessage.usageSteps
+        const metrics = persistedMessage.metrics
+        const createdAt = persistedMessage.createdAt
+        const updatedAt = persistedMessage.updatedAt
+        if (
+          !usage &&
+          (!Array.isArray(usageSteps) || usageSteps.length === 0) &&
+          !metrics &&
+          !createdAt &&
+          !updatedAt
+        ) {
+          return
+        }
+
+        dispatch(
+          newMessagesActions.updateMessage({
+            topicId,
+            messageId: assistantMessage.id,
+            updates: {
+              usage,
+              usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined,
+              metrics,
+              createdAt: createdAt || assistantMessage.createdAt,
+              updatedAt: updatedAt || assistantMessage.updatedAt
+            }
+          })
+        )
+        await saveUpdatesToDB(
+          assistantMessage.id,
+          topicId,
+          {
+            usage,
+            usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined,
+            metrics,
+            createdAt: createdAt || assistantMessage.createdAt,
+            updatedAt: updatedAt || assistantMessage.updatedAt
+          },
+          []
+        )
+      } catch (error) {
+        logger.error('Failed to sync persisted agent usage back to home chat message', error as Error, {
+          topicId,
+          assistantMessageId: assistantMessage.id,
+          sessionId: persistedSessionId
+        })
+      }
+    }
+
     if (latestAgentSessionId) {
       await persistAgentSessionId(latestAgentSessionId)
     }
+    await syncHomeAssistantUsageFromPersistedSession(agentSession.sessionId)
 
     await renameAgentSessionIfNeeded(agentSession, topicId, getState)
   } catch (error: any) {
@@ -1104,6 +1177,7 @@ const fetchAndProcessAssistantResponseImpl = async (
       getState,
       topicId,
       assistantMsgId,
+      userMessageId,
       saveUpdatesToDB,
       assistant
     })
@@ -2336,7 +2410,7 @@ export const addChannelUserMessage = (
   agentId: string,
   text: string,
   images?: Array<{ data: string; media_type: string }>
-) => {
+): string => {
   const now = new Date().toISOString()
   const userMsgId = uuid()
   const blockId = uuid()
@@ -2383,6 +2457,8 @@ export const addChannelUserMessage = (
   dbService.appendMessage(topicId, userMessage, allBlocks).catch((err) => {
     logger.error('Failed to persist channel user message', err as Error)
   })
+
+  return userMsgId
 }
 
 /**
@@ -2395,7 +2471,8 @@ export const setupChannelStream = (
   getState: () => RootState,
   topicId: string,
   agentId: string,
-  modelId?: string
+  modelId?: string,
+  userMessageId = ''
 ): ChannelStreamController => {
   const model: Model | undefined =
     (modelId ? getModel(modelId) : undefined) ??
@@ -2435,6 +2512,7 @@ export const setupChannelStream = (
     getState,
     topicId,
     assistantMsgId: assistantMessage.id,
+    userMessageId,
     saveUpdatesToDB,
     assistant
   })

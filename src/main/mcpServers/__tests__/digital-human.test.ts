@@ -1,9 +1,14 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockUploadLocalFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -32,6 +37,12 @@ vi.mock('@logger', () => ({
       error: vi.fn(),
       debug: vi.fn()
     }))
+  }
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -71,28 +82,27 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 }
 
 describe('DigitalHumanServer', () => {
-  beforeEach(() => {
+  let tempRoot: string
+
+  beforeEach(async () => {
     vi.clearAllMocks()
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'digital-human-test-'))
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
   })
 
-  it('should expose all digital human tools', async () => {
+  it('should expose only create tools', async () => {
     const server = createServer()
     const result = await listTools(server)
 
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
       'create_lip_sync_digital_human',
-      'get_lip_sync_digital_human_status',
       'create_image_driven_digital_human',
-      'get_image_driven_digital_human_status',
       'create_omni_image_driven_digital_human',
-      'get_omni_image_driven_digital_human_status',
-      'create_seedance_digital_human',
-      'get_seedance_digital_human_status'
+      'create_seedance_digital_human'
     ])
   })
 
-  it('should create a lip-sync digital human task', async () => {
+  it('should create and wait for a lip-sync digital human result', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -105,6 +115,13 @@ describe('DigitalHumanServer', () => {
         mockJsonResponse({
           message: '任务创建成功',
           task_id: '5114327'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_status: 1,
+          digital_human_url: 'https://example.com/dh.mp4',
+          message: '处理完成'
         })
       )
 
@@ -120,68 +137,52 @@ describe('DigitalHumanServer', () => {
       'https://open.vectcut.com/cut_jianying/digital_human/create',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'Content-Type': 'application/json'
-        }),
         body: JSON.stringify({
           audio_url: 'https://example.com/audio.mp3',
           video_url: 'https://example.com/video.mp4'
         })
       })
     )
-
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      mode: 'lip_sync',
-      action: 'submit',
-      message: '任务创建成功',
-      task_id: '5114327'
-    })
-  })
-
-  it('should query lip-sync digital human status', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          digital_human_url: 'https://example.com/dh.mp4',
-          message: '处理完成'
-        })
-      )
-
-    const server = createServer()
-    const result = await callTool(server, 'get_lip_sync_digital_human_status', {
-      taskId: '5114327'
-    })
-
     expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
+      3,
       'https://open.vectcut.com/cut_jianying/digital_human/task_status?task_id=5114327',
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token'
-        })
+        method: 'GET'
       })
     )
 
     expect(JSON.parse(result.content[0].text)).toEqual({
       provider: 'vectcut',
       mode: 'lip_sync',
-      action: 'status',
+      action: 'submit_and_wait',
+      estimated_wait_time: '15-30 minutes',
       task_id: '5114327',
+      output_resolution: undefined,
+      source_summary: [
+        {
+          field_name: 'audioUrl',
+          original_input: 'https://example.com/audio.mp3',
+          submitted_url: 'https://example.com/audio.mp3',
+          source_kind: 'remote_url'
+        },
+        {
+          field_name: 'videoUrl',
+          original_input: 'https://example.com/video.mp4',
+          submitted_url: 'https://example.com/video.mp4',
+          source_kind: 'remote_url'
+        }
+      ],
+      output: {
+        video_url: 'https://example.com/dh.mp4'
+      },
+      task_status: 1,
+      message: '处理完成',
       digital_human_url: 'https://example.com/dh.mp4',
-      message: '处理完成'
+      video_url: 'https://example.com/dh.mp4'
     })
   })
 
-  it('should create an image-driven digital human task with default resolution', async () => {
+  it('should create and wait for an image-driven digital human result', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -193,6 +194,12 @@ describe('DigitalHumanServer', () => {
         mockJsonResponse({
           task_id: 'omni-1',
           message: '任务创建成功'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'success',
+          video_url: 'https://example.com/omni.mp4'
         })
       )
 
@@ -208,10 +215,6 @@ describe('DigitalHumanServer', () => {
       'https://open.vectcut.com/cut_jianying/digital_human/omni/submit',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'Content-Type': 'application/json'
-        }),
         body: JSON.stringify({
           audio_url: 'https://example.com/audio.mp3',
           image_url: 'https://example.com/avatar.png',
@@ -221,58 +224,20 @@ describe('DigitalHumanServer', () => {
       })
     )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
       provider: 'vectcut',
       mode: 'image_driven',
-      action: 'submit',
+      action: 'submit_and_wait',
+      task_id: 'omni-1',
       output_resolution: 1080,
-      task_id: 'omni-1',
-      message: '任务创建成功'
-    })
-  })
-
-  it('should query image-driven digital human status', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          status: 'success',
-          video_url: 'https://example.com/omni.mp4'
-        })
-      )
-
-    const server = createServer()
-    const result = await callTool(server, 'get_image_driven_digital_human_status', {
-      taskId: 'omni-1'
-    })
-
-    expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/cut_jianying/digital_human/omni/task_status?task_id=omni-1',
-      expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token'
-        })
-      })
-    )
-
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      mode: 'image_driven',
-      action: 'status',
-      task_id: 'omni-1',
-      status: 'success',
+      output: {
+        video_url: 'https://example.com/omni.mp4'
+      },
       video_url: 'https://example.com/omni.mp4'
     })
   })
 
-  it('should create a seedance digital human task', async () => {
+  it('should create and wait for a seedance digital human result', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -285,6 +250,15 @@ describe('DigitalHumanServer', () => {
           task_id: 'seedance-1',
           status: 'queued',
           success: true
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'seedance-1',
+          status: 'success',
+          progress: 100,
+          success: true,
+          video_url: 'https://example.com/seedance.mp4'
         })
       )
 
@@ -300,10 +274,6 @@ describe('DigitalHumanServer', () => {
       'https://open.vectcut.com/llm/digital_human/seedance/submit',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'Content-Type': 'application/json'
-        }),
         body: JSON.stringify({
           image_url: 'https://example.com/avatar.png',
           copywriting: '欢迎来到 vectcut',
@@ -312,19 +282,31 @@ describe('DigitalHumanServer', () => {
       })
     )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
       provider: 'vectcut',
       mode: 'seedance_image_driven',
-      action: 'submit',
-      image_url: 'https://example.com/avatar.png',
-      voice_id: 'voice-123',
+      action: 'submit_and_wait',
       task_id: 'seedance-1',
-      status: 'queued',
-      success: true
+      output: {
+        video_url: 'https://example.com/seedance.mp4'
+      },
+      video_url: 'https://example.com/seedance.mp4'
     })
   })
 
-  it('should support the omni image-driven alias tool', async () => {
+  it('should upload local sources internally before submitting', async () => {
+    const localAudioPath = path.join(tempRoot, 'audio.mp3')
+    const localVideoPath = path.join(tempRoot, 'video.mp4')
+    await fs.writeFile(localAudioPath, 'audio')
+    await fs.writeFile(localVideoPath, 'video')
+
+    mockUploadLocalFile
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/audio.mp3?token=1'
+      })
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/video.mp4?token=2'
+      })
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -334,68 +316,55 @@ describe('DigitalHumanServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
-          task_id: 'omni-alias-1',
-          message: '任务创建成功'
-        })
-      )
-
-    const server = createServer()
-    const result = await callTool(server, 'create_omni_image_driven_digital_human', {
-      audioUrl: 'https://example.com/audio.mp3',
-      imageUrl: 'https://example.com/avatar.png',
-      prompt: '人物自然地进行口播'
-    })
-
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      mode: 'image_driven',
-      action: 'submit',
-      output_resolution: 1080,
-      task_id: 'omni-alias-1',
-      message: '任务创建成功'
-    })
-  })
-
-  it('should query seedance digital human status', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
+          task_id: 'local-lip-sync'
         })
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
-          status: 'processing',
-          progress: 45,
-          success: true
+          task_status: 1,
+          digital_human_url: 'https://example.com/local-result.mp4'
         })
       )
 
     const server = createServer()
-    const result = await callTool(server, 'get_seedance_digital_human_status', {
-      taskId: 'seedance-1'
+    const result = await callTool(server, 'create_lip_sync_digital_human', {
+      audioUrl: localAudioPath,
+      videoUrl: localVideoPath
     })
 
-    expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/llm/digital_human/seedance/task_status?task_id=seedance-1',
+    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(
+      1,
+      localAudioPath,
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token'
-        })
+        objectKeyPrefix: 'vectcut_digital_human_'
       })
     )
-
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      mode: 'seedance_image_driven',
-      action: 'status',
-      task_id: 'seedance-1',
-      status: 'processing',
-      progress: 45,
-      success: true
+    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(
+      2,
+      localVideoPath,
+      expect.objectContaining({
+        objectKeyPrefix: 'vectcut_digital_human_'
+      })
+    )
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      audio_url: 'https://oss.example.com/audio.mp3?token=1',
+      video_url: 'https://oss.example.com/video.mp4?token=2'
     })
+
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.source_summary).toEqual([
+      {
+        field_name: 'audioUrl',
+        original_input: localAudioPath,
+        submitted_url: 'https://oss.example.com/audio.mp3?token=1',
+        source_kind: 'local_file'
+      },
+      {
+        field_name: 'videoUrl',
+        original_input: localVideoPath,
+        submitted_url: 'https://oss.example.com/video.mp4?token=2',
+        source_kind: 'local_file'
+      }
+    ])
   })
 })

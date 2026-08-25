@@ -159,7 +159,7 @@ const CollapseContainer = styled(Collapse)`
   }
   .ant-collapse-content-box {
     padding: 16px !important;
-    border-width: 0 0.5px 0.5px 0.5px;
+    border-width: 0 1px 1px 1px;
     border-style: solid;
     border-color: var(--color-border);
     border-radius: 0 0 12px 12px;

@@ -30,6 +30,16 @@ const buildUsageSignature = (usage = null) => JSON.stringify({
   cost: Number(usage?.cost || 0)
 });
 
+const buildUsageStepsSignature = (usageSteps = []) => JSON.stringify(
+  (Array.isArray(usageSteps) ? usageSteps : []).map((step) => ({
+    total_tokens: Number(step?.total_tokens || 0),
+    prompt_tokens: Number(step?.prompt_tokens || 0),
+    completion_tokens: Number(step?.completion_tokens || 0),
+    cache_read_input_tokens: Number(step?.cache_read_input_tokens || 0),
+    cache_creation_input_tokens: Number(step?.cache_creation_input_tokens || 0)
+  }))
+);
+
 const buildMetricsSignature = (metrics = null) => JSON.stringify({
   completion_tokens: Number(metrics?.completion_tokens || 0),
   time_completion_millsec: Number(metrics?.time_completion_millsec || 0),
@@ -44,8 +54,9 @@ const LiveAssistantMessageTokens = ({ fallbackMessage, storeAssistantMessageId }
       ...storeMessage,
       model: storeMessage?.model || fallbackMessage?.model,
       modelId: storeMessage?.modelId || fallbackMessage?.modelId,
-      usage: storeMessage?.usage || fallbackMessage?.usage,
-      metrics: storeMessage?.metrics || fallbackMessage?.metrics
+      usage: storeMessage?.usage ?? fallbackMessage?.usage,
+      usageSteps: storeMessage?.usageSteps ?? fallbackMessage?.usageSteps,
+      metrics: storeMessage?.metrics ?? fallbackMessage?.metrics
     }
     : fallbackMessage;
 
@@ -202,6 +213,8 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
   const nextError = buildErrorSignature(nextMessage.error);
   const prevUsage = buildUsageSignature(prevMessage.usage);
   const nextUsage = buildUsageSignature(nextMessage.usage);
+  const prevUsageSteps = buildUsageStepsSignature(prevMessage.usageSteps);
+  const nextUsageSteps = buildUsageStepsSignature(nextMessage.usageSteps);
   const prevMetrics = buildMetricsSignature(prevMessage.metrics);
   const nextMetrics = buildMetricsSignature(nextMessage.metrics);
   return (
@@ -223,6 +236,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevMessage.createdAt === nextMessage.createdAt
     && prevMessage.updatedAt === nextMessage.updatedAt
     && prevUsage === nextUsage
+    && prevUsageSteps === nextUsageSteps
     && prevMetrics === nextMetrics
     && buildImageAttachmentSignature(prevMessage.imageAttachments) === buildImageAttachmentSignature(nextMessage.imageAttachments)
     && prevError === nextError

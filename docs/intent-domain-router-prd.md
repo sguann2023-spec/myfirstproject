@@ -170,22 +170,23 @@ type IntentRoute = {
 
 已接入工具：
 
-- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`；当引用本地参考图、截图、剪贴板图片等素材时，允许先通过 `workspace.upload`（`mcp__file-upload__upload_file_to_oss`）上传；其中截图/剪贴板图片可直接走附件图的 `base64` / `dataUrl` 上传，不强依赖本地文件路径
-- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；当引用截图、首帧参考图、剪贴板图片等无稳定 `filePath` 的图片素材时，同样应优先走 `workspace.upload` 的 `base64` / 附件上传语义，再将返回 URL 交给视频生成能力
+- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`；图片生成/编辑默认通过单个长任务工具直出最终结果；远程参考图可直接传入，本地图片路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理；其中截图/剪贴板图片等无稳定 `filePath` 的附件素材仍可走 `workspace.upload` 的 `base64` / `dataUrl` 上传语义
+- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；默认通过单个长任务工具直出最终结果；远程参考图、参考视频、参考音频可直接传入，本地路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理
 - `speech` -> `mcp__speech__generate_speech`
 - `voice_conversion` -> `mcp__voice-conversion__submit_voice_conversion_task` / `mcp__voice-conversion__get_voice_conversion_task_status`
 - `seed_audio` -> `mcp__seed-audio__generate_seed_audio`
-- `digital_human` -> `mcp__digital-human__create_lip_sync_digital_human` / `mcp__digital-human__get_lip_sync_digital_human_status` / `mcp__digital-human__create_image_driven_digital_human` / `mcp__digital-human__get_image_driven_digital_human_status` / `mcp__digital-human__create_omni_image_driven_digital_human` / `mcp__digital-human__get_omni_image_driven_digital_human_status` / `mcp__digital-human__create_seedance_digital_human` / `mcp__digital-human__get_seedance_digital_human_status`
+- `digital_human` -> `mcp__digital-human__create_lip_sync_digital_human` / `mcp__digital-human__create_image_driven_digital_human` / `mcp__digital-human__create_omni_image_driven_digital_human` / `mcp__digital-human__create_seedance_digital_human`（各工具内部完成提交与轮询，直接返回最终视频结果）
 
 说明：
 
-- 本地参考图片 / 视频 / 音频的上传能力统一视为独立前置步骤，默认先命中 `workspace.upload`（`mcp__file-upload__upload_file_to_oss`），通过 `/sts/upload/agent_tmp/init` 拿到可访问 URL 后，再继续调用 `image` / `video` / 其他依赖远端可访问素材的能力；工具内部自动上传仅作为兼容兜底，不再视为这些能力自身的一部分
-- `image`：图片生成/编辑默认可直接使用文本提示词，若还带参考图片，则应优先判断输入是远程图片链接还是本地文件；工具自身应消费已完成前置上传后的可访问 URL，禁止把本地路径直接传给远端图片生成/编辑接口
-- `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__video__generate_video`，提交后默认把它视为异步长任务，并持续用 `action="status"` 轮询到 `succeeded` / `failed` / `not_found` 等终态；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
+- 本地参考图片 / 视频 / 音频不再默认视为独立前置上传步骤；对 `image` / `video` / `digital_human` 这类远端生成能力，只要工具本身已支持本地路径或 `file://` URL，就应优先直接调用对应工具，由工具内部完成上传与后续提交；只有用户明确要单独拿可复用公网 URL，或输入形态是截图 / 剪贴板 / base64 附件且没有稳定本地路径时，才应补充 `workspace.upload`
+- `image`：图片生成/编辑默认可直接使用文本提示词；若还带参考图片，远程图片链接可直接传入，本地图片路径或 `file://` URL 也允许直接传入并由工具内部处理；对 Agent 暴露时应优先按单个长任务工具理解，等待其直接返回最终图片结果，而不是拆成独立状态查询步骤
+- `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__video__generate_video`，并把它视为单个长任务工具，等待其直接返回最终视频结果；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
 ；如果用户给的是“参考视频”，应优先原样保留为 `video_url` + `role=reference_video`，不要默认把视频拆成抽帧图片 + 分离音频，除非用户明确要求“抽帧”“拆音轨”“提取参考图/参考音频”
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
 - `voice_conversion`：AI 变声 / 声音转换，输入应是公网可访问的原始音频链接或视频链接，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；若用户给的是本地文件，应先通过独立前置的 `workspace.upload` 获取可访问 URL，再进入该子能力
 - `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
+- `digital_human`：数字人生成功能对 Agent 暴露为单个长任务工具，内部自行处理异步任务提交与轮询，不再要求单独状态查询；远程音频 / 视频 / 图片链接可直接传入，本地绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终视频结果
 
 ### 5. `skills`
 
@@ -336,6 +337,7 @@ type IntentRoute = {
 - `image_intro_animation_list`
 - `image_outro_animation_list`
 - `image_loop_animation_list`
+- `workflow`：执行剪辑工作流
 - `subtitle_template`
 - `template`
 
@@ -357,8 +359,8 @@ type IntentRoute = {
 - `text_delete` -> `mcp__draft-elements__remove_text`
 - `text_update` -> `mcp__draft-elements__modify_text`
 - `subtitle_srt` -> `mcp__draft-elements__add_subtitle`
-- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task` / `mcp__subtitle-recognition__get_subtitle_recognition_task_status`（状态查询在返回长 JSON 结果时，优先将完整结果写入 workspace 本地 `.capcut/tool-results/subtitle-recognition/<taskId>.json`，工具只返回摘要与文件路径）
-- `video_understand` -> `mcp__video-understand__submit_video_detail_task` / `mcp__video-understand__get_video_detail_task_status`（状态查询在返回长 JSON 结果时，优先将完整结果写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径）
+- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task`（单工具封装任务提交 + 轮询直到完成，不再对 Agent 暴露独立的 task_status 工具；支持 `basic`、`nlp`、`llm`、`llm_vad` 四个档位；回包中的字幕内容可能很长，完整结果优先直接写入当前 workspace 根目录下的 `<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理，MCP tool 超时与前端运行态展示可参考 `mcp__koubo-template__submit_koubo_template_task` / `KouboTemplateTool.tsx`）
+- `video_understand` -> `mcp__video-understand__submit_video_detail_task`（单工具封装本地视频上传 / 远程视频直传、异步任务提交与轮询直到完成；完整结果优先直接写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理）
 - `text_intro_animation_list` -> `mcp__draft-elements__get_text_intro_types`
 - `text_outro_animation_list` -> `mcp__draft-elements__get_text_outro_types`
 - `text_loop_animation_list` -> `mcp__draft-elements__get_text_loop_anim_types`
@@ -392,19 +394,21 @@ type IntentRoute = {
 - `image_intro_animation_list` -> `mcp__draft-elements__get_intro_animation_types`
 - `image_outro_animation_list` -> `mcp__draft-elements__get_outro_animation_types`
 - `image_loop_animation_list` -> `mcp__draft-elements__get_combo_animation_types`
-- `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle` / `mcp__subtitle-template__get_smart_subtitle_task_status`
-- `template` -> `mcp__koubo-template__submit_koubo_template_task` / `mcp__koubo-template__get_koubo_template_task_status`
+- `workflow` -> `mcp__cut-workflow__execute_workflow`
+- `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle`
+- `template` -> `mcp__koubo-template__submit_koubo_template_task`
 
 说明：
 
 - `audio_extract` / `audio_concat` / `frame_capture` / `media_duration` / `media_trim` / `video_concat`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到首个源文件同目录；若输入是远程 URL，则可退回临时目录
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
-- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；底层走异步 ASR 任务提交 + 状态查询链路；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
-- `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；底层走异步任务提交 + 状态查询链路；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；输入应为已完成前置上传后的服务端可访问视频链接
-- `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`
+- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；返回结果中的字幕 JSON 可能很大，完整内容优先直接落盘到当前 workspace 根目录下的 `<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
+- `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；对 Agent 暴露为单个长耗时工具，内部自行完成本地视频上传（如有）、异步任务提交与轮询，不再拆成独立状态查询工具；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；远程视频链接可直接传入，本地视频绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终结果摘要与落盘文件路径
+- `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`；对 Agent 暴露为单个长耗时工具，内部自行完成异步任务提交与轮询，不再拆成独立状态查询工具；整体耗时通常为 `15~30` 分钟，完成后直接返回最终草稿结果；若输入是本地文件，则字幕模版阶段只提交音频素材（本地视频先抽取音频并上传，本地音频直接上传），并强制不在该阶段把素材写入草稿，待模板草稿生成完成后再把原始本地视频或音频补回草稿
+- `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流 DSL 执行包含 `if` / `loop` / 多步骤编排在内的复杂剪辑流程；它不是“批量工具”的别名。`add_batch_*` 这类工具只表示单个平铺批量操作，不具备工作流分支、循环和编排语义。只要用户明确表达“执行工作流 / workflow / workflow_id / execute_workflow”，就必须优先命中 `workflow`，不能因为句子里同时出现“批量”“多个”“一次性”而退化到 `text_add_batch`、`image_add_batch`、`video_add_batch`、`audio_add_batch`、`add_batch_preset` 等批量工具；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；若工作流里引用本地音视频图片，应先通过 `workspace.upload` 转成远程可访问 URL，再写入工作流 JSON
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
 - `add_preset` / `add_batch_preset`：预设片段能力，面向用户预先在剪映中制作并上传、已拿到 `preset_id` 的预设模版；`add_preset` 用于添加单个预设片段，支持通过 `replacements` 替换其中的图片、视频、文字、音频等素材，支持 `target_start`、`track_name`、位移缩放旋转以及画布尺寸参数，未传 `draft_id` 时默认生成新草稿；`add_batch_preset` 用于一次插入多个预设片段，核心参数是 `preset_ids`、`starts`、`ends`，并可选传入 `target_starts`、`target_ends` 控制各片段目标时间范围；适合字幕片段、混剪素材、批量画中画等重复结构内容生成
-- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；输入要求为服务端可访问的远程视频链接，应消费已完成前置上传后的 URL；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
+- `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；远程视频链接可直接传入，本地视频文件路径或 `file://` URL 也允许直接传入并由工具内部自行处理，无需单独前置 `workspace.upload`；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
 - `draft_download`：专用于下载剪映草稿；当当前句子或前文上下文里已经出现 `草稿` / `draft` / `draft_id` / `draft_url` / `dfd_` 等草稿标识时，下载语义应优先命中 `draft_download`，不要误落到 `workspace.download` 或 `media_download`
@@ -418,9 +422,10 @@ type IntentRoute = {
 - 用户提到“把两个视频拼在一起”“合并多个视频片段”“拼接视频文件”“把几段视频接成一个”时，应优先命中 `video_concat`
 - 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
 - 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
+- 用户提到“执行剪辑工作流”“运行 workflow_id”“把 inputs + script 一次性写进草稿”“调用 execute_workflow”“按工作流执行”时，应优先命中 `workflow`，且不要再并行命中 `add_batch_*` 或其他单步草稿编辑工具
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
 - `subtitle_recognition` 仅接受音频/视频链接；若输入原始形态是本地文件路径、拖入文件或 workspace 内文件，应先通过独立前置的 `workspace.upload` 转成临时可访问 URL，再执行字幕识别；禁止把本地路径直接传给远端字幕识别接口
-- `video_understand` 仅接受服务端可访问的视频链接；若输入原始形态是本地视频文件路径、拖入文件或 workspace 内视频，应先通过独立前置的 `workspace.upload` 转成临时可访问 URL，再执行视频理解；禁止把本地路径直接传给远端视频理解接口
+- `video_understand` 支持服务端可访问的视频链接，也支持本地视频文件路径、拖入文件或 workspace 内视频；遇到本地视频时，工具内部负责上传后再调用远端视频理解接口，Agent 不需要额外先走 `workspace.upload`
 - 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
 - 当用户明确表达“添加字幕模版”“套字幕样式”“把字幕加回草稿”“识别后按某种样式上屏”时，应命中 `subtitle_template`；其核心目标是样式化字幕并回写草稿，而非只返回识别结果
 - 若一句话里同时出现“识别字幕”和“添加模版/加回草稿/上屏”等表述，应以最终目标判断；最终目标是拿到字幕文本或时间轴时命中 `subtitle_recognition`，最终目标是生成带样式字幕并写回草稿时命中 `subtitle_template`
@@ -600,6 +605,7 @@ type IntentRoute = {
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
 | `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 识别后按字幕样式模版上屏并写回草稿 |
+| `执行这个剪辑工作流，把多个 add_text 和 add_video 一次写进草稿` | `cut` | `["workflow"]` | 长耗时远端工作流执行 |
 | `剪一下口播` | `cut` | `["template"]` | 剪辑任务，后续可再细分 |
 | `模版剪辑` | `cut` | `["template"]` | 剪辑任务 |
 | `看下这个草稿内容对不对` | `cut` | `["draft_inspect"]` | 主动查看草稿内容 |

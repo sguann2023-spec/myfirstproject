@@ -50,6 +50,37 @@ const AboutUs = () => {
   const [fileList, setFileList] = React.useState([]);
   const [feedbackSubmitting, setFeedbackSubmitting] = React.useState(false);
 
+  const getRuntimeUpdateState = React.useCallback(() => {
+    try {
+      return window['store']?.getState?.()?.runtime?.update || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const syncUpdateStateFromStore = React.useCallback(() => {
+    const updateState = getRuntimeUpdateState();
+    if (!updateState) return;
+
+    if (updateState.downloaded) {
+      setIsChecking(false);
+      setIsDownloaded(true);
+      setStatusText(`新版本 ${updateState.info?.version || ''} 已下载完成`.trim());
+      return;
+    }
+
+    if (updateState.downloading) {
+      setIsChecking(true);
+      setIsDownloaded(false);
+      const percent = Number(updateState.downloadProgress || 0);
+      if (percent > 0) {
+        setStatusText(`正在下载更新 ${Math.round(percent)}%`);
+      } else {
+        setStatusText(`发现新版本 ${updateState.info?.version || ''}，正在下载...`.trim());
+      }
+    }
+  }, [getRuntimeUpdateState]);
+
   React.useEffect(() => {
     let mounted = true;
 
@@ -68,6 +99,15 @@ const AboutUs = () => {
       mounted = false;
     };
   }, [appBridge]);
+
+  React.useEffect(() => {
+    syncUpdateStateFromStore();
+    const unsubscribe = window['store']?.subscribe?.(() => {
+      syncUpdateStateFromStore();
+    });
+
+    return () => unsubscribe?.();
+  }, [syncUpdateStateFromStore]);
 
   React.useEffect(() => {
     const ipcRenderer = electronBridge?.ipcRenderer;
@@ -105,7 +145,8 @@ const AboutUs = () => {
 
   const handleCheckUpdate = async () => {
     try {
-      if (isDownloaded) {
+      const runtimeUpdateState = getRuntimeUpdateState();
+      if (isDownloaded || runtimeUpdateState?.downloaded) {
         await appBridge?.quitAndInstall?.();
         return;
       }

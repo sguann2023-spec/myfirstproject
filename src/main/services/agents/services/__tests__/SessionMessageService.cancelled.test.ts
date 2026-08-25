@@ -149,7 +149,7 @@ describe('SessionMessageService cancelled persistence', () => {
 
     expect(persistSpy).toHaveBeenCalledTimes(1)
     expect(persistSpy.mock.calls[0]?.[2]).toEqual([])
-    expect(persistSpy.mock.calls[0]?.[7]).toEqual({
+    expect(persistSpy.mock.calls[0]?.[7]).toMatchObject({
       prompt_tokens: 11,
       completion_tokens: 7,
       total_tokens: 18
@@ -186,5 +186,51 @@ describe('SessionMessageService cancelled persistence', () => {
     await expect(result.completion).resolves.toEqual({})
 
     expect(persistSpy).not.toHaveBeenCalled()
+  })
+
+  it('passes the original user createdAt through to headless persistence', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const agentStream = createAgentStream()
+    const originalCreatedAt = 1787504105982
+
+    invokeMock.mockResolvedValue(agentStream)
+    vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
+    const persistSpy = vi.spyOn(service as any, 'persistHeadlessExchange').mockResolvedValue({})
+
+    const result = await service.createSessionMessage(
+      {
+        id: 'session-1',
+        agent_id: 'agent-1',
+        model: 'claude-3'
+      } as any,
+      {
+        content: '继续',
+        model: 'openai:qwen3.7-plus',
+        createdAt: originalCreatedAt
+      } as any,
+      new AbortController(),
+      { persist: true }
+    )
+
+    agentStream.emit('data', {
+      type: 'chunk',
+      chunk: {
+        type: 'usage',
+        usage: {
+          inputTokens: 3,
+          outputTokens: 2,
+          totalTokens: 5
+        }
+      } as any
+    })
+    agentStream.emit('data', { type: 'cancelled' })
+
+    await flushMicrotasks()
+    await expect(result.streamFinished).resolves.toBeUndefined()
+    await expect(result.completion).resolves.toEqual({})
+
+    expect(persistSpy).toHaveBeenCalledTimes(1)
+    expect(persistSpy.mock.calls[0]?.[9]).toBe(originalCreatedAt)
   })
 })

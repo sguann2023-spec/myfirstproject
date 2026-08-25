@@ -155,7 +155,7 @@ const HeaderContainer = styled.div`
   gap: 8px;
   font-size: 13px;
   padding: 8px 12px;
-  background: var(--color-background);
+  background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 0.75rem;
   min-width: 0;

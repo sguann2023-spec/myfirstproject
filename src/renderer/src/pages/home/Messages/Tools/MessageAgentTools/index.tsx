@@ -9,6 +9,7 @@ import { Collapse } from 'antd'
 import { parse as parsePartialJson } from 'partial-json'
 import React from 'react'
 import { useEffect, useMemo, useState } from 'react'
+import styled from 'styled-components'
 
 // 导出所有类型
 export * from './types'
@@ -72,6 +73,21 @@ export const toolRenderers = {
 } satisfies Partial<Record<AgentToolsType, ToolRenderer>>
 
 const logger = loggerService.withContext('MessageAgentTools')
+
+const TransparentCollapse = styled(Collapse)`
+  background: transparent !important;
+
+  &.ant-collapse,
+  > .ant-collapse-item,
+  > .ant-collapse-item.ant-collapse-item-active,
+  > .ant-collapse-item > .ant-collapse-header,
+  > .ant-collapse-item.ant-collapse-item-active > .ant-collapse-header,
+  > .ant-collapse-item > .ant-collapse-content,
+  > .ant-collapse-item.ant-collapse-item-active > .ant-collapse-content,
+  > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    background: transparent !important;
+  }
+`
 
 const summarizeValue = (value: unknown): { type: string; length: number; preview: string } => {
   if (typeof value === 'string') {
@@ -170,13 +186,13 @@ function ToolContent({
       </div>
     ),
     classNames: {
-      body: 'bg-foreground-50 p-2 text-foreground-900 dark:bg-foreground-100 max-h-96 overflow-scroll'
+      body: 'bg-transparent p-2 text-foreground-900 max-h-96 overflow-scroll'
     }
   }
 
   return (
     <StreamingContext value={isStreaming}>
-      <Collapse
+      <TransparentCollapse
         className="w-max max-w-full has-[.ant-collapse-item-active]:w-full"
         expandIconPosition="end"
         size="small"

@@ -14,6 +14,7 @@ import { MessagesContainer, ScrollContainer } from '@renderer/pages/home/Message
 import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
 import { getGroupedMessages } from '@renderer/services/MessagesService'
 import store, { useAppDispatch } from '@renderer/store'
+import { newMessagesActions } from '@renderer/store/newMessage'
 import {
   addChannelUserMessage,
   type ChannelStreamController,
@@ -88,6 +89,7 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
   const sessionRef = useRef(session)
   sessionRef.current = session
   const lastLocalCompletionAtRef = useRef(0)
+  const latestUserMessageIdRef = useRef('')
 
   // Guard flag: once the current exchange is done (complete/error), prevent
   // getOrCreateStream() from creating a second assistant message if any
@@ -107,7 +109,8 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
           store.getState,
           sessionTopicId,
           agentId,
-          sessionRef.current?.model ?? agentModelRef.current
+          sessionRef.current?.model ?? agentModelRef.current,
+          latestUserMessageIdRef.current
         )
       }
       return streamCtrlRef.current
@@ -127,9 +130,31 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
         if (event.type === 'user-message' && event.userMessage) {
           // A new exchange starts — reset the done flag
           exchangeDoneRef.current = false
-          addChannelUserMessage(dispatch, sessionTopicId, agentId, event.userMessage.text, event.userMessage.images)
+          latestUserMessageIdRef.current = addChannelUserMessage(
+            dispatch,
+            sessionTopicId,
+            agentId,
+            event.userMessage.text,
+            event.userMessage.images
+          )
+          if (streamCtrlRef.current?.assistantMessageId) {
+            dispatch(
+              newMessagesActions.updateMessage({
+                topicId: sessionTopicId,
+                messageId: streamCtrlRef.current.assistantMessageId,
+                updates: { askId: latestUserMessageIdRef.current }
+              })
+            )
+          }
           const ctrl = getOrCreateStream()
           if (ctrl) {
+            dispatch(
+              newMessagesActions.updateMessage({
+                topicId: sessionTopicId,
+                messageId: ctrl.assistantMessageId,
+                updates: { askId: latestUserMessageIdRef.current }
+              })
+            )
             // Register abort callback so the input bar's stop button can abort the main process stream
             addAbortController(ctrl.assistantMessageId, () => {
               void window.api.agentSessionStream.abort(sessionId)
@@ -140,6 +165,7 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
         } else if (event.type === 'complete') {
           exchangeDoneRef.current = true
           lastLocalCompletionAtRef.current = Date.now()
+          latestUserMessageIdRef.current = ''
           streamCtrlRef.current?.complete()
           streamCtrlRef.current = null
           logger.info('Channel stream complete, keeping local renderer state', {
@@ -149,6 +175,7 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
         } else if (event.type === 'error' || event.type === 'cancelled') {
           exchangeDoneRef.current = true
           lastLocalCompletionAtRef.current = Date.now()
+          latestUserMessageIdRef.current = ''
           // Push the error as a data chunk so the adapter can render it via
           // onError, then close the stream normally. Using complete() instead
           // of error() preserves any previously-enqueued chunks that the

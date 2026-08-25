@@ -1,4 +1,9 @@
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { loggerService } from '@logger'
+import { ossUploadService } from '@main/services/OssUploadService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -17,6 +22,12 @@ const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const KOUBO_TEMPLATE_TASK_WAIT_TIME = '5-15 minutes'
 const KOUBO_TEMPLATE_POLL_INTERVAL_MS = 5 * 1000
 const KOUBO_TEMPLATE_POLL_TIMEOUT_MS = 20 * 60 * 1000
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_koubo_template_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const MAX_LOCAL_VIDEO_FILE_SIZE_BYTES = 500 * 1024 * 1024
 
 const KOUBO_TEMPLATE_AGENT_IDS = {
   knowledge_pip: 'koubo_8f4e3d2a91c74b76a85d2c4e7f8a9b1c',
@@ -55,7 +66,7 @@ const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' |
 const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   name: 'submit_koubo_template_task',
   description:
-    'Create a VectCut talking-head template result from source speaking video media and wait until the task finishes in the same tool call. This tool only accepts remotely accessible video URLs. If the source is a local file, run workspace upload first and pass the returned signed URL here. Koubo template only accepts video input.',
+    'Create a VectCut talking-head template result from source speaking video media and wait until the task finishes in the same tool call. Remotely accessible video URLs are accepted directly, and local file URLs or absolute local video paths are also supported and handled internally by the tool. Koubo template only accepts video input.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -70,14 +81,14 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
       },
       videoUrl: {
         type: 'string',
-        description: 'Single remotely accessible source talking-head video URL. Use workspace upload first for local files.'
+        description: 'Single source talking-head video URL. Remotely accessible URLs are accepted directly, and local file URLs or absolute local video paths are handled internally.'
       },
       videoUrls: {
         type: 'array',
         items: {
           type: 'string'
         },
-        description: 'Source talking-head video URLs. Use workspace upload first for local files. Most templates require exactly one.'
+        description: 'Source talking-head video URLs. Remotely accessible URLs are accepted directly, and local file URLs or absolute local video paths are handled internally. Most templates require exactly one.'
       },
       textContent: {
         type: 'string',
@@ -146,7 +157,8 @@ type ToolExecutionExtra = {
 type PreparedKouboTemplateSource = {
   originalInput: string
   submittedUrl: string
-  sourceKind: 'remote_video'
+  sourceKind: 'remote_video' | 'local_video'
+  fileSizeBytes?: number
 }
 
 type KouboTemplateSubmitResponse = {
@@ -348,18 +360,25 @@ class KouboTemplateServer {
     return value.map((item) => String(item || '').trim()).filter(Boolean)
   }
 
-  private normalizeRemoteSource(value: unknown, fieldName: string): string {
+  private normalizeSource(value: unknown, fieldName: string): string {
     const raw = String(value || '').trim()
     if (!raw) {
       throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' contains an empty source`)
     }
-    if (!isHttpLikeUrl(raw)) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        `'${fieldName}' must be a remotely accessible URL. Upload local files first with workspace upload`
-      )
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
     }
     return raw
+  }
+
+  private async uploadLocalFile(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
   }
 
   private ensureAudioInputNotUsed(args: Record<string, unknown>, payloadParams: Record<string, unknown>) {
@@ -375,11 +394,33 @@ class KouboTemplateServer {
   }
 
   private async prepareVideoSourceForSubmission(input: unknown, fieldName: string): Promise<PreparedKouboTemplateSource> {
-    const normalizedSource = this.normalizeRemoteSource(input, fieldName)
+    const normalizedSource = this.normalizeSource(input, fieldName)
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_video'
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must be a remotely accessible URL, file URL, or absolute local path`)
+    }
+
+    const stats = await fsPromises.stat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must point to a local file when using a local path`)
+    }
+    if (stats.size > MAX_LOCAL_VIDEO_FILE_SIZE_BYTES) {
+      throw new McpError(ErrorCode.InvalidParams, '本地视频文件大小不能超过 500MB， 如有需要请去官网资产库上传：https://www.vectcut.com/materials')
+    }
+
+    const uploaded = await this.uploadLocalFile(normalizedSource)
     return {
       originalInput: normalizedSource,
-      submittedUrl: normalizedSource,
-      sourceKind: 'remote_video'
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_video',
+      fileSizeBytes: stats.size
     }
   }
 
@@ -607,7 +648,8 @@ class KouboTemplateServer {
       source_summary: payload.preparedSources.map((source) => ({
         original_input: source.originalInput,
         submitted_url: source.submittedUrl,
-        source_kind: source.sourceKind
+        source_kind: source.sourceKind,
+        file_size_bytes: source.fileSizeBytes
       })),
       ...finalResult,
       task_id: undefined

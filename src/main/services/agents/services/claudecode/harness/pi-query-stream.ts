@@ -23,7 +23,7 @@ import { buildInlineToolResultPayload } from './tool-result-payload'
 
 const logger = loggerService.withContext('ClaudeCodePiQuery')
 
-const DEFAULT_PI_TERMINAL_TIMEOUT_MS = 120_000
+const DEFAULT_PI_TERMINAL_TIMEOUT_MS = 300_000
 const PI_NETWORK_RETRY_LIMIT = 5
 const PI_NETWORK_RETRY_BASE_DELAY_MS = 800
 

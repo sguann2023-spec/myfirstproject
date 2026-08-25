@@ -496,6 +496,10 @@ export function registerSessionStreamIpc(): void {
       const sessionId = String(payload?.sessionId || '').trim()
       const content = String(payload?.content || '').trim()
       const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const createdAt =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : undefined
       const images = Array.isArray(payload?.images)
         ? payload.images.filter(
             (item: unknown): item is { data: string; media_type: string } =>
@@ -561,7 +565,13 @@ export function registerSessionStreamIpc(): void {
           const startedStream = await createSessionMessageWithTimeout(
             sessionMessageService.createSessionMessage(
               session,
-              { content, model: effectiveModel || undefined, effort: payload?.effort, thinking: payload?.thinking },
+              {
+                content,
+                model: effectiveModel || undefined,
+                createdAt,
+                effort: payload?.effort,
+                thinking: payload?.thinking
+              },
               abortController,
               { persist: true, displayContent: content, images }
             ),

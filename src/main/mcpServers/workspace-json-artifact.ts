@@ -6,6 +6,7 @@ type PersistWorkspaceJsonArtifactInput = {
   taskId?: string
   payload: unknown
   workspaceRoot?: string
+  relativeDirSegments?: string[]
 }
 
 type PersistWorkspaceJsonArtifactResult = {
@@ -20,17 +21,31 @@ function sanitizePathSegment(value: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+function resolveArtifactWorkspaceRoot(explicitWorkspaceRoot?: string): string {
+  const workspaceRoot = String(explicitWorkspaceRoot || process.env.WORKSPACE_ROOT || '').trim()
+  if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+    return ''
+  }
+  return path.normalize(path.resolve(workspaceRoot))
+}
+
 export async function persistWorkspaceJsonArtifact(
   input: PersistWorkspaceJsonArtifactInput
 ): Promise<PersistWorkspaceJsonArtifactResult | null> {
-  const workspaceRoot = String(input.workspaceRoot || process.env.WORKSPACE_ROOT || '').trim()
-  if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+  const workspaceRoot = resolveArtifactWorkspaceRoot(input.workspaceRoot)
+  if (!workspaceRoot) {
     return null
   }
 
   const toolDirName = sanitizePathSegment(input.toolName) || 'tool-result'
   const taskId = sanitizePathSegment(input.taskId || '') || `result-${Date.now()}`
-  const artifactDir = path.join(workspaceRoot, '.capcut', 'tool-results', toolDirName)
+  const relativeDirSegments = input.relativeDirSegments ?? ['.capcut', 'tool-results', toolDirName]
+  const artifactDir = path.join(
+    workspaceRoot,
+    ...relativeDirSegments
+      .map((segment) => sanitizePathSegment(segment))
+      .filter(Boolean)
+  )
   const filePath = path.join(artifactDir, `${taskId}.json`)
 
   await fs.mkdir(artifactDir, { recursive: true })

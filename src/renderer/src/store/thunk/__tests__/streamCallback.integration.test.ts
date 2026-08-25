@@ -56,6 +56,7 @@ const createMockCallbacks = (
     getState,
     topicId: mockTopicId,
     assistantMsgId: mockAssistantMsgId,
+    userMessageId: 'mock-user-message-id',
     saveUpdatesToDB: vi.fn(),
     assistant: mockAssistant
   })
@@ -312,6 +313,7 @@ interface MockTopicsState {
 const reducer = combineReducers({
   messages: messagesSlice.reducer,
   messageBlocks: messageBlocksSlice.reducer,
+  runtime: (state = { filesPath: '/mock/runtime-files' }) => state,
   topics: (state: MockTopicsState = { entities: {} }) => state
 })
 
@@ -753,6 +755,88 @@ describe('streamCallback Integration Tests', () => {
     expect((toolBlocks[0] as any)?.metadata?.rawMcpToolResponse?.tool?.name).toBe('AskUserQuestion')
   })
 
+  it('should enrich image generation tool arguments with local preview URLs from user image blocks', async () => {
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
+
+    const mockImageTool: MCPTool = {
+      id: 'tool-image-1',
+      serverId: 'server-image-1',
+      serverName: 'Image Server',
+      name: 'generate_or_edit_image',
+      description: 'Generate or edit image',
+      inputSchema: {
+        type: 'object',
+        title: 'Image Input',
+        properties: {}
+      },
+      type: 'mcp'
+    }
+
+    store.dispatch(
+      messagesSlice.actions.addMessage({
+        topicId: mockTopicId,
+        message: {
+          id: 'mock-user-message-id',
+          assistantId: mockAssistant.id,
+          role: 'user',
+          topicId: mockTopicId,
+          blocks: ['user-image-block'],
+          status: 'success',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      })
+    )
+
+    store.dispatch(
+      messageBlocksSlice.actions.upsertOneBlock({
+        id: 'user-image-block',
+        messageId: 'mock-user-message-id',
+        type: MessageBlockType.IMAGE,
+        status: MessageBlockStatus.SUCCESS,
+        createdAt: new Date().toISOString(),
+        file: {
+          ...mockSavedFile,
+          path: '',
+          ext: 'png'
+        }
+      } as any)
+    )
+
+    const chunks: Chunk[] = [
+      { type: ChunkType.LLM_RESPONSE_CREATED },
+      {
+        type: ChunkType.MCP_TOOL_PENDING,
+        responses: [
+          {
+            id: 'tool-call-image-1',
+            tool: mockImageTool,
+            arguments: {
+              referenceImages: ['https://vectcut-prod.oss-cn-shanghai.aliyuncs.com/uploads/fake.png']
+            },
+            status: 'pending' as const,
+            response: ''
+          }
+        ]
+      },
+      { type: ChunkType.BLOCK_COMPLETE }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const toolBlock = Object.values(state.messageBlocks.entities).find((block) => block?.type === MessageBlockType.TOOL) as any
+    const prepared = toolBlock?.metadata?.rawMcpToolResponse?.arguments?.reference_images_prepared
+
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        originalInput: 'https://vectcut-prod.oss-cn-shanghai.aliyuncs.com/uploads/fake.png',
+        previewUrl: 'file:///mock/runtime-files/mock-image-id.png',
+        sourceKind: 'local_file'
+      })
+    ])
+  })
+
   it('should handle image generation flow', async () => {
     const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
 
@@ -1042,6 +1126,67 @@ describe('streamCallback Integration Tests', () => {
     expect(textBlock).toBeDefined()
     expect(textBlock?.status).toBe(MessageBlockStatus.SUCCESS)
     expect((textBlock as any)?.content).toBe('AI什么也没说，重试一下试试')
+  })
+
+  it('should accumulate step usage details before completion', async () => {
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
+
+    const chunks: Chunk[] = [
+      {
+        type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
+        response: {
+          usageSteps: [
+            {
+              prompt_tokens: 1200,
+              completion_tokens: 300,
+              total_tokens: 1500,
+              cache_read_input_tokens: 200,
+              cache_creation_input_tokens: 100
+            }
+          ]
+        }
+      },
+      {
+        type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
+        response: {
+          usageSteps: [
+            {
+              prompt_tokens: 800,
+              completion_tokens: 200,
+              total_tokens: 1000,
+              cache_read_input_tokens: 50,
+              cache_creation_input_tokens: 0
+            }
+          ]
+        }
+      },
+      {
+        type: ChunkType.BLOCK_COMPLETE,
+        response: {
+          usage: { prompt_tokens: 2000, completion_tokens: 500, total_tokens: 2500 },
+          metrics: { completion_tokens: 500, time_completion_millsec: 1000 }
+        }
+      }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const message = state.messages.entities[mockAssistantMsgId]
+
+    expect(message?.usage?.total_tokens).toBe(2500)
+    expect(message?.usageSteps).toHaveLength(2)
+    expect(message?.usageSteps?.[0]).toMatchObject({
+      prompt_tokens: 1200,
+      completion_tokens: 300,
+      cache_read_input_tokens: 200,
+      cache_creation_input_tokens: 100
+    })
+    expect(message?.usageSteps?.[1]).toMatchObject({
+      prompt_tokens: 800,
+      completion_tokens: 200,
+      cache_read_input_tokens: 50
+    })
   })
 
   it('should maintain block reference integrity during streaming', async () => {

@@ -2517,6 +2517,7 @@
           "cherry_dify_knowledge_server": "Dify Knowledge",
           "claw": "Claw",
           "copylab": "Copy Reverse Engineering",
+          "cut_workflow": "Cut Workflow",
           "digital_human": "Digital Human",
           "draft_elements": "Draft Processing",
           "draft_download": "Draft Download",
@@ -2580,15 +2581,14 @@
           "copylab": {
             "derive_copy_prompt": "Extract Copy Prompt"
           },
+          "cut_workflow": {
+            "execute_workflow": "Execute Workflow"
+          },
           "digital_human": {
-            "create_image_driven_digital_human": "Create Image-Driven Digital Human",
-            "create_lip_sync_digital_human": "Create Mouth-Synced Digital Human",
-            "create_omni_image_driven_digital_human": "Create omni Image-Driven Digital Human",
-            "create_seedance_digital_human": "Create Seedance Digital Human",
-            "get_image_driven_digital_human_status": "Check Image-Driven Digital Human Status",
-            "get_lip_sync_digital_human_status": "Check Mouth-Synced Digital Human Status",
-            "get_omni_image_driven_digital_human_status": "Check omni Image-Driven Digital Human Status",
-            "get_seedance_digital_human_status": "Check Seedance Digital Human Status"
+            "create_image_driven_digital_human": "Image-Driven Digital Human",
+            "create_lip_sync_digital_human": "Mouth-Synced Digital Human",
+            "create_omni_image_driven_digital_human": "Omni Image-Driven Digital Human",
+            "create_seedance_digital_human": "Seedance Digital Human"
           },
           "draft_elements": {
             "add_audio": "Add Audio",
@@ -2662,7 +2662,6 @@
             "get_image_capabilities": "View Image Models"
           },
           "koubo_template": {
-            "get_koubo_template_task_status": "Check Talking Head Template Task Status",
             "submit_koubo_template_task": "Submit Talking Head Template Task"
           },
           "search": {
@@ -2676,11 +2675,10 @@
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "Check Subtitle Recognition Task Status",
-            "submit_subtitle_recognition_task": "Submit Subtitle Recognition Task"
+            "submit_subtitle_recognition_task": "Subtitle Recognition"
           },
           "subtitle_template": {
-            "generate_smart_subtitle": "Generate Smart Subtitle",
-            "get_smart_subtitle_task_status": "Check Subtitle Task Status"
+            "generate_smart_subtitle": "Generate Smart Subtitle"
           },
           "video": {
             "generate_video": "Generate Video",
@@ -2690,8 +2688,7 @@
             "open_deeplink": "Open Link"
           },
           "video_understand": {
-            "get_video_detail_task_status": "Check Video Understanding Task Status",
-            "submit_video_detail_task": "Submit Video Understanding Task"
+            "submit_video_detail_task": "Video Understanding"
           },
           "voice_conversion": {
             "get_voice_conversion_task_status": "Check Voice Conversion Task Status",

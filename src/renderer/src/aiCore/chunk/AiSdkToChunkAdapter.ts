@@ -195,13 +195,17 @@ export class AiSdkToChunkAdapter {
   ) {
     if ((chunk as { type?: string }).type === 'usage') {
       const usageChunk = chunk as TextStreamPart<any> & {
-        usage?: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null }
+        usage?: {
+          inputTokens?: number | null
+          outputTokens?: number | null
+          totalTokens?: number | null
+          inputTokenDetails?: {
+            cacheReadTokens?: number | null
+            cacheWriteTokens?: number | null
+          }
+        }
       }
-      const usage = {
-        completion_tokens: usageChunk.usage?.outputTokens || 0,
-        prompt_tokens: usageChunk.usage?.inputTokens || 0,
-        total_tokens: usageChunk.usage?.totalTokens || 0
-      }
+      const usage = this.buildUsage(usageChunk.usage)
       const metrics = this.buildMetrics(usageChunk.usage)
       this.onChunk({
         type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
@@ -348,6 +352,7 @@ export class AiSdkToChunkAdapter {
 
       case 'finish-step': {
         const { providerMetadata, finishReason } = chunk
+        const stepUsage = this.buildUsage((chunk as { usage?: any }).usage)
         // googel web search
         if (providerMetadata?.google?.groundingMetadata) {
           this.onChunk({
@@ -385,6 +390,14 @@ export class AiSdkToChunkAdapter {
         if (finishReason === 'tool-calls') {
           this.onChunk({ type: ChunkType.LLM_RESPONSE_CREATED })
         }
+        if (stepUsage) {
+          this.onChunk({
+            type: ChunkType.LLM_RESPONSE_IN_PROGRESS,
+            response: {
+              usageSteps: [stepUsage]
+            }
+          })
+        }
 
         final.webSearchResults = []
         // final.reasoningId = ''
@@ -411,11 +424,7 @@ export class AiSdkToChunkAdapter {
           final.text = clearMessage
         }
 
-        const usage = {
-          completion_tokens: chunk.totalUsage?.outputTokens || 0,
-          prompt_tokens: chunk.totalUsage?.inputTokens || 0,
-          total_tokens: chunk.totalUsage?.totalTokens || 0
-        }
+        const usage = this.buildUsage(chunk.totalUsage)
         const metrics = this.buildMetrics(chunk.totalUsage)
         const baseResponse = {
           text: final.text || '',
@@ -516,6 +525,48 @@ export class AiSdkToChunkAdapter {
       completion_tokens: completionTokens,
       time_first_token_millsec: timeFirstToken,
       time_completion_millsec: timeCompletion
+    }
+  }
+
+  private buildUsage(usage?: {
+    inputTokens?: number | null
+    outputTokens?: number | null
+    totalTokens?: number | null
+    inputTokenDetails?: {
+      cacheReadTokens?: number | null
+      cacheWriteTokens?: number | null
+    }
+  }) {
+    if (!usage) {
+      return undefined
+    }
+
+    const promptTokens = Number(usage.inputTokens ?? 0) || 0
+    const completionTokens = Number(usage.outputTokens ?? 0) || 0
+    const totalTokens = Number(usage.totalTokens ?? promptTokens + completionTokens) || 0
+    const cacheReadTokens = Number(usage.inputTokenDetails?.cacheReadTokens ?? 0) || 0
+    const cacheWriteTokens = Number(usage.inputTokenDetails?.cacheWriteTokens ?? 0) || 0
+
+    if (promptTokens <= 0 && completionTokens <= 0 && totalTokens <= 0) {
+      return undefined
+    }
+
+    return {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens,
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: cacheWriteTokens,
+      prompt_tokens_details: {
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      },
+      input_tokens_details: {
+        cached_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheWriteTokens,
+        cache_write_tokens: cacheWriteTokens
+      }
     }
   }
 }

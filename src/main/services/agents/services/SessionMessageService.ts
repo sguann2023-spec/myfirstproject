@@ -35,6 +35,18 @@ type PersistedUsage = {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  prompt_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
+  input_tokens_details?: {
+    cached_tokens?: number
+    cache_creation_input_tokens?: number
+    cache_write_tokens?: number
+  }
 }
 
 export type CreateMessageOptions = {
@@ -240,7 +252,9 @@ export class SessionMessageService extends BaseService {
                     headlessAssistantMsgId,
                     options?.images,
                     req.model,
-                    accumulator.getUsage()
+                    accumulator.getUsage(),
+                    accumulator.getUsageSteps(),
+                    req.createdAt
                   )
                     .then(resolveCompletion)
                     .catch((err) => {
@@ -270,7 +284,9 @@ export class SessionMessageService extends BaseService {
                       headlessAssistantMsgId,
                       options?.images,
                       req.model,
-                      usage
+                      usage,
+                      accumulator.getUsageSteps(),
+                      req.createdAt
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -321,9 +337,17 @@ export class SessionMessageService extends BaseService {
     assistantMsgId: string,
     images?: Array<{ data: string; media_type: string }>,
     modelId?: string,
-    usage?: PersistedUsage
+    usage?: PersistedUsage,
+    usageSteps?: PersistedUsage[],
+    userCreatedAt?: number
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
+    const normalizedUserCreatedAt =
+      typeof userCreatedAt === 'number' && Number.isFinite(userCreatedAt)
+        ? new Date(userCreatedAt).toISOString()
+        : now
+    const normalizedAssistantCreatedAt = normalizedUserCreatedAt
+    const assistantDurationMs = Math.max(0, Date.parse(now) - Date.parse(normalizedAssistantCreatedAt))
     const userMsgId = randomUUID()
     const userBlockId = randomUUID()
     const topicId = `agent-session:${session.id}`
@@ -343,7 +367,7 @@ export class SessionMessageService extends BaseService {
           id: randomUUID(),
           messageId: userMsgId,
           type: 'image',
-          createdAt: now,
+          createdAt: normalizedUserCreatedAt,
           status: 'success',
           url: `data:${img.media_type};base64,${img.data}`
         })
@@ -356,7 +380,7 @@ export class SessionMessageService extends BaseService {
         role: 'user' as const,
         assistantId: session.agent_id,
         topicId,
-        createdAt: now,
+        createdAt: normalizedUserCreatedAt,
         status: 'success',
         blocks: [userBlockId, ...imageBlocks.map((b) => b.id)]
       },
@@ -365,7 +389,7 @@ export class SessionMessageService extends BaseService {
           id: userBlockId,
           messageId: userMsgId,
           type: 'main_text',
-          createdAt: now,
+          createdAt: normalizedUserCreatedAt,
           status: 'success',
           content: userContent
         },
@@ -375,7 +399,9 @@ export class SessionMessageService extends BaseService {
 
     const assistantBlocks: HeadlessPersistedBlock[] = assistantBlocksInput.map((block) => ({
       ...block,
-      messageId: assistantMsgId
+      messageId: assistantMsgId,
+      createdAt: normalizedAssistantCreatedAt,
+      updatedAt: now
     }))
 
     const assistantPayload = {
@@ -384,11 +410,17 @@ export class SessionMessageService extends BaseService {
         role: 'assistant' as const,
         assistantId: session.agent_id,
         topicId,
-        createdAt: now,
+        createdAt: normalizedAssistantCreatedAt,
+        updatedAt: now,
         status: 'success',
         blocks: assistantBlocks.map((block) => block.id),
         modelId: modelId || session.model,
-        usage
+        metrics: {
+          completion_tokens: Number(usage?.completion_tokens ?? 0),
+          time_completion_millsec: assistantDurationMs
+        },
+        usage,
+        usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
       },
       blocks: assistantBlocks
     } as AgentPersistedMessage
@@ -396,8 +428,8 @@ export class SessionMessageService extends BaseService {
     const result = await agentMessageRepository.persistExchange({
       sessionId: session.id,
       agentSessionId,
-      user: { payload: userPayload, createdAt: now },
-      assistant: { payload: assistantPayload, createdAt: now }
+      user: { payload: userPayload, createdAt: normalizedUserCreatedAt },
+      assistant: { payload: assistantPayload, createdAt: normalizedAssistantCreatedAt }
     })
 
     logger.info('Persisted headless exchange', {
@@ -407,6 +439,7 @@ export class SessionMessageService extends BaseService {
       assistantBlockCount: assistantBlocks.length,
       assistantToolBlockCount: assistantBlocks.filter((block) => block.type === 'tool').length,
       assistantUsage: usage,
+      assistantUsageStepsCount: usageSteps?.length ?? 0,
       assistantBlockTypes: assistantBlocks.map((block) => String(block.type || 'unknown')),
       assistantTextChars: assistantBlocks
         .filter((block) => typeof (block as { content?: unknown }).content === 'string')

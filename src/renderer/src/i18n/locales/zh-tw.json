@@ -2517,6 +2517,7 @@
           "cherry_dify_knowledge_server": "Dify 知識庫",
           "claw": "Claw",
           "copylab": "文案反推",
+          "cut_workflow": "剪輯工作流",
           "digital_human": "數位人",
           "draft_elements": "草稿處理",
           "draft_download": "草稿下載",
@@ -2579,15 +2580,14 @@
           "copylab": {
             "derive_copy_prompt": "提取文案提示詞"
           },
+          "cut_workflow": {
+            "execute_workflow": "執行工作流"
+          },
           "digital_human": {
-            "create_image_driven_digital_human": "建立圖片驅動數位人",
-            "create_lip_sync_digital_human": "建立口型驅動數位人",
-            "create_omni_image_driven_digital_human": "建立omni圖片驅動數位人",
-            "create_seedance_digital_human": "建立 Seedance 數位人",
-            "get_image_driven_digital_human_status": "查詢圖片驅動數位人狀態",
-            "get_lip_sync_digital_human_status": "查詢口型驅動數位人狀態",
-            "get_omni_image_driven_digital_human_status": "查詢omni圖片驅動數位人狀態",
-            "get_seedance_digital_human_status": "查詢 Seedance 數位人狀態"
+            "create_image_driven_digital_human": "圖片驅動數位人",
+            "create_lip_sync_digital_human": "口型驅動數位人",
+            "create_omni_image_driven_digital_human": "Omni 圖片驅動數位人",
+            "create_seedance_digital_human": "Seedance 數位人"
           },
           "draft_elements": {
             "add_audio": "添加音訊",
@@ -2661,7 +2661,6 @@
             "get_image_capabilities": "查看圖像模型"
           },
           "koubo_template": {
-            "get_koubo_template_task_status": "查詢口播模板任務狀態",
             "submit_koubo_template_task": "提交口播模板任務"
           },
           "search": {
@@ -2675,18 +2674,16 @@
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "查詢字幕識別任務狀態",
-            "submit_subtitle_recognition_task": "提交字幕識別任務"
+            "submit_subtitle_recognition_task": "字幕識別"
           },
           "subtitle_template": {
-            "generate_smart_subtitle": "智慧字幕生成",
-            "get_smart_subtitle_task_status": "查詢字幕任務狀態"
+            "generate_smart_subtitle": "智慧字幕生成"
           },
           "system": {
             "open_deeplink": "開啟跳轉連結"
           },
           "video_understand": {
-            "get_video_detail_task_status": "查詢影片理解任務狀態",
-            "submit_video_detail_task": "提交影片理解任務"
+            "submit_video_detail_task": "影片理解"
           },
           "voice_conversion": {
             "get_voice_conversion_task_status": "查詢聲音轉換任務狀態",

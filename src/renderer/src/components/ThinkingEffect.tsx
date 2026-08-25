@@ -34,14 +34,16 @@ const ThinkingEffect: React.FC<Props> = ({ isThinking, thinkingTimeText, content
       <LoadingContainer>
         <motion.div variants={lightbulbVariants} animate={isThinking ? 'active' : 'idle'} initial="idle">
           <Lightbulb
-            size={!showThinking || messages.length < 2 ? 20 : 30}
-            style={{ transition: 'width,height, 150ms' }}
+            size={!showThinking || messages.length < 2 ? 14 : 18}
+            color="#626262"
+            strokeWidth={2}
+            style={{ transition: 'width,height, 150ms', transform: 'translateX(-2px)' }}
           />
         </motion.div>
       </LoadingContainer>
 
-      <TextContainer>
-        <Title className={!showThinking || !messages.length ? 'showThinking' : ''}>{thinkingTimeText}</Title>
+      <TextContainer $showThinking={showThinking}>
+        <Title $showThinking={showThinking}>{thinkingTimeText}</Title>
 
         {showThinking && (
           <Content>
@@ -69,7 +71,7 @@ const ThinkingEffect: React.FC<Props> = ({ isThinking, thinkingTimeText, content
         )}
       </TextContainer>
       <ArrowContainer className={expanded ? 'expanded' : ''}>
-        <ChevronRight size={20} color="var(--color-text-3)" strokeWidth={1} />
+        <ChevronRight size={18} color="#1e1e1e" strokeWidth={1.5} />
       </ArrowContainer>
     </ThinkingContainer>
   )
@@ -82,7 +84,7 @@ const ThinkingContainer = styled.div`
   position: relative;
   display: flex;
   align-items: center;
-  border: 0.5px solid var(--color-border);
+  border: 1px solid var(--color-border);
   transition: height, border-radius, 150ms;
   pointer-events: none;
   user-select: none;
@@ -91,29 +93,26 @@ const ThinkingContainer = styled.div`
   }
 `
 
-const Title = styled.div`
+const Title = styled.div<{ $showThinking: boolean }>`
   position: absolute;
   inset: 0 0 auto 0;
   font-size: 14px;
   line-height: 14px;
-  font-weight: 500;
-  padding: 10px 0;
+  color: var(--color-text);
+  padding-top: ${({ $showThinking }) => ($showThinking ? '8px' : '11px')};
   z-index: 99;
   transition: padding-top 150ms;
-  &.showThinking {
-    padding-top: 12px;
-  }
 `
 
 const LoadingContainer = styled.div`
-  width: 50px;
+  width: 28px;
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100%;
   flex-shrink: 0;
   position: relative;
-  padding-left: 5px;
+  padding-left: 4px;
   transition: width 150ms;
   > div {
     display: flex;
@@ -122,10 +121,10 @@ const LoadingContainer = styled.div`
   }
 `
 
-const TextContainer = styled.div`
+const TextContainer = styled.div<{ $showThinking: boolean }>`
   flex: 1;
   height: 100%;
-  padding: 5px 0;
+  padding: ${({ $showThinking }) => ($showThinking ? '24px 0 5px' : '5px 0')};
   overflow: hidden;
   position: relative;
 `
@@ -164,14 +163,13 @@ const Message = styled.div`
 `
 
 const ArrowContainer = styled.div`
-  width: 40px;
+  width: 32px;
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100%;
   flex-shrink: 0;
   position: relative;
-  color: var(--color-border);
   transition: transform 150ms;
   &.expanded {
     transform: rotate(90deg);

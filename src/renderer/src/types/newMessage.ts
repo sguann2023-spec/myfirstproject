@@ -203,6 +203,7 @@ export type Message = {
   enabledMCPs?: MCPServer[]
 
   usage?: Usage
+  usageSteps?: Usage[]
   metrics?: Metrics
 
   // UI相关
@@ -227,6 +228,7 @@ export interface Response {
   text?: string
   reasoning_content?: string
   usage?: Usage
+  usageSteps?: Usage[]
   metrics?: Metrics
   webSearch?: WebSearchResponse
   mcpToolResponse?: MCPToolResponse[]

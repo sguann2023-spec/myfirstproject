@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStat, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
+const { mockNetFetch, mockStat, mockStoreGet, mockStoreSet, mockUploadLocalFile, mockUploadImageBase64 } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStat: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn(),
-  mockUploadLocalFile: vi.fn()
+  mockUploadLocalFile: vi.fn(),
+  mockUploadImageBase64: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -32,7 +33,8 @@ vi.mock('node:fs/promises', () => ({
 
 vi.mock('@main/services/OssUploadService', () => ({
   ossUploadService: {
-    uploadLocalFile: mockUploadLocalFile
+    uploadLocalFile: mockUploadLocalFile,
+    uploadImageBase64: mockUploadImageBase64
   }
 }))
 
@@ -102,6 +104,7 @@ describe('ImageGenerateServer', () => {
     mockStoreGet.mockReset()
     mockStoreSet.mockReset()
     mockUploadLocalFile.mockReset()
+    mockUploadImageBase64.mockReset()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
     mockStat.mockResolvedValue({
       isFile: () => true
@@ -295,7 +298,7 @@ describe('ImageGenerateServer', () => {
     })
   })
 
-  it('should submit an async image generation task', async () => {
+  it('should submit and wait for an image generation task by default', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -325,6 +328,22 @@ describe('ImageGenerateServer', () => {
           status: 'queued',
           queue_name: 'llm-image-task',
           error: ''
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-123',
+          status: 'success',
+          progress: 100,
+          message: '处理完成',
+          error: '',
+          result: {
+            image: 'https://example.com/result.png',
+            draft_id: 'draft-1',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-1',
+            reused_from_history: false
+          }
         })
       )
 
@@ -360,6 +379,13 @@ describe('ImageGenerateServer', () => {
         })
       })
     )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
+      'https://open.vectcut.com/llm/image/submit_task/task_status?task_id=task-123',
+      expect.objectContaining({
+        method: 'GET'
+      })
+    )
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
       prompt: '一只站在云上的猫',
       model: 'seedream-4.5',
@@ -370,20 +396,30 @@ describe('ImageGenerateServer', () => {
     })
 
     expect(result.isError).not.toBe(true)
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
       provider: 'vectcut',
-      action: 'submit',
+      action: 'submit_and_wait',
       estimated_wait_time: '3-5 minutes',
-      polling_hint: 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
       requested_model: 'seedream-4.5',
       resolved_model: 'seedream-4.5',
       model_match_type: 'exact',
       success: true,
       task_id: 'task-123',
-      message_id: 'msg-123',
-      status: 'queued',
-      queue_name: 'llm-image-task',
-      error: ''
+      status: 'success',
+      progress: 100,
+      message: '处理完成',
+      error: '',
+      output: {
+        image_url: 'https://example.com/result.png',
+        draft_id: 'draft-1',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-1'
+      },
+      result: {
+        image: 'https://example.com/result.png',
+        draft_id: 'draft-1',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-1',
+        reused_from_history: false
+      }
     })
   })
 
@@ -405,6 +441,7 @@ describe('ImageGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
+      action: 'submit',
       prompt: '把这张图改成胶片质感',
       editImage: 'https://example.com/original.png'
     }, 'generate_image')
@@ -438,6 +475,7 @@ describe('ImageGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
+      action: 'submit',
       prompt: '参考这张图的字体风格，生成一张新的海报',
       referenceImage: '/tmp/reference-style.png'
     })
@@ -463,6 +501,55 @@ describe('ImageGenerateServer', () => {
           originalInput: '/tmp/reference-style.png',
           submittedUrl: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1',
           sourceKind: 'local_file'
+        }
+      ]
+    })
+  })
+
+  it('should upload pasted screenshot data URLs before submitting the image task', async () => {
+    mockUploadImageBase64.mockResolvedValue({
+      publicUrl: 'https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1',
+      objectKey: 'agent_tmp/demo/pasted-screenshot.png'
+    })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-inline-ref-123',
+          status: 'queued'
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, {
+      action: 'submit',
+      prompt: '参考这张粘贴截图生成一张新的海报',
+      referenceImage: 'data:image/png;base64,aGVsbG8='
+    })
+
+    expect(mockUploadImageBase64).toHaveBeenCalledWith('aGVsbG8=', 'image/png')
+    expect(JSON.parse(String(mockNetFetch.mock.calls[1]?.[1]?.body))).toEqual({
+      prompt: '参考这张粘贴截图生成一张新的海报',
+      reference_images: ['https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1']
+    })
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      provider: 'vectcut',
+      action: 'submit',
+      task_id: 'task-inline-ref-123',
+      reference_images: ['https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1'],
+      reference_images_prepared: [
+        {
+          submittedUrl: 'https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1',
+          previewUrl: 'https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1',
+          sourceKind: 'local_file',
+          mimeType: 'image/png',
+          data: 'data:image/png;base64,aGVsbG8='
         }
       ]
     })
@@ -506,6 +593,7 @@ describe('ImageGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
+      action: 'submit',
       prompt: '保留人物主体，把背景改成雪山，并提升清晰度',
       editImage: 'https://example.com/original.png',
       composeDraft: false
@@ -562,6 +650,7 @@ describe('ImageGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
+      action: 'submit',
       prompt: '保留主体，把图片变成电影海报风格',
       model: 'gptimage2',
       editImage: 'https://example.com/original.png'

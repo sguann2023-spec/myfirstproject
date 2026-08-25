@@ -59,6 +59,7 @@ export type RuntimeCapability =
   | 'imageIntroAnimationList'
   | 'imageOutroAnimationList'
   | 'imageLoopAnimationList'
+  | 'cutWorkflow'
   | 'subtitleTemplate'
   | 'draftCreate'
   | 'draftUpdateMeta'
@@ -329,6 +330,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('image_loop_animation_list') && !selected.has('imageLoopAnimationList')) {
         addCapabilityReason(selected, reasons, 'imageLoopAnimationList', 'intent:cut.image_loop_animation_list')
       }
+      if (activeDomain.subdomains.includes('workflow') && !selected.has('cutWorkflow')) {
+        addCapabilityReason(selected, reasons, 'cutWorkflow', 'intent:cut.workflow')
+      }
       if (activeDomain.subdomains.includes('draft_create') && !selected.has('draftCreate')) {
         addCapabilityReason(selected, reasons, 'draftCreate', 'intent:cut.draft_create')
       }
@@ -448,6 +452,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'imageIntroAnimationList',
   'imageOutroAnimationList',
   'imageLoopAnimationList',
+  'cutWorkflow',
   'subtitleTemplate',
   'draftCreate',
   'draftUpdateMeta',
@@ -522,6 +527,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'imageIntroAnimationList',
   'imageOutroAnimationList',
   'imageLoopAnimationList',
+  'cutWorkflow',
   'subtitleTemplate',
   'draftCreate',
   'draftUpdateMeta',
@@ -580,6 +586,7 @@ const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
   image_intro_animation_list: 'edit',
   image_outro_animation_list: 'edit',
   image_loop_animation_list: 'edit',
+  workflow: 'workflow',
   subtitle_recognition: 'analysis',
   video_understand: 'analysis',
   draft_create: 'draft',
@@ -617,10 +624,6 @@ const VIDEO_FILE_REFERENCE_PATTERN = new RegExp(
 )
 const AUDIO_FILE_REFERENCE_PATTERN = new RegExp(
   `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff|aif|amr)(?:\\b|$)`,
-  'i'
-)
-const IMAGE_FILE_REFERENCE_PATTERN = new RegExp(
-  `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?)(?:\\b|$)`,
   'i'
 )
 const PATH_LIKE_PATTERN =
@@ -974,6 +977,7 @@ const CUT_TEMPLATE_KEYWORDS = [
   '口播剪辑',
   '剪一下口播'
 ]
+const CUT_WORKFLOW_EXACT_KEYWORDS = ['剪辑工作流', '剪映工作流', '执行工作流', 'execute_workflow', 'workflow_id']
 const CUT_SUBTITLE_TEMPLATE_KEYWORDS = ['字幕模板', '字幕模版', 'smart subtitle', 'subtitle template']
 const CUT_SUBTITLE_RECOGNITION_KEYWORDS = [
   '字幕识别',
@@ -1034,19 +1038,17 @@ const hasSubtitleTemplateIntent = (text: string) =>
   (/(字幕样式|字幕风格|字幕模板|字幕模版|样式模板|样式模版)/.test(text) &&
     /(音频|视频|audio|video)/.test(text))
 
-const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
-const hasImageFileReference = (text: string) => IMAGE_FILE_REFERENCE_PATTERN.test(text)
+const hasCutWorkflowIntent = (text: string) =>
+  hasAnyKeyword(text, CUT_WORKFLOW_EXACT_KEYWORDS) ||
+  ((text.includes('工作流') || text.includes('workflow')) &&
+    (/(剪辑|剪映|草稿|时间线|timeline)/.test(text) ||
+      /create_draft|add_text|add_image|add_video|add_audio|add_subtitle|add_preset|add_video_keyframe/.test(text)))
 
+const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
 const hasLocalMediaContext = (text: string) =>
   hasMediaFileReference(text) ||
   /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
   /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
-
-const hasLocalImageContext = (text: string) =>
-  hasImageFileReference(text) ||
-  (PATH_LIKE_PATTERN.test(text) && /(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图)/.test(text)) ||
-  /(本地|工作区|workspace).{0,8}(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图)/.test(text) ||
-  /(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图).{0,8}(本地|工作区|workspace)/.test(text)
 
 const hasSubtitleRecognitionIntent = (text: string) =>
   (hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
@@ -1351,61 +1353,63 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, capability, 'env:CHERRY_AGENT_MOUNT_ALL_MCP_TOOLS')
       }
     } else {
+      const hasCutWorkflow = hasCutWorkflowIntent(text)
       const hasDraftCreateIntent =
-        hasAnyKeyword(text, CUT_CREATE_KEYWORDS) ||
-        /(?:创建|新建|开始).{0,8}草稿/.test(text) ||
-        /draft.{0,8}(create|new|start)/.test(text)
-      const hasDraftUpdateIntent = hasDraftMetaUpdateIntent(text)
-      const shouldInspectDraft = hasDraftInspectIntent(text)
+        !hasCutWorkflow &&
+        (hasAnyKeyword(text, CUT_CREATE_KEYWORDS) ||
+          /(?:创建|新建|开始).{0,8}草稿/.test(text) ||
+          /draft.{0,8}(create|new|start)/.test(text))
+      const hasDraftUpdateIntent = !hasCutWorkflow && hasDraftMetaUpdateIntent(text)
+      const shouldInspectDraft = !hasCutWorkflow && hasDraftInspectIntent(text)
       const shouldDownloadDraft = hasDraftDownloadIntent(text)
-      const hasTextAdd = hasTextAddIntent(text)
-      const hasTextAddBatch = hasTextAddBatchIntent(text)
-      const hasTextDelete = hasTextDeleteIntent(text)
-      const hasTextUpdate = hasTextUpdateIntent(text)
+      const hasTextAdd = !hasCutWorkflow && hasTextAddIntent(text)
+      const hasTextAddBatch = !hasCutWorkflow && hasTextAddBatchIntent(text)
+      const hasTextDelete = !hasCutWorkflow && hasTextDeleteIntent(text)
+      const hasTextUpdate = !hasCutWorkflow && hasTextUpdateIntent(text)
       const hasSubtitleRecognition = hasSubtitleRecognitionIntent(text)
       const hasVideoUnderstand = hasVideoUnderstandIntent(text)
-      const hasSubtitleSrt = hasSubtitleSrtIntent(text)
-      const hasTextIntroAnimationList = hasTextIntroAnimationListIntent(text)
-      const hasTextOutroAnimationList = hasTextOutroAnimationListIntent(text)
-      const hasTextLoopAnimationList = hasTextLoopAnimationListIntent(text)
-      const hasFontList = hasFontListIntent(text)
-      const hasImageAdd = hasImageAddIntent(text)
-      const hasImageAddBatch = hasImageAddBatchIntent(text)
-      const hasPresetAdd = hasPresetAddIntent(text)
-      const hasPresetAddBatch = hasPresetAddBatchIntent(text)
-      const hasImageUpdate = hasImageUpdateIntent(text)
-      const hasImageDelete = hasImageDeleteIntent(text)
-      const hasVideoAdd = hasVideoAddIntent(text)
-      const hasVideoAddBatch = hasVideoAddBatchIntent(text)
-      const hasVideoUpdate = hasVideoUpdateIntent(text)
-      const hasVideoDelete = hasVideoDeleteIntent(text)
-      const hasTransitionTypeList = hasTransitionTypeListIntent(text)
-      const hasAudioAdd = hasAudioAddIntent(text)
-      const hasAudioAddBatch = hasAudioAddBatchIntent(text)
-      const hasAudioUpdate = hasAudioUpdateIntent(text)
-      const hasAudioDelete = hasAudioDeleteIntent(text)
-      const hasAudioEffectTypeList = hasAudioEffectTypeListIntent(text)
-      const hasAudioExtract = hasAudioExtractIntent(text)
-      const hasAudioConcat = hasAudioConcatIntent(text)
+      const hasSubtitleSrt = !hasCutWorkflow && hasSubtitleSrtIntent(text)
+      const hasTextIntroAnimationList = !hasCutWorkflow && hasTextIntroAnimationListIntent(text)
+      const hasTextOutroAnimationList = !hasCutWorkflow && hasTextOutroAnimationListIntent(text)
+      const hasTextLoopAnimationList = !hasCutWorkflow && hasTextLoopAnimationListIntent(text)
+      const hasFontList = !hasCutWorkflow && hasFontListIntent(text)
+      const hasImageAdd = !hasCutWorkflow && hasImageAddIntent(text)
+      const hasImageAddBatch = !hasCutWorkflow && hasImageAddBatchIntent(text)
+      const hasPresetAdd = !hasCutWorkflow && hasPresetAddIntent(text)
+      const hasPresetAddBatch = !hasCutWorkflow && hasPresetAddBatchIntent(text)
+      const hasImageUpdate = !hasCutWorkflow && hasImageUpdateIntent(text)
+      const hasImageDelete = !hasCutWorkflow && hasImageDeleteIntent(text)
+      const hasVideoAdd = !hasCutWorkflow && hasVideoAddIntent(text)
+      const hasVideoAddBatch = !hasCutWorkflow && hasVideoAddBatchIntent(text)
+      const hasVideoUpdate = !hasCutWorkflow && hasVideoUpdateIntent(text)
+      const hasVideoDelete = !hasCutWorkflow && hasVideoDeleteIntent(text)
+      const hasTransitionTypeList = !hasCutWorkflow && hasTransitionTypeListIntent(text)
+      const hasAudioAdd = !hasCutWorkflow && hasAudioAddIntent(text)
+      const hasAudioAddBatch = !hasCutWorkflow && hasAudioAddBatchIntent(text)
+      const hasAudioUpdate = !hasCutWorkflow && hasAudioUpdateIntent(text)
+      const hasAudioDelete = !hasCutWorkflow && hasAudioDeleteIntent(text)
+      const hasAudioEffectTypeList = !hasCutWorkflow && hasAudioEffectTypeListIntent(text)
+      const hasAudioExtract = !hasCutWorkflow && hasAudioExtractIntent(text)
+      const hasAudioConcat = !hasCutWorkflow && hasAudioConcatIntent(text)
       const hasChatBash = hasChatBashIntent(text)
-      const hasFrameCapture = hasFrameCaptureIntent(text)
-      const hasMediaDownload = hasMediaDownloadIntent(text)
-      const hasMediaDuration = hasMediaDurationIntent(text)
-      const hasMediaTrim = hasMediaTrimIntent(text)
-      const hasVideoConcat = hasVideoConcatIntent(text)
-      const hasKeyframeAdd = hasKeyframeAddIntent(text)
-      const hasEffectAdd = hasEffectAddIntent(text)
-      const hasEffectUpdate = hasEffectUpdateIntent(text)
-      const hasEffectDelete = hasEffectDeleteIntent(text)
-      const hasCharacterEffectTypeList = hasCharacterEffectTypeListIntent(text)
-      const hasSceneEffectTypeList = hasSceneEffectTypeListIntent(text)
-      const hasFilterAdd = hasFilterAddIntent(text)
-      const hasFilterUpdate = hasFilterUpdateIntent(text)
-      const hasFilterDelete = hasFilterDeleteIntent(text)
-      const hasFilterTypeList = hasFilterTypeListIntent(text)
-      const hasImageIntroAnimationList = hasImageIntroAnimationListIntent(text)
-      const hasImageOutroAnimationList = hasImageOutroAnimationListIntent(text)
-      const hasImageLoopAnimationList = hasImageLoopAnimationListIntent(text)
+      const hasFrameCapture = !hasCutWorkflow && hasFrameCaptureIntent(text)
+      const hasMediaDownload = !hasCutWorkflow && hasMediaDownloadIntent(text)
+      const hasMediaDuration = !hasCutWorkflow && hasMediaDurationIntent(text)
+      const hasMediaTrim = !hasCutWorkflow && hasMediaTrimIntent(text)
+      const hasVideoConcat = !hasCutWorkflow && hasVideoConcatIntent(text)
+      const hasKeyframeAdd = !hasCutWorkflow && hasKeyframeAddIntent(text)
+      const hasEffectAdd = !hasCutWorkflow && hasEffectAddIntent(text)
+      const hasEffectUpdate = !hasCutWorkflow && hasEffectUpdateIntent(text)
+      const hasEffectDelete = !hasCutWorkflow && hasEffectDeleteIntent(text)
+      const hasCharacterEffectTypeList = !hasCutWorkflow && hasCharacterEffectTypeListIntent(text)
+      const hasSceneEffectTypeList = !hasCutWorkflow && hasSceneEffectTypeListIntent(text)
+      const hasFilterAdd = !hasCutWorkflow && hasFilterAddIntent(text)
+      const hasFilterUpdate = !hasCutWorkflow && hasFilterUpdateIntent(text)
+      const hasFilterDelete = !hasCutWorkflow && hasFilterDeleteIntent(text)
+      const hasFilterTypeList = !hasCutWorkflow && hasFilterTypeListIntent(text)
+      const hasImageIntroAnimationList = !hasCutWorkflow && hasImageIntroAnimationListIntent(text)
+      const hasImageOutroAnimationList = !hasCutWorkflow && hasImageOutroAnimationListIntent(text)
+      const hasImageLoopAnimationList = !hasCutWorkflow && hasImageLoopAnimationListIntent(text)
       const shouldApplySubtitleTemplate = hasSubtitleTemplateIntent(text)
       const hasTemplateIntent =
         hasAnyKeyword(text, CUT_TEMPLATE_KEYWORDS) && !shouldApplySubtitleTemplate && !hasPresetSubject(text)
@@ -1529,13 +1533,11 @@ export class CapabilityRouter {
 
       if (
         hasAnyKeyword(text, WORKSPACE_UPLOAD_KEYWORDS) ||
-        /(?:上传|传).{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
-        /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
+        /上传.{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
+        /上传.{0,12}(oss|对象存储)/.test(text) ||
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
         ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasTemplateIntent && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text)) ||
-        (hasAiVideoIntent && !hasUrlLikeText(args.prompt) && (hasLocalImageContext(text) || hasLocalMediaContext(text)))
+        (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
       ) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
@@ -1806,6 +1808,10 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'imageLoopAnimationList', 'prompt:image-loop-animation-list')
       }
 
+      if (hasCutWorkflow) {
+        addCapabilityReason(selected, reasons, 'cutWorkflow', 'prompt:cut-workflow')
+      }
+
       if (shouldApplySubtitleTemplate) {
         addCapabilityReason(selected, reasons, 'subtitleTemplate', 'prompt:subtitle-template')
       }
@@ -2061,6 +2067,7 @@ function classifyIntent(args: {
     args.selected.has('imageIntroAnimationList') ||
     args.selected.has('imageOutroAnimationList') ||
     args.selected.has('imageLoopAnimationList') ||
+    args.selected.has('cutWorkflow') ||
     args.selected.has('draftCreate') ||
     args.selected.has('draftUpdateMeta') ||
     args.selected.has('draftInspect') ||
@@ -2226,6 +2233,7 @@ function classifyIntent(args: {
   if (args.selected.has('imageLoopAnimationList')) {
     addDomainSubdomain('cut', 'image_loop_animation_list', 'capability:image-loop-animation-list')
   }
+  if (args.selected.has('cutWorkflow')) addDomainSubdomain('cut', 'workflow', 'capability:cut-workflow')
   if (args.selected.has('draftCreate')) addDomainSubdomain('cut', 'draft_create', 'capability:draft-create')
   if (args.selected.has('draftUpdateMeta')) addDomainSubdomain('cut', 'draft_update_meta', 'capability:draft-update-meta')
   if (args.selected.has('draftInspect')) addDomainSubdomain('cut', 'draft_inspect', 'capability:draft-inspect')

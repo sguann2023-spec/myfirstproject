@@ -6,6 +6,8 @@ describe('mcpToolDisplay', () => {
   const t = ((key: string) =>
     (
       {
+        'message.tools.mcp.servers.cut_workflow': '剪辑工作流',
+        'message.tools.mcp.tools.cut_workflow.execute_workflow': '执行工作流',
         'message.tools.mcp.servers.subtitle_template': '字幕模板',
         'message.tools.mcp.tools.subtitle_template.generate_smart_subtitle': '智能字幕生成',
         'message.tools.mcp.servers.image': '图像',
@@ -30,6 +32,16 @@ describe('mcpToolDisplay', () => {
         t
       })
     ).toBe('字幕模板：智能字幕生成')
+  })
+
+  it('returns translated names for cut workflow MCP tools', () => {
+    expect(
+      getMcpToolDisplayName({
+        serverName: 'cut-workflow',
+        toolName: 'execute_workflow',
+        t
+      })
+    ).toBe('剪辑工作流：执行工作流')
   })
 
   it('uses full-width colon for localized Chinese MCP display names', () => {

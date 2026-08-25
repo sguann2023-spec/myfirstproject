@@ -6,6 +6,9 @@ import { useTranslation } from 'react-i18next'
 import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
+import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
+import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
+import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
 
 interface McpServerToolProps {
   toolName: string
@@ -59,13 +62,16 @@ export function McpServerToolRenderer({
   const normalizedOutput = mcpText !== null ? { value: mcpText } : normalizeArgs(output)
   const normalizedProgressMessage = normalizeProgressMessage(progressMessage, progress)
   const isKouboTemplate = isKouboTemplateToolName(toolName)
+  const isMediaGeneration = isMediaGenerationToolName(toolName)
+  const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
+  const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
 
   return {
     key: `mcp-tool-${toolName}`,
     label: (
       <ToolHeader
         toolName={toolName}
-        icon={<Wrench size={14} style={{ marginLeft: 11, marginRight: 11 }} />}
+        icon={<Wrench size={14} />}
         params={normalizedProgressMessage || t('message.tools.labels.mcpServerTool')}
         stats={typeof progress === 'number' && progress > 0 ? `${Math.round(progress * 100)}%` : undefined}
         variant="collapse-label"
@@ -83,11 +89,48 @@ export function McpServerToolRenderer({
             isRunning={typeof progress === 'number' && progress < 1}
           />
         ) : null}
-        {!isKouboTemplate && normalizedInput && <ToolArgsTable args={normalizedInput} title={t('message.tools.sections.input')} />}
-        {!isKouboTemplate && normalizedOutput && <ToolArgsTable args={normalizedOutput} title={t('message.tools.sections.output')} />}
-        {!isKouboTemplate && !normalizedInput && !normalizedOutput && (
-          <div className="p-3 text-foreground-500 text-xs">{t('message.tools.noData')}</div>
+        {isMediaGeneration ? (
+          <MediaGenerationToolBody
+            toolName={toolName}
+            input={input}
+            output={output}
+            progress={progress}
+            progressMessage={normalizedProgressMessage}
+            isRunning={typeof progress === 'number' && progress < 1}
+          />
+        ) : null}
+        {isSubtitleRecognition ? (
+          <SubtitleRecognitionToolBody
+            input={input}
+            output={output}
+            progress={progress}
+            progressMessage={normalizedProgressMessage}
+            isRunning={typeof progress === 'number' && progress < 1}
+          />
+        ) : null}
+        {isSubtitleTemplate ? (
+          <SubtitleTemplateToolBody
+            input={input}
+            output={output}
+            progress={progress}
+            progressMessage={normalizedProgressMessage}
+            isRunning={typeof progress === 'number' && progress < 1}
+          />
+        ) : null}
+        {!isKouboTemplate && !isMediaGeneration && !isSubtitleRecognition && !isSubtitleTemplate && normalizedInput && (
+          <ToolArgsTable args={normalizedInput} title={t('message.tools.sections.input')} />
         )}
+        {!isKouboTemplate && !isMediaGeneration && !isSubtitleRecognition && !isSubtitleTemplate && normalizedOutput && (
+          <ToolArgsTable args={normalizedOutput} title={t('message.tools.sections.output')} />
+        )}
+        {!isKouboTemplate &&
+        !isMediaGeneration &&
+        !isSubtitleRecognition &&
+        !isSubtitleTemplate &&
+        !normalizedInput &&
+        !normalizedOutput ? (
+          <div className="p-3 text-foreground-500 text-xs">{t('message.tools.noData')}</div>
+        ) : null}
       </div>
     )
   }

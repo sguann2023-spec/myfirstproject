@@ -312,7 +312,7 @@ describe('VideoGenerateServer', () => {
     expect(freshTools.tools).toEqual(originalTools.tools)
   })
 
-  it('should submit a basic video generation task', async () => {
+  it('should submit and wait for a basic video generation task by default', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -338,6 +338,16 @@ describe('VideoGenerateServer', () => {
           task_id: 'video-task-123'
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          draft_id: 'dfd_video_123',
+          draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_video_123',
+          id: 'video-task-123',
+          progress: 100,
+          status: 'succeeded',
+          video_url: 'https://example.com/result.mp4'
+        })
+      )
 
     const server = createServer()
     const result = await callTool(server, {
@@ -354,6 +364,13 @@ describe('VideoGenerateServer', () => {
         method: 'POST'
       })
     )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
+      'https://open.vectcut.com/cut_jianying/aivideo/task_status?task_id=video-task-123',
+      expect.objectContaining({
+        method: 'GET'
+      })
+    )
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
       prompt: '猫咪开车疾驰，开出跑道',
       model: 'seedance-1.5-pro',
@@ -363,8 +380,14 @@ describe('VideoGenerateServer', () => {
 
     expect(JSON.parse(result.content[0].text)).toMatchObject({
       provider: 'vectcut',
-      action: 'submit',
-      task_id: 'video-task-123'
+      action: 'submit_and_wait',
+      task_id: 'video-task-123',
+      status: 'succeeded',
+      output: {
+        draft_id: 'dfd_video_123',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_video_123',
+        video_url: 'https://example.com/result.mp4'
+      }
     })
   })
 
@@ -397,6 +420,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
+      action: 'submit',
       prompt: '一位女孩在海边奔跑',
       model: 'doubao-seedance-2-0'
     })
@@ -448,6 +472,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
+      action: 'submit',
       model: 'seedance-2.0',
       content: [
         {
@@ -555,6 +580,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
+      action: 'submit',
       model: 'seedance-1.5-pro',
       content: [
         {
@@ -613,6 +639,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
+      action: 'submit',
       model: 'seedance-2.0',
       prompt: '做一个镜头平稳推进的产品视频',
       images: ['https://example.com/reference-1.png', 'https://example.com/reference-2.png'],
@@ -675,6 +702,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
+      action: 'submit',
       model: 'seedance-2.0',
       generationMode: 'first_last_frame',
       prompt: '表情自然的转场。',
@@ -740,6 +768,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
+      action: 'submit',
       model: 'seedance-1.5-pro',
       content: [
         {
@@ -843,6 +872,7 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
+      action: 'submit',
       prompt: '做一个产品宣传视频',
       referenceImages: ['https://example.com/ref-1.png'],
       referenceVideos: ['https://example.com/ref-2.mp4'],

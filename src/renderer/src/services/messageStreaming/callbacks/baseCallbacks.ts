@@ -32,6 +32,20 @@ import type { BlockManager } from '../BlockManager'
 
 const logger = loggerService.withContext('BaseCallbacks')
 const EMPTY_ASSISTANT_FALLBACK_TEXT = 'AI什么也没说，重试一下试试'
+
+const mergeUsageSteps = (currentSteps: Response['usageSteps'], incomingSteps: Response['usageSteps']) => {
+  const nextSteps = [...(currentSteps || [])]
+  for (const step of incomingSteps || []) {
+    if (!step) continue
+    const lastStep = nextSteps[nextSteps.length - 1]
+    if (lastStep && JSON.stringify(lastStep) === JSON.stringify(step)) {
+      continue
+    }
+    nextSteps.push(step)
+  }
+  return nextSteps
+}
+
 interface BaseCallbacksDependencies {
   blockManager: BlockManager
   dispatch: any
@@ -133,15 +147,19 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
     },
 
     onLLMResponseInProgress: (response?: Response) => {
-      if (!response?.usage) return
       const currentMessage = getState().messages.entities[assistantMsgId]
       if (!currentMessage) return
+      const nextUsageSteps = mergeUsageSteps(currentMessage.usageSteps, response?.usageSteps)
+      if (!response?.usage && nextUsageSteps.length === (currentMessage.usageSteps?.length || 0)) {
+        return
+      }
       dispatch(
         newMessagesActions.updateMessage({
           topicId,
           messageId: assistantMsgId,
           updates: {
-            usage: response.usage,
+            usage: response?.usage ?? currentMessage.usage,
+            usageSteps: nextUsageSteps.length > 0 ? nextUsageSteps : currentMessage.usageSteps,
             metrics: response.metrics ?? currentMessage.metrics
           }
         })
@@ -277,7 +295,10 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       const errorBlock = createErrorBlock(assistantMsgId, serializableError, { status: MessageBlockStatus.SUCCESS })
       await blockManager.handleBlockTransition(errorBlock, MessageBlockType.ERROR)
       const messageErrorUpdate = {
-        status: isErrorTypeAbort ? AssistantMessageStatus.SUCCESS : AssistantMessageStatus.ERROR
+        status: isErrorTypeAbort ? AssistantMessageStatus.SUCCESS : AssistantMessageStatus.ERROR,
+        usage: currentMessage?.usage,
+        usageSteps: currentMessage?.usageSteps,
+        metrics: currentMessage?.metrics
       }
       dispatch(
         newMessagesActions.updateMessage({
@@ -388,7 +409,14 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
         .map((id) => getState().messageBlocks.entities[id])
         .filter(Boolean) as MessageBlock[]
 
-      const messageUpdates = { status, metrics: response?.metrics, usage: response?.usage }
+      const latestMessage = getState().messages.entities[assistantMsgId]
+      const messageUpdates = {
+        status,
+        updatedAt: new Date().toISOString(),
+        metrics: response?.metrics,
+        usage: response?.usage,
+        usageSteps: latestMessage?.usageSteps
+      }
       dispatch(
         newMessagesActions.updateMessage({
           topicId,
