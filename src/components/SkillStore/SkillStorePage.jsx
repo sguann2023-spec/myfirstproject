@@ -7,6 +7,11 @@ import SkillDetailPage from './SkillDetailPage';
 import SkillImportModal from './SkillImportModal';
 import CirclePlusIcon from '../../../public/circle-plus.svg';
 import PackageIcon from '../../../public/package.svg';
+import BatchSettingsIcon from '../../../public/skill-settings.svg';
+import InstalledCountBackground from '../../../public/skill-count-bg.svg';
+import BatchEnableIcon from '../../../public/skill-circle-check.svg';
+import BatchDisableIcon from '../../../public/skill-circle-x.svg';
+import BatchUninstallIcon from '../../../public/skill-trash-2.svg';
 import './SkillStorePage.css';
 
 const toLocalCard = (skill) => ({
@@ -152,43 +157,50 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   return (
     <div className="skill-store-page" onClick={() => { setMenuSkillId(''); setAddMenuOpen(false); }}>
-      <div className="skill-store-toolbar" onClick={(event) => event.stopPropagation()}>
-        <div className="skill-search-box">
-          <Search size={17} />
-          <input
-            value={searchQuery}
-            placeholder="搜索技能"
-            onChange={(event) => {
-              const next = event.target.value;
-              setSearchQuery(next);
-              setView(next.trim() ? 'search' : 'featured');
-            }}
-          />
-          {searchQuery ? <button type="button" onClick={() => { setSearchQuery(''); setView('featured'); }}><X size={15} /></button> : null}
-        </div>
-        <button type="button" className={`skill-toolbar-button${isInstalledView ? ' is-active' : ''}`} onClick={() => { setView('installed'); setSelectedIds([]); }}>
-          <img src={PackageIcon} className="skill-toolbar-add-icon" alt="" aria-hidden="true" />我安装的 <span>{installedCards.length}</span>
-        </button>
-        <div className="skill-add-wrap">
-          <button type="button" className="skill-toolbar-button" onClick={() => setAddMenuOpen((value) => !value)}>
-            <img src={CirclePlusIcon} className="skill-toolbar-add-icon" alt="" aria-hidden="true" />添加技能
+      {!isInstalledView ? (
+        <div className="skill-store-toolbar" onClick={(event) => event.stopPropagation()}>
+          <div className="skill-search-box">
+            <Search size={12} className="skill-search-icon" />
+            <input
+              value={searchQuery}
+              placeholder="搜索技能"
+              onChange={(event) => {
+                const next = event.target.value;
+                setSearchQuery(next);
+                setView(next.trim() ? 'search' : 'featured');
+              }}
+            />
+            {searchQuery ? <button type="button" onClick={() => { setSearchQuery(''); setView('featured'); }}><X size={15} /></button> : null}
+          </div>
+          <button type="button" className="skill-toolbar-button" onClick={() => { setView('installed'); setSelectedIds([]); }}>
+            <img src={PackageIcon} className="skill-toolbar-installed-icon" alt="" aria-hidden="true" />我安装的 <span>{installedCards.length}</span>
           </button>
-          {addMenuOpen ? (
-            <div className="skill-add-menu">
-              <button type="button" onClick={() => { setImportOpen(true); setAddMenuOpen(false); }}><PackagePlus size={16} />安装技能</button>
-              <button type="button" onClick={() => { onCreateSkill?.(); setAddMenuOpen(false); }}><Plus size={16} />创建技能</button>
-            </div>
-          ) : null}
+          <div className="skill-add-wrap">
+            <button type="button" className="skill-toolbar-button" onClick={() => setAddMenuOpen((value) => !value)}>
+              <img src={CirclePlusIcon} className="skill-toolbar-add-icon" alt="" aria-hidden="true" />添加技能
+            </button>
+            {addMenuOpen ? (
+              <div className="skill-add-menu">
+                <button type="button" onClick={() => { setImportOpen(true); setAddMenuOpen(false); }}><PackagePlus size={16} />安装技能</button>
+                <button type="button" onClick={() => { onCreateSkill?.(); setAddMenuOpen(false); }}><Plus size={16} />创建技能</button>
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {isInstalledView ? (
-        <div className="skill-store-section-heading installed-heading">
-          <div><button type="button" className="skill-back-inline" onClick={() => setView('featured')}><ChevronLeft size={17} />全部技能</button><h1>我安装的 <span>{installedCards.length}</span></h1></div>
-          <button type="button" className="skill-batch-entry" onClick={() => { setBatchMode(true); setSelectedIds([]); }}>批量管理</button>
-        </div>
+        <>
+          <div className="skill-installed-back">
+            <button type="button" className="skill-back-inline" onClick={() => setView('featured')}><ChevronLeft size={17} />全部技能</button>
+          </div>
+          <div className="skill-store-section-heading installed-heading">
+            <h1>我安装的 <span className="skill-installed-count" style={{ backgroundImage: `url(${InstalledCountBackground})` }}>{installedCards.length}</span></h1>
+          <button type="button" className="skill-batch-entry" onClick={() => { setBatchMode(true); setSelectedIds([]); }}>批量管理<img src={BatchSettingsIcon} className="skill-batch-entry-icon" alt="" aria-hidden="true" /></button>
+          </div>
+        </>
       ) : (
-        <div className="skill-store-section-heading"><h1>{isSearch ? '搜索结果' : '精选技能'} <span>{isSearch ? searchVisibleSkills.length : featured.length}</span></h1></div>
+        <div className="skill-store-section-heading"><h1>{isSearch ? '搜索结果' : '精选技能'}{isSearch ? <span className="skill-search-count" style={{ backgroundImage: `url(${InstalledCountBackground})` }}>{searchVisibleSkills.length}</span> : null}</h1></div>
       )}
 
       {batchMode && isInstalledView ? (
@@ -197,9 +209,9 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
           <button type="button" onClick={() => setSelectedIds(installedCards.map((item) => item.id))}>全选</button>
           <button type="button" onClick={() => setSelectedIds([])}>清空</button>
           <div className="skill-batch-actions">
-            <button type="button" onClick={() => void handleBatchToggle(true)}>开启</button>
-            <button type="button" onClick={() => void handleBatchToggle(false)}>关闭</button>
-            <button type="button" className="is-danger" onClick={() => void handleBatchUninstall()}>卸载</button>
+            <button type="button" onClick={() => void handleBatchToggle(true)}><img src={BatchEnableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />开启</button>
+            <button type="button" onClick={() => void handleBatchToggle(false)}><img src={BatchDisableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />关闭</button>
+            <button type="button" className="is-danger" onClick={() => void handleBatchUninstall()}><img src={BatchUninstallIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />卸载</button>
             <button type="button" onClick={() => { setBatchMode(false); setSelectedIds([]); }}>取消</button>
           </div>
         </div>
@@ -223,6 +235,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
               onMenu={() => setMenuSkillId((previous) => previous === skill.id ? '' : skill.id)}
               menuOpen={menuSkillId === skill.id}
               showToggle={isInstalledView && !batchMode}
+              showCheck={!isInstalledView}
               onToggle={toggle}
             />
             {menuSkillId === skill.id ? (

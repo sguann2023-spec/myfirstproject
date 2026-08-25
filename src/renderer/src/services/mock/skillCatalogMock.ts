@@ -1,5 +1,7 @@
 import type { SkillCatalogDetail, SkillCatalogItem } from '@renderer/types/skillCatalog'
-import childrenPictureBookCover from '../../../../../resources/quick/skills/儿童绘本/website/cover.jpg'
+import childrenPictureBookSkillMarkdown from './childrenPictureBookSkill.md?raw'
+
+const skillDemoVideoUrl = 'https://player.install-ai-guider.top/example/skills/jm_bopuguanggao/bopu.mp4'
 
 const icon = (background: string, label: string) => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="18" fill="${background}"/><text x="32" y="40" text-anchor="middle" font-family="Arial" font-size="28" font-weight="700" fill="#fff">${label}</text></svg>`
@@ -65,9 +67,11 @@ const items: SkillCatalogItem[] = [
 
 const detailMap: Record<string, SkillCatalogDetail> = Object.fromEntries(items.map((item) => [item.id, {
   ...item,
-  media: item.id === 'children-picture-book' ? [{ type: 'image' as const, url: childrenPictureBookCover }] : [],
+  media: [{ type: 'video' as const, url: skillDemoVideoUrl }],
   skill_md: {
-    content: `# ${item.name}\n\n${item.description}\n\n## 使用方式\n\n在对话中 @${item.name}，然后告诉我你希望完成的任务。`
+    content: item.id === 'children-picture-book'
+      ? childrenPictureBookSkillMarkdown
+      : `# ${item.name}\n\n${item.description}\n\n## 使用方式\n\n在对话中 @${item.name}，然后告诉我你希望完成的任务。`
   },
   package: { type: 'directory' as const }
 }]))

@@ -44,13 +44,16 @@
   background-color: #EBEBEB;     /* 悬停灰色背景 */
 }
 
-.d-pane-skill-icon {
-  /* Match the #333 unselected color used by the other sidebar SVG icons. */
-  filter: grayscale(1) brightness(0.36);
+/* 技能图标与其他侧边栏图标保持相同的悬停背景 */
+.d-pane-skill-icon:hover {
+  background-color: #EBEBEB !important;
 }
 
-.d-pane-skill-icon.is-selected {
-  filter: none;
+.d-pane-skill-icon {
+  width: 38px;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 10px;
 }
 
 .d-pane-body {

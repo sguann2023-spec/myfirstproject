@@ -1,8 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, FolderOpen, LoaderCircle, Trash2 } from 'lucide-react';
 import { skillCatalogService } from '../../renderer/src/services/SkillCatalogService';
+import Markdown from '../Chat/MessagePane/Markdown/Markdown';
 import SkillEllipsisIcon from '../../../public/skill-ellipsis.svg';
 import SkillMediaPreview from './SkillMediaPreview';
+
+const parseSkillMarkdown = (rawContent) => {
+  const source = String(rawContent || '');
+  const frontmatterMatch = source.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
+  if (!frontmatterMatch) return { description: '', content: source.trim() };
+
+  const frontmatter = frontmatterMatch[1];
+  const body = source.slice(frontmatterMatch[0].length).trim();
+  const descriptionMatch = frontmatter.match(/(?:^|\n)description:\s*([\s\S]*?)(?=\n[\w-]+\s*:|$)/);
+  return {
+    description: String(descriptionMatch?.[1] || '').trim().replace(/^['"]|['"]$/g, '').replace(/\n\s+/g, ' '),
+    content: body
+  };
+};
+
+const normalizeDetail = (value, fallback) => {
+  const next = value || fallback || {};
+  const parsed = parseSkillMarkdown(next?.skill_md?.content);
+  if (!next?.skill_md?.content) return next;
+  return {
+    ...next,
+    description: next.description || parsed.description,
+    skill_md: { ...next.skill_md, content: parsed.content }
+  };
+};
 
 const SkillDetailPage = ({
   skill,
@@ -24,14 +50,14 @@ const SkillDetailPage = ({
     let disposed = false;
     setLoading(true);
     skillCatalogService.getSkillDetail(skill?.id || skill?.slug).then((value) => {
-      if (!disposed) setDetail(value || skill);
+      if (!disposed) setDetail(normalizeDetail(value, skill));
     }).catch(async () => {
       let localDetail = skill;
       const localSkillId = installedSkill?.id || installedSkill?.folderName || skill?.id;
       try {
         const result = await window.api?.skill?.readSkillFile?.(localSkillId, 'SKILL.md');
         if (result?.success && result.data) {
-          localDetail = { ...skill, skill_md: { content: result.data } };
+          localDetail = normalizeDetail({ ...skill, skill_md: { content: result.data } }, skill);
         }
       } catch {
         // Keep the catalog card as a fallback when local content cannot be read.
@@ -100,7 +126,9 @@ const SkillDetailPage = ({
             </section>
             <section className="skill-detail-section">
               <h2>技能内容</h2>
-              <pre className="skill-markdown-content">{detail?.skill_md?.content || '暂无 SKILL.md 内容'}</pre>
+              <div className="skill-markdown-content">
+                <Markdown content={detail?.skill_md?.content || '暂无 SKILL.md 内容'} />
+              </div>
             </section>
           </>
         )}

@@ -1,5 +1,4 @@
 import React from 'react';
-import { Check } from 'lucide-react';
 import SkillCheckIcon from '../../../public/skill-check.svg';
 import SkillEllipsisIcon from '../../../public/skill-ellipsis.svg';
 import SkillPlusIcon from '../../../public/skill-plus.svg';
@@ -15,7 +14,8 @@ const SkillCard = ({
   onInstall,
   onMenu,
   onToggle,
-  showToggle = false
+  showToggle = false,
+  showCheck = true
 }) => {
   const icon = skill?.icon_url || '';
 
@@ -34,7 +34,7 @@ const SkillCard = ({
           }}
           aria-label={selected ? '取消选择' : '选择技能'}
         >
-          {selected ? <Check size={14} /> : null}
+          {selected ? <img src={SkillCheckIcon} className="skill-card-checkbox-icon" alt="" aria-hidden="true" /> : null}
         </button>
       ) : null}
 
@@ -61,7 +61,7 @@ const SkillCard = ({
                   aria-label={enabled ? '关闭技能' : '开启技能'}
                 ><span /></button>
               ) : null}
-              <span className="skill-card-installed" aria-label="已安装"><img src={SkillCheckIcon} className="skill-card-check-icon" alt="" aria-hidden="true" /></span>
+              {showCheck ? <span className="skill-card-installed" aria-label="已安装"><img src={SkillCheckIcon} className="skill-card-check-icon" alt="" aria-hidden="true" /></span> : null}
             </div>
           ) : (
             <button type="button" className="skill-card-add" onClick={(event) => { event.stopPropagation(); onInstall?.(skill); }} aria-label="添加技能">

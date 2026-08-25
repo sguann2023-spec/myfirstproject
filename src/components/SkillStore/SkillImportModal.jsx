@@ -1,18 +1,12 @@
 import React, { useState } from 'react';
-import { CheckCircle2, FolderOpen, LoaderCircle, Upload, X } from 'lucide-react';
+import { CheckCircle2, LoaderCircle, Upload, X } from 'lucide-react';
 
 const SkillImportModal = ({ onClose, onInstall }) => {
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
 
-  const installPath = async (type) => {
+  const installSelected = async (type, selected) => {
     try {
-      const selected = type === 'folder'
-        ? await window.api?.file?.selectFolder?.({ title: '选择技能文件夹' })
-        : (await window.api?.file?.select?.({
-          title: '选择技能 ZIP 文件',
-          filters: [{ name: '技能压缩包', extensions: ['zip'] }]
-        }))?.[0]?.path;
       if (!selected) return;
       setStatus('loading');
       setMessage('正在校验技能结构并安装…');
@@ -25,26 +19,53 @@ const SkillImportModal = ({ onClose, onInstall }) => {
     }
   };
 
+  const chooseImportSource = async () => {
+    const selected = (await window.api?.file?.select?.({
+      title: '选择技能文件夹或 ZIP 文件',
+      properties: ['openFile', 'openDirectory'],
+      filters: [{ name: '技能 ZIP 压缩包', extensions: ['zip'] }]
+    }))?.[0]?.path;
+    if (!selected) return;
+    await installSelected(selected.toLowerCase().endsWith('.zip') ? 'zip' : 'folder', selected);
+  };
+
+  const handleDrop = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const dropped = event.dataTransfer.files?.[0];
+    const selected = dropped?.path;
+    if (!selected) {
+      setStatus('error');
+      setMessage('无法读取拖拽的文件');
+      return;
+    }
+    await installSelected(selected.toLowerCase().endsWith('.zip') ? 'zip' : 'folder', selected);
+  };
+
   return (
     <div className="skill-modal-mask" onMouseDown={onClose}>
       <div className="skill-import-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="skill-modal-title-row">
           <h2>导入技能</h2>
-          <button type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button>
+          <button className="skill-import-close" type="button" onClick={onClose} aria-label="关闭"><X size={12} /></button>
         </div>
-        <div className="skill-import-dropzone">
+        <div
+          className="skill-import-dropzone"
+          role="button"
+          tabIndex={0}
+          onClick={() => void chooseImportSource()}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') void chooseImportSource(); }}
+          onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); }}
+          onDrop={(event) => void handleDrop(event)}
+        >
           {status === 'loading' ? <LoaderCircle size={30} className="skill-spin" /> : status === 'success' ? <CheckCircle2 size={30} color="#16b98d" /> : <Upload size={30} />}
-          <strong>{status === 'loading' ? '正在校验并安装' : status === 'success' ? '安装完成' : '导入技能文件'}</strong>
-          <span>{message || '支持上传技能文件夹或 ZIP 压缩包'}</span>
-          <div className="skill-import-buttons">
-            <button type="button" onClick={() => void installPath('folder')} disabled={status === 'loading'}><FolderOpen size={16} />选择文件夹</button>
-            <button type="button" onClick={() => void installPath('zip')} disabled={status === 'loading'}><Upload size={16} />选择 ZIP</button>
-          </div>
+          <strong>{status === 'loading' ? '正在校验并安装' : status === 'success' ? '安装完成' : '拖拽文件或点击上传'}</strong>
+          {message ? <span>{message}</span> : null}
         </div>
         <div className="skill-import-requirements">
           <strong>文件要求</strong>
-          <span>• 技能文件夹或 ZIP 需要包含 SKILL.md</span>
-          <span>• SKILL.md 需要包含有效的技能名称和描述</span>
+          <span>• 文件夹或者 .zip 需要包含 SKILL.md 文件</span>
+          <span>• .md 文件需包含 YAML 格式的技能名称和描述</span>
         </div>
       </div>
     </div>
@@ -52,4 +73,3 @@ const SkillImportModal = ({ onClose, onInstall }) => {
 };
 
 export default SkillImportModal;
-
