@@ -27,9 +27,12 @@ import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import appStore from '../../renderer/src/store';
-import { updateOneBlock } from '../../renderer/src/store/messageBlock';
+import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
+import { newMessagesActions } from '../../renderer/src/store/newMessage';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
+import { MessageBlockStatus } from '../../renderer/src/types/newMessage';
+import { createImageBlock, createMainTextBlock, createMessage } from '../../renderer/src/utils/messageUtils/create';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
 import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
@@ -502,6 +505,41 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const getPerfTimestamp = () =>
   (typeof globalThis?.performance?.now === 'function' ? globalThis.performance.now() : Date.now());
 
+const syncLegacyUserMessageToRendererStore = ({
+  topicId,
+  assistantId,
+  userMessage,
+  images,
+}) => {
+  const state = appStore.getState();
+  if (state?.messages?.entities?.[userMessage.id]) {
+    return;
+  }
+
+  const textBlock = createMainTextBlock(userMessage.id, String(userMessage.content || ''), {
+    status: MessageBlockStatus.SUCCESS,
+  });
+  const imageBlocks = (Array.isArray(images) ? images : []).map((image) =>
+    createImageBlock(
+      userMessage.id,
+      {
+        url: `data:${image.media_type};base64,${image.data}`,
+      },
+      {
+        status: MessageBlockStatus.SUCCESS,
+      }
+    )
+  );
+  const blocks = [textBlock, ...imageBlocks];
+  const rendererMessage = createMessage('user', topicId, assistantId, {
+    id: userMessage.id,
+    blocks: blocks.map((block) => block.id),
+  });
+
+  appStore.dispatch(newMessagesActions.addMessage({ topicId, message: rendererMessage }));
+  appStore.dispatch(upsertManyBlocks(blocks));
+};
+
 const summarizeBlocksForPerf = (blocks) => {
   const list = Array.isArray(blocks) ? blocks : [];
   const summary = {
@@ -961,6 +999,197 @@ const countAssistantPricedUsageMessages = (messages = []) => (
   }, 0)
 );
 
+const HYDRATED_IMAGE_TOOL_NAMES = new Set([
+  'generate_or_edit_image',
+  'mcp__image__generate_or_edit_image',
+  'generate_image',
+  'mcp__image__generate_image'
+]);
+
+const inferPersistedImageAttachmentFileType = (value = '') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return 'image/png';
+
+  const dataUrlMatch = normalized.match(/^data:(image\/[^;,]+)[;,]/i);
+  if (dataUrlMatch?.[1]) {
+    return dataUrlMatch[1];
+  }
+
+  if (normalized.includes('.jpg') || normalized.includes('.jpeg')) return 'image/jpeg';
+  if (normalized.includes('.webp')) return 'image/webp';
+  if (normalized.includes('.gif')) return 'image/gif';
+  if (normalized.includes('.bmp')) return 'image/bmp';
+  if (normalized.includes('.svg')) return 'image/svg+xml';
+  if (normalized.includes('.avif')) return 'image/avif';
+  return 'image/png';
+};
+
+const normalizePersistedImageAttachments = (attachments = []) => (
+  (Array.isArray(attachments) ? attachments : []).reduce((acc, attachment, index) => {
+    if (!attachment || typeof attachment !== 'object') return acc;
+    const previewUrl = String(
+      attachment?.previewUrl
+      || attachment?.thumbnailUrl
+      || attachment?.url
+      || ''
+    ).trim();
+    if (!previewUrl) return acc;
+    const fileType = String(attachment?.fileType || '').trim() || inferPersistedImageAttachmentFileType(previewUrl);
+    acc.push({
+      ...attachment,
+      uid: String(attachment?.uid || `persisted-image-${index}`),
+      name: String(attachment?.name || `图片 ${index + 1}`),
+      fileType,
+      url: String(attachment?.url || previewUrl).trim(),
+      previewUrl,
+      thumbnailUrl: String(attachment?.thumbnailUrl || previewUrl).trim(),
+    });
+    return acc;
+  }, [])
+);
+
+const buildPersistedUserImageAttachmentsFromBlocks = (blocks = []) => (
+  (Array.isArray(blocks) ? blocks : []).reduce((acc, block, index) => {
+    if (!isStructuredBlockObject(block)) return acc;
+    if (String(block?.type || '').toLowerCase() !== 'image') return acc;
+    const previewUrl = String(block?.url || '').trim();
+    if (!previewUrl) return acc;
+    acc.push({
+      uid: String(block?.id || `persisted-image-block-${index}`),
+      name: `图片 ${acc.length + 1}`,
+      fileType: inferPersistedImageAttachmentFileType(previewUrl),
+      url: previewUrl,
+      previewUrl,
+      thumbnailUrl: previewUrl,
+    });
+    return acc;
+  }, [])
+);
+
+const getPersistedUserImagePreviewSources = (message = {}) => (
+  (Array.isArray(message?.imageAttachments) ? message.imageAttachments : []).reduce((acc, attachment) => {
+    const previewUrl = String(
+      attachment?.previewUrl
+      || attachment?.thumbnailUrl
+      || attachment?.url
+      || ''
+    ).trim();
+    if (!previewUrl) return acc;
+    acc.push(previewUrl);
+    return acc;
+  }, [])
+);
+
+const enhancePersistedImageGenerationArguments = (toolName, args, userPreviewSources = []) => {
+  if (!HYDRATED_IMAGE_TOOL_NAMES.has(String(toolName || ''))) {
+    return args;
+  }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return args;
+  }
+
+  const referenceImages = Array.isArray(args.referenceImages)
+    ? args.referenceImages
+    : Array.isArray(args.reference_images)
+      ? args.reference_images
+      : [];
+  if (!referenceImages.length || userPreviewSources.length === 0) {
+    return args;
+  }
+
+  const existingPrepared = Array.isArray(args.reference_images_prepared) ? args.reference_images_prepared : [];
+  const referenceImagesPrepared = referenceImages.reduce((acc, item, index) => {
+    const originalInput = typeof item === 'string' ? item : String(item ?? '');
+    const existingItem = existingPrepared[index];
+    const previewUrl = String(
+      existingItem?.previewUrl
+      || existingItem?.preview_url
+      || userPreviewSources[index]
+      || ''
+    ).trim();
+    if (!previewUrl) {
+      return acc;
+    }
+    acc.push({
+      originalInput,
+      submittedUrl: String(
+        existingItem?.submittedUrl
+        || existingItem?.submitted_url
+        || originalInput
+      ).trim() || originalInput,
+      previewUrl,
+      sourceKind: previewUrl.startsWith('file://') || previewUrl.startsWith('data:') ? 'local_file' : 'remote_url'
+    });
+    return acc;
+  }, []);
+
+  if (referenceImagesPrepared.length === 0) {
+    return args;
+  }
+
+  return {
+    ...args,
+    reference_images_prepared: referenceImagesPrepared
+  };
+};
+
+const enhancePersistedHydratedMessages = (messages = []) => {
+  let latestUserImagePreviewSources = [];
+
+  return (Array.isArray(messages) ? messages : []).map((message) => {
+    if (!message || typeof message !== 'object') return message;
+
+    if (String(message?.role || '').toLowerCase() === 'user') {
+      latestUserImagePreviewSources = getPersistedUserImagePreviewSources(message);
+      return message;
+    }
+
+    if (!Array.isArray(message?.blocks) || message.blocks.length === 0) {
+      return message;
+    }
+
+    let changed = false;
+    const nextBlocks = message.blocks.map((block) => {
+      if (!isStructuredBlockObject(block)) return block;
+      const rawToolResponse = block?.metadata?.rawMcpToolResponse;
+      const toolName = String(rawToolResponse?.tool?.name || block?.toolName || '').trim();
+      if (!HYDRATED_IMAGE_TOOL_NAMES.has(toolName)) {
+        return block;
+      }
+
+      const nextArguments = enhancePersistedImageGenerationArguments(
+        toolName,
+        rawToolResponse?.arguments,
+        latestUserImagePreviewSources
+      );
+      if (nextArguments === rawToolResponse?.arguments) {
+        return block;
+      }
+
+      changed = true;
+      return {
+        ...block,
+        metadata: {
+          ...block.metadata,
+          rawMcpToolResponse: {
+            ...rawToolResponse,
+            arguments: nextArguments
+          }
+        }
+      };
+    });
+
+    if (!changed) {
+      return message;
+    }
+
+    return {
+      ...message,
+      blocks: nextBlocks
+    };
+  });
+};
+
 const hasUnstableAssistantToolBlocks = (messages = []) => {
   const seenToolCallIds = new Set();
   for (const message of Array.isArray(messages) ? messages : []) {
@@ -1127,12 +1356,22 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const modelId = String(
     modelMeta?.id || resolveMessageModelId(sourceMessage?.model, sourceMessage?.modelId)
   ).trim();
+  const imageAttachments = role === 'user'
+    ? (() => {
+        const normalizedAttachments = normalizePersistedImageAttachments(sourceMessage?.imageAttachments);
+        if (normalizedAttachments.length > 0) {
+          return normalizedAttachments;
+        }
+        return buildPersistedUserImageAttachmentsFromBlocks(normalizedBlocks);
+      })()
+    : undefined;
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
     role,
     content: limitInlineText(content, { label: '历史消息内容' }),
-    blocks: role === 'assistant' ? normalizedBlocks : [],
+    blocks: normalizedBlocks,
+    ...(role === 'user' && imageAttachments.length > 0 ? { imageAttachments } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -1355,9 +1594,9 @@ const HomePage = () => {
         return;
       }
 
-      const hydratedMessages = historicalMessages
+      const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
         .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptionsRef.current))
-        .filter((message) => message?.id);
+        .filter((message) => message?.id));
       const hasAssistantContent = hydratedMessages.some((message) => (
         message.role === 'assistant' && String(message.content || '').trim()
       ));
@@ -2103,9 +2342,9 @@ const HomePage = () => {
           return;
         }
 
-        const hydratedMessages = historicalMessages
+        const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
           .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptions))
-          .filter((message) => message?.id);
+          .filter((message) => message?.id));
         const hasAssistantContent = hydratedMessages.some((message) => (
           message.role === 'assistant' && String(message.content || '').trim()
         ));
@@ -4028,12 +4267,20 @@ const HomePage = () => {
         }
       }
 
+      syncLegacyUserMessageToRendererStore({
+        topicId: `home-chat-${targetSessionId}`,
+        assistantId: DEFAULT_RUNTIME_AGENT_ID,
+        userMessage,
+        images,
+      });
+
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
         `home-chat-${targetSessionId}`,
         DEFAULT_RUNTIME_AGENT_ID,
-        chatModel
+        chatModel,
+        userMessage.id
       );
       updateChatAssistantMessage(targetSessionId, assistantMessageId, {
         storeAssistantMessageId: streamController.assistantMessageId
@@ -4227,12 +4474,23 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
+      syncLegacyUserMessageToRendererStore({
+        topicId: `home-chat-${activeChatId}`,
+        assistantId: DEFAULT_RUNTIME_AGENT_ID,
+        userMessage: prevUser,
+        images: Array.isArray(prevUser.imageAttachments)
+          ? prevUser.imageAttachments
+              .filter((item) => typeof item?.data === 'string' && typeof item?.media_type === 'string')
+              .map((item) => ({ data: item.data, media_type: item.media_type }))
+          : [],
+      });
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
         `home-chat-${activeChatId}`,
         DEFAULT_RUNTIME_AGENT_ID,
-        chatModel
+        chatModel,
+        prevUser.id
       );
       setChatSessions((prev) => {
         const updated = prev.map((item) => {

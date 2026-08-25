@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
+import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
 import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
 
@@ -61,6 +62,7 @@ export function McpServerToolRenderer({
   const normalizedOutput = mcpText !== null ? { value: mcpText } : normalizeArgs(output)
   const normalizedProgressMessage = normalizeProgressMessage(progressMessage, progress)
   const isKouboTemplate = isKouboTemplateToolName(toolName)
+  const isMediaGeneration = isMediaGenerationToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
 
@@ -87,6 +89,16 @@ export function McpServerToolRenderer({
             isRunning={typeof progress === 'number' && progress < 1}
           />
         ) : null}
+        {isMediaGeneration ? (
+          <MediaGenerationToolBody
+            toolName={toolName}
+            input={input}
+            output={output}
+            progress={progress}
+            progressMessage={normalizedProgressMessage}
+            isRunning={typeof progress === 'number' && progress < 1}
+          />
+        ) : null}
         {isSubtitleRecognition ? (
           <SubtitleRecognitionToolBody
             input={input}
@@ -105,13 +117,14 @@ export function McpServerToolRenderer({
             isRunning={typeof progress === 'number' && progress < 1}
           />
         ) : null}
-        {!isKouboTemplate && !isSubtitleRecognition && !isSubtitleTemplate && normalizedInput && (
+        {!isKouboTemplate && !isMediaGeneration && !isSubtitleRecognition && !isSubtitleTemplate && normalizedInput && (
           <ToolArgsTable args={normalizedInput} title={t('message.tools.sections.input')} />
         )}
-        {!isKouboTemplate && !isSubtitleRecognition && !isSubtitleTemplate && normalizedOutput && (
+        {!isKouboTemplate && !isMediaGeneration && !isSubtitleRecognition && !isSubtitleTemplate && normalizedOutput && (
           <ToolArgsTable args={normalizedOutput} title={t('message.tools.sections.output')} />
         )}
         {!isKouboTemplate &&
+        !isMediaGeneration &&
         !isSubtitleRecognition &&
         !isSubtitleTemplate &&
         !normalizedInput &&

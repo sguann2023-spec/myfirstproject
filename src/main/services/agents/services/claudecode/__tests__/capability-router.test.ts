@@ -451,7 +451,7 @@ describe('CapabilityRouter', () => {
     expect(videoDecision.selected.has('video')).toBe(true)
   })
 
-  it('routes local reference image generation to ai_media.image with workspace upload', () => {
+  it('routes local reference image generation to ai_media.image without forcing workspace upload', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -466,10 +466,10 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('ai_media')
     expect(decision.subdomains).toEqual(['image'])
     expect(decision.selected.has('image')).toBe(true)
-    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.selected.has('uploadFile')).toBe(false)
   })
 
-  it('routes local reference video generation to ai_media.video with workspace upload', () => {
+  it('routes local reference video generation to ai_media.video without forcing workspace upload', () => {
     const router = new CapabilityRouter()
 
     const decision = router.select({
@@ -484,7 +484,7 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('ai_media')
     expect(decision.subdomains).toEqual(['video'])
     expect(decision.selected.has('video')).toBe(true)
-    expect(decision.selected.has('uploadFile')).toBe(true)
+    expect(decision.selected.has('uploadFile')).toBe(false)
   })
 
   it('routes explicit video generation parameter prompts to ai_media.video instead of speech or media duration', () => {

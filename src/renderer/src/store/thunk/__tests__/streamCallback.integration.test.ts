@@ -56,6 +56,7 @@ const createMockCallbacks = (
     getState,
     topicId: mockTopicId,
     assistantMsgId: mockAssistantMsgId,
+    userMessageId: 'mock-user-message-id',
     saveUpdatesToDB: vi.fn(),
     assistant: mockAssistant
   })
@@ -312,6 +313,7 @@ interface MockTopicsState {
 const reducer = combineReducers({
   messages: messagesSlice.reducer,
   messageBlocks: messageBlocksSlice.reducer,
+  runtime: (state = { filesPath: '/mock/runtime-files' }) => state,
   topics: (state: MockTopicsState = { entities: {} }) => state
 })
 
@@ -751,6 +753,88 @@ describe('streamCallback Integration Tests', () => {
       return block?.type === MessageBlockType.TOOL
     })).toHaveLength(1)
     expect((toolBlocks[0] as any)?.metadata?.rawMcpToolResponse?.tool?.name).toBe('AskUserQuestion')
+  })
+
+  it('should enrich image generation tool arguments with local preview URLs from user image blocks', async () => {
+    const callbacks = createMockCallbacks(mockAssistantMsgId, mockTopicId, mockAssistant, dispatch, getState)
+
+    const mockImageTool: MCPTool = {
+      id: 'tool-image-1',
+      serverId: 'server-image-1',
+      serverName: 'Image Server',
+      name: 'generate_or_edit_image',
+      description: 'Generate or edit image',
+      inputSchema: {
+        type: 'object',
+        title: 'Image Input',
+        properties: {}
+      },
+      type: 'mcp'
+    }
+
+    store.dispatch(
+      messagesSlice.actions.addMessage({
+        topicId: mockTopicId,
+        message: {
+          id: 'mock-user-message-id',
+          assistantId: mockAssistant.id,
+          role: 'user',
+          topicId: mockTopicId,
+          blocks: ['user-image-block'],
+          status: 'success',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      })
+    )
+
+    store.dispatch(
+      messageBlocksSlice.actions.upsertOneBlock({
+        id: 'user-image-block',
+        messageId: 'mock-user-message-id',
+        type: MessageBlockType.IMAGE,
+        status: MessageBlockStatus.SUCCESS,
+        createdAt: new Date().toISOString(),
+        file: {
+          ...mockSavedFile,
+          path: '',
+          ext: 'png'
+        }
+      } as any)
+    )
+
+    const chunks: Chunk[] = [
+      { type: ChunkType.LLM_RESPONSE_CREATED },
+      {
+        type: ChunkType.MCP_TOOL_PENDING,
+        responses: [
+          {
+            id: 'tool-call-image-1',
+            tool: mockImageTool,
+            arguments: {
+              referenceImages: ['https://vectcut-prod.oss-cn-shanghai.aliyuncs.com/uploads/fake.png']
+            },
+            status: 'pending' as const,
+            response: ''
+          }
+        ]
+      },
+      { type: ChunkType.BLOCK_COMPLETE }
+    ]
+
+    await processChunks(chunks, callbacks)
+
+    const state = getState()
+    const toolBlock = Object.values(state.messageBlocks.entities).find((block) => block?.type === MessageBlockType.TOOL) as any
+    const prepared = toolBlock?.metadata?.rawMcpToolResponse?.arguments?.reference_images_prepared
+
+    expect(prepared).toEqual([
+      expect.objectContaining({
+        originalInput: 'https://vectcut-prod.oss-cn-shanghai.aliyuncs.com/uploads/fake.png',
+        previewUrl: 'file:///mock/runtime-files/mock-image-id.png',
+        sourceKind: 'local_file'
+      })
+    ])
   })
 
   it('should handle image generation flow', async () => {

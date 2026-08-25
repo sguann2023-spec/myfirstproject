@@ -5,6 +5,8 @@ import { useSettings } from '@renderer/hooks/useSettings'
 import { useTimer } from '@renderer/hooks/useTimer'
 import type { MCPToolResponse } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
+import { MessageBlockType } from '@renderer/types/newMessage'
+import { useAppSelector } from '@renderer/store'
 import { isToolAutoApproved } from '@renderer/utils/mcp-tools'
 import type { MCPProgressEvent } from '@shared/config/types'
 import { IpcChannel } from '@shared/IpcChannel'
@@ -38,6 +40,7 @@ import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './MessageAgentTools/KouboTemplateTool'
+import { isMediaGenerationToolName, MediaGenerationToolBody } from './MessageAgentTools/MediaGenerationTool'
 import {
   isSubtitleRecognitionToolName,
   SubtitleRecognitionToolBody
@@ -49,6 +52,87 @@ interface Props {
 }
 
 const logger = loggerService.withContext('MessageTools')
+
+const collectImagePreviewCandidates = (values: unknown[]): string[] => {
+  const candidates = new Set<string>()
+  values.forEach((value) => {
+    if (typeof value !== 'string') return
+    const normalized = value.trim()
+    if (!normalized) return
+    candidates.add(normalized)
+  })
+  return Array.from(candidates)
+}
+
+const enhanceMediaGenerationInput = (
+  input: Record<string, unknown> | null,
+  userReferencePreviewSources: string[]
+): Record<string, unknown> | null => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+
+  const referenceImages = Array.isArray(input.referenceImages)
+    ? input.referenceImages
+    : Array.isArray(input.reference_images)
+      ? input.reference_images
+      : []
+  const existingPrepared = Array.isArray(input.reference_images_prepared) ? input.reference_images_prepared : []
+
+  if (referenceImages.length === 0 && existingPrepared.length === 0) {
+    return input
+  }
+
+  const preparedLength = Math.max(referenceImages.length, existingPrepared.length, userReferencePreviewSources.length)
+  const prepared = Array.from({ length: preparedLength }, (_, index) => {
+    const existingItem = existingPrepared[index]
+    const referenceImage = typeof referenceImages[index] === 'string' ? referenceImages[index].trim() : ''
+    const submittedUrl =
+      typeof existingItem === 'object' && existingItem !== null
+        ? String(
+            (existingItem as Record<string, unknown>).submittedUrl ||
+              (existingItem as Record<string, unknown>).submitted_url ||
+              referenceImage
+          ).trim()
+        : referenceImage
+    const previewUrl =
+      typeof existingItem === 'object' && existingItem !== null
+        ? String(
+            (existingItem as Record<string, unknown>).previewUrl ||
+              (existingItem as Record<string, unknown>).preview_url ||
+              userReferencePreviewSources[index] ||
+              ''
+          ).trim()
+        : String(userReferencePreviewSources[index] || '').trim()
+
+    if (!submittedUrl && !previewUrl) {
+      return null
+    }
+
+    return {
+      ...(typeof existingItem === 'object' && existingItem !== null ? existingItem : {}),
+      originalInput:
+        typeof existingItem === 'object' && existingItem !== null
+          ? String(
+              (existingItem as Record<string, unknown>).originalInput ||
+                (existingItem as Record<string, unknown>).original_input ||
+                referenceImage ||
+                submittedUrl ||
+                previewUrl
+            ).trim()
+          : referenceImage || submittedUrl || previewUrl,
+      submittedUrl: submittedUrl || previewUrl,
+      ...(previewUrl ? { previewUrl } : {})
+    }
+  }).filter((item): item is Record<string, unknown> => Boolean(item))
+
+  if (prepared.length === 0) {
+    return input
+  }
+
+  return {
+    ...input,
+    reference_images_prepared: prepared
+  }
+}
 
 const MessageMcpTool: FC<Props> = ({ block }) => {
   const [copiedMap, setCopiedMap] = useState<Record<string, boolean>>({})
@@ -62,13 +146,42 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   const approval = useToolApproval(block)
 
   const toolResponse = block.metadata?.rawMcpToolResponse as MCPToolResponse
+  const userReferencePreviewSources = useAppSelector((state) => {
+    const assistantMessage = state.messages.entities[block.messageId]
+    const userMessageId = assistantMessage?.askId
+    if (!userMessageId) return []
+
+    const userMessage = state.messages.entities[userMessageId]
+    if (!userMessage) return []
+
+    const attachmentPreviews = Array.isArray((userMessage as { imageAttachments?: unknown[] }).imageAttachments)
+      ? (userMessage as { imageAttachments?: Array<Record<string, unknown>> }).imageAttachments || []
+      : []
+    const attachmentSources = attachmentPreviews.flatMap((attachment) =>
+      collectImagePreviewCandidates([
+        attachment?.previewUrl,
+        attachment?.thumbnailUrl,
+        attachment?.url
+      ])
+    )
+
+    const blockIds = Array.isArray(userMessage.blocks) ? userMessage.blocks : []
+    const blockSources = blockIds.flatMap((blockId) => {
+      const candidateBlock = state.messageBlocks.entities[blockId]
+      if (!candidateBlock || candidateBlock.type !== MessageBlockType.IMAGE) return []
+      return collectImagePreviewCandidates([candidateBlock.url, candidateBlock.file?.path])
+    })
+
+    return collectImagePreviewCandidates([...attachmentSources, ...blockSources])
+  })
 
   const { id, tool, status, response, partialArguments } = toolResponse
   const isKouboTemplate = isKouboTemplateToolName(tool?.name)
+  const isMediaGeneration = isMediaGenerationToolName(tool?.name)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(tool?.name)
   const isSubtitleTemplate = isSubtitleTemplateToolName(tool?.name)
   const [activeKeys, setActiveKeys] = useState<string[]>(() =>
-    isKouboTemplate || isSubtitleRecognition || isSubtitleTemplate ? [id] : []
+    isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isSubtitleTemplate ? [id] : []
   )
   const isPending = status === 'pending'
   const isDone = status === 'done'
@@ -99,7 +212,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
   // Auto-expand when streaming, auto-collapse when done
   useEffect(() => {
-    if (isKouboTemplate || isSubtitleRecognition || isSubtitleTemplate) {
+    if (isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isSubtitleTemplate) {
       return
     }
 
@@ -110,7 +223,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       // Collapse when streaming ends
       setActiveKeys((prev) => prev.filter((key) => key !== id))
     }
-  }, [isStreaming, isDone, isError, id, isKouboTemplate, isSubtitleRecognition, isSubtitleTemplate])
+  }, [isStreaming, isDone, isError, id, isKouboTemplate, isMediaGeneration, isSubtitleRecognition, isSubtitleTemplate])
 
   if (!toolResponse) {
     return null
@@ -201,9 +314,10 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
             toolName={tool?.name}
             isExpanded={activeKeys.includes(id)}
             args={isStreaming ? partialArguments : toolResponse.arguments}
+            userReferencePreviewSources={userReferencePreviewSources}
             isStreaming={!!isStreaming}
             response={
-              isKouboTemplate || isSubtitleRecognition || isSubtitleTemplate || isDone || isError
+              isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isSubtitleTemplate || isDone || isError
                 ? toolResponse.response
                 : undefined
             }
@@ -269,18 +383,20 @@ const ToolResponseContent: FC<{
   toolName?: string
   isExpanded: boolean
   args: string | Record<string, unknown> | Record<string, unknown>[] | undefined
+  userReferencePreviewSources: string[]
   isStreaming: boolean
   response?: unknown
   progress?: number
   progressMessage?: string
   isRunning?: boolean
-}> = ({ toolName, isExpanded, args, isStreaming, response, progress, progressMessage, isRunning }) => {
+}> = ({ toolName, isExpanded, args, userReferencePreviewSources, isStreaming, response, progress, progressMessage, isRunning }) => {
   const { highlightCode } = useCodeStyle()
   const [highlightedResponse, setHighlightedResponse] = useState<string>('')
   const [responseImages, setResponseImages] = useState<Array<{ source: string; mimeType: string; kind: 'base64' | 'url' }>>([])
   const [isTruncated, setIsTruncated] = useState(false)
   const [originalLength, setOriginalLength] = useState(0)
   const isKouboTemplate = isKouboTemplateToolName(toolName)
+  const isMediaGeneration = isMediaGenerationToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
 
@@ -296,6 +412,21 @@ const ToolResponseContent: FC<{
     }
     return args
   }, [args])
+
+  const effectiveArgs = useMemo(() => {
+    const baseArgs =
+      parsedArgs && typeof parsedArgs === 'object' && !Array.isArray(parsedArgs)
+        ? (parsedArgs as Record<string, unknown>)
+        : args && typeof args === 'object' && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : null
+
+    if (!isMediaGeneration) {
+      return parsedArgs ?? args
+    }
+
+    return enhanceMediaGenerationInput(baseArgs, userReferencePreviewSources) ?? parsedArgs ?? args
+  }, [args, isMediaGeneration, parsedArgs, userReferencePreviewSources])
 
   // Extract and highlight response when available
   useEffect(() => {
@@ -333,6 +464,19 @@ const ToolResponseContent: FC<{
     )
   }
 
+  if (isMediaGeneration) {
+    return (
+      <MediaGenerationToolBody
+        toolName={toolName}
+        input={effectiveArgs}
+        output={response}
+        progress={progress}
+        progressMessage={progressMessage}
+        isRunning={isRunning}
+      />
+    )
+  }
+
   if (isSubtitleRecognition) {
     return (
       <SubtitleRecognitionToolBody
@@ -359,11 +503,11 @@ const ToolResponseContent: FC<{
 
   // Handle both object and array args - for arrays, show as single entry
   const getEntries = (): Array<[string, unknown]> => {
-    if (!parsedArgs || typeof parsedArgs !== 'object') return []
-    if (Array.isArray(parsedArgs)) {
-      return [['arguments', parsedArgs]]
+    if (!effectiveArgs || typeof effectiveArgs !== 'object') return []
+    if (Array.isArray(effectiveArgs)) {
+      return [['arguments', effectiveArgs]]
     }
-    return Object.entries(parsedArgs)
+    return Object.entries(effectiveArgs)
   }
   const entries = getEntries()
 

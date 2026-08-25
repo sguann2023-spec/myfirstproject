@@ -16,12 +16,13 @@ interface CallbacksDependencies {
   getState: any
   topicId: string
   assistantMsgId: string
+  userMessageId: string
   saveUpdatesToDB: any
   assistant: Assistant
 }
 
 export const createCallbacks = (deps: CallbacksDependencies) => {
-  const { blockManager, dispatch, getState, topicId, assistantMsgId, saveUpdatesToDB, assistant } = deps
+  const { blockManager, dispatch, getState, topicId, assistantMsgId, userMessageId, saveUpdatesToDB, assistant } = deps
 
   // 首先创建 thinkingCallbacks ，以便传递 getCurrentThinkingInfo 给 baseCallbacks
   const thinkingCallbacks = createThinkingCallbacks({
@@ -44,6 +45,7 @@ export const createCallbacks = (deps: CallbacksDependencies) => {
   const toolCallbacks = createToolCallbacks({
     blockManager,
     assistantMsgId,
+    userMessageId,
     dispatch,
     getState
   })

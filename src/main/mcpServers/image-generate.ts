@@ -1,11 +1,12 @@
-import { stat as fsStat } from 'node:fs/promises'
+import { readFile, stat as fsStat } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
@@ -33,15 +34,15 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, restyle, or query asynchronous AI image tasks via VectCut. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Prefer passing remotely accessible reference image URLs, typically obtained by running workspace upload first for local files. Local file URLs and absolute local paths remain supported as a compatibility fallback and are uploaded automatically before submission. These tasks are asynchronous and typically take 3-5 minutes. After submitting a task, if the response contains a taskId and the status is not final, you should continue polling with action="status" automatically instead of stopping and waiting for the user to ask again. Treat image generation and image editing as long-running tasks. Only stop when the task reaches a final status such as success, failed, or error, or when a reasonable timeout is reached. Omit action to submit a new generation/edit task, or use action="status" with taskId to query an existing task.',
+    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are uploaded automatically before submission. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['submit', 'status'],
+        enum: ['submit', 'submit_and_wait', 'status'],
         description:
-          'submit creates a new long-running task, status queries a previous task. After submit returns a taskId, keep using status to poll automatically until the task finishes. Defaults to submit.'
+          'Optional backward-compatible override. Omit this field to submit and wait for the final result. submit returns immediately after task creation, submit_and_wait waits until completion, and status queries an existing task.'
       },
       prompt: {
         type: 'string',
@@ -51,7 +52,7 @@ const IMAGE_GENERATE_TOOL: Tool = {
       taskId: {
         type: 'string',
         description:
-          'Task ID returned by submit. Required when action is status. Use this to continue polling long-running image tasks until they reach a final status.'
+          'Backward-compatible task ID returned by the legacy submit mode. Required only when action is status.'
       },
       model: {
         type: 'string',
@@ -68,12 +69,12 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional multiple source/reference image URLs. Prefer running workspace upload first for local files. File URLs and absolute local paths remain supported as a compatibility fallback and are uploaded automatically before submission.'
+          'Optional multiple source/reference image URLs. Prefer running workspace upload first for local files. File URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks and are uploaded automatically before submission.'
       },
       sourceImage: {
         type: 'string',
         description:
-          'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks. Prefer running workspace upload first for local files; file URLs and absolute local paths remain supported as a compatibility fallback.'
+          'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks. Prefer running workspace upload first for local files; file URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks.'
       },
       sourceImages: {
         type: 'array',
@@ -81,16 +82,16 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks. Prefer running workspace upload first for local files; file URLs and absolute local paths remain supported as a compatibility fallback.'
+          'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks. Prefer running workspace upload first for local files; file URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks.'
       },
       baseImage: {
         type: 'string',
         description:
-          'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle. Prefer running workspace upload first for local files; file URLs and absolute local paths remain supported as a compatibility fallback.'
+          'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle. Prefer running workspace upload first for local files; file URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks.'
       },
       editImage: {
         type: 'string',
-        description: 'Alias of referenceImages. Optional image URL, file URL, or absolute local path to edit or retouch.'
+        description: 'Alias of referenceImages. Optional image URL, file URL, absolute local path, or pasted screenshot data URL to edit or retouch.'
       },
       composeDraft: {
         type: 'boolean',
@@ -140,6 +141,22 @@ const IMAGE_CAPABILITIES_TOOL: Tool = {
 type PendingToken = {
   accessToken: string
   expiresAt: number
+}
+
+type ToolExecutionExtra = {
+  requestId: string | number
+  _meta?: {
+    progressToken?: ProgressToken
+  }
+  sendNotification?: (notification: {
+    method: 'notifications/progress'
+    params: {
+      progressToken: ProgressToken
+      progress: number
+      total?: number
+      message?: string
+    }
+  }) => Promise<void>
 }
 
 type ImageSubmitResponse = {
@@ -207,6 +224,9 @@ type CachedImageModelList = {
 type PreparedReferenceImage = {
   originalInput: string
   submittedUrl: string
+  previewUrl: string
+  data?: string
+  mimeType?: string
   sourceKind: 'remote_url' | 'local_file'
 }
 
@@ -248,12 +268,36 @@ const IMAGE_SUBMIT_FIELD_ALIASES: Record<string, string> = {
 }
 
 const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
+const DATA_URL_PATTERN = /^data:([^;,]+)?;base64,(.+)$/i
 const LOCAL_IMAGE_PATH_HINT_PATTERN =
   /^(file:\/\/|\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])|[\\/]|.+\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?)(?:[?#].*)?$/i
 const IMAGE_MODEL_ALIASES: Record<string, string[]> = {
   gptimage2: ['gpt-image-2-all'],
   'gpt-image-2': ['gpt-image-2-all'],
   'gpt-image-2-all': ['gpt-image-2-all']
+}
+const INLINE_PREVIEW_MAX_BYTES = 768 * 1024
+
+const guessImageMimeType = (source: string, fallback = 'image/png'): string => {
+  const normalized = String(source || '').trim().toLowerCase()
+  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg'
+  if (normalized.endsWith('.webp')) return 'image/webp'
+  if (normalized.endsWith('.gif')) return 'image/gif'
+  if (normalized.endsWith('.bmp')) return 'image/bmp'
+  if (normalized.endsWith('.svg')) return 'image/svg+xml'
+  if (normalized.endsWith('.avif')) return 'image/avif'
+  if (normalized.endsWith('.heic')) return 'image/heic'
+  return fallback
+}
+
+const parseBase64DataUrl = (value: string): { mediaType: string; data: string } | null => {
+  const normalized = String(value || '').trim()
+  const match = normalized.match(DATA_URL_PATTERN)
+  if (!match) return null
+  return {
+    mediaType: String(match[1] || 'image/png').trim() || 'image/png',
+    data: String(match[2] || '').trim()
+  }
 }
 
 class ImageGenerateServer {
@@ -289,7 +333,7 @@ class ImageGenerateServer {
       tools: [IMAGE_GENERATE_TOOL, IMAGE_CAPABILITIES_TOOL]
     }))
 
-    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
@@ -297,7 +341,7 @@ class ImageGenerateServer {
         switch (toolName) {
           case PRIMARY_IMAGE_TOOL_NAME:
           case LEGACY_IMAGE_TOOL_NAME:
-            return await this.generateImage(args as Record<string, unknown>)
+            return await this.generateImage(args as Record<string, unknown>, extra as ToolExecutionExtra)
           case 'get_image_capabilities':
             return await this.getImageCapabilities(args as Record<string, unknown>)
           default:
@@ -435,6 +479,9 @@ class ImageGenerateServer {
     if (!raw) {
       throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' contains an empty image reference`)
     }
+    if (DATA_URL_PATTERN.test(raw)) {
+      return raw
+    }
     if (raw.startsWith('file://')) {
       return fileURLToPath(raw)
     }
@@ -451,16 +498,98 @@ class ImageGenerateServer {
     })
   }
 
+  private async uploadInlineReferenceImage(data: string, mimeType: string) {
+    return ossUploadService.uploadImageBase64(data, mimeType)
+  }
+
+  private async buildInlinePreviewDataUrl(source: string): Promise<{ data: string; mimeType: string } | null> {
+    try {
+      const parsedDataUrl = parseBase64DataUrl(source)
+      if (parsedDataUrl) {
+        return {
+          data: source,
+          mimeType: parsedDataUrl.mediaType
+        }
+      }
+
+      if (isHttpLikeUrl(source)) {
+        const response = await net.fetch(source)
+        if (!response.ok) {
+          logger.warn('Failed to fetch remote reference image for inline preview', {
+            source,
+            status: response.status
+          })
+          return null
+        }
+
+        const arrayBuffer = await response.arrayBuffer()
+        const bytes = Buffer.from(arrayBuffer)
+        if (bytes.length > INLINE_PREVIEW_MAX_BYTES) {
+          logger.info('Skipped oversized remote reference image inline preview', {
+            source,
+            bytes: bytes.length
+          })
+          return null
+        }
+
+        const contentType = guessImageMimeType(source, response.headers.get('content-type') || 'image/png')
+        return {
+          data: `data:${contentType};base64,${bytes.toString('base64')}`,
+          mimeType: contentType
+        }
+      }
+
+      if (!path.isAbsolute(source)) {
+        return null
+      }
+
+      const bytes = await readFile(source)
+      if (bytes.length > INLINE_PREVIEW_MAX_BYTES) {
+        logger.info('Skipped oversized local reference image inline preview', {
+          source,
+          bytes: bytes.length
+        })
+        return null
+      }
+
+      const contentType = guessImageMimeType(source)
+      return {
+        data: `data:${contentType};base64,${bytes.toString('base64')}`,
+        mimeType: contentType
+      }
+    } catch (error) {
+      logger.warn('Failed to build inline preview data URL for reference image', {
+        source,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
   private async prepareReferenceImageForSubmission(
     input: unknown,
     fieldName: string
   ): Promise<PreparedReferenceImage> {
     const normalizedSource = this.normalizeReferenceImageInput(input, fieldName)
+    const parsedDataUrl = parseBase64DataUrl(normalizedSource)
+
+    if (parsedDataUrl) {
+      const inlinePreview = await this.buildInlinePreviewDataUrl(normalizedSource)
+      const uploaded = await this.uploadInlineReferenceImage(parsedDataUrl.data, parsedDataUrl.mediaType)
+      return {
+        originalInput: normalizedSource,
+        submittedUrl: uploaded.publicUrl,
+        previewUrl: uploaded.publicUrl,
+        ...(inlinePreview ? { data: inlinePreview.data, mimeType: inlinePreview.mimeType } : {}),
+        sourceKind: 'local_file'
+      }
+    }
 
     if (isHttpLikeUrl(normalizedSource)) {
       return {
         originalInput: normalizedSource,
         submittedUrl: normalizedSource,
+        previewUrl: normalizedSource,
         sourceKind: 'remote_url'
       }
     }
@@ -473,6 +602,7 @@ class ImageGenerateServer {
       throw new McpError(ErrorCode.InvalidParams, message)
     }
 
+    const inlinePreview = await this.buildInlinePreviewDataUrl(normalizedSource)
     const stats = await fsStat(normalizedSource)
     if (!stats.isFile()) {
       throw new McpError(
@@ -485,6 +615,8 @@ class ImageGenerateServer {
     return {
       originalInput: normalizedSource,
       submittedUrl: uploaded.signedPublicUrl,
+      previewUrl: pathToFileURL(normalizedSource).toString(),
+      ...(inlinePreview ? { data: inlinePreview.data, mimeType: inlinePreview.mimeType } : {}),
       sourceKind: 'local_file'
     }
   }
@@ -750,6 +882,7 @@ class ImageGenerateServer {
           payload.reference_images.map((item) => this.prepareReferenceImageForSubmission(item, 'reference_images'))
         )
       : []
+
     if (preparedReferenceImages.length > 0) {
       payload.reference_images = preparedReferenceImages.map((item) => item.submittedUrl)
     }
@@ -770,7 +903,6 @@ class ImageGenerateServer {
 
   private async submitImageTask(args: Record<string, unknown>) {
     const { payload, modelResolution, preparedReferenceImages } = await this.buildImageSubmitPayload(args)
-    const hasUploadedLocalReferenceImage = preparedReferenceImages.some((item) => item.sourceKind === 'local_file')
     const response = await this.requestWithAuth(IMAGE_GENERATE_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -802,7 +934,7 @@ class ImageGenerateServer {
             model_match_type: modelResolution.matchType
           }
         : {}),
-      ...(hasUploadedLocalReferenceImage
+      ...(preparedReferenceImages.length > 0
         ? {
             reference_images: preparedReferenceImages.map((item) => item.submittedUrl),
             reference_images_prepared: preparedReferenceImages
@@ -812,7 +944,7 @@ class ImageGenerateServer {
     })
   }
 
-  private async getImageTaskStatus(taskId: string) {
+  private async queryImageTaskStatus(taskId: string): Promise<ImageTaskStatusResponse> {
     const response = await this.requestWithAuth(IMAGE_TASK_STATUS_ENDPOINT, {
       method: 'GET',
       query: {
@@ -833,6 +965,12 @@ class ImageGenerateServer {
       progress: result.progress
     })
 
+    return result
+  }
+
+  private async getImageTaskStatus(taskId: string) {
+    const result = await this.queryImageTaskStatus(taskId)
+
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'status',
@@ -844,6 +982,115 @@ class ImageGenerateServer {
         : {}),
       ...result
     })
+  }
+
+  private async sleep(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    if (!extra?._meta?.progressToken || typeof extra.sendNotification !== 'function') {
+      return
+    }
+
+    await extra.sendNotification({
+      method: 'notifications/progress',
+      params: {
+        progressToken: extra._meta.progressToken,
+        progress,
+        total: 100,
+        message
+      }
+    })
+  }
+
+  private normalizeImageTaskStatus(status: unknown): string {
+    return String(status || '').trim().toLowerCase()
+  }
+
+  private isImageTaskCompleted(result: ImageTaskStatusResponse): boolean {
+    const status = this.normalizeImageTaskStatus(result.status)
+    return status === 'success'
+  }
+
+  private isImageTaskFailed(result: ImageTaskStatusResponse): boolean {
+    const status = this.normalizeImageTaskStatus(result.status)
+    return status === 'failed' || status === 'error'
+  }
+
+  private mapImageProgress(result: ImageTaskStatusResponse, attempt: number): number {
+    if (typeof result.progress === 'number' && Number.isFinite(result.progress)) {
+      const numericProgress = result.progress <= 1 ? result.progress * 100 : result.progress
+      return Math.max(12, Math.min(95, Math.round(numericProgress)))
+    }
+    return Math.min(92, 12 + attempt * 6)
+  }
+
+  private async submitAndWaitForImageTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    await this.reportProgress(extra, 5, '正在提交图片生成任务')
+    const { payload, modelResolution, preparedReferenceImages } = await this.buildImageSubmitPayload(args)
+    const response = await this.requestWithAuth(IMAGE_GENERATE_ENDPOINT, {
+      method: 'POST',
+      body: payload
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Image generation task submission failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const submitResult = (await response.json()) as ImageSubmitResponse
+    const taskId = typeof submitResult.task_id === 'string' ? submitResult.task_id.trim() : ''
+    if (!taskId) {
+      throw new Error(`Image generation task submission returned no task ID: ${JSON.stringify(submitResult)}`)
+    }
+
+    await this.reportProgress(extra, 12, '图片生成任务已提交，预计 3-5 分钟完成')
+
+    const deadline = Date.now() + 10 * 60 * 1000
+    let attempt = 0
+    while (Date.now() < deadline) {
+      attempt += 1
+      const result = await this.queryImageTaskStatus(taskId)
+      if (this.isImageTaskCompleted(result)) {
+        await this.reportProgress(extra, 100, result.message || '图片生成完成')
+        return this.formatJsonResult({
+          provider: 'vectcut',
+          action: 'submit_and_wait',
+          estimated_wait_time: IMAGE_TASK_WAIT_TIME,
+          ...(modelResolution?.requestedModel
+            ? {
+                requested_model: modelResolution.requestedModel,
+                resolved_model: modelResolution.resolvedModel,
+                model_match_type: modelResolution.matchType
+              }
+            : {}),
+          ...(preparedReferenceImages.length > 0
+            ? {
+                reference_images: preparedReferenceImages.map((item) => item.submittedUrl),
+                reference_images_prepared: preparedReferenceImages
+              }
+            : {}),
+          output: result.result
+            ? {
+                image_url: result.result.image,
+                draft_id: result.result.draft_id,
+                draft_url: result.result.draft_url
+              }
+            : undefined,
+          ...result
+        })
+      }
+
+      if (this.isImageTaskFailed(result)) {
+        throw new Error(`Image generation task failed: ${result.error || result.message || 'unknown error'}`)
+      }
+
+      await this.reportProgress(extra, this.mapImageProgress(result, attempt), result.message || '正在生成图片')
+      await this.sleep(5 * 1000)
+    }
+
+    throw new Error('Image generation task timed out after 10 minutes while waiting for completion')
   }
 
   private normalizeModelCapability(
@@ -929,9 +1176,9 @@ class ImageGenerateServer {
     })
   }
 
-  private async generateImage(args: Record<string, unknown>) {
-    const actionRaw = typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'submit'
-    const action = actionRaw || 'submit'
+  private async generateImage(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    const actionRaw = typeof args.action === 'string' ? args.action.trim().toLowerCase() : ''
+    const action = actionRaw || 'submit_and_wait'
 
     if (action === 'status') {
       const taskIdValue = typeof args.taskId === 'string' ? args.taskId : args.task_id
@@ -943,7 +1190,10 @@ class ImageGenerateServer {
     }
 
     if (action !== 'submit') {
-      throw new McpError(ErrorCode.InvalidParams, "'action' must be either 'submit' or 'status'")
+      if (action !== 'submit_and_wait') {
+        throw new McpError(ErrorCode.InvalidParams, "'action' must be 'submit', 'submit_and_wait', or 'status'")
+      }
+      return await this.submitAndWaitForImageTask(args, extra)
     }
 
     return await this.submitImageTask(args)

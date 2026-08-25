@@ -2585,14 +2585,10 @@
             "execute_workflow": "执行工作流"
           },
           "digital_human": {
-            "create_image_driven_digital_human": "创建图片驱动数字人",
-            "create_lip_sync_digital_human": "创建口型驱动数字人",
-            "create_omni_image_driven_digital_human": "创建omni图片驱动数字人",
-            "create_seedance_digital_human": "创建 Seedance 数字人",
-            "get_image_driven_digital_human_status": "查询图片驱动数字人状态",
-            "get_lip_sync_digital_human_status": "查询口型驱动数字人状态",
-            "get_omni_image_driven_digital_human_status": "查询omni图片驱动数字人状态",
-            "get_seedance_digital_human_status": "查询 Seedance 数字人状态"
+            "create_image_driven_digital_human": "图片驱动数字人",
+            "create_lip_sync_digital_human": "口型驱动数字人",
+            "create_omni_image_driven_digital_human": "Omni 图片驱动数字人",
+            "create_seedance_digital_human": "Seedance 数字人"
           },
           "draft_elements": {
             "add_audio": "添加音频",
@@ -2666,7 +2662,6 @@
             "get_image_capabilities": "查看图像模型"
           },
           "koubo_template": {
-            "get_koubo_template_task_status": "查询口播模板任务状态",
             "submit_koubo_template_task": "提交口播模板任务"
           },
           "search": {
@@ -2693,8 +2688,7 @@
             "open_deeplink": "打开跳转链接"
           },
           "video_understand": {
-            "get_video_detail_task_status": "查询视频理解任务状态",
-            "submit_video_detail_task": "提交视频理解任务"
+            "submit_video_detail_task": "视频理解"
           },
           "voice_conversion": {
             "get_voice_conversion_task_status": "查询声音转换任务状态",

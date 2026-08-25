@@ -6,6 +6,7 @@ import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
@@ -32,15 +33,15 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const VIDEO_GENERATE_TOOL: Tool = {
   name: PRIMARY_VIDEO_TOOL_NAME,
   description:
-    'Create, generate, extend, edit, or query asynchronous AI video tasks via VectCut. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or querying a previous video task. Omit action to submit a new task, or use action="status" with taskId to query an existing task. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Prefer passing remotely accessible reference URLs, typically obtained by running workspace upload first for local files. Local file URLs and absolute local paths inside those references remain supported as a compatibility fallback and are uploaded automatically before submission. These tasks are asynchronous and can take several minutes or longer. After submit returns a taskId and the status is not final, continue polling with action="status" automatically instead of stopping and waiting for the user to ask again.',
+    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside those references are uploaded automatically before submission.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['submit', 'status'],
+        enum: ['submit', 'submit_and_wait', 'status'],
         description:
-          'submit creates a new long-running task, status queries a previous task. After submit returns a taskId, keep using status to poll automatically until the task finishes. Defaults to submit.'
+          'Optional backward-compatible override. Omit this field to submit and wait for the final result. submit returns immediately after task creation, submit_and_wait waits until completion, and status queries an existing task.'
       },
       prompt: {
         type: 'string',
@@ -50,7 +51,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
       taskId: {
         type: 'string',
         description:
-          'Task ID returned by submit. Required when action is status. Use this to continue polling long-running video tasks until they reach a final status.'
+          'Backward-compatible task ID returned by the legacy submit mode. Required only when action is status.'
       },
       model: {
         type: 'string',
@@ -170,6 +171,22 @@ const VIDEO_CAPABILITIES_TOOL: Tool = {
 type PendingToken = {
   accessToken: string
   expiresAt: number
+}
+
+type ToolExecutionExtra = {
+  requestId: string | number
+  _meta?: {
+    progressToken?: ProgressToken
+  }
+  sendNotification?: (notification: {
+    method: 'notifications/progress'
+    params: {
+      progressToken: ProgressToken
+      progress: number
+      total?: number
+      message?: string
+    }
+  }) => Promise<void>
 }
 
 type VideoSubmitResponse = {
@@ -313,14 +330,14 @@ class VideoGenerateServer {
       tools: [VIDEO_GENERATE_TOOL, VIDEO_CAPABILITIES_TOOL]
     }))
 
-    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
         switch (toolName) {
           case PRIMARY_VIDEO_TOOL_NAME:
-            return await this.generateVideo(args as Record<string, unknown>)
+            return await this.generateVideo(args as Record<string, unknown>, extra as ToolExecutionExtra)
           case 'get_video_capabilities':
             return await this.getVideoCapabilities(args as Record<string, unknown>)
           default:
@@ -1234,6 +1251,138 @@ class VideoGenerateServer {
     })
   }
 
+  private async queryVideoTaskStatus(taskId: string): Promise<VideoTaskStatusResponse> {
+    const response = await this.requestWithAuth(VIDEO_TASK_STATUS_ENDPOINT, {
+      method: 'GET',
+      query: {
+        task_id: taskId
+      }
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Video generation task status query failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const result = (await response.json()) as VideoTaskStatusResponse
+
+    logger.info('AI video generation task status queried', {
+      taskId,
+      status: result.status,
+      progress: result.progress
+    })
+
+    return result
+  }
+
+  private async sleep(ms: number) {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    if (!extra?._meta?.progressToken || typeof extra.sendNotification !== 'function') {
+      return
+    }
+
+    await extra.sendNotification({
+      method: 'notifications/progress',
+      params: {
+        progressToken: extra._meta.progressToken,
+        progress,
+        total: 100,
+        message
+      }
+    })
+  }
+
+  private normalizeVideoTaskStatus(status: unknown): string {
+    return String(status || '').trim().toLowerCase()
+  }
+
+  private isVideoTaskCompleted(result: VideoTaskStatusResponse): boolean {
+    const status = this.normalizeVideoTaskStatus(result.status)
+    return status === 'succeeded' || status === 'success'
+  }
+
+  private isVideoTaskFailed(result: VideoTaskStatusResponse): boolean {
+    const status = this.normalizeVideoTaskStatus(result.status)
+    return status === 'failed' || status === 'not_found' || status === 'error'
+  }
+
+  private mapVideoProgress(result: VideoTaskStatusResponse, attempt: number): number {
+    if (typeof result.progress === 'number' && Number.isFinite(result.progress)) {
+      const numericProgress = result.progress <= 1 ? result.progress * 100 : result.progress
+      return Math.max(12, Math.min(95, Math.round(numericProgress)))
+    }
+    return Math.min(92, 12 + attempt * 5)
+  }
+
+  private async submitAndWaitVideoTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    await this.reportProgress(extra, 5, '正在提交视频生成任务')
+    const { payload, modelResolution, preparedReferenceAssets } = await this.buildVideoSubmitPayload(args)
+    const hasUploadedLocalReference = preparedReferenceAssets.some((item) => item.sourceKind === 'local_file')
+    const response = await this.requestWithAuth(VIDEO_GENERATE_ENDPOINT, {
+      method: 'POST',
+      body: payload
+    })
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Video generation task submission failed (${response.status}): ${body || 'unknown error'}`)
+    }
+
+    const submitResult = (await response.json()) as VideoSubmitResponse
+    const taskId = typeof submitResult.task_id === 'string' ? submitResult.task_id.trim() : ''
+    if (!taskId) {
+      throw new Error(`Video generation task submission returned no task ID: ${JSON.stringify(submitResult)}`)
+    }
+
+    await this.reportProgress(extra, 12, '视频生成任务已提交，预计 5-30 分钟完成')
+
+    const deadline = Date.now() + 35 * 60 * 1000
+    let attempt = 0
+    while (Date.now() < deadline) {
+      attempt += 1
+      const result = await this.queryVideoTaskStatus(taskId)
+      if (this.isVideoTaskCompleted(result)) {
+        await this.reportProgress(extra, 100, '视频生成完成')
+        return this.formatJsonResult({
+          provider: 'vectcut',
+          action: 'submit_and_wait',
+          estimated_wait_time: VIDEO_TASK_WAIT_TIME,
+          ...(modelResolution?.requestedModel
+            ? {
+                requested_model: modelResolution.requestedModel,
+                resolved_model: modelResolution.resolvedModel,
+                model_match_type: modelResolution.matchType
+              }
+            : {}),
+          ...(hasUploadedLocalReference
+            ? {
+                prepared_references: preparedReferenceAssets
+              }
+            : {}),
+          output: {
+            draft_id: result.draft_id,
+            draft_url: result.draft_url,
+            video_url: result.video_url
+          },
+          ...result,
+          ...(result.task_id ? {} : { task_id: taskId })
+        })
+      }
+
+      if (this.isVideoTaskFailed(result)) {
+        throw new Error(`Video generation task failed: ${result.error || result.draft_error || result.status || 'unknown error'}`)
+      }
+
+      await this.reportProgress(extra, this.mapVideoProgress(result, attempt), '正在生成视频')
+      await this.sleep(5 * 1000)
+    }
+
+    throw new Error('Video generation task timed out after 35 minutes while waiting for completion')
+  }
+
   private normalizeModelCapability(
     model: string,
     capability: VideoModelCapability | undefined,
@@ -1316,8 +1465,9 @@ class VideoGenerateServer {
     })
   }
 
-  private async generateVideo(args: Record<string, unknown>) {
-    const action = typeof args.action === 'string' ? args.action.trim().toLowerCase() : 'submit'
+  private async generateVideo(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    const actionRaw = typeof args.action === 'string' ? args.action.trim().toLowerCase() : ''
+    const action = actionRaw || 'submit_and_wait'
 
     if (action === 'status') {
       const taskId =
@@ -1334,7 +1484,10 @@ class VideoGenerateServer {
     }
 
     if (action !== 'submit') {
-      throw new McpError(ErrorCode.InvalidParams, `Unsupported action: ${action}`)
+      if (action !== 'submit_and_wait') {
+        throw new McpError(ErrorCode.InvalidParams, `Unsupported action: ${action}`)
+      }
+      return this.submitAndWaitVideoTask(args, extra)
     }
 
     return this.submitVideoTask(args)

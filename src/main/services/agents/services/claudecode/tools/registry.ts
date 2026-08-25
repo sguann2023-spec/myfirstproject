@@ -164,14 +164,26 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    mountMcpServer('image', { type: 'sdk', name: 'image', instance: imageGenerateServer.createMcpServer() })
+    mountMcpServer('image', {
+      type: 'sdk',
+      name: 'image',
+      instance: imageGenerateServer.createMcpServer(),
+      longRunning: true,
+      timeout: 10 * 60
+    })
     autoAllowTools.add('mcp__image__generate_or_edit_image')
     autoAllowTools.add('mcp__image__generate_image')
     allowMcpPattern('mcp__image__*')
   }
 
   if (hasAiMediaDomain) {
-    mountMcpServer('video', { type: 'sdk', name: 'video', instance: videoGenerateServer.createMcpServer() })
+    mountMcpServer('video', {
+      type: 'sdk',
+      name: 'video',
+      instance: videoGenerateServer.createMcpServer(),
+      longRunning: true,
+      timeout: 35 * 60
+    })
     autoAllowTools.add('mcp__video__generate_video')
     autoAllowTools.add('mcp__video__get_video_capabilities')
     allowMcpPattern('mcp__video__*')
@@ -319,10 +331,11 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('video-understand', {
       type: 'sdk',
       name: 'video-understand',
-      instance: videoUnderstandServer.mcpServer
+      instance: videoUnderstandServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
     })
     autoAllowTools.add('mcp__video-understand__submit_video_detail_task')
-    autoAllowTools.add('mcp__video-understand__get_video_detail_task_status')
     allowMcpPattern('mcp__video-understand__*')
   }
 
@@ -368,12 +381,14 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('digital-human', {
       type: 'sdk',
       name: 'digital-human',
-      instance: digitalHumanServer.mcpServer
+      instance: digitalHumanServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
     })
     autoAllowTools.add('mcp__digital-human__create_lip_sync_digital_human')
-    autoAllowTools.add('mcp__digital-human__get_lip_sync_digital_human_status')
     autoAllowTools.add('mcp__digital-human__create_image_driven_digital_human')
-    autoAllowTools.add('mcp__digital-human__get_image_driven_digital_human_status')
+    autoAllowTools.add('mcp__digital-human__create_omni_image_driven_digital_human')
+    autoAllowTools.add('mcp__digital-human__create_seedance_digital_human')
     allowMcpPattern('mcp__digital-human__*')
   }
 

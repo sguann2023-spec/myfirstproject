@@ -626,10 +626,6 @@ const AUDIO_FILE_REFERENCE_PATTERN = new RegExp(
   `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(mp3|wav|m4a|aac|flac|ogg|opus|wma|aiff|aif|amr)(?:\\b|$)`,
   'i'
 )
-const IMAGE_FILE_REFERENCE_PATTERN = new RegExp(
-  `${TOKEN_BOUNDARY}(?:\\.{0,2}/)?${TOKEN_BODY}\\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?)(?:\\b|$)`,
-  'i'
-)
 const PATH_LIKE_PATTERN =
   /(?:^|[\s"'`“”‘’(（[【])(?:\.{1,2}\/|~\/|\/|[A-Za-z]:[\\/])[^\s"'`“”‘’()（）[\]【】<>《》]+/i
 const SPECIAL_FILENAME_PATTERN =
@@ -1049,18 +1045,10 @@ const hasCutWorkflowIntent = (text: string) =>
       /create_draft|add_text|add_image|add_video|add_audio|add_subtitle|add_preset|add_video_keyframe/.test(text)))
 
 const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
-const hasImageFileReference = (text: string) => IMAGE_FILE_REFERENCE_PATTERN.test(text)
-
 const hasLocalMediaContext = (text: string) =>
   hasMediaFileReference(text) ||
   /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
   /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
-
-const hasLocalImageContext = (text: string) =>
-  hasImageFileReference(text) ||
-  (PATH_LIKE_PATTERN.test(text) && /(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图)/.test(text)) ||
-  /(本地|工作区|workspace).{0,8}(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图)/.test(text) ||
-  /(图片|图像|照片|海报|配图|封面|参考图|参考图片|样图|素材图).{0,8}(本地|工作区|workspace)/.test(text)
 
 const hasSubtitleRecognitionIntent = (text: string) =>
   (hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
@@ -1545,13 +1533,11 @@ export class CapabilityRouter {
 
       if (
         hasAnyKeyword(text, WORKSPACE_UPLOAD_KEYWORDS) ||
-        /(?:上传|传).{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
-        /(?:上传|传).{0,12}(oss|对象存储)/.test(text) ||
+        /上传.{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
+        /上传.{0,12}(oss|对象存储)/.test(text) ||
         /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
         ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasAiImageIntent && !hasUrlLikeText(args.prompt) && hasLocalImageContext(text)) ||
-        (hasAiVideoIntent && !hasUrlLikeText(args.prompt) && (hasLocalImageContext(text) || hasLocalMediaContext(text)))
+        (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
       ) {
         addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }

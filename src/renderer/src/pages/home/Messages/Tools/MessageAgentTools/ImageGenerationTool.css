@@ -1,0 +1,272 @@
+.image-generation-tool {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.image-generation-tool-reference-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow: visible;
+}
+
+.image-generation-tool-reference-list {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 100px;
+  justify-content: center;
+  padding-left: 4px;
+  padding-bottom: 4px;
+  overflow: visible;
+}
+
+.image-generation-tool-reference-list--single {
+  justify-content: center;
+}
+
+.image-generation-tool-reference-item {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  position: relative;
+  transform: rotate(var(--reference-rotation, 0deg));
+}
+
+.image-generation-tool-reference-item + .image-generation-tool-reference-item {
+  margin-left: -10px;
+}
+
+.image-generation-tool-reference-list--single .image-generation-tool-reference-item {
+  margin-left: 0;
+}
+
+.image-generation-tool-reference-media {
+  width: 40px;
+  height: 40px;
+  max-width: 100px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-background-mute, var(--color-background-soft));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-generation-tool-reference-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.image-generation-tool-reference-list--single .image-generation-tool-reference-image,
+.image-generation-tool-reference-list--single .image-generation-tool-reference-video {
+  object-fit: contain;
+}
+
+.image-generation-tool-reference-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.image-generation-tool-reference-generic {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--color-text-2);
+  text-align: center;
+  background: var(--color-background-soft);
+}
+
+.image-generation-tool-reference-badge {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(15, 20, 25, 0.16);
+}
+
+.image-generation-tool-reference-badge-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.image-generation-tool-reference-content {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-generation-tool-reference-main-row {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+}
+
+.image-generation-tool-reference-prompt-block {
+  min-width: 0;
+  flex: 1;
+}
+
+.image-generation-tool-reference-prompt-line {
+  color: rgb(15, 20, 25);
+  font-size: 14px;
+  line-height: 1.5;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.image-generation-tool-reference-second-row {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.image-generation-tool-reference-prompt-line--second {
+  flex: 1;
+}
+
+.image-generation-tool-reference-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  margin-bottom: 1px;
+}
+
+.image-generation-tool-reference-meta-item {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.image-generation-tool-reference-meta-item + .image-generation-tool-reference-meta-item::before {
+  content: '|';
+  margin-right: 8px;
+  color: var(--color-text-3);
+}
+
+.image-generation-tool-reference-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.image-generation-tool-preview-card {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-self: stretch;
+}
+
+.image-generation-tool-preview-image {
+  width: min(320px, 100%);
+  aspect-ratio: 1;
+  display: block;
+  object-fit: cover;
+}
+
+.image-generation-tool-loading-video {
+  width: 220px;
+  aspect-ratio: 9 / 16;
+  display: block;
+  object-fit: cover;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.image-generation-tool-placeholder {
+  width: min(320px, 100%);
+  aspect-ratio: 1;
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-3);
+}
+
+.image-generation-tool-info-card {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-background-soft);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.image-generation-tool-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-generation-tool-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.image-generation-tool-message {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.image-generation-tool-prompt {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.image-generation-tool-link-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.image-generation-tool-result-link {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-link);
+  text-decoration: underline;
+}

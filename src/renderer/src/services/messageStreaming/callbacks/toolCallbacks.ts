@@ -3,7 +3,7 @@ import type { AppDispatch } from '@renderer/store'
 import { selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
 import type { MCPToolResponse, NormalToolResponse } from '@renderer/types'
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
-import type { ToolMessageBlock } from '@renderer/types/newMessage'
+import type { FileMessageBlock, ImageMessageBlock, Message, ToolMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { createCitationBlock, createToolBlock } from '@renderer/utils/messageUtils/create'
 import { sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
@@ -30,12 +30,202 @@ const sanitizeToolResponse = (toolResponse: ToolResponse): ToolResponse => {
 interface ToolCallbacksDependencies {
   blockManager: BlockManager
   assistantMsgId: string
+  userMessageId: string
   dispatch: AppDispatch
   getState: () => any
 }
 
+const IMAGE_GENERATION_TOOL_NAMES = new Set([
+  'generate_or_edit_image',
+  'mcp__image__generate_or_edit_image',
+  'generate_image',
+  'mcp__image__generate_image'
+])
+
+const toFileUrl = (path: string): string => {
+  const normalized = String(path || '').trim()
+  if (!normalized) return ''
+  return normalized.startsWith('file://') ? normalized : `file://${normalized}`
+}
+
+const normalizeFileExt = (ext: string | undefined): string => {
+  const normalized = String(ext || '').trim()
+  if (!normalized) return ''
+  return normalized.startsWith('.') ? normalized : `.${normalized}`
+}
+
+const resolveLocalPreviewPath = (state: any, file: { path?: string; id?: string; ext?: string } | undefined): string => {
+  if (!file) return ''
+
+  const existingPath = String(file.path || '').trim()
+  if (existingPath) {
+    return existingPath
+  }
+
+  const fileId = String(file.id || '').trim()
+  if (!fileId) {
+    return ''
+  }
+
+  const filesPath = String(state?.runtime?.filesPath || '').trim()
+  if (!filesPath) {
+    return ''
+  }
+
+  return `${filesPath}/${fileId}${normalizeFileExt(file.ext)}`
+}
+
+const collectPreviewSourcesFromMessage = (state: any, message: Message | undefined): string[] => {
+  if (!message?.blocks?.length) {
+    return []
+  }
+
+  const previewSources: string[] = []
+  for (const blockId of message.blocks) {
+    const block = state?.messageBlocks?.entities?.[blockId] as ImageMessageBlock | undefined
+    if (!block) {
+      continue
+    }
+
+    if (block.type === MessageBlockType.IMAGE) {
+      const imageBlock = block as ImageMessageBlock
+      const localPreviewPath = resolveLocalPreviewPath(state, imageBlock.file)
+      if (localPreviewPath) {
+        previewSources.push(toFileUrl(localPreviewPath))
+      }
+
+      const generatedImages = imageBlock.metadata?.generateImageResponse?.images ?? []
+      generatedImages.forEach((image: string) => {
+        if (typeof image === 'string' && image.trim()) {
+          previewSources.push(image.trim())
+        }
+      })
+
+      if (imageBlock.url && typeof imageBlock.url === 'string' && imageBlock.url.trim()) {
+        previewSources.push(imageBlock.url.trim())
+      }
+      continue
+    }
+
+    if (block.type === MessageBlockType.FILE) {
+      const fileBlock = block as FileMessageBlock
+      const file = fileBlock.file
+      const fileType = String(file?.type || '').toLowerCase()
+      const fileExt = String(file?.ext || '').toLowerCase()
+      const isImageFile =
+        fileType === 'image' || /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(fileExt.startsWith('.') ? fileExt : `.${fileExt}`)
+
+      if (isImageFile) {
+        const localPreviewPath = resolveLocalPreviewPath(state, file)
+        if (localPreviewPath) {
+          previewSources.push(toFileUrl(localPreviewPath))
+        }
+      }
+    }
+  }
+
+  return Array.from(new Set(previewSources))
+}
+
+const getUserImagePreviewSources = (
+  state: any,
+  userMessageId: string,
+  assistantMsgId: string
+): { previewSources: string[]; matchedMessageId?: string; strategy: 'direct' | 'topic_fallback' | 'none' } => {
+  const assistantMessage = state?.messages?.entities?.[assistantMsgId] as Message | undefined
+  const directCandidateId = String(userMessageId || assistantMessage?.askId || '').trim()
+  const directMessage = directCandidateId ? ((state?.messages?.entities?.[directCandidateId] as Message | undefined) ?? undefined) : undefined
+  const directSources = collectPreviewSourcesFromMessage(state, directMessage)
+  if (directSources.length > 0) {
+    return {
+      previewSources: directSources,
+      matchedMessageId: directMessage?.id,
+      strategy: 'direct'
+    }
+  }
+
+  const topicId = assistantMessage?.topicId
+  const topicMessageIds = topicId ? (state?.messages?.messageIdsByTopic?.[topicId] as string[] | undefined) : undefined
+  if (!topicMessageIds?.length) {
+    return { previewSources: [], strategy: 'none' }
+  }
+
+  const assistantIndex = assistantMessage ? topicMessageIds.lastIndexOf(assistantMessage.id) : -1
+  const startIndex = assistantIndex >= 0 ? assistantIndex - 1 : topicMessageIds.length - 1
+
+  for (let index = startIndex; index >= 0; index -= 1) {
+    const candidateMessageId = topicMessageIds[index]
+    const candidateMessage = state?.messages?.entities?.[candidateMessageId] as Message | undefined
+    if (!candidateMessage || candidateMessage.role !== 'user') {
+      continue
+    }
+
+    const previewSources = collectPreviewSourcesFromMessage(state, candidateMessage)
+    if (previewSources.length > 0) {
+      return {
+        previewSources,
+        matchedMessageId: candidateMessage.id,
+        strategy: 'topic_fallback'
+      }
+    }
+  }
+
+  return { previewSources: [], strategy: 'none' }
+}
+
+const enhanceImageGenerationArguments = (
+  toolName: string | undefined,
+  args: unknown,
+  state: any,
+  userMessageId: string,
+  assistantMsgId: string
+): unknown => {
+  if (!IMAGE_GENERATION_TOOL_NAMES.has(String(toolName || '')) || !isPlainObject(args)) {
+    return args
+  }
+
+  const record = { ...(args as Record<string, unknown>) }
+  const referenceImages = Array.isArray(record.referenceImages)
+    ? record.referenceImages
+    : Array.isArray(record.reference_images)
+      ? record.reference_images
+      : []
+
+  if (!referenceImages.length) {
+    return record
+  }
+
+  const { previewSources: userPreviewSources } = getUserImagePreviewSources(state, userMessageId, assistantMsgId)
+  if (!userPreviewSources.length) {
+    return record
+  }
+
+  const existingPrepared = Array.isArray(record.reference_images_prepared) ? record.reference_images_prepared : []
+  const mergedPrepared = referenceImages.map((item, index) => {
+    const originalInput = typeof item === 'string' ? item : String(item ?? '')
+    const existingItem = isPlainObject(existingPrepared[index]) ? (existingPrepared[index] as Record<string, unknown>) : {}
+    const previewUrl =
+      (typeof existingItem.previewUrl === 'string' && existingItem.previewUrl.trim() && existingItem.previewUrl.trim()) ||
+      (typeof existingItem.preview_url === 'string' && existingItem.preview_url.trim() && existingItem.preview_url.trim()) ||
+      userPreviewSources[index]
+
+    return {
+      originalInput,
+      submittedUrl:
+        (typeof existingItem.submittedUrl === 'string' && existingItem.submittedUrl.trim()) ||
+        (typeof existingItem.submitted_url === 'string' && existingItem.submitted_url.trim()) ||
+        originalInput,
+      previewUrl,
+      sourceKind: typeof previewUrl === 'string' && previewUrl.startsWith('file://') ? 'local_file' : 'remote_url'
+    }
+  })
+
+  record.reference_images_prepared = mergedPrepared.filter((item) => item.previewUrl)
+  return record
+}
+
 export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
-  const { blockManager, assistantMsgId, dispatch, getState } = deps
+  const { blockManager, assistantMsgId, userMessageId, dispatch, getState } = deps
 
   // 内部维护的状态
   const toolCallIdToBlockIdMap = new Map<string, string>()
@@ -98,7 +288,11 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
 
   return {
     onToolCallPending: (toolResponse: ToolResponse) => {
-      const nextToolResponse = sanitizeToolResponse(toolResponse)
+      const state = getState()
+      const nextToolResponse = sanitizeToolResponse({
+        ...toolResponse,
+        arguments: enhanceImageGenerationArguments(toolResponse.tool?.name, toolResponse.arguments, state, userMessageId, assistantMsgId)
+      })
       logger.debug('onToolCallPending', nextToolResponse)
       const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
 
@@ -155,7 +349,11 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     },
 
     onToolArgumentStreaming: (toolResponse: ToolResponse) => {
-      const nextToolResponse = sanitizeToolResponse(toolResponse)
+      const state = getState()
+      const nextToolResponse = sanitizeToolResponse({
+        ...toolResponse,
+        arguments: enhanceImageGenerationArguments(toolResponse.tool?.name, toolResponse.arguments, state, userMessageId, assistantMsgId)
+      })
       // Find or create the tool block for streaming updates
       let existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
 
@@ -203,7 +401,17 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     },
 
     onToolCallComplete: (toolResponse: ToolResponse) => {
-      const nextToolResponse = sanitizeToolResponse(toolResponse)
+      const baseState = getState()
+      const nextToolResponse = sanitizeToolResponse({
+        ...toolResponse,
+        arguments: enhanceImageGenerationArguments(
+          toolResponse.tool?.name,
+          toolResponse.arguments,
+          baseState,
+          userMessageId,
+          assistantMsgId
+        )
+      })
       // Read resolvedInput BEFORE removing from store (removeByToolCallId deletes it)
       const state = getState()
       const toolPermissionsState = state.toolPermissions ?? { requests: {}, resolvedInputs: {} }

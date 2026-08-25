@@ -853,6 +853,7 @@ const fetchAndProcessAgentResponseImpl = async (
       getState,
       topicId,
       assistantMsgId: assistantMessage.id,
+      userMessageId,
       saveUpdatesToDB,
       assistant
     })
@@ -1176,6 +1177,7 @@ const fetchAndProcessAssistantResponseImpl = async (
       getState,
       topicId,
       assistantMsgId,
+      userMessageId,
       saveUpdatesToDB,
       assistant
     })
@@ -2408,7 +2410,7 @@ export const addChannelUserMessage = (
   agentId: string,
   text: string,
   images?: Array<{ data: string; media_type: string }>
-) => {
+): string => {
   const now = new Date().toISOString()
   const userMsgId = uuid()
   const blockId = uuid()
@@ -2455,6 +2457,8 @@ export const addChannelUserMessage = (
   dbService.appendMessage(topicId, userMessage, allBlocks).catch((err) => {
     logger.error('Failed to persist channel user message', err as Error)
   })
+
+  return userMsgId
 }
 
 /**
@@ -2467,7 +2471,8 @@ export const setupChannelStream = (
   getState: () => RootState,
   topicId: string,
   agentId: string,
-  modelId?: string
+  modelId?: string,
+  userMessageId = ''
 ): ChannelStreamController => {
   const model: Model | undefined =
     (modelId ? getModel(modelId) : undefined) ??
@@ -2507,6 +2512,7 @@ export const setupChannelStream = (
     getState,
     topicId,
     assistantMsgId: assistantMessage.id,
+    userMessageId,
     saveUpdatesToDB,
     assistant
   })
