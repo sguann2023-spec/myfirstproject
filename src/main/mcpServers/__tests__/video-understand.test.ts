@@ -300,4 +300,69 @@ describe('VideoUnderstandServer', () => {
       }
     ])
   })
+
+  it('should keep polling when status is pending even if api success is true', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'queued',
+          success: true,
+          task_id: 'task-pending'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'task-pending',
+          status: 'pending',
+          progress: 0,
+          message: '任务已提交，请稍候',
+          success: true
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'task-pending',
+          status: 'success',
+          progress: 1,
+          message: '任务处理完成',
+          result: {
+            output: {
+              video_detail: '最终视频理解结果'
+            }
+          },
+          success: true
+        })
+      )
+
+    const server = createServer(workspaceRoot)
+    const result = await callTool(server, 'submit_video_detail_task', {
+      video_url: 'https://example.com/source.mp4'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      3,
+      'https://open.vectcut.com/llm/video_detail/submit/task_status?task_id=task-pending',
+      expect.objectContaining({ method: 'GET' })
+    )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
+      'https://open.vectcut.com/llm/video_detail/submit/task_status?task_id=task-pending',
+      expect.objectContaining({ method: 'GET' })
+    )
+
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.status).toBe('success')
+    expect(payload.result_summary).toEqual({
+      has_result: true,
+      result_keys: ['output'],
+      output_keys: ['video_detail'],
+      video_detail_chars: '最终视频理解结果'.length
+    })
+  }, 10000)
 })

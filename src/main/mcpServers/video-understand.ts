@@ -483,7 +483,7 @@ class VideoUnderstandServer {
 
   private isTaskCompleted(result: VideoUnderstandTaskStatusResponse): boolean {
     const status = this.normalizeTaskStatus(result.status)
-    return status === 'success' || status === 'completed' || result.success === true
+    return status === 'success' || status === 'completed' || status === 'succeeded' || status === 'done'
   }
 
   private isTaskFailed(result: VideoUnderstandTaskStatusResponse): boolean {
