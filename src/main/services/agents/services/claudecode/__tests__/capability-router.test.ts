@@ -204,6 +204,49 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('browser')).toBe(false)
   })
 
+  it('routes materials folder link export requests to materials.folder_links', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '帮我把素材库 folder_id=123456 下面的文件链接导出来',
+      sessionId: 'session-materials-folder-links',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('materials')
+    expect(decision.subdomains).toEqual(['folder_links'])
+    expect(decision.selected.has('materialsFolderLinks')).toBe(true)
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'materials',
+          role: 'primary',
+          subdomains: ['folder_links']
+        })
+      ])
+    )
+  })
+
+  it('routes natural materials library id prompts to materials.folder_links', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '查一下素材库d602e66efb9a49eb822cfac6a173170f里有哪些文件',
+      sessionId: 'session-materials-library-id',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('materials')
+    expect(decision.subdomains).toEqual(['folder_links'])
+    expect(decision.selected.has('materialsFolderLinks')).toBe(true)
+  })
+
   it('treats open website phrasing as browser intent', () => {
     const router = new CapabilityRouter()
 

@@ -115,6 +115,25 @@ describe('buildToolSurface', () => {
     expect(surface.allowedToolsOption).toContain('InspectImage')
   })
 
+  it('adds InspectImage, AskUserQuestion and Bash to materials turns', () => {
+    const surface = buildToolSurface({
+      decision: makeDecision({
+        toolLayer: 'chat',
+        activeDomains: [{ domain: 'materials', subdomains: ['folder_links'], role: 'primary', score: 6 }],
+        primaryDomain: 'materials',
+        subdomains: ['folder_links']
+      }),
+      sessionAllowedTools: ['mcp__materials__*'],
+      isAssistant: false
+    })
+
+    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.allowedToolsOption).toContain('mcp__materials__*')
+    expect(surface.allowedToolsOption).not.toContain('Bash')
+    expect(surface.allowedToolsOption).toContain('InspectImage')
+  })
+
   it('keeps ai_media turns free of Bash while still exposing InspectImage and AskUserQuestion', () => {
     const surface = buildToolSurface({
       decision: makeDecision({

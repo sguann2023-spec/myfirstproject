@@ -38,7 +38,7 @@
 
 ```ts
 type IntentRoute = {
-  primaryDomain: 'chat' | 'workspace' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
+  primaryDomain: 'chat' | 'workspace' | 'materials' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
   subdomains: string[]
   companionDomains: string[]
   confidence: number
@@ -86,7 +86,7 @@ type IntentRoute = {
 说明：
 
 - `bash`：用于通用命令执行、终端探测、脚本运行、临时 shell 操作；它是底层通用执行能力，不等同于 `workspace` 域的工程读写能力；若任务核心是“跑一条命令”“执行脚本”“用 bash / terminal 处理文件”，应优先视为 `chat.bash`，再按需要伴随命中 `workspace`
-- 除 `chat` 外，`workspace` / `web` / `ai_media` / `skills` / `auxiliary` / `scrapt` / `cut` 这些已命中的主域，默认也允许伴随暴露 `Bash`，用于模型在主工具链不足时执行必要的目录探测、脚本编排或命令兜底；但它仍属于通用底层能力，不改变各主域的优先工具选择
+- 除 `chat` 外，`workspace` / `materials` / `web` / `ai_media` / `skills` / `auxiliary` / `scrapt` / `cut` 这些已命中的主域，默认也允许伴随暴露 `Bash`，用于模型在主工具链不足时执行必要的目录探测、脚本编排或命令兜底；但它仍属于通用底层能力，不改变各主域的优先工具选择
 
 本地 skill 信号至少包括：
 
@@ -129,7 +129,24 @@ type IntentRoute = {
 - `download`：当用户需要把远程文件、图片、音频、视频链接下载到当前 workspace 时使用；应优先保存到当前工作空间内的目标目录，而不是系统 Downloads；适用于通用文件落地，不负责媒体裁剪、抽帧、拼接等后处理
 - `upload`：当用户需要上传本地文件并拿到可复用 URL 时使用；统一走 `POST https://open.vectcut.com/sts/upload/agent_tmp/init`：先传 `file_name` 获取 `upload.upload_url`、`upload.form_data`、`download.signed_url` 与 `object_key`，再把本地文件按返回表单直传到 OSS，并返回 `download.signed_url` 作为后续提交给远端能力的可访问 URL；文件大小限制不超过 `500MB`，上传前先校验并在超限时报错；凡是本文提到的 MCP 工具需要上传本地文件时，无论是显式命中 `workspace.upload`，还是工具内部自动上传本地素材，都应复用这条 `/sts/upload/agent_tmp/init` 链路
 
-### 3. `web`
+### 3. `materials`
+
+适用于搜寻、查看用户素材库信息相关任务。
+
+建议子能力：
+
+- `folder_links`
+
+已接入工具：
+
+- `folder_links` -> `mcp__materials__folder_links`
+
+说明：
+
+- `folder_links`：用于获取素材库某个文件夹 `id` 下的文件列表；由于返回结果本质上是一组文件链接，执行时应优先将完整结果写入当前 workspace 内的结果文件，而不是直接把整包内容返回给模型；工具最终仅返回该结果文件路径，便于后续继续读取、过滤或二次处理
+- 当用户已经明确给出素材库文件夹 `id`，或上下文中目标文件夹已可唯一确定时，应优先命中 `folder_links`
+
+### 4. `web`
 
 适用于联网信息获取和页面交互。
 
@@ -156,7 +173,7 @@ type IntentRoute = {
 备注：当前不开放独立的网页抓取工具；已知 URL 如果目标是页面浏览、交互或截图，优先通过 `browser` / `execute` 处理；如果目标是把资源落地到本地，则应优先考虑 `download`。
 
 
-### 4. `ai_media`
+### 5. `ai_media`
 
 适用于 AI 媒体生成相关任务。
 
@@ -188,7 +205,7 @@ type IntentRoute = {
 - `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
 - `digital_human`：数字人生成功能对 Agent 暴露为单个长任务工具，内部自行处理异步任务提交与轮询，不再要求单独状态查询；远程音频 / 视频 / 图片链接可直接传入，本地绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终视频结果
 
-### 5. `skills`
+### 6. `skills`
 
 适用于技能搜索、查看、修改、执行、删除，以及安装、创建、注册等技能相关任务。
 
@@ -250,7 +267,7 @@ type IntentRoute = {
 - 不能把“`search_skill("儿童绘本")` 没结果”解释为“当前 workspace 里没有 `儿童绘本` 技能”
 - 不能只扫描全局 `Data/Skills` 就忽略当前 workspace 的 `.claude/skills`
 
-### 6. `auxiliary`
+### 7. `auxiliary`
 
 适用于辅助型 Agent 能力，不直接归属技能发现或媒体生成。
 
@@ -267,7 +284,7 @@ type IntentRoute = {
 - `automation` -> `mcp__claw__cron` / `mcp__claw__notify` / `mcp__claw__config`
 - `system` -> `mcp__system__open_deeplink`
 
-### 7. `scrapt`
+### 8. `scrapt`
 
 适用于爬虫反推提示词任务。
 
@@ -280,7 +297,7 @@ type IntentRoute = {
 - `derive_prompt` -> `mcp__copylab__derive_copy_prompt`
 
 
-### 8. `cut`
+### 9. `cut`
 
 适用于剪辑任务。
 
@@ -448,6 +465,7 @@ type IntentRoute = {
 
 - `workspace.read + web.search`
 - `workspace.write + web.browser`
+- `materials.folder_links + workspace.write`
 - `workspace.read + ai_media.image`
 - `skills.invoke_skill + workspace.read`
 
@@ -490,6 +508,13 @@ type IntentRoute = {
 - `Bash`
 - 测试/构建相关 runtime 工具
 
+#### `materials.folder_links`
+
+默认挂：
+
+- `mcp__materials__folder_links`
+- `Write` / `Edit` / `MultiEdit`（用于将链接结果落盘到 workspace，并仅返回文件路径）
+
 #### `web.search`
 
 默认挂：
@@ -520,6 +545,7 @@ type IntentRoute = {
 
 - `chat`
 - `workspace`
+- `materials`
 - `web`
 - `ai_media`
 - `skills`
@@ -533,6 +559,7 @@ type IntentRoute = {
 
 - `workspace.read`
 - `workspace.write`
+- `materials.folder_links`
 - `web.search`
 - `ai_media.speech`
 
@@ -583,6 +610,7 @@ type IntentRoute = {
 | `查一下有没有 xxx 文字` | `workspace` | `["find", "read"]` | 工作空间文本检索 |
 | `把这个链接下载到本地` | `workspace` | `["download", "read"]` | 通用文件下载到 workspace |
 | `把这个文件上传到 oss` | `workspace` | `["upload", "read"]` | 本地文件上传 |
+| `帮我看一下素材库这个文件夹 id 下面有哪些文件` | `materials` | `["folder_links"]` | 获取素材库文件夹下的文件链接；完整结果写入 workspace，只返回文件路径 |
 | `把这个网页上的音频链接下载下来` | `web` | `["download"]` | 联网场景下直接下载远程资源，不打开浏览器页面 |
 | `打开网页` | `web` | `["browser"]` | 网络搜索 / 浏览器交互 |
 | `生成图片` | `ai_media` | `["image"]` | AI 媒体 |
@@ -649,6 +677,23 @@ type IntentRoute = {
 
 用户输入：
 
+`帮我把素材库 folder_id=123456 下面的文件链接导出来`
+
+路由结果：
+
+```json
+{
+  "primaryDomain": "materials",
+  "subdomains": ["folder_links"],
+  "companionDomains": ["workspace"],
+  "confidence": 0.95
+}
+```
+
+### 示例 4
+
+用户输入：
+
 `给这段文案生成配音，再做一个数字人口播`
 
 路由结果：
@@ -662,7 +707,7 @@ type IntentRoute = {
 }
 ```
 
-### 示例 4
+### 示例 5
 
 用户输入：
 
@@ -679,7 +724,7 @@ type IntentRoute = {
 }
 ```
 
-### 示例 5
+### 示例 6
 
 用户输入：
 

@@ -2527,6 +2527,7 @@
           "filesystem_server": "Filesystem",
           "image": "Image",
           "koubo_template": "Talking Head Template",
+          "materials": "Materials",
           "search": "Web Search",
           "seed_audio": "Doubao Audio",
           "speech": "Speech",
@@ -2663,6 +2664,9 @@
           },
           "koubo_template": {
             "submit_koubo_template_task": "Submit Talking Head Template Task"
+          },
+          "materials": {
+            "folder_links": "View Folder"
           },
           "search": {
             "web_search": "Search the Web"
