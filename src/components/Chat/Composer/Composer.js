@@ -3472,40 +3472,42 @@ const Composer = ({
     };
   }, [clearHoveredModelCard, modelPickerOpen]);
 
-  const availableModelOptions = (Array.isArray(modelOptions) ? modelOptions : [])
-    .map((item) => {
-      if (typeof item === 'string') {
-        const displayText = formatModelDisplayName(item);
-        return {
-          value: item,
+  const availableModelOptions = React.useMemo(() => (
+    (Array.isArray(modelOptions) ? modelOptions : [])
+      .map((item) => {
+        if (typeof item === 'string') {
+          const displayText = formatModelDisplayName(item);
+          return {
+            value: item,
+            label: displayText,
+            displayText,
+            icon: '',
+            supportsReadImage: false,
+            description: '',
+            badges: [],
+            selectedLabel: renderSelectedModelLabel(displayText, null),
+          };
+        }
+        const value = item?.value;
+        const labelText = item?.label || item?.name || item?.value || item?.id || '';
+        const displayText = formatModelDisplayName(labelText);
+        const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
+        const supportsReadImage = Boolean(item?.read_image);
+        const priceMultiplier = resolveModelOptionPriceMultiplier(item);
+        return value ? {
+          value,
           label: displayText,
           displayText,
-          icon: '',
-          supportsReadImage: false,
-          description: '',
-          badges: [],
-          selectedLabel: renderSelectedModelLabel(displayText, null),
-        };
-      }
-      const value = item?.value;
-      const labelText = item?.label || item?.name || item?.value || item?.id || '';
-      const displayText = formatModelDisplayName(labelText);
-      const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
-      const supportsReadImage = Boolean(item?.read_image);
-      const priceMultiplier = resolveModelOptionPriceMultiplier(item);
-      return value ? {
-        value,
-        label: displayText,
-        displayText,
-        icon,
-        supportsReadImage,
-        description: String(item?.description || '').trim(),
-        badges: Array.isArray(item?.badges) ? item.badges : [],
-        priceMultiplier,
-        selectedLabel: renderSelectedModelLabel(displayText, icon),
-      } : null;
-    })
-    .filter(Boolean);
+          icon,
+          supportsReadImage,
+          description: String(item?.description || '').trim(),
+          badges: Array.isArray(item?.badges) ? item.badges : [],
+          priceMultiplier,
+          selectedLabel: renderSelectedModelLabel(displayText, icon),
+        } : null;
+      })
+      .filter(Boolean)
+  ), [modelOptions]);
   const selectedModelConfig = (Array.isArray(modelOptions) ? modelOptions : []).find((item) => {
     if (!item || typeof item !== 'object') return false;
     const candidateValue = String(item?.value || item?.id || item?.name || '').trim();
@@ -3586,30 +3588,32 @@ const Composer = ({
     return [];
   }, [activeTool, videoPreviewSlotOrder]);
 
-  const groupedModelOptions = availableModelOptions.length > 0
-    ? [
-      {
-        label: (
-          <span className="chat-panel__model-group-title">
-            <span>内置模型</span>
-            <Tooltip
-              placement="right"
-              classNames={{ root: 'chat-panel__model-tip-overlay' }}
-              title={(
-                <span className="chat-panel__model-tip-text">
-                  由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
-                </span>
-              )}
-            >
-              <img className="chat-panel__model-tip-icon" src={ChatModelsTipIcon} alt="模型计费说明" />
-            </Tooltip>
-          </span>
-        ),
-        title: '内置模型',
-        options: availableModelOptions,
-      },
-    ]
-    : [];
+  const groupedModelOptions = React.useMemo(() => (
+    availableModelOptions.length > 0
+      ? [
+        {
+          label: (
+            <span className="chat-panel__model-group-title">
+              <span>内置模型</span>
+              <Tooltip
+                placement="right"
+                classNames={{ root: 'chat-panel__model-tip-overlay' }}
+                title={(
+                  <span className="chat-panel__model-tip-text">
+                    由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
+                  </span>
+                )}
+              >
+                <img className="chat-panel__model-tip-icon" src={ChatModelsTipIcon} alt="模型计费说明" />
+              </Tooltip>
+            </span>
+          ),
+          title: '内置模型',
+          options: availableModelOptions,
+        },
+      ]
+      : []
+  ), [availableModelOptions]);
   const buildMarkdownFileLink = (name, url) => {
     const safeName = String(name || '附件')
       .replace(/\\/g, '\\\\')
@@ -4217,7 +4221,6 @@ const Composer = ({
                     <div
                       className="chat-panel__model-option-trigger"
                       onPointerEnter={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
-                      onPointerMove={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
                       onPointerLeave={optionValue ? clearHoveredModelCard : undefined}
                     >
                       {optionContent}
