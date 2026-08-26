@@ -98,6 +98,7 @@ const Chat = ({
   onRetryAssistantMessage,
   onDeleteAssistantMessage,
   sending = false,
+  historyLoading = false,
   sessionSending = false,
   model,
   modelOptions = [],
@@ -345,6 +346,7 @@ const Chat = ({
       <MessagePane
         messages={messages}
         sending={sending}
+        historyLoading={historyLoading}
         onCopyAssistantMessage={onCopyAssistantMessage}
         onRetryAssistantMessage={onRetryAssistantMessage}
         onDeleteAssistantMessage={onDeleteAssistantMessage}
