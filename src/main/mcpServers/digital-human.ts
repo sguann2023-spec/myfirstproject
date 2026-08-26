@@ -1,9 +1,14 @@
+import { execFile } from 'node:child_process'
+import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import { loggerService } from '@logger'
 import { ossUploadService } from '@main/services/OssUploadService'
+import { getResourcePath } from '@main/utils'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -12,6 +17,8 @@ import Store from 'electron-store'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:DigitalHuman')
+const execFileAsync = promisify(execFile)
+const ffprobeStatic = require('ffprobe-static') as { path?: string }
 
 const API_HOST = 'https://open.vectcut.com'
 const DIGITAL_HUMAN_CREATE_ENDPOINT = '/cut_jianying/digital_human/create'
@@ -32,6 +39,9 @@ const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
 const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
 const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_digital_human_'
 const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const FFMPEG_TIMEOUT_MS = 5 * 60 * 1000
+const FFPROBE_TIMEOUT_MS = 15 * 1000
+const PROCESS_MAX_BUFFER = 1024 * 1024
 
 const CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_lip_sync_digital_human',
@@ -195,6 +205,22 @@ type PreparedDigitalHumanSource = {
   originalInput: string
   submittedUrl: string
   sourceKind: 'remote_url' | 'local_file'
+}
+
+type FfprobeVideoStream = {
+  codec_type?: string
+  width?: number
+  height?: number
+  tags?: {
+    rotate?: string
+  }
+  side_data_list?: Array<{
+    rotation?: number
+  }>
+}
+
+type FfprobeResult = {
+  streams?: FfprobeVideoStream[]
 }
 
 type DigitalHumanCreateResponse = {
@@ -413,6 +439,127 @@ class DigitalHumanServer {
     return value
   }
 
+  private resolveBundledFfmpegPath() {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    const binaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+    const candidate = path.join(getResourcePath(), 'ffmpeg', process.platform, arch, binaryName)
+    return fs.existsSync(candidate) ? candidate : null
+  }
+
+  private resolveFfprobePath() {
+    const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+    let packaged = ''
+    if (process.resourcesPath) {
+      if (process.platform === 'darwin') {
+        packaged = path.join(process.resourcesPath, '..', 'Frameworks', 'ffprobe', 'darwin', process.arch, executableName)
+      } else if (process.platform === 'win32') {
+        packaged = path.join(process.resourcesPath, 'ffprobe', 'win32', process.arch, executableName)
+      }
+    }
+
+    const bundled = String((ffprobeStatic as { path?: string } | undefined)?.path || '').trim()
+    const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
+    const candidates = [packaged, bundled, unpacked, 'ffprobe'].filter(Boolean)
+
+    for (const candidate of candidates) {
+      if (candidate === 'ffprobe' || fs.existsSync(candidate)) {
+        return candidate
+      }
+    }
+
+    return 'ffprobe'
+  }
+
+  private parseJsonFromFfprobe(rawOutput: string): FfprobeResult {
+    const text = String(rawOutput || '').trim()
+    const jsonStart = text.indexOf('{')
+    if (jsonStart === -1) {
+      throw new Error('ffprobe did not return JSON output')
+    }
+    return JSON.parse(text.slice(jsonStart)) as FfprobeResult
+  }
+
+  private async probeVideoOrientation(filePath: string) {
+    const ffprobePath = this.resolveFfprobePath()
+    const { stdout, stderr } = await execFileAsync(
+      ffprobePath,
+      [
+        '-v',
+        'error',
+        '-show_streams',
+        '-show_entries',
+        'stream=codec_type,width,height:stream_tags=rotate',
+        '-of',
+        'json',
+        filePath
+      ],
+      {
+        windowsHide: true,
+        timeout: FFPROBE_TIMEOUT_MS,
+        maxBuffer: PROCESS_MAX_BUFFER
+      }
+    )
+
+    const probe = this.parseJsonFromFfprobe(`${String(stdout || '')}\n${String(stderr || '')}`)
+    const videoStream = (probe.streams || []).find((stream) => stream.codec_type === 'video') || probe.streams?.[0]
+    const width = Number(videoStream?.width || 0)
+    const height = Number(videoStream?.height || 0)
+    const rawRotation =
+      Number(videoStream?.side_data_list?.find((item) => Number.isFinite(item?.rotation))?.rotation || 0) ||
+      Number(videoStream?.tags?.rotate || 0)
+    const normalizedRotation = ((rawRotation % 360) + 360) % 360
+
+    return {
+      width,
+      height,
+      rotation: normalizedRotation
+    }
+  }
+
+  private async runFfmpeg(args: string[]) {
+    const bundledFfmpegPath = this.resolveBundledFfmpegPath()
+    const ffmpegCommand = bundledFfmpegPath || 'ffmpeg'
+
+    await execFileAsync(ffmpegCommand, args, {
+      windowsHide: true,
+      timeout: FFMPEG_TIMEOUT_MS,
+      maxBuffer: PROCESS_MAX_BUFFER
+    })
+  }
+
+  private async normalizePortraitVideoIfNeeded(filePath: string, fieldName: string) {
+    const orientation = await this.probeVideoOrientation(filePath)
+    const shouldBakeRotation =
+      (orientation.rotation === 90 || orientation.rotation === 270) &&
+      orientation.width > 0 &&
+      orientation.height > 0 &&
+      orientation.width >= orientation.height
+
+    if (!shouldBakeRotation) {
+      return filePath
+    }
+
+    const outputPath = path.join(
+      await fsPromises.mkdtemp(path.join(os.tmpdir(), 'vectcut-digital-human-portrait-')),
+      `${path.parse(filePath).name}_portrait_fixed.mp4`
+    )
+
+    logger.info('Normalizing local portrait video before digital human upload', {
+      fieldName,
+      filePath,
+      width: orientation.width,
+      height: orientation.height,
+      rotation: orientation.rotation,
+      outputPath
+    })
+
+    // Let ffmpeg apply the embedded display rotation while re-encoding so the
+    // output pixels become truly portrait and no longer depend on rotation metadata.
+    await this.runFfmpeg(['-y', '-i', filePath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'copy', '-movflags', '+faststart', outputPath])
+
+    return outputPath
+  }
+
   private async uploadLocalFile(filePath: string) {
     return ossUploadService.uploadLocalFile(filePath, {
       bucket: FILE_UPLOAD_BUCKET,
@@ -443,7 +590,20 @@ class DigitalHumanServer {
       throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' local path must point to a file`)
     }
 
-    const uploaded = await this.uploadLocalFile(normalized)
+    let uploadPath = normalized
+    if (fieldName === 'videoUrl') {
+      try {
+        uploadPath = await this.normalizePortraitVideoIfNeeded(normalized, fieldName)
+      } catch (error) {
+        logger.warn('Failed to normalize local portrait video before digital human upload, fallback to original file', {
+          fieldName,
+          filePath: normalized,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    const uploaded = await this.uploadLocalFile(uploadPath)
     return {
       fieldName,
       originalInput: normalized,
