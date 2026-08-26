@@ -25,7 +25,12 @@ import type { ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resource
 import { loggerService } from '@logger'
 import type { CallToolResult, ImageContent, ResourceLink, TextContent } from '@modelcontextprotocol/sdk/types.js'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
-import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
+import {
+  isInlineToolPayloadTruncated,
+  limitInlineText,
+  limitInlineToolPayload,
+  sanitizeInlinePayload
+} from '@shared/sessionPayloadLimits'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ClaudeStreamState } from './claude-stream-state'
@@ -445,6 +450,7 @@ function handleUserMessage(
           } as AgentStreamPart)
         } else {
           const rawOutput = toMcpToolResult(toolResult.content)
+          const truncated = isInlineToolPayloadTruncated(rawOutput)
           chunks.push(
             {
               type: 'tool-result',
@@ -453,6 +459,7 @@ function handleUserMessage(
               input: pendingCall?.input,
               output: limitInlineToolResultPayload(rawOutput, `${pendingCall?.toolName ?? 'tool'} 回包`),
               rawOutput,
+              truncated,
               providerExecuted: true
             } as AgentStreamPart
           )

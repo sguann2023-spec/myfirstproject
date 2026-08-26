@@ -80,8 +80,8 @@ describe('buildLimitedPiToolPayload', () => {
   it('hard truncates oversized MCP payloads before they enter PI harness', () => {
     const payload = buildLimitedPiToolPayload(
       {
-        content: [{ type: 'text', text: 'x'.repeat(20 * 1024) }],
-        structuredContent: { preview: 'y'.repeat(4 * 1024) }
+        content: [{ type: 'text', text: 'x'.repeat(80 * 1024) }],
+        structuredContent: { preview: 'y'.repeat(16 * 1024) }
       },
       'mcp__demo__tool 回包'
     )

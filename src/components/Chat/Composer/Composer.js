@@ -78,6 +78,13 @@ const getFileReferenceText = (attrs = {}) => {
   if (sourcePath) return sourcePath;
   return `#${attrs.name || '文件'}`;
 };
+const toDisplayFileUrl = (value = '') => {
+  const normalized = normalizePath(value).trim();
+  if (!normalized) return '';
+  if (/^(data:|https?:\/\/|file:\/\/)/i.test(normalized)) return normalized;
+  const pathname = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  return encodeURI(`file://${pathname}`);
+};
 const getFileDisplayName = (file = {}) => file.name || '文件';
 const isBlobLike = (value) => (
   Boolean(value)
@@ -1071,18 +1078,28 @@ const getFileKindFromType = (fileType = '') => {
   if (String(fileType).startsWith('audio/')) return 'audio';
   return 'file';
 };
+const tryGetNativeFilePath = (value) => {
+  const getter = window?.api?.file?.getPathForFile;
+  if (typeof getter !== 'function') return '';
+  const FileCtor = globalThis?.File;
+  if (typeof FileCtor !== 'function' || !(value instanceof FileCtor)) return '';
+  try {
+    return normalizePath(getter(value)).trim();
+  } catch (error) {
+    return '';
+  }
+};
 const createLocalAttachmentEntry = async (rawFile = {}) => {
   const targetFile = isFileLike(rawFile) ? rawFile : rawFile?.originFileObj;
   const uid = rawFile?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   if (!targetFile) return null;
 
   const localObjectUrl = createLocalObjectUrl(targetFile);
-  const nativeFilePathGetter = window?.api?.file?.getPathForFile;
   const sourcePath = normalizePath(
     targetFile?.path
     || rawFile?.path
-    || (typeof nativeFilePathGetter === 'function' ? nativeFilePathGetter(targetFile) : '')
-    || (typeof nativeFilePathGetter === 'function' ? nativeFilePathGetter(rawFile) : '')
+    || tryGetNativeFilePath(targetFile)
+    || tryGetNativeFilePath(rawFile)
     || targetFile?.webkitRelativePath
     || rawFile?.webkitRelativePath
     || ''
@@ -3599,6 +3616,19 @@ const Composer = ({
       .replace(/\]/g, '\\]');
     return `[${safeName}](${url})`;
   };
+  const buildAttachmentReferenceText = (file = {}) => {
+    const directUrl = String(file?.url || '').trim();
+    if (directUrl) {
+      return buildMarkdownFileLink(file.name, directUrl);
+    }
+
+    const localUrl = toDisplayFileUrl(file?.sourcePath);
+    if (localUrl) {
+      return buildMarkdownFileLink(file.name, localUrl);
+    }
+
+    return getFileReferenceText(file);
+  };
   const hasSelectedLocalFile = uploadFileList.length > 0;
   const digitalHumanCompletionState = React.useMemo(
     () => getDigitalHumanTemplateCompletionState(editor),
@@ -3823,14 +3853,23 @@ const Composer = ({
           });
         })
       : [];
+    const uploadFileByUid = new Map(
+      uploadFileList
+        .filter((item) => item?.status !== 'removed')
+        .map((item) => [String(item?.uid || '').trim(), item?.originFileObj || item])
+    );
+    const pendingLocalAttachments = uploadedFileMeta
+      .filter((item) => !String(item?.sourcePath || '').trim() && !String(item?.url || '').trim())
+      .map((item) => ({
+        uid: String(item?.uid || '').trim(),
+        name: String(item?.name || '').trim(),
+        fileType: String(item?.fileType || '').trim(),
+        file: uploadFileByUid.get(String(item?.uid || '').trim()),
+      }))
+      .filter((item) => item.uid && item.name && isFileLike(item.file));
     const remainingLocalReferences = uploadedFileMeta
       .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
-      .filter((item) => !(hasMultimodalImages && String(item?.fileType || '').toLowerCase().startsWith('image/')))
-      .map((item) => (
-        item?.url
-          ? buildMarkdownFileLink(item.name, item.url)
-          : getFileReferenceText(item)
-      ));
+      .map((item) => buildAttachmentReferenceText(item));
     const voiceSquareComposeParts = activeTool === 'voice-square'
       ? getVoiceSquareComposeParts(editor)
       : null;
@@ -3853,7 +3892,8 @@ const Composer = ({
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
       images: imagePayloads.map(({ data, media_type }) => ({ data, media_type })),
-      imageAttachmentPreviews
+      imageAttachmentPreviews,
+      pendingLocalAttachments
     });
     if (activeTool) {
       setActiveTool(null);

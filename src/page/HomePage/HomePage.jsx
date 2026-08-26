@@ -49,6 +49,7 @@ const CHAT_PERSIST_DEBOUNCE_MS = 800;
 const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
+const PASTED_MEDIA_DIRECTORY = 'pasted-media';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
 const QUICK_TRENDY_KOUBO_SKILL_NAME = '网感口播';
@@ -65,6 +66,47 @@ const createLocalFilePreviewUrl = (filePath = '') => {
   if (!normalizedPath) return '';
   const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
   return encodeURI(`file://${normalizedPathname}`);
+};
+const buildMarkdownFileLink = (name = '', url = '') => {
+  const safeName = String(name || '附件')
+    .replace(/\\/g, '\\\\')
+    .replace(/\]/g, '\\]');
+  return `[${safeName}](${url})`;
+};
+const getFileExtension = (value = '') => {
+  const normalizedValue = String(value || '').trim();
+  const matched = normalizedValue.match(/\.([a-zA-Z0-9]+)$/);
+  return matched ? matched[1].toLowerCase() : '';
+};
+const getClipboardFileExtension = (file = {}) => {
+  const explicitExtension = getFileExtension(file?.name || '');
+  if (explicitExtension) return explicitExtension;
+
+  const mimeType = String(file?.type || '').trim().toLowerCase();
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/webp') return 'webp';
+  if (mimeType === 'image/gif') return 'gif';
+  if (mimeType === 'image/bmp') return 'bmp';
+  if (mimeType === 'image/svg+xml') return 'svg';
+  return 'png';
+};
+const buildPendingAttachmentFileName = (item = {}, index = 0) => {
+  const currentName = String(item?.name || '').trim();
+  const extension = getClipboardFileExtension({
+    name: currentName,
+    type: item?.fileType || item?.file?.type || '',
+  });
+  const hasPendingGeneratedName = /^pasted_image_[0-9]+_[a-z0-9]+(?:_[0-9]+)?\.[a-z0-9]+$/i.test(currentName);
+  if (hasPendingGeneratedName) return currentName;
+  return `pasted_image_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${index}.${extension}`;
+};
+const replaceFirstOccurrence = (content = '', target = '', replacement = '') => {
+  const normalizedContent = String(content || '');
+  const normalizedTarget = String(target || '');
+  if (!normalizedTarget) return normalizedContent;
+  const targetIndex = normalizedContent.indexOf(normalizedTarget);
+  if (targetIndex < 0) return normalizedContent;
+  return `${normalizedContent.slice(0, targetIndex)}${replacement}${normalizedContent.slice(targetIndex + normalizedTarget.length)}`;
 };
 const getSessionWorkspacePath = (session) => {
   const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
@@ -179,6 +221,73 @@ const seedWorkspaceSkeleton = async (workspacePath) => {
   if (!seedResult?.ok) {
     throw new Error(seedResult?.error || '初始化工作空间失败');
   }
+};
+const persistPendingChatLocalAttachments = async ({
+  workspacePath = '',
+  imageAttachmentPreviews = [],
+  pendingLocalAttachments = [],
+}) => {
+  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+  if (!normalizedWorkspacePath || pendingLocalAttachments.length === 0) {
+    return {
+      content: '',
+      imageAttachmentPreviews,
+    };
+  }
+
+  const targetDirectory = joinLocalPath(normalizedWorkspacePath, PASTED_MEDIA_DIRECTORY);
+  await window.api.file.mkdir(targetDirectory);
+
+  const persistedEntries = await Promise.all(
+    pendingLocalAttachments.map(async (item) => {
+      const file = item?.file;
+      const originalName = String(item?.name || '').trim();
+      const name = buildPendingAttachmentFileName(item);
+      const uid = String(item?.uid || '').trim();
+      if (!uid || !name || !file || typeof file.arrayBuffer !== 'function') {
+        return null;
+      }
+
+      const targetPath = joinLocalPath(targetDirectory, name);
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      await window.api.file.write(targetPath, buffer);
+      return {
+        uid,
+        originalName,
+        name,
+        sourcePath: targetPath,
+        fileUrl: createLocalFilePreviewUrl(targetPath),
+      };
+    })
+  );
+
+  const persistedByUid = new Map(
+    persistedEntries
+      .filter(Boolean)
+      .map((item) => [item.uid, item])
+  );
+
+  return {
+    imageAttachmentPreviews: imageAttachmentPreviews.map((item) => {
+      const persisted = persistedByUid.get(String(item?.uid || '').trim());
+      if (!persisted) return item;
+      return {
+        ...item,
+        name: persisted.name,
+        sourcePath: persisted.sourcePath,
+        sourceType: 'local',
+      };
+    }),
+    replaceContentPlaceholders(content = '') {
+      let nextContent = String(content || '');
+      persistedEntries.filter(Boolean).forEach((item) => {
+        const placeholder = `#${item.originalName || item.name}`;
+        const markdownLink = buildMarkdownFileLink(item.name, item.fileUrl);
+        nextContent = replaceFirstOccurrence(nextContent, placeholder, markdownLink);
+      });
+      return nextContent;
+    }
+  };
 };
 const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
   const resourcesPath = normalizeLocalPath(appInfo?.resourcesPath || '').trim();
@@ -1088,11 +1197,33 @@ const enhancePersistedImageGenerationArguments = (toolName, args, userPreviewSou
     return args;
   }
 
-  const referenceImages = Array.isArray(args.referenceImages)
-    ? args.referenceImages
-    : Array.isArray(args.reference_images)
-      ? args.reference_images
-      : [];
+  const referenceImages = [
+    args.referenceImages,
+    args.reference_images,
+    args.sourceImages,
+    args.source_images,
+    args.referenceImage,
+    args.reference_image,
+    args.sourceImage,
+    args.source_image,
+    args.baseImage,
+    args.base_image,
+    args.editImage,
+    args.edit_image
+  ].reduce((acc, candidate) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => {
+        if (typeof item === 'string' && item.trim()) {
+          acc.push(item.trim());
+        }
+      });
+      return acc;
+    }
+    if (typeof candidate === 'string' && candidate.trim()) {
+      acc.push(candidate.trim());
+    }
+    return acc;
+  }, []);
   if (!referenceImages.length || userPreviewSources.length === 0) {
     return args;
   }
@@ -4115,7 +4246,7 @@ const HomePage = () => {
   };
 
   const handleSendChatMessage = async (inputText, options = {}) => {
-    const text = String(inputText || '').trim();
+    let text = String(inputText || '').trim();
     const images = Array.isArray(options?.images)
       ? options.images.filter((item) => (
         item
@@ -4124,7 +4255,7 @@ const HomePage = () => {
         && typeof item.media_type === 'string'
       ))
       : [];
-    const imageAttachmentPreviews = Array.isArray(options?.imageAttachmentPreviews)
+    let imageAttachmentPreviews = Array.isArray(options?.imageAttachmentPreviews)
       ? options.imageAttachmentPreviews.filter((item) => (
         item
         && typeof item === 'object'
@@ -4135,6 +4266,16 @@ const HomePage = () => {
           || typeof item.previewUrl === 'string'
           || typeof item.thumbnailUrl === 'string'
         )
+      ))
+      : [];
+    const pendingLocalAttachments = Array.isArray(options?.pendingLocalAttachments)
+      ? options.pendingLocalAttachments.filter((item) => (
+        item
+        && typeof item === 'object'
+        && typeof item.uid === 'string'
+        && typeof item.name === 'string'
+        && item.file
+        && typeof item.file.arrayBuffer === 'function'
       ))
       : [];
     if (!text) return;
@@ -4160,64 +4301,50 @@ const HomePage = () => {
       return;
     }
 
-    const userMessage = {
-      id: createMessageId(),
-      role: 'user',
-      content: text,
-      imageAttachments: imageAttachmentPreviews,
-      createdAt: Date.now(),
-    };
-
-    const now = Date.now();
-
-    setChatSessions((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== targetSessionId) return item;
-        return {
-          ...item,
-          updatedAt: now,
-          messages: [...item.messages, userMessage],
-        };
-      });
-      return sortChatSessions(updated);
-    });
-
-    const assistantMessageId = createMessageId();
-    const assistantMessage = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      blocks: [],
-      createdAt: Date.now(),
-      model: chatModelMeta,
-      modelId: chatModel,
-      storeAssistantMessageId: null,
-      retryStatusText: '',
-    };
-    setChatSessions((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== targetSessionId) return item;
-        return {
-          ...item,
-          updatedAt: Date.now(),
-          messages: [...item.messages, assistantMessage],
-        };
-      });
-      return sortChatSessions(updated);
-    });
-
     if (!canUseAgentRuntime) {
       const normalizedError = normalizeChatError(new Error('agent runtime unavailable'));
-      updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
+      const assistantMessageId = createMessageId();
+      const userMessage = {
+        id: createMessageId(),
+        role: 'user',
+        content: text,
+        imageAttachments: imageAttachmentPreviews,
+        createdAt: Date.now(),
+      };
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        blocks: [],
+        createdAt: Date.now(),
+        model: chatModelMeta,
+        modelId: chatModel,
+        storeAssistantMessageId: null,
+        retryStatusText: '',
+        error: normalizedError,
+      };
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: [...item.messages, userMessage, assistantMessage],
+          };
+        });
+        return sortChatSessions(updated);
+      });
       return;
     }
 
-    setChatSessionSending(targetSessionId, true, 'send-start');
-    setChatSessionInFlight(targetSessionId, true, 'send-start');
-    setChatSessionFulfilled(targetSessionId, false, 'send-start');
-    setChatSending(true);
     const requestId = createRequestId();
+    const assistantMessageId = createMessageId();
+    let userMessage = null;
     try {
+      setChatSessionSending(targetSessionId, true, 'send-start');
+      setChatSessionInFlight(targetSessionId, true, 'send-start');
+      setChatSessionFulfilled(targetSessionId, false, 'send-start');
+      setChatSending(true);
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
       let runtimeSession = ensuredSession?.session || null;
@@ -4266,6 +4393,46 @@ const HomePage = () => {
           setChatWorkspaceStatus(targetSessionId, '');
         }
       }
+
+      if (pendingLocalAttachments.length > 0) {
+        const persistedPendingAttachments = await persistPendingChatLocalAttachments({
+          workspacePath: getSessionWorkspacePath(runtimeSession),
+          imageAttachmentPreviews,
+          pendingLocalAttachments,
+        });
+        imageAttachmentPreviews = persistedPendingAttachments.imageAttachmentPreviews;
+        text = persistedPendingAttachments.replaceContentPlaceholders(text);
+      }
+
+      userMessage = {
+        id: createMessageId(),
+        role: 'user',
+        content: text,
+        imageAttachments: imageAttachmentPreviews,
+        createdAt: Date.now(),
+      };
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        blocks: [],
+        createdAt: Date.now(),
+        model: chatModelMeta,
+        modelId: chatModel,
+        storeAssistantMessageId: null,
+        retryStatusText: '',
+      };
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: [...item.messages, userMessage, assistantMessage],
+          };
+        });
+        return sortChatSessions(updated);
+      });
 
       syncLegacyUserMessageToRendererStore({
         topicId: `home-chat-${targetSessionId}`,
@@ -4360,7 +4527,40 @@ const HomePage = () => {
       setChatWorkspaceStatus(targetSessionId, '');
       setChatSessionSending(targetSessionId, false, 'send-catch');
       setChatSessionInFlight(targetSessionId, false, 'send-catch');
-      updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
+      if (!userMessage) {
+        const failedUserMessage = {
+          id: createMessageId(),
+          role: 'user',
+          content: text,
+          imageAttachments: imageAttachmentPreviews,
+          createdAt: Date.now(),
+        };
+        const failedAssistantMessage = {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: '',
+          blocks: [],
+          createdAt: Date.now(),
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          retryStatusText: '',
+          error: normalizedError,
+        };
+        setChatSessions((prev) => {
+          const updated = prev.map((item) => {
+            if (item.id !== targetSessionId) return item;
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              messages: [...item.messages, failedUserMessage, failedAssistantMessage],
+            };
+          });
+          return sortChatSessions(updated);
+        });
+      } else {
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
+      }
       setChatSending(false);
     }
   };

@@ -185,11 +185,28 @@ const enhanceImageGenerationArguments = (
   }
 
   const record = { ...(args as Record<string, unknown>) }
-  const referenceImages = Array.isArray(record.referenceImages)
-    ? record.referenceImages
-    : Array.isArray(record.reference_images)
-      ? record.reference_images
-      : []
+  const referenceImages = [
+    record.referenceImages,
+    record.reference_images,
+    record.sourceImages,
+    record.source_images,
+    record.referenceImage,
+    record.reference_image,
+    record.sourceImage,
+    record.source_image,
+    record.baseImage,
+    record.base_image,
+    record.editImage,
+    record.edit_image
+  ].flatMap((candidate) => {
+    if (Array.isArray(candidate)) {
+      return candidate.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    }
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return [candidate.trim()]
+    }
+    return []
+  })
 
   if (!referenceImages.length) {
     return record

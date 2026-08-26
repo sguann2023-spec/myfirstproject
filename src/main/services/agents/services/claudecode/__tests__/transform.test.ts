@@ -298,9 +298,76 @@ describe('Claude → AiSDK transform', () => {
     expect(toolResults[1].output).toBe('total 42\n...')
   })
 
+  it('does not mark small structured tool results as truncated when they stay within the inline limit', () => {
+    const state = new ClaudeStreamState({ agentSessionId: 'structured-small-session' })
+
+    transformSDKMessageToStreamParts(
+      {
+        ...baseStreamMetadata,
+        type: 'assistant',
+        uuid: uuid(25),
+        message: {
+          id: 'msg-tool-structured-small',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-test',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tool-structured-small',
+              name: 'mcp__image__generate_or_edit_image',
+              input: { prompt: 'demo' }
+            }
+          ],
+          stop_reason: 'tool_use',
+          stop_sequence: null,
+          usage: {}
+        }
+      } as unknown as SDKMessage,
+      state
+    )
+
+    const parts = transformSDKMessageToStreamParts(
+      {
+        ...baseStreamMetadata,
+        type: 'user',
+        uuid: uuid(26),
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool-structured-small',
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    provider: 'vectcut',
+                    action: 'submit_and_wait',
+                    image_url: 'https://example.com/result.png',
+                    reference_images: ['https://example.com/ref.png']
+                  })
+                }
+              ],
+              is_error: false
+            }
+          ]
+        }
+      } as SDKMessage,
+      state
+    )
+
+    const toolResult = parts.find((part) => part.type === 'tool-result') as Extract<
+      (typeof parts)[number],
+      { type: 'tool-result' }
+    >
+    expect(toolResult).toBeTruthy()
+    expect((toolResult as any).truncated).toBe(false)
+  })
+
   it('keeps raw oversized tool results and hard-truncates the inline view to 16KB', () => {
     const state = new ClaudeStreamState({ agentSessionId: 'limit-test-session' })
-    const oversized = 'a'.repeat(20 * 1024)
+    const oversized = 'a'.repeat(80 * 1024)
 
     const assistantParts = transformSDKMessageToStreamParts(
       {

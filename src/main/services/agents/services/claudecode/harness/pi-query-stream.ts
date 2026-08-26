@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { loggerService } from '@logger'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
-import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
+import { isInlineToolPayloadTruncated, limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStream } from '../../../interfaces/AgentStreamInterface'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
@@ -735,10 +735,12 @@ export async function processPiHarnessQuery(input: {
       const output = (event.result as { content?: unknown; details?: unknown }).content ?? event.result
       const rawOutput = event.result
       const inlineSource = buildInlineToolResultPayload(event.result)
+      const inlinePayload = Array.isArray(inlineSource) ? { content: inlineSource } : inlineSource
       const inlineOutput = limitInlineToolPayload(
-        Array.isArray(inlineSource) ? { content: inlineSource } : inlineSource,
+        inlinePayload,
         { label: `${toolName || 'tool'} 回包` }
       )
+      const truncated = isInlineToolPayloadTruncated(inlinePayload)
       logger.info('[PiQuery] tool_execution_end success', {
         sessionId,
         traceId: architectureContext.traceId,
@@ -755,6 +757,7 @@ export async function processPiHarnessQuery(input: {
         input: pending?.input,
         output: inlineOutput,
         rawOutput,
+        truncated,
         providerExecuted: false,
         providerMetadata
       } as TextStreamPart<any>

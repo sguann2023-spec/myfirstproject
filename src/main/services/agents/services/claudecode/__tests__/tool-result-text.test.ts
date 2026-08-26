@@ -29,7 +29,7 @@ describe('summarizeToolResultForArtifact', () => {
   })
 
   it('hard-truncates inline tool text to 16KB', () => {
-    const inline = buildInlineToolResultText('x'.repeat(20 * 1024), 'Read 回包')
+    const inline = buildInlineToolResultText('x'.repeat(80 * 1024), 'Read 回包')
 
     expect(inline).toContain('已截断')
     expect(Buffer.byteLength(inline, 'utf8')).toBeLessThanOrEqual(16 * 1024)
