@@ -7,6 +7,9 @@ import Store from 'electron-store'
 import { net } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { ossUploadService } from '@main/services/OssUploadService'
 
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
 
@@ -18,11 +21,40 @@ const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const CUT_WORKFLOW_WAIT_TIME = '15-30 minutes'
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_cut_workflow_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
+const SUPPORTED_LOCAL_MEDIA_EXTENSIONS = new Set([
+  '.aac',
+  '.aiff',
+  '.avi',
+  '.bmp',
+  '.flac',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.m4a',
+  '.m4v',
+  '.mkv',
+  '.mov',
+  '.mp3',
+  '.mp4',
+  '.mpeg',
+  '.mpg',
+  '.ogg',
+  '.png',
+  '.wav',
+  '.webm',
+  '.webp'
+])
 
 const EXECUTE_WORKFLOW_TOOL: Tool = {
   name: 'execute_workflow',
   description:
-    'Execute a VectCut editing workflow in one call. Use this for cut-domain workflow JSON with top-level inputs + script, or reuse a saved workflow via workflow_id. This call can take 15-30 minutes. If the workflow references local media files, upload them first with workspace upload and use the returned remote URLs inside the workflow.',
+    'Execute a VectCut editing workflow in one call. Use this for cut-domain workflow JSON with top-level inputs + script, or reuse a saved workflow via workflow_id. This call can take 15-30 minutes. Remote media URLs are accepted directly, and local audio, image, or video file URLs or absolute local paths inside the workflow are uploaded internally when needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -78,6 +110,12 @@ type CutWorkflowResponse = {
   purchase_link?: string
   success?: boolean
   [key: string]: unknown
+}
+
+type WorkflowMediaReplacement = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'local_media'
 }
 
 class CutWorkflowServer {
@@ -332,6 +370,83 @@ class CutWorkflowServer {
     }
   }
 
+  private async uploadLocalFile(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private normalizePotentialLocalMedia(value: string): string {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      return raw
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private async prepareWorkflowMediaValue(
+    value: string,
+    replacements: WorkflowMediaReplacement[]
+  ): Promise<string> {
+    const normalized = this.normalizePotentialLocalMedia(value)
+    if (!normalized || isHttpLikeUrl(normalized)) {
+      return value
+    }
+
+    if (!path.isAbsolute(normalized)) {
+      return value
+    }
+
+    if (!SUPPORTED_LOCAL_MEDIA_EXTENSIONS.has(path.extname(normalized).toLowerCase())) {
+      return value
+    }
+
+    const stats = await fs.stat(normalized)
+    if (!stats.isFile()) {
+      throw new McpError(ErrorCode.InvalidParams, `Workflow local media path must point to a file: ${value}`)
+    }
+
+    const uploaded = await this.uploadLocalFile(normalized)
+    replacements.push({
+      originalInput: value,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_media'
+    })
+    return uploaded.signedPublicUrl
+  }
+
+  private async replaceLocalMediaReferences(
+    value: unknown,
+    replacements: WorkflowMediaReplacement[]
+  ): Promise<unknown> {
+    if (typeof value === 'string') {
+      return this.prepareWorkflowMediaValue(value, replacements)
+    }
+
+    if (Array.isArray(value)) {
+      return Promise.all(value.map((item) => this.replaceLocalMediaReferences(item, replacements)))
+    }
+
+    if (value && typeof value === 'object') {
+      const entries = await Promise.all(
+        Object.entries(value).map(async ([key, nestedValue]) => [
+          key,
+          await this.replaceLocalMediaReferences(nestedValue, replacements)
+        ])
+      )
+      return Object.fromEntries(entries)
+    }
+
+    return value
+  }
+
   private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
     const progressToken = extra?._meta?.progressToken
     if (!progressToken || typeof extra?.sendNotification !== 'function') {
@@ -350,7 +465,9 @@ class CutWorkflowServer {
   }
 
   private async executeWorkflow(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
-    const payload = await this.normalizeWorkflowPayload(args)
+    const normalizedPayload = await this.normalizeWorkflowPayload(args)
+    const sourceSummary: WorkflowMediaReplacement[] = []
+    const payload = (await this.replaceLocalMediaReferences(normalizedPayload, sourceSummary)) as Record<string, unknown>
     await this.reportProgress(extra, 5, 'VectCut 剪辑工作流已提交，等待服务端执行完成')
 
     const response = await this.requestWithAuth(payload)
@@ -372,6 +489,7 @@ class CutWorkflowServer {
       mode: 'cut_workflow',
       estimated_wait_time: CUT_WORKFLOW_WAIT_TIME,
       request_summary: this.summarizeRequest(payload),
+      source_summary: sourceSummary,
       ...result
     }
 

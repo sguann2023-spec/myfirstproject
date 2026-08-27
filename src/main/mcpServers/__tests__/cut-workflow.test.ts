@@ -3,11 +3,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet, storeState } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, storeState, mockUploadLocalFile } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn(),
-  storeState: new Map<string, unknown>()
+  storeState: new Map<string, unknown>(),
+  mockUploadLocalFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -36,6 +37,12 @@ vi.mock('@logger', () => ({
       error: vi.fn(),
       debug: vi.fn()
     }))
+  }
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -84,6 +91,7 @@ describe('CutWorkflowServer', () => {
     mockNetFetch.mockReset()
     mockStoreGet.mockReset()
     mockStoreSet.mockReset()
+    mockUploadLocalFile.mockReset()
     storeState.clear()
     mockStoreGet.mockImplementation((key: string) => storeState.get(key))
     mockStoreSet.mockImplementation((key: string, value: unknown) => {
@@ -173,10 +181,10 @@ describe('CutWorkflowServer', () => {
       mode: 'cut_workflow',
       estimated_wait_time: '15-30 minutes',
       request_summary: {
-        workflow_id: undefined,
         has_inputs: true,
         script_steps: 1
       },
+      source_summary: [],
       success: true,
       error: '',
       output: {
@@ -307,5 +315,129 @@ describe('CutWorkflowServer', () => {
 
     await fs.rm(workspaceRoot, { recursive: true, force: true })
     await fs.rm(outsideRoot, { recursive: true, force: true })
+  })
+
+  it('should upload local workflow media references internally before executing', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-workflow-local-media-'))
+    const localImagePath = path.join(workspaceRoot, 'cover.png')
+    const localVideoPath = path.join(workspaceRoot, 'clip.mp4')
+    const localAudioPath = path.join(workspaceRoot, 'voice.mp3')
+    await fs.writeFile(localImagePath, 'image', 'utf8')
+    await fs.writeFile(localVideoPath, 'video', 'utf8')
+    await fs.writeFile(localAudioPath, 'audio', 'utf8')
+
+    mockUploadLocalFile
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/cover.png?token=1'
+      })
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/clip.mp4?token=2'
+      })
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/voice.mp3?token=3'
+      })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          error: '',
+          output: {
+            draft_id: 'dfd_workflow_local_media',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_workflow_local_media'
+          }
+        })
+      )
+
+    const server = createServerWithWorkspace(workspaceRoot)
+    const result = await callTool(server, 'execute_workflow', {
+      inputs: {
+        cover: `file://${localImagePath}`
+      },
+      script: [
+        {
+          type: 'action',
+          id: 'step_local_video',
+          index: 0,
+          action_type: 'add_video',
+          params: {
+            video_url: localVideoPath
+          }
+        },
+        {
+          type: 'action',
+          id: 'step_local_audio',
+          index: 1,
+          action_type: 'add_audio',
+          params: {
+            audio_url: localAudioPath
+          }
+        }
+      ]
+    })
+
+    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(
+      1,
+      localImagePath,
+      expect.objectContaining({
+        objectKeyPrefix: 'vectcut_cut_workflow_'
+      })
+    )
+    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(2, localVideoPath, expect.any(Object))
+    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(3, localAudioPath, expect.any(Object))
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      inputs: {
+        cover: 'https://oss.example.com/cover.png?token=1'
+      },
+      script: [
+        {
+          type: 'action',
+          id: 'step_local_video',
+          index: 0,
+          action_type: 'add_video',
+          params: {
+            video_url: 'https://oss.example.com/clip.mp4?token=2'
+          }
+        },
+        {
+          type: 'action',
+          id: 'step_local_audio',
+          index: 1,
+          action_type: 'add_audio',
+          params: {
+            audio_url: 'https://oss.example.com/voice.mp3?token=3'
+          }
+        }
+      ]
+    })
+
+    expect(JSON.parse(result.content[0].text)).toEqual(
+      expect.objectContaining({
+        source_summary: [
+          {
+            originalInput: `file://${localImagePath}`,
+            submittedUrl: 'https://oss.example.com/cover.png?token=1',
+            sourceKind: 'local_media'
+          },
+          {
+            originalInput: localVideoPath,
+            submittedUrl: 'https://oss.example.com/clip.mp4?token=2',
+            sourceKind: 'local_media'
+          },
+          {
+            originalInput: localAudioPath,
+            submittedUrl: 'https://oss.example.com/voice.mp3?token=3',
+            sourceKind: 'local_media'
+          }
+        ]
+      })
+    )
+
+    await fs.rm(workspaceRoot, { recursive: true, force: true })
   })
 })

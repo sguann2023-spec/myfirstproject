@@ -3,10 +3,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockUploadLocalFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -35,6 +36,12 @@ vi.mock('@logger', () => ({
       error: vi.fn(),
       debug: vi.fn()
     }))
+  }
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -154,7 +161,7 @@ describe('SubtitleRecognitionServer', () => {
         }),
         body: JSON.stringify({
           url: 'https://example.com/source.mp4',
-          effect_mode: 'llm'
+          effect_mode: 'basic'
         })
       })
     )
@@ -178,7 +185,7 @@ describe('SubtitleRecognitionServer', () => {
       estimated_wait_time: '15-30 minutes',
       task_mode: 'asr',
       url: 'https://example.com/source.mp4',
-      effect_mode: 'llm',
+      effect_mode: 'basic',
       source_summary: [
         {
           original_input: 'https://example.com/source.mp4',
@@ -219,7 +226,7 @@ describe('SubtitleRecognitionServer', () => {
       estimated_wait_time: '15-30 minutes',
       task_mode: 'asr',
       url: 'https://example.com/source.mp4',
-      effect_mode: 'llm',
+      effect_mode: 'basic',
       source_summary: [
         {
           original_input: 'https://example.com/source.mp4',
@@ -376,5 +383,79 @@ describe('SubtitleRecognitionServer', () => {
       effect_mode: 'basic',
       error: ''
     })
+  })
+
+  it('should upload local subtitle media internally before submitting', async () => {
+    const localAudioPath = path.join(workspaceRoot, 'local-source.mp3')
+    await fs.writeFile(localAudioPath, 'demo-audio', 'utf8')
+
+    mockUploadLocalFile.mockResolvedValue({
+      signedPublicUrl: 'https://oss.example.com/local-source.mp3?token=1'
+    })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          success: true,
+          task_id: 'task-local-123',
+          status: 'pending',
+          effect_mode: 'llm',
+          error: ''
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          message: '识别完成',
+          mode: 'asr',
+          progress: 100,
+          result: {
+            content: '本地字幕结果',
+            error: '',
+            mode: 'asr',
+            effect_mode: 'llm',
+            segments: [{ start: 0, end: 600, text: '本地字幕结果' }]
+          },
+          success: true,
+          status: 'success',
+          task_id: 'task-local-123',
+          url: 'https://oss.example.com/local-source.mp3?token=1'
+        })
+      )
+
+    const server = createServer(workspaceRoot)
+    const result = await callTool(server, 'submit_subtitle_recognition_task', {
+      url: `file://${localAudioPath}`
+    })
+
+    expect(mockUploadLocalFile).toHaveBeenCalledWith(
+      localAudioPath,
+      expect.objectContaining({
+        bucket: 'oss-hangzhou-mp4',
+        region: 'oss-cn-hangzhou',
+        folder: 'agent_tmp/{uid}',
+        objectKeyPrefix: 'vectcut_subtitle_recognition_',
+        signExpiresSeconds: 3600
+      })
+    )
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      url: 'https://oss.example.com/local-source.mp3?token=1',
+      effect_mode: 'basic'
+    })
+
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.source_summary).toEqual([
+      {
+        original_input: `file://${localAudioPath}`,
+        submitted_url: 'https://oss.example.com/local-source.mp3?token=1',
+        source_kind: 'local_media'
+      }
+    ])
+    expect(payload.url).toBe('https://oss.example.com/local-source.mp3?token=1')
   })
 })

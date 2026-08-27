@@ -1077,20 +1077,20 @@ const hasMaterialsFolderLinksIntent = (text: string) =>
   (hasAnyKeyword(text, MATERIALS_FOLDER_LINK_KEYWORDS) || /(文件|file)/.test(text))
 
 const hasSubtitleRecognitionIntent = (text: string) =>
-  (hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
-    ((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
-      /(字幕|文案|台词|时间轴)/.test(text)) ||
-    (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text))) &&
-  (hasAudioSubject(text) || hasVideoSubject(text) || hasMediaFileReference(text) || hasUrlLikeText(text))
+  hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
+  (((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
+    /(字幕|文案|台词|时间轴)/.test(text)) ||
+    (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text)))
 
 const hasVideoUnderstandIntent = (text: string) =>
-  (hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
-    ((/(理解|分析|总结|概括|描述|识别|看懂)/.test(text) ||
-      /讲了什么/.test(text) ||
-      /有什么/.test(text) ||
-      /出现了什么/.test(text)) &&
-      /(画面|镜头|场景|人物|动作|内容)/.test(text))) &&
-  (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text))
+  hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
+  (((/(理解|分析|总结|概括|描述|识别|看懂|看下|看一下|看看)/.test(text) ||
+    /讲了什么/.test(text) ||
+    /有什么/.test(text) ||
+    /出现了什么/.test(text)) &&
+    (/(画面|镜头|场景|人物|动作)/.test(text) ||
+      (((/内容/.test(text) || /讲了什么/.test(text) || /有什么/.test(text) || /出现了什么/.test(text)) &&
+        (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text)))))))
 
 const CUT_LOOKUP_KEYWORDS = ['查看', '看下', '看一下', '查询', '列出', '有哪些', '可用', '支持', '列表']
 const hasCutDraftContext = (text: string) => /(草稿|draft|dfd_)/.test(text)

@@ -1,4 +1,9 @@
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { loggerService } from '@logger'
+import { ossUploadService } from '@main/services/OssUploadService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -20,19 +25,25 @@ const SUBTITLE_RECOGNITION_EFFECT_MODES = ['basic', 'nlp', 'llm', 'llm_vad'] as 
 const SUBTITLE_RECOGNITION_TASK_WAIT_TIME = '15-30 minutes'
 const SUBTITLE_RECOGNITION_POLL_INTERVAL_MS = 5 * 1000
 const SUBTITLE_RECOGNITION_POLL_TIMEOUT_MS = 35 * 60 * 1000
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_subtitle_recognition_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
 
 type SubtitleRecognitionEffectMode = (typeof SUBTITLE_RECOGNITION_EFFECT_MODES)[number]
 
 const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   name: 'submit_subtitle_recognition_task',
   description:
-    'Run subtitle recognition for a remote audio or video URL and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. If the source is a local file, run workspace upload first and pass the returned URL here.',
+    'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. Remote URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
   inputSchema: {
     type: 'object',
     properties: {
       url: {
         type: 'string',
-        description: 'Required remotely accessible audio or video URL. Use workspace upload first for local files.'
+        description: 'Required audio or video URL, file URL, or absolute local path.'
       },
       effectMode: {
         type: 'string',
@@ -99,6 +110,12 @@ type SubtitleRecognitionTaskStatusResponse = {
   task_id?: string
   url?: string
   [key: string]: unknown
+}
+
+type PreparedSubtitleRecognitionSource = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'remote_media' | 'local_media'
 }
 
 class SubtitleRecognitionServer {
@@ -280,7 +297,7 @@ class SubtitleRecognitionServer {
   private resolveEffectMode(value: unknown): SubtitleRecognitionEffectMode {
     const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
     if (!normalized) {
-      return 'llm'
+      return 'basic'
     }
     if (!SUBTITLE_RECOGNITION_EFFECT_MODES.includes(normalized as SubtitleRecognitionEffectMode)) {
       throw new McpError(
@@ -291,14 +308,64 @@ class SubtitleRecognitionServer {
     return normalized as SubtitleRecognitionEffectMode
   }
 
-  private buildSubmitPayload(args: Record<string, unknown>) {
+  private normalizeSource(value: unknown): string {
+    const raw = typeof value === 'string' ? value.trim() : ''
+    if (!raw) {
+      throw new McpError(ErrorCode.InvalidParams, "'url' is required for submit_subtitle_recognition_task")
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private async uploadLocalFile(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private async prepareSource(input: unknown): Promise<PreparedSubtitleRecognitionSource> {
+    const normalizedSource = this.normalizeSource(input)
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_media'
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      throw new McpError(ErrorCode.InvalidParams, "'url' must be a remote URL, file URL, or absolute local path")
+    }
+
+    const stats = await fsPromises.stat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(ErrorCode.InvalidParams, "'url' must point to a local file")
+    }
+
+    const uploaded = await this.uploadLocalFile(normalizedSource)
+    return {
+      originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_media'
+    }
+  }
+
+  private async buildSubmitPayload(args: Record<string, unknown>) {
     const url = typeof args.url === 'string' ? args.url.trim() : ''
     if (!url) {
       throw new McpError(ErrorCode.InvalidParams, "'url' is required for submit_subtitle_recognition_task")
     }
 
+    const preparedSource = await this.prepareSource(url)
+
     const payload: Record<string, unknown> = {
-      url,
+      url: preparedSource.submittedUrl,
       effect_mode: this.resolveEffectMode(args.effectMode)
     }
 
@@ -306,7 +373,16 @@ class SubtitleRecognitionServer {
       payload.content = args.content.trim()
     }
 
-    return payload
+    return {
+      payload,
+      sourceSummary: [
+        {
+          original_input: preparedSource.originalInput,
+          submitted_url: preparedSource.submittedUrl,
+          source_kind: preparedSource.sourceKind
+        }
+      ]
+    }
   }
 
   private async sleep(ms: number) {
@@ -416,7 +492,7 @@ class SubtitleRecognitionServer {
 
   private async submitSubtitleRecognitionTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
     await this.reportProgress(extra, 5, '正在提交字幕识别任务')
-    const payload = this.buildSubmitPayload(args)
+    const { payload, sourceSummary } = await this.buildSubmitPayload(args)
     const response = await this.requestWithAuth(SUBTITLE_RECOGNITION_SUBMIT_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -450,13 +526,7 @@ class SubtitleRecognitionServer {
       task_mode: typeof payload.content === 'string' ? 'sta' : 'asr',
       url: payload.url,
       effect_mode: payload.effect_mode,
-      source_summary: [
-        {
-          original_input: payload.url,
-          submitted_url: payload.url,
-          source_kind: 'remote_media'
-        }
-      ],
+      source_summary: sourceSummary,
       error: finalResult.error || '',
       message: finalResult.message || '',
       progress: finalResult.progress,

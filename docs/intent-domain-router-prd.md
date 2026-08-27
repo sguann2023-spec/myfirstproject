@@ -201,7 +201,7 @@ type IntentRoute = {
 - `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__video__generate_video`，并把它视为单个长任务工具，等待其直接返回最终视频结果；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
 ；如果用户给的是“参考视频”，应优先原样保留为 `video_url` + `role=reference_video`，不要默认把视频拆成抽帧图片 + 分离音频，除非用户明确要求“抽帧”“拆音轨”“提取参考图/参考音频”
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
-- `voice_conversion`：AI 变声 / 声音转换，输入应是公网可访问的原始音频链接或视频链接，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；若用户给的是本地文件，应先通过独立前置的 `workspace.upload` 获取可访问 URL，再进入该子能力
+- `voice_conversion`：AI 变声 / 声音转换，输入应是原始音频或视频，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；远程音频/视频链接可直接传入，本地音频/视频绝对路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理，不需要额外先走 `workspace.upload`
 - `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
 - `digital_human`：数字人生成功能对 Agent 暴露为单个长任务工具，内部自行处理异步任务提交与轮询，不再要求单独状态查询；远程音频 / 视频 / 图片链接可直接传入，本地绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终视频结果
 
@@ -419,10 +419,10 @@ type IntentRoute = {
 
 - `audio_extract` / `audio_concat` / `frame_capture` / `media_duration` / `media_trim` / `video_concat`：属于本地媒体处理能力，统一使用应用随包安装的 `ffmpeg` / `ffprobe` 执行，不依赖远端剪映草稿接口；其中 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat` 在未显式传入 `output_path` 时，若输入是本地文件，默认将产物写到首个源文件同目录；若输入是远程 URL，则可退回临时目录
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
-- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；输入必须是服务端可访问的远程 `url`，应消费已完成前置上传后的可访问链接；返回结果中的字幕 JSON 可能很大，完整内容优先直接落盘到当前 workspace 根目录下的 `<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
+- `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成本地媒体上传（如有）、异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；远程音频/视频链接可直接传入，本地音频/视频绝对路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理；返回结果中的字幕 JSON 可能很大，完整内容优先直接落盘到当前 workspace 根目录下的 `<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
 - `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；对 Agent 暴露为单个长耗时工具，内部自行完成本地视频上传（如有）、异步任务提交与轮询，不再拆成独立状态查询工具；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；远程视频链接可直接传入，本地视频绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终结果摘要与落盘文件路径
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`；对 Agent 暴露为单个长耗时工具，内部自行完成异步任务提交与轮询，不再拆成独立状态查询工具；整体耗时通常为 `15~30` 分钟，完成后直接返回最终草稿结果；若输入是本地文件，则字幕模版阶段只提交音频素材（本地视频先抽取音频并上传，本地音频直接上传），并强制不在该阶段把素材写入草稿，待模板草稿生成完成后再把原始本地视频或音频补回草稿
-- `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流 DSL 执行包含 `if` / `loop` / 多步骤编排在内的复杂剪辑流程；它不是“批量工具”的别名。`add_batch_*` 这类工具只表示单个平铺批量操作，不具备工作流分支、循环和编排语义。只要用户明确表达“执行工作流 / workflow / workflow_id / execute_workflow”，就必须优先命中 `workflow`，不能因为句子里同时出现“批量”“多个”“一次性”而退化到 `text_add_batch`、`image_add_batch`、`video_add_batch`、`audio_add_batch`、`add_batch_preset` 等批量工具；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；若工作流里引用本地音视频图片，应先通过 `workspace.upload` 转成远程可访问 URL，再写入工作流 JSON
+- `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流 DSL 执行包含 `if` / `loop` / 多步骤编排在内的复杂剪辑流程；它不是“批量工具”的别名。`add_batch_*` 这类工具只表示单个平铺批量操作，不具备工作流分支、循环和编排语义。只要用户明确表达“执行工作流 / workflow / workflow_id / execute_workflow”，就必须优先命中 `workflow`，不能因为句子里同时出现“批量”“多个”“一次性”而退化到 `text_add_batch`、`image_add_batch`、`video_add_batch`、`audio_add_batch`、`add_batch_preset` 等批量工具；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；工作流中的 `inputs` / `script` 既支持远程 URL，也支持本地音频、图片、视频绝对路径或 `file://` URL，Agent 不需要额外先走 `workspace.upload`
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
 - `add_preset` / `add_batch_preset`：预设片段能力，面向用户预先在剪映中制作并上传、已拿到 `preset_id` 的预设模版；`add_preset` 用于添加单个预设片段，支持通过 `replacements` 替换其中的图片、视频、文字、音频等素材，支持 `target_start`、`track_name`、位移缩放旋转以及画布尺寸参数，未传 `draft_id` 时默认生成新草稿；`add_batch_preset` 用于一次插入多个预设片段，核心参数是 `preset_ids`、`starts`、`ends`，并可选传入 `target_starts`、`target_ends` 控制各片段目标时间范围；适合字幕片段、混剪素材、批量画中画等重复结构内容生成
 - `template`：口播模版剪辑，面向一段原始未剪辑口播做整体剪辑和套版；该子能力只接受视频输入，必须使用 `video_url` / `video_urls`，不能传 `audio_url` / `audio_urls`；远程视频链接可直接传入，本地视频文件路径或 `file://` URL 也允许直接传入并由工具内部自行处理，无需单独前置 `workspace.upload`；本地视频文件大小不得超过 `500MB`；模版内容通常包含字幕、音频、动画，不等同于字幕模版
@@ -441,7 +441,7 @@ type IntentRoute = {
 - 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
 - 用户提到“执行剪辑工作流”“运行 workflow_id”“把 inputs + script 一次性写进草稿”“调用 execute_workflow”“按工作流执行”时，应优先命中 `workflow`，且不要再并行命中 `add_batch_*` 或其他单步草稿编辑工具
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
-- `subtitle_recognition` 仅接受音频/视频链接；若输入原始形态是本地文件路径、拖入文件或 workspace 内文件，应先通过独立前置的 `workspace.upload` 转成临时可访问 URL，再执行字幕识别；禁止把本地路径直接传给远端字幕识别接口
+- `subtitle_recognition` 支持服务端可访问的音频/视频链接，也支持本地音频/视频文件路径、拖入文件或 workspace 内文件；遇到本地媒体时，工具内部负责上传后再调用远端字幕识别接口，Agent 不需要额外先走 `workspace.upload`
 - `video_understand` 支持服务端可访问的视频链接，也支持本地视频文件路径、拖入文件或 workspace 内视频；遇到本地视频时，工具内部负责上传后再调用远端视频理解接口，Agent 不需要额外先走 `workspace.upload`
 - 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
 - 当用户明确表达“添加字幕模版”“套字幕样式”“把字幕加回草稿”“识别后按某种样式上屏”时，应命中 `subtitle_template`；其核心目标是样式化字幕并回写草稿，而非只返回识别结果
@@ -624,8 +624,8 @@ type IntentRoute = {
 | `获取这个视频的时长` | `cut` | `["media_duration"]` | 本地 `ffprobe` 时长探测 |
 | `截取 10 秒到 25 秒的视频片段` | `cut` | `["media_trim"]` | 本地 `ffmpeg` 时间范围裁剪 |
 | `把这两个视频拼接在一起` | `cut` | `["video_concat"]` | 本地 `ffmpeg` 视频拼接 |
-| `识别这个视频链接里的字幕` | `cut` | `["subtitle_recognition"]` | 远端异步字幕识别，仅接受可访问 URL |
-| `把这个本地音频文件识别成字幕` | `cut + workspace` | `["subtitle_recognition", "upload"]` | 先上传再识别，禁止直接传本地路径 |
+| `识别这个视频链接里的字幕` | `cut` | `["subtitle_recognition"]` | 远端异步字幕识别，远程链接可直接传入 |
+| `把这个本地音频文件识别成字幕` | `cut` | `["subtitle_recognition"]` | 本地音频可直接传入，由工具内部上传并识别 |
 | `把这段视频的字幕提取出来，但不要上屏` | `cut` | `["subtitle_recognition"]` | 只提取字幕内容，不写回草稿 |
 | `先识别这段音频字幕，再按字幕模版加回草稿` | `cut` | `["subtitle_template"]` | 目标是样式化字幕并回写草稿 |
 | `把这个 preset_id 加到草稿里，并替换里面的文字和图片` | `cut` | `["add_preset"]` | 单个预设片段插入，允许 replacements 覆盖素材 |

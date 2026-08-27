@@ -713,6 +713,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const looseSubtitleRecognitionDecision = router.select({
+      prompt: '识别里面的字幕',
+      sessionId: 'session-loose-subtitle-recognition',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const videoUnderstandDecision = router.select({
       prompt: '分析这个视频画面内容 https://example.com/source.mp4',
       sessionId: 'session-video-understand',
@@ -818,6 +826,9 @@ describe('CapabilityRouter', () => {
     expect(localSubtitleRecognitionDecision.subdomains).toEqual(['analysis'])
     expect(localSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(localSubtitleRecognitionDecision.selected.has('uploadFile')).toBe(true)
+    expect(looseSubtitleRecognitionDecision.primaryDomain).toBe('cut')
+    expect(looseSubtitleRecognitionDecision.subdomains).toEqual(['analysis'])
+    expect(looseSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(videoUnderstandDecision.primaryDomain).toBe('cut')
     expect(videoUnderstandDecision.subdomains).toEqual(['analysis'])
     expect(videoUnderstandDecision.selected.has('videoUnderstand')).toBe(true)
@@ -971,6 +982,23 @@ describe('CapabilityRouter', () => {
     const decision = router.select({
       prompt: '分析这个草稿里的视频画面内容，再总结成一段文案',
       sessionId: 'session-video-understand-draft-context',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.selected.has('videoUnderstand')).toBe(true)
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['analysis']))
+  })
+
+  it('allows loose media understanding prompts to enter cut analysis', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '看一下这个视频讲了什么',
+      sessionId: 'session-loose-video-understand',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
