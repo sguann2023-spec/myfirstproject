@@ -289,3 +289,63 @@ display: block;
   color: #ff4d4f;
   font-weight: 600;
 }
+
+.gs-storage-card {
+  width: 100%;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.gs-storage-row-divider {
+  position: relative;
+}
+
+.gs-storage-row-divider::after {
+  content: '';
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  height: 1px;
+  background: #f0f0f0;
+}
+
+.gs-storage-size {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 900;
+  color: #000;
+}
+
+.gs-storage-size-unit {
+  font-size: 14px;
+  font-weight: 500;
+  color: #000;
+}
+
+.gs-storage-meta {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #909090;
+  max-width: 520px;
+}
+
+.gs-storage-clear-button {
+  padding: 4px 10px;
+  border: none;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 12px;
+  border-radius: 20px;
+}
+
+.gs-storage-clear-button:hover {
+  border: none;
+}
+
+.gs-storage-clear-button:disabled,
+.gs-save-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}

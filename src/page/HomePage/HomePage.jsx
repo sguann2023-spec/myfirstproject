@@ -26,6 +26,7 @@ import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
+import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
 import { newMessagesActions } from '../../renderer/src/store/newMessage';
@@ -118,6 +119,15 @@ const joinLocalPath = (...segments) => {
     return normalizeLocalPath(joinPath(...segments));
   }
   return normalizeLocalPath(segments.filter(Boolean).join('/')).replace(/\/+/g, '/');
+};
+const resolveDefaultWorkspaceParentDir = (appInfo, agentId = DEFAULT_RUNTIME_AGENT_ID) => {
+  const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+  if (!appDataPath) return '';
+  return resolveWorkspaceParentDirForAgent({
+    agentId,
+    appDataPath,
+    joinPath: window?.electronAPI?.path?.join
+  });
 };
 const dedupeWorkspacePaths = (paths = []) => Array.from(new Set(
   (Array.isArray(paths) ? paths : []).map((item) => normalizeLocalPath(item).trim()).filter(Boolean)
@@ -3634,17 +3644,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3725,17 +3728,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3810,17 +3806,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3895,17 +3884,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3980,17 +3962,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -4065,17 +4040,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -4150,17 +4118,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -4427,17 +4388,10 @@ const HomePage = () => {
         });
         try {
           const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
-          const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-          if (!appDataPath) {
+          const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+          if (!workspaceParentDir) {
             throw new Error('创建默认工作空间失败');
           }
-
-          const workspaceParentDir = joinLocalPath(
-            appDataPath,
-            'Data',
-            'Workspaces',
-            DEFAULT_RUNTIME_AGENT_ID
-          );
           const workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
           await window.api.file.mkdir(workspacePath);
           await seedWorkspaceSkeleton(workspacePath);

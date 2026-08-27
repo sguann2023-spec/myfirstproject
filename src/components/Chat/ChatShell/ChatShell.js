@@ -37,6 +37,11 @@ import {
   isBeginnerGuideReopenPending,
   setBeginnerGuideCompleted
 } from '../../../shared/beginnerGuide';
+import {
+  readWorkspaceParentDirForAgent,
+  resolveWorkspaceParentDirForAgent,
+  writeWorkspaceParentDirForAgent
+} from '../../../shared/workspaceParentDir';
 
 const logger = loggerService.withContext('ChatShell');
 
@@ -309,7 +314,6 @@ const getRecentWorkspacePaths = (agent, library) => {
   });
 };
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
-const WORKSPACE_CREATE_PARENT_STORE_KEY = 'chat-workspace-create-parent:v1';
 const WEB_PREVIEW_WIDTH_STORE_KEY = 'chat-web-preview-width:v1';
 const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v1';
 const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
@@ -403,37 +407,16 @@ const writeWebPreviewWidth = (width) => {
     // ignore storage failures
   }
 };
-const readCreateWorkspaceParentStore = () => {
-  if (typeof window === 'undefined' || !window.localStorage) return {};
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_CREATE_PARENT_STORE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (_error) {
-    return {};
-  }
-};
 const readCreateWorkspaceParentForAgent = (agentId) => {
   const normalizedAgentId = String(agentId || '').trim();
   if (!normalizedAgentId) return '';
-  return normalizePath(readCreateWorkspaceParentStore()?.[normalizedAgentId] || '');
+  return normalizePath(readWorkspaceParentDirForAgent(normalizedAgentId));
 };
 const writeCreateWorkspaceParentForAgent = (agentId, parentDir) => {
   const normalizedAgentId = String(agentId || '').trim();
   const normalizedParentDir = normalizePath(parentDir);
-  if (!normalizedAgentId || !normalizedParentDir || typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    const prev = readCreateWorkspaceParentStore();
-    window.localStorage.setItem(
-      WORKSPACE_CREATE_PARENT_STORE_KEY,
-      JSON.stringify({
-        ...prev,
-        [normalizedAgentId]: normalizedParentDir
-      })
-    );
-  } catch (_error) {
-    // ignore storage failures
-  }
+  if (!normalizedAgentId || !normalizedParentDir) return;
+  writeWorkspaceParentDirForAgent(normalizedAgentId, normalizedParentDir);
 };
 const readWorkspaceStore = () => {
   if (typeof window === 'undefined' || !window.localStorage) {
@@ -1690,14 +1673,11 @@ const ChatShell = ({
       try {
         const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
         const appDataPath = normalizePath(appInfo?.appDataPath || '');
-        const joinPath = window?.electronAPI?.path?.join;
-        if (appDataPath && agentId) {
-          nextParentDir = normalizePath(
-            typeof joinPath === 'function'
-              ? joinPath(appDataPath, 'Data', 'Workspaces', agentId)
-              : `${appDataPath}/Data/Workspaces/${agentId}`
-          );
-        }
+        nextParentDir = normalizePath(resolveWorkspaceParentDirForAgent({
+          agentId,
+          appDataPath,
+          joinPath: window?.electronAPI?.path?.join
+        }));
       } catch (_error) {
         nextParentDir = '';
       }
