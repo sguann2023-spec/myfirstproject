@@ -2200,24 +2200,22 @@ const ChatShell = ({
     setMembersPanelCollapsed((prev) => !prev);
   }, []);
 
-  const openFilePreview = React.useCallback(async (rootPath, node) => {
-    if (!rootPath || !node?.path || node.type !== 'file') return;
-
-    const absolutePath = resolveListedEntryPath(rootPath, node.path);
+  const loadFilePreviewByPath = React.useCallback(async (absolutePath, fileName = '') => {
     if (!absolutePath) return;
 
+    const normalizedFileName = String(fileName || '').trim() || getBaseName(absolutePath) || '文件预览';
     const previewKey = `file-preview:${absolutePath}`;
     const previewTabId = `file-preview-tab:${absolutePath}`;
     const pendingPreview = {
       key: previewKey,
       tabId: previewTabId,
-      title: node.name || getBaseName(absolutePath) || '文件预览',
+      title: normalizedFileName,
       previewType: 'file',
       activate: true,
       path: absolutePath,
-      name: node.name,
+      name: normalizedFileName,
       kind: 'pending',
-      language: getFileExtension(node.name) || 'text',
+      language: getFileExtension(normalizedFileName) || 'text',
       status: 'loading',
       content: '',
       error: ''
@@ -2227,7 +2225,7 @@ const ChatShell = ({
     setFilePreview(pendingPreview);
     openInlinePreviewPane(pendingPreview);
 
-    let previewKind = getPreviewKindForFileName(node.name);
+    let previewKind = getPreviewKindForFileName(normalizedFileName);
     if (!previewKind) {
       try {
         const isTextFile = await window.api.file.isTextFile(absolutePath);
@@ -2239,7 +2237,7 @@ const ChatShell = ({
 
     const previewLanguage = previewKind === 'markdown'
       ? 'markdown'
-      : (getFileExtension(node.name) || 'text');
+      : (getFileExtension(normalizedFileName) || 'text');
     const previewSrc = createFilePreviewUrl(absolutePath);
 
     if (previewKind === 'unsupported') {
@@ -2308,6 +2306,23 @@ const ChatShell = ({
       openInlinePreviewPane(failedPreview);
     }
   }, [openInlinePreviewPane]);
+
+  const openFilePreview = React.useCallback(async (rootPath, node) => {
+    if (!rootPath || !node?.path || node.type !== 'file') return;
+
+    const absolutePath = resolveListedEntryPath(rootPath, node.path);
+    if (!absolutePath) return;
+
+    await loadFilePreviewByPath(absolutePath, node.name);
+  }, [loadFilePreviewByPath]);
+
+  const handleRefreshFilePreview = React.useCallback(async ({ filePath, fileName }) => {
+    const absolutePath = String(filePath || '').trim();
+    if (!absolutePath) return false;
+
+    await loadFilePreviewByPath(absolutePath, fileName);
+    return true;
+  }, [loadFilePreviewByPath]);
 
   const openSkillWebPreview = React.useCallback((skill) => {
     const skillKey = getSkillKey(skill);
@@ -2816,6 +2831,7 @@ const ChatShell = ({
               preview={panePreview}
               currentModelMeta={currentModelMeta}
               onClose={closeInlinePreviewPane}
+              onRefreshFilePreview={handleRefreshFilePreview}
               onSaveFileEdit={handleSaveFilePreview}
               onSubmitFileComment={onSubmitFileComment}
               onTabClose={handlePreviewTabClose}

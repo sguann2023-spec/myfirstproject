@@ -99,6 +99,7 @@ const WebPagePreview = ({
   preview,
   currentModelMeta = null,
   onClose,
+  onRefreshFilePreview,
   onSaveFileEdit,
   onSubmitFileComment,
   onTabClose,
@@ -1063,6 +1064,7 @@ const WebPagePreview = ({
               preview={activeTab.filePreview}
               currentModelMeta={currentModelMeta}
               onClose={() => handleCloseTab(activeTab.id)}
+              onRefresh={onRefreshFilePreview}
               onSaveEdit={onSaveFileEdit}
               onSubmitComment={onSubmitFileComment}
               submittingComment={submittingComment}
