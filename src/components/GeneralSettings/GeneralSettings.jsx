@@ -314,6 +314,8 @@ const GeneralSettings = () => {
       onOk: async () => {
         setIsClearingAllData(true);
         try {
+          resetDirectory(getLogsStoragePath(appDataPath));
+          resetDirectory(getCacheStoragePath(appDataPath));
           ipcSend('save-settings', {
             draftFolder: '',
             isCapcut: true,
