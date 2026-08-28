@@ -8,6 +8,10 @@
   color: #161616;
 }
 
+.skill-operation-toast { position: fixed; top: 32px; left: 50%; z-index: 120; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; box-sizing: border-box; padding: 0 14px; transform: translateX(-50%); border: 1px solid #d9d9d9; border-radius: 12px; background: #fff; box-shadow: 0 12px 24px rgba(0,0,0,.2); color: #111; font-size: 12px; line-height: 1.2; white-space: nowrap; }
+.skill-operation-toast-icon { width: 18px; height: 18px; flex: 0 0 18px; color: #fff; fill: #16b98d; stroke-width: 3; }
+.skill-operation-toast-action { border: 0; padding: 0; background: transparent; color: #16b98d; cursor: pointer; font: inherit; }
+
 .skill-store-toolbar { display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; padding-bottom: 16px; background: #f5f5f5; }
 .skill-search-box { flex: 1 1 auto; width: auto; min-width: 0; height: 30px; box-sizing: border-box; display: flex; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid #dedede; border-radius: 6px; background: #eeeeee; color: #8b8b8b; }
 .skill-search-icon { width: 12px; height: 12px; flex: 0 0 12px; }
@@ -16,11 +20,13 @@
 .skill-search-box button, .skill-modal-title-row button { display: inline-flex; align-items: center; border: 0; background: transparent; color: #777; cursor: pointer; }
 .skill-toolbar-button { height: 30px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 6px; padding: 0 14px; background: #e8e8e8; color: #222; font-size: 14px; cursor: pointer; white-space: nowrap; }
 .skill-store-toolbar > .skill-toolbar-button { width: 102px; }
+.skill-toolbar-installed-button { gap: 4px; padding: 0 4px; }
 .skill-add-wrap > .skill-toolbar-button { width: 85px; }
 .skill-toolbar-add-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
 .skill-toolbar-installed-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
 .skill-toolbar-button:hover, .skill-toolbar-button.is-active { background: #dedede; }
 .skill-toolbar-button span, .skill-store-section-heading h1 span { color: #777; font-size: 12px; }
+.skill-toolbar-button .skill-toolbar-installed-count { width: 14px; height: 14px; flex: 0 0 14px; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background-color: #D3D3D3; background-position: center; background-repeat: no-repeat; background-size: 14px 14px; color: #777; font-size: 10px !important; font-weight: 400; line-height: 1; }
 .skill-add-wrap { position: relative; }
 .skill-add-menu, .skill-detail-menu { position: absolute; right: 0; top: calc(100% + 7px); min-width: 130px; padding: 5px; border: 1px solid #e1e1e1; border-radius: 9px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 50; }
 .skill-add-menu button, .skill-detail-menu button, .skill-card-action-menu button { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 9px 10px; background: transparent; color: #333; text-align: left; cursor: pointer; font-size: 13px; }
@@ -45,7 +51,7 @@
 .skill-card.is-disabled .skill-card-toggle { opacity: .55; }
 .skill-card-topline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .skill-card-identity { min-width: 0; display: flex; align-items: center; gap: 12px; }
-.skill-card-icon { flex: 0 0 27px; width: 27px; height: 27px; border-radius: 9px; object-fit: cover; }
+.skill-card-icon { flex: 0 0 27px; width: 27px; height: 27px; border-radius: 50%; object-fit: cover; }
 .skill-card-icon-fallback { display: flex; align-items: center; justify-content: center; background: #d8d8d8; color: #fff; font-weight: 700; }
 .skill-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .skill-card-description { display: -webkit-box; min-height: 30px; margin: 16px 0 0; overflow: hidden; color: #666; font-size: 10px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -71,12 +77,14 @@
 .skill-card-checkbox.is-checked { border-color: #000; background: #000; color: #fff; opacity: 1; }
 .skill-card-checkbox-icon { width: 10px; height: 10px; display: block; object-fit: contain; filter: brightness(0) invert(1); }
 .skill-card-checkbox + .skill-card-topline { padding-left: 21px; }
-.skill-batch-toolbar { display: flex; align-items: center; gap: 12px; margin: -5px 0 16px; color: #666; font-size: 10px; }
+.skill-batch-toolbar { display: flex; align-items: center; gap: 6px; margin: -5px 0 16px; color: #666; font-size: 10px; }
 .skill-batch-toolbar button { border: 0; background: transparent; color: #222; cursor: pointer; font-size: 10px; font-weight: 600; }
+.skill-batch-toolbar .skill-batch-clear-button { margin-left: -3px; }
 .skill-batch-actions { display: flex; gap: 8px; margin-left: auto; }
 .skill-batch-actions button { display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; padding: 7px 12px; background: #e7e7e7; }
 .skill-batch-actions button:not(:last-child) { width: 49.5px; height: 18px; box-sizing: border-box; justify-content: center; padding: 0; font-size: 10px; }
 .skill-batch-actions button:last-child { width: 20px; height: 18px; box-sizing: border-box; justify-content: center; padding: 0; border-radius: 0; background: transparent; font-size: 10px; line-height: 18px; }
+.skill-batch-actions button:disabled { background: #f1f1f1; color: #aaa; cursor: not-allowed; opacity: .65; }
 .skill-batch-action-icon { width: 10px; height: 10px; display: block; object-fit: contain; }
 .skill-batch-actions .is-danger { color: #e84158; }
 .skill-store-state { padding: 48px 0; text-align: center; color: #777; }
@@ -116,6 +124,7 @@
 .skill-markdown-content pre { margin: 0 0 12px; padding: 12px; overflow: auto; border-radius: 6px; background: #f0f0f0; }
 .skill-markdown-content pre code { padding: 0; background: transparent; }
 .skill-markdown-content a { color: #2676d9; }
+.skill-detail-link-text { color: #2676d9; }
 .skill-detail-loading { display: flex; align-items: center; gap: 8px; padding: 40px 0; color: #777; }
 .skill-spin { animation: skill-spin 1s linear infinite; }
 @keyframes skill-spin { to { transform: rotate(360deg); } }

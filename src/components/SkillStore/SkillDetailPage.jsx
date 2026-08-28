@@ -30,6 +30,10 @@ const normalizeDetail = (value, fallback) => {
   };
 };
 
+const skillMarkdownComponents = {
+  a: ({ children }) => <span className="skill-detail-link-text">{children}</span>
+};
+
 const SkillDetailPage = ({
   skill,
   installed,
@@ -49,7 +53,7 @@ const SkillDetailPage = ({
   useEffect(() => {
     let disposed = false;
     setLoading(true);
-    skillCatalogService.getSkillDetail(skill?.id || skill?.slug).then((value) => {
+    skillCatalogService.getSkillDetail(skill?.id).then((value) => {
       if (!disposed) setDetail(normalizeDetail(value, skill));
     }).catch(async () => {
       let localDetail = skill;
@@ -127,7 +131,10 @@ const SkillDetailPage = ({
             <section className="skill-detail-section">
               <h2>技能内容</h2>
               <div className="skill-markdown-content">
-                <Markdown content={detail?.skill_md?.content || '暂无 SKILL.md 内容'} />
+                <Markdown
+                  content={detail?.skill_md?.content || '暂无 SKILL.md 内容'}
+                  components={skillMarkdownComponents}
+                />
               </div>
             </section>
           </>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { skillCatalogService } from '../../renderer/src/services/SkillCatalogService';
+import {
+  skillCatalogService,
+  SKILL_CATALOG_REFRESH_INTERVAL_MS
+} from '../../renderer/src/services/SkillCatalogService';
 
 const AGENT_ID = 'vectcut_claw_default';
-const VIRTUAL_SKILLS_KEY = 'skill-store:mock-installed:v1';
 const TOGGLE_STATE_KEY = 'skill-store:toggle-state:v1';
 const QUICK_SKILL_FOLDERS = {
   '儿童绘本': '儿童绘本',
@@ -42,7 +44,6 @@ export const useSkillStore = () => {
   const [featured, setFeatured] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [installedSkills, setInstalledSkills] = useState([]);
-  const [virtualInstalledIds, setVirtualInstalledIds] = useState(() => readJson(VIRTUAL_SKILLS_KEY, []));
   const [toggleStates, setToggleStates] = useState(() => readJson(TOGGLE_STATE_KEY, {}));
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -52,7 +53,33 @@ export const useSkillStore = () => {
     try {
       const result = await window.api?.skill?.list?.(AGENT_ID);
       if (result?.success && Array.isArray(result.data)) {
-        setInstalledSkills(result.data.map(normalizeInstalled));
+        const localSkills = result.data.map(normalizeInstalled);
+        let matchedSkills = localSkills;
+        try {
+          const catalog = await skillCatalogService.listFeatured();
+          const catalogItems = Array.isArray(catalog?.data) ? catalog.data : [];
+          const byId = new Map(catalogItems.map((item) => [String(item?.id || '').toLowerCase(), item]));
+          const byName = new Map(catalogItems.map((item) => [String(item?.name || '').trim().toLowerCase(), item]));
+          matchedSkills = localSkills.map((local) => {
+            const remote = byId.get(String(local?.remoteId || '').toLowerCase())
+              || byName.get(String(local?.name || '').trim().toLowerCase());
+            const iconUrl = local?.iconUrl || remote?.icon_url || '';
+            const remoteId = local?.remoteId || remote?.id || null;
+            if (remote && (iconUrl || remoteId) && window.api?.skill?.updateMetadata && (
+              local?.iconUrl !== iconUrl || local?.remoteId !== remoteId
+            )) {
+              void window.api.skill.updateMetadata({
+                skillId: local.id,
+                remoteId,
+                iconUrl: iconUrl || null
+              });
+            }
+            return { ...local, remoteId, iconUrl: iconUrl || null };
+          });
+        } catch {
+          // Keep local skills available when marketplace metadata is unavailable.
+        }
+        setInstalledSkills(matchedSkills);
       }
     } catch (nextError) {
       setError(nextError?.message || '读取已安装技能失败');
@@ -97,8 +124,11 @@ export const useSkillStore = () => {
   }, [loadFeatured, refreshInstalled]);
 
   useEffect(() => {
-    writeJson(VIRTUAL_SKILLS_KEY, virtualInstalledIds);
-  }, [virtualInstalledIds]);
+    const timer = window.setInterval(() => {
+      void loadFeatured();
+    }, SKILL_CATALOG_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [loadFeatured]);
 
   useEffect(() => {
     writeJson(TOGGLE_STATE_KEY, toggleStates);
@@ -113,13 +143,13 @@ export const useSkillStore = () => {
   }, [installedSkills]);
 
   const isInstalled = useCallback((skill) => {
-    const id = String(skill?.id || skill?.slug || '').toLowerCase();
+    const id = String(skill?.id || '').toLowerCase();
     const name = String(skill?.name || '').toLowerCase();
-    return virtualInstalledIds.includes(skill?.id) || installedByName.has(id) || installedByName.has(name);
-  }, [installedByName, virtualInstalledIds]);
+    return installedByName.has(id) || installedByName.has(name);
+  }, [installedByName]);
 
   const getInstalledSkill = useCallback((skill) => {
-    const id = String(skill?.id || skill?.slug || '').toLowerCase();
+    const id = String(skill?.id || '').toLowerCase();
     const name = String(skill?.name || '').toLowerCase();
     return installedByName.get(id) || installedByName.get(name) || null;
   }, [installedByName]);
@@ -136,15 +166,34 @@ export const useSkillStore = () => {
       const appInfo = await window.api.getAppInfo();
       const separator = String(appInfo?.resourcesPath || '').includes('\\') ? '\\' : '/';
       const directoryPath = [appInfo?.resourcesPath, 'quick', 'skills', folderName].filter(Boolean).join(separator);
-      const result = await window.api.skill.installFromDirectory({ directoryPath });
+      const result = await window.api.skill.installFromDirectory({
+        directoryPath,
+        remoteId: skill?.id || null,
+        source: 'marketplace',
+        sourceUrl: skill?.source_url || skill?.sourceUrl || null,
+        iconUrl: skill?.icon_url || skill?.iconUrl || null
+      });
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
       await refreshInstalled();
       return result.data;
     }
 
-    setVirtualInstalledIds((previous) => previous.includes(skill.id) ? previous : [...previous, skill.id]);
-    setToggleStates((previous) => ({ ...previous, [skill.id]: true }));
-    return skill;
+    if (skill?.id && window.api?.skill?.installFromRemotePackage) {
+      const detail = await skillCatalogService.getSkillDetail(skill.id);
+      const packageUrl = detail?.package?.download_url;
+      if (!packageUrl) throw new Error('该技能暂未提供安装包');
+      const result = await window.api.skill.installFromRemotePackage({
+        packageUrl,
+        remoteId: skill.id,
+        iconUrl: skill?.icon_url || skill?.iconUrl || null,
+        sourceUrl: skill?.source_url || skill?.sourceUrl || null
+      });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
+      await refreshInstalled();
+      return result.data;
+    }
+
+    throw new Error('当前环境不支持安装远程技能');
   }, [refreshInstalled]);
 
   const uninstall = useCallback(async (skill) => {
@@ -154,7 +203,6 @@ export const useSkillStore = () => {
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '卸载技能失败');
       await refreshInstalled();
     }
-    setVirtualInstalledIds((previous) => previous.filter((id) => id !== skill?.id));
     setToggleStates((previous) => {
       const next = { ...previous };
       delete next[skill?.id];
@@ -177,7 +225,6 @@ export const useSkillStore = () => {
     featured,
     searchResults,
     installedSkills,
-    virtualInstalledIds,
     loading,
     searching,
     error,

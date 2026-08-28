@@ -22,7 +22,6 @@ export const SkillCatalogPackageSchema = z.object({
 
 export const SkillCatalogItemSchema = z.object({
   id: z.string(),
-  slug: z.string(),
   name: z.string(),
   description: z.string().default(''),
   icon_url: z.string().optional().default(''),
@@ -64,4 +63,3 @@ export type SkillCatalogItem = z.infer<typeof SkillCatalogItemSchema>
 export type SkillCatalogDetail = z.infer<typeof SkillCatalogDetailSchema>
 export type SkillCatalogListResponse = z.infer<typeof SkillCatalogListResponseSchema>
 export type SkillCatalogDetailResponse = z.infer<typeof SkillCatalogDetailResponseSchema>
-

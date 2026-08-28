@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, PackagePlus, Plus, Search, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, ChevronLeft, ChevronRight, PackagePlus, Plus, Search, X } from 'lucide-react';
 import { useSkillStore } from './useSkillStore';
 import SkillCard from './SkillCard';
 import SkillCardActionMenu from './SkillCardActionMenu';
@@ -16,7 +16,6 @@ import './SkillStorePage.css';
 
 const toLocalCard = (skill) => ({
   id: skill?.id || skill?.folderName || skill?.name,
-  slug: skill?.slug || skill?.folderName || skill?.id || skill?.name,
   name: skill?.name || skill?.folderName || '未命名技能',
   description: skill?.description || '',
   icon_url: skill?.icon_url || skill?.iconUrl || '',
@@ -29,7 +28,6 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     featured,
     searchResults,
     installedSkills,
-    virtualInstalledIds,
     loading,
     searching,
     error,
@@ -45,20 +43,27 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const [view, setView] = useState('featured');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSkill, setSelectedSkill] = useState(null);
+  const [detailReturnView, setDetailReturnView] = useState('featured');
   const [menuSkillId, setMenuSkillId] = useState('');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [operationToast, setOperationToast] = useState(null);
+  const operationToastTimerRef = useRef(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void search(searchQuery), 250);
     return () => window.clearTimeout(timer);
   }, [searchQuery, search]);
 
+  useEffect(() => () => {
+    if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
+  }, []);
+
   const installedCards = useMemo(() => {
     // "我安装的" is backed only by the local GlobalSkills registry. Do not
-    // merge featured/search cards here: remote slugs and local folder names
+    // merge featured/search cards here: remote ids and local folder names
     // are different identifiers and would render the same skill twice.
     const map = new Map();
     installedSkills.forEach((item) => {
@@ -86,14 +91,51 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   const handleOpenDetail = (skill) => {
     setMenuSkillId('');
+    setDetailReturnView(view);
     setSelectedSkill(skill);
     setView('detail');
   };
 
+  const showInstallSuccessToast = (skill) => {
+    const name = String(skill?.name || skill?.folderName || '技能').trim();
+    setOperationToast({ type: 'install', name, skill });
+    if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
+    operationToastTimerRef.current = window.setTimeout(() => setOperationToast(null), 4000);
+  };
+
+  const showUninstallSuccessToast = (count) => {
+    setOperationToast({ type: 'uninstall', count });
+    if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
+    operationToastTimerRef.current = window.setTimeout(() => setOperationToast(null), 4000);
+  };
+
+  const operationToastView = operationToast ? (
+    <div className="skill-operation-toast" role="status">
+      <CheckCircle2 className="skill-operation-toast-icon" aria-hidden="true" />
+      {operationToast.type === 'install' ? (
+        <span>
+          「{operationToast.name}」技能已安装，
+          <button
+            type="button"
+            className="skill-operation-toast-action"
+            onClick={() => {
+              setOperationToast(null);
+              onGoChat?.(operationToast.skill);
+            }}
+          >
+            去试试
+          </button>
+        </span>
+      ) : (
+        <span>成功卸载 {operationToast.count} 个技能</span>
+      )}
+    </div>
+  ) : null;
+
   const handleInstall = async (skill) => {
     try {
       await install(skill);
-      window.toast?.success?.(`已添加${skill.name}`);
+      showInstallSuccessToast(skill);
     } catch (installError) {
       window.toast?.error?.(installError?.message || '安装技能失败');
     }
@@ -104,7 +146,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
       await uninstall(skill);
       setMenuSkillId('');
       if (selectedSkill?.id === skill?.id) setSelectedSkill(null);
-      window.toast?.success?.(`已卸载${skill.name}`);
+      showUninstallSuccessToast(1);
     } catch (uninstallError) {
       window.toast?.error?.(uninstallError?.message || '卸载技能失败');
     }
@@ -116,6 +158,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
       : await window.api?.skill?.installFromDirectory?.({ directoryPath: selectedPath });
     if (!result?.success) throw new Error(result?.error?.message || result?.error || '技能安装失败');
     await refreshInstalled();
+    showInstallSuccessToast(result.data || { name: '技能' });
   };
 
   const toggleSelection = (skill) => {
@@ -133,22 +176,26 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     for (const skill of selectedSkills) await uninstall(skill);
     setSelectedIds([]);
     setBatchMode(false);
+    if (selectedSkills.length > 0) showUninstallSuccessToast(selectedSkills.length);
   };
 
   if (view === 'detail' && selectedSkill) {
     return (
-      <SkillDetailPage
-        skill={selectedSkill}
-        installed={isInstalled(selectedSkill)}
-        installedSkill={getInstalledSkill(selectedSkill)}
-        enabled={getEnabled(selectedSkill)}
-        onBack={() => setView(searchQuery.trim() ? 'search' : 'featured')}
-        onInstall={handleInstall}
-        onToggle={toggle}
-        onUninstall={handleUninstall}
-        onGoChat={onGoChat}
-        onEdit={onEditSkill}
-      />
+      <>
+        {operationToastView}
+        <SkillDetailPage
+          skill={selectedSkill}
+          installed={isInstalled(selectedSkill)}
+          installedSkill={getInstalledSkill(selectedSkill)}
+          enabled={getEnabled(selectedSkill)}
+          onBack={() => setView(detailReturnView)}
+          onInstall={handleInstall}
+          onToggle={toggle}
+          onUninstall={handleUninstall}
+          onGoChat={onGoChat}
+          onEdit={onEditSkill}
+        />
+      </>
     );
   }
 
@@ -156,7 +203,9 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const isInstalledView = view === 'installed';
 
   return (
-    <div className="skill-store-page" onClick={() => { setMenuSkillId(''); setAddMenuOpen(false); }}>
+    <>
+      {operationToastView}
+      <div className="skill-store-page" onClick={() => { setMenuSkillId(''); setAddMenuOpen(false); }}>
       {!isInstalledView ? (
         <div className="skill-store-toolbar" onClick={(event) => event.stopPropagation()}>
           <div className="skill-search-box">
@@ -172,8 +221,8 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
             />
             {searchQuery ? <button type="button" onClick={() => { setSearchQuery(''); setView('featured'); }}><X size={15} /></button> : null}
           </div>
-          <button type="button" className="skill-toolbar-button" onClick={() => { setView('installed'); setSelectedIds([]); }}>
-            <img src={PackageIcon} className="skill-toolbar-installed-icon" alt="" aria-hidden="true" />我安装的 <span>{installedCards.length}</span>
+          <button type="button" className="skill-toolbar-button skill-toolbar-installed-button" onClick={() => { setView('installed'); setSelectedIds([]); }}>
+            <img src={PackageIcon} className="skill-toolbar-installed-icon" alt="" aria-hidden="true" />我安装的 <span className="skill-toolbar-installed-count" style={{ backgroundImage: `url(${InstalledCountBackground})` }}>{installedCards.length}</span>
           </button>
           <div className="skill-add-wrap">
             <button type="button" className="skill-toolbar-button" onClick={() => setAddMenuOpen((value) => !value)}>
@@ -196,7 +245,9 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
           </div>
           <div className="skill-store-section-heading installed-heading">
             <h1>我安装的 <span className="skill-installed-count" style={{ backgroundImage: `url(${InstalledCountBackground})` }}>{installedCards.length}</span></h1>
-          <button type="button" className="skill-batch-entry" onClick={() => { setBatchMode(true); setSelectedIds([]); }}>批量管理<img src={BatchSettingsIcon} className="skill-batch-entry-icon" alt="" aria-hidden="true" /></button>
+          {!batchMode ? (
+            <button type="button" className="skill-batch-entry" onClick={() => { setBatchMode(true); setSelectedIds([]); }}>批量管理<img src={BatchSettingsIcon} className="skill-batch-entry-icon" alt="" aria-hidden="true" /></button>
+          ) : null}
           </div>
         </>
       ) : (
@@ -207,11 +258,11 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
         <div className="skill-batch-toolbar">
           <span>已选{selectedIds.length}项</span>
           <button type="button" onClick={() => setSelectedIds(installedCards.map((item) => item.id))}>全选</button>
-          <button type="button" onClick={() => setSelectedIds([])}>清空</button>
+          <button type="button" className="skill-batch-clear-button" onClick={() => setSelectedIds([])}>清空</button>
           <div className="skill-batch-actions">
-            <button type="button" onClick={() => void handleBatchToggle(true)}><img src={BatchEnableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />开启</button>
-            <button type="button" onClick={() => void handleBatchToggle(false)}><img src={BatchDisableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />关闭</button>
-            <button type="button" className="is-danger" onClick={() => void handleBatchUninstall()}><img src={BatchUninstallIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />卸载</button>
+            <button type="button" disabled={selectedIds.length === 0} onClick={() => void handleBatchToggle(true)}><img src={BatchEnableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />开启</button>
+            <button type="button" disabled={selectedIds.length === 0} onClick={() => void handleBatchToggle(false)}><img src={BatchDisableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />关闭</button>
+            <button type="button" disabled={selectedIds.length === 0} className="is-danger" onClick={() => void handleBatchUninstall()}><img src={BatchUninstallIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />卸载</button>
             <button type="button" onClick={() => { setBatchMode(false); setSelectedIds([]); }}>取消</button>
           </div>
         </div>
@@ -250,7 +301,8 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
       </div>
       {isSearch && searchVisibleSkills.length > 0 ? <div className="skill-search-footer"><ChevronLeft size={14} />搜索到全部匹配技能<ChevronRight size={14} /></div> : null}
       {importOpen ? <SkillImportModal onClose={() => setImportOpen(false)} onInstall={handleImport} /> : null}
-    </div>
+      </div>
+    </>
   );
 };
 

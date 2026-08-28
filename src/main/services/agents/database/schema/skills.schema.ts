@@ -14,6 +14,7 @@ export const skillsTable = sqliteTable(
     remote_id: text('remote_id'),
     name: text('name').notNull(),
     description: text('description'),
+    icon_url: text('icon_url'),
     folder_name: text('folder_name').notNull(),
     source: text('source').notNull(),
     source_url: text('source_url'),

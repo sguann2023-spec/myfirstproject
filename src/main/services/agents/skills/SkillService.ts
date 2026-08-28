@@ -12,6 +12,7 @@ import type {
   InstalledSkill,
   SkillFileNode,
   SkillInstallFromDirectoryOptions,
+  SkillInstallFromRemotePackageOptions,
   SkillInstallFromZipOptions,
   SkillInstallOptions,
   SkillToggleOptions
@@ -21,6 +22,7 @@ import { app, net } from 'electron'
 import StreamZip from 'node-stream-zip'
 
 import { BaseService } from '../BaseService'
+import { DatabaseManager } from '../database/DatabaseManager'
 import { agentsTable, skillsTable, type SkillRow } from '../database/schema'
 import {
   getHiddenBuiltinSkillMdPath,
@@ -91,6 +93,7 @@ export class SkillService extends BaseService {
       remoteId: null,
       name: metadata.name,
       description: metadata.description ?? null,
+      iconUrl: null,
       folderName,
       source,
       sourceUrl: null,
@@ -365,15 +368,65 @@ export class SkillService extends BaseService {
     }
   }
 
+  async installFromRemotePackage(options: SkillInstallFromRemotePackageOptions): Promise<InstalledSkill> {
+    const packageUrl = String(options.packageUrl || '').trim()
+    if (!packageUrl) throw new Error('Skill package URL is required')
+    if (!/^https?:\/\//i.test(packageUrl)) throw new Error('Skill package URL must use HTTP or HTTPS')
+
+    const response = await net.fetch(packageUrl)
+    if (!response.ok) {
+      throw new Error(`Skill package download failed: HTTP ${response.status}`)
+    }
+
+    const tempDir = await this.createTempDir('remote-skill-install')
+    const zipPath = path.join(tempDir, 'skill.zip')
+    try {
+      await fs.promises.writeFile(zipPath, Buffer.from(await response.arrayBuffer()))
+      await this.validateZipFile(zipPath)
+      const extractDir = path.join(tempDir, 'extracted')
+      await fs.promises.mkdir(extractDir, { recursive: true })
+      await this.extractZip(zipPath, extractDir)
+      const skillDir = await this.locateSkillDir(extractDir)
+      return await this.installSkillDir(
+        skillDir,
+        'marketplace',
+        options.sourceUrl ?? packageUrl,
+        options.remoteId,
+        options.iconUrl ?? null
+      )
+    } finally {
+      await this.safeRemoveDirectory(tempDir)
+    }
+  }
+
+  async updateMetadata(options: { skillId: string; remoteId?: string | null; iconUrl?: string | null }): Promise<InstalledSkill | null> {
+    await this.ensureSkillRegistryInitialized()
+    const row = await this.findSkillRegistryRow(options.skillId)
+    if (!row) return null
+    const database = await this.getDatabase()
+    await database.update(skillsTable).set({
+      remote_id: options.remoteId ?? row.remote_id ?? null,
+      icon_url: options.iconUrl ?? row.icon_url ?? null,
+      updated_at: Date.now()
+    }).where(eq(skillsTable.id, row.id))
+    return (await this.list()).find((skill) => skill.id === row.id) ?? null
+  }
+
   async installFromDirectory(options: SkillInstallFromDirectoryOptions): Promise<InstalledSkill> {
-    const { directoryPath } = options
+    const {
+      directoryPath,
+      remoteId = null,
+      source = 'local',
+      sourceUrl = null,
+      iconUrl = null
+    } = options
     logger.info('Installing skill from directory', { directoryPath })
 
     if (!(await directoryExists(directoryPath))) {
       throw new Error(`Directory not found: ${directoryPath}`)
     }
 
-    return this.installSkillDir(directoryPath, 'local', null)
+    return this.installSkillDir(directoryPath, source, sourceUrl, remoteId, iconUrl)
   }
 
   async copyDirectoryToWorkspace(
@@ -643,7 +696,8 @@ export class SkillService extends BaseService {
     skillDir: string,
     source: string,
     sourceUrl: string | null,
-    remoteId: string | null = null
+    remoteId: string | null = null,
+    iconUrl: string | null = null
   ): Promise<InstalledSkill> {
     const metadata = await parseSkillMetadata(skillDir, path.basename(skillDir), 'skills')
     const skillsRoot = path.resolve(getGlobalSkillsRoot())
@@ -666,6 +720,7 @@ export class SkillService extends BaseService {
       remoteId,
       name: metadata.name,
       description: metadata.description ?? null,
+      iconUrl,
       folderName,
       source,
       sourceUrl,
@@ -682,6 +737,7 @@ export class SkillService extends BaseService {
       remoteId,
       name: metadata.name,
       description: metadata.description ?? null,
+      iconUrl,
       folderName,
       source,
       sourceUrl,
@@ -881,6 +937,7 @@ export class SkillService extends BaseService {
             remoteId: registry?.remote_id ?? null,
             name: metadata.name,
             description: metadata.description ?? null,
+            iconUrl: registry?.icon_url ?? null,
             folderName,
             source: registry?.source ?? options.source,
             sourceUrl: registry?.source_url ?? null,
@@ -956,6 +1013,10 @@ export class SkillService extends BaseService {
   }
 
   private async initializeSkillRegistry(): Promise<void> {
+    // Older packaged clients may not contain the latest Drizzle migration
+    // resources. Keep the registry self-healing so the new local icon field is
+    // available before Drizzle queries the table.
+    await this.ensureIconUrlColumn()
     const database = await this.getDatabase()
     const root = getGlobalSkillsRoot()
     await fs.promises.mkdir(root, { recursive: true })
@@ -983,6 +1044,7 @@ export class SkillService extends BaseService {
           remote_id: existing?.remote_id ?? null,
           name: metadata.name,
           description: metadata.description ?? null,
+          icon_url: existing?.icon_url ?? null,
           folder_name: entry.name,
           source: existing?.source ?? 'local',
           source_url: existing?.source_url ?? null,
@@ -1012,6 +1074,20 @@ export class SkillService extends BaseService {
       root,
       registeredCount: Math.max(0, (await database.select().from(skillsTable)).length - existingRows.length)
     })
+  }
+
+  private async ensureIconUrlColumn(): Promise<void> {
+    const databaseManager = await DatabaseManager.getInstance()
+    const client = await databaseManager.getClient()
+    const columns = await client.execute("PRAGMA table_info('skills')")
+    const hasIconUrl = columns.rows.some((row) => {
+      const column = row as Record<string, unknown>
+      return String(column.name ?? column[1] ?? '') === 'icon_url'
+    })
+    if (!hasIconUrl) {
+      await client.execute('ALTER TABLE `skills` ADD COLUMN `icon_url` text')
+      logger.info('Added missing skills.icon_url column for local registry compatibility')
+    }
   }
 
   private generateLocalSkillId(name: string, folderName: string, usedIds: Set<string>): string {
@@ -1046,6 +1122,7 @@ export class SkillService extends BaseService {
     remoteId: string | null
     name: string
     description: string | null
+    iconUrl: string | null
     folderName: string
     source: string
     sourceUrl: string | null
@@ -1066,6 +1143,7 @@ export class SkillService extends BaseService {
       remote_id: input.remoteId ?? existing[0]?.remote_id ?? null,
       name: input.name,
       description: input.description,
+      icon_url: input.iconUrl ?? existing[0]?.icon_url ?? null,
       folder_name: input.folderName,
       source: input.source,
       source_url: input.sourceUrl,

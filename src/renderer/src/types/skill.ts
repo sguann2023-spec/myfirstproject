@@ -142,6 +142,7 @@ export const InstalledSkillSchema = z.object({
   remoteId: z.string().nullable().optional(),
   name: z.string(),
   description: z.string().nullable(),
+  iconUrl: z.string().nullable().optional(),
   folderName: z.string(),
   source: z.string(),
   sourceUrl: z.string().nullable(),
@@ -174,8 +175,26 @@ export interface SkillInstallFromZipOptions {
   zipFilePath: string
 }
 
+export interface SkillInstallFromRemotePackageOptions {
+  packageUrl: string
+  remoteId: string
+  iconUrl?: string | null
+  sourceUrl?: string | null
+}
+
+export interface SkillUpdateMetadataOptions {
+  skillId: string
+  remoteId?: string | null
+  iconUrl?: string | null
+}
+
 export interface SkillInstallFromDirectoryOptions {
   directoryPath: string
+  /** Optional marketplace metadata persisted with the local installation. */
+  remoteId?: string | null
+  source?: string
+  sourceUrl?: string | null
+  iconUrl?: string | null
 }
 
 export type SkillResult<T> = { success: true; data: T } | { success: false; error: unknown }
