@@ -7,33 +7,35 @@ import './WelcomePage.css';
 const BEGINNER_GUIDE_QUICK_SKILL_ACTION = 'bootstrap-trendy-koubo';
 const QUICK_SKILLS_ROOT_RELATIVE_PATH = 'quick/skills';
 const QUICK_SKILLS_MANIFEST_RELATIVE_PATH = 'quick/skills/manifest.json';
+const QUICK_SKILLS_CACHE_MANIFEST_RELATIVE_PATH = 'Data/QuickSkills/manifest.json';
+const QUICK_SKILLS_CACHE_STORAGE_RELATIVE_PATH = 'Data/QuickSkills/skills';
 let quickSkillsPromise = null;
 
 const isAbsoluteAssetUrl = (value) =>
   /^(https?:)?\/\//i.test(String(value || '').trim()) || /^file:\/\//i.test(String(value || '').trim());
 
-const buildQuickSkillAssetUrl = (resourcePath, assetPathOrUrl) => {
+const joinQuickSkillPath = (basePath, relativePath) => {
+  const normalizedBasePath = String(basePath || '').replace(/\\/g, '/').replace(/\/$/, '');
+  const normalizedRelativePath = String(relativePath || '').trim().replace(/\\/g, '/').replace(/^\//, '');
+  if (!normalizedBasePath || !normalizedRelativePath) return '';
+  return `${normalizedBasePath}/${normalizedRelativePath}`;
+};
+
+const buildQuickSkillAssetUrl = (basePath, assetPathOrUrl) => {
   const normalizedAsset = String(assetPathOrUrl || '').trim();
   if (!normalizedAsset) return '';
   if (isAbsoluteAssetUrl(normalizedAsset)) {
     return normalizedAsset;
   }
-  const normalizedResourcePath = String(resourcePath || '').replace(/\\/g, '/').replace(/\/$/, '');
-  const normalizedAssetPath = normalizedAsset.replace(/\\/g, '/').replace(/^\//, '');
-  if (!normalizedResourcePath || !normalizedAssetPath) return '';
-  const normalizedFullPath = `${normalizedResourcePath}/${QUICK_SKILLS_ROOT_RELATIVE_PATH}/${normalizedAssetPath}`;
+  const normalizedFullPath = joinQuickSkillPath(basePath, normalizedAsset);
+  if (!normalizedFullPath) return '';
   const filePath = normalizedFullPath.startsWith('/') ? normalizedFullPath : `/${normalizedFullPath}`;
   return encodeURI(`file://${filePath}`);
 };
 
-const buildQuickSkillFilePath = (resourcePath, relativePath) => {
-  const normalizedResourcePath = String(resourcePath || '').replace(/\\/g, '/').replace(/\/$/, '');
-  const normalizedRelativePath = String(relativePath || '').trim().replace(/\\/g, '/').replace(/^\//, '');
-  if (!normalizedResourcePath || !normalizedRelativePath) return '';
-  return `${normalizedResourcePath}/${QUICK_SKILLS_ROOT_RELATIVE_PATH}/${normalizedRelativePath}`;
-};
+const buildQuickSkillFilePath = (basePath, relativePath) => joinQuickSkillPath(basePath, relativePath);
 
-const normalizeQuickSkills = (manifest, resourcePath, quickPrompts) => {
+const normalizeQuickSkills = (manifest, basePath, quickPrompts) => {
   const promptActions = (Array.isArray(quickPrompts) ? quickPrompts : [])
     .map((item) => String(item?.action || '').trim())
     .filter(Boolean);
@@ -42,6 +44,7 @@ const normalizeQuickSkills = (manifest, resourcePath, quickPrompts) => {
 
   return Object.values(manifest?.skills || {})
     .filter((item) => {
+      if (item?.deleted) return false;
       const action = String(item?.action || '').trim();
       if (!action) return false;
       return shouldFilterByQuickPrompts ? promptActionSet.has(action) : true;
@@ -52,14 +55,14 @@ const normalizeQuickSkills = (manifest, resourcePath, quickPrompts) => {
       description: String(item?.description || '').trim(),
       action: String(item?.action || '').trim(),
       directoryPath: buildQuickSkillFilePath(
-        resourcePath,
+        basePath,
         String(item?.folderName || item?.name || '').trim()
       ),
-      previewVideoUrl: buildQuickSkillAssetUrl(resourcePath, item?.previewVideoUrl),
-      remoteCoverUrl: buildQuickSkillAssetUrl(resourcePath, item?.coverUrl),
-      localCoverUrl: buildQuickSkillAssetUrl(resourcePath, item?.coverPath),
+      previewVideoUrl: buildQuickSkillAssetUrl(basePath, item?.previewVideoUrl),
+      remoteCoverUrl: buildQuickSkillAssetUrl(basePath, item?.coverUrl),
+      localCoverUrl: buildQuickSkillAssetUrl(basePath, item?.coverPath),
       skillMarkdownPath: buildQuickSkillFilePath(
-        resourcePath,
+        basePath,
         `${String(item?.folderName || item?.name || '').trim()}/SKILL.md`
       ),
       order: Number(item?.order || 0),
@@ -84,26 +87,51 @@ const loadQuickSkills = async (quickPrompts) => {
     quickSkillsPromise = (async () => {
       const appInfo = await window.api?.getAppInfo?.();
       const resourcesPath = String(appInfo?.resourcesPath || '').trim();
-      const manifestPath = resourcesPath
+      const appDataPath = String(appInfo?.appDataPath || '').trim();
+      const cacheManifestPath = appDataPath
+        ? `${appDataPath.replace(/[\\/]+$/, '')}/${QUICK_SKILLS_CACHE_MANIFEST_RELATIVE_PATH}`
+        : '';
+      const cacheBasePath = appDataPath
+        ? `${appDataPath.replace(/[\\/]+$/, '')}/${QUICK_SKILLS_CACHE_STORAGE_RELATIVE_PATH}`
+        : '';
+      const bundledManifestPath = resourcesPath
         ? `${resourcesPath.replace(/[\\/]+$/, '')}/${QUICK_SKILLS_MANIFEST_RELATIVE_PATH}`
         : '';
-      if (!manifestPath || typeof window.api?.fs?.readText !== 'function') {
-        return { manifest: null, resourcesPath: '' };
+      const bundledBasePath = resourcesPath
+        ? `${resourcesPath.replace(/[\\/]+$/, '')}/${QUICK_SKILLS_ROOT_RELATIVE_PATH}`
+        : '';
+
+      if ((!cacheManifestPath && !bundledManifestPath) || typeof window.api?.fs?.readText !== 'function') {
+        return { manifest: null, basePath: '' };
       }
 
-      const rawManifest = await window.api.fs.readText(manifestPath);
+      if (cacheManifestPath) {
+        try {
+          const rawManifest = await window.api.fs.readText(cacheManifestPath);
+          return {
+            manifest: JSON.parse(rawManifest),
+            basePath: cacheBasePath
+          };
+        } catch (error) {}
+      }
+
+      if (!bundledManifestPath) {
+        return { manifest: null, basePath: '' };
+      }
+
+      const rawManifest = await window.api.fs.readText(bundledManifestPath);
       return {
         manifest: JSON.parse(rawManifest),
-        resourcesPath
+        basePath: bundledBasePath
       };
     })().catch(() => ({
       manifest: null,
-      resourcesPath: ''
+      basePath: ''
     }));
   }
 
-  const { manifest, resourcesPath } = await quickSkillsPromise;
-  return normalizeQuickSkills(manifest, resourcesPath, quickPrompts);
+  const { manifest, basePath } = await quickSkillsPromise;
+  return normalizeQuickSkills(manifest, basePath, quickPrompts);
 };
 
 const WelcomeSkillCard = ({

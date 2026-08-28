@@ -1,130 +1,156 @@
 ---
 name: 直播切片
-description: 用于把长直播回放、直播录屏、带货直播、课程直播、访谈直播等视频自动制作成高光切片。只要用户提到“直播切片”“从直播里剪高光”“把长视频切成短视频”“识别爆点片段”“给直播回放加字幕模板”等需求，就优先使用此技能，即使用户没有明确说出技能名称。该技能按固定流程执行：提取音频、上传音频并提交字幕识别、分析字幕找高光、截取高光片段、套用字幕模板。
+description: 把长直播回放、直播录屏、带货直播、课程直播、访谈直播等视频自动制作成高光切片短视频。适用场景：用户提供本地视频路径、远程视频 URL、直播回放链接，或要求从直播/长视频中剪出高光短视频，包括从带货直播剪出成交点、痛点、福利、逼单、爆款讲解片段，从知识直播剪出观点密集、信息增量高、适合传播的片段，从访谈/连麦直播剪出冲突、金句、反转、情绪强的片段，从长录屏批量生成短视频并自动添加字幕模板。只要用户提到"直播切片""从直播里剪高光""把长视频切成短视频""识别爆点片段""给直播回放加字幕模板"等需求，就优先使用此技能，即使用户没有明确说出技能名称。
 ---
-
-# 直播切片
-
-用这个技能把直播间长视频处理成可发布的短视频高光片段。它是一个工作流技能：稳定步骤交给工具执行，高光判断和片段取舍由模型根据字幕内容完成。
-
-## 适用场景
-
-当用户提供本地视频路径、远程视频 URL、直播回放链接，或要求从直播/长视频中剪出高光短视频时使用本技能。常见需求包括：
-
-- 从带货直播中剪出成交点、痛点、福利、逼单、爆款讲解片段
-- 从知识直播中剪出观点密集、信息增量高、适合传播的片段
-- 从访谈/连麦直播中剪出冲突、金句、反转、情绪强的片段
-- 从长录屏中批量生成短视频，并自动添加字幕模板
 
 ## 输入要求
 
-开始前确认并记录这些信息，缺失时用合理默认值继续，不要过度追问：
+技能输入按 OpenAPI 3.1 接口入参格式定义（等价于一次 `POST /skills/live-clip/run` 调用，Schema 遵循 JSON Schema 2020-12）。开始前按此 schema 收集输入；
 
-- `source_video`：必需，本地视频路径或可访问视频 URL
-- `clip_count`：期望切片数量，默认 3 条
-- `clip_duration`：单条目标时长，默认 30-90 秒
-- `highlight_style`：高光类型，默认“传播/转化综合优先”
-- `subtitle_template`：字幕模板，默认 `bottom_word_highlight`
-- `output_goal`：用途，如抖音、小红书、视频号、内部复盘等
+```yaml
+requestBody:
+  required: true
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [source_video]
+        properties:
+          source_video:
+            type: string
+            minLength: 1
+            description: 原视频，本地绝对路径或可访问视频 URL
+            examples:
+              - /Users/demo/Downloads/live_replay.mp4
+              - https://example.com/live-replay.mp4
+          clip_count:
+            type: integer
+            minimum: 1
+            default: 3
+            description: 期望切片数量
+          clip_duration:
+            type: object
+            description: 单条切片目标时长范围（秒）
+            properties:
+              min:
+                type: integer
+                minimum: 5
+                default: 30
+              max:
+                type: integer
+                maximum: 300
+                default: 90
+            default:
+              min: 30
+              max: 90
+          highlight_style:
+            type: string
+            description: 高光类型偏好
+            default: 传播/转化综合优先
+            examples:
+              - 传播优先
+              - 转化优先
+              - 冲突/情绪优先
+          subtitle_template:
+            type: string
+            description: 字幕模板 ID，从枚举值中选择
+            enum:
+              - asr_42da310c1e4347ddb2c96dd2a5d055c2
+              - asr_60348d11a5f54d2a98afb52f6acdb916
+              - asr_601e98ed739a43b5a310a17e327fbe01
+              - asr_9d550677d16a4c879a19bfeee1623a38
+              - asr_f5f42fbfdd9045409c9b783bfdf4ba14
+              - asr_ecd4a44d490543b68920724aa0c23813
+              - asr_28ac1b65432746129b952e05bc719183
+              - asr_e8d06597e17c46a8a6d9b5c60a757c26
+              - asr_21d0bfcb2fe943d5adcd56bdc26d7c9a
+              - asr_5d91f5d3e56d474bbaab2c8f581233f5
+              - asr_1f9c8d7e6a2b4c0d9e8f123456789abc
+              - asr_6a4f2c9e8b1d4f7aa3c5e9d02b6f8c13
+              - asr_a3d4f6b8c1e24f7b9a0d5e6c8f2b1a97
+              - asr_e7c1a9d4b6f24c8e91a3d5b7f0c2e6a8
+              - asr_39ff88a1b2c34d5e9f0a6b7c8d9e0123
+            default: asr_42da310c1e4347ddb2c96dd2a5d055c2
+      example:
+        source_video: /Users/demo/Downloads/live_replay.mp4
+        clip_count: 3
+        clip_duration:
+          min: 30
+          max: 90
+        highlight_style: 传播/转化综合优先
+        subtitle_template: asr_42da310c1e4347ddb2c96dd2a5d055c2
+```
 
-如果用户只给了视频，直接按默认参数执行，并在计划里说明默认值。
+如果用户只给了视频，等价于请求体里只带了 `source_video`：直接按默认参数执行，并在计划里说明默认值。如果缺少必要参数，那还是要用户补齐。
+
+> **回复格式提醒**：整个技能执行过程中（包括每步进度汇报和最终交付），所有对用户的回复都使用自然语言，不要输出原始 JSON 或 YAML。OpenAPI schema 只用于定义数据结构和校验，不用于直接展示。
 
 ## 总流程
 
-执行前先给用户一个简短计划，然后按下面 5 步推进。每完成一步都汇报关键产物，例如音频路径、音频 URL、识别任务 ID、候选片段时间码、剪辑文件路径、字幕模板任务 ID 或草稿 ID。
+执行前先给用户一个简短计划，然后按顺序执行下面 6 个步骤。**开始每一步之前，先读取对应的步骤文件，严格按文件内容执行**；步骤文件中定义了该步的前置输入、操作规则、本步产出、汇报内容和异常处理。
 
-### 第一步：提取原视频音频
+| 顺序 | 步骤文件 | 内容 | 关键产出 |
+|---|---|---|---|
+| 1 | `steps/01-extract-audio.md` | 提取原视频音频 | 音频文件路径（并保留原视频路径） |
+| 2 | `steps/02-upload-and-asr.md` | 切分音频并行提交字幕识别 | 字幕分片文件 |
+| 3 | `steps/03-pick-highlights.md` | 根据字幕提取高光片段 | 候选片段列表 `clips.json`（脚本校验，毫秒） |
+| 4 | `steps/04-trim-clips.md` | 脚本截取高光片段 | 本地切片文件（`clip_xx_xxx.mp4`） |
+| 5 | `steps/05-apply-koubo-template.md` | 套用口播模板 | 成片草稿列表 `koubo_results.json` |
+| 6 | `steps/06-download-drafts.md` | 下载草稿 | 已下载的草稿列表（最终交付） |
 
-- 如果输入是本地视频路径或远程视频 URL，要先提取音频文件，再继续后续步骤。
-- 默认输出 MP3，便于上传和识别。
-- 保留原视频路径，因为第四步截取高光片段仍然需要使用原视频。
-- 汇报：音频文件路径、原视频来源。
+步骤间数据流转：
 
-### 第二步：上传音频并提交字幕识别任务
+1 → 音频文件路径 → 2 → 字幕分片文件 → 3 → clips.json → 4 → 本地切片文件 → 5 → koubo_results.json → 6 → 交付
 
-- 上传前先检查第一步得到的音频时长。如果时长超过 2 小时（7200 秒），中止流程并告知用户"音频时长超过 2 小时上限，请提供更短的片段或手动截取后再试"，不要继续上传和识别。
-- 时长检查通过后，要先上传音频，取得音频 URL。
-- 然后提交字幕识别，识别上传音频的字幕，任务使用 `basic`档位。
-- 直播音频有时候很长，所以有点耐心，没必要频繁轮训。等字幕识别完成后，不要直接读取长文案，直接把回包原文保存为文件，再用 `python scripts/parse_asr_result.py --file <result.json> --split-duration 600 --output-dir <out_dir>` 拆解成多个小文件。优先提取 `result.segments`，按时间顺序每个文件控制在约 10 分钟内容；`result.content` 只作为原始全文保留，不作为后续阅读输入。
-- 如果结果文件过大，直接写成多个分片文件，例如 `asr_part_001.json`、`asr_part_002.json`，每个分片只保留对应时间范围的 `segments` 和必要元数据，避免把整段文案一次性读进上下文。
-- 汇报：音频 URL、字幕识别 `taskId`、最终字幕片段数量或失败原因。
+## 输出定义
 
-### 第三步：根据字幕提取高光片段
+下面是输出数据的 schema 定义和示例，用于确保回复中不遗漏任何字段：
 
-按时间顺序阅读第二步拆出的字幕分片，从中直接提取适合剪成短视频的高光片段。不需要逐句细分析、打分或写复杂理由；只要片段内容完整、有明确看点，就记录起止时间和对应文案。
-
-提取规则：
-
-- 优先选择数量满足 `clip_count` 的片段，单条尽量贴近 `clip_duration`。
-- 片段不要从半句话开始，也不要在明显没说完的地方结束。
-- 时间码可以适度向前后扩 1-3 秒，避免断句。
-- 如果高光片段不足，可以少选，并简短说明原因。
-
-候选片段输出模板：
-
-```json
-[
-  {
-    "rank": 1,
-    "start": "00:12:34.000",
-    "end": "00:13:28.000",
-    "duration": 54,
-    "title": "可选，简短概括片段内容",
-    "text": "这一段对应的完整字幕文案"
-  }
-]
+```yaml
+responses:
+  '200':
+    description: 切片任务执行成功
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            clips:
+              type: array
+              description: 生成的切片列表
+              items:
+                type: object
+                required: [draft_id, draft_name, draft_url]
+                properties:
+                  draft_id:
+                    type: string
+                    description: 草稿 ID
+                  draft_name:
+                    type: string
+                    description: 草稿名称
+                  draft_url:
+                    type: string
+                    format: uri
+                    description: 草稿链接
+        example:
+          clips:
+            - draft_id: dfd_cat_abc123
+              draft_name: 直播切片_高光片段1
+              draft_url: vectcut://open?draft_id=dfd_cat_abc123
+            - draft_id: dfd_cat_def456
+              draft_name: 直播切片_高光片段2
+              draft_url: vectcut://open?draft_id=dfd_cat_def456
+            - draft_id: dfd_cat_ghi789
+              draft_name: 直播切片_高光片段3
+              draft_url: vectcut://open?draft_id=dfd_cat_ghi789
 ```
 
-### 第四步：截取高光片段
+## 交流语气
 
-- 对第三步选出的每条高光，从原视频中截取片段。
-- 输出文件名应包含序号和简短标题，例如 `clip_01_product_value.mp4`。
-- 如果时间码来自字幕，注意字幕的时间单位是毫秒。
-- 汇报：每条切片的本地文件路径、起止时间、时长。
+**实际回复用户时，使用自然语言**，不要直接输出 JSON。把下方 schema 中定义的字段（`draft_id`、`draft_name`、`draft_url`）作为必须包含的信息点，用友好的自然语言组织回复。例如：
 
-### 第五步：套用口播模板
-
-- 对每个截取出的视频片段，先上传文件，获取视频 URL。
-- 使用口播模版对上传的视频进行模板套用剪辑。
-- 随机从下面几个模版id中选择一个：
-  - 带货/口播强调：`koubo_39ff88a1b2c34d5e9f0a6b7c8d9e0123`
-  - 高级感/知识内容：`koubo_1f9c8d7e6a2b4c0d9e8f123456789abc`
-  - 双语/港风：`koubo_e7c1a9d4b6f24c8e91a3d5b7f0c2e6a8`
-  - 歌词/逐字强调：`koubo_25829735dad8416a8698f1263384892c`
-- 工具返回异步 `taskId`，轮询口播模版状态，直到成功、失败或超时。口播模版一般要3分钟才能出结果，耐心等一会儿。
-- 汇报：每条成片的任务 ID、草稿 ID、下载/预览信息（如果工具返回）。
-
-### 第六步：下载草稿
-   草稿制作完成后，直接用draft_download工具下载下来所有生成的草稿。
-
-## 进度汇报格式
-
-每步完成后用简洁格式汇报：
-
-```text
-[步骤 2/5] 字幕识别已提交
-- 工具：submit_subtitle_recognition_task
-- 结果：taskId=xxx
-- 下一步：轮询识别结果并分析高光
-```
-
-最终汇总必须包含：
-
-- 原视频来源
-- 识别到的高光片段列表
-- 已截取切片文件路径
-- 已套用字幕模板的任务 ID / 草稿 ID / 输出 URL
-- 失败或跳过的片段及原因
-
-## 异常处理
-
-- 音频提取失败：确认视频路径/URL 是否可访问，并把错误信息告诉用户。
-- 上传失败：不要继续提交识别任务；提示用户上传失败的文件路径。
-- 字幕识别失败：报告 `taskId` 和失败原因；不要凭空生成时间码。
-- 字幕质量差：说明识别质量风险，并用保守策略选择片段；必要时建议用户提供校正文稿。
-- 高光不足：宁可少剪，不要强行剪低质量片段。
-- 字幕模板失败：保留第四步的无字幕切片，并报告哪些片段未成功套模板。
-
-## 交付口径
-
-最终回复用中文，简洁说明“已完成哪些片段”和“用户下一步可以怎么做”。如果生成的是 VectCut 草稿，建议用户打开草稿检查字幕和节奏；如果只有本地切片路径，告诉用户这些文件可直接复用或继续套模板。
+> 切片任务已完成，共生成了 3 条高光切片：
+>
+> 1. **直播切片_高光片段1** — 点击打开草稿
+> 2. **直播切片_高光片段2** — 点击打开草稿
+> 3. **直播切片_高光片段3** — 点击打开草稿
