@@ -1,9 +1,14 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockUploadLocalFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -32,6 +37,12 @@ vi.mock('@logger', () => ({
       error: vi.fn(),
       debug: vi.fn()
     }))
+  }
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -137,6 +148,13 @@ describe('VoiceConversionServer', () => {
         audio_url: 'https://example.com/source.mp3',
         voice_id: 'voice-elevenlabs-1'
       },
+      source_summary: [
+        {
+          original_input: 'https://example.com/source.mp3',
+          submitted_url: 'https://example.com/source.mp3',
+          source_kind: 'remote_media'
+        }
+      ],
       error: '',
       message_id: 'message-123',
       queue_name: 'sts-task',
@@ -175,6 +193,71 @@ describe('VoiceConversionServer', () => {
       video_url: 'https://example.com/source.mp4',
       voice_id: 'voice-elevenlabs-2'
     })
+  })
+
+  it('should upload local audio files internally before submitting', async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-conversion-test-'))
+    const localAudioPath = path.join(tempRoot, 'source.mp3')
+    await fs.writeFile(localAudioPath, 'demo-audio', 'utf8')
+
+    mockUploadLocalFile.mockResolvedValue({
+      signedPublicUrl: 'https://oss.example.com/source.mp3?token=1'
+    })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          message_id: 'message-local-1',
+          queue_name: 'sts-task',
+          status: 'queued',
+          success: true,
+          task_id: 'task-local-1'
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'submit_voice_conversion_task', {
+      audio_url: `file://${localAudioPath}`,
+      voice_id: 'voice-elevenlabs-local'
+    })
+
+    expect(mockUploadLocalFile).toHaveBeenCalledWith(
+      localAudioPath,
+      expect.objectContaining({
+        bucket: 'oss-hangzhou-mp4',
+        region: 'oss-cn-hangzhou',
+        folder: 'agent_tmp/{uid}',
+        objectKeyPrefix: 'vectcut_voice_conversion_',
+        signExpiresSeconds: 3600
+      })
+    )
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      audio_url: 'https://oss.example.com/source.mp3?token=1',
+      voice_id: 'voice-elevenlabs-local'
+    })
+    expect(JSON.parse(result.content[0].text)).toEqual(
+      expect.objectContaining({
+        request: {
+          audio_url: 'https://oss.example.com/source.mp3?token=1',
+          voice_id: 'voice-elevenlabs-local'
+        },
+        source_summary: [
+          {
+            original_input: `file://${localAudioPath}`,
+            submitted_url: 'https://oss.example.com/source.mp3?token=1',
+            source_kind: 'local_media'
+          }
+        ]
+      })
+    )
+
+    await fs.rm(tempRoot, { recursive: true, force: true })
   })
 
   it('should query voice conversion task status', async () => {

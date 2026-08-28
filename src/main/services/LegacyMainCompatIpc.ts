@@ -447,6 +447,10 @@ function registerLegacySettingsChannels() {
       configManager.set('draftFolder', settings.draftFolder)
       updated.draftFolder = settings.draftFolder
     }
+    if (typeof settings?.presetFolder === 'string') {
+      configManager.set('presetFolder', settings.presetFolder)
+      updated.presetFolder = settings.presetFolder
+    }
     if (typeof settings?.isCapcut === 'boolean') {
       configManager.set('isCapcut', settings.isCapcut)
       updated.isCapcut = settings.isCapcut

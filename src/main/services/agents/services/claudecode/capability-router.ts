@@ -2,6 +2,7 @@ import type { SkillMatchSignal, SkillTriggerMode } from '../../skill-mounting/ty
 
 export type RuntimeCapability =
   | 'bash'
+  | 'materialsFolderLinks'
   | 'browser'
   | 'search'
   | 'workspaceDownload'
@@ -76,7 +77,7 @@ export type RuntimeCapability =
 
 export type RuntimeToolLayer = 'chat' | 'web' | 'workspace-read' | 'workspace-write' | 'agentic'
 
-export type IntentDomain = 'chat' | 'workspace' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
+export type IntentDomain = 'chat' | 'workspace' | 'materials' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
 
 export type ActiveIntentDomain = {
   domain: IntentDomain
@@ -155,6 +156,13 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       }
       if (activeDomain.subdomains.includes('download') && !selected.has('webDownload')) {
         addCapabilityReason(selected, reasons, 'webDownload', 'intent:web.download')
+      }
+      continue
+    }
+
+    if (activeDomain.domain === 'materials') {
+      if (activeDomain.subdomains.includes('folder_links') && !selected.has('materialsFolderLinks')) {
+        addCapabilityReason(selected, reasons, 'materialsFolderLinks', 'intent:materials.folder_links')
       }
       continue
     }
@@ -395,6 +403,7 @@ const syncSelectedCapabilitiesFromActiveDomains = (
 
 const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'bash',
+  'materialsFolderLinks',
   'browser',
   'search',
   'workspaceDownload',
@@ -470,6 +479,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
 
 const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'bash',
+  'materialsFolderLinks',
   'browser',
   'search',
   'workspaceDownload',
@@ -928,6 +938,8 @@ const WEB_BROWSER_KEYWORDS = [
 const WEB_FETCH_KEYWORDS = ['抓取网页', '抓网页', '读取网页', '获取网页内容', 'fetch url', 'fetch page', 'webfetch']
 
 const WEB_SCREENSHOT_KEYWORDS = ['截图', '页面截图', '网页截图', '快照', 'snapshot']
+const MATERIALS_DOMAIN_KEYWORDS = ['素材库', '素材夹', 'materials']
+const MATERIALS_FOLDER_LINK_KEYWORDS = ['文件链接', '链接', '文件列表', '列出', '导出', '查看', '有哪些', 'list', 'links']
 const CHAT_BASH_KEYWORDS = [
   'bash',
   'shell',
@@ -1049,22 +1061,36 @@ const hasLocalMediaContext = (text: string) =>
   hasMediaFileReference(text) ||
   /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
   /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
+const MATERIALS_ID_PATTERN =
+  /\b[a-f0-9]{32}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
+const hasMaterialsFolderIdReference = (text: string) =>
+  /\bfolder[_\s-]?id\b/i.test(text) ||
+  /文件夹\s*(id|ID|编号)/.test(text) ||
+  /folder\s*[_-]?\s*id/i.test(text)
+const hasMaterialsLibraryIdReference = (text: string) =>
+  /素材库\s*[a-f0-9-]{8,}/i.test(text) ||
+  /materials\s*[a-f0-9-]{8,}/i.test(text) ||
+  /素材库[^，。！？\s]{0,8}/.test(text) && MATERIALS_ID_PATTERN.test(text)
+const hasMaterialsFolderLinksIntent = (text: string) =>
+  (hasAnyKeyword(text, MATERIALS_DOMAIN_KEYWORDS) || hasMaterialsFolderIdReference(text) || hasMaterialsLibraryIdReference(text)) &&
+  (/(文件夹|folder|素材库)/.test(text) || hasMaterialsFolderIdReference(text) || hasMaterialsLibraryIdReference(text)) &&
+  (hasAnyKeyword(text, MATERIALS_FOLDER_LINK_KEYWORDS) || /(文件|file)/.test(text))
 
 const hasSubtitleRecognitionIntent = (text: string) =>
-  (hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
-    ((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
-      /(字幕|文案|台词|时间轴)/.test(text)) ||
-    (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text))) &&
-  (hasAudioSubject(text) || hasVideoSubject(text) || hasMediaFileReference(text) || hasUrlLikeText(text))
+  hasAnyKeyword(text, CUT_SUBTITLE_RECOGNITION_KEYWORDS) ||
+  (((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
+    /(字幕|文案|台词|时间轴)/.test(text)) ||
+    (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text)))
 
 const hasVideoUnderstandIntent = (text: string) =>
-  (hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
-    ((/(理解|分析|总结|概括|描述|识别|看懂)/.test(text) ||
-      /讲了什么/.test(text) ||
-      /有什么/.test(text) ||
-      /出现了什么/.test(text)) &&
-      /(画面|镜头|场景|人物|动作|内容)/.test(text))) &&
-  (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text))
+  hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
+  (((/(理解|分析|总结|概括|描述|识别|看懂|看下|看一下|看看)/.test(text) ||
+    /讲了什么/.test(text) ||
+    /有什么/.test(text) ||
+    /出现了什么/.test(text)) &&
+    (/(画面|镜头|场景|人物|动作)/.test(text) ||
+      (((/内容/.test(text) || /讲了什么/.test(text) || /有什么/.test(text) || /出现了什么/.test(text)) &&
+        (hasVideoSubject(text) || hasVideoFileReference(text) || hasUrlLikeText(text)))))))
 
 const CUT_LOOKUP_KEYWORDS = ['查看', '看下', '看一下', '查询', '列出', '有哪些', '可用', '支持', '列表']
 const hasCutDraftContext = (text: string) => /(草稿|draft|dfd_)/.test(text)
@@ -1397,6 +1423,7 @@ export class CapabilityRouter {
       const hasMediaDuration = !hasCutWorkflow && hasMediaDurationIntent(text)
       const hasMediaTrim = !hasCutWorkflow && hasMediaTrimIntent(text)
       const hasVideoConcat = !hasCutWorkflow && hasVideoConcatIntent(text)
+      const hasMaterialsFolderLinks = hasMaterialsFolderLinksIntent(text)
       const hasKeyframeAdd = !hasCutWorkflow && hasKeyframeAddIntent(text)
       const hasEffectAdd = !hasCutWorkflow && hasEffectAddIntent(text)
       const hasEffectUpdate = !hasCutWorkflow && hasEffectUpdateIntent(text)
@@ -1548,6 +1575,10 @@ export class CapabilityRouter {
 
       if (hasWebDownloadIntent) {
         addCapabilityReason(selected, reasons, 'webDownload', 'prompt:web-download')
+      }
+
+      if (hasMaterialsFolderLinks) {
+        addCapabilityReason(selected, reasons, 'materialsFolderLinks', 'prompt:materials-folder-links')
       }
 
       if (hasAiImageIntent) {
@@ -2132,6 +2163,10 @@ function classifyIntent(args: {
     addDomainSubdomain('web', 'execute', 'prompt:web-execute')
   }
 
+  if (args.selected.has('materialsFolderLinks')) {
+    addDomainSubdomain('materials', 'folder_links', 'capability:materials-folder-links')
+  }
+
   if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
   if (args.selected.has('video')) addDomainSubdomain('ai_media', 'video', 'capability:video')
   if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')
@@ -2250,6 +2285,7 @@ function classifyIntent(args: {
     return collapseCutSubdomains(rawSubdomains)
   }
   const workspaceSubdomains = getSubdomains('workspace')
+  const materialsSubdomains = getSubdomains('materials')
   const webSubdomains = getSubdomains('web')
   const aiMediaSubdomains = getSubdomains('ai_media')
   const skillsSubdomains = getSubdomains('skills')
@@ -2262,9 +2298,10 @@ function classifyIntent(args: {
     scrapt: 2,
     skills: 3,
     workspace: 4,
-    web: 5,
-    auxiliary: 6,
-    chat: 7
+    materials: 5,
+    web: 6,
+    auxiliary: 7,
+    chat: 8
   }
 
   const workspaceScore =
@@ -2284,6 +2321,7 @@ function classifyIntent(args: {
   const domainScoreMap: Record<IntentDomain, number> = {
     chat: getSubdomains('chat').length > 0 ? 1 + getSubdomains('chat').length : 0,
     workspace: workspaceScore,
+    materials: materialsSubdomains.length > 0 ? 5 + materialsSubdomains.length : 0,
     web: webScore,
     ai_media: aiMediaSubdomains.length > 0 ? 6 + aiMediaSubdomains.length : 0,
     skills: skillsSubdomains.length > 0 ? 5 + skillsSubdomains.length : 0,
@@ -2297,10 +2335,11 @@ function classifyIntent(args: {
   else if (cutSubdomains.length > 0) primaryDomain = 'cut'
   else if (aiMediaSubdomains.length > 0) primaryDomain = 'ai_media'
   else if (scraptSubdomains.length > 0) primaryDomain = 'scrapt'
+  else if (materialsSubdomains.length > 0) primaryDomain = 'materials'
   else if (workspaceScore > 0 || webScore > 0) primaryDomain = workspaceScore >= webScore ? 'workspace' : 'web'
   else if (auxiliarySubdomains.length > 0) primaryDomain = 'auxiliary'
 
-  const allDomains: IntentDomain[] = ['chat', 'workspace', 'web', 'ai_media', 'skills', 'auxiliary', 'scrapt', 'cut']
+  const allDomains: IntentDomain[] = ['chat', 'workspace', 'materials', 'web', 'ai_media', 'skills', 'auxiliary', 'scrapt', 'cut']
   const companionDomains = allDomains.filter((domain) => {
     if (domain === 'chat' || domain === primaryDomain) return false
     return getRawSubdomains(domain).length > 0

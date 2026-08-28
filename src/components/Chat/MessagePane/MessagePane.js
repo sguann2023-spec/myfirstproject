@@ -2,14 +2,11 @@ import React from 'react';
 import './MessagePane.css';
 import MessageGroup from './MessageGroup/MessageGroup';
 import WelcomePage from './WelcomePage';
-import { loggerService } from '@logger';
-
-const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
-const logger = loggerService.withContext('ChatLoading/MessagePane');
 
 const MessagePane = ({
   messages,
   sending,
+  historyLoading = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
   onDeleteAssistantMessage,
@@ -82,21 +79,6 @@ const MessagePane = ({
   }, [visibleMessages]);
 
   React.useEffect(() => {
-    if (!DEBUG_CHAT_LOADING) return;
-    // logger.info({
-    //   sending,
-    //   visibleCount: visibleMessages.length,
-    //   loadingMessageId,
-    //   groupedCount: groupedMessages.length,
-    //   tail: visibleMessages.slice(-3).map((item) => ({
-    //     id: item?.id,
-    //     role: item?.role,
-    //     contentLength: String(item?.content || '').length
-    //   }))
-    // });
-  }, [sending, visibleMessages, loadingMessageId, groupedMessages]);
-
-  React.useEffect(() => {
     const element = scrollContainerRef.current;
     if (!element) return undefined;
 
@@ -149,7 +131,13 @@ const MessagePane = ({
         className="chat-panel__messages"
         onScroll={handleScroll}
         onWheelCapture={handleWheelCapture}>
-        {visibleMessages.length === 0 ? (
+        {historyLoading && visibleMessages.length === 0 ? (
+          <div className="chat-panel__history-loading" role="status" aria-live="polite">
+            <div className="chat-panel__history-loading-spinner" />
+            <div className="chat-panel__history-loading-title">正在加载对话记录</div>
+            <div className="chat-panel__history-loading-subtitle">请稍候...</div>
+          </div>
+        ) : visibleMessages.length === 0 ? (
           messages.length === 0 ? (
             <WelcomePage
               emptyWelcomeText={emptyWelcomeText}
@@ -238,6 +226,7 @@ const areModelOptionsEqual = (prevOptions = [], nextOptions = []) => {
 export default React.memo(MessagePane, (prevProps, nextProps) => (
   areMessagesEqual(prevProps.messages, nextProps.messages)
   && prevProps.sending === nextProps.sending
+  && prevProps.historyLoading === nextProps.historyLoading
   && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
   && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
   && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage

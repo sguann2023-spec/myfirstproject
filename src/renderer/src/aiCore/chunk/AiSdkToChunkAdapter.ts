@@ -169,13 +169,14 @@ export class AiSdkToChunkAdapter {
    * @param final 包含 reasoningContent 的状态对象
    * @returns 是否发送了 THINKING_COMPLETE chunk
    */
-  private emitThinkingCompleteIfNeeded(final: { reasoningContent: string; [key: string]: any }) {
-    if (final.reasoningContent) {
+  private emitThinkingCompleteIfNeeded(final: { reasoningContent: string; reasoningId?: string; [key: string]: any }) {
+    if (final.reasoningContent || final.reasoningId) {
       this.onChunk({
         type: ChunkType.THINKING_COMPLETE,
         text: final.reasoningContent
       })
       final.reasoningContent = ''
+      final.reasoningId = ''
     }
   }
 
@@ -329,6 +330,7 @@ export class AiSdkToChunkAdapter {
       // === 工具调用相关事件（原始 AI SDK 事件，如果没有被中间件处理） ===
 
       case 'tool-input-start':
+        this.emitThinkingCompleteIfNeeded(final)
         this.toolCallHandler.handleToolInputStart(chunk)
         break
       case 'tool-input-delta':
@@ -339,6 +341,7 @@ export class AiSdkToChunkAdapter {
         break
 
       case 'tool-call':
+        this.emitThinkingCompleteIfNeeded(final)
         this.toolCallHandler.handleToolCall(chunk)
         break
 

@@ -90,6 +90,19 @@ function safeStringify(value: unknown): string {
   }
 }
 
+export function isInlineToolPayloadTruncated(
+  value: unknown,
+  options: { maxBytes?: number } = {}
+): boolean {
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') {
+    return false
+  }
+
+  const maxBytes = Number.isFinite(options.maxBytes) ? Number(options.maxBytes) : MAX_INLINE_TOOL_PAYLOAD_BYTES
+  const text = typeof value === 'string' ? value : safeStringify(value)
+  return getUtf8ByteLength(text) > maxBytes
+}
+
 function sanitizeInlinePayloadInternal(
   value: unknown,
   options: { label?: string; maxBytes?: number },

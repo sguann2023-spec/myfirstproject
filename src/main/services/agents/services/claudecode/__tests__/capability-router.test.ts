@@ -204,6 +204,49 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('browser')).toBe(false)
   })
 
+  it('routes materials folder link export requests to materials.folder_links', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '帮我把素材库 folder_id=123456 下面的文件链接导出来',
+      sessionId: 'session-materials-folder-links',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('materials')
+    expect(decision.subdomains).toEqual(['folder_links'])
+    expect(decision.selected.has('materialsFolderLinks')).toBe(true)
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'materials',
+          role: 'primary',
+          subdomains: ['folder_links']
+        })
+      ])
+    )
+  })
+
+  it('routes natural materials library id prompts to materials.folder_links', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '查一下素材库d602e66efb9a49eb822cfac6a173170f里有哪些文件',
+      sessionId: 'session-materials-library-id',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('materials')
+    expect(decision.subdomains).toEqual(['folder_links'])
+    expect(decision.selected.has('materialsFolderLinks')).toBe(true)
+  })
+
   it('treats open website phrasing as browser intent', () => {
     const router = new CapabilityRouter()
 
@@ -670,6 +713,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const looseSubtitleRecognitionDecision = router.select({
+      prompt: '识别里面的字幕',
+      sessionId: 'session-loose-subtitle-recognition',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const videoUnderstandDecision = router.select({
       prompt: '分析这个视频画面内容 https://example.com/source.mp4',
       sessionId: 'session-video-understand',
@@ -775,6 +826,9 @@ describe('CapabilityRouter', () => {
     expect(localSubtitleRecognitionDecision.subdomains).toEqual(['analysis'])
     expect(localSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(localSubtitleRecognitionDecision.selected.has('uploadFile')).toBe(true)
+    expect(looseSubtitleRecognitionDecision.primaryDomain).toBe('cut')
+    expect(looseSubtitleRecognitionDecision.subdomains).toEqual(['analysis'])
+    expect(looseSubtitleRecognitionDecision.selected.has('subtitleRecognition')).toBe(true)
     expect(videoUnderstandDecision.primaryDomain).toBe('cut')
     expect(videoUnderstandDecision.subdomains).toEqual(['analysis'])
     expect(videoUnderstandDecision.selected.has('videoUnderstand')).toBe(true)
@@ -928,6 +982,23 @@ describe('CapabilityRouter', () => {
     const decision = router.select({
       prompt: '分析这个草稿里的视频画面内容，再总结成一段文案',
       sessionId: 'session-video-understand-draft-context',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.selected.has('videoUnderstand')).toBe(true)
+    expect(decision.subdomains).toEqual(expect.arrayContaining(['analysis']))
+  })
+
+  it('allows loose media understanding prompts to enter cut analysis', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '看一下这个视频讲了什么',
+      sessionId: 'session-loose-video-understand',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,

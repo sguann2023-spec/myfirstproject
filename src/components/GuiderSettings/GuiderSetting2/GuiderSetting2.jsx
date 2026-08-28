@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { message } from 'antd';
 import './GuiderSetting2.css';
 import DraftFolderImg from '../../../../public/draft_folder_setting.png';
 import PresetFolderImg from '../../../../public/preset_folder_setting.png';
 import InfoIcon from '../../../../public/info.png';
 import { electronStore } from '../../../shared/electronStore';
+import { detectJianyingPaths } from '../../../shared/jianyingPathDetector';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('GuiderSetting2');
 const GuiderSetting2 = ({ onSettingsChange }) => {
@@ -20,27 +21,44 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
     return Promise.reject(new Error('IPC unavailable'));
   };
 
-  const ipcSend = (channel, data) => {
-    if (window.ipc?.send) return window.ipc.send(channel, data);
-    try {
-      const { ipcRenderer } = window.require('electron');
-      if (ipcRenderer?.send) return ipcRenderer.send(channel, data);
-    } catch {}
-  };
-
   useEffect(() => {
+    const detectedPaths = detectJianyingPaths();
     const draftFallback = electronStore?.get('draftFolder', '') || '';
     const presetFallback = electronStore?.get('presetFolder', '') || '';
-    setPresetFolder(presetFallback);
+
+    const syncDetectedSettings = (nextDraftFolder, nextPresetFolder) => {
+      setDraftFolder(nextDraftFolder);
+      setPresetFolder(nextPresetFolder);
+    };
+
     ipcInvoke('get-draft-folder')
-      .then(({ draftFolder: value }) => setDraftFolder(value || draftFallback))
-      .catch(() => setDraftFolder(draftFallback));
+      .then(({ draftFolder: value }) => {
+        const nextDraftFolder = value || draftFallback || detectedPaths.draftPath || '';
+        const nextPresetFolder = presetFallback || detectedPaths.presetPath || '';
+        logger.info('[GuiderSetting2] detected-initial-folders', {
+          draftFolder: nextDraftFolder,
+          presetFolder: nextPresetFolder,
+        });
+        syncDetectedSettings(nextDraftFolder, nextPresetFolder);
+      })
+      .catch(() => {
+        const nextDraftFolder = draftFallback || detectedPaths.draftPath || '';
+        const nextPresetFolder = presetFallback || detectedPaths.presetPath || '';
+        logger.warn('[GuiderSetting2] get-draft-folder failed, fallback to detected folders', {
+          draftFolder: nextDraftFolder,
+          presetFolder: nextPresetFolder,
+        });
+        syncDetectedSettings(nextDraftFolder, nextPresetFolder);
+      });
   }, []);
 
   useEffect(() => {
-    // Notify parent whether both settings are completed, so it can enable/disable "开始使用".
     if (typeof onSettingsChange !== 'function') return;
-    onSettingsChange(Boolean(draftFolder?.trim() && presetFolder?.trim()));
+    onSettingsChange({
+      draftFolder: draftFolder?.trim() || '',
+      presetFolder: presetFolder?.trim() || '',
+      isComplete: Boolean(draftFolder?.trim() && presetFolder?.trim()),
+    });
   }, [draftFolder, presetFolder, onSettingsChange]);
 
   const handleChangeDraftFolder = async () => {
@@ -51,8 +69,6 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
       logger.warn('[GuiderSetting2] handleChangeDraftFolder:no-selection');
       return;
     }
-    ipcSend('save-settings', { draftFolder: selected });
-    electronStore.set('draftFolder', selected);
     setDraftFolder(selected);
     try {
       const fs = window.require ? window.require('fs') : null;
@@ -98,8 +114,6 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
   const handleChangePresetFolder = async () => {
     const selected = await ipcInvoke('select-draft-folder').catch(() => null);
     if (!selected) return;
-    ipcSend('save-settings', { presetFolder: selected });
-    electronStore.set('presetFolder', selected);
     setPresetFolder(selected);
   };
 
@@ -119,8 +133,8 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
         </div>
         <div className="gs2-save-row">
           <div className="gs2-save-desc">
-            <div className={`gs2-save-path ${!draftFolder?.trim() ? 'empty' : ''}`}>
-              {draftFolder || '未设置'}
+            <div className="gs2-save-path" title={draftFolder || ''}>
+              {draftFolder || ''}
             </div>
           </div>
           <button type="button" className="gs2-save-button" onClick={handleChangeDraftFolder}>
@@ -143,8 +157,8 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
         </div>
         <div className="gs2-save-row">
           <div className="gs2-save-desc">
-            <div className={`gs2-save-path ${!presetFolder?.trim() ? 'empty' : ''}`}>
-              {presetFolder || '未设置'}
+            <div className="gs2-save-path" title={presetFolder || ''}>
+              {presetFolder || ''}
             </div>
           </div>
           <button type="button" className="gs2-save-button" onClick={handleChangePresetFolder}>

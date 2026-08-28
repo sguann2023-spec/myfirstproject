@@ -27,6 +27,7 @@ import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
+import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
 import { newMessagesActions } from '../../renderer/src/store/newMessage';
@@ -50,6 +51,7 @@ const CHAT_PERSIST_DEBOUNCE_MS = 800;
 const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
+const PASTED_MEDIA_DIRECTORY = 'pasted-media';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
 const QUICK_TRENDY_KOUBO_SKILL_NAME = '网感口播';
@@ -67,6 +69,47 @@ const createLocalFilePreviewUrl = (filePath = '') => {
   const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
   return encodeURI(`file://${normalizedPathname}`);
 };
+const buildMarkdownFileLink = (name = '', url = '') => {
+  const safeName = String(name || '附件')
+    .replace(/\\/g, '\\\\')
+    .replace(/\]/g, '\\]');
+  return `[${safeName}](${url})`;
+};
+const getFileExtension = (value = '') => {
+  const normalizedValue = String(value || '').trim();
+  const matched = normalizedValue.match(/\.([a-zA-Z0-9]+)$/);
+  return matched ? matched[1].toLowerCase() : '';
+};
+const getClipboardFileExtension = (file = {}) => {
+  const explicitExtension = getFileExtension(file?.name || '');
+  if (explicitExtension) return explicitExtension;
+
+  const mimeType = String(file?.type || '').trim().toLowerCase();
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/webp') return 'webp';
+  if (mimeType === 'image/gif') return 'gif';
+  if (mimeType === 'image/bmp') return 'bmp';
+  if (mimeType === 'image/svg+xml') return 'svg';
+  return 'png';
+};
+const buildPendingAttachmentFileName = (item = {}, index = 0) => {
+  const currentName = String(item?.name || '').trim();
+  const extension = getClipboardFileExtension({
+    name: currentName,
+    type: item?.fileType || item?.file?.type || '',
+  });
+  const hasPendingGeneratedName = /^pasted_image_[0-9]+_[a-z0-9]+(?:_[0-9]+)?\.[a-z0-9]+$/i.test(currentName);
+  if (hasPendingGeneratedName) return currentName;
+  return `pasted_image_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${index}.${extension}`;
+};
+const replaceFirstOccurrence = (content = '', target = '', replacement = '') => {
+  const normalizedContent = String(content || '');
+  const normalizedTarget = String(target || '');
+  if (!normalizedTarget) return normalizedContent;
+  const targetIndex = normalizedContent.indexOf(normalizedTarget);
+  if (targetIndex < 0) return normalizedContent;
+  return `${normalizedContent.slice(0, targetIndex)}${replacement}${normalizedContent.slice(targetIndex + normalizedTarget.length)}`;
+};
 const getSessionWorkspacePath = (session) => {
   const config = session?.configuration && typeof session.configuration === 'object' ? session.configuration : {};
   return normalizeLocalPath(config.selected_workspace_path || session?.accessible_paths?.[0] || '').trim();
@@ -77,6 +120,15 @@ const joinLocalPath = (...segments) => {
     return normalizeLocalPath(joinPath(...segments));
   }
   return normalizeLocalPath(segments.filter(Boolean).join('/')).replace(/\/+/g, '/');
+};
+const resolveDefaultWorkspaceParentDir = (appInfo, agentId = DEFAULT_RUNTIME_AGENT_ID) => {
+  const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
+  if (!appDataPath) return '';
+  return resolveWorkspaceParentDirForAgent({
+    agentId,
+    appDataPath,
+    joinPath: window?.electronAPI?.path?.join
+  });
 };
 const dedupeWorkspacePaths = (paths = []) => Array.from(new Set(
   (Array.isArray(paths) ? paths : []).map((item) => normalizeLocalPath(item).trim()).filter(Boolean)
@@ -180,6 +232,73 @@ const seedWorkspaceSkeleton = async (workspacePath) => {
   if (!seedResult?.ok) {
     throw new Error(seedResult?.error || '初始化工作空间失败');
   }
+};
+const persistPendingChatLocalAttachments = async ({
+  workspacePath = '',
+  imageAttachmentPreviews = [],
+  pendingLocalAttachments = [],
+}) => {
+  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+  if (!normalizedWorkspacePath || pendingLocalAttachments.length === 0) {
+    return {
+      content: '',
+      imageAttachmentPreviews,
+    };
+  }
+
+  const targetDirectory = joinLocalPath(normalizedWorkspacePath, PASTED_MEDIA_DIRECTORY);
+  await window.api.file.mkdir(targetDirectory);
+
+  const persistedEntries = await Promise.all(
+    pendingLocalAttachments.map(async (item) => {
+      const file = item?.file;
+      const originalName = String(item?.name || '').trim();
+      const name = buildPendingAttachmentFileName(item);
+      const uid = String(item?.uid || '').trim();
+      if (!uid || !name || !file || typeof file.arrayBuffer !== 'function') {
+        return null;
+      }
+
+      const targetPath = joinLocalPath(targetDirectory, name);
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      await window.api.file.write(targetPath, buffer);
+      return {
+        uid,
+        originalName,
+        name,
+        sourcePath: targetPath,
+        fileUrl: createLocalFilePreviewUrl(targetPath),
+      };
+    })
+  );
+
+  const persistedByUid = new Map(
+    persistedEntries
+      .filter(Boolean)
+      .map((item) => [item.uid, item])
+  );
+
+  return {
+    imageAttachmentPreviews: imageAttachmentPreviews.map((item) => {
+      const persisted = persistedByUid.get(String(item?.uid || '').trim());
+      if (!persisted) return item;
+      return {
+        ...item,
+        name: persisted.name,
+        sourcePath: persisted.sourcePath,
+        sourceType: 'local',
+      };
+    }),
+    replaceContentPlaceholders(content = '') {
+      let nextContent = String(content || '');
+      persistedEntries.filter(Boolean).forEach((item) => {
+        const placeholder = `#${item.originalName || item.name}`;
+        const markdownLink = buildMarkdownFileLink(item.name, item.fileUrl);
+        nextContent = replaceFirstOccurrence(nextContent, placeholder, markdownLink);
+      });
+      return nextContent;
+    }
+  };
 };
 const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
   const resourcesPath = normalizeLocalPath(appInfo?.resourcesPath || '').trim();
@@ -646,9 +765,15 @@ const createEmptyChatSession = () => {
     createdAt: now,
     updatedAt: now,
     runtimeSessionId: '',
+    historyLoaded: true,
     messages: [],
   };
 };
+
+const buildImmediateChatTitleFromUserMessage = (value = '') =>
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const shouldRestoreBeginnerGuideInFreshChat = () => (
   !isBeginnerGuideCompleted() || isBeginnerGuideReopenPending()
@@ -927,34 +1052,23 @@ const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
 };
 
 const shouldHydrateChatSessionFromHistory = (session) => {
-  if (!session || !Array.isArray(session.messages)) return false;
+  if (!session) return false;
   const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
   if (!runtimeSessionId) return false;
-
-  if (session.messages.length === 0) return true;
-
-  const hasAssistantMessage = session.messages.some(
-    (message) => String(message?.role || '').toLowerCase() === 'assistant'
-  );
-  if (!hasAssistantMessage) return true;
-
-  return session.messages.some((message) => {
-    if (String(message?.role || '').toLowerCase() !== 'assistant') return false;
-    return !buildVisibleAssistantContent(message) || hasInterruptedAssistantState(message);
-  });
+  return session.historyLoaded !== true;
 };
 
 const shouldPersistChatSessionMessages = (session) => {
   if (!session || !Array.isArray(session.messages)) return false;
   const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
-  if (!runtimeSessionId) return true;
-  return shouldHydrateChatSessionFromHistory(session);
+  return !runtimeSessionId;
 };
 
 const serializeChatSessionsForPersistence = (sessions = [], modelOptions = []) => (
   (Array.isArray(sessions) ? sessions : []).map((session) => ({
     ...session,
     runtimeSessionId: String(session?.runtimeSessionId || '').trim(),
+    historyLoaded: String(session?.runtimeSessionId || '').trim() ? false : session?.historyLoaded !== false,
     messages: shouldPersistChatSessionMessages(session)
       ? (Array.isArray(session?.messages)
           ? session.messages.map((message) => normalizePersistedChatMessage(message, modelOptions))
@@ -1089,11 +1203,33 @@ const enhancePersistedImageGenerationArguments = (toolName, args, userPreviewSou
     return args;
   }
 
-  const referenceImages = Array.isArray(args.referenceImages)
-    ? args.referenceImages
-    : Array.isArray(args.reference_images)
-      ? args.reference_images
-      : [];
+  const referenceImages = [
+    args.referenceImages,
+    args.reference_images,
+    args.sourceImages,
+    args.source_images,
+    args.referenceImage,
+    args.reference_image,
+    args.sourceImage,
+    args.source_image,
+    args.baseImage,
+    args.base_image,
+    args.editImage,
+    args.edit_image
+  ].reduce((acc, candidate) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => {
+        if (typeof item === 'string' && item.trim()) {
+          acc.push(item.trim());
+        }
+      });
+      return acc;
+    }
+    if (typeof candidate === 'string' && candidate.trim()) {
+      acc.push(candidate.trim());
+    }
+    return acc;
+  }, []);
   if (!referenceImages.length || userPreviewSources.length === 0) {
     return args;
   }
@@ -1483,6 +1619,7 @@ const HomePage = () => {
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
   const [chatSessionInFlightMap, setChatSessionInFlightMap] = useState({});
   const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
+  const [chatHistoryLoadingMap, setChatHistoryLoadingMap] = useState({});
   const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
   const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
@@ -1592,6 +1729,9 @@ const HomePage = () => {
 
     chatHistoryHydrateSettledRef.current.delete(hydrateKey);
     chatHistoryHydratingRef.current.add(hydrateKey);
+    setChatHistoryLoadingMap((prev) => (
+      prev[normalizedChatId] ? prev : { ...prev, [normalizedChatId]: true }
+    ));
     try {
       const currentSessionAtHydrateStart = chatSessionsRef.current.find((item) => item.id === normalizedChatId);
       const beforeMessageIds = new Set(
@@ -1606,6 +1746,10 @@ const HomePage = () => {
         sessionId: normalizedSessionId
       });
       if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
+        setChatSessions((prev) => prev.map((item) => (
+          item.id === normalizedChatId ? { ...item, historyLoaded: true } : item
+        )));
+        chatHistoryHydrateSettledRef.current.add(hydrateKey);
         logger.warn('[HomePage][HistoryHydrate] skipped empty persisted sync', {
           chatId: normalizedChatId,
           sessionId: normalizedSessionId,
@@ -1675,6 +1819,7 @@ const HomePage = () => {
           return {
             ...item,
             updatedAt: Date.now(),
+            historyLoaded: true,
             messages: [...hydratedMessages, ...locallyAddedMessages]
           };
         });
@@ -1697,6 +1842,12 @@ const HomePage = () => {
       });
     } finally {
       chatHistoryHydratingRef.current.delete(hydrateKey);
+      setChatHistoryLoadingMap((prev) => {
+        if (!(normalizedChatId in prev)) return prev;
+        const next = { ...prev };
+        delete next[normalizedChatId];
+        return next;
+      });
     }
   }, []);
 
@@ -2002,17 +2153,24 @@ const HomePage = () => {
       if (Array.isArray(parsed) && parsed.length > 0) {
         const normalized = parsed
           .filter((item) => item && typeof item === 'object' && item.id)
-          .map((item) => ({
-            id: item.id,
-            title: item.title || DEFAULT_CHAT_TITLE,
-            titleAutoGenerated: item.titleAutoGenerated === true,
-            createdAt: Number(item.createdAt) || Date.now(),
-            updatedAt: Number(item.updatedAt) || Date.now(),
-            runtimeSessionId: String(item.runtimeSessionId || '').trim(),
-            messages: Array.isArray(item.messages)
-              ? item.messages.map((message) => normalizePersistedChatMessage(message))
-              : [],
-          }));
+          .map((item) => {
+            const runtimeSessionId = String(item.runtimeSessionId || '').trim();
+            const restoredMessages = runtimeSessionId
+              ? []
+              : (Array.isArray(item.messages)
+                  ? item.messages.map((message) => normalizePersistedChatMessage(message))
+                  : []);
+            return {
+              id: item.id,
+              title: item.title || DEFAULT_CHAT_TITLE,
+              titleAutoGenerated: item.titleAutoGenerated === true,
+              createdAt: Number(item.createdAt) || Date.now(),
+              updatedAt: Number(item.updatedAt) || Date.now(),
+              runtimeSessionId,
+              historyLoaded: runtimeSessionId ? false : true,
+              messages: restoredMessages,
+            };
+          });
         if (normalized.length > 0) {
           if (legacyRawSessions || legacyRawActiveId) {
             electronStore.set(CHAT_STORAGE_KEY, serializeChatSessionsForPersistence(normalized));
@@ -2190,6 +2348,9 @@ const HomePage = () => {
   const activeChatMessagePaneSending = Boolean(
     activeChatSessionInFlight
   );
+  const activeChatHistoryLoading = Boolean(
+    activeChatId && chatHistoryLoadingMap[String(activeChatId || '').trim()]
+  );
   const activeChatNeedsHistoryHydrate = Boolean(
     activeChatSession && shouldHydrateChatSessionFromHistory(activeChatSession)
   );
@@ -2333,6 +2494,9 @@ const HomePage = () => {
 
     let cancelled = false;
     chatHistoryHydratingRef.current.add(hydrateKey);
+    setChatHistoryLoadingMap((prev) => (
+      prev[activeChatSession.id] ? prev : { ...prev, [activeChatSession.id]: true }
+    ));
     void (async () => {
       try {
         const beforeMessageCount = Array.isArray(activeChatSession.messages)
@@ -2353,6 +2517,9 @@ const HomePage = () => {
         });
         if (cancelled) return;
         if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
+          setChatSessions((prev) => prev.map((item) => (
+            item.id === activeChatSession.id ? { ...item, historyLoaded: true } : item
+          )));
           chatHistoryHydrateSettledRef.current.add(hydrateKey);
           logger.warn('[HomePage][HistoryHydrate] skipped empty history', {
             chatId: activeChatSession.id,
@@ -2431,6 +2598,7 @@ const HomePage = () => {
             return {
               ...item,
               updatedAt: Date.now(),
+              historyLoaded: true,
               messages: [...hydratedMessages, ...locallyAddedMessages]
             };
           });
@@ -2452,6 +2620,12 @@ const HomePage = () => {
         });
       } finally {
         chatHistoryHydratingRef.current.delete(hydrateKey);
+        setChatHistoryLoadingMap((prev) => {
+          if (!(activeChatSession.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[activeChatSession.id];
+          return next;
+        });
       }
     })();
 
@@ -2523,6 +2697,16 @@ const HomePage = () => {
       return next;
     });
   };
+  const removeChatHistoryLoading = (chatId) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatHistoryLoadingMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
   const setChatWorkspaceStatus = useCallback((chatId, statusText = '') => {
     const id = String(chatId || '').trim();
     if (!id) return;
@@ -2542,8 +2726,8 @@ const HomePage = () => {
       };
     });
   }, []);
-  const updateChatAssistantMessage = useCallback((chatId, assistantMessageId, updates) => {
-    if (!chatId || !assistantMessageId || !updates) return;
+  const updateChatMessage = useCallback((chatId, messageId, updates) => {
+    if (!chatId || !messageId || !updates) return;
     setChatSessions((prev) => {
       const updated = prev.map((item) => {
         if (item.id !== chatId) return item;
@@ -2551,7 +2735,7 @@ const HomePage = () => {
           ...item,
           updatedAt: Date.now(),
           messages: item.messages.map((message) => (
-            message.id === assistantMessageId
+            message.id === messageId
               ? {
                 ...message,
                 ...(typeof updates === 'function' ? updates(message) : updates),
@@ -2564,6 +2748,9 @@ const HomePage = () => {
       return sortChatSessions(updated);
     });
   }, []);
+  const updateChatAssistantMessage = useCallback((chatId, assistantMessageId, updates) => {
+    updateChatMessage(chatId, assistantMessageId, updates);
+  }, [updateChatMessage]);
   const finalizeChatAssistantMessageLocally = useCallback(({
     chatId,
     assistantMessageId,
@@ -2648,48 +2835,51 @@ const HomePage = () => {
     };
   }, []);
 
-  const triggerAutoRenameSessionTitle = async (sessionId, messagesOverride = null) => {
+  const triggerAutoRenameSessionTitle = async (sessionId, {
+    messagesOverride = null,
+    modelOverride = '',
+    requireFirstUserMessageOnly = false
+  } = {}) => {
     const id = String(sessionId || '').trim();
     if (!id) return;
     if (chatTitleGeneratingSessionIdsRef.current.has(id)) return;
 
     const session = chatSessionsRef.current.find((item) => item.id === id);
-    if (!session) return;
+    if (!session && !Array.isArray(messagesOverride)) return;
 
-    const currentTitle = String(session.title || '').trim();
-    if (currentTitle && currentTitle !== DEFAULT_CHAT_TITLE) return;
+    const currentTitle = String(session?.title || '').trim();
+    if (currentTitle && currentTitle !== DEFAULT_CHAT_TITLE && !session?.titleAutoGenerated) return;
 
     const normalizedMessages = Array.isArray(messagesOverride)
       ? messagesOverride
-      : (Array.isArray(session.messages) ? session.messages : []);
-    const assistantReplies = normalizedMessages.filter((item) => (
-      item?.role === 'assistant'
+      : (Array.isArray(session?.messages) ? session.messages : []);
+    const userMessages = normalizedMessages.filter((item) => (
+      item?.role === 'user'
       && String(item?.content || '').trim()
-      && !item?.error
     ));
-    const hasAssistantReply = assistantReplies.length > 0;
-    const hasUserMessage = normalizedMessages.some((item) => item?.role === 'user' && String(item?.content || '').trim());
-    if (!hasUserMessage || !hasAssistantReply) {
+    if (userMessages.length === 0) {
       logger.info('[HomePage][TitleRename] skipped', {
         sessionId: id,
-        reason: !hasUserMessage ? 'no-user-message' : 'no-assistant-reply',
-        messageCount: normalizedMessages.length,
-        assistantReplyCount: assistantReplies.length
+        reason: 'no-user-message',
+        messageCount: normalizedMessages.length
       });
       return;
     }
-    if (assistantReplies.length !== 1) {
+    if (requireFirstUserMessageOnly && userMessages.length !== 1) {
       logger.info('[HomePage][TitleRename] skipped', {
         sessionId: id,
-        reason: 'assistant-reply-count-not-one',
+        reason: 'user-message-count-not-one',
         messageCount: normalizedMessages.length,
-        assistantReplyCount: assistantReplies.length
+        userMessageCount: userMessages.length
       });
       return;
     }
 
     const latestAssistant = [...normalizedMessages].reverse().find((item) => item?.role === 'assistant');
-    const summaryModel = String(latestAssistant?.model || chatModel || '').trim();
+    const summaryModel = resolveMessageModelId(
+      modelOverride || latestAssistant?.model,
+      modelOverride || latestAssistant?.modelId || chatModel
+    );
     if (!summaryModel) {
       logger.info('[HomePage][TitleRename] skipped', {
         sessionId: id,
@@ -2705,6 +2895,7 @@ const HomePage = () => {
     try {
       logger.info('[HomePage][TitleRename] model-candidates', {
         sessionId: id,
+        modelOverride,
         latestAssistantModelType: typeof latestAssistant?.model,
         latestAssistantModelValue: latestAssistant?.model,
         latestAssistantModelId: latestAssistant?.modelId,
@@ -2736,7 +2927,7 @@ const HomePage = () => {
         const next = prev.map((item) => {
           if (item.id !== id) return item;
           const titleNow = String(item.title || '').trim();
-          if (titleNow && titleNow !== DEFAULT_CHAT_TITLE) return item;
+          if (titleNow && titleNow !== DEFAULT_CHAT_TITLE && !item.titleAutoGenerated) return item;
           if (titleNow === nextTitle && item.titleAutoGenerated) return item;
           updated = true;
           return {
@@ -3313,43 +3504,6 @@ const HomePage = () => {
           });
           return sortChatSessions(updated);
         });
-        const sessionBeforeRename = chatSessionsRef.current.find((item) => item.id === chatId);
-        const messagesForRename = sessionBeforeRename
-          ? sessionBeforeRename.messages.map((message) => (
-              message.id === assistantMessageId
-                ? (() => {
-                    const normalizedMessageBlocks = normalizeStructuredBlocksForPersistence(
-                      message.blocks || [],
-                      { hasError: false }
-                    );
-                    const nextModel = normalizeMessageModelMeta(
-                      finalSnapshot?.model || message.model,
-                      finalSnapshot?.model?.id || message.modelId || chatModel,
-                      chatModelOptionsRef.current
-                    ) || message.model || chatModelMetaRef.current || chatModelMeta;
-                    const nextModelId = String(
-                      nextModel?.id
-                      || resolveMessageModelId(finalSnapshot?.model, message.modelId || chatModel)
-                      || message.modelId
-                      || chatModel
-                      || ''
-                    ).trim() || chatModel;
-                    return {
-                      ...message,
-                      storeAssistantMessageId: null,
-                      content: finalizedContent || message.content || '',
-                      blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
-                      usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
-                      metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
-                      model: nextModel,
-                      modelId: nextModelId,
-                      error: null,
-                      updatedAt: Date.now()
-                    };
-                  })()
-                : message
-            ))
-          : null;
         finalizeLatestTodoWriteInStore(storeAssistantMessageId || '');
         streamController?.complete();
         if (requestId) {
@@ -3374,7 +3528,6 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
-        void triggerAutoRenameSessionTitle(chatId, messagesForRename);
       }
     });
     return () => {
@@ -3482,17 +3635,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3573,17 +3719,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3658,17 +3797,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3743,17 +3875,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3828,17 +3953,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3913,17 +4031,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -3998,17 +4109,10 @@ const HomePage = () => {
       const agentSessionId = await ensureAgentSessionForChat(session.id);
       let workspacePath = target.workspacePath;
       if (!workspacePath) {
-        const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-        if (!appDataPath) {
+        const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+        if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-
-        const workspaceParentDir = joinLocalPath(
-          appDataPath,
-          'Data',
-          'Workspaces',
-          DEFAULT_RUNTIME_AGENT_ID
-        );
         workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
@@ -4085,6 +4189,7 @@ const HomePage = () => {
     }
     setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
     setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
+    removeChatHistoryLoading(sessionId);
     removeChatSessionSending(sessionId);
     removeChatSessionInFlight(sessionId);
     removeChatSessionFulfilled(sessionId);
@@ -4134,8 +4239,43 @@ const HomePage = () => {
     });
   };
 
+  const applyImmediateChatTitleFromFirstUserMessage = useCallback((chatId, userMessageText = '') => {
+    const id = String(chatId || '').trim();
+    const nextTitle = buildImmediateChatTitleFromUserMessage(userMessageText);
+    if (!id || !nextTitle) return;
+
+    setChatSessions((prev) => {
+      let updated = false;
+      const next = prev.map((item) => {
+        if (item.id !== id) return item;
+
+        const currentTitle = String(item.title || '').trim();
+        const userMessageCount = (Array.isArray(item.messages) ? item.messages : []).filter((message) => (
+          message?.role === 'user' && String(message?.content || '').trim()
+        )).length;
+        const canReplaceCurrentTitle =
+          !currentTitle
+          || currentTitle === DEFAULT_CHAT_TITLE
+          || item.titleAutoGenerated === true;
+
+        if (userMessageCount > 0 || !canReplaceCurrentTitle || currentTitle === nextTitle) {
+          return item;
+        }
+
+        updated = true;
+        return {
+          ...item,
+          title: nextTitle,
+          titleAutoGenerated: true,
+          updatedAt: Date.now(),
+        };
+      });
+      return updated ? sortChatSessions(next) : prev;
+    });
+  }, []);
+
   const handleSendChatMessage = async (inputText, options = {}) => {
-    const text = String(inputText || '').trim();
+    let text = String(inputText || '').trim();
     const images = Array.isArray(options?.images)
       ? options.images.filter((item) => (
         item
@@ -4144,7 +4284,7 @@ const HomePage = () => {
         && typeof item.media_type === 'string'
       ))
       : [];
-    const imageAttachmentPreviews = Array.isArray(options?.imageAttachmentPreviews)
+    let imageAttachmentPreviews = Array.isArray(options?.imageAttachmentPreviews)
       ? options.imageAttachmentPreviews.filter((item) => (
         item
         && typeof item === 'object'
@@ -4155,6 +4295,16 @@ const HomePage = () => {
           || typeof item.previewUrl === 'string'
           || typeof item.thumbnailUrl === 'string'
         )
+      ))
+      : [];
+    const pendingLocalAttachments = Array.isArray(options?.pendingLocalAttachments)
+      ? options.pendingLocalAttachments.filter((item) => (
+        item
+        && typeof item === 'object'
+        && typeof item.uid === 'string'
+        && typeof item.name === 'string'
+        && item.file
+        && typeof item.file.arrayBuffer === 'function'
       ))
       : [];
     if (!text) return;
@@ -4180,64 +4330,102 @@ const HomePage = () => {
       return;
     }
 
-    const userMessage = {
-      id: createMessageId(),
-      role: 'user',
-      content: text,
-      imageAttachments: imageAttachmentPreviews,
-      createdAt: Date.now(),
-    };
+    const existingSession = chatSessionsRef.current.find((item) => item.id === targetSessionId);
+    const existingUserMessageCount = (Array.isArray(existingSession?.messages) ? existingSession.messages : []).filter((message) => (
+      message?.role === 'user' && String(message?.content || '').trim()
+    )).length;
+    const shouldRequestTitleFromFirstUserMessage = existingUserMessageCount === 0;
 
-    const now = Date.now();
-
-    setChatSessions((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== targetSessionId) return item;
-        return {
-          ...item,
-          updatedAt: now,
-          messages: [...item.messages, userMessage],
-        };
-      });
-      return sortChatSessions(updated);
-    });
-
-    const assistantMessageId = createMessageId();
-    const assistantMessage = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      blocks: [],
-      createdAt: Date.now(),
-      model: chatModelMeta,
-      modelId: chatModel,
-      storeAssistantMessageId: null,
-      retryStatusText: '',
-    };
-    setChatSessions((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== targetSessionId) return item;
-        return {
-          ...item,
-          updatedAt: Date.now(),
-          messages: [...item.messages, assistantMessage],
-        };
-      });
-      return sortChatSessions(updated);
-    });
+    applyImmediateChatTitleFromFirstUserMessage(targetSessionId, text);
 
     if (!canUseAgentRuntime) {
       const normalizedError = normalizeChatError(new Error('agent runtime unavailable'));
-      updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
+      const assistantMessageId = createMessageId();
+      const userMessage = {
+        id: createMessageId(),
+        role: 'user',
+        content: text,
+        imageAttachments: imageAttachmentPreviews,
+        createdAt: Date.now(),
+      };
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        blocks: [],
+        createdAt: Date.now(),
+        model: chatModelMeta,
+        modelId: chatModel,
+        storeAssistantMessageId: null,
+        retryStatusText: '',
+        error: normalizedError,
+      };
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: [...item.messages, userMessage, assistantMessage],
+          };
+        });
+        return sortChatSessions(updated);
+      });
+      if (shouldRequestTitleFromFirstUserMessage) {
+        void triggerAutoRenameSessionTitle(targetSessionId, {
+          messagesOverride: [userMessage],
+          modelOverride: chatModel,
+          requireFirstUserMessageOnly: true
+        });
+      }
       return;
     }
 
-    setChatSessionSending(targetSessionId, true, 'send-start');
-    setChatSessionInFlight(targetSessionId, true, 'send-start');
-    setChatSessionFulfilled(targetSessionId, false, 'send-start');
-    setChatSending(true);
     const requestId = createRequestId();
+    const assistantMessageId = createMessageId();
+    let userMessage = null;
     try {
+      setChatSessionSending(targetSessionId, true, 'send-start');
+      setChatSessionInFlight(targetSessionId, true, 'send-start');
+      setChatSessionFulfilled(targetSessionId, false, 'send-start');
+      setChatSending(true);
+      userMessage = {
+        id: createMessageId(),
+        role: 'user',
+        content: text,
+        imageAttachments: imageAttachmentPreviews,
+        createdAt: Date.now(),
+      };
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        blocks: [],
+        createdAt: Date.now(),
+        model: chatModelMeta,
+        modelId: chatModel,
+        storeAssistantMessageId: null,
+        retryStatusText: '',
+      };
+      setChatSessions((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id !== targetSessionId) return item;
+          return {
+            ...item,
+            updatedAt: Date.now(),
+            messages: [...item.messages, userMessage, assistantMessage],
+          };
+        });
+        return sortChatSessions(updated);
+      });
+      if (shouldRequestTitleFromFirstUserMessage) {
+        void triggerAutoRenameSessionTitle(targetSessionId, {
+          messagesOverride: [userMessage],
+          modelOverride: chatModel,
+          requireFirstUserMessageOnly: true
+        });
+      }
+
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
       let runtimeSession = ensuredSession?.session || null;
@@ -4248,17 +4436,10 @@ const HomePage = () => {
         });
         try {
           const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
-          const appDataPath = normalizeLocalPath(appInfo?.appDataPath || '');
-          if (!appDataPath) {
+          const workspaceParentDir = resolveDefaultWorkspaceParentDir(appInfo, DEFAULT_RUNTIME_AGENT_ID);
+          if (!workspaceParentDir) {
             throw new Error('创建默认工作空间失败');
           }
-
-          const workspaceParentDir = joinLocalPath(
-            appDataPath,
-            'Data',
-            'Workspaces',
-            DEFAULT_RUNTIME_AGENT_ID
-          );
           const workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
           await window.api.file.mkdir(workspacePath);
           await seedWorkspaceSkeleton(workspacePath);
@@ -4285,6 +4466,20 @@ const HomePage = () => {
         } finally {
           setChatWorkspaceStatus(targetSessionId, '');
         }
+      }
+
+      if (pendingLocalAttachments.length > 0) {
+        const persistedPendingAttachments = await persistPendingChatLocalAttachments({
+          workspacePath: getSessionWorkspacePath(runtimeSession),
+          imageAttachmentPreviews,
+          pendingLocalAttachments,
+        });
+        imageAttachmentPreviews = persistedPendingAttachments.imageAttachmentPreviews;
+        text = persistedPendingAttachments.replaceContentPlaceholders(text);
+        updateChatMessage(targetSessionId, userMessage.id, {
+          content: text,
+          imageAttachments: imageAttachmentPreviews,
+        });
       }
 
       syncLegacyUserMessageToRendererStore({
@@ -4380,7 +4575,40 @@ const HomePage = () => {
       setChatWorkspaceStatus(targetSessionId, '');
       setChatSessionSending(targetSessionId, false, 'send-catch');
       setChatSessionInFlight(targetSessionId, false, 'send-catch');
-      updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
+      if (!userMessage) {
+        const failedUserMessage = {
+          id: createMessageId(),
+          role: 'user',
+          content: text,
+          imageAttachments: imageAttachmentPreviews,
+          createdAt: Date.now(),
+        };
+        const failedAssistantMessage = {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: '',
+          blocks: [],
+          createdAt: Date.now(),
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          retryStatusText: '',
+          error: normalizedError,
+        };
+        setChatSessions((prev) => {
+          const updated = prev.map((item) => {
+            if (item.id !== targetSessionId) return item;
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              messages: [...item.messages, failedUserMessage, failedAssistantMessage],
+            };
+          });
+          return sortChatSessions(updated);
+        });
+      } else {
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, { error: normalizedError });
+      }
       setChatSending(false);
     }
   };
@@ -4821,6 +5049,7 @@ const HomePage = () => {
                 onRetryAssistantMessage={handleRetryAssistantMessage}
                 onDeleteAssistantMessage={handleDeleteAssistantMessage}
                 sending={activeChatMessagePaneSending || (!activeChatId && chatSending)}
+                historyLoading={activeChatHistoryLoading}
                 sessionSending={activeChatSending}
                 model={chatModel}
                 modelOptions={chatModelOptions}

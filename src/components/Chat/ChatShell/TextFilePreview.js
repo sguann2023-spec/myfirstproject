@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createHighlighter } from 'shiki';
-import { Plus, X } from 'lucide-react';
+import { Plus, RefreshCw, X } from 'lucide-react';
 import { Button, Input, Popover } from 'antd';
 import './TextFilePreview.css';
 
@@ -183,6 +183,7 @@ const TextFilePreview = ({
   preview,
   currentModelMeta = null,
   onClose,
+  onRefresh,
   onSaveEdit,
   onSubmitComment,
   submittingComment = false
@@ -389,6 +390,19 @@ const TextFilePreview = ({
             </>
           )}
         </div>
+        <button
+          type="button"
+          className="chat-file-preview__close"
+          onClick={() => {
+            void onRefresh?.({
+              fileName: name,
+              filePath: path
+            });
+          }}
+          aria-label="刷新预览"
+          title="刷新预览">
+          <RefreshCw size={14} />
+        </button>
         <button
           type="button"
           className="chat-file-preview__close"

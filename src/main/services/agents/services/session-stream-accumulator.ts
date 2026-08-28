@@ -176,13 +176,14 @@ export class TextStreamAccumulator {
             result?: unknown
             providerMetadata?: { raw?: unknown }
             rawOutput?: unknown
+            truncated?: boolean
           }
           const inline = chunk.output ?? legacyPart.result ?? legacyPart.providerMetadata?.raw
           const raw = legacyPart.rawOutput ?? inline
           this.toolResults.set(toolCallId, {
             inline,
             raw,
-            truncated: raw !== inline
+            truncated: typeof legacyPart.truncated === 'boolean' ? legacyPart.truncated : raw !== inline
           })
         }
         break

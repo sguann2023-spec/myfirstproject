@@ -13,6 +13,7 @@ import FileSystemServer from '@main/mcpServers/filesystem'
 import FileUploadServer from '@main/mcpServers/file-upload'
 import type ImageGenerateServer from '@main/mcpServers/image-generate'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
+import MaterialsServer from '@main/mcpServers/materials'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
@@ -99,6 +100,7 @@ export async function mountRuntimeMcpServers(input: {
   const hasActiveDomain = (domain: CapabilityDecision['activeDomains'][number]['domain']) =>
     capabilityDecision.activeDomains.some((entry) => entry.domain === domain)
   const hasWorkspaceDomain = hasActiveDomain('workspace')
+  const hasMaterialsDomain = hasActiveDomain('materials')
   const hasWebDomain = hasActiveDomain('web')
   const hasAiMediaDomain = hasActiveDomain('ai_media')
   const hasCutDomain = hasActiveDomain('cut')
@@ -120,6 +122,13 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem-server', instance: fileSystemServer.mcpServer })
     autoAllowTools.add('mcp__filesystem-server__download')
     allowMcpPattern('mcp__filesystem-server__*')
+  }
+
+  if (hasMaterialsDomain) {
+    const materialsServer = new MaterialsServer(cwd)
+    mountMcpServer('materials', { type: 'sdk', name: 'materials', instance: materialsServer.mcpServer })
+    autoAllowTools.add('mcp__materials__folder_links')
+    allowMcpPattern('mcp__materials__*')
   }
 
   if (hasWebDomain) {

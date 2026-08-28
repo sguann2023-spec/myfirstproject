@@ -64,17 +64,47 @@ const collectImagePreviewCandidates = (values: unknown[]): string[] => {
   return Array.from(candidates)
 }
 
+const getMediaGenerationReferenceImages = (input: Record<string, unknown>): string[] => {
+  const candidates = [
+    input.referenceImages,
+    input.reference_images,
+    input.sourceImages,
+    input.source_images,
+    input.referenceImage,
+    input.reference_image,
+    input.sourceImage,
+    input.source_image,
+    input.baseImage,
+    input.base_image,
+    input.editImage,
+    input.edit_image
+  ]
+
+  const results: string[] = []
+  candidates.forEach((candidate) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => {
+        if (typeof item === 'string' && item.trim()) {
+          results.push(item.trim())
+        }
+      })
+      return
+    }
+    if (typeof candidate === 'string' && candidate.trim()) {
+      results.push(candidate.trim())
+    }
+  })
+
+  return results
+}
+
 const enhanceMediaGenerationInput = (
   input: Record<string, unknown> | null,
   userReferencePreviewSources: string[]
 ): Record<string, unknown> | null => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input
 
-  const referenceImages = Array.isArray(input.referenceImages)
-    ? input.referenceImages
-    : Array.isArray(input.reference_images)
-      ? input.reference_images
-      : []
+  const referenceImages = getMediaGenerationReferenceImages(input)
   const existingPrepared = Array.isArray(input.reference_images_prepared) ? input.reference_images_prepared : []
 
   if (referenceImages.length === 0 && existingPrepared.length === 0) {

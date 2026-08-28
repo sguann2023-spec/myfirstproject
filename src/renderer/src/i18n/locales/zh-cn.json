@@ -2527,6 +2527,7 @@
           "filesystem_server": "文件系统",
           "image": "图像",
           "koubo_template": "口播模板",
+          "materials": "素材库",
           "search": "联网搜索",
           "seed_audio": "豆包音频",
           "speech": "语音",
@@ -2663,6 +2664,9 @@
           },
           "koubo_template": {
             "submit_koubo_template_task": "提交口播模板任务"
+          },
+          "materials": {
+            "folder_links": "查看文件夹"
           },
           "search": {
             "web_search": "联网搜索"

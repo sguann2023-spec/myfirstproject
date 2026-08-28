@@ -10,6 +10,8 @@ describe('mcpToolDisplay', () => {
         'message.tools.mcp.tools.cut_workflow.execute_workflow': '执行工作流',
         'message.tools.mcp.servers.subtitle_template': '字幕模板',
         'message.tools.mcp.tools.subtitle_template.generate_smart_subtitle': '智能字幕生成',
+        'message.tools.mcp.servers.materials': '素材库',
+        'message.tools.mcp.tools.materials.folder_links': '查看文件夹',
         'message.tools.mcp.servers.image': '图像',
         'message.tools.mcp.tools.image.generate_or_edit_image': '生成或编辑图片',
         'message.tools.mcp.servers.video': '视频',
@@ -42,6 +44,16 @@ describe('mcpToolDisplay', () => {
         t
       })
     ).toBe('剪辑工作流：执行工作流')
+  })
+
+  it('returns translated names for materials MCP tools', () => {
+    expect(
+      getMcpToolDisplayName({
+        serverName: 'materials',
+        toolName: 'folder_links',
+        t
+      })
+    ).toBe('素材库：查看文件夹')
   })
 
   it('uses full-width colon for localized Chinese MCP display names', () => {

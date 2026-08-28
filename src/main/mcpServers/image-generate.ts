@@ -34,7 +34,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are uploaded automatically before submission. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility.',
+    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -69,12 +69,12 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional multiple source/reference image URLs. Prefer running workspace upload first for local files. File URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks and are uploaded automatically before submission.'
+          'Optional multiple source/reference image URLs. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only for pasted screenshot/base64/data URL inputs without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       sourceImage: {
         type: 'string',
         description:
-          'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks. Prefer running workspace upload first for local files; file URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks.'
+          'Alias of referenceImages. Optional single source image URL for editing or image-to-image tasks. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only for pasted screenshot/base64/data URL inputs without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       sourceImages: {
         type: 'array',
@@ -82,12 +82,12 @@ const IMAGE_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks. Prefer running workspace upload first for local files; file URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks.'
+          'Alias of referenceImages. Optional multiple source image URLs for editing or fusion tasks. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only for pasted screenshot/base64/data URL inputs without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       baseImage: {
         type: 'string',
         description:
-          'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle. Prefer running workspace upload first for local files; file URLs, absolute local paths, and pasted screenshot data URLs remain supported as compatibility fallbacks.'
+          'Alias of referenceImages. Optional base image URL to modify, enhance, or restyle. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only for pasted screenshot/base64/data URL inputs without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       editImage: {
         type: 'string',
@@ -472,6 +472,88 @@ class ImageGenerateServer {
         }
       ]
     }
+  }
+
+  private buildImageTaskSuccessPayload(input: {
+    action?: 'status' | 'submit_and_wait'
+    result: ImageTaskStatusResponse
+    referenceImages?: string[]
+    modelResolution?: {
+      requestedModel?: string
+      resolvedModel?: string
+      matchType?: string
+    } | null
+  }) {
+    const { action = 'submit_and_wait', result, referenceImages, modelResolution } = input
+    const normalized: Record<string, unknown> = {
+      provider: 'vectcut',
+      action,
+      estimated_wait_time: IMAGE_TASK_WAIT_TIME,
+      success: result.success,
+      task_id: result.task_id,
+      status: result.status,
+      progress: result.progress,
+      message: result.message,
+      error: result.error
+    }
+
+    if (modelResolution?.requestedModel) {
+      normalized.requested_model = modelResolution.requestedModel
+      normalized.resolved_model = modelResolution.resolvedModel
+      normalized.model_match_type = modelResolution.matchType
+    }
+
+    if (Array.isArray(referenceImages) && referenceImages.length > 0) {
+      normalized.reference_images = referenceImages
+    }
+
+    if (result.result) {
+      normalized.output = {
+        image_url: result.result.image,
+        draft_id: result.result.draft_id,
+        draft_url: result.result.draft_url,
+        reused_from_history: result.result.reused_from_history,
+        error: result.result.error
+      }
+    }
+
+    return normalized
+  }
+
+  private buildImageTaskSubmitPayload(input: {
+    result: ImageSubmitResponse
+    referenceImages?: string[]
+    modelResolution?: {
+      requestedModel?: string
+      resolvedModel?: string
+      matchType?: string
+    } | null
+  }) {
+    const { result, referenceImages, modelResolution } = input
+    const normalized: Record<string, unknown> = {
+      provider: 'vectcut',
+      action: 'submit',
+      estimated_wait_time: IMAGE_TASK_WAIT_TIME,
+      polling_hint: 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
+      success: result.success,
+      task_id: result.task_id,
+      message_id: result.message_id,
+      status: result.status,
+      queue_name: result.queue_name,
+      error: result.error
+    }
+
+    if (modelResolution?.requestedModel) {
+      normalized.requested_model = modelResolution.requestedModel
+      normalized.resolved_model = modelResolution.resolvedModel
+      normalized.model_match_type = modelResolution.matchType
+    }
+
+    if (Array.isArray(referenceImages) && referenceImages.length > 0) {
+      normalized.reference_images = referenceImages
+    }
+
+    return normalized
   }
 
   private normalizeReferenceImageInput(value: unknown, fieldName: string) {
@@ -922,26 +1004,13 @@ class ImageGenerateServer {
       modelMatchType: modelResolution?.matchType
     })
 
-    return this.formatJsonResult({
-      provider: 'vectcut',
-      action: 'submit',
-      estimated_wait_time: IMAGE_TASK_WAIT_TIME,
-      polling_hint: 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
-      ...(modelResolution?.requestedModel
-        ? {
-            requested_model: modelResolution.requestedModel,
-            resolved_model: modelResolution.resolvedModel,
-            model_match_type: modelResolution.matchType
-          }
-        : {}),
-      ...(preparedReferenceImages.length > 0
-        ? {
-            reference_images: preparedReferenceImages.map((item) => item.submittedUrl),
-            reference_images_prepared: preparedReferenceImages
-          }
-        : {}),
-      ...result
-    })
+    return this.formatJsonResult(
+      this.buildImageTaskSubmitPayload({
+        result,
+        referenceImages: preparedReferenceImages.map((item) => item.submittedUrl),
+        modelResolution
+      })
+    )
   }
 
   private async queryImageTaskStatus(taskId: string): Promise<ImageTaskStatusResponse> {
@@ -970,18 +1039,16 @@ class ImageGenerateServer {
 
   private async getImageTaskStatus(taskId: string) {
     const result = await this.queryImageTaskStatus(taskId)
-
-    return this.formatJsonResult({
-      provider: 'vectcut',
+    const normalized = this.buildImageTaskSuccessPayload({
       action: 'status',
-      ...(result.status && !['success', 'failed', 'error'].includes(result.status)
-        ? {
-            estimated_wait_time: IMAGE_TASK_WAIT_TIME,
-            polling_hint: 'AI image tasks are asynchronous and may take around 3-5 minutes before completion.'
-          }
-        : {}),
-      ...result
+      result
     })
+
+    if (result.status && !['success', 'failed', 'error'].includes(result.status)) {
+      normalized.polling_hint = 'AI image tasks are asynchronous and may take around 3-5 minutes before completion.'
+    }
+
+    return this.formatJsonResult(normalized)
   }
 
   private async sleep(ms: number) {
@@ -1054,32 +1121,13 @@ class ImageGenerateServer {
       const result = await this.queryImageTaskStatus(taskId)
       if (this.isImageTaskCompleted(result)) {
         await this.reportProgress(extra, 100, result.message || '图片生成完成')
-        return this.formatJsonResult({
-          provider: 'vectcut',
-          action: 'submit_and_wait',
-          estimated_wait_time: IMAGE_TASK_WAIT_TIME,
-          ...(modelResolution?.requestedModel
-            ? {
-                requested_model: modelResolution.requestedModel,
-                resolved_model: modelResolution.resolvedModel,
-                model_match_type: modelResolution.matchType
-              }
-            : {}),
-          ...(preparedReferenceImages.length > 0
-            ? {
-                reference_images: preparedReferenceImages.map((item) => item.submittedUrl),
-                reference_images_prepared: preparedReferenceImages
-              }
-            : {}),
-          output: result.result
-            ? {
-                image_url: result.result.image,
-                draft_id: result.result.draft_id,
-                draft_url: result.result.draft_url
-              }
-            : undefined,
-          ...result
-        })
+        return this.formatJsonResult(
+          this.buildImageTaskSuccessPayload({
+            referenceImages: preparedReferenceImages.map((item) => item.submittedUrl),
+            result,
+            modelResolution
+          })
+        )
       }
 
       if (this.isImageTaskFailed(result)) {

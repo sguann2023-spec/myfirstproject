@@ -78,6 +78,13 @@ const getFileReferenceText = (attrs = {}) => {
   if (sourcePath) return sourcePath;
   return `#${attrs.name || '文件'}`;
 };
+const toDisplayFileUrl = (value = '') => {
+  const normalized = normalizePath(value).trim();
+  if (!normalized) return '';
+  if (/^(data:|https?:\/\/|file:\/\/)/i.test(normalized)) return normalized;
+  const pathname = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  return encodeURI(`file://${pathname}`);
+};
 const getFileDisplayName = (file = {}) => file.name || '文件';
 const isBlobLike = (value) => (
   Boolean(value)
@@ -1071,18 +1078,28 @@ const getFileKindFromType = (fileType = '') => {
   if (String(fileType).startsWith('audio/')) return 'audio';
   return 'file';
 };
+const tryGetNativeFilePath = (value) => {
+  const getter = window?.api?.file?.getPathForFile;
+  if (typeof getter !== 'function') return '';
+  const FileCtor = globalThis?.File;
+  if (typeof FileCtor !== 'function' || !(value instanceof FileCtor)) return '';
+  try {
+    return normalizePath(getter(value)).trim();
+  } catch (error) {
+    return '';
+  }
+};
 const createLocalAttachmentEntry = async (rawFile = {}) => {
   const targetFile = isFileLike(rawFile) ? rawFile : rawFile?.originFileObj;
   const uid = rawFile?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   if (!targetFile) return null;
 
   const localObjectUrl = createLocalObjectUrl(targetFile);
-  const nativeFilePathGetter = window?.api?.file?.getPathForFile;
   const sourcePath = normalizePath(
     targetFile?.path
     || rawFile?.path
-    || (typeof nativeFilePathGetter === 'function' ? nativeFilePathGetter(targetFile) : '')
-    || (typeof nativeFilePathGetter === 'function' ? nativeFilePathGetter(rawFile) : '')
+    || tryGetNativeFilePath(targetFile)
+    || tryGetNativeFilePath(rawFile)
     || targetFile?.webkitRelativePath
     || rawFile?.webkitRelativePath
     || ''
@@ -3455,40 +3472,42 @@ const Composer = ({
     };
   }, [clearHoveredModelCard, modelPickerOpen]);
 
-  const availableModelOptions = (Array.isArray(modelOptions) ? modelOptions : [])
-    .map((item) => {
-      if (typeof item === 'string') {
-        const displayText = formatModelDisplayName(item);
-        return {
-          value: item,
+  const availableModelOptions = React.useMemo(() => (
+    (Array.isArray(modelOptions) ? modelOptions : [])
+      .map((item) => {
+        if (typeof item === 'string') {
+          const displayText = formatModelDisplayName(item);
+          return {
+            value: item,
+            label: displayText,
+            displayText,
+            icon: '',
+            supportsReadImage: false,
+            description: '',
+            badges: [],
+            selectedLabel: renderSelectedModelLabel(displayText, null),
+          };
+        }
+        const value = item?.value;
+        const labelText = item?.label || item?.name || item?.value || item?.id || '';
+        const displayText = formatModelDisplayName(labelText);
+        const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
+        const supportsReadImage = Boolean(item?.read_image);
+        const priceMultiplier = resolveModelOptionPriceMultiplier(item);
+        return value ? {
+          value,
           label: displayText,
           displayText,
-          icon: '',
-          supportsReadImage: false,
-          description: '',
-          badges: [],
-          selectedLabel: renderSelectedModelLabel(displayText, null),
-        };
-      }
-      const value = item?.value;
-      const labelText = item?.label || item?.name || item?.value || item?.id || '';
-      const displayText = formatModelDisplayName(labelText);
-      const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
-      const supportsReadImage = Boolean(item?.read_image);
-      const priceMultiplier = resolveModelOptionPriceMultiplier(item);
-      return value ? {
-        value,
-        label: displayText,
-        displayText,
-        icon,
-        supportsReadImage,
-        description: String(item?.description || '').trim(),
-        badges: Array.isArray(item?.badges) ? item.badges : [],
-        priceMultiplier,
-        selectedLabel: renderSelectedModelLabel(displayText, icon),
-      } : null;
-    })
-    .filter(Boolean);
+          icon,
+          supportsReadImage,
+          description: String(item?.description || '').trim(),
+          badges: Array.isArray(item?.badges) ? item.badges : [],
+          priceMultiplier,
+          selectedLabel: renderSelectedModelLabel(displayText, icon),
+        } : null;
+      })
+      .filter(Boolean)
+  ), [modelOptions]);
   const selectedModelConfig = (Array.isArray(modelOptions) ? modelOptions : []).find((item) => {
     if (!item || typeof item !== 'object') return false;
     const candidateValue = String(item?.value || item?.id || item?.name || '').trim();
@@ -3569,35 +3588,50 @@ const Composer = ({
     return [];
   }, [activeTool, videoPreviewSlotOrder]);
 
-  const groupedModelOptions = availableModelOptions.length > 0
-    ? [
-      {
-        label: (
-          <span className="chat-panel__model-group-title">
-            <span>内置模型</span>
-            <Tooltip
-              placement="right"
-              classNames={{ root: 'chat-panel__model-tip-overlay' }}
-              title={(
-                <span className="chat-panel__model-tip-text">
-                  由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
-                </span>
-              )}
-            >
-              <img className="chat-panel__model-tip-icon" src={ChatModelsTipIcon} alt="模型计费说明" />
-            </Tooltip>
-          </span>
-        ),
-        title: '内置模型',
-        options: availableModelOptions,
-      },
-    ]
-    : [];
+  const groupedModelOptions = React.useMemo(() => (
+    availableModelOptions.length > 0
+      ? [
+        {
+          label: (
+            <span className="chat-panel__model-group-title">
+              <span>内置模型</span>
+              <Tooltip
+                placement="right"
+                classNames={{ root: 'chat-panel__model-tip-overlay' }}
+                title={(
+                  <span className="chat-panel__model-tip-text">
+                    由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
+                  </span>
+                )}
+              >
+                <img className="chat-panel__model-tip-icon" src={ChatModelsTipIcon} alt="模型计费说明" />
+              </Tooltip>
+            </span>
+          ),
+          title: '内置模型',
+          options: availableModelOptions,
+        },
+      ]
+      : []
+  ), [availableModelOptions]);
   const buildMarkdownFileLink = (name, url) => {
     const safeName = String(name || '附件')
       .replace(/\\/g, '\\\\')
       .replace(/\]/g, '\\]');
     return `[${safeName}](${url})`;
+  };
+  const buildAttachmentReferenceText = (file = {}) => {
+    const directUrl = String(file?.url || '').trim();
+    if (directUrl) {
+      return buildMarkdownFileLink(file.name, directUrl);
+    }
+
+    const localUrl = toDisplayFileUrl(file?.sourcePath);
+    if (localUrl) {
+      return buildMarkdownFileLink(file.name, localUrl);
+    }
+
+    return getFileReferenceText(file);
   };
   const hasSelectedLocalFile = uploadFileList.length > 0;
   const digitalHumanCompletionState = React.useMemo(
@@ -3823,14 +3857,23 @@ const Composer = ({
           });
         })
       : [];
+    const uploadFileByUid = new Map(
+      uploadFileList
+        .filter((item) => item?.status !== 'removed')
+        .map((item) => [String(item?.uid || '').trim(), item?.originFileObj || item])
+    );
+    const pendingLocalAttachments = uploadedFileMeta
+      .filter((item) => !String(item?.sourcePath || '').trim() && !String(item?.url || '').trim())
+      .map((item) => ({
+        uid: String(item?.uid || '').trim(),
+        name: String(item?.name || '').trim(),
+        fileType: String(item?.fileType || '').trim(),
+        file: uploadFileByUid.get(String(item?.uid || '').trim()),
+      }))
+      .filter((item) => item.uid && item.name && isFileLike(item.file));
     const remainingLocalReferences = uploadedFileMeta
       .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
-      .filter((item) => !(hasMultimodalImages && String(item?.fileType || '').toLowerCase().startsWith('image/')))
-      .map((item) => (
-        item?.url
-          ? buildMarkdownFileLink(item.name, item.url)
-          : getFileReferenceText(item)
-      ));
+      .map((item) => buildAttachmentReferenceText(item));
     const voiceSquareComposeParts = activeTool === 'voice-square'
       ? getVoiceSquareComposeParts(editor)
       : null;
@@ -3853,7 +3896,8 @@ const Composer = ({
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
       images: imagePayloads.map(({ data, media_type }) => ({ data, media_type })),
-      imageAttachmentPreviews
+      imageAttachmentPreviews,
+      pendingLocalAttachments
     });
     if (activeTool) {
       setActiveTool(null);
@@ -4177,7 +4221,6 @@ const Composer = ({
                     <div
                       className="chat-panel__model-option-trigger"
                       onPointerEnter={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
-                      onPointerMove={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
                       onPointerLeave={optionValue ? clearHoveredModelCard : undefined}
                     >
                       {optionContent}

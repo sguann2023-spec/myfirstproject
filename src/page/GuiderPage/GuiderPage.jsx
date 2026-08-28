@@ -4,6 +4,7 @@ import ArrowBackIcon from '../../../public/arrow_back.svg';
 import { Button, message } from 'antd';
 import GuiderSetting1 from '../../components/GuiderSettings/GuiderSetting1/GuiderSetting1';
 import GuiderSetting2 from '../../components/GuiderSettings/GuiderSetting2/GuiderSetting2';
+import { electronStore } from '../../shared/electronStore';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('GuiderPage');
 
@@ -12,7 +13,19 @@ const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, 
 const GuiderPage = () => {
   logger.debug('GuiderPage');
   const [step, setStep] = useState(1);
-  const [isSetting2Complete, setIsSetting2Complete] = useState(false);
+  const [setting2State, setSetting2State] = useState({
+    draftFolder: '',
+    presetFolder: '',
+    isComplete: false,
+  });
+
+  const ipcSend = (channel, data) => {
+    if (window.ipc?.send) return window.ipc.send(channel, data);
+    try {
+      const { ipcRenderer } = window.require('electron');
+      if (ipcRenderer?.send) return ipcRenderer.send(channel, data);
+    } catch {}
+  };
 
   const handleBack = () => {
     if (step > 1) {
@@ -28,14 +41,19 @@ const GuiderPage = () => {
   };
 
   const handleStart = () => {
-    const canStart = isSetting2Complete;
+    const canStart = setting2State.isComplete;
     if (!canStart) {
       message.warning('请先完成草稿位置和预设位置设置');
       return;
     }
     try {
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('guider-finished');
+      electronStore.set('draftFolder', setting2State.draftFolder);
+      electronStore.set('presetFolder', setting2State.presetFolder);
+      ipcSend('save-settings', {
+        draftFolder: setting2State.draftFolder,
+        presetFolder: setting2State.presetFolder,
+      });
+      ipcSend('guider-finished');
     } catch (e) {
       logger.warn('guider-finished failed:', e);
     }
@@ -55,7 +73,7 @@ const GuiderPage = () => {
 
       <div className="guider-content">
         {step === 1 && <GuiderSetting1 />}
-        {step === 2 && <GuiderSetting2 onSettingsChange={setIsSetting2Complete} />}
+        {step === 2 && <GuiderSetting2 onSettingsChange={setSetting2State} />}
 
         {step === 1 ? (
           <Button type="primary" className="guider-start-btn" onClick={() => setStep(2)}>
@@ -66,7 +84,7 @@ const GuiderPage = () => {
             type="primary"
             className="guider-start-btn"
             onClick={handleStart}
-            disabled={!isSetting2Complete}>
+            disabled={!setting2State.isComplete}>
             开始使用
           </Button>
         )}

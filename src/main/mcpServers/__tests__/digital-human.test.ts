@@ -11,6 +11,14 @@ const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoi
   mockUploadLocalFile: vi.fn()
 }))
 
+vi.mock('@main/utils', () => ({
+  getResourcePath: vi.fn(() => '/mock/resources')
+}))
+
+vi.mock('ffprobe-static', () => ({
+  path: '/mock/ffprobe'
+}))
+
 vi.mock('electron', () => ({
   net: {
     fetch: mockNetFetch
@@ -366,5 +374,67 @@ describe('DigitalHumanServer', () => {
         source_kind: 'local_file'
       }
     ])
+  })
+
+  it('should normalize rotated local portrait video before upload', async () => {
+    const localAudioPath = path.join(tempRoot, 'audio.mp3')
+    const localVideoPath = path.join(tempRoot, 'video.mp4')
+    const normalizedVideoPathPattern = /video_portrait_fixed\.mp4$/
+    await fs.writeFile(localAudioPath, 'audio')
+    await fs.writeFile(localVideoPath, 'video')
+
+    mockUploadLocalFile
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/audio.mp3?token=1'
+      })
+      .mockResolvedValueOnce({
+        signedPublicUrl: 'https://oss.example.com/video-fixed.mp4?token=2'
+      })
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_id: 'local-lip-sync'
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          task_status: 1,
+          digital_human_url: 'https://example.com/local-result.mp4'
+        })
+      )
+
+    const server = createServer()
+    const probeSpy = vi.spyOn(server as any, 'probeVideoOrientation').mockResolvedValue({
+      width: 1920,
+      height: 1080,
+      rotation: 90
+    })
+    const ffmpegSpy = vi.spyOn(server as any, 'runFfmpeg').mockImplementation(async (args: string[]) => {
+      const outputPath = args[args.length - 1]
+      await fs.writeFile(outputPath, 'normalized-video')
+    })
+
+    await callTool(server, 'create_lip_sync_digital_human', {
+      audioUrl: localAudioPath,
+      videoUrl: localVideoPath
+    })
+
+    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(normalizedVideoPathPattern),
+      expect.objectContaining({
+        objectKeyPrefix: 'vectcut_digital_human_'
+      })
+    )
+    expect(probeSpy).toHaveBeenCalledWith(localVideoPath)
+    expect(ffmpegSpy).toHaveBeenCalledWith(
+      expect.arrayContaining(['-i', localVideoPath, '-c:v', 'libx264', '-movflags', '+faststart']),
+    )
   })
 })

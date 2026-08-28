@@ -1,4 +1,9 @@
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { loggerService } from '@logger'
+import { ossUploadService } from '@main/services/OssUploadService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -13,29 +18,35 @@ const VOICE_CONVERSION_STATUS_ENDPOINT = '/llm/sts/submit/task_status'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_voice_conversion_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
 
 const SUBMIT_VOICE_CONVERSION_TASK_TOOL: Tool = {
   name: 'submit_voice_conversion_task',
   description:
-    'Submit an asynchronous voice conversion task for a remote audio or video URL and a target voice ID. This keeps the source performance and converts the voice timbre instead of re-synthesizing text with TTS. If the source is a local file, run workspace upload first and pass the returned URL here.',
+    'Submit an asynchronous voice conversion task for an audio or video source and a target voice ID. This keeps the source performance and converts the voice timbre instead of re-synthesizing text with TTS. Remote URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
   inputSchema: {
     type: 'object',
     properties: {
       audioUrl: {
         type: 'string',
-        description: 'Source audio URL. Provide this or videoUrl. Use workspace upload first for local files.'
+        description: 'Source audio URL, file URL, or absolute local path. Provide this or videoUrl.'
       },
       audio_url: {
         type: 'string',
-        description: 'Alias of audioUrl. Uses the same semantics as the VectCut API docs. Use workspace upload first for local files.'
+        description: 'Alias of audioUrl. Uses the same semantics as the VectCut API docs.'
       },
       videoUrl: {
         type: 'string',
-        description: 'Source video URL. Provide this or audioUrl. Use workspace upload first for local files.'
+        description: 'Source video URL, file URL, or absolute local path. Provide this or audioUrl.'
       },
       video_url: {
         type: 'string',
-        description: 'Alias of videoUrl. Uses the same semantics as the VectCut API docs. Use workspace upload first for local files.'
+        description: 'Alias of videoUrl. Uses the same semantics as the VectCut API docs.'
       },
       voiceId: {
         type: 'string',
@@ -100,6 +111,12 @@ type VoiceConversionTaskStatusResponse = {
   video_url?: string
   voice_id?: string
   [key: string]: unknown
+}
+
+type PreparedVoiceConversionSource = {
+  originalInput: string
+  submittedUrl: string
+  sourceKind: 'remote_media' | 'local_media'
 }
 
 class VoiceConversionServer {
@@ -264,7 +281,58 @@ class VoiceConversionServer {
     }
   }
 
-  private buildSubmitPayload(args: Record<string, unknown>) {
+  private normalizeSource(value: unknown, fieldName: string): string {
+    const raw = typeof value === 'string' ? value.trim() : ''
+    if (!raw) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' cannot be empty`)
+    }
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private async uploadLocalFile(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private async prepareSource(input: unknown, fieldName: 'audio_url' | 'video_url'): Promise<PreparedVoiceConversionSource> {
+    const normalizedSource = this.normalizeSource(input, fieldName)
+    if (isHttpLikeUrl(normalizedSource)) {
+      return {
+        originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
+        submittedUrl: normalizedSource,
+        sourceKind: 'remote_media'
+      }
+    }
+
+    if (!path.isAbsolute(normalizedSource)) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `'${fieldName}' must be a remote URL, file URL, or absolute local path`
+      )
+    }
+
+    const stats = await fsPromises.stat(normalizedSource)
+    if (!stats.isFile()) {
+      throw new McpError(ErrorCode.InvalidParams, `'${fieldName}' must point to a local file`)
+    }
+
+    const uploaded = await this.uploadLocalFile(normalizedSource)
+    return {
+      originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
+      submittedUrl: uploaded.signedPublicUrl,
+      sourceKind: 'local_media'
+    }
+  }
+
+  private async buildSubmitPayload(args: Record<string, unknown>) {
     const audioUrl = typeof args.audioUrl === 'string' ? args.audioUrl.trim() : ''
     const audioUrlAlias = typeof args.audio_url === 'string' ? args.audio_url.trim() : ''
     const videoUrl = typeof args.videoUrl === 'string' ? args.videoUrl.trim() : ''
@@ -297,15 +365,28 @@ class VoiceConversionServer {
       )
     }
 
+    const preparedSource = resolvedAudioUrl
+      ? await this.prepareSource(resolvedAudioUrl, 'audio_url')
+      : await this.prepareSource(resolvedVideoUrl, 'video_url')
+
     return {
-      ...(resolvedAudioUrl ? { audio_url: resolvedAudioUrl } : {}),
-      ...(resolvedVideoUrl ? { video_url: resolvedVideoUrl } : {}),
-      voice_id: resolvedVoiceId
+      payload: {
+        ...(resolvedAudioUrl ? { audio_url: preparedSource.submittedUrl } : {}),
+        ...(resolvedVideoUrl ? { video_url: preparedSource.submittedUrl } : {}),
+        voice_id: resolvedVoiceId
+      },
+      sourceSummary: [
+        {
+          original_input: preparedSource.originalInput,
+          submitted_url: preparedSource.submittedUrl,
+          source_kind: preparedSource.sourceKind
+        }
+      ]
     }
   }
 
   private async submitVoiceConversionTask(args: Record<string, unknown>) {
-    const payload = this.buildSubmitPayload(args)
+    const { payload, sourceSummary } = await this.buildSubmitPayload(args)
     const response = await this.requestWithAuth(VOICE_CONVERSION_SUBMIT_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -328,6 +409,7 @@ class VoiceConversionServer {
       action: 'submit',
       mode: 'voice_conversion',
       request: payload,
+      source_summary: sourceSummary,
       ...result
     })
   }

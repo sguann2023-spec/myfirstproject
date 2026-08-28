@@ -155,6 +155,8 @@ export async function handleToolResultSideEffects(input: {
   const pendingToolCall = pendingToolCalls.get(toolCallId)
   const providerToolCallId = String(pendingToolCall?.providerToolCallId || toolCallId)
   const rawOutput = chunk.rawOutput ?? chunk.output
+  const actuallyTruncated =
+    typeof chunk.truncated === 'boolean' ? chunk.truncated : Boolean(chunk.rawOutput) && chunk.rawOutput !== chunk.output
   const outputText = summarizeToolResultForArtifact(rawOutput)
 
   if (currentTurn && currentSegment && shouldOffloadToolResult(toolName, outputText)) {
@@ -180,7 +182,7 @@ export async function handleToolResultSideEffects(input: {
       contentChars: outputText.length,
       inlineChars: safeSerializedLength(chunk.output),
       rawChars: outputText.length,
-      truncated: Boolean(chunk.rawOutput) && chunk.rawOutput !== chunk.output,
+      truncated: actuallyTruncated,
       storedAsArtifact: true,
       artifactId: artifact.id,
       contentHash: artifact.contentHash
