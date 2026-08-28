@@ -122,6 +122,11 @@ const AboutUs = () => {
       ipcRenderer.on('update-available', (_event, releaseInfo) => {
         setIsChecking(false);
         setIsDownloaded(false);
+        setStatusText(`发现新版本 ${releaseInfo?.version || ''}`.trim());
+      }),
+      ipcRenderer.on('download-update', (_event, releaseInfo) => {
+        setIsChecking(true);
+        setIsDownloaded(false);
         setStatusText(`发现新版本 ${releaseInfo?.version || ''}，正在下载...`.trim());
       }),
       ipcRenderer.on('download-progress', (_event, progress) => {

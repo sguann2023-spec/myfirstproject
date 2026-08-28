@@ -18,11 +18,31 @@ import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('AppUpdater')
 
-const PROXY_PREFIX = 'https://gh-proxy.com/';
+const DEFAULT_GITHUB_PROXY_PREFIXES = [
+  'https://github.chenc.dev/',
+  'https://github.tbap.top/',
+  'https://github.dpik.top/',
+  'https://gh-proxy.org/',
+  'https://gh.acmsz.top/'
+] as const
+const GITHUB_PROXY_CHECK_TIMEOUT_MS = 15 * 1000
+const DOWNLOAD_THROTTLE_WINDOW_MS = 60 * 60 * 1000
+const LAST_DOWNLOAD_TRIGGERED_AT_CONFIG_KEY = 'appUpdater.lastDownloadTriggeredAt'
 const LEGACY_AUTO_UPDATER_FEED_URL = 'https://player.install-ai-guider.top/client/latest'
 const BINGO_CHANNEL_SEGMENT = 'bingo'
+const MAC_CHANNEL_SUFFIX = '-mac'
+const CHANNEL_FILE_EXTENSION = '.yml'
 
-function detectChannelKeyFromPath(): 'default' | 'bingo' {
+type FeedSourceName = 'github-proxy' | 'legacy-oss'
+
+interface FeedSource {
+  name: FeedSourceName
+  feedUrl: string
+}
+
+type ChannelKey = 'default' | 'bingo'
+
+function detectChannelKeyFromPath(): ChannelKey {
   try {
     const exePath = String(app.getPath('exe') || '').trim().toLowerCase()
     if (exePath.includes('bingocut')) {
@@ -40,6 +60,64 @@ function getLegacyAutoUpdaterFeedUrl() {
     return `${LEGACY_AUTO_UPDATER_FEED_URL}/${BINGO_CHANNEL_SEGMENT}`
   }
   return LEGACY_AUTO_UPDATER_FEED_URL
+}
+
+function getGitHubFeedUrlByChannel(channelKey: ChannelKey) {
+  if (channelKey === 'bingo') {
+    return FeedUrl.GITHUB_LATEST_BINGO
+  }
+  return FeedUrl.GITHUB_LATEST
+}
+
+function normalizeGitHubProxyPrefixes(prefixes: string[] | undefined) {
+  if (!Array.isArray(prefixes)) {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      prefixes
+        .map((prefix) => String(prefix || '').trim())
+        .filter((prefix) => /^https?:\/\//i.test(prefix))
+        .map((prefix) => (prefix.endsWith('/') ? prefix : `${prefix}/`))
+    )
+  )
+}
+
+function getGitHubProxyFeedUrls(channelKey: ChannelKey, proxyPrefixes: readonly string[]) {
+  const upstreamFeedUrl = getGitHubFeedUrlByChannel(channelKey)
+  return proxyPrefixes.map((proxyPrefix) => `${proxyPrefix}${upstreamFeedUrl}`)
+}
+
+function buildMacChannelFileName(channel: string, arch?: string) {
+  if (arch) {
+    return `${channel}${MAC_CHANNEL_SUFFIX}-${arch}${CHANNEL_FILE_EXTENSION}`
+  }
+  return `${channel}${MAC_CHANNEL_SUFFIX}${CHANNEL_FILE_EXTENSION}`
+}
+
+function createFeedBaseUrl(feedUrl: string) {
+  const url = new URL(feedUrl)
+  if (!url.pathname.endsWith('/')) {
+    url.pathname += '/'
+  }
+  return url
+}
+
+function getPreflightManifestCandidates(channel: string) {
+  if (!isMac) {
+    return ['latest.yml']
+  }
+
+  const currentArch = process.arch
+  const candidates = [buildMacChannelFileName(channel, currentArch)]
+
+  // Keep backward compatibility until all channels publish arch-specific manifests.
+  if (currentArch === 'x64') {
+    candidates.push(buildMacChannelFileName(channel))
+  }
+
+  return candidates
 }
 
 function getCommonHeaders() {
@@ -62,6 +140,7 @@ const LANG_MARKERS = {
 
 interface UpdateConfig {
   lastUpdated: string
+  githubProxyPrefixes?: string[]
   versions: {
     [versionKey: string]: VersionConfig
   }
@@ -93,6 +172,8 @@ export default class AppUpdater {
   private updateCheckResult: UpdateCheckResult | null = null
   private checkForUpdatesPromise: Promise<CheckForUpdatesResponse> | null = null
   private isInstallingUpdate = false
+  private isDownloadInProgress = false
+  private downloadedUpdateVersion: string | null = null
 
   private broadcastUpdateEvent(channel: string, ...args: unknown[]) {
     const windows = BrowserWindow.getAllWindows().filter((browserWindow) => !browserWindow.isDestroyed())
@@ -102,7 +183,8 @@ export default class AppUpdater {
   constructor() {
     autoUpdater.logger = logger as Logger
     autoUpdater.forceDevUpdateConfig = !app.isPackaged
-    autoUpdater.autoDownload = configManager.getAutoUpdate()
+    // Keep auto download under our control so we can separate "check" from "download".
+    autoUpdater.autoDownload = false
     // Restore legacy behavior: install downloaded update on app quit.
     autoUpdater.autoInstallOnAppQuit = configManager.getAutoUpdate()
     autoUpdater.requestHeaders = {
@@ -128,11 +210,14 @@ export default class AppUpdater {
 
     // 更新下载进度
     autoUpdater.on('download-progress', (progress) => {
+      this.isDownloadInProgress = true
       this.broadcastUpdateEvent(IpcChannel.DownloadProgress, progress)
     })
 
     // 当需要更新的内容下载完成后
     autoUpdater.on('update-downloaded', (releaseInfo: UpdateInfo) => {
+      this.isDownloadInProgress = false
+      this.downloadedUpdateVersion = releaseInfo.version
       const processedReleaseInfo = this.processReleaseInfo(releaseInfo)
       this.broadcastUpdateEvent(IpcChannel.UpdateDownloaded, processedReleaseInfo)
       logger.info('update downloaded', processedReleaseInfo)
@@ -146,7 +231,7 @@ export default class AppUpdater {
   }
 
   public setAutoUpdate(isActive: boolean) {
-    autoUpdater.autoDownload = isActive
+    autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = isActive
   }
 
@@ -271,14 +356,11 @@ export default class AppUpdater {
 
     // disable downgrade after change the channel
     this.autoUpdater.allowDowngrade = false
-    // github and gitcode don't support multiple range download
-    this.autoUpdater.disableDifferentialDownload = true
+    // Allow differential download when the current source supports range requests.
+    this.autoUpdater.disableDifferentialDownload = false
   }
 
-  private async _setFeedUrl() {
-    // Use an arch-aware custom provider on macOS because electron-updater's generic
-    // provider only reads latest-mac.yml and cannot target latest-mac-arm64.yml.
-    const feedUrl = getLegacyAutoUpdaterFeedUrl()
+  private _applyFeedUrl(feedUrl: string, source: FeedSourceName) {
     const channelKey = detectChannelKeyFromPath()
     this.autoUpdater.channel = UpgradeChannel.LATEST
     if (isMac) {
@@ -297,21 +379,163 @@ export default class AppUpdater {
       })
     }
     this.autoUpdater.allowDowngrade = false
-    this.autoUpdater.disableDifferentialDownload = true
-    logger.info('Using legacy auto updater feed URL', {
+    this.autoUpdater.disableDifferentialDownload = false
+    logger.info('Configured auto updater feed URL', {
       feedUrl,
+      source,
       channelKey,
       channel: UpgradeChannel.LATEST,
       provider: isMac ? 'custom-mac-arch' : 'generic'
     })
   }
 
+  private async _getGitHubProxyPrefixes() {
+    for (const mirror of [UpdateMirror.GITHUB, UpdateMirror.GITCODE]) {
+      const config = await this._fetchUpdateConfig(mirror)
+      const remoteProxyPrefixes = normalizeGitHubProxyPrefixes(config?.githubProxyPrefixes)
+      if (remoteProxyPrefixes.length > 0) {
+        logger.info('Using remote-configured GitHub proxy prefixes', {
+          mirror,
+          proxyPrefixes: remoteProxyPrefixes
+        })
+        return remoteProxyPrefixes
+      }
+    }
+
+    return [...DEFAULT_GITHUB_PROXY_PREFIXES]
+  }
+
+  private async _canReachFeed(feedUrl: string, source: FeedSourceName): Promise<boolean> {
+    const baseUrl = createFeedBaseUrl(feedUrl)
+    const manifestCandidates = getPreflightManifestCandidates(UpgradeChannel.LATEST)
+
+    for (let index = 0; index < manifestCandidates.length; index += 1) {
+      const manifestName = manifestCandidates[index]
+      const manifestUrl = new URL(manifestName, baseUrl).toString()
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), GITHUB_PROXY_CHECK_TIMEOUT_MS)
+
+      try {
+        const response = await net.fetch(manifestUrl, {
+          method: 'GET',
+          headers: {
+            ...getCommonHeaders(),
+            Accept: 'text/yaml, text/plain, application/octet-stream, */*'
+          },
+          signal: controller.signal as any
+        } as any)
+
+        if (response.ok) {
+          logger.info('Updater feed preflight succeeded', { source, manifestUrl, status: response.status })
+          return true
+        }
+
+        if (response.status === 404 && index < manifestCandidates.length - 1) {
+          logger.warn('Updater feed manifest not found, trying next candidate', { source, manifestUrl })
+          continue
+        }
+
+        logger.warn('Updater feed preflight failed', { source, manifestUrl, status: response.status })
+        return false
+      } catch (error) {
+        if (index < manifestCandidates.length - 1) {
+          logger.warn('Updater feed preflight candidate failed, trying next candidate', {
+            source,
+            manifestUrl,
+            error: error instanceof Error ? error.message : String(error)
+          })
+          continue
+        }
+
+        logger.warn('Updater feed preflight request failed', {
+          source,
+          manifestUrl,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        return false
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+
+    return false
+  }
+
+  private async _setFeedUrl(): Promise<FeedSource> {
+    // Try multiple domestic GitHub proxy nodes in order, and fall back to the
+    // existing OSS feed if none of them can be reached quickly enough.
+    const channelKey = detectChannelKeyFromPath()
+    const proxyPrefixes = await this._getGitHubProxyPrefixes()
+    const fallbackSource: FeedSource = {
+      name: 'legacy-oss',
+      feedUrl: getLegacyAutoUpdaterFeedUrl()
+    }
+
+    for (const feedUrl of getGitHubProxyFeedUrls(channelKey, proxyPrefixes)) {
+      if (await this._canReachFeed(feedUrl, 'github-proxy')) {
+        const preferredSource: FeedSource = {
+          name: 'github-proxy',
+          feedUrl
+        }
+        this._applyFeedUrl(preferredSource.feedUrl, preferredSource.name)
+        return preferredSource
+      }
+    }
+
+    this._applyFeedUrl(fallbackSource.feedUrl, fallbackSource.name)
+    return fallbackSource
+  }
+
+  private _getLastDownloadTriggeredAt() {
+    return configManager.get<number>(LAST_DOWNLOAD_TRIGGERED_AT_CONFIG_KEY, 0)
+  }
+
+  private _markDownloadTriggeredAt(timestamp: number) {
+    configManager.set(LAST_DOWNLOAD_TRIGGERED_AT_CONFIG_KEY, timestamp)
+  }
+
+  private _canTriggerDownloadNow() {
+    if (this.isDownloadInProgress) {
+      return false
+    }
+
+    const now = Date.now()
+    return now - this._getLastDownloadTriggeredAt() >= DOWNLOAD_THROTTLE_WINDOW_MS
+  }
+
+  private async _downloadAvailableUpdate(updateInfo: UpdateInfo) {
+    if (this.downloadedUpdateVersion === updateInfo.version) {
+      logger.info('Skipping download because the update is already downloaded in this session', {
+        version: updateInfo.version
+      })
+      return
+    }
+
+    if (!this._canTriggerDownloadNow()) {
+      logger.info('Skipping update download because the hourly download limit is active', {
+        version: updateInfo.version,
+        lastTriggeredAt: this._getLastDownloadTriggeredAt()
+      })
+      return
+    }
+
+    this._markDownloadTriggeredAt(Date.now())
+    this.isDownloadInProgress = true
+    this.broadcastUpdateEvent(IpcChannel.DownloadUpdate, updateInfo)
+    logger.info('Starting update download', { version: updateInfo.version })
+
+    try {
+      await this.autoUpdater.downloadUpdate(this.cancellationToken)
+    } catch (error) {
+      this.isDownloadInProgress = false
+      logger.error('downloadUpdate failed after check for updates', error as Error)
+    }
+  }
+
   public cancelDownload() {
     this.cancellationToken.cancel()
     this.cancellationToken = new CancellationToken()
-    if (this.autoUpdater.autoDownload) {
-      this.updateCheckResult?.cancellationToken?.cancel()
-    }
+    this.isDownloadInProgress = false
   }
 
   public async checkForUpdates(): Promise<CheckForUpdatesResponse> {
@@ -329,20 +553,29 @@ export default class AppUpdater {
 
     this.checkForUpdatesPromise = (async () => {
       try {
-        await this._setFeedUrl()
+        const selectedSource = await this._setFeedUrl()
+        try {
+          this.updateCheckResult = await this.autoUpdater.checkForUpdates()
+        } catch (error) {
+          if (selectedSource.name !== 'legacy-oss') {
+            logger.warn('Primary updater source failed during check, retrying with OSS fallback', error as Error)
+            const fallbackSource: FeedSource = {
+              name: 'legacy-oss',
+              feedUrl: getLegacyAutoUpdaterFeedUrl()
+            }
+            this._applyFeedUrl(fallbackSource.feedUrl, fallbackSource.name)
+            this.updateCheckResult = await this.autoUpdater.checkForUpdates()
+          } else {
+            throw error
+          }
+        }
 
-        this.updateCheckResult = await this.autoUpdater.checkForUpdates()
         logger.info(
           `update check result: ${this.updateCheckResult?.isUpdateAvailable}, channel: ${this.autoUpdater.channel}, currentVersion: ${this.autoUpdater.currentVersion}`
         )
 
-        if (this.updateCheckResult?.isUpdateAvailable && !this.autoUpdater.autoDownload) {
-          // 如果 autoDownload 为 false，则需要再调用下面的函数触发下
-          // do not use await, because it will block the return of this function
-          logger.info('downloadUpdate manual by check for updates', this.cancellationToken)
-          void this.autoUpdater.downloadUpdate(this.cancellationToken).catch((error) => {
-            logger.error('downloadUpdate failed after check for updates', error as Error)
-          })
+        if (this.updateCheckResult?.isUpdateAvailable && configManager.getAutoUpdate()) {
+          void this._downloadAvailableUpdate(this.updateCheckResult.updateInfo)
         }
 
         return {

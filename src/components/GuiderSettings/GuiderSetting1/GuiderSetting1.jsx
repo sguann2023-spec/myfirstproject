@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
 import './GuiderSetting1.css';
 import JianyingImg from '../../../../public/jianying.png';
 import CapcutImg from '../../../../public/capcut.png';
 
-const GuiderSetting1 = () => {
-  const [interfaceMode, setInterfaceMode] = useState('jianying');
+const GuiderSetting1 = ({ interfaceMode = 'jianying', onChange }) => {
+  const updateInterfaceMode = (nextMode) => {
+    const normalizedMode = nextMode === 'capcut' ? 'capcut' : 'jianying';
+    if (typeof onChange === 'function') {
+      onChange(normalizedMode);
+    }
+  };
 
   return (
     <div className="gs1-settings">
@@ -14,7 +18,7 @@ const GuiderSetting1 = () => {
         <div className="gs1-options gs1-options-large">
           <div
             className={`gs1-card ${interfaceMode === 'jianying' ? 'selected' : ''}`}
-            onClick={() => setInterfaceMode('jianying')}
+            onClick={() => updateInterfaceMode('jianying')}
           >
             <div className={`gs1-card-preview ${interfaceMode === 'jianying' ? 'selected' : ''}`}>
               <img src={JianyingImg} alt="剪映" className="gs1-card-image" />
@@ -23,7 +27,7 @@ const GuiderSetting1 = () => {
           </div>
           <div
             className={`gs1-card ${interfaceMode === 'capcut' ? 'selected' : ''}`}
-            onClick={() => setInterfaceMode('capcut')}
+            onClick={() => updateInterfaceMode('capcut')}
           >
             <div className={`gs1-card-preview ${interfaceMode === 'capcut' ? 'selected' : ''}`}>
               <img src={CapcutImg} alt="CapCut" className="gs1-card-image" />

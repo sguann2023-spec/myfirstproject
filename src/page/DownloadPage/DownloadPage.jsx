@@ -53,7 +53,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
     const [draftId, setDraftId] = useState('');
     const currentDraftIdRef = useRef('');
     const [draftFolder, setDraftFolder] = useState('');
-    const [isCapcut, setIsCapcut] = useState(true);
+    const [isCapcut, setIsCapcut] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressText, setProgressText] = useState('');
@@ -62,7 +62,7 @@ const DownloadPage = ({ apiKey, language, onToggleLanguage, onUpdateApiKey }) =>
     const [updateMessage, setUpdateMessage] = useState('');
     const [settingsVisible, setSettingsVisible] = useState(false);
     const [tempDraftFolder, setTempDraftFolder] = useState('');
-    const [tempIsCapcut, setTempIsCapcut] = useState(true);
+    const [tempIsCapcut, setTempIsCapcut] = useState(false);
     const [tempApiKey, setTempApiKey] = useState(apiKey || '');
     const [apiHost, setApiHost] = useState(DEFAULT_HOST);
     const [tempApiHost, setTempApiHost] = useState(DEFAULT_HOST);
