@@ -11,6 +11,8 @@ const logger = loggerService.withContext('GuiderSetting2');
 const GuiderSetting2 = ({ onSettingsChange }) => {
   const [draftFolder, setDraftFolder] = useState('');
   const [presetFolder, setPresetFolder] = useState('');
+  const [draftAutoDetected, setDraftAutoDetected] = useState(false);
+  const [presetAutoDetected, setPresetAutoDetected] = useState(false);
 
   const ipcInvoke = (channel, data) => {
     if (window.ipc?.invoke) return window.ipc.invoke(channel, data);
@@ -31,6 +33,27 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
       setPresetFolder(nextPresetFolder);
     };
 
+    setDraftAutoDetected(Boolean(detectedPaths.draftPath));
+    setPresetAutoDetected(Boolean(detectedPaths.presetPath));
+
+    const notifyAutoDetectedSettings = () => {
+      const detectedItems = [];
+      if (detectedPaths.draftPath) detectedItems.push('草稿位置');
+      if (detectedPaths.presetPath) detectedItems.push('预设位置');
+
+      if (detectedItems.length > 0) {
+        logger.info('[GuiderSetting2] auto-detect-paths:success', {
+          draftPath: detectedPaths.draftPath || '',
+          presetPath: detectedPaths.presetPath || '',
+        });
+        message.success(`已自动检测到剪映${detectedItems.join('和')}`);
+        return;
+      }
+
+      logger.warn('[GuiderSetting2] auto-detect-paths:failed');
+      message.warning('未自动检测到剪映路径，请手动设置草稿位置和预设位置');
+    };
+
     ipcInvoke('get-draft-folder')
       .then(({ draftFolder: value }) => {
         const nextDraftFolder = value || draftFallback || detectedPaths.draftPath || '';
@@ -49,6 +72,9 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
           presetFolder: nextPresetFolder,
         });
         syncDetectedSettings(nextDraftFolder, nextPresetFolder);
+      })
+      .finally(() => {
+        notifyAutoDetectedSettings();
       });
   }, []);
 
@@ -137,8 +163,12 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
               {draftFolder || ''}
             </div>
           </div>
-          <button type="button" className="gs2-save-button" onClick={handleChangeDraftFolder}>
-            设置草稿位置
+          <button
+            type="button"
+            className={`gs2-save-button${draftAutoDetected ? ' is-auto-detected' : ''}`}
+            onClick={handleChangeDraftFolder}
+          >
+            {draftAutoDetected ? '检测不对？点我修改' : '设置草稿位置'}
           </button>
         </div>
       </div>
@@ -161,8 +191,12 @@ const GuiderSetting2 = ({ onSettingsChange }) => {
               {presetFolder || ''}
             </div>
           </div>
-          <button type="button" className="gs2-save-button" onClick={handleChangePresetFolder}>
-            设置预设位置
+          <button
+            type="button"
+            className={`gs2-save-button${presetAutoDetected ? ' is-auto-detected' : ''}`}
+            onClick={handleChangePresetFolder}
+          >
+            {presetAutoDetected ? '检测不对？点我修改' : '设置预设位置'}
           </button>
         </div>
       </div>
