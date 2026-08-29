@@ -63,6 +63,27 @@
       "when": 1784284800000,
       "tag": "0008_session_architecture",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787318400000,
+      "tag": "0009_skill_registry_remote_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787918400000,
+      "tag": "0010_skill_registry_icon_url",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788004800000,
+      "tag": "0011_skill_registry_preview_video_url",
+      "breakpoints": true
     }
   ],
   "version": "7"
