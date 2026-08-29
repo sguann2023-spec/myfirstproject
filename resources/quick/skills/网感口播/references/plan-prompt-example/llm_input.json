@@ -1,0 +1,37 @@
+{
+  "video_duration": 33.0,
+  "timeline_duration": 29.84,
+  "removed_silence": 3.16,
+  "segments": [
+    {
+      "source_index": 0,
+      "text": "AI时代不需要海量的用户AI时代最需要的是重度的用户很多创业者还转不过来这个弯啊还在想要做大用户基数然后再走变现那套老登打法",
+      "target_start": 0.0,
+      "target_end": 12.06
+    },
+    {
+      "source_index": 1,
+      "text": "现在不现实啊为什么原来互联网的叙事能够成立那是因为互联网的推广的边际成本几乎为零",
+      "target_start": 12.06,
+      "target_end": 19.48
+    },
+    {
+      "source_index": 2,
+      "text": "代码的复制几乎没有成本一台服务器给一个人和十万人服务的成本是一样的",
+      "target_start": 19.48,
+      "target_end": 24.8
+    },
+    {
+      "source_index": 3,
+      "text": "那所以所有的创业者呢都要疯狂的追求用户规模",
+      "target_start": 24.8,
+      "target_end": 28.32
+    },
+    {
+      "source_index": 4,
+      "text": "但是AI时代是不一样的",
+      "target_start": 28.32,
+      "target_end": 29.84
+    }
+  ]
+}

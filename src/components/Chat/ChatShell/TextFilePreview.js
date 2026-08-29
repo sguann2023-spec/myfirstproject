@@ -403,13 +403,6 @@ const TextFilePreview = ({
           title="刷新预览">
           <RefreshCw size={14} />
         </button>
-        <button
-          type="button"
-          className="chat-file-preview__close"
-          onClick={() => onClose?.()}
-          aria-label="关闭预览">
-          <X size={14} />
-        </button>
       </div>
 
       <div ref={bodyRef} className="chat-file-preview__body" onClick={supportsLineComments ? handlePreviewBodyClick : undefined}>

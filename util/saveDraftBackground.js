@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const downloader = require('./downloader');
 const i18next = require('i18next');
 const logger = require('./loggerBridge').withContext('SaveDraftBackground');
@@ -957,12 +958,35 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     }
     logger.info(`任务 ${taskId} 进度78%：正在保存草稿信息。`);
     
-    // 保存草稿信息到JSON文件
-    await fs.promises.writeFile(
-      path.join(draftPath, `draft_info.json`),
-      JSON.stringify(script, null, 2)
-    );
+      const {
+        draftDate: fixedDraftDate,
+        millisTimestamp: currentMillisTimestamp,
+        microsTimestamp: currentMicrosTimestamp,
+        secondsTimestamp: currentSecondsTimestamp
+      } = getFixedDraftTimestamps();
+      const generatedDraftId = randomUUID().toUpperCase();
+      logger.info(
+        `草稿时间已刷新为当前时间: millis=${currentMillisTimestamp}, micros=${currentMicrosTimestamp}, seconds=${currentSecondsTimestamp}, draftId=${generatedDraftId}`
+      );
+
+      script.id = generatedDraftId;
+      script.name = script.name || draftName;
+      script.path = draftPath.replace(/\\/g, '/');
+      script.update_time = currentSecondsTimestamp;
+
+      const draftInfoPath = path.join(draftPath, 'draft_info.json');
+      const draftContentPath = path.join(draftPath, 'draft_content.json');
+      const serializedScript = JSON.stringify(script, null, 2);
+
+      // 保存草稿信息到JSON文件
+      await fs.promises.writeFile(draftInfoPath, serializedScript);
     logger.info(`草稿信息已保存到 ${draftName}/draft_info.json。`);
+      try {
+        await fs.promises.writeFile(draftContentPath, serializedScript);
+        logger.info(`已同步 ${draftName}/draft_content.json。`);
+      } catch (copyError) {
+        logger.warn(`同步 draft_content.json 失败，将继续后续流程: ${copyError.message}`);
+      }
     
     // 处理文本模板路径
     if (textTemplates && textTemplates.length > 0) {
@@ -970,16 +994,6 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         await processTextTemplatePaths(draftName, template.effect_id, draftPath, draftFolder);
       }
     }
-
-    const {
-      draftDate: fixedDraftDate,
-      millisTimestamp: currentMillisTimestamp,
-      microsTimestamp: currentMicrosTimestamp,
-      secondsTimestamp: currentSecondsTimestamp
-    } = getFixedDraftTimestamps();
-    logger.info(
-      `草稿时间固定为 2099-09-01: millis=${currentMillisTimestamp}, micros=${currentMicrosTimestamp}, seconds=${currentSecondsTimestamp}`
-    );
 
     // 统一更新时间元数据
     try {
@@ -997,8 +1011,8 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       // 同步当前草稿身份，避免沿用模板草稿的旧路径/名称/ID。
       metaInfo.draft_id = script && script.id ? script.id : (metaInfo.draft_id || "");
       metaInfo.draft_name = effectiveDraftName;
-      metaInfo.draft_fold_path = draftPath;
-      metaInfo.draft_root_path = draftFolder;
+        metaInfo.draft_fold_path = draftPath.replace(/\\/g, '/');
+        metaInfo.draft_root_path = draftFolder.replace(/\\/g, '/');
       metaInfo.tm_draft_create = currentMicrosTimestamp;
       metaInfo.tm_draft_modified = currentMicrosTimestamp;
       
@@ -1009,21 +1023,19 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       );
 
       await upsertDraftSettingsTimes(draftPath, currentSecondsTimestamp, currentSecondsTimestamp);
+        await refreshTemplateIds(draftPath);
 
-      // 新增：触发草稿目录及父目录的文件系统事件
       await bumpDraftFolderMTime(draftPath, fixedDraftDate);
-      upsertRootMetaTimes(
+        await upsertRootMetaTimes(
         draftPath,
         script && script.id ? script.id : undefined,
         effectiveDraftName,
         currentMicrosTimestamp,
         currentMicrosTimestamp
       );
-      // pulseDraftSubdir(draftFolder)
-      await bounceDraftByMoving(draftPath);
-      await bumpParentDirectoryEvents(draftPath, fixedDraftDate);
+        await notifyDraftRootChanged(draftFolder);
       
-      logger.info(`已更新 draft_meta_info.json、draft_settings、root_meta_info.json 中的时间戳，并触发目录与父目录事件。`);
+        logger.info(`已更新 draft_meta_info.json、draft_settings、root_meta_info.json，并触发草稿根目录刷新。`);
       if (progressCallback) {
         progressCallback(90, i18next.t('finalizing'));
       }
@@ -1117,8 +1129,7 @@ module.exports = {
 
 // 新增：触发草稿根目录的 mtime/ctime 变化
 function getFixedDraftTimestamps() {
-  // 使用本地时区的 2099-09-01 00:00:00，避免依赖当前系统时间。
-  const draftDate = new Date(2099, 8, 1, 0, 0, 0, 0);
+  const draftDate = new Date();
   const millisTimestamp = draftDate.getTime();
   return {
     draftDate,
@@ -1126,6 +1137,25 @@ function getFixedDraftTimestamps() {
     microsTimestamp: millisTimestamp * 1000,
     secondsTimestamp: Math.floor(millisTimestamp / 1000)
   };
+}
+
+async function refreshTemplateIds(draftPath) {
+  for (const filename of ['template.tmp', 'template-2.tmp']) {
+    const templatePath = path.join(draftPath, filename);
+    if (!fs.existsSync(templatePath)) {
+      continue;
+    }
+    try {
+      const raw = await fs.promises.readFile(templatePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        parsed.id = randomUUID().toUpperCase();
+        await fs.promises.writeFile(templatePath, JSON.stringify(parsed, null, 2), 'utf8');
+      }
+    } catch (error) {
+      logger.warn(`刷新 ${filename} 的模板ID失败，将继续流程: ${error.message}`);
+    }
+  }
 }
 
 // 新增：触发草稿根目录的 mtime/ctime 变化
@@ -1263,38 +1293,36 @@ async function upsertDraftSettingsTimes(draftFolderPath, draftCreateSeconds, dra
     await fs.promises.writeFile(draftSettingsPath, normalized, 'utf8');
 }
 
-function upsertRootMetaTimes(draftFolderPath, targetDraftId, targetDraftName, tmCreateMillis, tmModifiedMicros) {
-    const fs = require('fs');
-    const path = require('path');
-
+async function upsertRootMetaTimes(draftFolderPath, targetDraftId, targetDraftName, tmCreateMillis, tmModifiedMicros) {
     const rootMetaPath = path.join(path.dirname(draftFolderPath), 'root_meta_info.json');
 
     let json;
     try {
-        json = JSON.parse(fs.readFileSync(rootMetaPath, 'utf8'));
+        json = JSON.parse(await fs.promises.readFile(rootMetaPath, 'utf8'));
     } catch (_) {
         json = { all_draft_store: [] };
     }
 
-    const store = Array.isArray(json.all_draft_store) ? json.all_draft_store : [];
+    const store = Array.isArray(json.all_draft_store) ? [...json.all_draft_store] : [];
 
     if (!targetDraftId) {
         try {
-            const info = JSON.parse(fs.readFileSync(path.join(draftFolderPath, 'draft_info.json'), 'utf8'));
+            const info = JSON.parse(await fs.promises.readFile(path.join(draftFolderPath, 'draft_info.json'), 'utf8'));
             if (info && typeof info === 'object' && info.id) {
                 targetDraftId = info.id;
             }
         } catch (_) {}
     }
 
-    const draftJsonPath = path.join(draftFolderPath, 'draft_info.json');
-    const draftCoverPath = path.join(draftFolderPath, 'draft_cover.jpg');
-    const baseRootPath = path.dirname(draftFolderPath);
+    const normalizedDraftFolderPath = draftFolderPath.replace(/\\/g, '/');
+    const draftJsonPath = path.join(draftFolderPath, 'draft_info.json').replace(/\\/g, '/');
+    const draftCoverPath = path.join(draftFolderPath, 'draft_cover.jpg').replace(/\\/g, '/');
+    const baseRootPath = path.dirname(draftFolderPath).replace(/\\/g, '/');
     const effectiveName = targetDraftName || path.basename(draftFolderPath);
+
     const findIdxBy = predicate => store.findIndex(predicate);
-    // 优先按当前草稿目录/文件/名称命中，避免因为模板复用的旧 draft_id 写到历史条目。
     let idx = findIdxBy(i =>
-        i.draft_fold_path === draftFolderPath ||
+        i.draft_fold_path === normalizedDraftFolderPath ||
         i.draft_json_file === draftJsonPath
     );
     if (idx < 0) {
@@ -1304,42 +1332,89 @@ function upsertRootMetaTimes(draftFolderPath, targetDraftId, targetDraftName, tm
         idx = findIdxBy(i => i.draft_id === targetDraftId);
     }
 
-    if (idx >= 0) {
-        store[idx].draft_cover = draftCoverPath;
-        store[idx].draft_fold_path = draftFolderPath;
-        store[idx].draft_id = targetDraftId || store[idx].draft_id || "";
-        store[idx].draft_json_file = draftJsonPath;
-        store[idx].draft_name = effectiveName;
-        store[idx].draft_root_path = baseRootPath;
-        store[idx].tm_draft_create = tmCreateMillis;
-        store[idx].tm_draft_modified = tmModifiedMicros;
-    } else {
-        store.unshift({
-            draft_cloud_last_action_download: false,
-            draft_cloud_purchase_info: "",
-            draft_cloud_template_id: "",
-            draft_cloud_tutorial_info: "",
-            draft_cloud_videocut_purchase_info: "",
-            draft_cover: draftCoverPath,
-            draft_fold_path: draftFolderPath,
-            draft_id: targetDraftId || "",
-            draft_is_ai_shorts: false,
-            draft_is_invisible: false,
-            draft_json_file: draftJsonPath,
-            draft_name: effectiveName,
-            draft_new_version: "",
-            draft_root_path: baseRootPath,
-            draft_timeline_materials_size: 0,
-            draft_type: "",
-            tm_draft_cloud_completed: "",
-            tm_draft_cloud_modified: 0,
-            tm_draft_create: tmCreateMillis,
-            tm_draft_modified: tmModifiedMicros,
-            tm_draft_removed: 0,
-            tm_duration: 0
-        });
+    const existingEntry = idx >= 0 ? store[idx] : {};
+    const nextEntry = {
+        draft_cloud_last_action_download: false,
+        draft_cloud_purchase_info: "",
+        draft_cloud_template_id: "",
+        draft_cloud_tutorial_info: "",
+        draft_cloud_videocut_purchase_info: "",
+        draft_cover: draftCoverPath,
+        draft_fold_path: normalizedDraftFolderPath,
+        draft_id: targetDraftId || existingEntry.draft_id || "",
+        draft_is_ai_shorts: false,
+        draft_is_invisible: false,
+        draft_json_file: draftJsonPath,
+        draft_name: effectiveName,
+        draft_new_version: "",
+        draft_root_path: baseRootPath,
+        draft_timeline_materials_size: 0,
+        draft_type: "",
+        tm_draft_cloud_completed: "",
+        tm_draft_cloud_modified: 0,
+        tm_draft_create: tmCreateMillis,
+        tm_draft_modified: tmModifiedMicros,
+        tm_draft_removed: 0,
+        tm_duration: 0,
+        ...existingEntry
+    };
+    nextEntry.draft_cover = draftCoverPath;
+    nextEntry.draft_fold_path = normalizedDraftFolderPath;
+    nextEntry.draft_id = targetDraftId || nextEntry.draft_id || "";
+    nextEntry.draft_json_file = draftJsonPath;
+    nextEntry.draft_name = effectiveName;
+    nextEntry.draft_root_path = baseRootPath;
+    nextEntry.tm_draft_create = tmCreateMillis;
+    nextEntry.tm_draft_modified = tmModifiedMicros;
+    nextEntry.tm_draft_removed = 0;
+
+    const deduped = store.filter((item, itemIndex) => {
+        if (itemIndex === idx) {
+            return false;
+        }
+        return !(
+            item.draft_fold_path === normalizedDraftFolderPath ||
+            item.draft_json_file === draftJsonPath ||
+            item.draft_name === effectiveName ||
+            (targetDraftId && item.draft_id === targetDraftId)
+        );
+    });
+    deduped.unshift(nextEntry);
+
+    json.all_draft_store = deduped;
+    json.draft_ids = deduped.length;
+    json.root_path = baseRootPath;
+
+    await fs.promises.writeFile(
+        rootMetaPath,
+        JSON.stringify(json, null, 2),
+        'utf8'
+    );
+}
+
+async function notifyDraftRootChanged(rootPath) {
+    const resolvedRoot = path.resolve(rootPath);
+    const touchedPaths = [];
+    const rootMetaPath = path.join(resolvedRoot, 'root_meta_info.json');
+    const now = new Date();
+
+    await fs.promises.mkdir(resolvedRoot, { recursive: true });
+
+    for (const candidate of [resolvedRoot, rootMetaPath]) {
+        try {
+            await fs.promises.utimes(candidate, now, now);
+            touchedPaths.push(candidate);
+        } catch (_) {}
     }
 
-    json.all_draft_store = store;
-    fs.writeFileSync(rootMetaPath, JSON.stringify(json));
+    const triggerPath = path.join(resolvedRoot, `.refresh_trigger_${Date.now()}`);
+    try {
+        await fs.promises.writeFile(triggerPath, String(Date.now()), 'utf8');
+        touchedPaths.push(triggerPath);
+        await new Promise(resolve => setTimeout(resolve, 150));
+    } finally {
+        await fs.promises.unlink(triggerPath).catch(() => {});
+    }
+
+    logger.info(`notifyDraftRootChanged touched=${JSON.stringify(touchedPaths)}`);
 }

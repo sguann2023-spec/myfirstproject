@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { loggerService } from '@logger'
 import { app, net } from 'electron'
+import StreamZip from 'node-stream-zip'
 import semver from 'semver'
 
 import { getGlobalSkillsRoot } from '../services/agents/skills/paths'
@@ -16,6 +17,36 @@ const VERSION_FILE = '.version'
 const MANIFEST_FILE = 'manifest.json'
 const SYNC_STATE_FILE = '.builtin-sync-state.json'
 const REMOTE_MANIFEST_URL = 'https://player.install-ai-guider.top/skills/manifest.json'
+const REMOTE_QUICK_SKILLS_MANIFEST_URL = 'https://player.install-ai-guider.top/skills/quick/manifest.json'
+const QUICK_SKILLS_MANIFEST_CACHE_DIR = 'QuickSkills'
+const QUICK_SKILLS_STORAGE_SUBDIR = 'skills'
+const QUICK_SKILLS_DOWNLOADS_SUBDIR = '.downloads'
+const QUICK_SKILLS_EXTRACT_PREFIX = '.extract-'
+const MAX_QUICK_SKILL_EXTRACTED_SIZE = 100 * 1024 * 1024
+const MAX_QUICK_SKILL_FILES_COUNT = 1000
+
+interface QuickSkillsManifest {
+  updatedAt?: string
+  skills: Record<string, QuickSkillManifestEntry>
+}
+
+interface QuickSkillManifestEntry {
+  version?: string
+  downloadUrl?: string
+  minAppVersion?: string
+  deleted?: boolean
+  tombstoneVersion?: string
+  name?: string
+  folderName?: string
+  action?: string
+  order?: number
+  headline?: string
+  description?: string
+  websitePath?: string
+  coverPath?: string
+  coverUrl?: string
+  previewVideoUrl?: string
+}
 
 interface BuiltinSkillManifestEntry {
   version?: string
@@ -143,8 +174,10 @@ export async function installBuiltinSkills(options?: {
 
   if (waitForRemoteSync) {
     await remoteSyncTask
+    await syncQuickSkillsManifestFromRemote()
   } else {
     void remoteSyncTask
+    void syncQuickSkillsManifestFromRemote()
   }
 
   if (installed > 0) {
@@ -324,6 +357,117 @@ async function fetchRemoteBuiltinSkillsManifest(): Promise<BuiltinSkillManifest 
   }
 }
 
+async function syncQuickSkillsManifestFromRemote(): Promise<void> {
+  logger.info('Starting remote quick skill manifest sync', {
+    manifestUrl: REMOTE_QUICK_SKILLS_MANIFEST_URL
+  })
+
+  try {
+    const manifest = await fetchRemoteQuickSkillsManifest()
+    if (!manifest) return
+
+    const materializedManifest = await materializeQuickSkillsManifest(manifest)
+    const cachePath = getQuickSkillsManifestCachePath()
+    await fs.mkdir(path.dirname(cachePath), { recursive: true })
+    await fs.writeFile(cachePath, JSON.stringify(materializedManifest, null, 2), 'utf-8')
+
+    logger.info('Cached remote quick skill manifest successfully', {
+      cachePath,
+      updatedAt: materializedManifest.updatedAt ?? null,
+      skillCount: Object.keys(materializedManifest.skills).length
+    })
+  } catch (error) {
+    logger.warn('Failed to sync remote quick skill manifest', {
+      url: REMOTE_QUICK_SKILLS_MANIFEST_URL,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
+async function fetchRemoteQuickSkillsManifest(): Promise<QuickSkillsManifest | null> {
+  try {
+    const response = await net.fetch(REMOTE_QUICK_SKILLS_MANIFEST_URL, {
+      headers: {
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const manifest = normalizeQuickSkillsManifest(await response.json())
+    logger.info('Fetched remote quick skill manifest successfully', {
+      url: REMOTE_QUICK_SKILLS_MANIFEST_URL,
+      updatedAt: manifest.updatedAt ?? null,
+      skillCount: Object.keys(manifest.skills).length
+    })
+    return manifest
+  } catch (error) {
+    logger.warn('Failed to fetch remote quick skill manifest', {
+      url: REMOTE_QUICK_SKILLS_MANIFEST_URL,
+      error: error instanceof Error ? error.message : String(error)
+    })
+    return null
+  }
+}
+
+async function materializeQuickSkillsManifest(remoteManifest: QuickSkillsManifest): Promise<QuickSkillsManifest> {
+  const materializedSkills: Record<string, QuickSkillManifestEntry> = {}
+  let updatedCount = 0
+  let deletedCount = 0
+
+  for (const [skillName, entry] of Object.entries(remoteManifest.skills)) {
+    const folderName = String(entry.folderName || skillName).trim() || skillName
+    if (entry.deleted) {
+      await removeCachedQuickSkill(folderName)
+      deletedCount++
+      continue
+    }
+
+    if (!isMinAppVersionSatisfied(entry.minAppVersion)) {
+      logger.info('Skipping remote quick skill because minAppVersion is not satisfied', {
+        skillName,
+        currentAppVersion: app.getVersion(),
+        minAppVersion: entry.minAppVersion
+      })
+      continue
+    }
+
+    if (!entry.version || !entry.downloadUrl) {
+      throw new Error(`Remote quick skill entry for ${skillName} is incomplete`)
+    }
+
+    const quickSkillDir = getQuickSkillDirectory(folderName)
+    const installedVersion = await readInstalledVersion(quickSkillDir)
+    if (!installedVersion || compareVersions(installedVersion, entry.version) < 0) {
+      await downloadAndCacheQuickSkill(skillName, entry)
+      updatedCount++
+    }
+
+    materializedSkills[skillName] = {
+      ...entry,
+      folderName
+    }
+  }
+
+  await removeStaleCachedQuickSkills(
+    Object.values(materializedSkills).map((entry) => String(entry.folderName || '').trim()).filter(Boolean)
+  )
+  logger.info('Completed remote quick skill sync', {
+    updatedAt: remoteManifest.updatedAt ?? null,
+    updatedCount,
+    deletedCount,
+    skillCount: Object.keys(materializedSkills).length
+  })
+
+  return {
+    updatedAt: remoteManifest.updatedAt ?? new Date().toISOString(),
+    skills: materializedSkills
+  }
+}
+
 async function downloadAndInstallBuiltinSkill(skillName: string, entry: BuiltinSkillManifestEntry): Promise<string> {
   const downloadUrl = entry.downloadUrl
   const version = entry.version
@@ -368,6 +512,100 @@ async function downloadAndInstallBuiltinSkill(skillName: string, entry: BuiltinS
     return installed.folderName
   } finally {
     await fs.rm(zipPath, { force: true }).catch(() => undefined)
+  }
+}
+
+async function downloadAndCacheQuickSkill(skillName: string, entry: QuickSkillManifestEntry): Promise<void> {
+  const downloadUrl = entry.downloadUrl
+  const version = entry.version
+  const folderName = String(entry.folderName || skillName).trim() || skillName
+  if (!downloadUrl || !version) {
+    throw new Error(`Remote quick skill entry for ${skillName} is incomplete`)
+  }
+
+  logger.info('Downloading remote quick skill zip', {
+    skillName,
+    version,
+    downloadUrl
+  })
+  const response = await net.fetch(downloadUrl)
+  if (!response.ok) {
+    throw new Error(`Download failed: HTTP ${response.status}`)
+  }
+
+  const quickSkillsRoot = getQuickSkillsRoot()
+  const downloadDir = path.join(quickSkillsRoot, QUICK_SKILLS_DOWNLOADS_SUBDIR)
+  const extractDir = path.join(quickSkillsRoot, `${QUICK_SKILLS_EXTRACT_PREFIX}${folderName}-${Date.now()}`)
+  const zipPath = path.join(downloadDir, `${folderName}-${Date.now()}.zip`)
+  const destPath = getQuickSkillDirectory(folderName)
+
+  await fs.mkdir(downloadDir, { recursive: true })
+  await fs.mkdir(extractDir, { recursive: true })
+
+  try {
+    const buffer = Buffer.from(await response.arrayBuffer())
+    await fs.writeFile(zipPath, buffer)
+    await extractQuickSkillZip(zipPath, extractDir)
+
+    const extractedSkillPath = path.join(extractDir, folderName)
+    await fs.mkdir(path.dirname(destPath), { recursive: true })
+    await fs.rm(destPath, { recursive: true, force: true }).catch(() => undefined)
+    await fs.cp(extractedSkillPath, destPath, { recursive: true })
+    await fs.writeFile(path.join(destPath, VERSION_FILE), version, 'utf-8')
+
+    logger.info('Cached remote quick skill successfully', {
+      skillName,
+      folderName,
+      version,
+      destPath
+    })
+  } finally {
+    await fs.rm(zipPath, { force: true }).catch(() => undefined)
+    await fs.rm(extractDir, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+async function extractQuickSkillZip(zipFilePath: string, destDir: string): Promise<void> {
+  const zip = new StreamZip.async({ file: zipFilePath })
+
+  try {
+    const entries = await zip.entries()
+    let totalSize = 0
+    let fileCount = 0
+
+    for (const entry of Object.values(entries)) {
+      totalSize += entry.size
+      fileCount++
+      if (totalSize > MAX_QUICK_SKILL_EXTRACTED_SIZE) {
+        throw new Error(`ZIP too large: ${totalSize} bytes exceeds ${MAX_QUICK_SKILL_EXTRACTED_SIZE}`)
+      }
+      if (fileCount > MAX_QUICK_SKILL_FILES_COUNT) {
+        throw new Error(`ZIP has too many files: ${fileCount} exceeds ${MAX_QUICK_SKILL_FILES_COUNT}`)
+      }
+    }
+
+    await zip.extract(null, destDir)
+  } finally {
+    await zip.close()
+  }
+}
+
+async function removeCachedQuickSkill(skillName: string): Promise<void> {
+  await fs.rm(getQuickSkillDirectory(skillName), { recursive: true, force: true }).catch(() => undefined)
+}
+
+async function removeStaleCachedQuickSkills(activeSkillNames: string[]): Promise<void> {
+  const storageRoot = getQuickSkillsStorageRoot()
+  try {
+    const entries = await fs.readdir(storageRoot, { withFileTypes: true })
+    const activeSet = new Set(activeSkillNames)
+    await Promise.all(entries.map(async (entry) => {
+      if (!entry.isDirectory()) return
+      if (activeSet.has(entry.name)) return
+      await fs.rm(path.join(storageRoot, entry.name), { recursive: true, force: true }).catch(() => undefined)
+    }))
+  } catch {
+    // Ignore cache cleanup failures.
   }
 }
 
@@ -461,6 +699,34 @@ async function saveBuiltinSkillSyncState(state: BuiltinSkillSyncState): Promise<
 
 function getBuiltinSkillSyncStatePath(): string {
   return path.join(getGlobalSkillsRoot(), SYNC_STATE_FILE)
+}
+
+function getQuickSkillsManifestCachePath(): string {
+  return path.join(getQuickSkillsRoot(), MANIFEST_FILE)
+}
+
+function getQuickSkillsRoot(): string {
+  return getDataPath(QUICK_SKILLS_MANIFEST_CACHE_DIR)
+}
+
+function getQuickSkillsStorageRoot(): string {
+  return path.join(getQuickSkillsRoot(), QUICK_SKILLS_STORAGE_SUBDIR)
+}
+
+function getQuickSkillDirectory(skillName: string): string {
+  return path.join(getQuickSkillsStorageRoot(), skillName)
+}
+
+function normalizeQuickSkillsManifest(parsed: unknown): QuickSkillsManifest {
+  if (!parsed || typeof parsed !== 'object') {
+    return { skills: {} }
+  }
+
+  const manifest = parsed as Partial<QuickSkillsManifest>
+  return {
+    updatedAt: manifest.updatedAt,
+    skills: manifest.skills && typeof manifest.skills === 'object' ? manifest.skills : {}
+  }
 }
 
 function inferSkillSource(localManifest: BuiltinSkillManifest, skillName: string): 'bundle' | 'remote' {

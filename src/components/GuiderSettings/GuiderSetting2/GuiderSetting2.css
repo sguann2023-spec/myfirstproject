@@ -124,12 +124,32 @@
   background: #fff;
   color: #000;
   font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
   border-radius: 20px;
   cursor: pointer;
 }
 
+.gs2-save-button.is-auto-detected {
+  max-width: 168px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #666666;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  line-height: 2.2;
+  text-align: center;
+  white-space: normal;
+}
+
 .gs2-save-button:hover {
   border-color: #cfd0d3;
+}
+
+.gs2-save-button.is-auto-detected:hover {
+  border-color: transparent;
+  color: #4f4f4f;
 }
 
 .gs2-save-path.empty {

@@ -1,8 +1,8 @@
 {
-  "updatedAt": "2026-08-21T18:30:34Z",
+  "updatedAt": "2026-08-29T12:59:28Z",
   "skills": {
     "网感口播": {
-      "version": "1.0.0",
+      "version": "1.0.5",
       "name": "网感口播",
       "folderName": "网感口播",
       "action": "bootstrap-trendy-koubo",
@@ -12,7 +12,10 @@
       "websitePath": "",
       "coverPath": "",
       "coverUrl": "",
-      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/koubo_1f9c/f95ff31e-6a92-4fcd-9b1d-c7421a031f68.mp4"
+      "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/koubo_1f9c/f95ff31e-6a92-4fcd-9b1d-c7421a031f68.mp4",
+      "packageSlug": "trendy-koubo",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/trendy-koubo/1_0_5/trendy-koubo.zip",
+      "minAppVersion": "1.6.13"
     },
     "旅游攻略混剪": {
       "version": "1.0.0",
@@ -25,7 +28,10 @@
       "websitePath": "旅游攻略混剪/website/index.html",
       "coverPath": "旅游攻略混剪/website/cover.png",
       "coverUrl": "https://player.install-ai-guider.top/quick/skills/旅游攻略混剪/website/cover.png",
-      "previewVideoUrl": "https://player.install-ai-guider.top/example/hunjian_chaoshan_result.mp4"
+      "previewVideoUrl": "https://player.install-ai-guider.top/example/hunjian_chaoshan_result.mp4",
+      "packageSlug": "travel-guide",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/travel-guide/1_0_0/travel-guide.zip",
+      "minAppVersion": "1.6.13"
     },
     "直播切片": {
       "version": "1.0.0",
@@ -38,7 +44,10 @@
       "websitePath": "直播切片/website/index.html",
       "coverPath": "直播切片/website/cover.png",
       "coverUrl": "https://player.install-ai-guider.top/quick/skills/直播切片/website/cover.png",
-      "previewVideoUrl": "https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/f2eda5c5-5970-4bf9-820e-aee67f6bed77.mov.mp4"
+      "previewVideoUrl": "https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/f2eda5c5-5970-4bf9-820e-aee67f6bed77.mov.mp4",
+      "packageSlug": "live-clipping",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/live-clipping/1_0_0/live-clipping.zip",
+      "minAppVersion": "1.6.13"
     }
   }
 }

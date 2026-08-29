@@ -1,171 +1,161 @@
 ---
 name: 网感口播
-description: 独立制作网感口播竖屏草稿。当用户明确说“网感口播”时使用；必须要求用户提交公网视频链接或上传本地视频，只有文案不能生成；按网感口播模板生成标题、双语字幕、关键词弹出、转场、缩放、提示音和 BGM。
+description: 独立制作网感口播竖屏草稿。当用户明确说"网感口播"时使用；必须要求用户提交公网视频链接或上传本地视频，只有文案不能生成；按网感口播模板生成标题、双语字幕、关键词弹出、转场、缩放、提示音和 BGM。
 ---
 
-# 通用口播高级红模板
+## 输入要求
 
-用这个技能把口播视频做成高级红风格竖屏草稿。模板包含开头标题、中文/英文双语字幕、关键词红色弹出、少量转场、一次视频缩放、提示音和背景音乐。
+技能输入按 OpenAPI 3.1 接口入参格式定义（等价于一次 `POST /skills/koubo-oral/run` 调用，Schema 遵循 JSON Schema 2020-12）。开始前按此 schema 收集输入；
 
-## 基本原则
+```yaml
+requestBody:
+  required: true
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [video_sources]
+        properties:
+          video_sources:
+            type: array
+            minItems: 1
+            description: 口播视频来源列表，公网 URL 或本地绝对路径；每个视频独立处理，互不复用 ASR、语义规划、草稿 ID 或草稿链接。
+            items:
+              type: string
+              description: 公网可访问的视频 URL 或本地视频绝对路径。
+              examples:
+                - "https://example.com/oral-video.mp4"
+                - "/Users/xxx/Documents/video.mp4"
+          text_contents:
+            type: array
+            description: 可选的用户校正文案，只用于 ASR 校对和语义规划参考；单条文案可用于全部视频，多条文案按视频顺序一一对应。文案不能替代视频。
+            items:
+              type: string
+          cover_url:
+            type: string
+            description: 可选，草稿封面图片地址。
+            examples:
+              - "https://example.com/cover.jpg"
+          draft_name:
+            type: string
+            description: 可选，用户自定义草稿名；缺省时按视频主题自动生成。
+            examples:
+              - "网感口播_高级红_马伟明"
+          remove_silence:
+            type: boolean
+            default: true
+            description: 去气口开关。true 时去除静音停顿并压缩时间轴（默认）；false 时保留原始节奏和停顿，不做视频切分、不加转场和缩放，段落硬切。
+          style_config:
+            type: object
+            description: 可选，仅覆盖用户明确指定的样式参数；未指定的字段使用 references/style_config.md 默认值。
+            properties:
+              title:
+                type: object
+                description: 标题样式覆盖（字体、字号、颜色等）。
+              subtitle:
+                type: object
+                description: 字幕样式覆盖（字体、字号、颜色等）。
+              keyword:
+                type: object
+                description: 关键词弹出样式覆盖。
+              transition:
+                type: object
+                description: 转场样式覆盖。
+              zoom:
+                type: object
+                description: 缩放效果覆盖。
+              audio:
+                type: object
+                description: 音频参数覆盖（音量、BGM 等）。
+```
 
-- 默认画布为竖屏 `1080x1920`。
-- 必须使用用户提交的视频作为主画面；视频可以是公网 URL，也可以是本地视频路径。
-- 默认开启去气口，去气口后字幕/文字层与时间戳对齐，主视频比文字前后各多 0.3 秒（视频早 0.3s 开始、晚 0.3s 结束）；相邻片段间距≥0.6s 时自然重叠 0.6s 用转场过渡，不足 0.6s 时不重叠，取两段文字中间点切割直接连贯拼接，让转场、缩放和音频按处理后的时间轴对齐。
-- 原始 ASR 句子是字幕和效果的唯一基准；不能合并相邻 ASR 句子，不能删除、重排或改写原句。
-- 分层字幕的切分点必须落在词与词之间，严禁把同一个词（专有名词、常用搭配、代词+动词等）拆到两行。
-- 参考文件按需读取（不要提前全部加载）：
-  - `references/style_config.md`：第 7 步语义规划、第 10 步组装 workflow 时读取，获取样式默认值和可覆盖字段。
-  - `references/llm-prompts.md`：第 7 步语义规划前读取，获取标题、字幕拆分、双语翻译、关键词、转场、缩放和提示音规则。
-  - `references/workflow.md`：第 6 步整理时间轴、第 10 步组装 workflow 时读取，获取时间轴计算和工作流提交格式。
-  - `scripts/clean_asr.py`：第 5.2 步调用，执行 ASR 机械化清洗（去标点、去气口、去重复）。
-  - `scripts/build_timeline.py`：第 6 步调用，自动计算时间轴（间距判断、切割点、词级映射、连续性验证）。
+## 输出定义
 
-## 输入
+技能输出按 OpenAPI 3.1 响应格式定义。最终回复使用自然语言，把以下 schema 字段作为信息点组织成友好的回复，不输出原始 JSON/YAML。
 
-从用户请求里整理这些信息：
-
-- 本地文件、视频链接 二选一必填，公网可访问的口播视频地址；可以是一个，也可以是多个。
-- `text_content` / `text_contents`：可选，用户提供的校正文案，只用于 ASR 校对和语义规划参考；单条文案可用于全部视频，多条文案按视频顺序一一对应。文案不能替代视频，没有视频时不能继续。
-- `cover_url`：可选，草稿封面地址。
-- `draft_name`：可选，用户自定义草稿名。
-- `remove_silence`：可选，去气口选项，默认开启。
-- `style_config`：可选，只覆盖用户明确指定的标题、字幕、关键词、动画、转场、缩放或音频参数。
-
-公网视频和本地视频至少需要一个；两者都没有时必须停止，向用户索要视频链接或本地视频上传，不创建草稿，不调用 ASR，不做语义规划，不执行 workflow。不要把完整服务回包写进最终回复。
+```yaml
+responses:
+  "200":
+    description: 口播草稿生成成功。
+    content:
+      application/json:
+        schema:
+          type: object
+          required: [drafts]
+          properties:
+            drafts:
+              type: array
+              description: 与输入视频一一对应的草稿结果列表。
+              items:
+                type: object
+                required: [draft_id, draft_name, status]
+                properties:
+                  video_source:
+                    type: string
+                    description: 处理的视频来源（URL 或路径）。
+                  status:
+                    type: string
+                    enum: [success, failed]
+                    description: 处理状态。
+                  draft_id:
+                    type: string
+                    description: 草稿 ID，失败时为空字符串。
+                    examples:
+                      - "dfd_cat_1787905247_55627657"
+                  draft_name:
+                    type: string
+                    description: 草稿名称。
+                  draft_url:
+                    type: string
+                    description: 草稿打开链接。
+                    examples:
+                      - "https://www.vectcut.com/draft/downloader?draft_id=dfd_xxx&is_capcut=0"
+                  timeline_duration:
+                    type: number
+                    description: 时间轴总时长（秒）。
+                  asr_sentence_count:
+                    type: integer
+                    description: ASR 有效句数。
+                  subtitle_count:
+                    type: integer
+                    description: 生成的字幕条数。
+                  error_message:
+                    type: string
+                    description: 失败原因，成功时为空。
+```
 
 ## 执行步骤
 
-1. 准备参数。先检查是否有 `video_url/video_urls/local_video/local_videos`；如果没有，立即要求用户提交视频链接或上传视频并停止。通过检查后，再统一整理成视频列表，并确认草稿名、是否开启去气口、用户是否覆盖了模板参数。
-2. 处理本地视频。用 ffmpeg 从工作空间内的视频中提取音频文件（mp3），再将音频上传为临时链接，供后续 ASR 识别使用。视频本身不需要上传为临时链接。
-3. 逐个处理视频。每个视频独立执行后续步骤，互不复用 ASR、语义规划、草稿 ID 或草稿链接。
-4. 查询视频时长。无法取得正数时长时按源码口径使用 `60.0` 秒兜底，并记录该兜底状态。
-5. 识别与清洗字幕。分三个子步骤，每步结果分别保存为独立文件，所有文件写入**当前工作空间根目录**：
-   1. **基础识别 → 文件 1**。使用第 2 步中上传得到的音频临时链接提交 ASR 任务，使用 `basic` 基础识别模式，等待完成后将原始识别结果保存为当前工作空间下的第一个文件（如 `{workspace}/asr_raw_result.json`）。
-   2. **分句清洗 → 文件 2**。先调用技能目录下的脚本完成机械化清洗：`python3 {skill_dir}/scripts/clean_asr.py --input {workspace}/asr_raw_result.json --output {workspace}/asr_cleaned_sentences.json`（脚本自动完成去标点、去气口、去重复）。然后在此基础上由 LLM 完成语义分析：按**语义完整性**拆分分句（在主谓宾、动补、连词等自然语义边界处断开），每句不超过 12 个字，超过时在下一个语义断点处拆分；每条分句**结尾不得包含任何标点符号**；去错别字（修正明显识别错误）、去除需要重录的片段（标记为无效或不可用的片段）。将最终清洗结果覆盖写入 `{workspace}/asr_cleaned_sentences.json`。
-   3. **翻译与关键词 → 文件 3**。对文件 2 中的清洗后分句进行英文翻译，并提取每句关键词，翻译结果和关键词一起保存为当前工作空间下的第三个文件（如 `{workspace}/asr_translation_keywords.json`）。
-6. 整理时间轴。**【读取 `references/workflow.md` 获取时间轴计算规则】**。调用技能目录下的脚本自动计算时间轴：`python3 {skill_dir}/scripts/build_timeline.py --cleaned {workspace}/asr_cleaned_sentences.json --raw {workspace}/asr_raw_result.json --duration {视频时长} --output {workspace}/timeline.json`。脚本自动完成：计算相邻语句间距、判断过渡方式（重叠转场 vs 中间点切割）、计算每段源视频范围和目标时间轴、映射词级时间、验证连续性。LLM 审阅脚本输出确认无误即可，无需手动编写计算代码。
-7. 做一次语义规划。**【读取 `references/llm-prompts.md` 和 `references/style_config.md`】**，根据其中的规则一次生成标题、字幕排版、英文字幕、关键词、转场、缩放和提示音规划。规划时不能合并相邻 ASR 句子，不能改写原文。
-8. 校验规划结果。依次检查以下项目，任何一项不合格必须修正后再继续：
-   - 标题字数：`top_title` 和 `bottom_title` 每行 ≤8 个字符，超过的必须截断或重写。
-   - 字幕回拼：字幕能按 `source_index` 回拼 ASR 原文。
-   - 转场：三种转场各最多一次。
-   - 缩放：最多一处。
-   - 关键词：必须来自当前句。
-   - **位置参数**：组装工作流后，逐层检查每个 `add_text` 步骤的 `transform_x_px`、`transform_y_px`、`align`、`fixed_width` 是否与 `workflow.md`「字幕层位置硬约束」表格一致。不一致的必须修正。
-   - **关键词弹出**：每个关键词弹出层必须包含 `intro_animation=左移弹动`、`font_size=15`、`shadow_enabled=true`、`shadow_color=#ffffff`、正确的 `intro_duration`。缺少任何一项必须补上。
-   失败时按参考文件重试一次，仍失败则记录当前视频失败原因。
-9. 创建草稿。调用 `create_draft` 工具创建草稿，分辨率是1080x1920的竖屏草稿，获取 `draft_id`，后续步骤使用该草稿 ID。
-10. 组装并执行工作流。**【读取 `references/workflow.md` 获取 workflow JSON 格式和提交规则】**。把添加主视频片段、标题、双语字幕、关键词弹出、转场、缩放关键帧、提示音和 BGM 组装成 workflow（不包含 `create_draft` 步骤），在 workflow 的 `inputs` 中传入第 9 步获取的 `draft_id`，先保存workflow的请求内容为文件，再调用工作流执行工具，减少串行接口调用。本地视频无需上传为临时链接，工作流中直接使用本地文件路径即可。
+每个步骤的输入、操作规则和输出按 OpenAPI 3.1 格式定义在 `steps/` 目录的独立文件里，按序号顺序执行；步骤文件按需加载，执行到哪一步才读取哪一步的文件：
 
-    **工作流 JSON 格式要求**（必须严格遵守）：
+| 步骤 | 文件 | 说明 |
+|---|---|---|
+| 1. 提取音频 | `steps/01-extract-audio.md` | 查询视频时长；ffmpeg 提取音频到工作空间（输出 audio_path 供 ASR 使用） |
+| 2. 提交 ASR | `steps/02-submit-asr.md` | basic 基础识别，保存原始识别结果 |
+| 3. 分句清洗 | `steps/03-clean-sentences.md` | 机械化清洗 + LLM 语义分句 + 翻译关键词（不去气口时跳过脚本） |
+| 4. 整理时间轴 | `steps/04-build-timeline.md` | 计算去气口时间轴（不去气口时直接用源时间构建简化时间轴） |
+| 5. 语义规划 | `steps/05-semantic-plan.md` | **打包单次 LLM 调用**（分句+关键词+翻译+标题+转场缩放提示音，见 `references/plan-prompt-template.md`）+ `plan_llm_io.py` 机械回填 |
+| 6. 组装执行 | `steps/06-build-workflow.md` | 创建草稿、组装 workflow、执行、并返回结果 |
+| 7. 下载草稿 | `steps/07-download-draft.md` | 调用 MCP 下载草稿工具，把草稿下载到剪映桌面端 |
 
-    ```json
-    {
-      "inputs": {
-        "draft_id": "dfd_xxx",
-        "video_path": "/path/to/video.mp4",
-        "bgm_url": "https://..."
-      },
-      "script": [
-        {
-          "type": "action",
-          "id": "uuid_1",
-          "index": 0,
-          "action_type": "add_video",
-          "params": {
-            "video_url": "${video_path}",
-            "start": 0.08,
-            "end": 2.04,
-            "target_start": 0.0,
-            "target_end": 1.96,
-            "track_name": "video_main",
-            "volume": 20
-          }
-        },
-        {
-          "type": "action",
-          "id": "uuid_2",
-          "index": 1,
-          "action_type": "add_text",
-          "params": {
-            "text": "标题文字",
-            "start": 0,
-            "end": 5.0,
-            "track_name": "text_title",
-            "font_size": 15
-          }
-        }
-      ]
-    }
-    ```
+**加载规则（强制）**：上方表格只是步骤索引，禁止据此一次性批量读取所有步骤文件。开始执行第 N 步时，只读取对应的 `steps/0N-xxx.md`，读后立即按文件内规则执行；第 N 步完成并确认输出之前，不得读取第 N+1 步的步骤文件。`references/` 下的文件同理，只在当前步骤文件明确要求时读取（如第 3 步要求 `references/llm-prompts.md`、第 4 步要求 `references/workflow.md`、第 5 步要求 `references/plan-prompt-template.md` 和 `references/style_config.md`）。
 
-    **关键字段说明**：
-    - 每个步骤必须有 `type: "action"`、唯一 `id`（UUID格式）、递增 `index`（从0开始）
-    - 动作类型字段是 `action_type`（不是 `action`）
-    - 参数字段是 `params`（不是 `inputs`）
-    - `inputs` 是顶层输入变量定义，支持嵌套结构和引用语法如 `${video_path}`、`${draft_id}`
-    - **提交前校验**：保存 workflow 文件后、调用执行工具前，用脚本扫描所有 `add_text` 步骤：
-      1. 检查每个字幕层的 `transform_y_px` 是否与「字幕层位置硬约束」表格一致（下行中文必须 -931，上行英文必须 -635，下行英文必须 -1100，普通中文必须 -526，普通英文必须 -700）。
-      2. 检查每个关键词弹出层是否包含 `intro_animation=左移弹动`、`font_size=15`、`shadow_enabled=true`、`shadow_color=#ffffff`。
-      3. 发现不一致时直接修正 workflow 文件后再提交，不要带着错误提交。
-11. 查询草稿并校验。工作流成功后读取返回的草稿 ID 和草稿链接，再查询草稿结构，确认主视频、标题、双语字幕、关键词弹出、转场、缩放、提示音和 BGM 都已写入。
-12. 返回结果。返回 `草稿` 列表。每项包含视频来源、处理状态、草稿 ID、草稿链接、时间轴时长、ASR 句数和字幕数量；然后直接下载草稿。
-
-## 样式口径
-
-- 标题默认显示在开头 `min(5.0, timeline_duration)` 秒内，使用高级红双行标题样式。
-- 中文字幕默认使用“思源粗宋”，英文字幕使用 `Poppins_Bold`。
-- 1-7 个有效字符用普通单行字幕；8-12 个有效字符用上下分层字幕；超过 12 个有效字符只在当前 ASR 句内部拆分。
-- 所有上下分层字幕必须共用固定轨道：上行中文 `yimei_layered_top`、下行中文 `yimei_layered_bottom`、上行英文 `yimei_layered_top_en`、下行英文 `yimei_layered_bottom_en`；不要为每条长句创建 `yimei_layered_00_top`、`yimei_layered_01_top` 这类独立轨道。
-- 每条字幕以 `0.5` 概率使用 `打字机_I`，持续 `0.2` 秒。
-- 关键词是红色文字弹出层，不是贴纸；必须按源码方式用全角空格占位叠加，不能把关键词作为独立自由位置文字层。只有字幕命中打字机动画时才创建关键词弹出层。
-- 转场只允许 `向右`、`向左`、`竖向模糊`，每种最多一次。
-- 视频缩放最多一处，缩放值为 `1.2`。
-- BGM 从 `references/bgm.md` 文件中的音乐列表随机选择 1 条，循环铺满目标时间轴。执行前必须先读取该文件获取真实 URL，禁止编造。
-
-常用命令包括：
-
-- `duration`：查询视频或 BGM 时长。
-- `asr submit-and-wait`：提交并等待字幕识别。
-- `execute-workflow`：一次性创建草稿并写入主视频、标题、双语字幕、关键词弹出、音频、提示音、转场和关键帧。
-- `create-draft`、`add-video`、`add-text`、`add-audio`、`add-preset`、`add-keyframe`：只在调试单个动作或工作流失败定位时使用。
-- `query-script`：查询草稿结构。
-- `render submit-and-wait`：用户要求预览时渲染视频。
-
-## 异常处理
-
-- 单个视频的 ASR、语义规划或工作流写入失败时，记录该视频失败原因；如果还有其他视频，继续处理后续视频。
-- ASR 没有有效句子时，不继续生成效果。
-- 规划结果不合法时，只重试一次；不要用猜测数据继续写草稿。
-- 查询草稿没有通过校验时，不要报告“完成”。
+输入的校验与收集按上方「输入要求」完成，不再单独设准备参数步骤；多视频时，全部步骤对每个视频独立串行执行，互不复用中间产物。
 
 ## 最终回复格式
 
-成功时最终回复必须和鱼眼 INS 模板保持同一种展示效果，不要输出大段 JSON，不要自由发挥成过程日志：
-
-1. 第一行说明已完成高级红口播草稿；如果没有渲染预览，写明“未渲染预览视频（按模板规则，只有明确要求预览时才渲染）”。
-2. 单个视频使用“新草稿：”小节；多个视频使用“草稿列表：”并按视频顺序编号。
-3. 每个草稿用短项目展示 `draft_id`、草稿链接、关键模板参数和校验结果。
-4. 最后可补一句字幕拆分摘要，但不要输出完整字幕明细，除非用户要求。
-
-单个视频回复示例：
+整个技能执行过程和最终回复都使用自然语言，把输出 schema 的字段作为信息点组织成友好回复；不要在最终回复里输出临时脚本名、代码 diff、已编辑文件、调试文件、接口请求体或完整接口响应。
 
 ```text
-已完成高级红口播草稿，未渲染预览视频（按模板规则，只有明确要求预览时才渲染）。
+已完成高级红口播草稿，草稿已下载到剪映桌面端，可在剪映草稿列表中直接打开。
 
-新草稿：
-- draft_id：dfd_xxx
-- 打开草稿：https://www.vectcut.com/draft/downloader?draft_id=dfd_xxx&is_capcut=0
-- 标题样式：高级红双行标题
-- 字幕样式：思源粗宋 + Poppins_Bold 双语字幕
-- 校验结果：video_main 9 段、文字层 32 个、转场 3 个、关键词弹出 4 个、缩放关键帧 1 组、提示音 2 个、BGM 1 段
-
-这版字幕拆分为：9 条短字幕。
+> **新草稿：**
+> - **网感口播_高级红_马伟明** — draft_id：dfd_xxx，✅ 已下载到剪映（备用链接：[点击打开草稿](https://www.vectcut.com/draft/downloader?draft_id=dfd_xxx&is_capcut=0)）
+> - 标题样式：高级红双行标题
+> - 字幕样式：思源粗宋 + Poppins_Bold 双语字幕
+> - 去气口：开启（去除 x.xx s 静音，目标时间轴 xxx.xx s）
+> - 校验结果：video_main N 段、文字层 N 个、关键词弹出 N 个、缩放关键帧 N 组、提示音 N 个、BGM 1 段
+> - 时间轴时长：xxx.xx 秒
+>
+> 这版字幕拆分为：N 条短字幕。
 ```
-
-不要在最终回复里输出临时脚本名、代码 diff、已编辑文件、调试文件、接口请求体或完整接口响应。
-
-## 交付标准
-
-只有草稿创建成功、主视频覆盖完整时间轴（片段间重叠过渡或中间点连贯拼接）、标题、双语字幕、关键词弹出、转场、缩放、提示音和 BGM 都通过校验后，该视频才算成功。最终回复必须遵守“最终回复格式”，不展示接口请求细节。

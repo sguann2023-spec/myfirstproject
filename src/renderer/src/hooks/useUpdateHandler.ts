@@ -47,17 +47,19 @@ export default function useUpdateHandler() {
         dispatch(
           setUpdateState({
             checking: false,
-            downloading: true,
+            downloading: false,
+            downloadProgress: 0,
             info: releaseInfo,
             available: true
           })
         )
       }),
-      ipcRenderer.on(IpcChannel.DownloadUpdate, () => {
+      ipcRenderer.on(IpcChannel.DownloadUpdate, (_, releaseInfo: UpdateInfo | undefined) => {
         dispatch(
           setUpdateState({
             checking: false,
-            downloading: true
+            downloading: true,
+            ...(releaseInfo ? { info: releaseInfo } : {})
           })
         )
       }),

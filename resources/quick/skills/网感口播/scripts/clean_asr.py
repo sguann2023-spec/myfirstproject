@@ -12,7 +12,10 @@
 用法：
   python3 scripts/clean_asr.py [--input INPUT_FILE] [--output OUTPUT_FILE]
 
-输入格式 (asr_raw_result.json)：
+输入格式 (asr_raw_result.json)，支持两种：
+  格式 A（推荐）：字幕识别工具的完整响应信封 (dict)，脚本自动从
+    result.result.raw.result.utterances 提取识别句列表（并带回退递归查找）。
+  格式 B（旧格式）：纯识别句列表：
   [
     {
       "text": "原始识别文本",
@@ -54,6 +57,8 @@ import re
 import argparse
 import sys
 import os
+
+from asr_compat import extract_utterances
 
 # ===== 配置 =====
 
@@ -130,16 +135,25 @@ def detect_duplicates(sentences: list) -> list:
     return sentences
 
 
+# 识别句列表提取（信封/纯列表双格式兼容）统一走共享模块 asr_compat.extract_utterances
+
+
 def clean_asr(input_path: str, output_path: str) -> dict:
     """主清洗流程"""
     
-    # 读取 ASR 原始结果
+    # 读取 ASR 原始结果（兼容纯列表与完整响应信封两种格式）
     with open(input_path, 'r', encoding='utf-8') as f:
         raw_data = json.load(f)
     
+    utterances = extract_utterances(raw_data)
+    
     results = []
     
-    for idx, utterance in enumerate(raw_data):
+    for idx, utterance in enumerate(utterances):
+        missing = [k for k in ('text', 'start_time', 'end_time') if k not in utterance]
+        if missing:
+            preview = json.dumps(utterance, ensure_ascii=False)[:120]
+            raise ValueError(f"识别句 #{idx} 缺少字段 {missing}：{preview}")
         original = utterance['text']
         start_time = utterance['start_time']  # 毫秒
         end_time = utterance['end_time']      # 毫秒

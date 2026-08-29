@@ -20,7 +20,7 @@ let activeRunToken = 0;
 
 async function resolveRuntimeSettings() {
   let draftFolder = electronStore.get('draftFolder') || undefined;
-  let isCapcut = electronStore.get('isCapcut') ?? true;
+  let isCapcut = electronStore.get('isCapcut') ?? false;
 
   if (ipc?.invoke) {
     try {

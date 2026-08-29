@@ -66,10 +66,34 @@ vi.mock('../services/agents/skills/SkillService', () => ({
   }
 }))
 
+vi.mock('../services/agents/skills/paths', () => ({
+  getGlobalSkillsRoot: vi.fn(() => '/userData/Data/GlobalSkills')
+}))
+
+vi.mock('node-stream-zip', () => ({
+  default: {
+    async: class MockStreamZip {
+      async entries() {
+        return {
+          '网感口播/SKILL.md': { size: 128 },
+          '网感口播/website/index.html': { size: 256 }
+        }
+      }
+
+      async extract() {}
+
+      async close() {}
+    }
+  }
+}))
+
 const resourceSkillsPath = '/app/resources/skills'
 const globalSkillsPath = '/userData/Data/Skills'
+const globalSkillsRoot = '/userData/Data/GlobalSkills'
 const localManifestPath = path.join(resourceSkillsPath, 'manifest.json')
-const syncStatePath = path.join(globalSkillsPath, '.builtin-sync-state.json')
+const syncStatePath = path.join(globalSkillsRoot, '.builtin-sync-state.json')
+const quickManifestCachePath = path.join('/userData/Data/QuickSkills', 'manifest.json')
+const quickSkillStoragePath = path.join('/userData/Data/QuickSkills', 'skills', '网感口播')
 const localManifest = {
   updatedAt: '2026-05-13T00:00:00Z',
   skills: {
@@ -211,7 +235,7 @@ describe('installBuiltinSkills', () => {
     await installBuiltinSkills({ waitForRemoteSync: true })
 
     expect(mockInstallFromZip).toHaveBeenCalledWith({
-      zipFilePath: expect.stringContaining(path.join(globalSkillsPath, '.downloads', 'my-skill-'))
+      zipFilePath: expect.stringContaining(path.join(globalSkillsRoot, '.downloads', 'my-skill-'))
     })
     expect(fs.writeFile).toHaveBeenCalledWith(path.join(globalSkillsPath, 'my-skill', '.version'), '1.2.0', 'utf-8')
     expect(mockEnableForAllAgents).toHaveBeenCalledWith('my-skill', 'my-skill')
@@ -348,6 +372,69 @@ describe('installBuiltinSkills', () => {
     expect(fs.writeFile).toHaveBeenCalledWith(
       syncStatePath,
       expect.stringContaining('"deleted": true'),
+      'utf-8'
+    )
+  })
+
+  it('should cache remote quick skills manifest during startup sync', async () => {
+    vi.mocked(fs.access).mockResolvedValueOnce(undefined)
+    vi.mocked(fs.readdir)
+      .mockResolvedValueOnce([] as any)
+      .mockResolvedValueOnce([] as any)
+    vi.mocked(fs.mkdir).mockResolvedValue(undefined as any)
+    vi.mocked(fs.cp).mockResolvedValue(undefined)
+    vi.mocked(fs.writeFile).mockResolvedValue(undefined)
+    vi.mocked(fs.rm).mockResolvedValue(undefined as any)
+    vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+      const targetPath = String(filePath)
+      if (targetPath === localManifestPath) {
+        return JSON.stringify({ updatedAt: '2026-05-13T00:00:00Z', skills: {} }) as any
+      }
+      if (targetPath === syncStatePath) {
+        throw new Error('ENOENT')
+      }
+      if (targetPath === path.join(quickSkillStoragePath, '.version')) {
+        throw new Error('ENOENT')
+      }
+      throw new Error(`Unexpected readFile: ${targetPath}`)
+    })
+
+    mockNetFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          updatedAt: '2026-08-28T10:00:00Z',
+          skills: {
+            '网感口播': {
+              version: '1.0.0',
+              folderName: '网感口播',
+              action: 'bootstrap-trendy-koubo',
+              downloadUrl: 'https://player.install-ai-guider.top/quick/skills/%E7%BD%91%E6%84%9F%E5%8F%A3%E6%92%AD/1_0_0/%E7%BD%91%E6%84%9F%E5%8F%A3%E6%92%AD.zip'
+            }
+          }
+        })
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+      } as any)
+
+    const { installBuiltinSkills } = await import('../utils/builtinSkills')
+    await installBuiltinSkills({ waitForRemoteSync: true })
+
+    expect(fs.cp).toHaveBeenCalledWith(
+      expect.stringContaining(`${path.sep}网感口播`),
+      quickSkillStoragePath,
+      { recursive: true }
+    )
+    expect(fs.writeFile).toHaveBeenCalledWith(path.join(quickSkillStoragePath, '.version'), '1.0.0', 'utf-8')
+    expect(fs.writeFile).toHaveBeenCalledWith(
+      quickManifestCachePath,
+      expect.stringContaining('"网感口播"'),
       'utf-8'
     )
   })

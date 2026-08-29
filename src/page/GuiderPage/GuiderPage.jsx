@@ -13,6 +13,9 @@ const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, 
 const GuiderPage = () => {
   logger.debug('GuiderPage');
   const [step, setStep] = useState(1);
+  const [interfaceMode, setInterfaceMode] = useState(() => (
+    (electronStore?.get('isCapcut') ?? false) ? 'capcut' : 'jianying'
+  ));
   const [setting2State, setSetting2State] = useState({
     draftFolder: '',
     presetFolder: '',
@@ -47,9 +50,12 @@ const GuiderPage = () => {
       return;
     }
     try {
+      const isCapcut = interfaceMode === 'capcut';
+      electronStore.set('isCapcut', isCapcut);
       electronStore.set('draftFolder', setting2State.draftFolder);
       electronStore.set('presetFolder', setting2State.presetFolder);
       ipcSend('save-settings', {
+        isCapcut,
         draftFolder: setting2State.draftFolder,
         presetFolder: setting2State.presetFolder,
       });
@@ -72,7 +78,7 @@ const GuiderPage = () => {
       </div>
 
       <div className="guider-content">
-        {step === 1 && <GuiderSetting1 />}
+        {step === 1 && <GuiderSetting1 interfaceMode={interfaceMode} onChange={setInterfaceMode} />}
         {step === 2 && <GuiderSetting2 onSettingsChange={setSetting2State} />}
 
         {step === 1 ? (

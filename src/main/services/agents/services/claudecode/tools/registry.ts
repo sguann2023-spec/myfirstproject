@@ -116,12 +116,26 @@ export async function mountRuntimeMcpServers(input: {
     addAutoAllowedTool(toolSurface, pattern)
     options.allowedTools = toolSurface.allowedToolsOption
   }
+  const allowMcpTools = (toolNames: string[]) => {
+    for (const toolName of toolNames) {
+      autoAllowTools.add(toolName)
+      addAutoAllowedTool(toolSurface, toolName)
+    }
+    options.allowedTools = toolSurface.allowedToolsOption
+  }
 
   if (hasWorkspaceDomain || hasWebDomain || hasCutDomain) {
     const fileSystemServer = new FileSystemServer(cwd)
     mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem-server', instance: fileSystemServer.mcpServer })
-    autoAllowTools.add('mcp__filesystem-server__download')
-    allowMcpPattern('mcp__filesystem-server__*')
+    allowMcpTools([
+      'mcp__filesystem-server__glob',
+      'mcp__filesystem-server__ls',
+      'mcp__filesystem-server__grep',
+      'mcp__filesystem-server__download',
+      'mcp__filesystem-server__edit',
+      'mcp__filesystem-server__write',
+      'mcp__filesystem-server__delete'
+    ])
   }
 
   if (hasMaterialsDomain) {

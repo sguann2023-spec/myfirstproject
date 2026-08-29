@@ -350,3 +350,16 @@ display: block;
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+.gs-download-auto-open-switch {
+  transform: scale(0.7);
+  transform-origin: right center;
+}
+
+.gs-download-auto-open-switch.ant-switch-checked {
+  background-color: #0099ff;
+}
+
+.gs-download-auto-open-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+  background-color: #0099ff;
+}

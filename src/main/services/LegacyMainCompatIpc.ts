@@ -1,6 +1,7 @@
 import { loggerService } from '@logger'
-import { isWin } from '@main/constant'
+import { isMac, isWin } from '@main/constant'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { execFile, spawn } from 'node:child_process'
 import http from 'node:http'
 import https from 'node:https'
 import { Readable } from 'node:stream'
@@ -48,6 +49,285 @@ function getMainWindow() {
   const mainWindow = windowService.getMainWindow()
   if (!mainWindow || mainWindow.isDestroyed()) return null
   return mainWindow
+}
+
+function execFileAsync(file: string, args: string[]) {
+  return new Promise<void>((resolve, reject) => {
+    execFile(file, args, (error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
+    })
+  })
+}
+
+type EditingAppMode = 'jianying' | 'capcut'
+
+const MAC_APP_CANDIDATES: Record<EditingAppMode, string[]> = {
+  jianying: [
+    '/Applications/JianyingPro.app',
+    '/Applications/剪映专业版.app',
+    '/Applications/VideoFusion-macOS.app',
+    path.join(process.env.HOME || '', 'Applications', 'JianyingPro.app'),
+    path.join(process.env.HOME || '', 'Applications', '剪映专业版.app'),
+    path.join(process.env.HOME || '', 'Applications', 'VideoFusion-macOS.app'),
+    '/Applications/JianyingPro.app/Contents/MacOS/JianyingPro',
+    '/Applications/VideoFusion-macOS.app/Contents/MacOS/VideoFusion-macOS'
+  ],
+  capcut: [
+    '/Applications/CapCut.app',
+    path.join(process.env.HOME || '', 'Applications', 'CapCut.app'),
+    '/Applications/CapCut.app/Contents/MacOS/CapCut'
+  ]
+}
+
+const WINDOWS_EXE_CANDIDATES: Record<EditingAppMode, string[]> = {
+  jianying: [
+    'C:\\Program Files\\JianyingPro\\JianyingPro.exe',
+    'C:\\Program Files (x86)\\JianyingPro\\JianyingPro.exe',
+    'D:\\JianyingPro\\JianyingPro.exe',
+    'D:\\JianyingPro_high\\JianyingPro.exe'
+  ],
+  capcut: [
+    'C:\\Program Files\\CapCut\\CapCut.exe',
+    'C:\\Program Files (x86)\\CapCut\\CapCut.exe',
+    'D:\\CapCut\\CapCut.exe'
+  ]
+}
+
+const WINDOWS_EXE_NAMES: Record<EditingAppMode, string[]> = {
+  jianying: ['JianyingPro.exe'],
+  capcut: ['CapCut.exe']
+}
+
+function getEditingAppMode(isCapcut?: boolean): EditingAppMode {
+  const resolvedIsCapcut = typeof isCapcut === 'boolean'
+    ? isCapcut
+    : Boolean(configManager.get('isCapcut', false))
+  return resolvedIsCapcut ? 'capcut' : 'jianying'
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))]
+}
+
+function expandCandidatePath(candidate: string) {
+  const trimmed = String(candidate || '').trim().replace(/^"(.*)"$/, '$1')
+  if (!trimmed) return ''
+  if (trimmed === '~') return path.join(process.env.HOME || '', '')
+  if (trimmed.startsWith('~/')) {
+    return path.join(process.env.HOME || '', trimmed.slice(2))
+  }
+  return path.resolve(trimmed)
+}
+
+function normalizeExistingMacCandidate(candidate: string) {
+  const resolved = expandCandidatePath(candidate)
+  if (!resolved) return ''
+  if (resolved.endsWith('.app') && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+    return resolved
+  }
+  if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+    return resolved
+  }
+  return ''
+}
+
+function getWindowsExeNames(appMode: EditingAppMode) {
+  return WINDOWS_EXE_NAMES[appMode]
+}
+
+function normalizeExistingWindowsExecutable(candidate: string, appMode: EditingAppMode) {
+  const resolved = expandCandidatePath(candidate)
+  if (!resolved || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    return ''
+  }
+  const allowed = new Set(getWindowsExeNames(appMode).map((name) => name.toLowerCase()))
+  return allowed.has(path.basename(resolved).toLowerCase()) ? resolved : ''
+}
+
+function getEnvExecutableCandidates() {
+  return [
+    process.env.JY_CLIENT_JIANYING_EXE || '',
+    process.env.CLOUD_RENDER_JIANYING_EXE || '',
+    process.env.JIANYING_EXE || '',
+    process.env.JIANYING_PATH || '',
+    process.env.CAPCUT_EXE || '',
+    process.env.CAPCUT_PATH || ''
+  ]
+}
+
+function getMacExecutableCandidates(appMode: EditingAppMode) {
+  return uniqueStrings([...getEnvExecutableCandidates(), ...MAC_APP_CANDIDATES[appMode]])
+}
+
+function findWindowsExecutablesUnder(rootDir: string, appMode: EditingAppMode, maxDepth = 3) {
+  const resolvedRoot = expandCandidatePath(rootDir)
+  if (!resolvedRoot || !fs.existsSync(resolvedRoot) || !fs.statSync(resolvedRoot).isDirectory()) {
+    return [] as string[]
+  }
+
+  const targetNames = new Set(getWindowsExeNames(appMode))
+  const matches: { filePath: string; mtimeMs: number }[] = []
+  const walk = (currentDir: string, depth: number) => {
+    if (depth > maxDepth) return
+    let entries: fs.Dirent[] = []
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name)
+      if (entry.isFile() && targetNames.has(entry.name)) {
+        try {
+          matches.push({ filePath: fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs })
+        } catch {}
+        continue
+      }
+      if (entry.isDirectory()) {
+        walk(fullPath, depth + 1)
+      }
+    }
+  }
+
+  walk(resolvedRoot, 0)
+  return matches.sort((left, right) => right.mtimeMs - left.mtimeMs).map((item) => item.filePath)
+}
+
+function getWindowsExecutableCandidates(appMode: EditingAppMode) {
+  const localAppData = process.env.LOCALAPPDATA || ''
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+
+  const roots = appMode === 'capcut'
+    ? [
+        path.join(localAppData, 'CapCut', 'Apps'),
+        path.join(localAppData, 'Programs', 'CapCut'),
+        path.join(programFiles, 'CapCut'),
+        path.join(programFilesX86, 'CapCut')
+      ]
+    : [
+        path.join(localAppData, 'JianyingPro', 'Apps'),
+        path.join(localAppData, 'Programs', 'JianyingPro'),
+        path.join(programFiles, 'JianyingPro'),
+        path.join(programFilesX86, 'JianyingPro')
+      ]
+
+  const discovered = roots.flatMap((rootDir) => findWindowsExecutablesUnder(rootDir, appMode, 3))
+  return uniqueStrings([
+    ...getEnvExecutableCandidates(),
+    ...discovered,
+    ...WINDOWS_EXE_CANDIDATES[appMode]
+  ])
+}
+
+function detectEditingExecutable(appMode: EditingAppMode) {
+  const candidates = isMac ? getMacExecutableCandidates(appMode) : isWin ? getWindowsExecutableCandidates(appMode) : []
+  for (const candidate of candidates) {
+    const normalized = isMac
+      ? normalizeExistingMacCandidate(candidate)
+      : isWin
+        ? normalizeExistingWindowsExecutable(candidate, appMode)
+        : ''
+    if (normalized) return normalized
+  }
+  return ''
+}
+
+function getMacAppName(executablePath: string, appMode: EditingAppMode) {
+  const explicit = String(process.env.JY_CLIENT_MAC_APP_NAME || '').trim()
+  if (explicit) return explicit
+
+  if (executablePath) {
+    const baseName = path.basename(executablePath)
+    if (baseName.endsWith('.app')) return baseName.replace(/\.app$/i, '')
+    if (baseName) return baseName
+  }
+
+  return appMode === 'capcut' ? 'CapCut' : 'JianyingPro'
+}
+
+function spawnDetached(command: string) {
+  const child = spawn(command, [], {
+    detached: true,
+    stdio: 'ignore',
+    shell: isWin
+  })
+  child.unref()
+}
+
+async function activateMacEditingApp(executablePath: string, appMode: EditingAppMode) {
+  if (executablePath) {
+    if (executablePath.endsWith('.app') && fs.existsSync(executablePath) && fs.statSync(executablePath).isDirectory()) {
+      await execFileAsync('/usr/bin/open', [executablePath])
+    } else {
+      spawnDetached(executablePath)
+    }
+  }
+
+  await execFileAsync('/usr/bin/osascript', ['-e', `tell application "${getMacAppName(executablePath, appMode)}" to activate`])
+}
+
+async function launchEditingApp(isCapcut?: boolean) {
+  const appMode = getEditingAppMode(isCapcut)
+  const appLabel = appMode === 'capcut' ? 'CapCut' : '剪映'
+  const executablePath = detectEditingExecutable(appMode)
+
+  if (isMac) {
+    try {
+      await activateMacEditingApp(executablePath, appMode)
+      logger.info('[DLTRACE][Main] launched editing app on macOS', {
+        appLabel,
+        appMode,
+        executablePath
+      })
+      return true
+    } catch (error) {
+      logger.warn('[DLTRACE][Main] failed to launch editing app on macOS', {
+        appLabel,
+        appMode,
+        executablePath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return false
+    }
+  }
+
+  if (isWin) {
+    if (!executablePath) {
+      logger.warn('[DLTRACE][Main] windows editing executable not found', { appLabel, appMode })
+      return false
+    }
+
+    try {
+      spawnDetached(executablePath)
+      logger.info('[DLTRACE][Main] launched editing app on Windows', {
+        appLabel,
+        appMode,
+        executablePath
+      })
+      return true
+    } catch (error) {
+      logger.warn('[DLTRACE][Main] failed to launch editing app on Windows', {
+        appLabel,
+        appMode,
+        executablePath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return false
+    }
+  }
+
+  logger.warn('[DLTRACE][Main] automatic editing app launch is unsupported on this platform', {
+    appLabel,
+    appMode,
+    platform: process.platform
+  })
+  return false
 }
 
 type AbortableDownloadRequest = {
@@ -428,9 +708,10 @@ function registerLegacyLoginInitChannels() {
 function registerLegacySettingsChannels() {
   safeHandle('get-draft-folder', () => {
     const draftFolder = configManager.get('draftFolder', '') as string
-    const isCapcut = configManager.get('isCapcut', true) as boolean
+    const isCapcut = configManager.get('isCapcut', false) as boolean
     const apiHost = configManager.get('apiHost', '') as string
-    return { draftFolder, isCapcut, apiHost }
+    const autoOpenEditingAppAfterDownload = configManager.get('autoOpenEditingAppAfterDownload', true) as boolean
+    return { draftFolder, isCapcut, apiHost, autoOpenEditingAppAfterDownload }
   })
 
   safeHandle('select-draft-folder', async () => {
@@ -458,6 +739,10 @@ function registerLegacySettingsChannels() {
     if (typeof settings?.apiHost === 'string') {
       configManager.set('apiHost', settings.apiHost)
       updated.apiHost = settings.apiHost
+    }
+    if (typeof settings?.autoOpenEditingAppAfterDownload === 'boolean') {
+      configManager.set('autoOpenEditingAppAfterDownload', settings.autoOpenEditingAppAfterDownload)
+      updated.autoOpenEditingAppAfterDownload = settings.autoOpenEditingAppAfterDownload
     }
     if (typeof settings?.language === 'string' && settings.language.trim()) {
       const normalizedLanguage = settings.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
@@ -716,6 +1001,23 @@ function registerLegacyDownloadChannels() {
           message: message.message || 'download complete',
           fileList: activeRuntime.lastFileList
         })
+        const shouldAutoOpenEditingApp = Boolean(configManager.get('autoOpenEditingAppAfterDownload', true))
+        if (shouldAutoOpenEditingApp) {
+          void launchEditingApp().then((launched) => {
+            if (!launched) {
+              logger.warn('[DLTRACE][Main] editing app launch skipped after download completion', {
+                jobId,
+                draftId,
+                isCapcut: Boolean(configManager.get('isCapcut', false))
+              })
+            }
+          })
+        } else {
+          logger.info('[DLTRACE][Main] skip auto launch after download by config', {
+            jobId,
+            draftId
+          })
+        }
         return
       }
 

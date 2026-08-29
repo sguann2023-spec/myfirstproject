@@ -1,6 +1,8 @@
 import type { UpdateInfo } from 'builder-util-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const configStore = new Map<string, unknown>()
+
 // Mock dependencies
 vi.mock('@logger', () => ({
   loggerService: {
@@ -18,7 +20,11 @@ vi.mock('../ConfigManager', () => ({
     getAutoUpdate: vi.fn(() => false),
     getTestPlan: vi.fn(() => false),
     getTestChannel: vi.fn(),
-    getClientId: vi.fn(() => 'test-client-id')
+    getClientId: vi.fn(() => 'test-client-id'),
+    get: vi.fn((key: string, defaultValue?: unknown) => (configStore.has(key) ? configStore.get(key) : defaultValue)),
+    set: vi.fn((key: string, value: unknown) => {
+      configStore.set(key, value)
+    })
   }
 }))
 
@@ -56,7 +62,9 @@ vi.mock('electron', () => ({
   dialog: {
     showMessageBox: vi.fn()
   },
-  BrowserWindow: vi.fn(),
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => [])
+  },
   net: {
     fetch: vi.fn()
   }
@@ -94,28 +102,85 @@ import { configManager } from '../ConfigManager'
 
 describe('AppUpdater', () => {
   let appUpdater: AppUpdater
+  let getGitHubProxyPrefixesSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     vi.clearAllMocks()
+    configStore.clear()
     vi.mocked(app.getPath).mockReturnValue('/test/path/VectCut.exe')
     appUpdater = new AppUpdater()
+    getGitHubProxyPrefixesSpy = vi.spyOn(appUpdater as any, '_getGitHubProxyPrefixes').mockResolvedValue([
+      'https://github.chenc.dev/',
+      'https://github.tbap.top/',
+      'https://github.dpik.top/',
+      'https://gh-proxy.org/',
+      'https://gh.acmsz.top/'
+    ])
   })
 
   describe('_setFeedUrl', () => {
-    it('should use default latest feed for default channel package path', async () => {
+    it('should prefer GitHub proxy feed when it is reachable', async () => {
       vi.mocked(app.getPath).mockReturnValue('/Applications/VectCut.app/Contents/MacOS/VectCut')
+      vi.mocked(net.fetch).mockResolvedValue({
+        ok: true,
+        status: 200
+      } as any)
 
       await (appUpdater as any)._setFeedUrl()
 
       expect(vi.mocked(autoUpdater.setFeedURL)).toHaveBeenCalledWith({
         provider: 'generic',
-        url: 'https://player.install-ai-guider.top/client/latest',
+        url: 'https://github.chenc.dev/https://github.com/sun-guannan/CapCutMaker/releases/latest/download',
         channel: 'latest'
       })
+      expect(autoUpdater.disableDifferentialDownload).toBe(false)
     })
 
-    it('should use bingo latest feed for bingo channel package path', async () => {
+    it('should try the next GitHub proxy when the first proxy preflight fails', async () => {
+      vi.mocked(app.getPath).mockReturnValue('/Applications/VectCut.app/Contents/MacOS/VectCut')
+      vi.mocked(net.fetch)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 504
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200
+        } as any)
+
+      await (appUpdater as any)._setFeedUrl()
+
+      expect(vi.mocked(autoUpdater.setFeedURL)).toHaveBeenCalledWith({
+        provider: 'generic',
+        url: 'https://github.tbap.top/https://github.com/sun-guannan/CapCutMaker/releases/latest/download',
+        channel: 'latest'
+      })
+      expect(vi.mocked(net.fetch)).toHaveBeenCalledTimes(2)
+    })
+
+    it('should use the bingo GitHub feed when the bingo channel package is detected', async () => {
       vi.mocked(app.getPath).mockReturnValue('C:/Program Files/BingoCut/BingoCut.exe')
+      vi.mocked(net.fetch).mockResolvedValue({
+        ok: true,
+        status: 200
+      } as any)
+
+      await (appUpdater as any)._setFeedUrl()
+
+      expect(vi.mocked(autoUpdater.setFeedURL)).toHaveBeenCalledWith({
+        provider: 'generic',
+        url: 'https://github.chenc.dev/https://github.com/sun-guannan/CapCutMakerBingo/releases/latest/download',
+        channel: 'latest'
+      })
+      expect(autoUpdater.disableDifferentialDownload).toBe(false)
+    })
+
+    it('should fall back to bingo OSS feed when GitHub proxy preflight fails', async () => {
+      vi.mocked(app.getPath).mockReturnValue('C:/Program Files/BingoCut/BingoCut.exe')
+      vi.mocked(net.fetch).mockResolvedValue({
+        ok: false,
+        status: 504
+      } as any)
 
       await (appUpdater as any)._setFeedUrl()
 
@@ -308,7 +373,10 @@ describe('AppUpdater', () => {
 
   describe('checkForUpdates', () => {
     it('should reuse an in-flight update check request', async () => {
-      vi.spyOn(appUpdater as any, '_setFeedUrl').mockResolvedValue(undefined)
+      vi.spyOn(appUpdater as any, '_setFeedUrl').mockResolvedValue({
+        name: 'github-proxy',
+        feedUrl: 'https://example.com/latest'
+      })
 
       let resolveCheck: ((value: any) => void) | undefined
       vi.mocked(autoUpdater.checkForUpdates).mockImplementation(
@@ -333,6 +401,30 @@ describe('AppUpdater', () => {
         currentVersion: autoUpdater.currentVersion,
         updateInfo: null
       })
+    })
+
+    it('should trigger at most one download within one hour', async () => {
+      vi.spyOn(appUpdater as any, '_setFeedUrl').mockResolvedValue({
+        name: 'github-proxy',
+        feedUrl: 'https://example.com/latest'
+      })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      vi.mocked(autoUpdater.checkForUpdates).mockResolvedValue({
+        isUpdateAvailable: true,
+        updateInfo: {
+          version: '1.1.0',
+          files: [],
+          path: '',
+          sha512: '',
+          releaseDate: new Date().toISOString()
+        }
+      } as any)
+      vi.mocked(autoUpdater.downloadUpdate).mockResolvedValue([] as any)
+
+      await appUpdater.checkForUpdates()
+      await appUpdater.checkForUpdates()
+
+      expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -409,7 +501,10 @@ describe('AppUpdater', () => {
       const result = await (appUpdater as any)._fetchUpdateConfig(UpdateMirror.GITHUB)
 
       expect(result).toEqual(mockConfig)
-      expect(net.fetch).toHaveBeenCalledWith(expect.stringContaining('github'), expect.any(Object))
+      expect(net.fetch).toHaveBeenCalledWith(
+        'https://player.install-ai-guider.top/client/config/app-upgrade-config.json',
+        expect.any(Object)
+      )
     })
 
     it('should fetch config from GitCode mirror', async () => {
@@ -421,8 +516,10 @@ describe('AppUpdater', () => {
       const result = await (appUpdater as any)._fetchUpdateConfig(UpdateMirror.GITCODE)
 
       expect(result).toEqual(mockConfig)
-      // GitCode URL may vary, just check that fetch was called
-      expect(net.fetch).toHaveBeenCalledWith(expect.any(String), expect.any(Object))
+      expect(net.fetch).toHaveBeenCalledWith(
+        'https://player.install-ai-guider.top/client/config/app-upgrade-config.json',
+        expect.any(Object)
+      )
     })
 
     it('should return null on HTTP error', async () => {
@@ -1106,6 +1203,41 @@ describe('AppUpdater', () => {
       // Should return 2.0.0, not 2.1.6, because 1.7.5 < 2.0.0 (minCompatibleVersion of 2.1.6)
       expect(result?.config.version).toBe('2.0.0')
       expect(result?.config.version).not.toBe('2.1.6')
+    })
+  })
+
+  describe('_getGitHubProxyPrefixes', () => {
+    beforeEach(() => {
+      getGitHubProxyPrefixesSpy.mockRestore()
+    })
+
+    it('should use remote-configured proxy prefixes when available', async () => {
+      vi.mocked(net.fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          lastUpdated: '2026-08-28T00:00:00Z',
+          githubProxyPrefixes: ['https://proxy-a.example.com', 'https://proxy-b.example.com/'],
+          versions: {}
+        })
+      } as any)
+
+      const proxyPrefixes = await (appUpdater as any)._getGitHubProxyPrefixes()
+
+      expect(proxyPrefixes).toEqual(['https://proxy-a.example.com/', 'https://proxy-b.example.com/'])
+    })
+
+    it('should fall back to default proxy prefixes when remote config is unavailable', async () => {
+      vi.mocked(net.fetch).mockRejectedValue(new Error('Network error'))
+
+      const proxyPrefixes = await (appUpdater as any)._getGitHubProxyPrefixes()
+
+      expect(proxyPrefixes).toEqual([
+        'https://github.chenc.dev/',
+        'https://github.tbap.top/',
+        'https://github.dpik.top/',
+        'https://gh-proxy.org/',
+        'https://gh.acmsz.top/'
+      ])
     })
   })
 })

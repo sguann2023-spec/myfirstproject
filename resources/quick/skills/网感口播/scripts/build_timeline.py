@@ -4,7 +4,8 @@
 
 功能：
   1. 读取清洗后的 ASR 结果 (asr_cleaned_sentences.json)
-  2. 读取 ASR 原始结果 (asr_raw_result.json) 获取词级时间戳
+  2. 读取 ASR 原始结果 (asr_raw_result.json) 获取词级时间戳；
+     兼容纯识别句列表与字幕识别工具响应信封两种格式（asr_compat 模块）
   3. 计算相邻语句间距，判断过渡方式（重叠转场 vs 中间点切割）
   4. 计算每段在源视频中的起止范围
   5. 计算连续的目标时间轴
@@ -34,6 +35,8 @@ import argparse
 import sys
 import os
 
+from asr_compat import extract_utterances
+
 
 def build_timeline(
     cleaned_path: str,
@@ -50,9 +53,10 @@ def build_timeline(
     with open(cleaned_path, 'r', encoding='utf-8') as f:
         cleaned = json.load(f)
     
-    # 读取原始 ASR（获取词级时间戳）
+    # 读取原始 ASR（获取词级时间戳；兼容纯列表与工具响应信封格式）
     with open(raw_path, 'r', encoding='utf-8') as f:
         raw_data = json.load(f)
+    raw_data = extract_utterances(raw_data)
     
     # 过滤掉气口和重复的语句
     valid_sentences = [s for s in cleaned if not s.get('is_filler', False) and not s.get('is_duplicate', False)]

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, message } from 'antd';
+import { Modal, Switch, message } from 'antd';
 import './GeneralSettings.css';
 import JianyingImg from '../../../public/jianying.png';
 import CapcutImg from '../../../public/capcut.png';
@@ -20,6 +20,7 @@ const GeneralSettings = () => {
   const [presetFolder, setPresetFolder] = useState('');
   const [appDataPath, setAppDataPath] = useState('');
   const [workspaceParentDir, setWorkspaceParentDir] = useState('');
+  const [autoOpenEditingAppAfterDownload, setAutoOpenEditingAppAfterDownload] = useState(true);
   const [cacheDataSize, setCacheDataSize] = useState(0);
   const [totalDataSize, setTotalDataSize] = useState(0);
   const [isChangingStoragePath, setIsChangingStoragePath] = useState(false);
@@ -41,6 +42,21 @@ const GeneralSettings = () => {
       const { ipcRenderer } = window.require('electron');
       if (ipcRenderer?.send) return ipcRenderer.send(channel, data);
     } catch {}
+  };
+
+  const updateInterfaceMode = (nextMode) => {
+    const normalizedMode = nextMode === 'capcut' ? 'capcut' : 'jianying';
+    const nextIsCapcut = normalizedMode === 'capcut';
+    setInterfaceMode(normalizedMode);
+    ipcSend('save-settings', { isCapcut: nextIsCapcut });
+    electronStore?.set('isCapcut', nextIsCapcut);
+  };
+
+  const updateAutoOpenEditingAppAfterDownload = (checked) => {
+    const nextValue = Boolean(checked);
+    setAutoOpenEditingAppAfterDownload(nextValue);
+    ipcSend('save-settings', { autoOpenEditingAppAfterDownload: nextValue });
+    electronStore?.set('autoOpenEditingAppAfterDownload', nextValue);
   };
 
   const formatSizeFromBytes = (bytes) => {
@@ -165,10 +181,26 @@ const GeneralSettings = () => {
   useEffect(() => {
     const draftFallback = electronStore?.get('draftFolder', '') || '';
     const presetFallback = electronStore?.get('presetFolder', '') || '';
+    const isCapcutFallback = electronStore?.get('isCapcut');
+    const autoOpenFallback = electronStore?.get('autoOpenEditingAppAfterDownload');
     setPresetFolder(presetFallback);
+    if (typeof isCapcutFallback === 'boolean') {
+      setInterfaceMode(isCapcutFallback ? 'capcut' : 'jianying');
+    }
+    if (typeof autoOpenFallback === 'boolean') {
+      setAutoOpenEditingAppAfterDownload(autoOpenFallback);
+    }
     ipcInvoke('get-draft-folder')
-      .then(({ draftFolder }) => {
+      .then(({ draftFolder, isCapcut, autoOpenEditingAppAfterDownload }) => {
         setDraftFolder(draftFolder || draftFallback);
+        if (typeof isCapcut === 'boolean') {
+          setInterfaceMode(isCapcut ? 'capcut' : 'jianying');
+          electronStore?.set('isCapcut', isCapcut);
+        }
+        if (typeof autoOpenEditingAppAfterDownload === 'boolean') {
+          setAutoOpenEditingAppAfterDownload(autoOpenEditingAppAfterDownload);
+          electronStore?.set('autoOpenEditingAppAfterDownload', autoOpenEditingAppAfterDownload);
+        }
       })
       .catch(() => {
         setDraftFolder(draftFallback);
@@ -318,8 +350,9 @@ const GeneralSettings = () => {
           resetDirectory(getCacheStoragePath(appDataPath));
           ipcSend('save-settings', {
             draftFolder: '',
-            isCapcut: true,
-            apiHost: ''
+            isCapcut: false,
+            apiHost: '',
+            autoOpenEditingAppAfterDownload: true
           });
           if (typeof electronStore?.clear === 'function') {
             electronStore.clear();
@@ -329,6 +362,7 @@ const GeneralSettings = () => {
             electronStore.delete?.('auth.vectcut_api_key');
             electronStore.delete?.('draftFolder');
             electronStore.delete?.('presetFolder');
+            electronStore.delete?.('autoOpenEditingAppAfterDownload');
           }
           resetLegacyConfigStore();
           resetAppDataPathConfig();
@@ -336,6 +370,7 @@ const GeneralSettings = () => {
           setPresetFolder('');
           setAppDataPath('');
           setWorkspaceParentDir('');
+          setAutoOpenEditingAppAfterDownload(true);
 
           try {
             window.localStorage?.clear?.();
@@ -363,7 +398,7 @@ const GeneralSettings = () => {
         <div className="gs-options gs-options-large">
           <div
             className={`gs-card ${interfaceMode === 'jianying' ? 'selected' : ''}`}
-            onClick={() => setInterfaceMode('jianying')}
+            onClick={() => updateInterfaceMode('jianying')}
           >
             <div className={`gs-card-preview ${interfaceMode === 'jianying' ? 'selected' : ''}`}>
               <img src={JianyingImg} alt="剪映" className="gs-card-image" />
@@ -372,7 +407,7 @@ const GeneralSettings = () => {
           </div>
           <div
             className={`gs-card ${interfaceMode === 'capcut' ? 'selected' : ''}`}
-            onClick={() => setInterfaceMode('capcut')}
+            onClick={() => updateInterfaceMode('capcut')}
           >
             <div className={`gs-card-preview ${interfaceMode === 'capcut' ? 'selected' : ''}`}>
               <img src={CapcutImg} alt="CapCut" className="gs-card-image" />
@@ -452,6 +487,20 @@ const GeneralSettings = () => {
           >
             设置预设位置
           </button>
+        </div>
+      </div>
+
+      <div className="gs-section">
+        <div className="gs-section-title">下载设置</div>
+        <div className="gs-save-row">
+          <div className="gs-save-desc">
+            <div className="gs-save-text">下载完成后自动打开剪映</div>
+          </div>
+          <Switch
+            className="gs-download-auto-open-switch"
+            checked={autoOpenEditingAppAfterDownload}
+            onChange={updateAutoOpenEditingAppAfterDownload}
+          />
         </div>
       </div>
 
