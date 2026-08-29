@@ -77,6 +77,8 @@ execute_workflow(workflow_file="{workspace}/workflow.json")
 execute_workflow(inputs={...}, script=[...])
 ```
 
+工作流执行成功、返回 `draft_id` 与 `draft_url` 后，继续执行步骤 7 下载草稿。
+
 ## 输出定义（OpenAPI 3.1）
 
 ```yaml

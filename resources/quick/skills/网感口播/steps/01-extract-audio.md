@@ -1,5 +1,7 @@
 # 步骤 1：获取视频时长+提取音频
 
+> **⚡ 性能优化**：下方两个操作**互不依赖（都只需要视频 URL）**，必须在同一轮工具调用中**并行发起**，总耗时取两者最大值而非之和；串行执行视为未优化。
+
 ## 输入定义（OpenAPI 3.1）
 
 ```yaml
@@ -20,7 +22,7 @@ requestBody:
 
 ### 1.1 查询视频时长
 
-使用 `ffprobe` 或 `get_media_duration` 工具查询视频时长（秒）：
+优先使用 `get_media_duration` 工具（MCP），或用 ffprobe：
 
 ```bash
 ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{video_url}"
@@ -28,6 +30,7 @@ ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:no
 
 ### 1.2 提取音频
 
+优先使用 `extract_audio_from_video` 工具（MCP，格式 mp3），或用 ffmpeg：
 ```bash
 ffmpeg -i "{video_url}" -vn -acodec libmp3lame -q:a 4 {workspace}/audio.mp3
 ```

@@ -1,77 +1,33 @@
-# 步骤 7：下载草稿到剪映
+# 步骤 7：下载草稿
 
-> 工作流执行成功后，调用 MCP 下载草稿工具，把草稿直接下载到剪映桌面端，无需用户手动点击链接。
+> 工作流执行成功并拿到 `draft_id` 后，自动调用下载工具将草稿推送到剪映桌面端，用户无需手动操作。
 
-## 输入定义（OpenAPI 3.1）
+## 输入
 
-```yaml
-requestBody:
-  required: true
-  content:
-    application/json:
-      schema:
-        type: object
-        required: [drafts]
-        properties:
-          drafts:
-            type: array
-            description: 步骤 6 返回的草稿结果列表（与输入视频一一对应）；只提交 status=success 且 draft_id 非空的草稿。
-            items:
-              type: object
-              required: [draft_id]
-              properties:
-                draft_id:
-                  type: string
-                  description: 草稿 ID。
-                draft_name:
-                  type: string
-                  description: 可选，草稿名称。
-                cover:
-                  type: string
-                  description: 可选，草稿封面图片地址。
-```
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| draft_id | string | ✅ | 步骤 6 返回的草稿 ID |
+| draft_name | string | — | 草稿名称，用于下载列表展示 |
 
 ## 操作规则
 
-### 7a. 调用下载草稿工具
-
-**单个草稿**时：
+调用 `download_draft` 工具，传入步骤 6 返回的 `draft_id` 和 `draft_name`：
 
 ```
-download_draft(draftId="{draft_id}", draftName="{draft_name}", cover="{cover_url}")
+download_draft(draftId="{draft_id}", draftName="{draft_name}")
 ```
 
-**多个草稿**（多视频输入）时，一次性批量提交：
+### 成功
 
-```
-download_draft(drafts=[{"draftId": "...", "draftName": "...", "cover": "..."}, ...])
-```
+工具返回成功即表示下载队列已提交，草稿将在剪映桌面端自动打开。
 
-规则：
-- 只下载步骤 6 执行成功的草稿；失败的草稿跳过，并在最终回复中说明原因。
-- 下载完成后**不再调用 `query_script` 或其他工具校验草稿**，以工具返回结果为准。
-- 下载成功即视为整个技能流程完成，直接进入最终回复。
+### 失败
 
-## 输出定义（OpenAPI 3.1）
+下载失败不阻塞整体流程（草稿本身已成功生成），在最终回复中标注下载状态为失败即可。
 
-```yaml
-responses:
-  "200":
-    description: 草稿下载任务已提交，草稿将出现在剪映桌面端草稿列表中。
-    content:
-      application/json:
-        schema:
-          type: object
-          properties:
-            success: { type: boolean }
-            downloaded_drafts:
-              type: array
-              description: 已提交下载的草稿列表。
-              items:
-                type: object
-                properties:
-                  draft_id: { type: string }
-                  draft_name: { type: string }
-  "500":
-    description: 下载任务提交失败，已记录原因。
-```
+## 输出
+
+| 字段 | 说明 |
+|---|---|
+| download_status | `success` / `failed` |
+| download_message | 下载结果描述（失败时记录原因） |

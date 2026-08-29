@@ -11,14 +11,11 @@ requestBody:
     application/json:
       schema:
         type: object
-        required: [timeline_path, translation_path]
+        required: [timeline_path]
         properties:
           timeline_path:
             type: string
             description: 步骤 4 的时间轴文件。
-          translation_path:
-            type: string
-            description: 步骤 3 的翻译与关键词文件。
           remove_silence:
             type: boolean
             description: 去气口开关，决定是否规划转场与缩放。
