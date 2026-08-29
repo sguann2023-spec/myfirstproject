@@ -100,6 +100,7 @@ export class SkillService extends BaseService {
       namespace: null,
       author: metadata.author ?? null,
       tags: metadata.tags ?? [],
+      previewVideoUrl: null,
       contentHash,
       isEnabled: true,
       createdAt: Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : now,
@@ -392,7 +393,8 @@ export class SkillService extends BaseService {
         'marketplace',
         options.sourceUrl ?? packageUrl,
         options.remoteId,
-        options.iconUrl ?? null
+        options.iconUrl ?? null,
+        options.previewVideoUrl ?? null
       )
     } finally {
       await this.safeRemoveDirectory(tempDir)
@@ -418,7 +420,8 @@ export class SkillService extends BaseService {
       remoteId = null,
       source = 'local',
       sourceUrl = null,
-      iconUrl = null
+      iconUrl = null,
+      previewVideoUrl = null
     } = options
     logger.info('Installing skill from directory', { directoryPath })
 
@@ -426,7 +429,7 @@ export class SkillService extends BaseService {
       throw new Error(`Directory not found: ${directoryPath}`)
     }
 
-    return this.installSkillDir(directoryPath, source, sourceUrl, remoteId, iconUrl)
+    return this.installSkillDir(directoryPath, source, sourceUrl, remoteId, iconUrl, previewVideoUrl)
   }
 
   async copyDirectoryToWorkspace(
@@ -697,7 +700,8 @@ export class SkillService extends BaseService {
     source: string,
     sourceUrl: string | null,
     remoteId: string | null = null,
-    iconUrl: string | null = null
+    iconUrl: string | null = null,
+    previewVideoUrl: string | null = null
   ): Promise<InstalledSkill> {
     const metadata = await parseSkillMetadata(skillDir, path.basename(skillDir), 'skills')
     const skillsRoot = path.resolve(getGlobalSkillsRoot())
@@ -721,6 +725,7 @@ export class SkillService extends BaseService {
       name: metadata.name,
       description: metadata.description ?? null,
       iconUrl,
+      previewVideoUrl,
       folderName,
       source,
       sourceUrl,
@@ -738,6 +743,7 @@ export class SkillService extends BaseService {
       name: metadata.name,
       description: metadata.description ?? null,
       iconUrl,
+      previewVideoUrl,
       folderName,
       source,
       sourceUrl,
@@ -938,6 +944,7 @@ export class SkillService extends BaseService {
             name: metadata.name,
             description: metadata.description ?? null,
             iconUrl: registry?.icon_url ?? null,
+            previewVideoUrl: registry?.preview_video_url ?? null,
             folderName,
             source: registry?.source ?? options.source,
             sourceUrl: registry?.source_url ?? null,
@@ -1017,6 +1024,7 @@ export class SkillService extends BaseService {
     // resources. Keep the registry self-healing so the new local icon field is
     // available before Drizzle queries the table.
     await this.ensureIconUrlColumn()
+    await this.ensurePreviewVideoUrlColumn()
     const database = await this.getDatabase()
     const root = getGlobalSkillsRoot()
     await fs.promises.mkdir(root, { recursive: true })
@@ -1045,6 +1053,7 @@ export class SkillService extends BaseService {
           name: metadata.name,
           description: metadata.description ?? null,
           icon_url: existing?.icon_url ?? null,
+          preview_video_url: existing?.preview_video_url ?? null,
           folder_name: entry.name,
           source: existing?.source ?? 'local',
           source_url: existing?.source_url ?? null,
@@ -1090,6 +1099,20 @@ export class SkillService extends BaseService {
     }
   }
 
+  private async ensurePreviewVideoUrlColumn(): Promise<void> {
+    const databaseManager = await DatabaseManager.getInstance()
+    const client = await databaseManager.getClient()
+    const columns = await client.execute("PRAGMA table_info('skills')")
+    const hasPreviewVideoUrl = columns.rows.some((row) => {
+      const column = row as Record<string, unknown>
+      return String(column.name ?? column[1] ?? '') === 'preview_video_url'
+    })
+    if (!hasPreviewVideoUrl) {
+      await client.execute('ALTER TABLE `skills` ADD COLUMN `preview_video_url` text')
+      logger.info('Added missing skills.preview_video_url column for local registry compatibility')
+    }
+  }
+
   private generateLocalSkillId(name: string, folderName: string, usedIds: Set<string>): string {
     const normalizedName = String(name || folderName).trim().normalize('NFKC').toLowerCase()
     let salt = ''
@@ -1123,6 +1146,7 @@ export class SkillService extends BaseService {
     name: string
     description: string | null
     iconUrl: string | null
+    previewVideoUrl: string | null
     folderName: string
     source: string
     sourceUrl: string | null
@@ -1144,6 +1168,7 @@ export class SkillService extends BaseService {
       name: input.name,
       description: input.description,
       icon_url: input.iconUrl ?? existing[0]?.icon_url ?? null,
+      preview_video_url: input.previewVideoUrl ?? existing[0]?.preview_video_url ?? null,
       folder_name: input.folderName,
       source: input.source,
       source_url: input.sourceUrl,

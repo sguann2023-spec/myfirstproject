@@ -19,6 +19,7 @@ const toLocalCard = (skill) => ({
   name: skill?.name || skill?.folderName || '未命名技能',
   description: skill?.description || '',
   icon_url: skill?.icon_url || skill?.iconUrl || '',
+  previewVideoUrl: skill?.previewVideoUrl || skill?.preview_video_url || '',
   source: skill?.source || 'local',
   path: skill?.path || skill?.folderPath
 });
@@ -158,6 +159,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
       : await window.api?.skill?.installFromDirectory?.({ directoryPath: selectedPath });
     if (!result?.success) throw new Error(result?.error?.message || result?.error || '技能安装失败');
     await refreshInstalled();
+    window.dispatchEvent(new Event('skill-store-updated'));
     showInstallSuccessToast(result.data || { name: '技能' });
   };
 

@@ -69,11 +69,13 @@ declare global {
           source?: string
           sourceUrl?: string | null
           iconUrl?: string | null
+          previewVideoUrl?: string | null
         }) => Promise<any>
         installFromRemotePackage: (payload: {
           packageUrl: string
           remoteId: string
           iconUrl?: string | null
+          previewVideoUrl?: string | null
           sourceUrl?: string | null
         }) => Promise<any>
         copyDirectoryToWorkspace: (payload: {

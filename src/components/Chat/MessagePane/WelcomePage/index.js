@@ -281,7 +281,10 @@ const WelcomePage = ({
     if (!action || !directoryPath || pendingAction || typeof installFromDirectory !== 'function') return;
     setPendingAction(action);
     try {
-      const result = await installFromDirectory({ directoryPath });
+      const result = await installFromDirectory({
+        directoryPath,
+        previewVideoUrl: item?.previewVideoUrl || null
+      });
       if (!result?.success) {
         throw new Error(result?.error || '添加技能失败');
       }

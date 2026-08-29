@@ -950,7 +950,8 @@ const legacyElectronAPI = {
       remoteId = null,
       source = 'local',
       sourceUrl = null,
-      iconUrl = null
+      iconUrl = null,
+      previewVideoUrl = null
     }: any = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, {
         agentId,
@@ -959,7 +960,8 @@ const legacyElectronAPI = {
         remoteId,
         source,
         sourceUrl,
-        iconUrl
+        iconUrl,
+        previewVideoUrl
       }),
     copyDirectoryToWorkspace: ({
       agentId = 'vectcut_claw_default',

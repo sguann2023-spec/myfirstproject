@@ -83,7 +83,7 @@
 .skill-batch-actions { display: flex; gap: 8px; margin-left: auto; }
 .skill-batch-actions button { display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; padding: 7px 12px; background: #e7e7e7; }
 .skill-batch-actions button:not(:last-child) { width: 49.5px; height: 18px; box-sizing: border-box; justify-content: center; padding: 0; font-size: 10px; }
-.skill-batch-actions button:last-child { width: 20px; height: 18px; box-sizing: border-box; justify-content: center; padding: 0; border-radius: 0; background: transparent; font-size: 10px; line-height: 18px; }
+.skill-batch-actions button:last-child { width: 20px; height: 18px; box-sizing: border-box; justify-content: center; padding: 0; border-radius: 0; background: transparent; color: rgba(34, 34, 34, .5); font-size: 10px; line-height: 18px; }
 .skill-batch-actions button:disabled { background: #f1f1f1; color: #aaa; cursor: not-allowed; opacity: .65; }
 .skill-batch-action-icon { width: 10px; height: 10px; display: block; object-fit: contain; }
 .skill-batch-actions .is-danger { color: #e84158; }

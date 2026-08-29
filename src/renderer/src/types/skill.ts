@@ -143,6 +143,7 @@ export const InstalledSkillSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   iconUrl: z.string().nullable().optional(),
+  previewVideoUrl: z.string().nullable().optional(),
   folderName: z.string(),
   source: z.string(),
   sourceUrl: z.string().nullable(),
@@ -179,6 +180,7 @@ export interface SkillInstallFromRemotePackageOptions {
   packageUrl: string
   remoteId: string
   iconUrl?: string | null
+  previewVideoUrl?: string | null
   sourceUrl?: string | null
 }
 
@@ -195,6 +197,7 @@ export interface SkillInstallFromDirectoryOptions {
   source?: string
   sourceUrl?: string | null
   iconUrl?: string | null
+  previewVideoUrl?: string | null
 }
 
 export type SkillResult<T> = { success: true; data: T } | { success: false; error: unknown }

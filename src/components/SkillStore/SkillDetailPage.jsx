@@ -22,9 +22,17 @@ const parseSkillMarkdown = (rawContent) => {
 const normalizeDetail = (value, fallback) => {
   const next = value || fallback || {};
   const parsed = parseSkillMarkdown(next?.skill_md?.content);
-  if (!next?.skill_md?.content) return next;
+  const previewVideoUrl = String(next?.previewVideoUrl || fallback?.previewVideoUrl || '').trim();
+  const media = Array.isArray(next?.media) && next.media.length > 0
+    ? next.media
+    : (previewVideoUrl ? [{ type: 'video', url: previewVideoUrl }] : []);
+  if (!next?.skill_md?.content) {
+    return previewVideoUrl || media.length > 0 ? { ...next, previewVideoUrl, media } : next;
+  }
   return {
     ...next,
+    previewVideoUrl,
+    media,
     description: next.description || parsed.description,
     skill_md: { ...next.skill_md, content: parsed.content }
   };

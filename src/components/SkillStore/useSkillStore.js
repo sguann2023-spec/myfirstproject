@@ -32,6 +32,10 @@ const writeJson = (key, value) => {
   }
 };
 
+const notifySkillStoreUpdated = () => {
+  window.dispatchEvent(new Event('skill-store-updated'));
+};
+
 const normalizeInstalled = (skill) => ({
   ...skill,
   id: String(skill?.id || skill?.folderName || skill?.name || '').trim(),
@@ -162,6 +166,18 @@ export const useSkillStore = () => {
 
   const install = useCallback(async (skill) => {
     const folderName = QUICK_SKILL_FOLDERS[skill?.name];
+    let detail = null;
+    if (skill?.id && !skill?.previewVideoUrl) {
+      try {
+        detail = await skillCatalogService.getSkillDetail(skill.id);
+      } catch (error) {
+        // The bundled quick-skill path can still install locally when its
+        // marketplace detail is temporarily unavailable. Remote packages
+        // require the detail response below to obtain the package URL.
+        if (!folderName) throw error;
+      }
+    }
+    const previewVideoUrl = skill?.previewVideoUrl || detail?.media?.[0]?.url || null;
     if (folderName && window.api?.getAppInfo && window.api?.skill?.installFromDirectory) {
       const appInfo = await window.api.getAppInfo();
       const separator = String(appInfo?.resourcesPath || '').includes('\\') ? '\\' : '/';
@@ -171,25 +187,29 @@ export const useSkillStore = () => {
         remoteId: skill?.id || null,
         source: 'marketplace',
         sourceUrl: skill?.source_url || skill?.sourceUrl || null,
-        iconUrl: skill?.icon_url || skill?.iconUrl || null
+        iconUrl: skill?.icon_url || skill?.iconUrl || null,
+        previewVideoUrl
       });
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
       await refreshInstalled();
+      notifySkillStoreUpdated();
       return result.data;
     }
 
     if (skill?.id && window.api?.skill?.installFromRemotePackage) {
-      const detail = await skillCatalogService.getSkillDetail(skill.id);
+      detail = detail || await skillCatalogService.getSkillDetail(skill.id);
       const packageUrl = detail?.package?.download_url;
       if (!packageUrl) throw new Error('该技能暂未提供安装包');
       const result = await window.api.skill.installFromRemotePackage({
         packageUrl,
         remoteId: skill.id,
         iconUrl: skill?.icon_url || skill?.iconUrl || null,
+        previewVideoUrl,
         sourceUrl: skill?.source_url || skill?.sourceUrl || null
       });
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
       await refreshInstalled();
+      notifySkillStoreUpdated();
       return result.data;
     }
 
@@ -202,6 +222,7 @@ export const useSkillStore = () => {
       const result = await window.api.skill.uninstall(installed.id);
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '卸载技能失败');
       await refreshInstalled();
+      notifySkillStoreUpdated();
     }
     setToggleStates((previous) => {
       const next = { ...previous };
