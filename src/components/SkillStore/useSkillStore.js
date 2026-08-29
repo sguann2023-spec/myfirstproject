@@ -69,16 +69,20 @@ export const useSkillStore = () => {
               || byName.get(String(local?.name || '').trim().toLowerCase());
             const iconUrl = local?.iconUrl || remote?.icon_url || '';
             const remoteId = local?.remoteId || remote?.id || null;
+            const remoteName = local?.source === 'marketplace' && String(remote?.name || '').trim()
+              ? String(remote.name).trim()
+              : local?.name;
             if (remote && (iconUrl || remoteId) && window.api?.skill?.updateMetadata && (
-              local?.iconUrl !== iconUrl || local?.remoteId !== remoteId
+              local?.iconUrl !== iconUrl || local?.remoteId !== remoteId || local?.name !== remoteName
             )) {
               void window.api.skill.updateMetadata({
                 skillId: local.id,
                 remoteId,
+                name: remoteName,
                 iconUrl: iconUrl || null
               });
             }
-            return { ...local, remoteId, iconUrl: iconUrl || null };
+            return { ...local, remoteId, name: remoteName, iconUrl: iconUrl || null };
           });
         } catch {
           // Keep local skills available when marketplace metadata is unavailable.
@@ -141,7 +145,9 @@ export const useSkillStore = () => {
   const installedByName = useMemo(() => {
     const result = new Map();
     installedSkills.forEach((skill) => {
-      [skill.id, skill.folderName, skill.name].filter(Boolean).forEach((key) => result.set(String(key).toLowerCase(), skill));
+      [skill.id, skill.remoteId, skill.folderName, skill.name]
+        .filter(Boolean)
+        .forEach((key) => result.set(String(key).trim().toLowerCase(), skill));
     });
     return result;
   }, [installedSkills]);
@@ -185,6 +191,7 @@ export const useSkillStore = () => {
       const result = await window.api.skill.installFromDirectory({
         directoryPath,
         remoteId: skill?.id || null,
+        remoteName: skill?.name || null,
         source: 'marketplace',
         sourceUrl: skill?.source_url || skill?.sourceUrl || null,
         iconUrl: skill?.icon_url || skill?.iconUrl || null,
@@ -203,6 +210,7 @@ export const useSkillStore = () => {
       const result = await window.api.skill.installFromRemotePackage({
         packageUrl,
         remoteId: skill.id,
+        remoteName: skill.name || null,
         iconUrl: skill?.icon_url || skill?.iconUrl || null,
         previewVideoUrl,
         sourceUrl: skill?.source_url || skill?.sourceUrl || null

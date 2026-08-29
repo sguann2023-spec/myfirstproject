@@ -179,6 +179,7 @@ export interface SkillInstallFromZipOptions {
 export interface SkillInstallFromRemotePackageOptions {
   packageUrl: string
   remoteId: string
+  remoteName?: string | null
   iconUrl?: string | null
   previewVideoUrl?: string | null
   sourceUrl?: string | null
@@ -187,6 +188,7 @@ export interface SkillInstallFromRemotePackageOptions {
 export interface SkillUpdateMetadataOptions {
   skillId: string
   remoteId?: string | null
+  name?: string | null
   iconUrl?: string | null
 }
 
@@ -194,6 +196,7 @@ export interface SkillInstallFromDirectoryOptions {
   directoryPath: string
   /** Optional marketplace metadata persisted with the local installation. */
   remoteId?: string | null
+  remoteName?: string | null
   source?: string
   sourceUrl?: string | null
   iconUrl?: string | null

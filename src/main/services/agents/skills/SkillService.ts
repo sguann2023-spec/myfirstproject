@@ -393,6 +393,7 @@ export class SkillService extends BaseService {
         'marketplace',
         options.sourceUrl ?? packageUrl,
         options.remoteId,
+        options.remoteName ?? null,
         options.iconUrl ?? null,
         options.previewVideoUrl ?? null
       )
@@ -401,13 +402,14 @@ export class SkillService extends BaseService {
     }
   }
 
-  async updateMetadata(options: { skillId: string; remoteId?: string | null; iconUrl?: string | null }): Promise<InstalledSkill | null> {
+  async updateMetadata(options: { skillId: string; remoteId?: string | null; name?: string | null; iconUrl?: string | null }): Promise<InstalledSkill | null> {
     await this.ensureSkillRegistryInitialized()
     const row = await this.findSkillRegistryRow(options.skillId)
     if (!row) return null
     const database = await this.getDatabase()
     await database.update(skillsTable).set({
       remote_id: options.remoteId ?? row.remote_id ?? null,
+      name: options.name?.trim() || row.name,
       icon_url: options.iconUrl ?? row.icon_url ?? null,
       updated_at: Date.now()
     }).where(eq(skillsTable.id, row.id))
@@ -418,6 +420,7 @@ export class SkillService extends BaseService {
     const {
       directoryPath,
       remoteId = null,
+      remoteName = null,
       source = 'local',
       sourceUrl = null,
       iconUrl = null,
@@ -429,7 +432,7 @@ export class SkillService extends BaseService {
       throw new Error(`Directory not found: ${directoryPath}`)
     }
 
-    return this.installSkillDir(directoryPath, source, sourceUrl, remoteId, iconUrl, previewVideoUrl)
+    return this.installSkillDir(directoryPath, source, sourceUrl, remoteId, remoteName, iconUrl, previewVideoUrl)
   }
 
   async copyDirectoryToWorkspace(
@@ -700,6 +703,7 @@ export class SkillService extends BaseService {
     source: string,
     sourceUrl: string | null,
     remoteId: string | null = null,
+    remoteName: string | null = null,
     iconUrl: string | null = null,
     previewVideoUrl: string | null = null
   ): Promise<InstalledSkill> {
@@ -722,7 +726,7 @@ export class SkillService extends BaseService {
     const localId = await this.upsertSkillRegistryRecord({
       id: null,
       remoteId,
-      name: metadata.name,
+      name: source === 'marketplace' && remoteName?.trim() ? remoteName.trim() : metadata.name,
       description: metadata.description ?? null,
       iconUrl,
       previewVideoUrl,
@@ -740,7 +744,7 @@ export class SkillService extends BaseService {
     const skill: InstalledSkill = {
       id: localId,
       remoteId,
-      name: metadata.name,
+      name: source === 'marketplace' && remoteName?.trim() ? remoteName.trim() : metadata.name,
       description: metadata.description ?? null,
       iconUrl,
       previewVideoUrl,
@@ -762,7 +766,7 @@ export class SkillService extends BaseService {
 
     await this.writeSkillEnabledState(folderName, true)
 
-    logger.info('Skill installed and registered', { id: skill.id, remoteId, name: metadata.name, folderName, source })
+    logger.info('Skill installed and registered', { id: skill.id, remoteId, name: skill.name, folderName, source })
     return skill
   }
 
