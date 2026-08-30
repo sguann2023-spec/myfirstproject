@@ -301,7 +301,7 @@ jobs:
         shell: bash
         env:
           CHANNEL_BRAND: ${{ matrix.channel_brand }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           set -euo pipefail
           VERSION_TAG="v$(node -p "require('./package.json').version")"
@@ -311,6 +311,9 @@ jobs:
             TARGET_REPO="sun-guannan/CapCutMakerBingo"
             LATEST_PREFIX="BingoCut"
           fi
+
+          gh auth status
+          gh repo view "${TARGET_REPO}" >/dev/null
 
           gh release view "${VERSION_TAG}" -R "${TARGET_REPO}" >/dev/null 2>&1 || \
             gh release create "${VERSION_TAG}" -R "${TARGET_REPO}" --draft --title "${VERSION_TAG}" --notes ""
@@ -481,7 +484,7 @@ jobs:
         shell: bash
         env:
           CHANNEL_BRAND: ${{ matrix.channel_brand }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           set -euo pipefail
           VERSION_TAG="v$(node -p "require('./package.json').version")"
@@ -491,6 +494,9 @@ jobs:
             TARGET_REPO="sun-guannan/CapCutMakerBingo"
             LATEST_SETUP_NAME="BingoCut-Setup-latest-x64.exe"
           fi
+
+          gh auth status
+          gh repo view "${TARGET_REPO}" >/dev/null
 
           gh release view "${VERSION_TAG}" -R "${TARGET_REPO}" >/dev/null 2>&1 || \
             gh release create "${VERSION_TAG}" -R "${TARGET_REPO}" --draft --title "${VERSION_TAG}" --notes ""
