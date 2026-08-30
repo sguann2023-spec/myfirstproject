@@ -272,6 +272,164 @@ async function activateMacEditingApp(executablePath: string, appMode: EditingApp
   await execFileAsync('/usr/bin/osascript', ['-e', `tell application "${getMacAppName(executablePath, appMode)}" to activate`])
 }
 
+function getWindowsWindowTitleKeywords(appMode: EditingAppMode) {
+  return appMode === 'capcut'
+    ? ['CapCut']
+    : ['JianyingPro', '剪映专业版', '剪映']
+}
+
+async function activateWindowsEditingApp(appMode: EditingAppMode) {
+  const keywordsLiteral = getWindowsWindowTitleKeywords(appMode)
+    .map((keyword) => `'${keyword.replace(/'/g, "''")}'`)
+    .join(', ')
+
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public static class VectCutWin32 {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern IntPtr FindWindowW(string lpClassName, string lpWindowName);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowTextLengthW(IntPtr hWnd);
+
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool BringWindowToTop(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+}
+"@
+
+function Get-WindowTitle([IntPtr]$handle) {
+  $length = [VectCutWin32]::GetWindowTextLengthW($handle)
+  if ($length -le 0) { return '' }
+  $buffer = New-Object System.Text.StringBuilder ($length + 1)
+  [void][VectCutWin32]::GetWindowTextW($handle, $buffer, $buffer.Capacity)
+  return $buffer.ToString()
+}
+
+$script:keywords = @(${keywordsLiteral})
+$script:hwnd = [IntPtr]::Zero
+$wshell = $null
+try {
+  $wshell = New-Object -ComObject WScript.Shell
+} catch {}
+
+$deadline = (Get-Date).AddSeconds(12)
+while ((Get-Date) -lt $deadline -and $script:hwnd -eq [IntPtr]::Zero) {
+  foreach ($keyword in $script:keywords) {
+    $candidate = [VectCutWin32]::FindWindowW($null, $keyword)
+    if ($candidate -ne [IntPtr]::Zero) {
+      $script:hwnd = $candidate
+      break
+    }
+  }
+
+  if ($script:hwnd -eq [IntPtr]::Zero) {
+    $callback = [VectCutWin32+EnumWindowsProc]{
+      param([IntPtr]$handle, [IntPtr]$lParam)
+      if (-not [VectCutWin32]::IsWindowVisible($handle)) {
+        return $true
+      }
+
+      $title = Get-WindowTitle $handle
+      if ([string]::IsNullOrWhiteSpace($title)) {
+        return $true
+      }
+
+      foreach ($keyword in $script:keywords) {
+        if ($title.IndexOf($keyword, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+          $script:hwnd = $handle
+          return $false
+        }
+      }
+
+      return $true
+    }
+
+    [void][VectCutWin32]::EnumWindows($callback, [IntPtr]::Zero)
+  }
+
+  if ($script:hwnd -eq [IntPtr]::Zero) {
+    Start-Sleep -Milliseconds 500
+  }
+}
+
+if ($script:hwnd -eq [IntPtr]::Zero) {
+  exit 1
+}
+
+[void][VectCutWin32]::ShowWindow($script:hwnd, 9)
+Start-Sleep -Milliseconds 120
+if ($wshell) {
+  try {
+    $wshell.SendKeys('%')
+  } catch {}
+}
+Start-Sleep -Milliseconds 120
+[void][VectCutWin32]::SetForegroundWindow($script:hwnd)
+[void][VectCutWin32]::BringWindowToTop($script:hwnd)
+
+for ($i = 0; $i -lt 12; $i++) {
+  if ([VectCutWin32]::GetForegroundWindow() -eq $script:hwnd) {
+    exit 0
+  }
+
+  if ($wshell) {
+    try {
+      $wshell.SendKeys('%')
+    } catch {}
+  }
+  Start-Sleep -Milliseconds 120
+  [void][VectCutWin32]::SetForegroundWindow($script:hwnd)
+  [void][VectCutWin32]::BringWindowToTop($script:hwnd)
+  Start-Sleep -Milliseconds 250
+}
+
+if ([VectCutWin32]::GetForegroundWindow() -eq $script:hwnd) {
+  exit 0
+}
+
+exit 1
+`
+
+  await execFileAsync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    script
+  ])
+}
+
 async function launchEditingApp(isCapcut?: boolean) {
   const appMode = getEditingAppMode(isCapcut)
   const appLabel = appMode === 'capcut' ? 'CapCut' : '剪映'
@@ -305,12 +463,6 @@ async function launchEditingApp(isCapcut?: boolean) {
 
     try {
       spawnDetached(executablePath)
-      logger.info('[DLTRACE][Main] launched editing app on Windows', {
-        appLabel,
-        appMode,
-        executablePath
-      })
-      return true
     } catch (error) {
       logger.warn('[DLTRACE][Main] failed to launch editing app on Windows', {
         appLabel,
@@ -319,6 +471,27 @@ async function launchEditingApp(isCapcut?: boolean) {
         error: error instanceof Error ? error.message : String(error)
       })
       return false
+    }
+
+    let broughtToFront = false
+    try {
+      await activateWindowsEditingApp(appMode)
+      broughtToFront = true
+      logger.info('[DLTRACE][Main] launched editing app on Windows', {
+        appLabel,
+        appMode,
+        executablePath,
+        broughtToFront
+      })
+      return true
+    } catch (error) {
+      logger.warn('[DLTRACE][Main] launched editing app on Windows but failed to foreground it', {
+        appLabel,
+        appMode,
+        executablePath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return true
     }
   }
 
