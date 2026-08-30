@@ -107,15 +107,6 @@
   margin-right: -1px;
 }
 
-.center-pane--skill-hidden {
-  width: 0;
-  flex: 0 0 0;
-  min-width: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
 .right-pane {
   flex: 1;
   min-width: 0;     /* 允许内容正确收缩 */
@@ -129,9 +120,4 @@
 
 .right-pane--chat-collapsed {
   border-left: 1px solid #e4e3e2;
-}
-
-.right-pane--skill {
-  overflow: hidden;
-  border-left: 0;
 }

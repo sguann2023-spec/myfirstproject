@@ -139,11 +139,8 @@ export type SkillSearchResult = z.infer<typeof SkillSearchResultSchema>
 
 export const InstalledSkillSchema = z.object({
   id: z.string(),
-  remoteId: z.string().nullable().optional(),
   name: z.string(),
   description: z.string().nullable(),
-  iconUrl: z.string().nullable().optional(),
-  previewVideoUrl: z.string().nullable().optional(),
   folderName: z.string(),
   source: z.string(),
   sourceUrl: z.string().nullable(),
@@ -151,7 +148,6 @@ export const InstalledSkillSchema = z.object({
   author: z.string().nullable(),
   tags: z.array(z.string()),
   contentHash: z.string(),
-  path: z.string().optional(),
   isEnabled: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number()
@@ -176,31 +172,8 @@ export interface SkillInstallFromZipOptions {
   zipFilePath: string
 }
 
-export interface SkillInstallFromRemotePackageOptions {
-  packageUrl: string
-  remoteId: string
-  remoteName?: string | null
-  iconUrl?: string | null
-  previewVideoUrl?: string | null
-  sourceUrl?: string | null
-}
-
-export interface SkillUpdateMetadataOptions {
-  skillId: string
-  remoteId?: string | null
-  name?: string | null
-  iconUrl?: string | null
-}
-
 export interface SkillInstallFromDirectoryOptions {
   directoryPath: string
-  /** Optional marketplace metadata persisted with the local installation. */
-  remoteId?: string | null
-  remoteName?: string | null
-  source?: string
-  sourceUrl?: string | null
-  iconUrl?: string | null
-  previewVideoUrl?: string | null
 }
 
 export type SkillResult<T> = { success: true; data: T } | { success: false; error: unknown }

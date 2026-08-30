@@ -7,7 +7,6 @@
  */
 import { loggerService } from '@logger'
 import { installBuiltinSkills } from '@main/utils/builtinSkills'
-import { skillService } from '../../skills/SkillService'
 
 import type { BuiltinAgentInitResult } from '../AgentService'
 import { agentService } from '../AgentService'
@@ -33,14 +32,6 @@ export async function bootstrapBuiltinAgents(): Promise<void> {
     await installBuiltinSkills({ distributeToAgents: false })
   } catch (error) {
     logger.error('Failed to install built-in skills', error as Error)
-  }
-
-  // Register both legacy user-installed skills and the skills just synchronized
-  // from app resources before agents start consuming the shared skill library.
-  try {
-    await skillService.initializeRegistry()
-  } catch (error) {
-    logger.error('Failed to initialize the local skill registry', error as Error)
   }
 
   await Promise.all([initCherryClaw(), initCherryAssistant()])

@@ -61,25 +61,7 @@ declare global {
         unsubscribeChanges: (payload?: { agentId?: string }) => Promise<any>
         onChanged: (callback: (payload: any) => void) => () => void
         toggle: (payload: { agentId?: string; skillId: string; isEnabled: boolean }) => Promise<any>
-        installFromDirectory: (payload: {
-          agentId?: string
-          directoryPath: string
-          isEnabled?: boolean
-          remoteId?: string | null
-          remoteName?: string | null
-          source?: string
-          sourceUrl?: string | null
-          iconUrl?: string | null
-          previewVideoUrl?: string | null
-        }) => Promise<any>
-        installFromRemotePackage: (payload: {
-          packageUrl: string
-          remoteId: string
-          remoteName?: string | null
-          iconUrl?: string | null
-          previewVideoUrl?: string | null
-          sourceUrl?: string | null
-        }) => Promise<any>
+        installFromDirectory: (payload: { agentId?: string; directoryPath: string; isEnabled?: boolean }) => Promise<any>
         copyDirectoryToWorkspace: (payload: {
           agentId?: string
           directoryPath: string

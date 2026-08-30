@@ -696,7 +696,6 @@ export const isAutoDetectionMethod = (method: string): method is AutoDetectionMe
 export type SidebarIcon =
   | 'assistants'
   | 'agents'
-  | 'skills'
   | 'store'
   | 'paintings'
   | 'translate'

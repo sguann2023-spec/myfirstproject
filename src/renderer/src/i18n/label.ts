@@ -187,7 +187,6 @@ export const getThemeModeLabel = (key: string): string => {
 const sidebarIconKeyMap = {
   assistants: 'assistants.title',
   agents: 'agent.sidebar_title',
-  skills: 'settings.skills.title',
   store: 'assistants.presets.title',
   paintings: 'paintings.title',
   translate: 'translate.title',

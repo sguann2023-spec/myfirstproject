@@ -57,9 +57,7 @@ import type {
   LocalSkill,
   SkillFileNode,
   SkillInstallFromDirectoryOptions,
-  SkillInstallFromRemotePackageOptions,
   SkillInstallFromZipOptions,
-  SkillUpdateMetadataOptions,
   SkillInstallOptions,
   SkillResult,
   SkillToggleOptions
@@ -101,7 +99,6 @@ export function tracedInvoke(channel: string, spanContext: SpanContext | undefin
 // Custom APIs for renderer
 const api = {
   getAppInfo: () => ipcRenderer.invoke(IpcChannel.App_Info),
-  getVectcutApiKey: (): Promise<string> => ipcRenderer.invoke(IpcChannel.App_GetVectcutApiKey),
   getDiskInfo: (directoryPath: string): Promise<{ free: number; size: number } | null> =>
     ipcRenderer.invoke(IpcChannel.App_GetDiskInfo, directoryPath),
   reload: () => ipcRenderer.invoke(IpcChannel.App_Reload),
@@ -792,10 +789,6 @@ const api = {
       ipcRenderer.invoke(IpcChannel.Skill_Toggle, options),
     installFromZip: (options: SkillInstallFromZipOptions): Promise<SkillResult<InstalledSkill>> =>
       ipcRenderer.invoke(IpcChannel.Skill_InstallFromZip, options),
-    installFromRemotePackage: (options: SkillInstallFromRemotePackageOptions): Promise<SkillResult<InstalledSkill>> =>
-      ipcRenderer.invoke(IpcChannel.Skill_InstallFromRemotePackage, options),
-    updateMetadata: (options: SkillUpdateMetadataOptions): Promise<SkillResult<InstalledSkill | null>> =>
-      ipcRenderer.invoke(IpcChannel.Skill_UpdateMetadata, options),
     installFromDirectory: (options: SkillInstallFromDirectoryOptions): Promise<SkillResult<InstalledSkill>> =>
       ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, options),
     readSkillFile: (skillId: string, filename: string): Promise<SkillResult<string | null>> =>
@@ -943,28 +936,8 @@ const legacyElectronAPI = {
     },
     toggle: ({ agentId = 'vectcut_claw_default', skillId, isEnabled }: any = {}) =>
       ipcRenderer.invoke(IpcChannel.Skill_Toggle, { agentId, skillId, isEnabled }),
-    installFromDirectory: ({
-      agentId = 'vectcut_claw_default',
-      directoryPath,
-      isEnabled = true,
-        remoteId = null,
-        remoteName = null,
-        source = 'local',
-      sourceUrl = null,
-      iconUrl = null,
-      previewVideoUrl = null
-    }: any = {}) =>
-      ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, {
-        agentId,
-        directoryPath,
-        isEnabled,
-        remoteId,
-        remoteName,
-        source,
-        sourceUrl,
-        iconUrl,
-        previewVideoUrl
-      }),
+    installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true }: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.Skill_InstallFromDirectory, { agentId, directoryPath, isEnabled }),
     copyDirectoryToWorkspace: ({
       agentId = 'vectcut_claw_default',
       directoryPath,

@@ -3439,21 +3439,6 @@ const migrateConfig = {
       logger.error('migrate 208 error', error as Error)
       return state
     }
-  },
-  '209': (state: RootState) => {
-    try {
-      const visibleIcons = state.settings?.sidebarIcons?.visible
-      if (Array.isArray(visibleIcons) && !visibleIcons.includes('skills' as any)) {
-        const agentsIndex = visibleIcons.indexOf('agents' as any)
-        const insertIndex = agentsIndex === -1 ? visibleIcons.length : agentsIndex + 1
-        visibleIcons.splice(insertIndex, 0, 'skills' as any)
-      }
-      logger.info('migrate 209 success')
-      return state
-    } catch (error) {
-      logger.error('migrate 209 error', error as Error)
-      return state
-    }
   }
 }
 
