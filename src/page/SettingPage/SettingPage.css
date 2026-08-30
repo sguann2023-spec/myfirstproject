@@ -57,26 +57,6 @@ html, body, #root {
     -webkit-app-region: drag;
 }
 
-.setting-titlebar-controls {
-    display: flex;
-    gap: 8px;
-    -webkit-app-region: no-drag;
-}
-
-.traffic-btn {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: none;
-    outline: none;
-    cursor: pointer;
-    padding: 0;
-}
-
-.traffic-btn.close { background-color: #ff5f56; }
-.traffic-btn.minimize { background-color: #ffbd2e; }
-.traffic-btn.maximize { background-color: #27c93f; }
-
 /* --- 整体容器 --- */
 .setting-page-container {
   display: flex;
@@ -184,4 +164,44 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Windows 自绘窗口控制按钮（最小化/最大化/关闭），位于右上角拖动区域内部。
+   注意：必须是 .top-right-drag-area 的普通流内子元素（no-drag），
+   不能用 position: fixed 悬浮在 drag 区域上方，否则 Windows 下点击会被拖拽区域吞掉。 */
+.win-caption-controls {
+  display: flex;
+  align-items: stretch;
+  align-self: flex-start; /* 顶栏高 30px，按钮高 36px，与窗口右上角对齐并向下延伸 6px */
+  margin-right: -10px;   /* 抵消 .top-right-drag-area 的 padding-right: 10px，紧贴窗口右边缘 */
+  -webkit-app-region: no-drag;
+}
+
+.win-caption-btn {
+  width: 46px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  outline: none;
+  padding: 0;
+  background-color: transparent;
+  color: #1f1f1f;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.win-caption-btn:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.win-caption-btn:active {
+  background-color: rgba(0, 0, 0, 0.12);
+}
+
+.win-caption-btn--close:hover,
+.win-caption-btn--close:active {
+  background-color: #e81123;
+  color: #ffffff;
 }

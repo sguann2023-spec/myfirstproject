@@ -1,5 +1,6 @@
 import { loggerService } from '@logger'
 import { isMac, isWin } from '@main/constant'
+import { findBundledPython } from '@main/utils/process'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { execFile, spawn } from 'node:child_process'
 import http from 'node:http'
@@ -51,9 +52,9 @@ function getMainWindow() {
   return mainWindow
 }
 
-function execFileAsync(file: string, args: string[]) {
+function execFileAsync(file: string, args: string[], options: { windowsHide?: boolean; timeout?: number } = {}) {
   return new Promise<void>((resolve, reject) => {
-    execFile(file, args, (error) => {
+    execFile(file, args, options, (error) => {
       if (error) {
         reject(error)
         return
@@ -255,9 +256,11 @@ function spawnDetached(command: string) {
   const child = spawn(command, [], {
     detached: true,
     stdio: 'ignore',
-    shell: isWin
+    // 启动 exe 时不要再套一层 cmd.exe，避免拿不到真实窗口进程并增加启动延迟。
+    shell: false
   })
   child.unref()
+  return child
 }
 
 async function activateMacEditingApp(executablePath: string, appMode: EditingAppMode) {
@@ -278,156 +281,166 @@ function getWindowsWindowTitleKeywords(appMode: EditingAppMode) {
     : ['JianyingPro', '剪映专业版', '剪映']
 }
 
-async function activateWindowsEditingApp(appMode: EditingAppMode) {
-  const keywordsLiteral = getWindowsWindowTitleKeywords(appMode)
-    .map((keyword) => `'${keyword.replace(/'/g, "''")}'`)
-    .join(', ')
+// 用自带 Python + ctypes 直接调 Win32 API 置顶窗口。
+// 旧方案每次冷启动 powershell.exe 在某些机器上要 10 秒左右，
+// 打包的 embedded Python 启动只需几百毫秒，能消除这段等待。
+const WINDOWS_FOREGROUND_PYTHON_SCRIPT = `
+import ctypes
+import ctypes.wintypes as wt
+import os
+import sys
+import time
 
-  const script = `
-$ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @"
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
+user32 = ctypes.WinDLL('user32', use_last_error=True)
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
-public static class VectCutWin32 {
-  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+SW_RESTORE = 9
+INPUT_KEYBOARD = 1
+KEYEVENTF_KEYUP = 2
+VK_MENU = 0x12
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-  public static extern IntPtr FindWindowW(string lpClassName, string lpWindowName);
+keywords = [k for k in sys.argv[1:] if k]
+process_names = ['capcut.exe'] if 'CapCut' in keywords else ['jianyingpro.exe']
 
-  [DllImport("user32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
 
-  [DllImport("user32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  public static extern bool IsWindowVisible(IntPtr hWnd);
 
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-  public static extern int GetWindowTextLengthW(IntPtr hWnd);
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ('wVk', wt.WORD),
+        ('wScan', wt.WORD),
+        ('dwFlags', wt.DWORD),
+        ('time', wt.DWORD),
+        ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong)),
+    ]
 
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-  public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
-  [DllImport("user32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ('dx', ctypes.c_long),
+        ('dy', ctypes.c_long),
+        ('mouseData', wt.DWORD),
+        ('dwFlags', wt.DWORD),
+        ('time', wt.DWORD),
+        ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong)),
+    ]
 
-  [DllImport("user32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  public static extern bool SetForegroundWindow(IntPtr hWnd);
 
-  [DllImport("user32.dll")]
-  [return: MarshalAs(UnmanagedType.Bool)]
-  public static extern bool BringWindowToTop(IntPtr hWnd);
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ('uMsg', wt.DWORD),
+        ('wParamLo', wt.WORD),
+        ('wParamHi', wt.WORD),
+    ]
 
-  [DllImport("user32.dll")]
-  public static extern IntPtr GetForegroundWindow();
-}
-"@
 
-function Get-WindowTitle([IntPtr]$handle) {
-  $length = [VectCutWin32]::GetWindowTextLengthW($handle)
-  if ($length -le 0) { return '' }
-  $buffer = New-Object System.Text.StringBuilder ($length + 1)
-  [void][VectCutWin32]::GetWindowTextW($handle, $buffer, $buffer.Capacity)
-  return $buffer.ToString()
-}
+class INPUTUNION(ctypes.Union):
+    _fields_ = [('ki', KEYBDINPUT), ('mi', MOUSEINPUT), ('hi', HARDWAREINPUT)]
 
-$script:keywords = @(${keywordsLiteral})
-$script:hwnd = [IntPtr]::Zero
-$wshell = $null
-try {
-  $wshell = New-Object -ComObject WScript.Shell
-} catch {}
 
-$deadline = (Get-Date).AddSeconds(12)
-while ((Get-Date) -lt $deadline -and $script:hwnd -eq [IntPtr]::Zero) {
-  foreach ($keyword in $script:keywords) {
-    $candidate = [VectCutWin32]::FindWindowW($null, $keyword)
-    if ($candidate -ne [IntPtr]::Zero) {
-      $script:hwnd = $candidate
-      break
-    }
-  }
+class INPUT(ctypes.Structure):
+    _fields_ = [('type', wt.DWORD), ('union', INPUTUNION)]
 
-  if ($script:hwnd -eq [IntPtr]::Zero) {
-    $callback = [VectCutWin32+EnumWindowsProc]{
-      param([IntPtr]$handle, [IntPtr]$lParam)
-      if (-not [VectCutWin32]::IsWindowVisible($handle)) {
-        return $true
-      }
 
-      $title = Get-WindowTitle $handle
-      if ([string]::IsNullOrWhiteSpace($title)) {
-        return $true
-      }
+def press_alt():
+    down = INPUT(type=INPUT_KEYBOARD)
+    down.union.ki.wVk = VK_MENU
+    user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(INPUT))
+    up = INPUT(type=INPUT_KEYBOARD)
+    up.union.ki.wVk = VK_MENU
+    up.union.ki.dwFlags = KEYEVENTF_KEYUP
+    user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(INPUT))
 
-      foreach ($keyword in $script:keywords) {
-        if ($title.IndexOf($keyword, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-          $script:hwnd = $handle
-          return $false
-        }
-      }
 
-      return $true
-    }
+def window_text(hwnd):
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length <= 0:
+        return ''
+    buf = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buf, length + 1)
+    return buf.value
 
-    [void][VectCutWin32]::EnumWindows($callback, [IntPtr]::Zero)
-  }
 
-  if ($script:hwnd -eq [IntPtr]::Zero) {
-    Start-Sleep -Milliseconds 500
-  }
-}
+def process_image(pid):
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ''
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wt.DWORD(len(buf))
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return buf.value
+        return ''
+    finally:
+        kernel32.CloseHandle(handle)
 
-if ($script:hwnd -eq [IntPtr]::Zero) {
-  exit 1
-}
 
-[void][VectCutWin32]::ShowWindow($script:hwnd, 9)
-Start-Sleep -Milliseconds 120
-if ($wshell) {
-  try {
-    $wshell.SendKeys('%')
-  } catch {}
-}
-Start-Sleep -Milliseconds 120
-[void][VectCutWin32]::SetForegroundWindow($script:hwnd)
-[void][VectCutWin32]::BringWindowToTop($script:hwnd)
+def find_window():
+    match = {'process': 0, 'title': 0}
+    pid_buf = wt.DWORD()
 
-for ($i = 0; $i -lt 12; $i++) {
-  if ([VectCutWin32]::GetForegroundWindow() -eq $script:hwnd) {
-    exit 0
-  }
+    def callback(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        title = window_text(hwnd)
+        if not title.strip():
+            return True
+        if not match['process']:
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_buf))
+            image = process_image(pid_buf.value)
+            if image and os.path.basename(image).lower() in process_names:
+                match['process'] = hwnd
+                return False
+        if not match['title']:
+            lowered = title.lower()
+            for keyword in keywords:
+                if keyword.lower() in lowered:
+                    match['title'] = hwnd
+                    break
+        return True
 
-  if ($wshell) {
-    try {
-      $wshell.SendKeys('%')
-    } catch {}
-  }
-  Start-Sleep -Milliseconds 120
-  [void][VectCutWin32]::SetForegroundWindow($script:hwnd)
-  [void][VectCutWin32]::BringWindowToTop($script:hwnd)
-  Start-Sleep -Milliseconds 250
-}
+    enum_proc = EnumWindowsProc(callback)
+    user32.EnumWindows(enum_proc, 0)
+    return match['process'] or match['title']
 
-if ([VectCutWin32]::GetForegroundWindow() -eq $script:hwnd) {
-  exit 0
-}
 
-exit 1
+hwnd = 0
+deadline = time.time() + 12.0
+while time.time() < deadline and not hwnd:
+    hwnd = find_window()
+    if not hwnd:
+        time.sleep(0.1)
+
+if not hwnd:
+    sys.exit(1)
+
+user32.ShowWindow(hwnd, SW_RESTORE)
+press_alt()
+user32.SetForegroundWindow(hwnd)
+user32.BringWindowToTop(hwnd)
+
+for _ in range(5):
+    if user32.GetForegroundWindow() == hwnd:
+        sys.exit(0)
+    press_alt()
+    time.sleep(0.05)
+    user32.SetForegroundWindow(hwnd)
+    user32.BringWindowToTop(hwnd)
+    time.sleep(0.1)
+
+sys.exit(0 if user32.GetForegroundWindow() == hwnd else 1)
 `
 
-  await execFileAsync('powershell.exe', [
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-Command',
-    script
-  ])
+async function activateWindowsEditingApp(appMode: EditingAppMode) {
+  const bundledPythonPath = findBundledPython()
+  const pythonExe = bundledPythonPath || 'python.exe'
+
+  await execFileAsync(
+    pythonExe,
+    ['-I', '-c', WINDOWS_FOREGROUND_PYTHON_SCRIPT, ...getWindowsWindowTitleKeywords(appMode)],
+    { windowsHide: true, timeout: 20000 }
+  )
 }
 
 async function launchEditingApp(isCapcut?: boolean) {
@@ -959,8 +972,13 @@ function registerLegacyWindowChannels() {
   })
 
   safeOn('window-controls', (_event, action: string) => {
-    const win = BrowserWindow.getFocusedWindow() || getMainWindow()
-    if (!win) return
+    // Prefer operating on the window that sent the event (works for both main and settings windows)
+    const senderWin = BrowserWindow.fromWebContents(_event.sender)
+    const win =
+      (senderWin && !senderWin.isDestroyed() ? senderWin : null) ||
+      BrowserWindow.getFocusedWindow() ||
+      getMainWindow()
+    if (!win || win.isDestroyed()) return
     if (action === 'minimize') {
       win.minimize()
     } else if (action === 'maximize') {

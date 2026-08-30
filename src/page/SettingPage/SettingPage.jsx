@@ -28,12 +28,21 @@ const settingMenuItems = [
 const SettingPage = () => {
   // 默认选中 'account-security'
   const [selectedKey, setSelectedKey] = useState('account-security');
-  const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
   useEffect(() => {
     document.getElementById('spinner')?.remove();
   }, []);
 
+  const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+
   const handleWinCtrl = (action) => {
+    try {
+      if (window.ipc?.send) {
+        window.ipc.send('window-controls', action);
+        return;
+      }
+    } catch (e) {
+      // ignore, fallback below
+    }
     try {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('window-controls', action);
@@ -42,12 +51,12 @@ const SettingPage = () => {
     }
   };
 
+
   // 动态获取当前选中的组件
   const SelectedComponent = settingMenuItems.find(item => item.key === selectedKey)?.component || GeneralSettings;
 
   return (
     <div className="window-top-container"> 
-        
       <div className="window-top-bar">
           
           {/* 1. 左侧拖动区域：与侧边栏同宽，背景色相同 */}
@@ -57,23 +66,24 @@ const SettingPage = () => {
           
           {/* 2. 右侧拖动区域：占据剩余空间，背景色相同 */}
           <div className="top-right-drag-area">
+            {/* Windows 窗口控制按钮必须放在 drag 区域内部（no-drag 子元素），否则点击会被拖拽区域吞掉 */}
             {isWindows && (
-              <div className="setting-titlebar-controls">
-                <button
-                  className="traffic-btn minimize"
-                  onClick={() => handleWinCtrl('minimize')}
-                  title="最小化"
-                />
-                <button
-                  className="traffic-btn maximize"
-                  onClick={() => handleWinCtrl('maximize')}
-                  title="最大化/还原"
-                />
-                <button
-                  className="traffic-btn close"
-                  onClick={() => handleWinCtrl('close')}
-                  title="关闭"
-                />
+              <div className="win-caption-controls">
+                <button type="button" className="win-caption-btn" onClick={() => handleWinCtrl('minimize')} aria-label="最小化" title="最小化">
+                  <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                    <rect x="0" y="4.5" width="10" height="1" fill="currentColor" />
+                  </svg>
+                </button>
+                <button type="button" className="win-caption-btn" onClick={() => handleWinCtrl('maximize')} aria-label="最大化/还原" title="最大化/还原">
+                  <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                    <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
+                  </svg>
+                </button>
+                <button type="button" className="win-caption-btn win-caption-btn--close" onClick={() => handleWinCtrl('close')} aria-label="关闭" title="关闭">
+                  <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                    <path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" stroke="currentColor" strokeWidth="1" fill="none" />
+                  </svg>
+                </button>
               </div>
             )}
           </div>

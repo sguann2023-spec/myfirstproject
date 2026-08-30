@@ -11,17 +11,6 @@ html, body, #root {
   height: 100%;
 }
 
-.titlebar-overlay {
-  position: fixed;
-  top: 8px;
-  right: 10px;
-  height: 30px;
-  display: flex;
-  gap: 8px;
-  -webkit-app-region: drag; /* 区域可拖拽 */
-  z-index: 1000;
-}
-
 .traffic-btn {
   width: 14px;
   height: 14px;
@@ -35,3 +24,46 @@ html, body, #root {
 .traffic-btn.close { background-color: #ff5f56; }
 .traffic-btn.minimize { background-color: #ffbd2e; }
 .traffic-btn.maximize { background-color: #27c93f; }
+
+/* Windows 自绘窗口控制按钮（最小化/最大化/关闭），固定在窗口右上角内容区。
+   容器本身设为 drag（与原 titlebar-overlay 方案一致）：在 Windows 无边框窗口中，
+   fixed 悬浮层只有自身参与 drag 区域计算，其内部 no-drag 按钮才能从拖拽区中"挖出"，
+   否则按钮像素会被下方 .home-header 等 drag 区域吞掉点击。 */
+.win-caption-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: stretch;
+  z-index: 2000;
+  -webkit-app-region: drag;
+}
+
+.win-caption-btn {
+  width: 46px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  outline: none;
+  padding: 0;
+  background-color: transparent;
+  color: #1f1f1f;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.win-caption-btn:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.win-caption-btn:active {
+  background-color: rgba(0, 0, 0, 0.12);
+}
+
+.win-caption-btn--close:hover,
+.win-caption-btn--close:active {
+  background-color: #e81123;
+  color: #ffffff;
+}

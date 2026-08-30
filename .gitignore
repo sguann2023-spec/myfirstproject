@@ -33,3 +33,4 @@ dist-main/
 .sandbox
 
 resources/ffmpeg
+resources/python/*/python/
