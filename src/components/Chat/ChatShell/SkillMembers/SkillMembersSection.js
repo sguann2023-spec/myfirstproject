@@ -57,14 +57,14 @@ const SkillMembersSection = ({
       {!skillsLoading && !skillsError && skills.map((skill) => {
         const skillKey = getSkillKey(skill);
         const folderLabel = getSkillFolderLabel(skill);
-        const displayName = getSkillDisplayName(skill);
+        const skillName = getSkillDisplayName(skill);
         const skillPreviewPath = skillPreviewPaths[skillKey] || '';
         const skillExamplePath = skillExamplePaths[skillKey] || '';
         const isExpanded = expandedSkillKeys.has(skillKey);
         const treeNodes = skillTrees[skillKey] || [];
         const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
-        const isChildrensBookSkill = folderLabel === childrensBookSkillLabel || displayName === childrensBookSkillLabel;
-        const primaryLabel = displayName || folderLabel;
+        const isChildrensBookSkill = skillName === childrensBookSkillLabel || folderLabel === childrensBookSkillLabel;
+        const primaryLabel = skillName || folderLabel;
         const hasWebExampleAction = Boolean(skillExamplePath || skillPreviewPath);
         const hasMentionAction = typeof onSelectSkill === 'function';
         const hasModifyPromptAction = typeof onModifySkill === 'function';

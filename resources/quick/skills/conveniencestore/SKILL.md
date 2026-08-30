@@ -1,5 +1,5 @@
 ---
-name: koubo-convenience-store-brush-pip
+name: 便利店探店
 description: 便利店探店口播模板，活力网感漫味风，醒目标题一眼 get 重点，适用于便利店探店、新品测评、零食饮料推荐、门店打卡引流等内容。
 ---
 

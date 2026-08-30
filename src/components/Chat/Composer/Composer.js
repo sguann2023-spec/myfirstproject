@@ -69,6 +69,9 @@ const getWorkspaceConfig = (session) => {
 };
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const getSkillStableId = (skill) => String(
+  skill?.id || skill?.folderName || skill?.filename || skill?.name || ''
+).trim();
 const getSkillMentionLabel = (skill) => String(
   skill?.name || skill?.folderName || skill?.filename || skill?.id || ''
 ).trim();
@@ -2623,7 +2626,7 @@ const Composer = ({
 
     const loadReferenceTrees = async () => {
       const skillRootsToLoad = skills.filter((skill) => {
-        const skillKey = getSkillMentionLabel(skill);
+        const skillKey = getSkillStableId(skill);
         return skill?.__skillRoot && skillKey && !Object.prototype.hasOwnProperty.call(skillReferenceTrees, skillKey);
       });
       const shouldLoadWorkspace = primarySkillWorkdir
@@ -2644,7 +2647,7 @@ const Composer = ({
             : Promise.resolve(null),
           Promise.all(
             skillRootsToLoad.map(async (skill) => {
-              const skillKey = getSkillMentionLabel(skill);
+              const skillKey = getSkillStableId(skill);
               const nodes = await loadLocalReferenceTree(skill.__skillRoot);
               return [skillKey, nodes];
             })
@@ -2824,12 +2827,13 @@ const Composer = ({
   const filteredSkillReferenceGroups = React.useMemo(() => (
     skills
       .map((skill) => {
-        const skillKey = getSkillMentionLabel(skill);
+        const skillKey = getSkillStableId(skill);
+        const skillLabel = getSkillMentionLabel(skill);
         const nodes = skillReferenceTrees[skillKey] || [];
         return {
           skill,
           skillKey,
-          label: skillKey,
+          label: skillLabel,
           rootPath: normalizePath(skill?.__skillRoot || ''),
           nodes: filterTreeNodesByQuery(nodes, referenceQuery),
         };
@@ -4296,7 +4300,7 @@ const Composer = ({
                   const isActive = index === mentionState.activeIndex;
                   return (
                     <button
-                      key={skill.id || skill.folderName || skill.filename || skill.name}
+                      key={getSkillStableId(skill)}
                       type="button"
                       className={`chat-panel__skill-mention-item ${isActive ? 'active' : ''}`}
                       onMouseDown={(event) => {

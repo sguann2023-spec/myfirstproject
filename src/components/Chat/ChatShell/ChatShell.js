@@ -520,8 +520,8 @@ const buildTreeFromEntries = (rootPath, entries, directoryFlags) => {
 };
 
 const getSkillKey = (skill) => String(skill?.id || skill?.folderName || skill?.filename || skill?.name || '').trim();
-const getSkillFolderLabel = (skill) => String(skill?.folderName || skill?.filename || skill?.id || skill?.name || '').trim();
-const getSkillDisplayName = (skill) => String(skill?.name || skill?.filename || skill?.id || '').trim();
+const getSkillFolderLabel = (skill) => String(skill?.folderName || skill?.filename || skill?.id || '').trim();
+const getSkillDisplayName = (skill) => String(skill?.name || '').trim();
 
 const MarqueeText = ({ text, className = '' }) => {
   const containerRef = React.useRef(null);
