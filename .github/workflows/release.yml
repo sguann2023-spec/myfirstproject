@@ -297,6 +297,34 @@ jobs:
             ossutil cp -f "$f" "$DEST" -c /tmp/.ossutilconfig
           done
 
+      - name: Publish macOS assets to GitHub release
+        shell: bash
+        env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="v$(node -p "require('./package.json').version")"
+          TARGET_REPO="sun-guannan/CapCutMaker"
+          LATEST_PREFIX="VectCut"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            TARGET_REPO="sun-guannan/CapCutMakerBingo"
+            LATEST_PREFIX="BingoCut"
+          fi
+
+          gh release view "${VERSION_TAG}" -R "${TARGET_REPO}" >/dev/null 2>&1 || \
+            gh release create "${VERSION_TAG}" -R "${TARGET_REPO}" --draft --title "${VERSION_TAG}" --notes ""
+
+          gh release upload "${VERSION_TAG}" \
+            "build/${LATEST_PREFIX}-latest-x64.zip" \
+            "build/${LATEST_PREFIX}-latest-arm64.zip" \
+            "build/${LATEST_PREFIX}-latest-x64.dmg" \
+            "build/${LATEST_PREFIX}-latest-arm64.dmg" \
+            "build/latest-mac.yml" \
+            "build/latest-mac-arm64.yml" \
+            --repo "${TARGET_REPO}" \
+            --clobber
+
   # 任务 2B: Windows 构建并上传 Windows 资产到 OSS
   # 注意：保留 Job 名称以避免影响外部状态检查配置
   build-and-upload-win:
@@ -448,6 +476,30 @@ jobs:
           ./ossutil64.exe config -e "${MP4_OSS_ENDPOINT}" -i "${MP4_OSS_ACCESS_KEY_ID}" -k "${MP4_OSS_ACCESS_KEY_SECRET}" -L CH -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f "build/${LATEST_SETUP_NAME}" "${DEST}" -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f build/latest.yml "${DEST}latest.yml" -c /tmp/.ossutilconfig
+
+      - name: Publish Windows assets to GitHub release
+        shell: bash
+        env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="v$(node -p "require('./package.json').version")"
+          TARGET_REPO="sun-guannan/CapCutMaker"
+          LATEST_SETUP_NAME="VectCut-Setup-latest-x64.exe"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            TARGET_REPO="sun-guannan/CapCutMakerBingo"
+            LATEST_SETUP_NAME="BingoCut-Setup-latest-x64.exe"
+          fi
+
+          gh release view "${VERSION_TAG}" -R "${TARGET_REPO}" >/dev/null 2>&1 || \
+            gh release create "${VERSION_TAG}" -R "${TARGET_REPO}" --draft --title "${VERSION_TAG}" --notes ""
+
+          gh release upload "${VERSION_TAG}" \
+            "build/${LATEST_SETUP_NAME}" \
+            "build/latest.yml" \
+            --repo "${TARGET_REPO}" \
+            --clobber
 
   refresh-dcdn:
     runs-on: ubuntu-latest
