@@ -551,7 +551,14 @@ jobs:
           for TARGET_REPO in sun-guannan/CapCutMaker sun-guannan/CapCutMakerBingo; do
             gh auth status
             gh repo view "${TARGET_REPO}" >/dev/null
-            RELEASE_ID=$(gh api "repos/${TARGET_REPO}/releases/tags/${VERSION_TAG}" --jq '.id')
+            RELEASE_ID=$(
+              gh api "repos/${TARGET_REPO}/releases" --paginate \
+                --jq ".[] | select(.tag_name == \"${VERSION_TAG}\") | .id" | head -n1
+            )
+            [ -n "${RELEASE_ID}" ] || {
+              echo "Release ${VERSION_TAG} not found in ${TARGET_REPO}"
+              exit 1
+            }
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
