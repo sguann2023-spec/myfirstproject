@@ -63,6 +63,104 @@
   background: #E1E1E1;
 }
 
+.chat-history-list__group {
+  margin-bottom: 2px;
+}
+
+.chat-history-list__group-toggle {
+  cursor: pointer;
+}
+
+.chat-history-list__group-toggle .chat-history-list__item-top {
+  min-height: 20px;
+}
+
+.chat-history-list__group-toggle:hover .chat-history-list__group-action {
+  opacity: 1;
+}
+
+.chat-history-list__group-actions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.chat-history-list__group-toggle:hover .chat-history-list__group-actions,
+.chat-history-list__group-toggle:focus-within .chat-history-list__group-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-history-list__group-icon-slot {
+  width: 6px;
+  height: 6px;
+  justify-content: flex-start;
+  overflow: visible;
+  margin: 0 4px 0 0;
+  margin-left: 14px;
+}
+
+.chat-history-list__group-icon {
+  color: #666;
+  margin-left: -4px;
+  flex-shrink: 0;
+}
+
+.chat-history-list__group-title {
+  font-weight: 400;
+  text-align: left;
+  padding-right: 0;
+  transition: padding-right 0.15s ease;
+}
+
+.chat-history-list__group-toggle:hover .chat-history-list__group-title,
+.chat-history-list__group-toggle:focus-within .chat-history-list__group-title {
+  padding-right: 72px;
+}
+
+.chat-history-list__group-action {
+  border: none;
+  background: transparent;
+  color: #5f6368;
+  padding: 0;
+  margin-right: 4px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chat-history-list__group-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45 !important;
+}
+
+.chat-history-list__group-action--danger:hover {
+  color: #f14c4c;
+}
+
+.chat-history-list__group-action--danger:disabled:hover {
+  color: #5f6368;
+}
+
+.chat-history-list__group-action-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
 .chat-history-list__item {
   position: relative;
   padding: 10px;
@@ -96,6 +194,10 @@
   text-overflow: ellipsis;
 }
 
+.chat-history-list__item-title:not(.chat-history-list__group-title) {
+  padding-left: 4px;
+}
+
 .chat-history-list__status-slot {
   width: 6px;
   height: 6px;
@@ -103,6 +205,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  margin-left: 14px;
 }
 
 .chat-history-list__status-dot {

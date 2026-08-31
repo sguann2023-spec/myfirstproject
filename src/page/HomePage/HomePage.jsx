@@ -223,9 +223,79 @@ const writeWorkspaceStore = (store = {}) => {
     // ignore storage failures
   }
 };
-const buildAutoWorkspaceName = () => (
-  `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-);
+const removeWorkspacePathFromStore = (store = {}, workspacePath = '') => {
+  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+  if (!normalizedWorkspacePath) {
+    return {
+      library: dedupeWorkspacePaths(store?.library),
+      recent: dedupeWorkspacePaths(store?.recent),
+      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [
+        ...dedupeWorkspacePaths(store?.library),
+        ...dedupeWorkspacePaths(store?.recent)
+      ])
+    };
+  }
+
+  const library = dedupeWorkspacePaths(store?.library).filter((path) => path !== normalizedWorkspacePath);
+  const recent = dedupeWorkspacePaths(store?.recent).filter((path) => path !== normalizedWorkspacePath);
+  return {
+    library,
+    recent,
+    accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
+  };
+};
+const getAutoWorkspaceDatePrefix = (value = Date.now()) => {
+  const date = new Date(value);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}_${day}`;
+};
+
+const getWorkspaceNameFromEntry = (entry) => {
+  const normalizedEntry = normalizeLocalPath(typeof entry === 'string' ? entry : entry?.name || '').trim();
+  if (!normalizedEntry) return '';
+  const segments = normalizedEntry.split('/').filter(Boolean);
+  return segments[segments.length - 1] || '';
+};
+
+const buildAutoWorkspaceName = async (parentDir = '') => {
+  const prefix = getAutoWorkspaceDatePrefix();
+  const normalizedParentDir = normalizeLocalPath(parentDir).trim();
+  if (!normalizedParentDir || !window?.api?.file?.listDirectory) {
+    return prefix;
+  }
+
+  try {
+    const entries = await window.api.file.listDirectory(normalizedParentDir, {
+      recursive: false,
+      includeHidden: false,
+      includeFiles: false,
+      includeDirectories: true,
+      maxEntries: 1000
+    });
+
+    const matchedSuffixes = (Array.isArray(entries) ? entries : []).reduce((acc, entry) => {
+      const name = getWorkspaceNameFromEntry(entry);
+      if (name === prefix) {
+        acc.push(0);
+        return acc;
+      }
+      const matched = name.match(new RegExp(`^${prefix}_(\\d+)$`));
+      if (matched) {
+        acc.push(Number(matched[1]) || 0);
+      }
+      return acc;
+    }, []);
+
+    if (matchedSuffixes.length === 0) {
+      return prefix;
+    }
+
+    return `${prefix}_${Math.max(...matchedSuffixes) + 1}`;
+  } catch (_error) {
+    return prefix;
+  }
+};
 const seedWorkspaceSkeleton = async (workspacePath) => {
   const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: workspacePath });
   if (!seedResult?.ok) {
@@ -755,8 +825,15 @@ const getAgentApiKeyFromLoginState = async () => {
   return hit ? hit.trim() : '';
 };
 
-const createEmptyChatSession = () => {
+const createEmptyChatSession = (options = {}) => {
   const now = Date.now();
+  const workspacePath = normalizeLocalPath(options?.workspacePath || '').trim();
+  const configuration = workspacePath
+    ? {
+      ...(options?.configuration && typeof options.configuration === 'object' ? options.configuration : {}),
+      selected_workspace_path: workspacePath
+    }
+    : options?.configuration;
   return {
     id: createChatId(),
     title: DEFAULT_CHAT_TITLE,
@@ -764,6 +841,8 @@ const createEmptyChatSession = () => {
     createdAt: now,
     updatedAt: now,
     runtimeSessionId: '',
+    accessible_paths: workspacePath ? [workspacePath] : [],
+    configuration,
     historyLoaded: true,
     messages: [],
   };
@@ -1637,6 +1716,8 @@ const HomePage = () => {
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const chatHistoryHydratingRef = useRef(new Set());
   const chatHistoryHydrateSettledRef = useRef(new Set());
+  const chatWorkspaceMetaHydratingRef = useRef(new Set());
+  const chatWorkspaceHydrationSuppressedRef = useRef(new Set());
   const chatDeferredSessionChangeHydrateRef = useRef(new Map());
   const chatPersistTimerRef = useRef(null);
   const creditsBalanceMountedRef = useRef(true);
@@ -2135,6 +2216,22 @@ const HomePage = () => {
           .filter((item) => item && typeof item === 'object' && item.id)
           .map((item) => {
             const runtimeSessionId = String(item.runtimeSessionId || '').trim();
+            const accessiblePaths = Array.isArray(item.accessible_paths)
+              ? item.accessible_paths.map((path) => normalizeLocalPath(path).trim()).filter(Boolean)
+              : [];
+            const configuration = item.configuration && typeof item.configuration === 'object' && !Array.isArray(item.configuration)
+              ? { ...item.configuration }
+              : undefined;
+            const selectedWorkspacePath = normalizeLocalPath(
+              configuration?.selected_workspace_path || ''
+            ).trim();
+            if (configuration) {
+              if (selectedWorkspacePath) {
+                configuration.selected_workspace_path = selectedWorkspacePath;
+              } else {
+                delete configuration.selected_workspace_path;
+              }
+            }
             const restoredMessages = runtimeSessionId
               ? []
               : (Array.isArray(item.messages)
@@ -2147,6 +2244,8 @@ const HomePage = () => {
               createdAt: Number(item.createdAt) || Date.now(),
               updatedAt: Number(item.updatedAt) || Date.now(),
               runtimeSessionId,
+              accessible_paths: accessiblePaths,
+              configuration,
               historyLoaded: runtimeSessionId ? false : true,
               messages: restoredMessages,
             };
@@ -2803,6 +2902,83 @@ const HomePage = () => {
   }, [chatSessions]);
 
   useEffect(() => {
+    const pendingSessions = chatSessions.filter((session) => {
+      const chatId = String(session?.id || '').trim();
+      const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+      const workspacePath = getSessionWorkspacePath(session);
+      if (!chatId || !runtimeSessionId || workspacePath) return false;
+      if (chatWorkspaceMetaHydratingRef.current.has(chatId)) return false;
+      if (chatWorkspaceHydrationSuppressedRef.current.has(chatId)) return false;
+      return true;
+    });
+
+    if (pendingSessions.length === 0) return undefined;
+
+    let cancelled = false;
+
+    pendingSessions.forEach((session) => {
+      const chatId = String(session?.id || '').trim();
+      const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+      if (!chatId || !runtimeSessionId) return;
+
+      chatWorkspaceMetaHydratingRef.current.add(chatId);
+      void window.electronAPI.cherryChatStream.getSession(runtimeSessionId)
+        .then((result) => {
+          if (cancelled) return;
+          const runtimeSession = result?.session || null;
+          const accessiblePaths = Array.isArray(runtimeSession?.accessible_paths)
+            ? runtimeSession.accessible_paths.map((path) => normalizeLocalPath(path).trim()).filter(Boolean)
+            : [];
+          const configuration = runtimeSession?.configuration && typeof runtimeSession.configuration === 'object'
+            ? runtimeSession.configuration
+            : undefined;
+          const selectedWorkspacePath = normalizeLocalPath(
+            configuration?.selected_workspace_path || accessiblePaths[0] || ''
+          ).trim();
+          if (chatWorkspaceHydrationSuppressedRef.current.has(chatId)) return;
+          if (!selectedWorkspacePath && accessiblePaths.length === 0) return;
+
+            logger.info('[HomePage][WorkspaceMeta] hydrated session workspace', {
+              chatId,
+              runtimeSessionId,
+              selectedWorkspacePath,
+              accessiblePathsCount: accessiblePaths.length,
+              firstAccessiblePath: accessiblePaths[0] || ''
+            });
+
+          setChatSessions((prev) => prev.map((item) => {
+            if (item.id !== chatId) return item;
+            return {
+              ...item,
+              accessible_paths: accessiblePaths.length > 0 ? accessiblePaths : item.accessible_paths,
+              configuration: configuration
+                ? {
+                  ...configuration,
+                  ...(selectedWorkspacePath ? { selected_workspace_path: selectedWorkspacePath } : {})
+                }
+                : item.configuration,
+              updatedAt: item.updatedAt
+            };
+          }));
+        })
+        .catch((error) => {
+          logger.debug('[HomePage] skipped workspace metadata hydration for chat session', {
+            chatId,
+            runtimeSessionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        })
+        .finally(() => {
+          chatWorkspaceMetaHydratingRef.current.delete(chatId);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chatSessions]);
+
+  useEffect(() => {
     return () => {
       chatSnapshotThrottleByRequestIdRef.current.forEach((entry) => {
         if (entry?.timer) clearTimeout(entry.timer);
@@ -2958,8 +3134,10 @@ const HomePage = () => {
         return agentSessionId;
       };
 
+      const targetChatSession = chatSessions.find((item) => item.id === chatId) || null;
+      const preferredWorkspacePath = getSessionWorkspacePath(targetChatSession);
       const persistedRuntimeSessionId = String(
-        chatSessions.find((item) => item.id === chatId)?.runtimeSessionId || ''
+        targetChatSession?.runtimeSessionId || ''
       ).trim();
       const cached = chatAgentSessionIdByChatIdRef.current.get(chatId) || persistedRuntimeSessionId;
       if (cached) {
@@ -2980,14 +3158,16 @@ const HomePage = () => {
         chatId,
         agentId: DEFAULT_RUNTIME_AGENT_ID,
         model: chatModel,
+        workspacePath: preferredWorkspacePath,
         hasApiKey: Boolean(vectcutApiKey)
       });
       const created = await window.electronAPI.cherryChatStream.createSession({
         agent_id: DEFAULT_RUNTIME_AGENT_ID,
         model: chatModel,
-        accessible_paths: [],
+        accessible_paths: preferredWorkspacePath ? [preferredWorkspacePath] : [],
         configuration: {
           permission_mode: 'bypassPermissions',
+          ...(preferredWorkspacePath ? { selected_workspace_path: preferredWorkspacePath } : {}),
           env_vars: {
             VECTCUT_API_KEY: vectcutApiKey,
             VECTCUT_ANTHROPIC_API_BASE_URL
@@ -3522,11 +3702,15 @@ const HomePage = () => {
   }, [canUseAgentRuntime]);
 
   const handleCreateChatSession = (metadata = {}) => {
-    const session = createEmptyChatSession();
+    const normalizedWorkspacePath = normalizeLocalPath(metadata?.workspacePath || '').trim();
+    const session = createEmptyChatSession({
+      workspacePath: normalizedWorkspacePath
+    });
     logger.info('[HomePage][SessionSending] create session', {
       sessionId: session.id,
       fromActiveChatId: activeChatId,
       source: String(metadata?.source || 'unknown'),
+      workspacePath: normalizedWorkspacePath,
       isTrusted: metadata?.isTrusted,
       detail: metadata?.detail,
       pointerType: metadata?.pointerType || '',
@@ -3619,7 +3803,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3703,7 +3887,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3781,7 +3965,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3859,7 +4043,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3937,7 +4121,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -4015,7 +4199,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -4093,7 +4277,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -4158,40 +4342,117 @@ const HomePage = () => {
     setChatSessionFulfilled(sessionId, false, 'select-session');
   };
 
-  const handleDeleteChatSession = (sessionId) => {
-    const runtimeSessionId = String(
-      chatSessions.find((item) => item.id === sessionId)?.runtimeSessionId || ''
-    ).trim();
-    const timer = chatTitleRevealTimersRef.current.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      chatTitleRevealTimersRef.current.delete(sessionId);
-    }
-    setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
-    setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
-    removeChatHistoryLoading(sessionId);
-    removeChatSessionSending(sessionId);
-    removeChatSessionInFlight(sessionId);
-    removeChatSessionFulfilled(sessionId);
-    chatAgentSessionIdByChatIdRef.current.delete(sessionId);
-    if (runtimeSessionId) {
+  const deleteChatSessionsByIds = (sessionIds = []) => {
+    const normalizedSessionIds = Array.from(new Set(
+      (Array.isArray(sessionIds) ? sessionIds : []).map((sessionId) => String(sessionId || '').trim()).filter(Boolean)
+    ));
+    if (normalizedSessionIds.length === 0) return;
+
+    const sessionIdSet = new Set(normalizedSessionIds);
+    const runtimeSessionIds = normalizedSessionIds.map((sessionId) => String(
+      chatSessionsRef.current.find((item) => item.id === sessionId)?.runtimeSessionId || ''
+    ).trim()).filter(Boolean);
+
+    normalizedSessionIds.forEach((sessionId) => {
+      const timer = chatTitleRevealTimersRef.current.get(sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        chatTitleRevealTimersRef.current.delete(sessionId);
+      }
+      removeChatHistoryLoading(sessionId);
+      removeChatSessionSending(sessionId);
+      removeChatSessionInFlight(sessionId);
+      removeChatSessionFulfilled(sessionId);
+      chatAgentSessionIdByChatIdRef.current.delete(sessionId);
+      chatEnsuringAgentSessionByChatIdRef.current.delete(sessionId);
+      chatHistoryHydratingRef.current.delete(sessionId);
+      chatHistoryHydrateSettledRef.current.delete(sessionId);
+      chatWorkspaceMetaHydratingRef.current.delete(sessionId);
+      chatWorkspaceHydrationSuppressedRef.current.delete(sessionId);
+      chatDeferredSessionChangeHydrateRef.current.delete(sessionId);
+    });
+
+    setChatTitleRenamingSessionIds((prev) => prev.filter((id) => !sessionIdSet.has(id)));
+    setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => !sessionIdSet.has(id)));
+    setChatWorkspaceStatusMap((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      normalizedSessionIds.forEach((sessionId) => {
+        if (sessionId in next) {
+          delete next[sessionId];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+
+    runtimeSessionIds.forEach((runtimeSessionId) => {
       chatIdByAgentSessionIdRef.current.delete(runtimeSessionId);
       if (canUseAgentRuntime) {
         void window.electronAPI.cherryChatStream.unsubscribe(runtimeSessionId);
       }
-    }
+    });
+
     setChatSessions((prev) => {
-      const remaining = prev.filter((item) => item.id !== sessionId);
+      const remaining = prev.filter((item) => !sessionIdSet.has(String(item?.id || '').trim()));
       if (remaining.length === 0) {
         const next = createEmptyChatSession();
         setActiveChatId(next.id);
         return [next];
       }
-      if (activeChatId === sessionId) {
+      if (sessionIdSet.has(String(activeChatId || '').trim())) {
         setActiveChatId(remaining[0].id);
       }
       return remaining;
     });
+  };
+
+  const handleDeleteChatSession = (sessionId) => {
+    deleteChatSessionsByIds([sessionId]);
+  };
+
+  const handleDeleteWorkspace = async (workspacePath) => {
+    const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+    if (!normalizedWorkspacePath) return;
+
+    const activeWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    if (normalizeLocalPath(activeWorkspacePath).trim() === normalizedWorkspacePath) {
+      window.toast?.warning?.('当前对话正在使用该工作空间，无法删除');
+      return;
+    }
+
+    const workspaceName = normalizedWorkspacePath.split('/').filter(Boolean).pop() || normalizedWorkspacePath;
+    const deleteContent = `删除后不可恢复，确认删除「${workspaceName}」吗？`;
+    const confirmed = window?.modal?.confirm
+      ? await new Promise((resolve) => {
+          window.modal.confirm({
+            title: '确认删除工作空间',
+            content: deleteContent,
+            okText: '删除',
+            cancelText: '取消',
+            centered: true,
+            okType: 'danger',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        })
+      : window.confirm(deleteContent);
+
+    if (!confirmed) return;
+
+    try {
+      await window.api.file.deleteExternalDir(normalizedWorkspacePath);
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(removeWorkspacePathFromStore(workspaceStore, normalizedWorkspacePath));
+      const affectedChatIds = chatSessionsRef.current
+        .filter((session) => normalizeLocalPath(getSessionWorkspacePath(session)).trim() === normalizedWorkspacePath)
+        .map((session) => String(session?.id || '').trim())
+        .filter(Boolean);
+      deleteChatSessionsByIds(affectedChatIds);
+      window.toast?.success?.('工作空间已删除');
+    } catch (error) {
+      window.toast?.error?.(error?.message || '删除工作空间失败');
+    }
   };
 
   const handleRenameActiveChatTitle = (nextTitle) => {
@@ -4420,7 +4681,7 @@ const HomePage = () => {
           if (!workspaceParentDir) {
             throw new Error('创建默认工作空间失败');
           }
-          const workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+          const workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
           await window.api.file.mkdir(workspacePath);
           await seedWorkspaceSkeleton(workspacePath);
 
@@ -4983,6 +5244,7 @@ const HomePage = () => {
                 onCreateSession={handleCreateChatSession}
                 onSelectSession={handleSelectChatSession}
                 onDeleteSession={handleDeleteChatSession}
+                onDeleteWorkspace={handleDeleteWorkspace}
                 visible={chatHistoryVisible}
               />
             )}

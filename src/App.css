@@ -14,6 +14,10 @@ html, body, #root {
 .traffic-btn {
   width: 14px;
   height: 14px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
   border: none;
   outline: none;
@@ -24,6 +28,36 @@ html, body, #root {
 .traffic-btn.close { background-color: #ff5f56; }
 .traffic-btn.minimize { background-color: #ffbd2e; }
 .traffic-btn.maximize { background-color: #27c93f; }
+
+.traffic-btn.close::before,
+.traffic-btn.close::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform-origin: center;
+  transition: opacity 0.15s ease;
+}
+
+.traffic-btn.close::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.traffic-btn.close::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.traffic-btn.close:hover::before,
+.traffic-btn.close:hover::after,
+.traffic-btn.close:focus-visible::before,
+.traffic-btn.close:focus-visible::after {
+  opacity: 1;
+}
 
 /* Windows 自绘窗口控制按钮（最小化/最大化/关闭），固定在窗口右上角内容区。
    容器本身设为 drag（与原 titlebar-overlay 方案一致）：在 Windows 无边框窗口中，
