@@ -1,0 +1,350 @@
+技能广场服务端接口与 MySQL 数据表结构（v2）
+================================================
+
+本文档对应当前前端技能广场实现，已移除 slug 字段。
+
+
+一、设计范围
+------------
+
+远程 MySQL 只保存技能广场的公共数据：
+
+1. 技能基本信息
+2. 精选排序和上下架状态
+3. 技能图标 URL
+4. 一个技能示例媒体 URL（图片或视频）
+5. 技能版本
+6. 每个版本的 SKILL.md 文件 URL
+7. 每个版本的技能安装包 URL
+
+远程服务端不保存：
+
+1. 用户安装记录
+2. 用户本地技能 ID
+3. 用户本地技能文件夹路径
+4. 技能安装包文件本体
+5. 用户技能启用/关闭状态
+
+用户的安装状态由客户端本地 GlobalSkills 目录和 SQLite skills 表管理。
+
+
+二、统一请求和响应约定
+------------------------
+
+客户端接口使用 JSON 响应。GET 请求没有请求体，分页参数通过 Query String 传递。
+
+公共请求头：
+
+Authorization: Bearer <access_token>
+Accept: application/json
+
+成功响应统一格式：
+
+{
+  "code": 0,
+  "message": "success",
+  "data": {}
+}
+
+失败响应统一格式：
+
+{
+  "code": 10001,
+  "message": "技能不存在",
+  "data": null
+}
+
+建议错误码：
+
+10000  参数错误
+10001  技能不存在
+10002  技能已下线
+10003  技能版本不存在
+10004  技能安装包地址不可用
+10005  服务端异常
+
+
+三、技能广场客户端接口
+------------------------
+
+1. 获取精选技能
+
+请求：
+
+GET /v1/skills/featured?limit=20&offset=0
+
+请求参数：
+
+limit   integer  非必填，默认 20，最大 50
+offset  integer  非必填，默认 0，不能小于 0
+
+筛选规则：
+
+status = 1
+featured_rank IS NOT NULL
+ORDER BY featured_rank ASC, updated_at DESC
+
+响应：
+
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "id": "children-picture-book",
+      "name": "儿童绘本",
+      "description": "生成儿童绘本故事，支持睡前故事、幼儿故事和角色故事创作。",
+      "icon_url": "https://cdn.example.com/skills/children-picture-book/icon.png",
+      "version": "1.0.0",
+      "author": {
+        "id": "official",
+        "name": "官方"
+      },
+      "tags": ["绘本", "视频"],
+      "featured_rank": 1,
+      "created_at": "2026-08-01T10:00:00Z",
+      "updated_at": "2026-08-01T10:00:00Z"
+    }
+  ],
+  "total": 9,
+  "limit": 20,
+  "offset": 0
+}
+
+说明：接口响应中的 id 映射数据库的 skill_catalog.skill_id。
+接口响应不再返回 slug。
+
+
+2. 按名称搜索技能
+
+请求：
+
+GET /v1/skills/search?q=儿童&limit=20&offset=0
+
+请求参数：
+
+q       string   必填，按技能名称模糊匹配，去除首尾空格
+limit   integer  非必填，默认 20，最大 50
+offset  integer  非必填，默认 0，不能小于 0
+
+当前搜索规则：
+
+WHERE status = 1
+  AND name LIKE CONCAT('%', :q, '%')
+
+只按技能名称搜索，不搜索描述、标签和 SKILL.md 内容。
+
+响应结构与“获取精选技能”一致，data 返回所有匹配的技能。
+
+
+3. 获取技能详情
+
+请求：
+
+GET /v1/skills/{skill_id}
+
+路径参数：
+
+skill_id  string  必填，远程技能唯一 ID，需要进行 URL 编码
+
+服务端行为：
+
+1. 根据 skill_id 查询技能主表
+2. 只返回 status = 1 的技能
+3. 查询当前版本的 skill_versions 记录
+4. 根据 skill_md_url 读取 SKILL.md 内容
+5. 将 media_url 转换为 media 数组
+6. 将 package_url 转换为 package.download_url
+
+响应：
+
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "id": "children-picture-book",
+    "name": "儿童绘本",
+    "description": "生成儿童绘本故事，支持睡前故事、幼儿故事和角色故事创作。",
+    "icon_url": "https://cdn.example.com/skills/children-picture-book/icon.png",
+    "version": "1.0.0",
+    "author": {
+      "id": "official",
+      "name": "官方"
+    },
+    "tags": ["绘本", "视频"],
+    "featured_rank": 1,
+    "media": [
+      {
+        "type": "video",
+        "url": "https://cdn.example.com/skills/children-picture-book/demo.mp4"
+      }
+    ],
+    "skill_md": {
+      "content": "---\nname: 儿童绘本\ndescription: 生成儿童绘本故事\n---\n\n# 儿童绘本技能\n\n技能内容……",
+      "url": "https://cdn.example.com/skills/children-picture-book/1.0.0/SKILL.md",
+      "updated_at": "2026-08-01T10:00:00Z"
+    },
+    "package": {
+      "type": "zip",
+      "download_url": "https://cdn.example.com/skills/children-picture-book/1.0.0.zip"
+    },
+    "created_at": "2026-08-01T10:00:00Z",
+    "updated_at": "2026-08-01T10:00:00Z"
+  }
+}
+
+media.type 判断规则：
+
+1. .mp4、.webm、.mov、.m4v 识别为 video
+2. .png、.jpg、.jpeg、.webp、.gif 识别为 image
+3. URL 没有明确后缀时，使用 HTTP 响应头 Content-Type 判断
+4. media_url 为空时返回空数组："media": []
+
+package.type 当前远程安装包固定返回 zip。package.download_url 就是安装包地址，
+数据库不保存安装包文件、文件大小、Hash 或用户下载记录。
+
+
+4. 获取指定版本详情（可选）
+
+如果后续需要查看历史版本，可以扩展详情接口：
+
+GET /v1/skills/{skill_id}?version=1.0.0
+
+version  string  非必填，不传时返回当前版本
+
+返回结构与当前详情接口一致，data.version、data.skill_md 和 data.package 对应指定版本。
+当前前端只调用不带 version 的详情接口。
+
+
+5. 是否需要安装接口
+
+当前不需要 POST 安装接口。客户端流程如下：
+
+1. 调用 GET /v1/skills/{skill_id}
+2. 读取 data.package.download_url
+3. 客户端下载 ZIP 到临时目录
+4. 检查 ZIP 是否包含 SKILL.md
+5. 解析 SKILL.md 的 YAML name 和 description
+6. 安装到本地 GlobalSkills 目录
+7. 写入本地 SQLite skills 表，并设置 remote_id = skill_id
+
+远程服务端不记录用户是否安装、启用或卸载技能。
+
+
+四、MySQL 数据表结构
+----------------------
+
+1. 技能主表 skill_catalog
+
+CREATE TABLE skill_catalog (
+  skill_id VARCHAR(64) NOT NULL COMMENT '远程技能唯一ID，不可变，不是 slug',
+  name VARCHAR(128) NOT NULL COMMENT '技能名称',
+  description TEXT NOT NULL COMMENT '技能描述',
+  icon_url VARCHAR(2048) DEFAULT NULL COMMENT '技能图标 URL',
+
+  author_id VARCHAR(64) DEFAULT NULL COMMENT '作者 ID',
+  author_name VARCHAR(128) DEFAULT NULL COMMENT '作者名称',
+  tags JSON DEFAULT NULL COMMENT '技能标签数组',
+
+  media_url VARCHAR(2048) DEFAULT NULL COMMENT '示例图片或视频 URL，只保存一个地址',
+
+  featured_rank INT DEFAULT NULL COMMENT '精选排序，NULL 表示非精选',
+  status TINYINT NOT NULL DEFAULT 1 COMMENT '1正常，0下线',
+  current_version VARCHAR(32) DEFAULT NULL COMMENT '当前版本号',
+
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+
+  PRIMARY KEY (skill_id),
+  KEY idx_skill_featured (status, featured_rank),
+  UNIQUE KEY uk_skill_name (name),
+  KEY idx_skill_current_version (skill_id, current_version)
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb4
+COLLATE=utf8mb4_unicode_ci;
+
+字段说明：
+
+skill_id        服务端生成的远程唯一 ID，创建后不可修改
+name            技能名称，用于技能搜索，数据库中必须唯一
+description     技能列表和详情页展示的描述
+icon_url        技能图标地址，由接口返回给前端
+tags            JSON 数组，当前搜索不使用
+media_url       唯一示例媒体地址，服务端根据后缀或 Content-Type 判断图片/视频
+featured_rank   精选排序值，NULL 表示不在精选列表
+status          技能上架状态
+current_version 当前对外提供的版本号
+
+本表没有 slug 字段，也不保存用户安装信息。
+技能名称通过 uk_skill_name 唯一索引限制重复；MySQL 当前排序规则下，英文名称默认不区分大小写。
+
+
+2. 技能版本表 skill_versions
+
+CREATE TABLE skill_versions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  skill_id VARCHAR(64) NOT NULL COMMENT '远程技能ID',
+
+  version VARCHAR(32) NOT NULL COMMENT '技能版本号',
+  skill_md_url VARCHAR(2048) NOT NULL COMMENT '该版本 SKILL.md 文件 URL，只保存地址',
+  package_url VARCHAR(2048) NOT NULL COMMENT '该版本技能安装包 URL，只保存地址',
+
+  is_current TINYINT NOT NULL DEFAULT 0 COMMENT '1当前版本，0历史版本',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_skill_version (skill_id, version),
+  KEY idx_skill_current (skill_id, is_current),
+
+  CONSTRAINT fk_skill_version_catalog
+    FOREIGN KEY (skill_id)
+    REFERENCES skill_catalog(skill_id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb4
+COLLATE=utf8mb4_unicode_ci;
+
+本表只保存 skill_md_url 和 package_url，不保存 SKILL.md 内容、安装包文件本体、文件大小、Hash 或下载记录。
+服务端根据 skill_md_url 读取 SKILL.md 内容，并在详情接口中返回 skill_md.content，前端继续使用 Markdown 展示。
+
+
+五、服务端字段映射
+--------------------
+
+远程 MySQL                         接口响应
+
+skill_catalog.skill_id             data.id
+skill_catalog.name                 data.name
+skill_catalog.description          data.description
+skill_catalog.icon_url             data.icon_url
+skill_catalog.author_id            data.author.id
+skill_catalog.author_name          data.author.name
+skill_catalog.tags                 data.tags
+skill_catalog.media_url             data.media[0].url
+skill_catalog.featured_rank        data.featured_rank
+skill_versions.version             data.version
+skill_versions.skill_md_url        服务端读取后返回 data.skill_md.content
+skill_versions.package_url          data.package.download_url
+
+skill_catalog.media_url 为空时，data.media 返回 []，不要返回 null。
+skill_catalog.author_id 或 author_name 为空时，author 可以省略。
+
+
+六、客户端本地字段对应关系
+----------------------------
+
+客户端 SQLite skills 表：
+
+skills.id          本地技能唯一 ID，用户本地技能按名称生成 16 位字母数字字符串
+skills.remote_id   远程技能 ID，对应接口 data.id；本地上传技能为 NULL
+skills.name        本地 SKILL.md 中解析出的技能名称
+skills.description 本地 SKILL.md 中解析出的技能描述
+skills.folder_name GlobalSkills 下的技能文件夹名称
+skills.source      local、remote 或 builtin
+skills.is_enabled  本地启用状态
+
+远程 skill_id 与本地 skills.id 不要求相同：
+
+skill_catalog.skill_id  → skills.remote_id
+本地生成的 skills.id    → 客户端本地记录唯一 ID

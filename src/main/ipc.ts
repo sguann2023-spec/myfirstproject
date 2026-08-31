@@ -1551,6 +1551,12 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
         return { success: false, error: 'Invalid toggle options' }
       }
       const data = await skillService.toggle(options)
+      if (data) {
+        broadcastSkillChanged(options.agentId, {
+          eventType: 'toggle',
+          filename: data.folderName
+        })
+      }
       return { success: true, data }
     } catch (error) {
       logger.error('Failed to toggle skill', { options, error })

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, FolderOpen, LoaderCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, LoaderCircle, Trash2 } from 'lucide-react';
 import { skillCatalogService } from '../../renderer/src/services/SkillCatalogService';
 import Markdown from '../Chat/MessagePane/Markdown/Markdown';
 import SkillEllipsisIcon from '../../../public/skill-ellipsis.svg';
+import SquareArrowOutIcon from '../../../public/square-arrow-out-up-right.svg';
 import SkillMediaPreview from './SkillMediaPreview';
 
 const parseSkillMarkdown = (rawContent) => {
@@ -56,6 +57,7 @@ const SkillDetailPage = ({
 }) => {
   const [detail, setDetail] = useState(skill);
   const [loading, setLoading] = useState(true);
+  const [installing, setInstalling] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -79,15 +81,27 @@ const SkillDetailPage = ({
       if (!disposed) setLoading(false);
     });
     return () => { disposed = true; };
-  }, [installedSkill, skill]);
+  }, [skill]);
 
   const openFolder = () => {
-    const folderPath = installed?.path || installed?.folderPath;
+    const folderPath = installedSkill?.path || installedSkill?.folderPath;
     if (folderPath && window.api?.file?.openPath) {
-      void window.api.file.openPath(folderPath);
+      void window.api.file.openPath(folderPath).catch(() => {
+        window.toast?.error?.('打开技能文件夹失败');
+      });
       return;
     }
     window.toast?.info?.('技能文件夹路径暂不可用');
+  };
+
+  const handleInstall = async () => {
+    if (installing) return;
+    setInstalling(true);
+    try {
+      await onInstall?.(detail);
+    } finally {
+      setInstalling(false);
+    }
   };
 
   return (
@@ -112,17 +126,24 @@ const SkillDetailPage = ({
                 </button>
                 {menuOpen ? (
                   <div className="skill-detail-menu">
-                    <button type="button" onClick={openFolder}><FolderOpen size={15} />打开文件夹</button>
+                    <button type="button" onClick={openFolder}><img src={SquareArrowOutIcon} className="skill-detail-menu-icon" alt="" aria-hidden="true" />打开文件夹</button>
                     <button type="button" className="is-danger" onClick={() => onUninstall?.(detail)}><Trash2 size={15} />卸载</button>
                   </div>
                 ) : null}
               </div>
             </>
-          ) : (
-            <button type="button" className="skill-detail-add" onClick={() => onInstall?.(detail)}>
-              添加技能
+          ) : !loading ? (
+            <button
+              type="button"
+              className={`skill-detail-add${installing ? ' is-loading' : ''}`}
+              onClick={handleInstall}
+              disabled={installing}
+              aria-busy={installing}
+            >
+              {installing ? <LoaderCircle size={12} className="skill-spin" /> : null}
+              {installing ? '添加中…' : '添加技能'}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 

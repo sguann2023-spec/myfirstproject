@@ -180,10 +180,10 @@ const DPane = ({
         >
           <img
             src={isSkillSelected ? SkillSelectedIcon : SkillIcon}
-            alt="技能商店"
+            alt="技能"
             className={`d-pane-icon d-pane-skill-icon ${isSkillSelected ? 'is-selected' : ''}`}
           />
-          <div className="d-pane-tip">技能商店</div>
+          <div className="d-pane-tip">技能</div>
         </div>
       </div>
 
