@@ -514,6 +514,8 @@ jobs:
       - build-and-upload-win
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install Alibaba Cloud CLI
         shell: bash
         run: |
@@ -537,6 +539,27 @@ jobs:
             --access-key-id "${ALIBABA_CLOUD_ACCESS_KEY_ID}" \
             --access-key-secret "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}" \
             --region cn-hangzhou
+
+      - name: Publish GitHub releases as latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="v$(node -p "require('./package.json').version")"
+
+          for TARGET_REPO in sun-guannan/CapCutMaker sun-guannan/CapCutMakerBingo; do
+            gh auth status
+            gh repo view "${TARGET_REPO}" >/dev/null
+            RELEASE_ID=$(gh api "repos/${TARGET_REPO}/releases/tags/${VERSION_TAG}" --jq '.id')
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${TARGET_REPO}/releases/${RELEASE_ID}" \
+              -f draft=false \
+              -f prerelease=false \
+              -f make_latest=true >/dev/null
+          done
 
       - name: Refresh and preload DCDN caches
         shell: bash
