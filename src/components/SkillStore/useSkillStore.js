@@ -5,6 +5,7 @@ import {
 } from '../../renderer/src/services/SkillCatalogService';
 
 const AGENT_ID = 'vectcut_claw_default';
+const FEATURED_PAGE_SIZE = 20;
 const TOGGLE_STATE_KEY = 'skill-store:toggle-state:v1';
 const QUICK_SKILL_FOLDERS = {
   '儿童绘本': '儿童绘本',
@@ -46,6 +47,8 @@ const normalizeInstalled = (skill) => ({
 
 export const useSkillStore = () => {
   const [featured, setFeatured] = useState([]);
+  const [featuredLoadingMore, setFeaturedLoadingMore] = useState(false);
+  const [featuredHasMore, setFeaturedHasMore] = useState(true);
   const [searchResults, setSearchResults] = useState([]);
   const [installedSkills, setInstalledSkills] = useState([]);
   const [toggleStates, setToggleStates] = useState(() => readJson(TOGGLE_STATE_KEY, {}));
@@ -98,14 +101,34 @@ export const useSkillStore = () => {
     setLoading(true);
     setError('');
     try {
-      const result = await skillCatalogService.listFeatured();
-      setFeatured(Array.isArray(result?.data) ? result.data : []);
+      const result = await skillCatalogService.listFeatured({ limit: FEATURED_PAGE_SIZE, offset: 0 });
+      const data = Array.isArray(result?.data) ? result.data : [];
+      setFeatured(data);
+      setFeaturedHasMore(data.length < Number(result?.total ?? data.length));
     } catch (nextError) {
       setError(nextError?.message || '获取精选技能失败');
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMoreFeatured = useCallback(async () => {
+    if (loading || featuredLoadingMore || !featuredHasMore) return;
+    setFeaturedLoadingMore(true);
+    try {
+      const result = await skillCatalogService.listFeatured({ limit: FEATURED_PAGE_SIZE, offset: featured.length });
+      const data = Array.isArray(result?.data) ? result.data : [];
+      setFeatured((previous) => {
+        const existingIds = new Set(previous.map((item) => String(item?.id || '')));
+        return [...previous, ...data.filter((item) => !existingIds.has(String(item?.id || '')))];
+      });
+      setFeaturedHasMore(featured.length + data.length < Number(result?.total ?? featured.length + data.length));
+    } catch (nextError) {
+      setError(nextError?.message || '加载更多精选技能失败');
+    } finally {
+      setFeaturedLoadingMore(false);
+    }
+  }, [featured.length, featuredHasMore, featuredLoadingMore, loading]);
 
   const search = useCallback(async (query) => {
     const normalized = String(query || '').trim();
@@ -171,6 +194,20 @@ export const useSkillStore = () => {
   }, [getInstalledSkill, toggleStates]);
 
   const install = useCallback(async (skill) => {
+    const clearToggleStates = (...skills) => {
+      const keys = skills.flatMap((item) => [
+        item?.id,
+        item?.remoteId,
+        item?.folderName,
+        item?.name
+      ]).filter(Boolean).map((key) => String(key));
+      if (keys.length === 0) return;
+      setToggleStates((previous) => {
+        const next = { ...previous };
+        keys.forEach((key) => delete next[key]);
+        return next;
+      });
+    };
     const folderName = QUICK_SKILL_FOLDERS[skill?.name];
     let detail = null;
     if (skill?.id && !skill?.previewVideoUrl) {
@@ -198,6 +235,7 @@ export const useSkillStore = () => {
         previewVideoUrl
       });
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
+      clearToggleStates(skill, detail, result.data);
       await refreshInstalled();
       notifySkillStoreUpdated();
       return result.data;
@@ -216,6 +254,7 @@ export const useSkillStore = () => {
         sourceUrl: skill?.source_url || skill?.sourceUrl || null
       });
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
+      clearToggleStates(skill, detail, result.data);
       await refreshInstalled();
       notifySkillStoreUpdated();
       return result.data;
@@ -234,7 +273,16 @@ export const useSkillStore = () => {
     }
     setToggleStates((previous) => {
       const next = { ...previous };
-      delete next[skill?.id];
+      [
+        skill?.id,
+        skill?.remoteId,
+        skill?.folderName,
+        skill?.name,
+        installed?.id,
+        installed?.remoteId,
+        installed?.folderName,
+        installed?.name
+      ].filter(Boolean).forEach((key) => delete next[String(key)]);
       return next;
     });
   }, [getInstalledSkill, refreshInstalled]);
@@ -244,6 +292,7 @@ export const useSkillStore = () => {
     if (installed?.id && window.api?.skill?.toggle) {
       await window.api.skill.toggle({ agentId: AGENT_ID, skillId: installed.id, isEnabled: enabled });
     }
+    notifySkillStoreUpdated();
     setToggleStates((previous) => ({ ...previous, [skill.id]: enabled }));
     setInstalledSkills((previous) => previous.map((item) => (
       item.id === installed?.id ? { ...item, isEnabled: enabled } : item
@@ -252,12 +301,15 @@ export const useSkillStore = () => {
 
   return {
     featured,
+    featuredLoadingMore,
+    featuredHasMore,
     searchResults,
     installedSkills,
     loading,
     searching,
     error,
     loadFeatured,
+    loadMoreFeatured,
     refreshInstalled,
     search,
     isInstalled,

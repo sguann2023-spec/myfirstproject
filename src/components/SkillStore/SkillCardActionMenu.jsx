@@ -1,14 +1,16 @@
 import React from 'react';
-import { MessageCircle, Pencil, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
+import MessageCircleMoreIcon from '../../../public/message-circle-more.svg';
+import SquarePenIcon from '../../../public/square-pen.svg';
 
 const SkillCardActionMenu = ({ onChat, onEdit, onUninstall }) => (
   <div className="skill-card-action-menu" onClick={(event) => event.stopPropagation()}>
     <button type="button" onClick={onChat}>
-      <MessageCircle size={15} />
+      <img src={MessageCircleMoreIcon} className="skill-card-menu-icon" alt="" aria-hidden="true" />
       去对话
     </button>
     <button type="button" onClick={onEdit}>
-      <Pencil size={15} />
+      <img src={SquarePenIcon} className="skill-card-menu-icon" alt="" aria-hidden="true" />
       编辑
     </button>
     <button type="button" className="is-danger" onClick={onUninstall}>
@@ -19,4 +21,3 @@ const SkillCardActionMenu = ({ onChat, onEdit, onUninstall }) => (
 );
 
 export default SkillCardActionMenu;
-

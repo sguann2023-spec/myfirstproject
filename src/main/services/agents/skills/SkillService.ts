@@ -526,27 +526,23 @@ export class SkillService extends BaseService {
     options: { includeHidden?: boolean } = {}
   ): Promise<Array<{ name: string; description?: string; filename: string; path: string; source: 'global' }>> {
     void workdir
-    await this.ensureSkillRegistryInitialized()
+    const includeHidden = options.includeHidden === true
+    // Chat member/mention lists use this method. Disabled global skills must
+    // not be discoverable or available for invocation.
+    const activeSkills = await this.listGlobalSkills({ isEnabled: true })
     const results: Array<{ name: string; description?: string; filename: string; path: string; source: 'global' }> = []
     const skillsDir = getGlobalSkillsRoot()
-    const includeHidden = options.includeHidden === true
 
     try {
-      const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue
+      for (const skill of activeSkills) {
+        const entryName = skill.folderName
+        if (entryName.startsWith('.') || (!includeHidden && (await this.isSkillHiddenAtPath(skill.path || '', entryName)))) continue
         try {
-          const skillPath = path.join(skillsDir, entry.name)
-          const stats = await fs.promises.stat(skillPath)
-          if (!stats.isDirectory()) continue
-          if (!includeHidden && (await this.isSkillHiddenAtPath(skillPath, entry.name))) {
-            continue
-          }
-          const metadata = await parseSkillMetadata(skillPath, entry.name, 'skills')
+          const skillPath = skill.path || path.join(skillsDir, entryName)
           results.push({
-            name: metadata.name,
-            description: metadata.description,
-            filename: entry.name,
+            name: skill.name,
+            description: skill.description ?? undefined,
+            filename: entryName,
             path: skillPath,
             source: 'global'
           })

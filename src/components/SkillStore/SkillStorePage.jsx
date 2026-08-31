@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, ChevronLeft, ChevronRight, PackagePlus, Plus, Search, X } from 'lucide-react';
+import { Skeleton } from 'antd';
+import { CheckCircle2, ChevronLeft, PackagePlus, Plus, Search, X } from 'lucide-react';
 import { useSkillStore } from './useSkillStore';
 import SkillCard from './SkillCard';
 import SkillCardActionMenu from './SkillCardActionMenu';
@@ -11,8 +12,22 @@ import BatchSettingsIcon from '../../../public/skill-settings.svg';
 import InstalledCountBackground from '../../../public/skill-count-bg.svg';
 import BatchEnableIcon from '../../../public/skill-circle-check.svg';
 import BatchDisableIcon from '../../../public/skill-circle-x.svg';
+import BatchEnableDisabledIcon from '../../../public/skill-circle-check-disabled.svg';
+import BatchDisableDisabledIcon from '../../../public/skill-circle-x-disabled.svg';
 import BatchUninstallIcon from '../../../public/skill-trash-2.svg';
+import BatchUninstallDisabledIcon from '../../../public/skill-trash-2-disabled.svg';
 import './SkillStorePage.css';
+
+const SkillCardSkeleton = () => (
+  <div className="skill-card-skeleton" aria-hidden="true">
+    <Skeleton
+      active
+      avatar={{ shape: 'circle', size: 27 }}
+      title={{ width: '42%' }}
+      paragraph={{ rows: 2, width: ['100%', '82%'] }}
+    />
+  </div>
+);
 
 const toLocalCard = (skill) => ({
   id: skill?.id || skill?.folderName || skill?.name,
@@ -27,6 +42,7 @@ const toLocalCard = (skill) => ({
 const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const {
     featured,
+    featuredLoadingMore,
     searchResults,
     installedSkills,
     loading,
@@ -39,6 +55,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     install,
     uninstall,
     toggle,
+    loadMoreFeatured,
     refreshInstalled
   } = useSkillStore();
   const [view, setView] = useState('featured');
@@ -50,8 +67,10 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const [importOpen, setImportOpen] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [installingSkillId, setInstallingSkillId] = useState('');
   const [operationToast, setOperationToast] = useState(null);
   const operationToastTimerRef = useRef(null);
+  const featuredGridRef = useRef(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void search(searchQuery), 250);
@@ -97,6 +116,14 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     setView('detail');
   };
 
+  const handleDetailBack = () => {
+    const validReturnViews = new Set(['featured', 'search', 'installed']);
+    const returnView = validReturnViews.has(detailReturnView) ? detailReturnView : 'featured';
+    setSelectedSkill(null);
+    setMenuSkillId('');
+    setView(returnView);
+  };
+
   const showInstallSuccessToast = (skill) => {
     const name = String(skill?.name || skill?.folderName || '技能').trim();
     setOperationToast({ type: 'install', name, skill });
@@ -134,11 +161,17 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   ) : null;
 
   const handleInstall = async (skill) => {
+    const skillId = String(skill?.id || skill?.name || '').trim();
+    if (installingSkillId && installingSkillId !== skillId) return;
+    if (installingSkillId === skillId) return;
+    setInstallingSkillId(skillId);
     try {
       await install(skill);
       showInstallSuccessToast(skill);
     } catch (installError) {
       window.toast?.error?.(installError?.message || '安装技能失败');
+    } finally {
+      setInstallingSkillId('');
     }
   };
 
@@ -160,6 +193,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     if (!result?.success) throw new Error(result?.error?.message || result?.error || '技能安装失败');
     await refreshInstalled();
     window.dispatchEvent(new Event('skill-store-updated'));
+    setImportOpen(false);
     showInstallSuccessToast(result.data || { name: '技能' });
   };
 
@@ -171,6 +205,8 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const handleBatchToggle = async (enabled) => {
     const selectedSkills = installedCards.filter((skill) => selectedIds.includes(skill.id));
     await Promise.all(selectedSkills.map((skill) => toggle(skill, enabled)));
+    setSelectedIds([]);
+    setBatchMode(false);
   };
 
   const handleBatchUninstall = async () => {
@@ -179,6 +215,14 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     setSelectedIds([]);
     setBatchMode(false);
     if (selectedSkills.length > 0) showUninstallSuccessToast(selectedSkills.length);
+  };
+
+  const handleFeaturedScroll = (event) => {
+    if (view !== 'featured' || loading || featuredLoadingMore) return;
+    const element = event.currentTarget;
+    if (element.scrollHeight - element.scrollTop - element.clientHeight <= 120) {
+      void loadMoreFeatured();
+    }
   };
 
   if (view === 'detail' && selectedSkill) {
@@ -190,7 +234,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
           installed={isInstalled(selectedSkill)}
           installedSkill={getInstalledSkill(selectedSkill)}
           enabled={getEnabled(selectedSkill)}
-          onBack={() => setView(detailReturnView)}
+          onBack={handleDetailBack}
           onInstall={handleInstall}
           onToggle={toggle}
           onUninstall={handleUninstall}
@@ -203,6 +247,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   const isSearch = view === 'search';
   const isInstalledView = view === 'installed';
+  const showLoading = loading || searching;
 
   return (
     <>
@@ -253,55 +298,74 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
           </div>
         </>
       ) : (
-        <div className="skill-store-section-heading"><h1>{isSearch ? '搜索结果' : '精选技能'}{isSearch ? <span className="skill-search-count" style={{ backgroundImage: `url(${InstalledCountBackground})` }}>{searchVisibleSkills.length}</span> : null}</h1></div>
+        <div className={`skill-store-section-heading ${isSearch ? 'search-heading' : ''}`}><h1>{isSearch ? '搜索结果' : '精选技能'}{isSearch ? <span className="skill-search-count" style={{ backgroundImage: `url(${InstalledCountBackground})` }}>{searchVisibleSkills.length}</span> : null}</h1></div>
       )}
 
       {batchMode && isInstalledView ? (
         <div className="skill-batch-toolbar">
           <span>已选{selectedIds.length}项</span>
           <button type="button" onClick={() => setSelectedIds(installedCards.map((item) => item.id))}>全选</button>
-          <button type="button" className="skill-batch-clear-button" onClick={() => setSelectedIds([])}>清空</button>
+          <button
+            type="button"
+            className={`skill-batch-clear-button${selectedIds.length === 0 ? ' is-disabled' : ''}`}
+            onClick={() => setSelectedIds([])}
+          >
+            清空
+          </button>
           <div className="skill-batch-actions">
-            <button type="button" disabled={selectedIds.length === 0} onClick={() => void handleBatchToggle(true)}><img src={BatchEnableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />开启</button>
-            <button type="button" disabled={selectedIds.length === 0} onClick={() => void handleBatchToggle(false)}><img src={BatchDisableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />关闭</button>
-            <button type="button" disabled={selectedIds.length === 0} className="is-danger" onClick={() => void handleBatchUninstall()}><img src={BatchUninstallIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />卸载</button>
+            <button type="button" disabled={selectedIds.length === 0} onClick={() => void handleBatchToggle(true)}><img src={selectedIds.length === 0 ? BatchEnableDisabledIcon : BatchEnableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />开启</button>
+            <button type="button" disabled={selectedIds.length === 0} onClick={() => void handleBatchToggle(false)}><img src={selectedIds.length === 0 ? BatchDisableDisabledIcon : BatchDisableIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />关闭</button>
+            <button type="button" disabled={selectedIds.length === 0} className="is-danger" onClick={() => void handleBatchUninstall()}><img src={selectedIds.length === 0 ? BatchUninstallDisabledIcon : BatchUninstallIcon} className="skill-batch-action-icon" alt="" aria-hidden="true" />卸载</button>
             <button type="button" onClick={() => { setBatchMode(false); setSelectedIds([]); }}>取消</button>
           </div>
         </div>
       ) : null}
 
-      {loading || searching ? <div className="skill-store-state">正在加载技能…</div> : null}
+      {showLoading ? (
+        <div className="skill-card-grid skill-card-grid-loading" aria-label="正在加载技能" aria-busy="true">
+          {Array.from({ length: 6 }, (_, index) => <SkillCardSkeleton key={index} />)}
+        </div>
+      ) : null}
       {error ? <div className="skill-store-state is-error">{error}</div> : null}
-      {!loading && !searching && visibleSkills.length === 0 ? <div className="skill-store-state">暂未找到相关技能</div> : null}
-      <div className="skill-card-grid">
-        {visibleSkills.map((skill) => (
-          <div className="skill-card-shell" key={skill.id}>
-            <SkillCard
-              skill={skill}
-              installed={isInstalled(skill)}
-              enabled={getEnabled(skill)}
-              batchMode={batchMode && isInstalledView}
-              selected={selectedIds.includes(skill.id)}
-              onSelect={toggleSelection}
-              onOpen={handleOpenDetail}
-              onInstall={handleInstall}
-              onMenu={() => setMenuSkillId((previous) => previous === skill.id ? '' : skill.id)}
-              menuOpen={menuSkillId === skill.id}
-              showToggle={isInstalledView && !batchMode}
-              showCheck={!isInstalledView}
-              onToggle={toggle}
-            />
-            {menuSkillId === skill.id ? (
-              <SkillCardActionMenu
-                onChat={() => { setMenuSkillId(''); onGoChat?.(skill); }}
-                onEdit={() => { setMenuSkillId(''); onEditSkill?.(skill); }}
-                onUninstall={() => void handleUninstall(skill)}
+      {!showLoading && visibleSkills.length === 0 ? <div className="skill-store-state">暂未找到相关技能</div> : null}
+      {!showLoading ? (
+        <div
+          ref={view === 'featured' ? featuredGridRef : null}
+          className="skill-card-grid"
+          onScroll={view === 'featured' ? handleFeaturedScroll : undefined}
+        >
+          {visibleSkills.map((skill) => (
+            <div className="skill-card-shell" key={skill.id}>
+              <SkillCard
+                skill={skill}
+                installed={isInstalled(skill)}
+                enabled={getEnabled(skill)}
+                batchMode={batchMode && isInstalledView}
+                selected={selectedIds.includes(skill.id)}
+                onSelect={toggleSelection}
+                onOpen={handleOpenDetail}
+                onInstall={handleInstall}
+                installing={installingSkillId === String(skill?.id || skill?.name || '').trim()}
+                onMenu={() => setMenuSkillId((previous) => previous === skill.id ? '' : skill.id)}
+                menuOpen={menuSkillId === skill.id}
+                actionMenu={menuSkillId === skill.id ? (
+                  <SkillCardActionMenu
+                    onChat={() => { setMenuSkillId(''); onGoChat?.(skill); }}
+                    onEdit={() => { setMenuSkillId(''); onEditSkill?.(skill); }}
+                    onUninstall={() => void handleUninstall(skill)}
+                  />
+                ) : null}
+                showToggle={isInstalledView && !batchMode}
+                showCheck={!isInstalledView}
+                onToggle={toggle}
               />
-            ) : null}
-          </div>
-        ))}
-      </div>
-      {isSearch && searchVisibleSkills.length > 0 ? <div className="skill-search-footer"><ChevronLeft size={14} />搜索到全部匹配技能<ChevronRight size={14} /></div> : null}
+            </div>
+          ))}
+          {view === 'featured' && featuredLoadingMore ? (
+            Array.from({ length: 3 }, (_, index) => <SkillCardSkeleton key={`featured-loading-${index}`} />)
+          ) : null}
+        </div>
+      ) : null}
       {importOpen ? <SkillImportModal onClose={() => setImportOpen(false)} onInstall={handleImport} /> : null}
       </div>
     </>

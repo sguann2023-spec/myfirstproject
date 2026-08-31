@@ -1,4 +1,5 @@
 import React from 'react';
+import { LoaderCircle } from 'lucide-react';
 import SkillCheckIcon from '../../../public/skill-check.svg';
 import SkillEllipsisIcon from '../../../public/skill-ellipsis.svg';
 import SkillPlusIcon from '../../../public/skill-plus.svg';
@@ -12,8 +13,10 @@ const SkillCard = ({
   onSelect,
   onOpen,
   onInstall,
+  installing = false,
   onMenu,
   onToggle,
+  actionMenu = null,
   showToggle = false,
   showCheck = true
 }) => {
@@ -21,7 +24,7 @@ const SkillCard = ({
 
   return (
     <article
-      className={`skill-card${installed && !enabled ? ' is-disabled' : ''}${selected ? ' is-selected' : ''}`}
+      className={`skill-card${installed && !enabled ? ' is-disabled' : ''}${selected ? ' is-selected' : ''}${batchMode ? ' is-batch-mode' : ''}`}
       onClick={() => batchMode ? onSelect?.(skill) : onOpen?.(skill)}
     >
       {batchMode ? (
@@ -50,9 +53,12 @@ const SkillCard = ({
         {!batchMode ? (
           installed ? (
             <div className="skill-card-actions" onClick={(event) => event.stopPropagation()}>
-              <button type="button" className="skill-card-more" onClick={() => onMenu?.(skill)} aria-label="更多">
-                <img src={SkillEllipsisIcon} className="skill-card-action-icon" alt="" aria-hidden="true" />
-              </button>
+              <div className="skill-card-more-wrap">
+                <button type="button" className="skill-card-more" onClick={() => onMenu?.(skill)} aria-label="更多">
+                  <img src={SkillEllipsisIcon} className="skill-card-action-icon" alt="" aria-hidden="true" />
+                </button>
+                {actionMenu}
+              </div>
               {showToggle ? (
                 <button
                   type="button"
@@ -64,8 +70,15 @@ const SkillCard = ({
               {showCheck ? <span className="skill-card-installed" aria-label="已安装"><img src={SkillCheckIcon} className="skill-card-check-icon" alt="" aria-hidden="true" /></span> : null}
             </div>
           ) : (
-            <button type="button" className="skill-card-add" onClick={(event) => { event.stopPropagation(); onInstall?.(skill); }} aria-label="添加技能">
-              <img src={SkillPlusIcon} className="skill-card-add-icon" alt="" aria-hidden="true" />
+            <button
+              type="button"
+              className={`skill-card-add${installing ? ' is-loading' : ''}`}
+              onClick={(event) => { event.stopPropagation(); onInstall?.(skill); }}
+              disabled={installing}
+              aria-label={installing ? '正在安装技能' : '添加技能'}
+              aria-busy={installing}
+            >
+              {installing ? <LoaderCircle className="skill-spin" size={12} /> : <img src={SkillPlusIcon} className="skill-card-add-icon" alt="" aria-hidden="true" />}
             </button>
           )
         ) : (
@@ -80,7 +93,12 @@ const SkillCard = ({
         )}
       </div>
 
-      <p className="skill-card-description">{skill?.description || '暂无技能描述'}</p>
+      <div className="skill-card-description-wrap">
+        <p className="skill-card-description">{skill?.description || '暂无技能描述'}</p>
+        <div className="skill-card-description-tooltip" role="tooltip">
+          {skill?.description || '暂无技能描述'}
+        </div>
+      </div>
     </article>
   );
 };
