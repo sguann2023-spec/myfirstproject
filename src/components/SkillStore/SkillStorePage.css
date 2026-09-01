@@ -29,7 +29,7 @@
 .skill-toolbar-button .skill-toolbar-installed-count { width: 14px; height: 14px; flex: 0 0 14px; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background-color: #D3D3D3; background-position: center; background-repeat: no-repeat; background-size: 14px 14px; color: #777; font-size: 10px !important; font-weight: 400; line-height: 1; }
 .skill-add-wrap { position: relative; }
 .skill-add-menu, .skill-detail-menu { position: absolute; right: 0; top: calc(100% + 7px); min-width: 130px; padding: 5px; border: 1px solid #e1e1e1; border-radius: 9px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 50; }
-.skill-detail-menu { width: 91px; min-width: 91px; height: 52px; box-sizing: border-box; padding: 4px; border-radius: 4px; }
+.skill-detail-menu { width: 150px; min-width: 150px; height: 80px; box-sizing: border-box; padding: 6px; border-radius: 4px; }
 .skill-add-menu button, .skill-detail-menu button, .skill-card-action-menu button { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 9px 10px; background: transparent; color: #333; text-align: left; cursor: pointer; font-size: 13px; }
 .skill-add-menu button:hover, .skill-detail-menu button:hover, .skill-card-action-menu button:hover { background: #f1f1f1; }
 .skill-card-action-menu button { font-size: 10px; }
@@ -78,19 +78,20 @@
 .skill-card-more, .skill-card-add { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 7px; background-color: #e9e9e9; color: #222; cursor: pointer; }
 .skill-card-more { background-color: transparent; border-radius: 0; }
 .skill-card-more:hover { background-color: transparent; }
-.skill-card-add { width: 18px; height: 18px; padding: 0; border-radius: 3px; }
+.skill-card-add { width: 24px; height: 24px; padding: 0; border-radius: 3px; }
 .skill-card-add.is-loading { cursor: pointer; }
 .skill-card-add:hover { background-color: #dedede; }
 .skill-card-more { width: 12px; height: 12px; padding: 0; }
-.skill-card-action-icon, .skill-card-add-icon, .skill-card-check-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
+.skill-card-action-icon, .skill-card-check-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
+.skill-card-add-icon { width: 14px; height: 14px; display: block; object-fit: contain; }
 .skill-card-installed { display: inline-flex; align-items: center; justify-content: center; color: #111; }
 .skill-card-more-wrap { position: relative; display: inline-flex; }
 .skill-card-action-menu { position: absolute; right: 0; top: calc(100% + 4px); width: 106px; height: 90px; box-sizing: border-box; padding: 5px; border: 1px solid #e1e1e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 20; }
 .skill-card-action-menu button { height: 26px; box-sizing: border-box; padding: 0 10px; gap: 8px; font-size: 12px; }
 .skill-card-action-menu button svg { width: 14px; height: 14px; flex: 0 0 14px; }
-.skill-detail-menu button { height: 21px; box-sizing: border-box; padding: 0 6px; gap: 5px; font-size: 10px; }
-.skill-detail-menu button svg { width: 12px; height: 12px; flex: 0 0 12px; }
-.skill-detail-menu-icon { width: 12px; height: 12px; flex: 0 0 12px; display: block; object-fit: contain; }
+.skill-detail-menu button { height: 33px; box-sizing: border-box; padding: 0 10px; gap: 8px; font-size: 12px; }
+.skill-detail-menu button svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.skill-detail-menu-icon { width: 14px; height: 14px; flex: 0 0 14px; display: block; object-fit: contain; }
 .skill-card-menu-icon { width: 14px; height: 14px; flex: 0 0 14px; display: block; object-fit: contain; }
 .skill-card-action-menu .is-danger, .skill-detail-menu .is-danger { color: #f0445f; }
 .skill-card-toggle, .skill-detail-switch { width: 31px; height: 18px; position: relative; border: 0; border-radius: 10px; background: #d8d8d8; cursor: pointer; }
