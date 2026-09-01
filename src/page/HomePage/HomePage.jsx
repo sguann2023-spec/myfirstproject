@@ -19,6 +19,7 @@ import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
+import SkillStorePage from '../../components/SkillStore';
 import { getMembershipSummary } from '../../api/membership';
 import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
@@ -1680,6 +1681,8 @@ const HomePage = () => {
   const [creditsBalance, setCreditsBalance] = useState(null);
   const [creditsLoading, setCreditsLoading] = useState(true);
   const [selectedPane, setSelectedPane] = useState('chat');
+  const isChatPane = selectedPane === 'chat';
+  const isSkillPane = selectedPane === 'skill';
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [selectedDrafts, setSelectedDrafts] = useState([]);
   const [draftListRefreshToken, setDraftListRefreshToken] = useState(0);
@@ -1705,6 +1708,23 @@ const HomePage = () => {
   const beginnerGuideSettingsPaneRef = useRef(null);
   const [chatHistoryAnimated, setChatHistoryAnimated] = useState(false);
   const [chatDraftInput, setChatDraftInput] = useState('');
+
+  const handleSkillGoChat = useCallback((skill) => {
+    const name = String(skill?.name || skill?.folderName || '').trim();
+    setSelectedPane('chat');
+    setChatDraftInput(name ? `@${name} ` : '');
+  }, []);
+
+  const handleSkillEdit = useCallback((skill) => {
+    const name = String(skill?.name || skill?.folderName || '').trim();
+    setSelectedPane('chat');
+    setChatDraftInput(name ? `请帮我编辑 @${name} 这个 skill，我想要...` : '请帮我编辑这个 skill，我想要...');
+  }, []);
+
+  const handleCreateSkillFromStore = useCallback(() => {
+    setSelectedPane('chat');
+    setChatDraftInput('请帮我创建一个可以实现「xxx」的 skill');
+  }, []);
   const chatHistoryAnimTimerRef = useRef(null);
   const chatSessionsRef = useRef([]);
   const chatTitleGeneratingSessionIdsRef = useRef(new Set());
@@ -5201,11 +5221,13 @@ const HomePage = () => {
           </div>
           <div
             className={`center-pane column ${
-              selectedPane === 'chat' ? 'center-pane--chat' : ''
-            } ${
-              selectedPane === 'chat' && chatHistoryAnimated ? 'center-pane--animate' : ''
-            } ${
-              selectedPane === 'chat' && !chatHistoryVisible ? 'center-pane--collapsed' : ''
+            isChatPane ? 'center-pane--chat' : ''
+          } ${
+            isSkillPane ? 'center-pane--skill-hidden' : ''
+          } ${
+            isChatPane && chatHistoryAnimated ? 'center-pane--animate' : ''
+          } ${
+            isChatPane && !chatHistoryVisible ? 'center-pane--collapsed' : ''
             }`}
           >
             {selectedPane === 'draft' && (
@@ -5237,7 +5259,7 @@ const HomePage = () => {
             {selectedPane === 'preset' && (
               <PresetList onSelect={setSelectedPreset} />
             )}
-            {selectedPane === 'chat' && (
+            {isChatPane && (
               <ChatHistoryList
                 sessions={chatSessionsWithStatus}
                 activeSessionId={activeChatId}
@@ -5251,9 +5273,11 @@ const HomePage = () => {
           </div>
           <div
             className={`right-pane column ${
-              selectedPane === 'chat' ? 'right-pane--chat' : ''
-            } ${
-              selectedPane === 'chat' && !chatHistoryVisible ? 'right-pane--chat-collapsed' : ''
+            isChatPane ? 'right-pane--chat' : ''
+          } ${
+            isSkillPane ? 'right-pane--skill' : ''
+          } ${
+            isChatPane && !chatHistoryVisible ? 'right-pane--chat-collapsed' : ''
             }`}
           >
             {selectedPane === 'draft' && (selectedDraft || selectedDrafts.length > 0) ? (
@@ -5266,7 +5290,14 @@ const HomePage = () => {
             {selectedPane === 'download' && downloadDualView === 'downloading' ? (
               <DownloadList project={downloadProject || { draftName: '', overallProgress: 0, overallStatusText: '', downloadFiles: [] }} />
             ) : null}
-            {selectedPane === 'chat' ? (
+            {isSkillPane ? (
+              <SkillStorePage
+                onGoChat={handleSkillGoChat}
+                onEditSkill={handleSkillEdit}
+                onCreateSkill={handleCreateSkillFromStore}
+              />
+            ) : null}
+            {isChatPane ? (
               <Chat
                 session={activeChatSession}
                 agentId={DEFAULT_RUNTIME_AGENT_ID}

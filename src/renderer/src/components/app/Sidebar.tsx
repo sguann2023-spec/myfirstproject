@@ -35,6 +35,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 
 import { OpenClawSidebarIcon } from '../Icons/SVGIcon'
+import SkillStoreIcon from '../Icons/SkillStoreIcon'
 import UserPopup from '../Popups/UserPopup'
 import { SidebarOpenedMinappTabs, SidebarPinnedApps } from './PinnedMinapps'
 
@@ -63,6 +64,7 @@ const Sidebar: FC = () => {
   }
 
   const isFullscreen = useFullscreen()
+  const isSkillStoreRoute = pathname.startsWith('/settings/skills')
 
   return (
     <Container
@@ -108,7 +110,9 @@ const Sidebar: FC = () => {
               hideMinappPopup()
               await to('/settings/provider')
             }}>
-            <Icon theme={theme} className={pathname.startsWith('/settings') && !minappShow ? 'active' : ''}>
+            <Icon
+              theme={theme}
+              className={pathname.startsWith('/settings') && !isSkillStoreRoute && !minappShow ? 'active' : ''}>
               <Settings size={20} className="icon" />
             </Icon>
           </StyledLink>
@@ -132,6 +136,7 @@ const MainMenus: FC = () => {
   const iconMap = {
     assistants: <MessageSquare size={18} className="icon" />,
     agents: <MousePointerClick size={18} className="icon" />,
+    skills: <SkillStoreIcon className="icon" />,
     store: <Sparkle size={18} className="icon" />,
     paintings: <Palette size={18} className="icon" />,
     translate: <Languages size={18} className="icon" />,
@@ -146,6 +151,7 @@ const MainMenus: FC = () => {
   const pathMap = {
     assistants: '/',
     agents: '/agents',
+    skills: '/settings/skills',
     store: '/store',
     paintings: `/paintings/${defaultPaintingProvider}`,
     translate: '/translate',

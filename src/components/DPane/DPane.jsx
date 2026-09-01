@@ -14,6 +14,8 @@ import DownloadSelectedIcon from '../../../public/download_selected_icon.png';
 import PresetIcon from '../../../public/preset_icon.svg';
 import PresetSelectedIcon from '../../../public/preset_selected_icon.svg';
 import PointIcon from '../../../public/point2.svg';
+import SkillIcon from '../../../public/skill.svg';
+import SkillSelectedIcon from '../../../public/skill_selected.svg';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('DPane');
 const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
@@ -34,6 +36,7 @@ const DPane = ({
   const isChatSelected = selected === 'chat';
   const isDownloadSelected = selected === 'download';
   const isPresetSelected = selected === 'preset';
+  const isSkillSelected = selected === 'skill';
   const isSettingsSelected = selected === 'settings';
   // ⚠️ 移除：const navigate = useNavigate();
 
@@ -170,6 +173,17 @@ const DPane = ({
             className="d-pane-icon"
           />
           <div className="d-pane-tip">预设</div>
+        </div>
+        <div
+          className={`d-pane-item ${isSkillSelected ? 'selected' : ''}`}
+          onClick={() => onSelect && onSelect('skill')}
+        >
+          <img
+            src={isSkillSelected ? SkillSelectedIcon : SkillIcon}
+            alt="技能商店"
+            className={`d-pane-icon d-pane-skill-icon ${isSkillSelected ? 'is-selected' : ''}`}
+          />
+          <div className="d-pane-tip">技能商店</div>
         </div>
       </div>
 

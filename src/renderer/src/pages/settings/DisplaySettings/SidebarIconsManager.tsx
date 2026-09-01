@@ -2,6 +2,7 @@ import { CloseOutlined } from '@ant-design/icons'
 import type { DraggableProvided, DroppableProvided, DropResult } from '@hello-pangea/dnd'
 import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd'
 import { OpenClawSidebarIcon } from '@renderer/components/Icons/SVGIcon'
+import SkillStoreIcon from '@renderer/components/Icons/SkillStoreIcon'
 import { getSidebarIconLabel } from '@renderer/i18n/label'
 import { useAppDispatch } from '@renderer/store'
 import { setSidebarIcons } from '@renderer/store/settings'
@@ -119,6 +120,7 @@ const SidebarIconsManager: FC<SidebarIconsManagerProps> = ({
       ({
         assistants: <MessageSquareQuote size={16} />,
         agents: <MousePointerClick size={16} />,
+        skills: <SkillStoreIcon width={16} height={16} />,
         store: <Sparkle size={16} />,
         paintings: <Palette size={16} />,
         translate: <Languages size={16} />,

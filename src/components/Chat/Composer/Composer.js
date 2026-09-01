@@ -2459,6 +2459,10 @@ const Composer = ({
         }
       }
     };
+    const handleSkillStoreUpdated = () => {
+      void loadSkills();
+    };
+    window.addEventListener('skill-store-updated', handleSkillStoreUpdated);
     loadSkills();
     const api = window?.electronAPI?.agentSkills;
     if (agentId && api && typeof api.onChanged === 'function') {
@@ -2476,6 +2480,7 @@ const Composer = ({
       if (agentId && api && typeof api.unsubscribeChanges === 'function') {
         void api.unsubscribeChanges({ agentId }).catch(() => {});
       }
+      window.removeEventListener('skill-store-updated', handleSkillStoreUpdated);
     };
   }, [agentId, runtimeSessionId]);
 
