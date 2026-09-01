@@ -1,3 +1,6 @@
+import { useAppSelector } from '@renderer/store'
+import { normalizeToCallToolResult } from './Tools/shared/callToolResult'
+import { getMcpToolDisplayName, parseMcpToolName } from './Tools/shared/mcpToolDisplay'
 // import { useRuntime } from '@renderer/hooks/useRuntime'
 import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
 import type { Message } from '@renderer/types/newMessage'
@@ -36,6 +39,91 @@ type MessagePricingWithPreciseFields = NonNullable<Message['model']>['pricing'] 
   precise_cache_write_resource_points_per_unit?: number
 }
 
+type BillingRecord = Record<string, unknown>
+type ToolBillingDetail = {
+  label: string
+  points: number
+}
+
+type BlockLike = {
+  id?: string
+  type?: string
+  toolName?: string
+  metadata?: {
+    rawMcpToolResponse?: {
+      tool?: {
+        name?: string
+      }
+      toolName?: string
+      response?: unknown
+      responseRaw?: unknown
+    }
+  }
+}
+
+const asRecord = (value: unknown): BillingRecord | null =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as BillingRecord) : null
+
+const asFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function extractBillingPointsFromPayload(payload: unknown): number | null {
+  if (typeof payload === 'string' && payload.trim()) {
+    try {
+      return extractBillingPointsFromPayload(JSON.parse(payload))
+    } catch {
+      return null
+    }
+  }
+
+  const record = asRecord(payload)
+  if (!record) return null
+
+  const nestedBilling = asRecord(record.billing)
+  if (nestedBilling) {
+    return asFiniteNumber(nestedBilling.total_consumed_points)
+  }
+
+  if ('total_consumed_points' in record) {
+    return asFiniteNumber(record.total_consumed_points)
+  }
+
+  if ('response' in record) {
+    const nestedResponsePoints = extractBillingPointsFromPayload(record.response)
+    if (nestedResponsePoints !== null) {
+      return nestedResponsePoints
+    }
+  }
+
+  const normalized = normalizeToCallToolResult(payload)
+  for (const item of normalized.content) {
+    if (item.type !== 'text' || typeof item.text !== 'string' || !item.text.trim()) continue
+
+    const nestedPoints = extractBillingPointsFromPayload(item.text)
+    if (nestedPoints !== null) {
+      return nestedPoints
+    }
+  }
+
+  return null
+}
+
+function extractBillingPointsFromToolResponse(toolResponse: unknown): number {
+  const record = asRecord(toolResponse)
+  const directPoints = extractBillingPointsFromPayload(record?.responseRaw ?? record?.response ?? toolResponse)
+  if (directPoints !== null) return directPoints
+
+  return 0
+}
+
+const formatPoints = (value: number) => (Number(value) || 0).toFixed(2)
+
 const formatTokenCount = (value: number) => {
   const normalizedValue = Number(value) || 0
   if (Math.abs(normalizedValue) >= 1_000_000) {
@@ -47,15 +135,63 @@ const formatTokenCount = (value: number) => {
   return String(normalizedValue)
 }
 
-const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
-  // const { generating } = useRuntime()
-  const locateMessage = () => {
-    void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + message.id, false)
+const POINT2_ICON_URL = new URL('../../../../../../public/point2.svg', import.meta.url).href
+
+const asBlockLike = (value: unknown): BlockLike | null =>
+  typeof value === 'object' && value !== null ? (value as BlockLike) : null
+
+function resolveMessageBlock(state: any, blockRef: unknown): BlockLike | null {
+  if (typeof blockRef === 'string') {
+    return asBlockLike(state.messageBlocks.entities[blockRef])
   }
 
+  const inlineBlock = asBlockLike(blockRef)
+  if (!inlineBlock) return null
+
+  if (inlineBlock.id && state.messageBlocks.entities[inlineBlock.id]) {
+    return asBlockLike(state.messageBlocks.entities[inlineBlock.id]) ?? inlineBlock
+  }
+
+  return inlineBlock
+}
+
+const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
+  const currentMessage = useAppSelector((state: any) => state.messages?.entities?.[message.id] ?? message)
+
+  // const { generating } = useRuntime()
+  const locateMessage = () => {
+    void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + currentMessage.id, false)
+  }
+
+  const toolBillingDetails = useAppSelector((state: any) => {
+    if (!Array.isArray(currentMessage.blocks) || currentMessage.blocks.length === 0) return []
+
+    return currentMessage.blocks.reduce<ToolBillingDetail[]>((details: ToolBillingDetail[], blockRef: unknown) => {
+      const block = resolveMessageBlock(state, blockRef)
+      if (!block || block.type !== 'tool') return details
+
+      const points = extractBillingPointsFromToolResponse(block.metadata?.rawMcpToolResponse)
+      if (points <= 0) return details
+
+      const rawToolName =
+        block.toolName || block.metadata?.rawMcpToolResponse?.tool?.name || block.metadata?.rawMcpToolResponse?.toolName || ''
+
+      const label = rawToolName
+        ? getMcpToolDisplayName({
+            ...parseMcpToolName(rawToolName),
+            t
+          })
+        : 'Tool'
+
+      return [...details, { label, points }]
+    }, [])
+  })
+
+  const toolBillingPoints = toolBillingDetails.reduce((total: number, detail: ToolBillingDetail) => total + detail.points, 0)
+
   const getUsageSteps = () =>
-    Array.isArray(message.usageSteps) && message.usageSteps.length > 0
-      ? (message.usageSteps as MessageUsageWithCacheDetails[])
+    Array.isArray(currentMessage.usageSteps) && currentMessage.usageSteps.length > 0
+      ? (currentMessage.usageSteps as MessageUsageWithCacheDetails[])
       : []
 
   const getCacheInputTokens = (usage?: MessageUsageWithCacheDetails) => {
@@ -87,7 +223,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     const outputTokens = Number(usage?.completion_tokens ?? 0) || 0
     const { cacheReadTokens, cacheWriteTokens } = getCacheInputTokens(usage)
     const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens)
-    const model = message.model
+    const model = currentMessage.model
     const pricing = model?.pricing as MessagePricingWithPreciseFields | undefined
 
     const preciseUncachedInputPointPerMillion =
@@ -123,7 +259,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getDisplayUsage = (): MessageUsageWithCacheDetails | undefined => {
-    const directUsage = message?.usage as MessageUsageWithCacheDetails | undefined
+    const directUsage = currentMessage?.usage as MessageUsageWithCacheDetails | undefined
     const usageSteps = getUsageSteps()
 
     if (usageSteps.length > 0) {
@@ -196,19 +332,23 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getPrice = () => {
-    const usageSteps = getUsageSteps()
-    if (usageSteps.length > 0) {
-      return usageSteps.reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
-    }
+    const usagePrice = (() => {
+      const usageSteps = getUsageSteps()
+      if (usageSteps.length > 0) {
+        return usageSteps.reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
+      }
 
-    return getUsagePrice(getDisplayUsage())
+      return getUsagePrice(getDisplayUsage())
+    })()
+
+    return usagePrice + toolBillingPoints
   }
 
   const displayUsage = getDisplayUsage()
 
   const getAggregatedUsage = () => {
     const usage = displayUsage
-    const completionTokensFallback = Number(message?.metrics?.completion_tokens ?? 0) || 0
+    const completionTokensFallback = Number(currentMessage?.metrics?.completion_tokens ?? 0) || 0
     const completionTokens = Number(usage?.completion_tokens ?? completionTokensFallback) || 0
     const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
     const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
@@ -226,7 +366,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
       return ''
     }
 
-    const pricing = message.model?.pricing as MessagePricingWithPreciseFields | undefined
+    const pricing = currentMessage.model?.pricing as MessagePricingWithPreciseFields | undefined
     const uncachedInputPointPerMillion =
       Number(
         pricing?.precise_uncached_input_resource_points_per_unit ?? pricing?.precise_input_resource_points_per_unit ?? 0
@@ -242,7 +382,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
       return ''
     }
 
-    const pricing = message.model?.pricing as MessagePricingWithPreciseFields | undefined
+    const pricing = currentMessage.model?.pricing as MessagePricingWithPreciseFields | undefined
     const uncachedInputPointPerMillion =
       Number(
         pricing?.precise_uncached_input_resource_points_per_unit ?? pricing?.precise_input_resource_points_per_unit ?? 0
@@ -259,32 +399,37 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   const getPriceString = () => {
     const price = getPrice()
-    return `| ${t('settings.messages.estimated_price')}: ${price.toFixed(2)}点`
+    return price.toFixed(2)
   }
 
-  if (message.role === 'user') {
+  if (currentMessage.role === 'user') {
     return (
       <MessageMetadata className="message-tokens" onClick={locateMessage}>
-        {`Tokens: ${formatTokenCount(Number(message?.usage?.total_tokens ?? 0))}`}
+        {`Tokens: ${formatTokenCount(Number(currentMessage?.usage?.total_tokens ?? 0))}`}
       </MessageMetadata>
     )
   }
 
-  if (message.role === 'assistant') {
-    let metricsText = ''
-    let hasMetrics = false
+  if (currentMessage.role === 'assistant') {
     const aggregatedUsage = getAggregatedUsage()
     const cacheReadSummaryText = getCacheReadSummaryString()
     const cacheSavingText = getCacheSavingString()
-    if (message?.metrics?.completion_tokens && message?.metrics?.time_completion_millsec) {
-      hasMetrics = true
-      metricsText = t('settings.messages.metrics', {
-        time_first_token_millsec: message?.metrics?.time_first_token_millsec,
-        token_speed: (message?.metrics?.completion_tokens / (message?.metrics?.time_completion_millsec / 1000)).toFixed(
-          0
-        )
-      })
-    }
+    const usageBillingPoints = Math.max(0, getPrice() - toolBillingPoints)
+    const tooltipDetails: ToolBillingDetail[] = [{ label: '对话模型', points: usageBillingPoints }, ...toolBillingDetails]
+
+    const tooltipContent = (
+      <TooltipList>
+        {tooltipDetails.map((detail) => (
+          <TooltipRow key={`${detail.label}-${detail.points}`}>
+            <span>{detail.label}</span>
+            <TooltipValue>
+              <TooltipPointIcon src={POINT2_ICON_URL} alt="" aria-hidden="true" />
+              <span>{formatPoints(detail.points)}</span>
+            </TooltipValue>
+          </TooltipRow>
+        ))}
+      </TooltipList>
+    )
 
     const tokensInfo = (
       <span className="tokens">
@@ -293,26 +438,28 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
         <span>↑{formatTokenCount(aggregatedUsage.prompt_tokens)}</span>
         <span>↓{formatTokenCount(aggregatedUsage.completion_tokens)}</span>
         {cacheReadSummaryText ? <span>{cacheReadSummaryText}</span> : null}
-        <span>{getPriceString()}</span>
+        <EstimatedPriceSpan>
+          <span>| 预估消耗:</span>
+          <EstimatedPriceValue>
+            <EstimatedPriceIcon src={POINT2_ICON_URL} alt="" aria-hidden="true" />
+            <EstimatedPriceNumber>{getPriceString()}</EstimatedPriceNumber>
+          </EstimatedPriceValue>
+        </EstimatedPriceSpan>
         {cacheSavingText ? <span>{cacheSavingText}</span> : null}
       </span>
     )
 
     return (
       <MessageMetadata className="message-tokens" onClick={locateMessage}>
-        {hasMetrics ? (
-          <Popover
-            content={metricsText}
-            placement="top"
-            trigger="hover"
-            mouseEnterDelay={0}
-            mouseLeaveDelay={0}
-            styles={{ root: { fontSize: 11 } }}>
-            {tokensInfo}
-          </Popover>
-        ) : (
-          tokensInfo
-        )}
+        <Popover
+          content={tooltipContent}
+          placement="top"
+          trigger="hover"
+          mouseEnterDelay={0}
+          mouseLeaveDelay={0}
+          styles={{ root: { fontSize: 11 } }}>
+          {tokensInfo}
+        </Popover>
       </MessageMetadata>
     )
   }
@@ -330,6 +477,66 @@ const MessageMetadata = styled.div`
   .tokens span {
     padding: 0 2px;
   }
+`
+
+const EstimatedPriceSpan = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0px;
+`
+
+const EstimatedPriceValue = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0;
+  line-height: 1;
+
+  > span {
+    padding: 0 1px !important;
+  }
+`
+
+const EstimatedPriceIcon = styled.img`
+  width: 10px;
+  height: 10px;
+  display: block;
+  flex-shrink: 0;
+`
+
+const EstimatedPriceNumber = styled.span`
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  padding: 0 1px !important;
+  position: relative;
+`
+
+const TooltipList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+`
+
+const TooltipRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+`
+
+const TooltipValue = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+`
+
+const TooltipPointIcon = styled.img`
+  width: 10px;
+  height: 10px;
+  display: block;
+  flex-shrink: 0;
 `
 
 export default MessageTokens

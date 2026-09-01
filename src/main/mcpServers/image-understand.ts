@@ -18,13 +18,13 @@ const CHAT_COMPLETIONS_ENDPOINT = '/llm/chat/v1/chat/completions'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
-const IMAGE_UNDERSTAND_MODEL = 'qwen3.7-plus'
+const IMAGE_UNDERSTAND_MODEL = 'gpt-5.6-luna'
 const INLINE_DATA_URL_PREVIEW = '<data-url-omitted>'
 
 const INSPECT_IMAGE_TOOL: Tool = {
   name: 'inspect_image',
   description:
-    'Inspect an image with the fixed VectCut vision model qwen3.7-plus. Remote image URLs are sent directly without downloading, while local image paths are converted into data URLs automatically.',
+    'Inspect an image with the fixed VectCut vision model gpt-5.6-luna. Remote image URLs are sent directly without downloading, while local image paths are converted into data URLs automatically.',
   inputSchema: {
     type: 'object',
     properties: {
