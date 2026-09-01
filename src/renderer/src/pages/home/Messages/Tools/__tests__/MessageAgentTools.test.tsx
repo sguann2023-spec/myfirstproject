@@ -380,6 +380,7 @@ describe('MessageAgentTools', () => {
       // Should still render the tool component
       expect(screen.getByText('Read File')).toBeInTheDocument()
     })
+
   })
 
   describe('pending without streaming', () => {

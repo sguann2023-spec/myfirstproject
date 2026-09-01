@@ -107,6 +107,9 @@ describe('ImageUnderstandServer', () => {
         mockJsonResponse({
           id: 'chatcmpl-1',
           model: 'qwen3.7-plus',
+          billing: {
+            total_consumed_points: 1.33
+          },
           choices: [
             {
               message: {
@@ -148,6 +151,9 @@ describe('ImageUnderstandServer', () => {
 
     const payload = JSON.parse(result.content[0].text)
     expect(payload.answer).toBe('这是一张包含产品界面的截图。')
+    expect(payload.billing).toEqual({
+      total_consumed_points: 1.33
+    })
     expect(payload.source_summary).toEqual([
       {
         original_input: 'https://example.com/demo.png',
@@ -237,5 +243,38 @@ describe('ImageUnderstandServer', () => {
     const payload = JSON.parse(result.content[0].text)
     expect(payload.answer).toBe('这是一张工具界面截图。')
     expect(payload.response_summary.model).toBe('qwen3.7-plus')
+  })
+
+  it('should preserve billing fields from SSE-style responses', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          [
+            'data: {"id":"chatcmpl-sse-1","model":"qwen3.7-plus","choices":[{"delta":{"content":"这是"}}]}',
+            'data: {"choices":[{"delta":{"content":"一张截图。"}}],"usage":{"prompt_tokens":100,"completion_tokens":20}}',
+            'data: {"billing":{"total_consumed_points":1.33}}',
+            'data: [DONE]'
+          ].join('\n')
+      } as Response)
+
+    const server = createServer(workspaceRoot)
+    const result = await callTool(server, 'inspect_image', {
+      url: 'https://example.com/sse-billing-demo.png'
+    })
+
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.answer).toBe('这是一张截图。')
+    expect(payload.billing).toEqual({
+      total_consumed_points: 1.33
+    })
+    expect(payload.response_summary.id).toBe('chatcmpl-sse-1')
   })
 })

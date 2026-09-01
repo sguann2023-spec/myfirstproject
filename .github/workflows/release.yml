@@ -549,6 +549,7 @@ jobs:
           VERSION_TAG="v$(node -p "require('./package.json').version")"
 
           for TARGET_REPO in sun-guannan/CapCutMaker sun-guannan/CapCutMakerBingo; do
+            echo "Publishing ${VERSION_TAG} in ${TARGET_REPO}..."
             gh auth status
             gh repo view "${TARGET_REPO}" >/dev/null
             RELEASE_ID=$(
@@ -564,8 +565,16 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               "repos/${TARGET_REPO}/releases/${RELEASE_ID}" \
               -f draft=false \
-              -f prerelease=false \
-              -f make_latest=true >/dev/null
+              -f prerelease=false >/dev/null
+
+            gh release edit "${VERSION_TAG}" \
+              --repo "${TARGET_REPO}" \
+              --latest
+
+            gh api "repos/${TARGET_REPO}/releases/${RELEASE_ID}" \
+              --jq '{tag_name: .tag_name, draft: .draft, prerelease: .prerelease, html_url: .html_url}'
+            gh api "repos/${TARGET_REPO}/releases/latest" \
+              --jq '{latest_tag: .tag_name, latest_url: .html_url}'
           done
 
       - name: Refresh and preload DCDN caches

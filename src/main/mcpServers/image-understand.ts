@@ -72,6 +72,8 @@ type PreparedImageSource = {
 type ChatCompletionResponse = {
   id?: string
   model?: string
+  billing?: Record<string, unknown>
+  usage?: Record<string, unknown>
   choices?: Array<{
     message?: {
       content?: string | Array<{ type?: string; text?: string }>
@@ -149,25 +151,99 @@ function extractTextFromSseString(text: string): string {
   return textParts.join('').trim() || text
 }
 
+function parseSseChatCompletionPayload(text: string): ChatCompletionResponse | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('data:'))
+
+  if (lines.length === 0) return null
+
+  const textParts: string[] = []
+  let latestId: string | undefined
+  let latestModel: string | undefined
+  let latestBilling: Record<string, unknown> | undefined
+  let latestUsage: Record<string, unknown> | undefined
+
+  for (const line of lines) {
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(payload) as Record<string, unknown>
+    } catch {
+      return null
+    }
+
+    const extractedText = extractTextFromChunkRecord(parsed)
+    if (extractedText) {
+      textParts.push(extractedText)
+    }
+
+    if (typeof parsed.id === 'string' && parsed.id.trim()) {
+      latestId = parsed.id.trim()
+    }
+    if (typeof parsed.model === 'string' && parsed.model.trim()) {
+      latestModel = parsed.model.trim()
+    }
+    if (parsed.billing && typeof parsed.billing === 'object' && !Array.isArray(parsed.billing)) {
+      latestBilling = parsed.billing as Record<string, unknown>
+    }
+    if (parsed.usage && typeof parsed.usage === 'object' && !Array.isArray(parsed.usage)) {
+      latestUsage = parsed.usage as Record<string, unknown>
+    }
+  }
+
+  const content = textParts.join('').trim()
+  if (!content && !latestBilling && !latestUsage) {
+    return null
+  }
+
+  return {
+    ...(latestId ? { id: latestId } : {}),
+    model: latestModel || IMAGE_UNDERSTAND_MODEL,
+    ...(latestBilling ? { billing: latestBilling } : {}),
+    ...(latestUsage ? { usage: latestUsage } : {}),
+    choices: content
+      ? [
+          {
+            message: {
+              role: 'assistant',
+              content
+            }
+          }
+        ]
+      : []
+  }
+}
+
 function parseChatCompletionPayload(responseText: string): ChatCompletionResponse {
   try {
     return JSON.parse(responseText) as ChatCompletionResponse
   } catch {
-    const extractedText = extractTextFromSseString(responseText)
-    if (!extractedText || extractedText === responseText) {
+    const ssePayload = parseSseChatCompletionPayload(responseText)
+    if (!ssePayload) {
+      const extractedText = extractTextFromSseString(responseText)
+      if (!extractedText || extractedText === responseText) {
+        throw new Error(`Unexpected token in image understand response: ${responseText.slice(0, 120)}`)
+      }
+      return {
+        model: IMAGE_UNDERSTAND_MODEL,
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: extractedText
+            }
+          }
+        ]
+      }
+    }
+    if (!ssePayload.choices || ssePayload.choices.length === 0) {
       throw new Error(`Unexpected token in image understand response: ${responseText.slice(0, 120)}`)
     }
-    return {
-      model: IMAGE_UNDERSTAND_MODEL,
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: extractedText
-          }
-        }
-      ]
-    }
+    return ssePayload
   }
 }
 
@@ -443,7 +519,7 @@ class ImageUnderstandServer {
     const preparedSource = await this.prepareImageSource(sourceInput)
     const requestBody = {
       model: IMAGE_UNDERSTAND_MODEL,
-      stream: false,
+      stream: true,
       max_tokens: 1024,
       messages: [
         {
@@ -514,6 +590,11 @@ class ImageUnderstandServer {
       model: IMAGE_UNDERSTAND_MODEL,
       question,
       answer,
+      ...(completion.billing && typeof completion.billing === 'object'
+        ? {
+            billing: completion.billing
+          }
+        : {}),
       source_summary: [
         {
           original_input: preparedSource.originalInput,

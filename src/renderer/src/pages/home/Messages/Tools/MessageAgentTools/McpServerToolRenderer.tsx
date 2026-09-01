@@ -5,10 +5,12 @@ import { useTranslation } from 'react-i18next'
 
 import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
+import { ImageUnderstandeTool } from './ImageUnderstandeToolRenderer'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
 import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
 import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
+import { isImageUnderstandeToolName } from './imageUnderstandeTool'
 
 interface McpServerToolProps {
   toolName: string
@@ -65,6 +67,17 @@ export function McpServerToolRenderer({
   const isMediaGeneration = isMediaGenerationToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
+  const isImageUnderstande = isImageUnderstandeToolName(toolName)
+
+  if (isImageUnderstande) {
+    return ImageUnderstandeTool({
+      toolName,
+      input,
+      output,
+      progress,
+      progressMessage
+    })
+  }
 
   return {
     key: `mcp-tool-${toolName}`,
