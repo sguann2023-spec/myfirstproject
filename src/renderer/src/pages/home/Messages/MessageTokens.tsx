@@ -204,15 +204,19 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     return getUsagePrice(getDisplayUsage())
   }
 
-  const usageSteps = getUsageSteps()
   const displayUsage = getDisplayUsage()
 
   const getAggregatedUsage = () => {
     const usage = displayUsage
+    const completionTokensFallback = Number(message?.metrics?.completion_tokens ?? 0) || 0
+    const completionTokens = Number(usage?.completion_tokens ?? completionTokensFallback) || 0
+    const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
+    const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
+
     return {
-      prompt_tokens: Number(usage?.prompt_tokens ?? 0) || 0,
-      completion_tokens: Number(usage?.completion_tokens ?? 0) || 0,
-      total_tokens: Number(usage?.total_tokens ?? 0) || 0
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens
     }
   }
 
@@ -256,10 +260,6 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   const getPriceString = () => {
     const price = getPrice()
     return `| ${t('settings.messages.estimated_price')}: ${price.toFixed(2)}点`
-  }
-
-  if (!message.usage && usageSteps.length === 0) {
-    return null
   }
 
   if (message.role === 'user') {

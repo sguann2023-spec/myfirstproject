@@ -71,8 +71,8 @@ describe('MessageTokens', () => {
     )
 
     expect(html).toContain('Tokens:')
-    expect(html).toContain('2500')
-    expect(html).toContain('2000')
+    expect(html).toContain('2.50K')
+    expect(html).toContain('2.00K')
     expect(html).toContain('500')
     expect(html).toContain('缓存命中 250')
   })
@@ -100,9 +100,34 @@ describe('MessageTokens', () => {
     )
 
     expect(html).toContain('Tokens:')
-    expect(html).toContain('264313')
-    expect(html).toContain('261780')
-    expect(html).toContain('2533')
+    expect(html).toContain('264.31K')
+    expect(html).toContain('261.78K')
+    expect(html).toContain('2.53K')
+  })
+
+  it('在中止场景只有 metrics 时也显示已生成 token', () => {
+    const html = renderToStaticMarkup(
+      <MessageTokens
+        message={
+          {
+            id: 'assistant-4',
+            role: 'assistant',
+            assistantId: 'agent-1',
+            topicId: 'topic-1',
+            createdAt: new Date().toISOString(),
+            status: 'error',
+            blocks: [],
+            metrics: {
+              completion_tokens: 704,
+              time_completion_millsec: 1000
+            }
+          } as any
+        }
+      />
+    )
+
+    expect(html).toContain('Tokens:')
+    expect(html).toContain('704')
   })
 
   it('预估花费按 usageSteps 逐步累加，而不是按聚合 token 重算', () => {
