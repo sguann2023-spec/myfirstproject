@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Skeleton } from 'antd';
-import { CheckCircle2, ChevronLeft, PackagePlus, Plus, Search, X } from 'lucide-react';
+import { message, Skeleton } from 'antd';
+import { ChevronLeft, PackagePlus, Plus, Search, X } from 'lucide-react';
 import { useSkillStore } from './useSkillStore';
 import SkillCard from './SkillCard';
 import SkillCardActionMenu from './SkillCardActionMenu';
@@ -68,8 +68,6 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [installingSkillId, setInstallingSkillId] = useState('');
-  const [operationToast, setOperationToast] = useState(null);
-  const operationToastTimerRef = useRef(null);
   const skillGridRef = useRef(null);
   const skillScrollHideTimerRef = useRef(null);
   const [hasSkillScroll, setHasSkillScroll] = useState(false);
@@ -82,7 +80,6 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   }, [searchQuery, search]);
 
   useEffect(() => () => {
-    if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
     if (skillScrollHideTimerRef.current) window.clearTimeout(skillScrollHideTimerRef.current);
   }, []);
 
@@ -113,6 +110,41 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   }, [installedSkills, searchQuery, searchResults]);
 
   const visibleSkills = view === 'search' ? searchVisibleSkills : view === 'installed' ? installedCards : featured;
+  const isSearch = view === 'search';
+  const isInstalledView = view === 'installed';
+  const showLoading = loading || searching;
+
+  useEffect(() => {
+    const grid = skillGridRef.current;
+    if (!grid || showLoading) {
+      setHasSkillScroll(false);
+      return undefined;
+    }
+
+    const updateScrollState = () => {
+      setHasSkillScroll(visibleSkills.length > 3 && grid.scrollHeight > grid.clientHeight + 1);
+      setSkillScrollMetrics({
+        clientHeight: grid.clientHeight,
+        scrollHeight: grid.scrollHeight,
+        scrollTop: grid.scrollTop
+      });
+    };
+    const frameId = window.requestAnimationFrame(updateScrollState);
+    const timeoutId = window.setTimeout(updateScrollState, 0);
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        window.cancelAnimationFrame(frameId);
+        window.clearTimeout(timeoutId);
+      };
+    }
+    const observer = new ResizeObserver(updateScrollState);
+    observer.observe(grid);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+      observer.disconnect();
+    };
+  }, [batchMode, featuredLoadingMore, showLoading, view, visibleSkills.length]);
 
   const handleOpenDetail = (skill) => {
     setMenuSkillId('');
@@ -131,39 +163,21 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   const showInstallSuccessToast = (skill) => {
     const name = String(skill?.name || skill?.folderName || '技能').trim();
-    setOperationToast({ type: 'install', name, skill });
-    if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
-    operationToastTimerRef.current = window.setTimeout(() => setOperationToast(null), 4000);
-  };
-
-  const showUninstallSuccessToast = (count) => {
-    setOperationToast({ type: 'uninstall', count });
-    if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
-    operationToastTimerRef.current = window.setTimeout(() => setOperationToast(null), 4000);
-  };
-
-  const operationToastView = operationToast ? (
-    <div className="skill-operation-toast" role="status">
-      <CheckCircle2 className="skill-operation-toast-icon" aria-hidden="true" />
-      {operationToast.type === 'install' ? (
+    window.toast?.success?.({
+      title: (
         <span>
-          「{operationToast.name}」技能已安装，
-          <button
-            type="button"
-            className="skill-operation-toast-action"
-            onClick={() => {
-              setOperationToast(null);
-              onGoChat?.(operationToast.skill);
-            }}
-          >
+          「{name}」技能已安装，
+          <button type="button" onClick={() => onGoChat?.(skill)} style={{ border: 0, padding: 0, background: 'transparent', color: '#16b98d', cursor: 'pointer', font: 'inherit' }}>
             去试试
           </button>
         </span>
-      ) : (
-        <span>成功卸载 {operationToast.count} 个技能</span>
-      )}
-    </div>
-  ) : null;
+      )
+    });
+  };
+
+  const showUninstallSuccessToast = (count) => {
+    message.success(`成功卸载 ${count} 个技能`);
+  };
 
   const handleInstall = async (skill) => {
     const skillId = String(skill?.id || skill?.name || '').trim();
@@ -212,6 +226,9 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     await Promise.all(selectedSkills.map((skill) => toggle(skill, enabled)));
     setSelectedIds([]);
     setBatchMode(false);
+    if (selectedSkills.length > 0) {
+      message.success(`成功${enabled ? '开启' : '关闭'} ${selectedSkills.length} 个技能`);
+    }
   };
 
   const handleBatchUninstall = async () => {
@@ -242,7 +259,6 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   if (view === 'detail' && selectedSkill) {
     return (
       <>
-        {operationToastView}
         <SkillDetailPage
           skill={selectedSkill}
           installed={isInstalled(selectedSkill)}
@@ -259,45 +275,8 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     );
   }
 
-  const isSearch = view === 'search';
-  const isInstalledView = view === 'installed';
-  const showLoading = loading || searching;
-
-  useEffect(() => {
-    const grid = skillGridRef.current;
-    if (!grid || showLoading) {
-      setHasSkillScroll(false);
-      return undefined;
-    }
-
-    const updateScrollState = () => {
-      setHasSkillScroll(visibleSkills.length > 3 && grid.scrollHeight > grid.clientHeight + 1);
-      setSkillScrollMetrics({
-        clientHeight: grid.clientHeight,
-        scrollHeight: grid.scrollHeight,
-        scrollTop: grid.scrollTop
-      });
-    };
-    const frameId = window.requestAnimationFrame(updateScrollState);
-    const timeoutId = window.setTimeout(updateScrollState, 0);
-    if (typeof ResizeObserver === 'undefined') {
-      return () => {
-        window.cancelAnimationFrame(frameId);
-        window.clearTimeout(timeoutId);
-      };
-    }
-    const observer = new ResizeObserver(updateScrollState);
-    observer.observe(grid);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.clearTimeout(timeoutId);
-      observer.disconnect();
-    };
-  }, [batchMode, featuredLoadingMore, showLoading, view, visibleSkills.length]);
-
   return (
     <>
-      {operationToastView}
       <div className="skill-store-page" onClick={() => { setMenuSkillId(''); setAddMenuOpen(false); }}>
       {!isInstalledView ? (
         <div className="skill-store-toolbar" onClick={(event) => event.stopPropagation()}>

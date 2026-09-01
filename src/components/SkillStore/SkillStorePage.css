@@ -11,10 +11,6 @@
   color: #161616;
 }
 
-.skill-operation-toast { position: fixed; top: 32px; left: 50%; z-index: 120; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; box-sizing: border-box; padding: 0 14px; transform: translateX(-50%); border: 1px solid #d9d9d9; border-radius: 12px; background: #fff; box-shadow: 0 12px 24px rgba(0,0,0,.2); color: #111; font-size: 12px; line-height: 1.2; white-space: nowrap; }
-.skill-operation-toast-icon { width: 18px; height: 18px; flex: 0 0 18px; color: #fff; fill: #16b98d; stroke-width: 3; }
-.skill-operation-toast-action { border: 0; padding: 0; background: transparent; color: #16b98d; cursor: pointer; font: inherit; }
-
 .skill-store-toolbar { display: flex; align-items: center; gap: 12px; position: relative; z-index: 10; flex: 0 0 auto; padding-bottom: 16px; background: #f5f5f5; }
 .skill-search-box { flex: 1 1 auto; width: auto; min-width: 0; height: 30px; box-sizing: border-box; display: flex; align-items: center; gap: 9px; padding: 0 6px 0 12px; border: 1px solid #dedede; border-radius: 6px; background: #eeeeee; color: #8b8b8b; }
 .skill-search-icon { width: 12px; height: 12px; flex: 0 0 12px; }
@@ -41,6 +37,7 @@
 .skill-store-section-heading h1 { margin: 0; font-size: 20px; font-weight: 650; }
 .skill-store-section-heading.search-heading h1 { font-size: 20px; }
 .installed-heading h1 { font-size: 20px; }
+.installed-heading { margin-right: 14px; }
 .skill-installed-count { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; margin-left: 3px; overflow: hidden; border-radius: 50%; background-color: #D3D3D3; background-position: center; background-repeat: no-repeat; background-size: 14px 14px; color: #777; font-size: 10px !important; font-weight: 400; vertical-align: middle; }
 .skill-search-count { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; margin-left: 5px; overflow: hidden; border-radius: 50%; background-color: #D3D3D3; background-position: center; background-repeat: no-repeat; background-size: 14px 14px; color: #777; font-size: 10px !important; font-weight: 400; vertical-align: middle; }
 .skill-installed-back { flex: 0 0 auto; margin: 0 0 34px; }
@@ -48,13 +45,13 @@
 .skill-batch-entry { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: #555; cursor: pointer; font-size: 14px; }
 .skill-batch-entry-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
 .skill-card-grid-wrap { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; margin-right: 14px; }
-.skill-card-grid { display: grid; grid-template-columns: repeat(3, 275px); column-gap: 12px; row-gap: 20px; width: 100%; height: 100%; min-height: 0; box-sizing: border-box; align-content: start; overflow-y: clip; overflow-x: clip; padding-bottom: 16px; }
+.skill-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 20px; width: 100%; height: 100%; min-height: 0; box-sizing: border-box; align-content: start; overflow-y: clip; overflow-x: clip; padding-bottom: 16px; }
 .skill-card-grid.is-scrollable { overflow-y: auto; scrollbar-width: none; }
 .skill-card-grid.is-scrollable::-webkit-scrollbar { width: 0; height: 0; }
 .skill-custom-scrollbar { position: absolute; top: 0; right: -12px; bottom: 16px; width: 6px; pointer-events: none; }
 .skill-custom-scrollbar-thumb { width: 6px; border-radius: 999px; background: #cfcfcf; }
 .skill-card-grid-loading { min-height: 108px; overflow: hidden; }
-.skill-card-skeleton { width: 275px; height: 108px; box-sizing: border-box; padding: 12px 18px 10px; border-radius: 12px; background: #fff; overflow: hidden; }
+.skill-card-skeleton { width: 100%; height: 108px; box-sizing: border-box; padding: 12px 18px 10px; border-radius: 12px; background: #fff; overflow: hidden; }
 .skill-card-skeleton .ant-skeleton { width: 100%; }
 .skill-card-skeleton .ant-skeleton-header { padding-right: 12px; }
 .skill-card-skeleton .ant-skeleton-avatar { width: 27px; height: 27px; }
@@ -63,7 +60,7 @@
 .skill-card-skeleton .ant-skeleton-paragraph { margin-top: 15px; }
 .skill-card-skeleton .ant-skeleton-paragraph > li { height: 12px; margin-top: 5px; }
 .skill-card-shell { position: relative; min-width: 0; }
-.skill-card { position: relative; width: 275px; height: 108px; min-height: 108px; box-sizing: border-box; padding: 12px 18px 10px; border: 1px solid transparent; border-radius: 12px; background: #fff; cursor: pointer; transition: box-shadow .15s ease, background-color .15s ease, border-color .15s ease; }
+.skill-card { position: relative; width: 100%; height: 108px; min-height: 108px; box-sizing: border-box; padding: 12px 18px 10px; border: 1px solid transparent; border-radius: 12px; background: #fff; cursor: pointer; transition: box-shadow .15s ease, background-color .15s ease, border-color .15s ease; }
 .skill-card:hover { background: #F0F0F0; border-color: #DDDDDD; box-shadow: none; }
 .skill-card.is-disabled .skill-card-icon,
 .skill-card.is-disabled .skill-card-name,
@@ -73,13 +70,10 @@
 .skill-card-identity { min-width: 0; display: flex; align-items: center; gap: 12px; }
 .skill-card-icon { flex: 0 0 27px; width: 27px; height: 27px; border-radius: 50%; object-fit: cover; }
 .skill-card-icon-fallback { display: flex; align-items: center; justify-content: center; background: #d8d8d8; color: #fff; font-weight: 700; }
-.skill-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.skill-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
 .skill-card-description-wrap { position: relative; min-width: 0; margin-top: 16px; }
 .skill-card.is-batch-mode .skill-card-description-wrap { margin-left: 21px; }
 .skill-card-description { display: -webkit-box; min-height: 30px; margin: 0; overflow: hidden; color: #666; font-size: 12px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.skill-card-description-tooltip { position: absolute; left: 100px; bottom: calc(100% + 8px); z-index: 30; width: 145px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ddd; border-radius: 2px; background: #fff; box-shadow: 0 3px 10px rgba(0,0,0,.08); color: #555; font-size: 10px; line-height: 15px; white-space: normal; overflow-wrap: anywhere; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .12s ease, visibility .12s ease; }
-.skill-card-shell:nth-child(-n + 3) .skill-card-description-tooltip { top: calc(100% + 8px); bottom: auto; }
-.skill-card-description-wrap:hover .skill-card-description-tooltip { opacity: 1; visibility: visible; }
 .skill-card-actions { display: flex; align-items: center; gap: 8px; }
 .skill-card-more, .skill-card-add { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 7px; background-color: #e9e9e9; color: #222; cursor: pointer; }
 .skill-card-more { background-color: transparent; border-radius: 0; }
@@ -91,13 +85,13 @@
 .skill-card-action-icon, .skill-card-add-icon, .skill-card-check-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
 .skill-card-installed { display: inline-flex; align-items: center; justify-content: center; color: #111; }
 .skill-card-more-wrap { position: relative; display: inline-flex; }
-.skill-card-action-menu { position: absolute; right: 0; top: calc(100% + 4px); width: 76px; height: 70px; box-sizing: border-box; padding: 5px; border: 1px solid #e1e1e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 20; }
-.skill-card-action-menu button { height: 19px; box-sizing: border-box; padding: 0 5px; gap: 5px; font-size: 10px; }
-.skill-card-action-menu button svg { width: 12px; height: 12px; flex: 0 0 12px; }
+.skill-card-action-menu { position: absolute; right: 0; top: calc(100% + 4px); width: 106px; height: 90px; box-sizing: border-box; padding: 5px; border: 1px solid #e1e1e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 20; }
+.skill-card-action-menu button { height: 26px; box-sizing: border-box; padding: 0 10px; gap: 8px; font-size: 12px; }
+.skill-card-action-menu button svg { width: 14px; height: 14px; flex: 0 0 14px; }
 .skill-detail-menu button { height: 21px; box-sizing: border-box; padding: 0 6px; gap: 5px; font-size: 10px; }
 .skill-detail-menu button svg { width: 12px; height: 12px; flex: 0 0 12px; }
 .skill-detail-menu-icon { width: 12px; height: 12px; flex: 0 0 12px; display: block; object-fit: contain; }
-.skill-card-menu-icon { width: 10px; height: 10px; flex: 0 0 10px; display: block; object-fit: contain; }
+.skill-card-menu-icon { width: 14px; height: 14px; flex: 0 0 14px; display: block; object-fit: contain; }
 .skill-card-action-menu .is-danger, .skill-detail-menu .is-danger { color: #f0445f; }
 .skill-card-toggle, .skill-detail-switch { width: 31px; height: 18px; position: relative; border: 0; border-radius: 10px; background: #d8d8d8; cursor: pointer; }
 .skill-card-toggle span, .skill-detail-switch span { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
@@ -109,7 +103,7 @@
 .skill-detail-switch { width: 18px; height: 10px; }
 .skill-detail-switch span { top: 2px; left: 2px; width: 6px; height: 6px; }
 .skill-detail-switch.is-on span { transform: translateX(8px); }
-.skill-card-checkbox { position: absolute; top: 20px; left: 15px; width: 12px; height: 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 2px; background: #fff; cursor: pointer; z-index: 2; }
+.skill-card-checkbox { position: absolute; top: 20px; left: 15px; width: 12px; min-width: 12px; max-width: 12px; height: 12px; min-height: 12px; max-height: 12px; flex: 0 0 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #ddd; border-radius: 2px; appearance: none; background: #fff; cursor: pointer; z-index: 2; }
 .skill-card-checkbox.is-checked { border-color: #000; background: #000; color: #fff; opacity: 1; }
 .skill-card-checkbox-icon { width: 10px; height: 10px; display: block; object-fit: contain; filter: brightness(0) invert(1); }
 .skill-card-checkbox + .skill-card-topline { padding-left: 21px; }
