@@ -2,7 +2,7 @@ import { loggerService } from '@logger'
 import type { LocalTransferPeer, LocalTransferState } from '@shared/config/types'
 import { IpcChannel } from '@shared/IpcChannel'
 import type { Browser, Service } from 'bonjour-service'
-import Bonjour from 'bonjour-service'
+import * as BonjourModule from 'bonjour-service'
 
 import { windowService } from './WindowService'
 
@@ -15,9 +15,30 @@ type StartDiscoveryOptions = {
   resetList?: boolean
 }
 
+type BonjourLike = {
+  find: (options: { type: string; protocol: 'tcp' }) => Browser
+  destroy: () => void
+}
+
+type BonjourConstructor = new () => BonjourLike
+
+const resolveBonjourConstructor = (): BonjourConstructor => {
+  const candidate = (
+    (BonjourModule as unknown as { default?: unknown; Bonjour?: unknown }).default ||
+    (BonjourModule as unknown as { default?: unknown; Bonjour?: unknown }).Bonjour ||
+    BonjourModule
+  ) as unknown
+
+  if (typeof candidate !== 'function') {
+    throw new Error('bonjour-service did not export a Bonjour constructor')
+  }
+
+  return candidate as BonjourConstructor
+}
+
 class LocalTransferService {
   private static instance: LocalTransferService
-  private bonjour: Bonjour | null = null
+  private bonjour: BonjourLike | null = null
   private browser: Browser | null = null
   private services = new Map<string, LocalTransferPeer>()
   private isScanning = false
@@ -92,9 +113,10 @@ class LocalTransferService {
     }
   }
 
-  private getBonjour(): Bonjour {
+  private getBonjour(): BonjourLike {
     if (!this.bonjour) {
-      this.bonjour = new Bonjour()
+      const BonjourCtor = resolveBonjourConstructor()
+      this.bonjour = new BonjourCtor()
     }
     return this.bonjour
   }

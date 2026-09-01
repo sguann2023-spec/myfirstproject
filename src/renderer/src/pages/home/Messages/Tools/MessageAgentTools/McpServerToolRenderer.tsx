@@ -6,11 +6,13 @@ import { useTranslation } from 'react-i18next'
 import { ToolArgsTable } from '../shared/ArgsTable'
 import { ToolHeader } from './GenericTools'
 import { ImageUnderstandeTool } from './ImageUnderstandeToolRenderer'
+import { VideoUnderstandeTool } from './VideoUnderstandeToolRenderer'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
 import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
 import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
 import { isImageUnderstandeToolName } from './imageUnderstandeTool'
+import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
 
 interface McpServerToolProps {
   toolName: string
@@ -68,9 +70,20 @@ export function McpServerToolRenderer({
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
+  const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
 
   if (isImageUnderstande) {
     return ImageUnderstandeTool({
+      toolName,
+      input,
+      output,
+      progress,
+      progressMessage
+    })
+  }
+
+  if (isVideoUnderstande) {
+    return VideoUnderstandeTool({
       toolName,
       input,
       output,

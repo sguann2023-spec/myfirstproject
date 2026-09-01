@@ -40,6 +40,11 @@ import {
   getImageUnderstandePointIconUrl,
   isImageUnderstandeToolName
 } from './MessageAgentTools/imageUnderstandeTool'
+import {
+  extractVideoUnderstandeBillingSummary,
+  getVideoUnderstandePointIconUrl,
+  isVideoUnderstandeToolName
+} from './MessageAgentTools/videoUnderstandeTool'
 import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
 import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
@@ -228,7 +233,16 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
     [t, tool?.name, tool?.serverName]
   )
   const billingSummary = useMemo(
-    () => (isImageUnderstandeToolName(tool?.name || '') ? extractImageUnderstandeBillingSummary(toolResponse.response) : null),
+    () => {
+      const toolName = tool?.name || ''
+      if (isImageUnderstandeToolName(toolName)) {
+        return extractImageUnderstandeBillingSummary(toolResponse.response)
+      }
+      if (isVideoUnderstandeToolName(toolName)) {
+        return extractVideoUnderstandeBillingSummary(toolResponse.response)
+      }
+      return null
+    },
     [tool?.name, toolResponse.response]
   )
 
@@ -331,7 +345,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
               <span className="image-understand-tool-billing-badge" title={`总消耗 ${billingSummary.displayText}`}>
                 <img
                   className="image-understand-tool-billing-icon"
-                  src={getImageUnderstandePointIconUrl()}
+                  src={isVideoUnderstandeToolName(tool?.name || '') ? getVideoUnderstandePointIconUrl() : getImageUnderstandePointIconUrl()}
                   alt=""
                   aria-hidden="true"
                 />

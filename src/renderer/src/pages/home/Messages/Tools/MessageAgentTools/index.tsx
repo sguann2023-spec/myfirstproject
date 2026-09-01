@@ -36,6 +36,7 @@ import { TaskOutputTool } from './TaskOutputTool'
 import { TodoWriteTool } from './TodoWriteTool'
 import { ToolSearchTool } from './ToolSearchTool'
 import { isAgentMcpToolName, McpServerToolRenderer } from './McpServerToolRenderer'
+import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
 import type { ToolInput, ToolOutput } from './types'
 import { AgentToolsType } from './types'
 import { UnknownToolRenderer } from './UnknownToolRenderer'
@@ -88,38 +89,6 @@ const TransparentCollapse = styled(Collapse)`
     background: transparent !important;
   }
 `
-
-const summarizeValue = (value: unknown): { type: string; length: number; preview: string } => {
-  if (typeof value === 'string') {
-    return {
-      type: 'string',
-      length: value.length,
-      preview: value.slice(0, 240)
-    }
-  }
-  if (value === undefined || value === null) {
-    return {
-      type: String(value),
-      length: 0,
-      preview: ''
-    }
-  }
-  try {
-    const serialized = JSON.stringify(value)
-    return {
-      type: Array.isArray(value) ? 'array' : typeof value,
-      length: serialized.length,
-      preview: serialized.slice(0, 240)
-    }
-  } catch {
-    const fallback = String(value)
-    return {
-      type: typeof value,
-      length: fallback.length,
-      preview: fallback.slice(0, 240)
-    }
-  }
-}
 
 /**
  * Type-safe tool renderer invocation function.
@@ -205,7 +174,7 @@ function ToolContent({
 
 // 统一的组件渲染入口
 export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolResponse }) {
-  const { arguments: args, response, tool, status, partialArguments } = toolResponse
+  const { arguments: args, response, responseRaw, tool, status, partialArguments } = toolResponse
   const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
 
@@ -290,11 +259,28 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   }
 
   const isLoading = effectiveStatus === 'streaming' || effectiveStatus === 'invoking'
+  const toolName = tool?.name || ''
+  const resolvedOutput = (() => {
+    if (isLoading) return undefined
+
+    // video-understand responses are frequently offloaded and their `responseRaw`
+    // string gets truncated for inline storage. Passing both shapes lets the helper
+    // prefer the intact `response` while keeping `responseRaw` as a fallback.
+    if (isVideoUnderstandeToolName(toolName) && response !== undefined && responseRaw !== undefined) {
+      return {
+        response,
+        responseRaw
+      }
+    }
+
+    return isAgentMcpToolName(toolName) ? (responseRaw ?? response) : response
+  })()
+
   return (
     <ToolContent
-      toolName={tool?.name}
+      toolName={toolName}
       input={args ?? parsedPartialArgs}
-      output={isLoading ? undefined : response}
+      output={resolvedOutput}
       isStreaming={isLoading}
       status={effectiveStatus}
       hasError={hasDisplayError}
