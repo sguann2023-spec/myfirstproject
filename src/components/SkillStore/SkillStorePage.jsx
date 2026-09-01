@@ -70,7 +70,11 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const [installingSkillId, setInstallingSkillId] = useState('');
   const [operationToast, setOperationToast] = useState(null);
   const operationToastTimerRef = useRef(null);
-  const featuredGridRef = useRef(null);
+  const skillGridRef = useRef(null);
+  const skillScrollHideTimerRef = useRef(null);
+  const [hasSkillScroll, setHasSkillScroll] = useState(false);
+  const [isSkillScrolling, setIsSkillScrolling] = useState(false);
+  const [skillScrollMetrics, setSkillScrollMetrics] = useState({ clientHeight: 0, scrollHeight: 0, scrollTop: 0 });
 
   useEffect(() => {
     const timer = window.setTimeout(() => void search(searchQuery), 250);
@@ -79,6 +83,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   useEffect(() => () => {
     if (operationToastTimerRef.current) window.clearTimeout(operationToastTimerRef.current);
+    if (skillScrollHideTimerRef.current) window.clearTimeout(skillScrollHideTimerRef.current);
   }, []);
 
   const installedCards = useMemo(() => {
@@ -217,9 +222,18 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     if (selectedSkills.length > 0) showUninstallSuccessToast(selectedSkills.length);
   };
 
-  const handleFeaturedScroll = (event) => {
-    if (view !== 'featured' || loading || featuredLoadingMore) return;
+  const handleSkillGridScroll = (event) => {
     const element = event.currentTarget;
+    setSkillScrollMetrics({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop
+    });
+    setIsSkillScrolling(true);
+    if (skillScrollHideTimerRef.current) window.clearTimeout(skillScrollHideTimerRef.current);
+    skillScrollHideTimerRef.current = window.setTimeout(() => setIsSkillScrolling(false), 700);
+
+    if (view !== 'featured' || loading || featuredLoadingMore) return;
     if (element.scrollHeight - element.scrollTop - element.clientHeight <= 120) {
       void loadMoreFeatured();
     }
@@ -248,6 +262,38 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const isSearch = view === 'search';
   const isInstalledView = view === 'installed';
   const showLoading = loading || searching;
+
+  useEffect(() => {
+    const grid = skillGridRef.current;
+    if (!grid || showLoading) {
+      setHasSkillScroll(false);
+      return undefined;
+    }
+
+    const updateScrollState = () => {
+      setHasSkillScroll(visibleSkills.length > 3 && grid.scrollHeight > grid.clientHeight + 1);
+      setSkillScrollMetrics({
+        clientHeight: grid.clientHeight,
+        scrollHeight: grid.scrollHeight,
+        scrollTop: grid.scrollTop
+      });
+    };
+    const frameId = window.requestAnimationFrame(updateScrollState);
+    const timeoutId = window.setTimeout(updateScrollState, 0);
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        window.cancelAnimationFrame(frameId);
+        window.clearTimeout(timeoutId);
+      };
+    }
+    const observer = new ResizeObserver(updateScrollState);
+    observer.observe(grid);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+      observer.disconnect();
+    };
+  }, [batchMode, featuredLoadingMore, showLoading, view, visibleSkills.length]);
 
   return (
     <>
@@ -329,11 +375,12 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
       {error ? <div className="skill-store-state is-error">{error}</div> : null}
       {!showLoading && visibleSkills.length === 0 ? <div className="skill-store-state">暂未找到相关技能</div> : null}
       {!showLoading ? (
-        <div
-          ref={view === 'featured' ? featuredGridRef : null}
-          className="skill-card-grid"
-          onScroll={view === 'featured' ? handleFeaturedScroll : undefined}
-        >
+        <div className="skill-card-grid-wrap">
+          <div
+            ref={skillGridRef}
+            className={`skill-card-grid${hasSkillScroll && visibleSkills.length > 3 ? ' is-scrollable' : ''}`}
+            onScroll={handleSkillGridScroll}
+          >
           {visibleSkills.map((skill) => (
             <div className="skill-card-shell" key={skill.id}>
               <SkillCard
@@ -363,6 +410,18 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
           ))}
           {view === 'featured' && featuredLoadingMore ? (
             Array.from({ length: 3 }, (_, index) => <SkillCardSkeleton key={`featured-loading-${index}`} />)
+          ) : null}
+          </div>
+          {hasSkillScroll && isSkillScrolling && skillScrollMetrics.scrollHeight > skillScrollMetrics.clientHeight ? (
+            <div className="skill-custom-scrollbar" aria-hidden="true">
+              <div
+                className="skill-custom-scrollbar-thumb"
+                style={{
+                  height: `${Math.max(28, (skillScrollMetrics.clientHeight / skillScrollMetrics.scrollHeight) * skillScrollMetrics.clientHeight)}px`,
+                  transform: `translateY(${(skillScrollMetrics.scrollTop / Math.max(1, skillScrollMetrics.scrollHeight - skillScrollMetrics.clientHeight)) * Math.max(0, skillScrollMetrics.clientHeight - Math.max(28, (skillScrollMetrics.clientHeight / skillScrollMetrics.scrollHeight) * skillScrollMetrics.clientHeight))}px)`
+                }}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
