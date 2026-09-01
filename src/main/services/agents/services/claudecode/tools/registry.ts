@@ -12,6 +12,7 @@ import FfmpegMediaServer from '@main/mcpServers/ffmpeg-media'
 import FileSystemServer from '@main/mcpServers/filesystem'
 import FileUploadServer from '@main/mcpServers/file-upload'
 import type ImageGenerateServer from '@main/mcpServers/image-generate'
+import ImageUnderstandServer from '@main/mcpServers/image-understand'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
@@ -99,6 +100,8 @@ export async function mountRuntimeMcpServers(input: {
   const mountedRuntimeMcpServers: string[] = []
   const hasActiveDomain = (domain: CapabilityDecision['activeDomains'][number]['domain']) =>
     capabilityDecision.activeDomains.some((entry) => entry.domain === domain)
+  const hasChatTurn =
+    capabilityDecision.primaryDomain === 'chat' || capabilityDecision.activeDomains.some((entry) => entry.domain === 'chat')
   const hasWorkspaceDomain = hasActiveDomain('workspace')
   const hasMaterialsDomain = hasActiveDomain('materials')
   const hasWebDomain = hasActiveDomain('web')
@@ -184,6 +187,17 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('file-upload', { type: 'sdk', name: 'file-upload', instance: fileUploadServer.mcpServer })
     autoAllowTools.add('mcp__file-upload__upload_file_to_oss')
     allowMcpPattern('mcp__file-upload__*')
+  }
+
+  if (hasChatTurn || shouldMountCapability('imageUnderstand')) {
+    const imageUnderstandServer = new ImageUnderstandServer(cwd)
+    mountMcpServer('image-understand', {
+      type: 'sdk',
+      name: 'image-understand',
+      instance: imageUnderstandServer.mcpServer
+    })
+    autoAllowTools.add('mcp__image-understand__inspect_image')
+    allowMcpPattern('mcp__image-understand__*')
   }
 
   if (hasAiMediaDomain) {

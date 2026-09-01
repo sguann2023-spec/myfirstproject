@@ -8,6 +8,7 @@ export type RuntimeCapability =
   | 'workspaceDownload'
   | 'webDownload'
   | 'uploadFile'
+  | 'imageUnderstand'
   | 'image'
   | 'video'
   | 'speech'
@@ -141,6 +142,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
 ) => {
   for (const activeDomain of activeDomains) {
     if (activeDomain.domain === 'chat') {
+      if (activeDomain.subdomains.includes('image_understand') && !selected.has('imageUnderstand')) {
+        addCapabilityReason(selected, reasons, 'imageUnderstand', 'intent:chat.image_understand')
+      }
       if (activeDomain.subdomains.includes('bash') && !selected.has('bash')) {
         addCapabilityReason(selected, reasons, 'bash', 'intent:chat.bash')
       }
@@ -409,6 +413,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'workspaceDownload',
   'webDownload',
   'uploadFile',
+  'imageUnderstand',
   'image',
   'video',
   'speech',
@@ -485,6 +490,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'workspaceDownload',
   'webDownload',
   'uploadFile',
+  'imageUnderstand',
   'image',
   'video',
   'speech',
@@ -1082,6 +1088,17 @@ const hasSubtitleRecognitionIntent = (text: string) =>
     /(字幕|文案|台词|时间轴)/.test(text)) ||
     (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text)))
 
+const hasImageUnderstandIntent = (text: string) =>
+  hasAnyKeyword(text, ['识图', '看图', '读图', '图片理解', '图像理解', '帮我看一下这张图', '分析这张图']) ||
+  (((/(理解|分析|总结|概括|描述|识别|识别下|看懂|看下|看一下|看看|读出|提取)/.test(text) ||
+    /写了什么/.test(text) ||
+    /是什么/.test(text) ||
+    /有什么/.test(text) ||
+    /二维码/.test(text) ||
+    /文字/.test(text)) &&
+    (/(图|图片|截图|照片|海报|封面|二维码|image|screenshot|photo)/.test(text) ||
+      hasUrlLikeText(text))))
+
 const hasVideoUnderstandIntent = (text: string) =>
   hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
   (((/(理解|分析|总结|概括|描述|识别|看懂|看下|看一下|看看)/.test(text) ||
@@ -1393,6 +1410,7 @@ export class CapabilityRouter {
       const hasTextDelete = !hasCutWorkflow && hasTextDeleteIntent(text)
       const hasTextUpdate = !hasCutWorkflow && hasTextUpdateIntent(text)
       const hasSubtitleRecognition = hasSubtitleRecognitionIntent(text)
+      const hasImageUnderstand = !hasCutWorkflow && !hasVideoUnderstandIntent(text) && hasImageUnderstandIntent(text)
       const hasVideoUnderstand = hasVideoUnderstandIntent(text)
       const hasSubtitleSrt = !hasCutWorkflow && hasSubtitleSrtIntent(text)
       const hasTextIntroAnimationList = !hasCutWorkflow && hasTextIntroAnimationListIntent(text)
@@ -1495,7 +1513,6 @@ export class CapabilityRouter {
         hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft && !hasWebPageSourceDownloadIntent
       const hasWebDownloadIntent = hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft
       const hasAiImageIntent =
-        args.imageCount > 0 ||
         hasAnyKeyword(text, [
           '生成图',
           '生成图片',
@@ -1511,6 +1528,7 @@ export class CapabilityRouter {
           'poster'
         ]) ||
         (text.includes('封面') && !hasDraftUpdateIntent)
+      const shouldUseImageUnderstand = args.imageCount > 0 ? !hasAiImageIntent : hasImageUnderstand
       const hasAiVideoIntent =
         (hasAnyKeyword(text, [
           '生成视频',
@@ -1554,7 +1572,7 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'browser', 'prompt:browser-or-url')
       }
 
-      if (hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
+      if (!(args.imageCount > 0 && shouldUseImageUnderstand) && hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'search', 'prompt:search')
       }
 
@@ -1579,6 +1597,15 @@ export class CapabilityRouter {
 
       if (hasMaterialsFolderLinks) {
         addCapabilityReason(selected, reasons, 'materialsFolderLinks', 'prompt:materials-folder-links')
+      }
+
+      if (shouldUseImageUnderstand) {
+        addCapabilityReason(
+          selected,
+          reasons,
+          'imageUnderstand',
+          args.imageCount > 0 ? 'prompt:image-understand-with-attachment' : 'prompt:image-understand'
+        )
       }
 
       if (hasAiImageIntent) {
@@ -1671,6 +1698,10 @@ export class CapabilityRouter {
 
       if (hasSubtitleRecognition) {
         addCapabilityReason(selected, reasons, 'subtitleRecognition', 'prompt:subtitle-recognition')
+      }
+
+      if (hasImageUnderstand) {
+        addCapabilityReason(selected, reasons, 'imageUnderstand', 'prompt:image-understand')
       }
 
       if (hasVideoUnderstand) {
@@ -1942,6 +1973,7 @@ export class CapabilityRouter {
       prompt: intentPrompt,
       normalizedPrompt: text,
       selected,
+      imageCount: args.imageCount,
       matchedWorkspaceSkill: matchedWorkspaceSkill?.skill,
       matchedWorkspaceSkillTriggerMode: matchedWorkspaceSkill?.triggerMode,
       hasCustomMcpServers: args.hasCustomMcpServers,
@@ -1998,6 +2030,7 @@ function classifyIntent(args: {
   prompt: string
   normalizedPrompt: string
   selected: Set<RuntimeCapability>
+  imageCount: number
   matchedWorkspaceSkill?: WorkspaceSkillRef
   matchedWorkspaceSkillTriggerMode?: SkillTriggerMode
   hasCustomMcpServers: boolean
@@ -2119,10 +2152,12 @@ function classifyIntent(args: {
     )
   const hasWebOpenIntent =
     hasImplicitWebUrlOpenIntent || hasExplicitWebOpenIntent
+  const suppressGenericWebInferenceForImageUnderstand = args.imageCount > 0 && args.selected.has('imageUnderstand')
   const hasWebSearchIntent =
     args.selected.has('search') ||
-    hasAnyKeyword(text, WEB_SEARCH_KEYWORDS) ||
-    /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text)
+    ((!suppressGenericWebInferenceForImageUnderstand &&
+      hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) ||
+      /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text))
 
   if (hasWorkspaceReadIntent && !suppressWorkspaceInferenceForBash) {
     addDomainSubdomain('workspace', 'read', 'prompt:workspace-read')
@@ -2167,6 +2202,7 @@ function classifyIntent(args: {
     addDomainSubdomain('materials', 'folder_links', 'capability:materials-folder-links')
   }
 
+  if (args.selected.has('imageUnderstand')) addDomainSubdomain('chat', 'image_understand', 'capability:image-understand')
   if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
   if (args.selected.has('video')) addDomainSubdomain('ai_media', 'video', 'capability:video')
   if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')

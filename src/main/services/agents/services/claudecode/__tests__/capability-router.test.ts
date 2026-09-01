@@ -1323,10 +1323,7 @@ describe('CapabilityRouter', () => {
     expect(buildToolSurface({ decision: skillsDecision, isAssistant: false }).builtinTools).toEqual(
       expect.arrayContaining(['Read', 'Write', 'Bash', 'Task', 'WebSearch', 'WebFetch'])
     )
-    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual([
-      'InspectImage',
-      'AskUserQuestion'
-    ])
+    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual(['AskUserQuestion'])
   })
 
   it('routes prompts matching workspace skill metadata into the skills domain', () => {
@@ -1446,6 +1443,24 @@ describe('CapabilityRouter', () => {
     expect(imageDecision.selected.has('image')).toBe(true)
   })
 
+  it('routes attached image inspection into image understand instead of image generation', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '帮我看看这张图里写了什么',
+      sessionId: 'session-image-understand',
+      imageCount: 1,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('chat')
+    expect(decision.subdomains).toEqual(['image_understand'])
+    expect(decision.selected.has('imageUnderstand')).toBe(true)
+    expect(decision.selected.has('image')).toBe(false)
+  })
+
   it('routes from bounded conversation context instead of only the latest short prompt', () => {
     const router = new CapabilityRouter()
 
@@ -1536,12 +1551,12 @@ describe('CapabilityRouter', () => {
     const workspaceSurface = buildToolSurface({ decision: workspaceDecision, isAssistant: false })
     const mixedSurface = buildToolSurface({ decision: mixedDecision, isAssistant: false })
 
-    expect(webSurface.builtinTools).toEqual(expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'WebSearch']))
+    expect(webSurface.builtinTools).toEqual(expect.arrayContaining(['AskUserQuestion', 'WebSearch']))
     expect(workspaceSurface.builtinTools).toEqual(
-      expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'Read', 'Bash', 'Write', 'Edit', 'MultiEdit'])
+      expect.arrayContaining(['AskUserQuestion', 'Read', 'Bash', 'Write', 'Edit', 'MultiEdit'])
     )
     expect(mixedSurface.builtinTools).toEqual(
-      expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'Read', 'Bash', 'WebSearch'])
+      expect.arrayContaining(['AskUserQuestion', 'Read', 'Bash', 'WebSearch'])
     )
   })
 })

@@ -2526,6 +2526,7 @@
           "file_upload": "檔案上傳",
           "filesystem_server": "檔案系統",
           "image": "圖像",
+          "image_understand": "圖片理解",
           "koubo_template": "口播模板",
           "search": "聯網搜尋",
           "seed_audio": "豆包音訊",
@@ -2659,6 +2660,9 @@
           "image": {
             "generate_or_edit_image": "生成或編輯圖片",
             "get_image_capabilities": "查看圖像模型"
+          },
+          "image_understand": {
+            "inspect_image": "識圖"
           },
           "koubo_template": {
             "submit_koubo_template_task": "提交口播模板任務"

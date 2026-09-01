@@ -2526,6 +2526,7 @@
           "file_upload": "File Upload",
           "filesystem_server": "Filesystem",
           "image": "Image",
+          "image_understand": "Image Understanding",
           "koubo_template": "Talking Head Template",
           "materials": "Materials",
           "search": "Web Search",
@@ -2661,6 +2662,9 @@
           "image": {
             "generate_or_edit_image": "Generate or Edit Image",
             "get_image_capabilities": "View Image Models"
+          },
+          "image_understand": {
+            "inspect_image": "Inspect Image"
           },
           "koubo_template": {
             "submit_koubo_template_task": "Submit Talking Head Template Task"

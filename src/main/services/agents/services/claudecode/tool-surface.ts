@@ -3,7 +3,7 @@ import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { CapabilityDecision, IntentDomain, RuntimeToolLayer } from './capability-router'
 
 export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
-  chat: ['InspectImage', 'AskUserQuestion'],
+  chat: ['AskUserQuestion'],
   web: [],
   'workspace-read': ['Read', 'NotebookRead', 'Bash'],
   'workspace-write': ['Read', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'],
@@ -20,7 +20,7 @@ export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
   ]
 }
 
-const SAFE_AUTO_ALLOW_BUILTINS = new Set(['Read', 'NotebookRead', 'InspectImage', 'TodoWrite'])
+const SAFE_AUTO_ALLOW_BUILTINS = new Set(['Read', 'NotebookRead', 'TodoWrite'])
 
 const FILTERED_TOOLS = new Set(['WebFetch', 'mcp__exa__web_fetch_exa'])
 
@@ -93,9 +93,9 @@ export function buildToolSurface(args: {
     domainBuiltinTools.length === 0 &&
     (args.decision.activeDomains.length === 0 ||
       args.decision.activeDomains.every((domainEntry) => ['chat', 'workspace', 'web'].includes(domainEntry.domain)))
-  const builtinTools = hasSkillsDomain
+  const builtinTools = (hasSkillsDomain
     ? ALL_BUILTIN_TOOLS
-    : Array.from(new Set([...baseChatTools, ...(shouldUseFallbackLayerTools ? fallbackLayerTools : domainBuiltinTools)]))
+    : Array.from(new Set([...baseChatTools, ...(shouldUseFallbackLayerTools ? fallbackLayerTools : domainBuiltinTools)])))
   const availableBuiltinSet = new Set(builtinTools)
   const sessionAllowedTools = (args.sessionAllowedTools ?? []).filter((tool) => !FILTERED_TOOLS.has(tool))
   const autoAllowedTools = new Set<string>()

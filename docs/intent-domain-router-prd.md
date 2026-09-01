@@ -77,14 +77,17 @@ type IntentRoute = {
 
 建议子能力：
 
+- `image_understand`
 - `bash`
 
 已接入工具：
 
+- `image_understand` -> `mcp__image-understand__inspect_image`；固定走视觉理解模型 `qwen3.7-plus`，远程图片 URL 直接透传，本地图片路径或 `file://` URL 由工具内部自动转成可提交格式；这是 chat 域默认挂载的识图能力，不需要先命中 `ai_media.image`
 - `bash` -> `Bash`
 
 说明：
 
+- `image_understand`：用于“帮我看下这张图”“识别图里文字”“解释截图界面是什么”“描述图片内容”等聊天理解类识图请求。产品语义上属于 `chat` 域的固定理解能力，而不是 `ai_media.image` 那类图片生成/编辑能力；在 chat 域下应默认挂载，不要求先命中专门的识图路由才能暴露该 MCP
 - `bash`：用于通用命令执行、终端探测、脚本运行、临时 shell 操作；它是底层通用执行能力，不等同于 `workspace` 域的工程读写能力；若任务核心是“跑一条命令”“执行脚本”“用 bash / terminal 处理文件”，应优先视为 `chat.bash`，再按需要伴随命中 `workspace`
 - 除 `chat` 外，`workspace` / `materials` / `web` / `ai_media` / `skills` / `auxiliary` / `scrapt` / `cut` 这些已命中的主域，默认也允许伴随暴露 `Bash`，用于模型在主工具链不足时执行必要的目录探测、脚本编排或命令兜底；但它仍属于通用底层能力，不改变各主域的优先工具选择
 
@@ -439,6 +442,7 @@ type IntentRoute = {
 - 用户提到“把两个视频拼在一起”“合并多个视频片段”“拼接视频文件”“把几段视频接成一个”时，应优先命中 `video_concat`
 - 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
 - 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
+- 用户提到“帮我看下这张图”“识别图里文字”“解释这个截图界面是什么”“描述图片里有什么”“看看这张图在讲什么”时，应优先命中 `chat.image_understand`
 - 用户提到“执行剪辑工作流”“运行 workflow_id”“把 inputs + script 一次性写进草稿”“调用 execute_workflow”“按工作流执行”时，应优先命中 `workflow`，且不要再并行命中 `add_batch_*` 或其他单步草稿编辑工具
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
 - `subtitle_recognition` 支持服务端可访问的音频/视频链接，也支持本地音频/视频文件路径、拖入文件或 workspace 内文件；遇到本地媒体时，工具内部负责上传后再调用远端字幕识别接口，Agent 不需要额外先走 `workspace.upload`
@@ -507,6 +511,12 @@ type IntentRoute = {
 
 - `Bash`
 - 测试/构建相关 runtime 工具
+
+#### `chat`
+
+默认挂：
+
+- `mcp__image-understand__inspect_image`
 
 #### `materials.folder_links`
 
@@ -594,6 +604,7 @@ type IntentRoute = {
 | 用户输入 | 预期主域 | 预期子能力 | 备注 |
 | --- | --- | --- | --- |
 | `你好` | `chat` | `[]` | 基础对话 |
+| `帮我看看这张图里写了什么` | `chat` | `["image_understand"]` | 识图属于聊天理解能力，默认挂 chat 域的固定 MCP |
 | `看下今天热点` | `web` | `["search"]` | 网络搜索 |
 | `反推 xx 链接的提示词` | `scrapt` | `["derive_prompt"]` | 爬虫反推提示词 |
 | `将一段文案合成语音` | `ai_media` | `["speech"]` | 默认按传统 TTS 理解 |

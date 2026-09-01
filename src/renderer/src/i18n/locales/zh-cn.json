@@ -2526,6 +2526,7 @@
           "file_upload": "文件上传",
           "filesystem_server": "文件系统",
           "image": "图像",
+          "image_understand": "图片理解",
           "koubo_template": "口播模板",
           "materials": "素材库",
           "search": "联网搜索",
@@ -2661,6 +2662,9 @@
           "image": {
             "generate_or_edit_image": "生成或编辑图片",
             "get_image_capabilities": "查看图像模型"
+          },
+          "image_understand": {
+            "inspect_image": "识图"
           },
           "koubo_template": {
             "submit_koubo_template_task": "提交口播模板任务"
