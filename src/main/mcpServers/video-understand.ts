@@ -227,6 +227,7 @@ type StructuredVideoAnalysis = {
 type VideoAnalysisResult = {
   videoIndex: number
   originalInput: string
+  absolutePath: string | null
   sourceKind: 'remote_video' | 'local_video'
   fps: number
   durationSeconds: number
@@ -247,6 +248,7 @@ type TextArtifactResult = {
 type VideoResultFileReference = TextArtifactResult & {
   videoIndex: number
   originalInput: string
+  absolutePath: string | null
   kind: 'video_result'
 }
 
@@ -1357,6 +1359,7 @@ class VideoUnderstandServer {
         return {
           videoIndex: options.videoIndex,
           originalInput: preparedSource.originalInput,
+          absolutePath: preparedSource.sourceKind === 'local_video' ? preparedSource.localPath : null,
           sourceKind: preparedSource.sourceKind,
           fps: options.fps,
           durationSeconds,
@@ -1387,6 +1390,7 @@ class VideoUnderstandServer {
     for (const video of videos) {
       lines.push(`## 视频 ${video.videoIndex}`)
       lines.push(`- 输入：${video.originalInput}`)
+      lines.push(`- 绝对路径：${video.absolutePath || '无（远端视频）'}`)
       lines.push(`- 来源：${video.sourceKind === 'remote_video' ? '远端视频' : '本地视频'}`)
       lines.push(`- 采样率：${video.fps} fps`)
       lines.push(`- 时长：${formatSeconds(video.durationSeconds)}秒`)
@@ -1426,6 +1430,7 @@ class VideoUnderstandServer {
     prompt: string
     totalConsumedPoints: number
     totalVideos: number
+    videos: VideoAnalysisResult[]
     resultFiles: VideoResultFileReference[]
     aggregateFile: TextArtifactResult | null
   }) {
@@ -1443,7 +1448,9 @@ class VideoUnderstandServer {
     lines.push('', '## 单视频结果文件', '')
 
     for (const resultFile of options.resultFiles) {
-      lines.push(`- 视频 ${resultFile.videoIndex}：${resultFile.relativePath}`)
+      const matchedVideo = options.videos.find((video) => video.videoIndex === resultFile.videoIndex)
+      lines.push(`- 视频 ${resultFile.videoIndex} 结果文件：${resultFile.relativePath}`)
+      lines.push(`- 视频 ${resultFile.videoIndex} 绝对路径：${matchedVideo?.absolutePath || '无（远端视频）'}`)
     }
 
     return lines.join('\n').trim()
@@ -1535,6 +1542,7 @@ class VideoUnderstandServer {
             ...resultFile,
             videoIndex: video.videoIndex,
             originalInput: video.originalInput,
+            absolutePath: video.absolutePath,
             kind: 'video_result'
           }
         })
@@ -1547,6 +1555,7 @@ class VideoUnderstandServer {
         prompt: jobConfig.prompt,
         totalConsumedPoints,
         totalVideos: videos.length,
+        videos,
         resultFiles: videoResultFiles,
         aggregateFile: aggregateResultFile
       }),
@@ -1576,6 +1585,7 @@ class VideoUnderstandServer {
         kind: resultFile.kind,
         video_index: resultFile.videoIndex,
         original_input: resultFile.originalInput,
+        absolute_video_path: resultFile.absolutePath,
         file_path: resultFile.filePath,
         relative_path: resultFile.relativePath
       }))
@@ -1597,6 +1607,7 @@ class VideoUnderstandServer {
       videos: videos.map((video) => ({
         video_index: video.videoIndex,
         original_input: video.originalInput,
+        absolute_video_path: video.absolutePath,
         source_kind: video.sourceKind,
         fps: video.fps,
         duration_seconds: video.durationSeconds,

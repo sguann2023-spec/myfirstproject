@@ -131,6 +131,7 @@ describe('VideoUnderstandServer', () => {
       return {
         videoIndex,
         originalInput: source,
+        absolutePath: path.resolve(workspaceRoot, source),
         sourceKind: 'local_video',
         fps,
         durationSeconds: 12.4,
@@ -195,10 +196,12 @@ describe('VideoUnderstandServer', () => {
     const indexText = await fs.readFile(payload.result_files[0].file_path, 'utf8')
     expect(indexText).toContain('# 视频理解结果文件索引')
     expect(indexText).toContain('- 视频数量：2')
+    expect(indexText).toContain(`- 视频 1 绝对路径：${path.resolve(workspaceRoot, 'video-a.mp4')}`)
 
     const aggregateText = await fs.readFile(payload.result_files[1].file_path, 'utf8')
     expect(aggregateText).toContain('# 视频理解结果')
     expect(aggregateText).toContain('## 视频 1')
+    expect(aggregateText).toContain(`- 绝对路径：${path.resolve(workspaceRoot, 'video-a.mp4')}`)
     expect(aggregateText).toContain('### 标题')
     expect(aggregateText).toContain('### 描述')
     expect(aggregateText).not.toContain('### 时间线详情')
@@ -216,7 +219,13 @@ describe('VideoUnderstandServer', () => {
       total_consumed_points: 3.75
     })
     expect(artifactPayload.videos).toHaveLength(2)
+    expect(artifactPayload.videos[0]).toMatchObject({
+      absolute_video_path: path.resolve(workspaceRoot, 'video-a.mp4')
+    })
     expect(artifactPayload.result_files).toHaveLength(4)
+    expect(artifactPayload.result_files[2]).toMatchObject({
+      absolute_video_path: path.resolve(workspaceRoot, 'video-a.mp4')
+    })
   })
 
   it('should split a long video into batches of at most 30 frames', async () => {
