@@ -200,6 +200,8 @@ ${evidenceLine}
 
 - The current workspace absolute path is: ${workspacePath}
 - Treat this absolute path as the workspace root for this turn.
+- On Windows, prefer Git Bash-compatible commands and POSIX shell syntax for shell work whenever possible.
+- On Windows, avoid suggesting or emitting PowerShell- or cmd.exe-specific syntax unless the user explicitly asks for PowerShell/cmd or the task truly requires a Windows-native shell.
 - Before any file-related action, first confirm the current workspace structure and the relevant target path with available workspace tools such as Read or Bash.
 - When a file, command output, or JSON document is large, do not dump the full body inline into the conversation. Prefer targeted reads, filters, or scripts, and write intermediate full inputs/outputs to files inside the workspace.
 - For very large JSON, logs, transcripts, or generated text, prefer shell or code workflows such as \`jq\`, \`rg\`, \`head\`, \`tail\`, or small scripts that extract only the needed slice before responding.

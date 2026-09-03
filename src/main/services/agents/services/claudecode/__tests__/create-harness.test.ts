@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+let mockIsWin = false
 
 vi.mock('electron', () => ({
   net: {}
@@ -15,7 +17,9 @@ vi.mock('@logger', () => ({
 }))
 
 vi.mock('@main/constant', () => ({
-  isWin: false
+  get isWin() {
+    return mockIsWin
+  }
 }))
 
 vi.mock('@main/utils/process', () => ({
@@ -55,11 +59,20 @@ vi.mock('@shared/sessionPayloadLimits', () => {
   }
 })
 
-import { buildLimitedPiToolPayload } from '../harness/create-harness'
+import { findGitBash, validateGitBashPath } from '@main/utils/process'
+
+import { buildLimitedPiToolPayload, resolveShellExecutable } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
 const MAX_INLINE_TOOL_PAYLOAD_BYTES = 16 * 1024
+const mockedFindGitBash = vi.mocked(findGitBash)
+const mockedValidateGitBashPath = vi.mocked(validateGitBashPath)
+
+beforeEach(() => {
+  mockIsWin = false
+  vi.clearAllMocks()
+})
 
 describe('buildLimitedPiToolPayload', () => {
   it('keeps small MCP payloads structured for PI harness', () => {
@@ -96,5 +109,37 @@ describe('buildLimitedPiToolPayload', () => {
     expect(text).toContain('已截断')
     expect(text).toContain('mcp__demo__tool 回包')
     expect(getUtf8ByteLength(text)).toBeLessThanOrEqual(MAX_INLINE_TOOL_PAYLOAD_BYTES)
+  })
+})
+
+describe('resolveShellExecutable', () => {
+  it('prefers configured Git Bash path on Windows', () => {
+    mockIsWin = true
+    mockedValidateGitBashPath.mockReturnValue('C:\\PortableGit\\bin\\bash.exe')
+    mockedFindGitBash.mockReturnValue('C:\\Program Files\\Git\\bin\\bash.exe')
+
+    const result = resolveShellExecutable({
+      CLAUDE_CODE_GIT_BASH_PATH: 'C:\\PortableGit\\bin\\bash.exe'
+    })
+
+    expect(result).toBe('C:\\PortableGit\\bin\\bash.exe')
+  })
+
+  it('falls back to discovered Git Bash on Windows', () => {
+    mockIsWin = true
+    mockedValidateGitBashPath.mockReturnValue(null)
+    mockedFindGitBash.mockReturnValue('C:\\Program Files\\Git\\bin\\bash.exe')
+
+    const result = resolveShellExecutable({})
+
+    expect(result).toBe('C:\\Program Files\\Git\\bin\\bash.exe')
+  })
+
+  it('throws when Windows Git Bash is unavailable', () => {
+    mockIsWin = true
+    mockedValidateGitBashPath.mockReturnValue(null)
+    mockedFindGitBash.mockReturnValue(null)
+
+    expect(() => resolveShellExecutable({})).toThrow('Git Bash is required for shell execution on Windows')
   })
 })

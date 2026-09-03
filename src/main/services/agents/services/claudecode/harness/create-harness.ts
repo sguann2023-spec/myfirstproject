@@ -218,7 +218,7 @@ function resolveWorkspaceUploadArguments(
   return params
 }
 
-function resolveShellExecutable(env: Record<string, string>): string {
+export function resolveShellExecutable(env: Record<string, string>): string {
   if (!isWin) {
     return process.env.SHELL || '/bin/bash'
   }
@@ -233,7 +233,9 @@ function resolveShellExecutable(env: Record<string, string>): string {
     return discoveredGitBashPath
   }
 
-  return process.env.ComSpec || 'cmd.exe'
+  throw new Error(
+    'Git Bash is required for shell execution on Windows, but no valid bash.exe was found. Ensure bundled PortableGit is packaged correctly or set CLAUDE_CODE_GIT_BASH_PATH.'
+  )
 }
 
 async function executeShellCommand(input: {
