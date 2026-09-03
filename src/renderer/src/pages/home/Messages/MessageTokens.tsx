@@ -87,17 +87,48 @@ function extractBillingPointsFromPayload(payload: unknown): number | null {
 
   const nestedBilling = asRecord(record.billing)
   if (nestedBilling) {
-    return asFiniteNumber(nestedBilling.total_consumed_points)
+    return asFiniteNumber(
+      nestedBilling.total_consumed_points ?? nestedBilling.points_consumed ?? nestedBilling.consume
+    )
   }
 
   if ('total_consumed_points' in record) {
     return asFiniteNumber(record.total_consumed_points)
   }
 
+  if ('points_consumed' in record) {
+    return asFiniteNumber(record.points_consumed)
+  }
+
+  if ('consume' in record) {
+    return asFiniteNumber(record.consume)
+  }
+
+  if ('responseRaw' in record) {
+    const nestedResponseRawPoints = extractBillingPointsFromPayload(record.responseRaw)
+    if (nestedResponseRawPoints !== null) {
+      return nestedResponseRawPoints
+    }
+  }
+
   if ('response' in record) {
     const nestedResponsePoints = extractBillingPointsFromPayload(record.response)
     if (nestedResponsePoints !== null) {
       return nestedResponsePoints
+    }
+  }
+
+  if ('output' in record) {
+    const nestedOutputPoints = extractBillingPointsFromPayload(record.output)
+    if (nestedOutputPoints !== null) {
+      return nestedOutputPoints
+    }
+  }
+
+  if ('result' in record) {
+    const nestedResultPoints = extractBillingPointsFromPayload(record.result)
+    if (nestedResultPoints !== null) {
+      return nestedResultPoints
     }
   }
 

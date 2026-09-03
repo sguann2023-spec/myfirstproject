@@ -45,6 +45,10 @@ import {
   getVideoUnderstandePointIconUrl,
   isVideoUnderstandeToolName
 } from './MessageAgentTools/videoUnderstandeTool'
+import {
+  extractMediaGenerationBillingSummary,
+  getMediaGenerationPointIconUrl
+} from './MessageAgentTools/mediaGenerationBilling'
 import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
 import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
@@ -63,6 +67,37 @@ interface Props {
 }
 
 const logger = loggerService.withContext('MessageTools')
+
+const mediaGenerationLegacyHeaderBillingBadgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
+  paddingLeft: 4,
+  paddingRight: 4,
+  color: '#000000',
+  fontSize: 14,
+  fontWeight: 'normal',
+  flexShrink: 0,
+  lineHeight: 1,
+  transform: 'translateY(2px)'
+}
+
+const mediaGenerationLegacyHeaderBillingIconStyle = {
+  width: 14,
+  height: 14,
+  display: 'block',
+  flexShrink: 0,
+  transform: 'translateY(0.5px)'
+}
+
+const mediaGenerationLegacyHeaderBillingTextStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  fontSize: 12,
+  fontWeight: 'normal',
+  lineHeight: 1,
+  transform: 'translateY(0.5px)'
+}
 
 const collectImagePreviewCandidates = (values: unknown[]): string[] => {
   const candidates = new Set<string>()
@@ -241,10 +276,54 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       if (isVideoUnderstandeToolName(toolName)) {
         return extractVideoUnderstandeBillingSummary(toolResponse.response)
       }
+      if (isMediaGenerationToolName(toolName)) {
+        return extractMediaGenerationBillingSummary({
+          response: toolResponse.response,
+          responseRaw: toolResponse.responseRaw
+        })
+      }
       return null
     },
-    [tool?.name, toolResponse.response]
+    [tool?.name, toolResponse.response, toolResponse.responseRaw]
   )
+
+  if (isMediaGenerationToolName(tool?.name || '')) {
+    // #region debug-point C:message-mcp-tool-billing
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'media-billing-missing',
+        runId: 'pre-fix',
+        hypothesisId: 'C',
+        location: 'MessageMcpTool.tsx:billingSummary',
+        msg: '[DEBUG] legacy message mcp tool billing state',
+        data: {
+          toolName: tool?.name || '',
+          status,
+          progress,
+          progressMessage,
+          hasBillingSummary: Boolean(billingSummary),
+          billingDisplayText: billingSummary?.displayText ?? null,
+          responsePreview: (() => {
+            try {
+              return JSON.stringify(toolResponse.response).slice(0, 280)
+            } catch {
+              return String(toolResponse.response).slice(0, 280)
+            }
+          })(),
+          responseRawPreview: (() => {
+            try {
+              return JSON.stringify(toolResponse.responseRaw).slice(0, 280)
+            } catch {
+              return String(toolResponse.responseRaw).slice(0, 280)
+            }
+          })()
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
+  }
 
   useEffect(() => {
     const removeListener = window.electron.ipcRenderer.on(
@@ -342,14 +421,28 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
               <ToolStatusIndicator status={getEffectiveStatus(status, approval.isWaiting)} hasError={hasError} />
             )}
             {billingSummary && !isPending && progress <= 0 && (
-              <span className="image-understand-tool-billing-badge" title={`总消耗 ${billingSummary.displayText}`}>
+              <span
+                className="image-understand-tool-billing-badge"
+                style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingBadgeStyle : undefined}
+                title={`总消耗 ${billingSummary.displayText}`}>
                 <img
                   className="image-understand-tool-billing-icon"
-                  src={isVideoUnderstandeToolName(tool?.name || '') ? getVideoUnderstandePointIconUrl() : getImageUnderstandePointIconUrl()}
+                  src={
+                    isVideoUnderstandeToolName(tool?.name || '')
+                      ? getVideoUnderstandePointIconUrl()
+                      : isMediaGenerationToolName(tool?.name || '')
+                        ? getMediaGenerationPointIconUrl()
+                        : getImageUnderstandePointIconUrl()
+                  }
+                  style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingIconStyle : undefined}
                   alt=""
                   aria-hidden="true"
                 />
-                <span className="image-understand-tool-billing-text">{billingSummary.displayText}</span>
+                <span
+                  className="image-understand-tool-billing-text"
+                  style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingTextStyle : undefined}>
+                  {billingSummary.displayText}
+                </span>
               </span>
             )}
             {!isPending && (

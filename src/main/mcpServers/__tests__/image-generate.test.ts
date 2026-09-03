@@ -339,6 +339,9 @@ describe('ImageGenerateServer', () => {
           message: '处理完成',
           error: '',
           result: {
+            billing: {
+              consume: 3
+            },
             image: 'https://example.com/result.png',
             draft_id: 'draft-1',
             draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-1',
@@ -409,12 +412,18 @@ describe('ImageGenerateServer', () => {
       progress: 100,
       message: '处理完成',
       error: '',
+      billing: {
+        consume: 3
+      },
       output: {
         image_url: 'https://example.com/result.png',
         draft_id: 'draft-1',
         draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-1'
       },
       result: {
+        billing: {
+          consume: 3
+        },
         image: 'https://example.com/result.png',
         draft_id: 'draft-1',
         draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=draft-1',
@@ -495,14 +504,7 @@ describe('ImageGenerateServer', () => {
       provider: 'vectcut',
       action: 'submit',
       task_id: 'task-local-ref-123',
-      reference_images: ['https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1'],
-      reference_images_prepared: [
-        {
-          originalInput: '/tmp/reference-style.png',
-          submittedUrl: 'https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1',
-          sourceKind: 'local_file'
-        }
-      ]
+      reference_images: ['https://oss-cn-hangzhou.aliyuncs.com/agent_tmp/demo/reference-style.png?token=1']
     })
   })
 
@@ -542,16 +544,7 @@ describe('ImageGenerateServer', () => {
       provider: 'vectcut',
       action: 'submit',
       task_id: 'task-inline-ref-123',
-      reference_images: ['https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1'],
-      reference_images_prepared: [
-        {
-          submittedUrl: 'https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1',
-          previewUrl: 'https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1',
-          sourceKind: 'local_file',
-          mimeType: 'image/png',
-          data: 'data:image/png;base64,aGVsbG8='
-        }
-      ]
+      reference_images: ['https://open.vectcut.com/download/agent_tmp/demo/pasted-screenshot.png?token=1']
     })
   })
 
@@ -722,12 +715,20 @@ describe('ImageGenerateServer', () => {
     expect(JSON.parse(result.content[0].text)).toEqual({
       provider: 'vectcut',
       action: 'status',
+      estimated_wait_time: '3-5 minutes',
       success: true,
       task_id: 'task-123',
       status: 'success',
       progress: 100,
       message: '处理完成',
       error: '',
+      output: {
+        image_url: 'https://example.com/result.png',
+        draft_id: 'draft-1',
+        draft_url: undefined,
+        reused_from_history: false,
+        error: undefined
+      },
       result: {
         image: 'https://example.com/result.png',
         draft_id: 'draft-1',

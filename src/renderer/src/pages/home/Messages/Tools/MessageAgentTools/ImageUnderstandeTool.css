@@ -51,6 +51,9 @@
   font-size: 14px;
   font-weight: normal;
   flex-shrink: 0;
+  line-height: 1;
+  position: relative;
+  top: 2px;
 }
 
 .image-understand-tool-billing-icon {
@@ -58,6 +61,7 @@
   height: 14px;
   display: block;
   flex-shrink: 0;
+  transform: translateY(0.5px);
 }
 
 .image-understand-tool-billing-text {
@@ -65,5 +69,6 @@
   align-items: center;
   font-size: 12px;
   font-weight: normal;
-  line-height: 1.5;
+  line-height: 1;
+  transform: translateY(0.5px);
 }

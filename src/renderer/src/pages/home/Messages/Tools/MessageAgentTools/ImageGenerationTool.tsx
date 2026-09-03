@@ -9,6 +9,7 @@ import {
   parseOutput,
   type MediaGenerationToolProps
 } from './mediaGenerationShared'
+import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl } from './mediaGenerationBilling'
 import './ImageGenerationTool.css'
 
 const IMAGE_GENERATION_LOADING_VIDEO_URL = 'https://player.install-ai-guider.top/example/loading_video.mp4'
@@ -478,6 +479,7 @@ export function ImageGenerationToolBody({ input, output, isRunning }: MediaGener
   const imageUrl = useMemo(() => getImageUrl(parsedOutput), [parsedOutput])
   const previewSrc = useMemo(() => buildPreviewSrc(imageUrl), [imageUrl])
   const prompt = useMemo(() => getPrompt(parsedInput, parsedOutput), [parsedInput, parsedOutput])
+  const billingSummary = useMemo(() => extractMediaGenerationBillingSummary(output), [output])
   const referenceMediaItems = useMemo(
     () => getReferenceMediaItems(parsedInput, parsedOutput),
     [parsedInput, parsedOutput]
@@ -488,7 +490,8 @@ export function ImageGenerationToolBody({ input, output, isRunning }: MediaGener
   const measureRef = useRef<HTMLSpanElement | null>(null)
   const [promptLayout, setPromptLayout] = useState<PromptLayout>({ firstLine: prompt || '', secondLine: '' })
   const [failedReferenceSources, setFailedReferenceSources] = useState<Record<string, number>>({})
-  const showHeader = referenceMediaItems.length > 0 || Boolean(prompt) || metaItems.length > 0
+  const hasMetaContent = metaItems.length > 0 || Boolean(billingSummary)
+  const showHeader = referenceMediaItems.length > 0 || Boolean(prompt) || hasMetaContent
   const shouldShowLoadingPreview = Boolean(isRunning && !previewSrc)
 
   useEffect(() => {
@@ -511,7 +514,7 @@ export function ImageGenerationToolBody({ input, output, isRunning }: MediaGener
     }
 
     const chars = Array.from(prompt)
-    const secondLineGap = metaItems.length > 0 ? 12 : 0
+    const secondLineGap = hasMetaContent ? 12 : 0
     const secondLineWidth = Math.max(rowWidth - metaWidth - secondLineGap, 48)
 
     const measureWidth = (value: string): number => {
@@ -536,7 +539,7 @@ export function ImageGenerationToolBody({ input, output, isRunning }: MediaGener
       firstLine: chars.slice(0, firstLineCount).join(''),
       secondLine: `${chars.slice(firstLineCount, consumedCount).join('')}${hasMore ? '…' : ''}`
     })
-  }, [metaItems.length, prompt])
+  }, [hasMetaContent, prompt])
 
   useLayoutEffect(() => {
     recalculatePromptLayout()
@@ -635,8 +638,19 @@ export function ImageGenerationToolBody({ input, output, isRunning }: MediaGener
                       <div className="image-generation-tool-reference-prompt-line image-generation-tool-reference-prompt-line--second">
                         {promptLayout.secondLine}
                       </div>
-                      {metaItems.length > 0 ? (
+                      {hasMetaContent ? (
                         <div className="image-generation-tool-reference-meta" ref={metaRef}>
+                          {billingSummary ? (
+                            <span className="media-generation-tool-billing-badge" title={`总消耗 ${billingSummary.displayText}`}>
+                              <img
+                                className="media-generation-tool-billing-icon"
+                                src={getMediaGenerationPointIconUrl()}
+                                alt=""
+                                aria-hidden="true"
+                              />
+                              <span className="media-generation-tool-billing-text">{billingSummary.displayText}</span>
+                            </span>
+                          ) : null}
                           {metaItems.map((item) => (
                             <span className="image-generation-tool-reference-meta-item" key={item}>
                               {item}
@@ -649,8 +663,19 @@ export function ImageGenerationToolBody({ input, output, isRunning }: MediaGener
                 </Tooltip>
               ) : null}
               <span className="image-generation-tool-reference-measure" ref={measureRef} aria-hidden="true" />
-              {prompt ? null : metaItems.length > 0 ? (
+              {prompt ? null : hasMetaContent ? (
                 <div className="image-generation-tool-reference-meta" ref={metaRef}>
+                  {billingSummary ? (
+                    <span className="media-generation-tool-billing-badge" title={`总消耗 ${billingSummary.displayText}`}>
+                      <img
+                        className="media-generation-tool-billing-icon"
+                        src={getMediaGenerationPointIconUrl()}
+                        alt=""
+                        aria-hidden="true"
+                      />
+                      <span className="media-generation-tool-billing-text">{billingSummary.displayText}</span>
+                    </span>
+                  ) : null}
                   {metaItems.map((item) => (
                     <span className="image-generation-tool-reference-meta-item" key={item}>
                       {item}

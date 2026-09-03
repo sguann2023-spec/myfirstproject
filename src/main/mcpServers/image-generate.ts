@@ -177,9 +177,11 @@ type ImageTaskStatusResponse = {
   message?: string
   error?: string
   result?: {
+    billing?: Record<string, unknown>
     image?: string
     draft_id?: string
     draft_url?: string
+    purchase_link?: string
     reused_from_history?: boolean
     error?: string
     [key: string]: unknown
@@ -508,12 +510,20 @@ class ImageGenerateServer {
     }
 
     if (result.result) {
+      if (result.result.billing && typeof result.result.billing === 'object' && !Array.isArray(result.result.billing)) {
+        normalized.billing = result.result.billing
+      }
+
       normalized.output = {
         image_url: result.result.image,
         draft_id: result.result.draft_id,
         draft_url: result.result.draft_url,
         reused_from_history: result.result.reused_from_history,
         error: result.result.error
+      }
+
+      normalized.result = {
+        ...result.result
       }
     }
 

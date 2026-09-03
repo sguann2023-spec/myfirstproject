@@ -173,6 +173,56 @@
   color: var(--color-text-3);
 }
 
+.media-generation-tool-billing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+  padding-right: 4px;
+  color: #000000;
+  font-size: 14px;
+  font-weight: normal;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.media-generation-tool-header-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.media-generation-tool-header-billing-badge {
+  position: relative;
+  top: 1px;
+}
+
+.media-generation-tool-billing-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.media-generation-tool-header-billing-badge .media-generation-tool-billing-icon {
+  transform: translateY(0.5px);
+}
+
+.media-generation-tool-billing-text {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.5;
+}
+
+.media-generation-tool-header-billing-badge .media-generation-tool-billing-text {
+  line-height: 1;
+  transform: translateY(0.5px);
+}
+
 .image-generation-tool-reference-measure {
   position: absolute;
   visibility: hidden;

@@ -8,6 +8,7 @@ import { ToolHeader } from './GenericTools'
 import { ImageUnderstandeTool } from './ImageUnderstandeToolRenderer'
 import { VideoUnderstandeTool } from './VideoUnderstandeToolRenderer'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
+import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl } from './mediaGenerationBilling'
 import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
 import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
@@ -71,6 +72,93 @@ export function McpServerToolRenderer({
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
+  const mediaGenerationBillingSummary = isMediaGeneration ? extractMediaGenerationBillingSummary(output) : null
+
+  if (isMediaGeneration) {
+    // #region debug-point B:mcp-server-tool-renderer-billing
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'media-billing-missing',
+        runId: 'pre-fix',
+        hypothesisId: 'B',
+        location: 'McpServerToolRenderer.tsx:billingSummary',
+        msg: '[DEBUG] media generation billing summary computed',
+        data: {
+          toolName,
+          progress,
+          progressMessage: normalizedProgressMessage,
+          outputType: Array.isArray(output) ? 'array' : typeof output,
+          outputKeys: output && typeof output === 'object' && !Array.isArray(output) ? Object.keys(output as Record<string, unknown>).slice(0, 8) : [],
+          hasBillingSummary: Boolean(mediaGenerationBillingSummary),
+          billingDisplayText: mediaGenerationBillingSummary?.displayText ?? null,
+          outputPreview: (() => {
+            try {
+              return JSON.stringify(output).slice(0, 320)
+            } catch {
+              return String(output).slice(0, 320)
+            }
+          })()
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
+  }
+
+  const mediaGenerationHeaderStatsStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    whiteSpace: 'nowrap' as const,
+    lineHeight: 1
+  }
+
+  const mediaGenerationHeaderBillingBadgeStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 2,
+    paddingLeft: 4,
+    paddingRight: 4,
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: 'normal',
+    flex: '0 0 auto',
+    whiteSpace: 'nowrap' as const,
+    lineHeight: 1,
+    transform: 'translateY(2px)'
+  }
+
+  const mediaGenerationHeaderBillingIconStyle = {
+    width: 14,
+    height: 14,
+    display: 'block',
+    flexShrink: 0,
+    transform: 'translateY(0.5px)'
+  }
+
+  const mediaGenerationHeaderBillingTextStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: 12,
+    fontWeight: 'normal',
+    lineHeight: 1,
+    transform: 'translateY(0.5px)'
+  }
+  const headerStats =
+    mediaGenerationBillingSummary || (typeof progress === 'number' && progress > 0)
+      ? (
+          <span style={mediaGenerationHeaderStatsStyle}>
+            {mediaGenerationBillingSummary ? (
+              <span style={mediaGenerationHeaderBillingBadgeStyle} title={`总消耗 ${mediaGenerationBillingSummary.displayText}`}>
+                <img src={getMediaGenerationPointIconUrl()} style={mediaGenerationHeaderBillingIconStyle} alt="" aria-hidden="true" />
+                <span style={mediaGenerationHeaderBillingTextStyle}>{mediaGenerationBillingSummary.displayText}</span>
+              </span>
+            ) : null}
+            {typeof progress === 'number' && progress > 0 ? <span>{Math.round(progress * 100)}%</span> : null}
+          </span>
+        )
+      : undefined
 
   if (isImageUnderstande) {
     return ImageUnderstandeTool({
@@ -99,7 +187,7 @@ export function McpServerToolRenderer({
         toolName={toolName}
         icon={<Wrench size={14} />}
         params={normalizedProgressMessage || t('message.tools.labels.mcpServerTool')}
-        stats={typeof progress === 'number' && progress > 0 ? `${Math.round(progress * 100)}%` : undefined}
+        stats={headerStats}
         variant="collapse-label"
         showStatus={false}
       />

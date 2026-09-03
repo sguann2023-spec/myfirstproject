@@ -462,6 +462,74 @@ describe('MessageTokens', () => {
     expect(html).toContain('4.50')
   })
 
+  it('会解析 media generation 嵌套在 result.billing.consume 里的点数', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {
+      'tool-block-3': {
+        id: 'tool-block-3',
+        type: 'tool',
+        toolId: 'tool-3',
+        metadata: {
+          rawMcpToolResponse: {
+            tool: {
+              name: 'mcp__image__generate_image'
+            },
+            responseRaw: {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    error: '',
+                    progress: 100,
+                    prompt: '一只猫咪在月光下奔跑',
+                    result: {
+                      billing: {
+                        consume: 3.0
+                      },
+                      image: 'https://example.com/cat.jpg'
+                    },
+                    success: true
+                  })
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+
+    const html = renderToStaticMarkup(
+      <MessageTokens
+        message={
+          {
+            id: 'assistant-10',
+            role: 'assistant',
+            assistantId: 'agent-1',
+            topicId: 'topic-1',
+            createdAt: new Date().toISOString(),
+            status: 'success',
+            blocks: ['tool-block-3'],
+            model: {
+              pricing: {
+                precise_uncached_input_resource_points_per_unit: 1000000,
+                precise_output_resource_points_per_unit: 1000000
+              }
+            },
+            usageSteps: [
+              {
+                prompt_tokens: 1,
+                completion_tokens: 2,
+                total_tokens: 3
+              }
+            ]
+          } as any
+        }
+      />
+    )
+
+    expect(html).toContain('6.00')
+  })
+
   it('会兼容 message.blocks 直接保存 block 对象的场景', () => {
     mockState.messages.entities = {}
     mockState.messageBlocks.entities = {}

@@ -112,6 +112,24 @@ describe('VideoGenerateServer', () => {
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['generate_video', 'get_video_capabilities'])
   })
 
+  it('describes local references as tool-internal uploads instead of pre-upload requirements', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const generateVideoTool = result.tools.find((tool: { name: string }) => tool.name === 'generate_video')
+
+    expect(generateVideoTool).toBeTruthy()
+    expect(generateVideoTool.description).toContain('uploaded internally before submission')
+    expect(generateVideoTool.description).toContain('Use workspace upload only when')
+    expect(generateVideoTool.description).not.toContain('Prefer remotely accessible URLs produced by workspace upload')
+
+    const properties = generateVideoTool.inputSchema?.properties ?? {}
+    expect(properties.content.description).toContain('uploaded internally before submission')
+    expect(properties.referenceVideos.description).toContain('uploaded internally before submission')
+    expect(properties.referenceAudios.description).toContain('uploaded internally before submission')
+    expect(properties.referenceVideos.description).not.toContain('Prefer remote URLs')
+    expect(properties.referenceAudios.description).not.toContain('Prefer remote URLs')
+  })
+
   it('should return filtered video capabilities', async () => {
     mockNetFetch
       .mockResolvedValueOnce(

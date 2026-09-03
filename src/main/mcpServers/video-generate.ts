@@ -33,7 +33,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const VIDEO_GENERATE_TOOL: Tool = {
   name: PRIMARY_VIDEO_TOOL_NAME,
   description:
-    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside those references are uploaded automatically before submission.',
+    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility. For Seedance multimodal workflows, pass content items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside those references are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot, base64/data URL, or other inline attachment payload without a stable local file path, or when the user explicitly wants a reusable public URL.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -80,7 +80,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'object'
         },
         description:
-          'Optional multimodal content array for Seedance-style workflows. Example items: {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Prefer remotely accessible URLs produced by workspace upload for local files. Local file URLs or absolute local paths in the nested url fields remain supported as a compatibility fallback and are uploaded automatically.'
+          'Optional multimodal content array for Seedance-style workflows. Example items: {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. Remote URLs can be passed directly. Local file URLs and absolute local paths in the nested url fields can also be passed directly and are uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot, base64/data URL, or other inline attachment payload without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       generationMode: {
         type: 'string',
@@ -109,7 +109,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional convenience alias for reference images. For seedance-2.0 these become content items with role reference_image. For seedance-1.5-pro they are appended after the first or last frame positions in images[].'
+          'Optional convenience alias for reference images. For seedance-2.0 these become content items with role reference_image. For seedance-1.5-pro they are appended after the first or last frame positions in images[]. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only for pasted screenshot/base64/data URL inputs without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       referenceVideos: {
         type: 'array',
@@ -117,7 +117,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional convenience alias for appending reference_video items into content. Prefer remote URLs, typically produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback.'
+          'Optional convenience alias for appending reference_video items into content. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only when the input is an inline attachment payload without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       referenceAudios: {
         type: 'array',
@@ -125,7 +125,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
           type: 'string'
         },
         description:
-          'Optional convenience alias for appending reference_audio items into content. Prefer remote URLs, typically produced by workspace upload for local files. File URLs and absolute local paths remain supported as a compatibility fallback.'
+          'Optional convenience alias for appending reference_audio items into content. Remote URLs can be passed directly. File URLs and absolute local paths can also be passed directly and are uploaded internally before submission. Use workspace upload only when the input is an inline attachment payload without a stable local file path, or when a reusable public URL is explicitly needed.'
       },
       images: {
         type: 'array',
@@ -510,7 +510,7 @@ class VideoGenerateServer {
     }
 
     if (!path.isAbsolute(normalizedSource)) {
-      const message = `'${fieldName}' must use remote URLs, file URLs, or absolute local paths; upload local references first if needed`
+      const message = `'${fieldName}' must use remote URLs, file URLs, or absolute local paths; relative paths and inline attachment payloads are not supported here`
       if (LOCAL_MEDIA_PATH_HINT_PATTERN.test(normalizedSource)) {
         throw new McpError(ErrorCode.InvalidParams, message)
       }

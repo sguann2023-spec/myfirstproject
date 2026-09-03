@@ -44,6 +44,59 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function extractNestedOutputPayload(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (depth > 6) return null
+
+  if (isRecord(value)) {
+    if (
+      'status' in value ||
+      'success' in value ||
+      'output' in value ||
+      'result' in value ||
+      'image_url' in value ||
+      'video_url' in value ||
+      'audio_url' in value
+    ) {
+      return value
+    }
+
+    const nestedResponseRaw = extractNestedOutputPayload(value.responseRaw, depth + 1)
+    if (nestedResponseRaw) return nestedResponseRaw
+
+    const nestedResponse = extractNestedOutputPayload(value.response, depth + 1)
+    if (nestedResponse) return nestedResponse
+
+    const nestedOutput = extractNestedOutputPayload(value.output, depth + 1)
+    if (nestedOutput) return nestedOutput
+
+    const nestedResult = extractNestedOutputPayload(value.result, depth + 1)
+    if (nestedResult) return nestedResult
+
+    const content = Array.isArray(value.content) ? value.content : []
+    for (const item of content) {
+      if (!isRecord(item) || typeof item.text !== 'string' || !item.text.trim()) continue
+      try {
+        const parsed = JSON.parse(item.text)
+        const nestedPayload = extractNestedOutputPayload(parsed, depth + 1)
+        if (nestedPayload) return nestedPayload
+      } catch {
+        continue
+      }
+    }
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value)
+      return extractNestedOutputPayload(parsed, depth + 1)
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
 export function parseInput(input: unknown): Record<string, unknown> | null {
   if (isRecord(input)) return input
   if (typeof input !== 'string' || !input.trim()) return null
@@ -56,14 +109,12 @@ export function parseInput(input: unknown): Record<string, unknown> | null {
 }
 
 export function parseOutput(output: unknown): Record<string, unknown> | null {
+  const directPayload = extractNestedOutputPayload(output)
+  if (directPayload) return directPayload
+
   const text = extractTextPreviewFromToolResult(output).trim()
   if (!text) return null
-  try {
-    const parsed = JSON.parse(text)
-    return isRecord(parsed) ? parsed : null
-  } catch {
-    return null
-  }
+  return extractNestedOutputPayload(text)
 }
 
 export function buildPreviewSrc(source?: string): string | undefined {
@@ -96,8 +147,41 @@ export function getDraftUrl(output: Record<string, unknown> | null): string | un
   return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined
 }
 
+function getPromptFromContent(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  for (const item of value) {
+    if (!isRecord(item)) continue
+
+    if (typeof item.text === 'string' && item.text.trim()) {
+      return item.text.trim()
+    }
+
+    if (isRecord(item.input_text) && typeof item.input_text.text === 'string' && item.input_text.text.trim()) {
+      return item.input_text.text.trim()
+    }
+  }
+
+  return undefined
+}
+
 export function getPrompt(input: Record<string, unknown> | null, output: Record<string, unknown> | null): string | undefined {
-  const promptCandidates = [input?.prompt, input?.text, output?.prompt, output?.text_prompt, output?.copywriting]
+  const nestedOutput = output && isRecord(output.output) ? output.output : null
+  const request = output && isRecord(output.request) ? output.request : null
+  const promptCandidates = [
+    input?.prompt,
+    input?.text,
+    getPromptFromContent(input?.content),
+    getPromptFromContent(request?.content),
+    output?.prompt,
+    output?.text_prompt,
+    output?.copywriting,
+    nestedOutput?.prompt,
+    nestedOutput?.text_prompt,
+    nestedOutput?.copywriting,
+    getPromptFromContent(output?.content),
+    getPromptFromContent(nestedOutput?.content)
+  ]
   for (const candidate of promptCandidates) {
     if (typeof candidate === 'string' && candidate.trim()) {
       return candidate.trim()

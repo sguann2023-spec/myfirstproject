@@ -36,6 +36,7 @@ import { TaskOutputTool } from './TaskOutputTool'
 import { TodoWriteTool } from './TodoWriteTool'
 import { ToolSearchTool } from './ToolSearchTool'
 import { isAgentMcpToolName, McpServerToolRenderer } from './McpServerToolRenderer'
+import { isMediaGenerationToolName } from './MediaGenerationTool'
 import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
 import type { ToolInput, ToolOutput } from './types'
 import { AgentToolsType } from './types'
@@ -263,10 +264,13 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   const resolvedOutput = (() => {
     if (isLoading) return undefined
 
-    // video-understand responses are frequently offloaded and their `responseRaw`
-    // string gets truncated for inline storage. Passing both shapes lets the helper
-    // prefer the intact `response` while keeping `responseRaw` as a fallback.
-    if (isVideoUnderstandeToolName(toolName) && response !== undefined && responseRaw !== undefined) {
+    // Some MCP tools need both sanitized `response` and original `responseRaw`
+    // to recover complete metadata such as billing when one side is truncated.
+    if (
+      (isVideoUnderstandeToolName(toolName) || isMediaGenerationToolName(toolName)) &&
+      response !== undefined &&
+      responseRaw !== undefined
+    ) {
       return {
         response,
         responseRaw
@@ -275,6 +279,47 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
 
     return isAgentMcpToolName(toolName) ? (responseRaw ?? response) : response
   })()
+
+  if (!isLoading && isMediaGenerationToolName(toolName)) {
+    // #region debug-point A:message-agent-tools-resolved-output
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'media-billing-missing',
+        runId: 'pre-fix',
+        hypothesisId: 'A',
+        location: 'MessageAgentTools/index.tsx:resolvedOutput',
+        msg: '[DEBUG] media tool resolved output prepared',
+        data: {
+          toolName,
+          status: effectiveStatus,
+          hasResponse: response !== undefined,
+          hasResponseRaw: responseRaw !== undefined,
+          resolvedOutputType: Array.isArray(resolvedOutput) ? 'array' : typeof resolvedOutput,
+          resolvedOutputKeys:
+            resolvedOutput && typeof resolvedOutput === 'object' && !Array.isArray(resolvedOutput)
+              ? Object.keys(resolvedOutput as Record<string, unknown>).slice(0, 8)
+              : [],
+          responsePreview: (() => {
+            try {
+              return JSON.stringify(response).slice(0, 280)
+            } catch {
+              return String(response).slice(0, 280)
+            }
+          })(),
+          responseRawPreview: (() => {
+            try {
+              return JSON.stringify(responseRaw).slice(0, 280)
+            } catch {
+              return String(responseRaw).slice(0, 280)
+            }
+          })()
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
+  }
 
   return (
     <ToolContent
