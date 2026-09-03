@@ -1728,6 +1728,10 @@ const HomePage = () => {
     setChatDraftInput(name ? `@${name} ` : '');
   }, []);
 
+  const handleOpenSkillStore = useCallback(() => {
+    setSelectedPane('skill');
+  }, []);
+
   const handleSkillEdit = useCallback((skill) => {
     const name = String(skill?.name || skill?.folderName || '').trim();
     setSelectedPane('chat');
@@ -5419,6 +5423,7 @@ const HomePage = () => {
                   return Promise.resolve();
                 }}
                 onRefreshCredits={refreshRechargeBalance}
+                onOpenSkillStore={handleOpenSkillStore}
                 beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
                 beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
               />

@@ -338,6 +338,7 @@ const ChatShell = ({
   workspaceStatus = '',
   currentModelMeta = null,
   onSelectSkill,
+  onOpenSkillStore,
   onModifySkill,
   onSubmitFileComment,
   sessionSending = false,
@@ -1647,6 +1648,7 @@ const ChatShell = ({
               onOpenSkillWebPreview={openSkillWebPreview}
               onRunSkillExample={runSkillExample}
               onSelectSkill={onSelectSkill}
+              onOpenSkillStore={onOpenSkillStore}
               onModifySkill={onModifySkill}
               onDeleteSkill={deleteSkill}
               renderSkillTooltip={renderSkillTooltip}

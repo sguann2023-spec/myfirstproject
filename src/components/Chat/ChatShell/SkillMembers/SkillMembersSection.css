@@ -37,6 +37,36 @@
   font-size: 12px;
 }
 
+.chat-panel__members-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chat-panel__find-skills-button {
+  width: calc(100% - 20px);
+  min-height: 34px;
+  margin: 6px 10px 12px;
+  padding: 0 10px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  background: #fff;
+  color: #222;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.chat-panel__find-skills-button:hover {
+  background: #f7f7f7;
+  border-color: #c8c8c8;
+}
+
 .chat-panel__member-item {
   border-radius: 8px;
   display: flex;
