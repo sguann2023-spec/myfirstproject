@@ -123,6 +123,7 @@ const Chat = ({
   beginnerGuideDownloadPaneRef = null,
   beginnerGuideSettingsPaneRef = null,
   onRefreshCredits,
+  onOpenSkillStore,
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
@@ -326,6 +327,7 @@ const Chat = ({
       currentModelMeta={currentModelMeta}
       onRenameSessionTitle={onRenameSessionTitle}
       onSelectSkill={insertSkillMention}
+      onOpenSkillStore={onOpenSkillStore}
       onModifySkill={insertSkillModifyPrompt}
       onCreateSkill={insertCreateSkillPrompt}
       onSubmitFileComment={handleSubmitFileComment}
@@ -369,6 +371,7 @@ const Chat = ({
         currentWorkspacePath={currentWorkspacePath}
         runtimeSessionId={runtimeSessionId}
         onSelectSkill={insertQuickSkillMention}
+        onOpenSkillStore={onOpenSkillStore}
         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
         beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
       />

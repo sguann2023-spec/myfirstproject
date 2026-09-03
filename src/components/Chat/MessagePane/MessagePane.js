@@ -23,6 +23,7 @@ const MessagePane = ({
   currentWorkspacePath,
   runtimeSessionId,
   onSelectSkill,
+  onOpenSkillStore,
   childrensBookQuickPromptRef,
   beginnerGuideQuickSkillsViewportRef,
 }) => {
@@ -146,6 +147,7 @@ const MessagePane = ({
               currentWorkspacePath={currentWorkspacePath}
               runtimeSessionId={runtimeSessionId}
               onSelectSkill={onSelectSkill}
+              onOpenSkillStore={onOpenSkillStore}
               childrensBookQuickPromptRef={childrensBookQuickPromptRef}
               beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
             />

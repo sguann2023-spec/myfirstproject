@@ -77,6 +77,31 @@
   overflow: visible;
 }
 
+.chat-panel__welcome-skills-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.chat-panel__welcome-more-skills {
+  border: none;
+  background: transparent;
+  color: #333;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.chat-panel__welcome-more-skills:hover {
+  color: #000;
+}
+
 .chat-panel__welcome-skills-viewport {
   width: 100%;
   background: transparent;

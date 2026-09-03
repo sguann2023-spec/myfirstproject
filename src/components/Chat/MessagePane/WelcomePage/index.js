@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tooltip } from 'antd';
-import { Check, LoaderCircle, Plus } from 'lucide-react';
+import { Check, ChevronRight, LoaderCircle, Plus } from 'lucide-react';
 import SkillMarkdownPreview from './SkillMarkdownPreview';
 import './WelcomePage.css';
 
@@ -200,6 +200,7 @@ const WelcomePage = ({
   onQuickPrompt,
   runtimeSessionId,
   onSelectSkill,
+  onOpenSkillStore,
   childrensBookQuickPromptRef,
   beginnerGuideQuickSkillsViewportRef
 }) => {
@@ -309,7 +310,10 @@ const WelcomePage = ({
     if (!action || !directoryPath || pendingAction || typeof installFromDirectory !== 'function') return;
     setPendingAction(action);
     try {
-      const result = await installFromDirectory({ directoryPath });
+      const result = await installFromDirectory({
+        directoryPath,
+        previewVideoUrl: item?.previewVideoUrl || null
+      });
       if (!result?.success) {
         throw new Error(result?.error || '添加技能失败');
       }
@@ -369,23 +373,33 @@ const WelcomePage = ({
               ))}
             </div>
             {shouldRenderQuickSkills ? (
-              <div className="chat-panel__welcome-skills-shell">
-                <div className="chat-panel__welcome-skills-viewport">
-                  <div className="chat-panel__welcome-skills-track">
-                    {quickSkillItems.map((item) => (
-                      <WelcomeSkillCard
-                        key={item.action}
-                        item={item}
-                        onAddSkill={handleAddSkill}
-                        onPreviewSkill={handlePreviewSkill}
-                        isLoading={pendingAction === item.action}
-                        disabled={Boolean(pendingAction)}
-                        childrensBookQuickPromptRef={childrensBookQuickPromptRef}
-                        beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
-                      />
-                    ))}
+              <div className="chat-panel__welcome-skills-group">
+                <div className="chat-panel__welcome-skills-shell">
+                  <div className="chat-panel__welcome-skills-viewport">
+                    <div className="chat-panel__welcome-skills-track">
+                      {quickSkillItems.map((item) => (
+                        <WelcomeSkillCard
+                          key={item.action}
+                          item={item}
+                          onAddSkill={handleAddSkill}
+                          onPreviewSkill={handlePreviewSkill}
+                          isLoading={pendingAction === item.action}
+                          disabled={Boolean(pendingAction)}
+                          childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+                          beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="chat-panel__welcome-more-skills"
+                  onClick={onOpenSkillStore}
+                >
+                  <span>查看更多技能</span>
+                  <ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
+                </button>
               </div>
             ) : (
                 <div className="chat-panel__quick-prompts">

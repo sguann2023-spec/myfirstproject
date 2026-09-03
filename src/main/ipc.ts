@@ -411,6 +411,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     installPath: path.dirname(app.getPath('exe'))
   }))
 
+  ipcMain.handle(IpcChannel.App_GetVectcutApiKey, async () => resolveCurrentVectcutApiKey())
+
   ipcMain.handle(
     IpcChannel.App_SendFeedbackEmail,
     async (
@@ -1549,6 +1551,12 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
         return { success: false, error: 'Invalid toggle options' }
       }
       const data = await skillService.toggle(options)
+      if (data) {
+        broadcastSkillChanged(options.agentId, {
+          eventType: 'toggle',
+          filename: data.folderName
+        })
+      }
       return { success: true, data }
     } catch (error) {
       logger.error('Failed to toggle skill', { options, error })
@@ -1562,6 +1570,26 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       return { success: true, data }
     } catch (error) {
       logger.error('Failed to install skill from ZIP', { options, error })
+      return { success: false, error }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Skill_InstallFromRemotePackage, async (_, options) => {
+    try {
+      const data = await skillService.installFromRemotePackage(options)
+      return { success: true, data }
+    } catch (error) {
+      logger.error('Failed to install skill from remote package', { options, error })
+      return { success: false, error }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Skill_UpdateMetadata, async (_, options) => {
+    try {
+      const data = await skillService.updateMetadata(options)
+      return { success: true, data }
+    } catch (error) {
+      logger.error('Failed to update local skill metadata', { options, error })
       return { success: false, error }
     }
   })

@@ -338,6 +338,7 @@ const ChatShell = ({
   workspaceStatus = '',
   currentModelMeta = null,
   onSelectSkill,
+  onOpenSkillStore,
   onModifySkill,
   onSubmitFileComment,
   sessionSending = false,
@@ -789,6 +790,10 @@ const ChatShell = ({
         }
       }
     };
+    const handleSkillStoreUpdated = () => {
+      void loadSkills();
+    };
+    window.addEventListener('skill-store-updated', handleSkillStoreUpdated);
     loadSkills();
     const api = window?.electronAPI?.agentSkills;
     if (agentId && api && typeof api.onChanged === 'function') {
@@ -808,6 +813,7 @@ const ChatShell = ({
       if (agentId && api && typeof api.unsubscribeChanges === 'function') {
         void api.unsubscribeChanges({ agentId }).catch(() => {});
       }
+      window.removeEventListener('skill-store-updated', handleSkillStoreUpdated);
     };
   }, [agentId, currentWorkspacePath, resolveSkillExamplePath, resolveSkillPreviewPath, runtimeSessionId]);
 
@@ -1642,6 +1648,7 @@ const ChatShell = ({
               onOpenSkillWebPreview={openSkillWebPreview}
               onRunSkillExample={runSkillExample}
               onSelectSkill={onSelectSkill}
+              onOpenSkillStore={onOpenSkillStore}
               onModifySkill={onModifySkill}
               onDeleteSkill={deleteSkill}
               renderSkillTooltip={renderSkillTooltip}

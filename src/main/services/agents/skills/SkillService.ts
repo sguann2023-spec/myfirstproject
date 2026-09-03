@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -11,16 +12,18 @@ import type {
   InstalledSkill,
   SkillFileNode,
   SkillInstallFromDirectoryOptions,
+  SkillInstallFromRemotePackageOptions,
   SkillInstallFromZipOptions,
   SkillInstallOptions,
   SkillToggleOptions
 } from '@types'
-import { eq } from 'drizzle-orm'
+import { eq, or } from 'drizzle-orm'
 import { app, net } from 'electron'
 import StreamZip from 'node-stream-zip'
 
 import { BaseService } from '../BaseService'
-import { agentsTable } from '../database/schema'
+import { DatabaseManager } from '../database/DatabaseManager'
+import { agentsTable, skillsTable, type SkillRow } from '../database/schema'
 import {
   getHiddenBuiltinSkillMdPath,
   getHiddenBuiltinSkillPath,
@@ -53,6 +56,8 @@ export class SkillService extends BaseService {
   private static instance: SkillService | null = null
 
   private readonly installer: SkillInstaller
+  private registryInitialized = false
+  private registryInitializationPromise: Promise<void> | null = null
 
   private constructor() {
     super()
@@ -71,22 +76,60 @@ export class SkillService extends BaseService {
   // Public API
   // ===========================================================================
 
+  async initializeRegistry(): Promise<void> {
+    await this.ensureSkillRegistryInitialized()
+  }
+
+  async registerExistingSkill(folderName: string, source = 'local'): Promise<InstalledSkill | null> {
+    await this.ensureSkillRegistryInitialized()
+    const skillPath = await this.resolveExistingSkillStoragePath(folderName)
+    if (!skillPath) return null
+    const metadata = await parseSkillMetadata(skillPath, folderName, 'skills')
+    const stat = await fs.promises.stat(skillPath)
+    const contentHash = await this.installer.computeContentHash(skillPath).catch(() => '')
+    const now = Date.now()
+    const localId = await this.upsertSkillRegistryRecord({
+      id: null,
+      remoteId: null,
+      name: metadata.name,
+      description: metadata.description ?? null,
+      iconUrl: null,
+      folderName,
+      source,
+      sourceUrl: null,
+      namespace: null,
+      author: metadata.author ?? null,
+      tags: metadata.tags ?? [],
+      previewVideoUrl: null,
+      contentHash,
+      isEnabled: true,
+      createdAt: Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : now,
+      updatedAt: now
+    })
+    const registered = (await this.list()).find((skill) => skill.id === localId)
+    return registered ?? null
+  }
+
   async list(agentId?: string): Promise<InstalledSkill[]> {
-    const skills = await this.listGlobalSkills()
-    return skills.map((s) => ({ ...s, isEnabled: true }))
+    void agentId
+    await this.ensureSkillRegistryInitialized()
+    return this.listGlobalSkills()
   }
 
   async listActive(agentId: string): Promise<InstalledSkill[]> {
     void agentId
+    await this.ensureSkillRegistryInitialized()
     return this.listGlobalSkills({ isEnabled: true })
   }
 
   async listActiveInWorkspace(workspace: string): Promise<InstalledSkill[]> {
     void workspace
+    await this.ensureSkillRegistryInitialized()
     return this.listGlobalSkills({ isEnabled: true })
   }
 
   async toggle(options: SkillToggleOptions): Promise<InstalledSkill | null> {
+    await this.ensureSkillRegistryInitialized()
     const resolved = await this.resolveExistingSkillStoragePathForName(options.skillId)
     if (!resolved || !(await directoryExists(resolved.skillPath))) return null
 
@@ -96,11 +139,15 @@ export class SkillService extends BaseService {
       candidateNames.has(String(s.folderName || '').trim()) ||
       candidateNames.has(String(s.id || '').trim())
     ))
-    return base ? { ...base, isEnabled: true } : null
+    if (!base) return null
+    await this.writeSkillEnabledState(resolved.folderName, options.isEnabled)
+    await this.updateSkillEnabledState(resolved.folderName, options.isEnabled)
+    return { ...base, isEnabled: options.isEnabled }
   }
 
   async initSkillsForAgent(agentId: string, workspace: string | undefined): Promise<void> {
     void workspace
+    await this.ensureSkillRegistryInitialized()
     logger.info('Agent skill initialization uses shared global skills only', { agentId })
   }
 
@@ -147,6 +194,7 @@ export class SkillService extends BaseService {
   }
 
   async getByFolderName(name: string): Promise<InstalledSkill | null> {
+    await this.ensureSkillRegistryInitialized()
     const candidateNames = new Set(this.getCandidateFolderNames(name))
     const skills = await this.listGlobalSkills()
     return skills.find((s) => candidateNames.has(String(s.folderName || '').trim())) ?? null
@@ -261,10 +309,24 @@ export class SkillService extends BaseService {
   }
 
   async uninstall(skillId: string): Promise<void> {
+    await this.ensureSkillRegistryInitialized()
+    const registryRow = await this.findSkillRegistryRow(skillId)
     const candidateNames = this.getCandidateFolderNames(skillId)
+    if (registryRow?.folder_name) candidateNames.push(registryRow.folder_name)
     for (const folderName of candidateNames) {
       for (const skillPath of this.getSkillStoragePaths(folderName)) {
         await this.installer.uninstall(skillPath).catch(() => undefined)
+      }
+    }
+    const states = await this.readSkillEnabledStates()
+    candidateNames.forEach((folderName) => delete states[folderName])
+    await this.writeSkillEnabledStates(states)
+    const database = await this.getDatabase()
+    if (registryRow) {
+      await database.delete(skillsTable).where(eq(skillsTable.id, registryRow.id))
+    } else {
+      for (const folderName of candidateNames) {
+        await database.delete(skillsTable).where(eq(skillsTable.folder_name, folderName))
       }
     }
     logger.info('Skill uninstalled (filesystem only)', { skillId, folderNames: candidateNames })
@@ -307,15 +369,83 @@ export class SkillService extends BaseService {
     }
   }
 
+  async installFromRemotePackage(options: SkillInstallFromRemotePackageOptions): Promise<InstalledSkill> {
+    const packageUrl = String(options.packageUrl || '').trim()
+    if (!packageUrl) throw new Error('Skill package URL is required')
+    if (!/^https?:\/\//i.test(packageUrl)) throw new Error('Skill package URL must use HTTP or HTTPS')
+    const folderName = this.validateRemoteFolderName(options.folderName)
+
+    const response = await net.fetch(packageUrl)
+    if (!response.ok) {
+      throw new Error(`Skill package download failed: HTTP ${response.status}`)
+    }
+
+    const tempDir = await this.createTempDir('remote-skill-install')
+    const zipPath = path.join(tempDir, 'skill.zip')
+    try {
+      await fs.promises.writeFile(zipPath, Buffer.from(await response.arrayBuffer()))
+      await this.validateZipFile(zipPath)
+      const extractDir = path.join(tempDir, 'extracted')
+      await fs.promises.mkdir(extractDir, { recursive: true })
+      await this.extractZip(zipPath, extractDir)
+      const skillDir = await this.locateSkillDir(extractDir)
+      return await this.installSkillDir(
+        skillDir,
+        'marketplace',
+        options.sourceUrl ?? packageUrl,
+        options.remoteId,
+        options.remoteName ?? null,
+        options.iconUrl ?? null,
+        options.previewVideoUrl ?? null,
+        folderName
+      )
+    } finally {
+      await this.safeRemoveDirectory(tempDir)
+    }
+  }
+
+  async updateMetadata(options: { skillId: string; remoteId?: string | null; name?: string | null; iconUrl?: string | null }): Promise<InstalledSkill | null> {
+    await this.ensureSkillRegistryInitialized()
+    const row = await this.findSkillRegistryRow(options.skillId)
+    if (!row) return null
+    const database = await this.getDatabase()
+    await database.update(skillsTable).set({
+      remote_id: options.remoteId ?? row.remote_id ?? null,
+      name: options.name?.trim() || row.name,
+      icon_url: options.iconUrl ?? row.icon_url ?? null,
+      updated_at: Date.now()
+    }).where(eq(skillsTable.id, row.id))
+    return (await this.list()).find((skill) => skill.id === row.id) ?? null
+  }
+
   async installFromDirectory(options: SkillInstallFromDirectoryOptions): Promise<InstalledSkill> {
-    const { directoryPath } = options
+    const {
+      directoryPath,
+      remoteId = null,
+      remoteName = null,
+      folderName = null,
+      source = 'local',
+      sourceUrl = null,
+      iconUrl = null,
+      previewVideoUrl = null
+    } = options
     logger.info('Installing skill from directory', { directoryPath })
 
     if (!(await directoryExists(directoryPath))) {
       throw new Error(`Directory not found: ${directoryPath}`)
     }
 
-    return this.installSkillDir(directoryPath, 'local', null)
+    const normalizedFolderName = folderName ? this.validateRemoteFolderName(folderName) : null
+    return this.installSkillDir(
+      directoryPath,
+      source,
+      sourceUrl,
+      remoteId,
+      remoteName,
+      iconUrl,
+      previewVideoUrl,
+      normalizedFolderName
+    )
   }
 
   async copyDirectoryToWorkspace(
@@ -409,26 +539,23 @@ export class SkillService extends BaseService {
     options: { includeHidden?: boolean } = {}
   ): Promise<Array<{ name: string; description?: string; filename: string; path: string; source: 'global' }>> {
     void workdir
+    const includeHidden = options.includeHidden === true
+    // Chat member/mention lists use this method. Disabled global skills must
+    // not be discoverable or available for invocation.
+    const activeSkills = await this.listGlobalSkills({ isEnabled: true })
     const results: Array<{ name: string; description?: string; filename: string; path: string; source: 'global' }> = []
     const skillsDir = getGlobalSkillsRoot()
-    const includeHidden = options.includeHidden === true
 
     try {
-      const entries = await fs.promises.readdir(skillsDir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue
+      for (const skill of activeSkills) {
+        const entryName = skill.folderName
+        if (entryName.startsWith('.') || (!includeHidden && (await this.isSkillHiddenAtPath(skill.path || '', entryName)))) continue
         try {
-          const skillPath = path.join(skillsDir, entry.name)
-          const stats = await fs.promises.stat(skillPath)
-          if (!stats.isDirectory()) continue
-          if (!includeHidden && (await this.isSkillHiddenAtPath(skillPath, entry.name))) {
-            continue
-          }
-          const metadata = await parseSkillMetadata(skillPath, entry.name, 'skills')
+          const skillPath = skill.path || path.join(skillsDir, entryName)
           results.push({
-            name: metadata.name,
-            description: metadata.description,
-            filename: entry.name,
+            name: skill.name,
+            description: skill.description ?? undefined,
+            filename: entryName,
             path: skillPath,
             source: 'global'
           })
@@ -580,11 +707,24 @@ export class SkillService extends BaseService {
   // Core install logic
   // ===========================================================================
 
-  private async installSkillDir(skillDir: string, source: string, sourceUrl: string | null): Promise<InstalledSkill> {
+  private async installSkillDir(
+    skillDir: string,
+    source: string,
+    sourceUrl: string | null,
+    remoteId: string | null = null,
+    remoteName: string | null = null,
+    iconUrl: string | null = null,
+    previewVideoUrl: string | null = null,
+    folderNameOverride: string | null = null
+  ): Promise<InstalledSkill> {
     const metadata = await parseSkillMetadata(skillDir, path.basename(skillDir), 'skills')
     const skillsRoot = path.resolve(getGlobalSkillsRoot())
     const isInPlace = path.resolve(path.dirname(skillDir)) === skillsRoot
-    const folderName = isInPlace ? path.basename(skillDir) : this.preserveFolderName(metadata.filename)
+    const folderName = folderNameOverride
+      ? this.validateRemoteFolderName(folderNameOverride)
+      : isInPlace
+        ? path.basename(skillDir)
+        : this.preserveFolderName(metadata.filename)
     const destPath = this.getSkillStoragePath(folderName)
     const legacySanitizedDestPath = this.getSkillStoragePath(this.sanitizeFolderName(folderName))
 
@@ -597,10 +737,13 @@ export class SkillService extends BaseService {
     const stat = await fs.promises.stat(destPath)
     const contentHash = await this.installer.computeContentHash(destPath).catch(() => '')
     const now = Date.now()
-    const skill: InstalledSkill = {
-      id: folderName,
-      name: metadata.name,
+    const localId = await this.upsertSkillRegistryRecord({
+      id: null,
+      remoteId,
+      name: source === 'marketplace' && remoteName?.trim() ? remoteName.trim() : metadata.name,
       description: metadata.description ?? null,
+      iconUrl,
+      previewVideoUrl,
       folderName,
       source,
       sourceUrl,
@@ -608,7 +751,25 @@ export class SkillService extends BaseService {
       author: metadata.author ?? null,
       tags: metadata.tags ?? [],
       contentHash,
-      isEnabled: false,
+      isEnabled: true,
+      createdAt: Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : now,
+      updatedAt: Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs) : now
+    })
+    const skill: InstalledSkill = {
+      id: localId,
+      remoteId,
+      name: source === 'marketplace' && remoteName?.trim() ? remoteName.trim() : metadata.name,
+      description: metadata.description ?? null,
+      iconUrl,
+      previewVideoUrl,
+      folderName,
+      source,
+      sourceUrl,
+      namespace: null,
+      author: metadata.author ?? null,
+      tags: metadata.tags ?? [],
+      contentHash,
+      isEnabled: true,
       createdAt: Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : now,
       updatedAt: Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs) : now
     }
@@ -617,7 +778,9 @@ export class SkillService extends BaseService {
       await this.enableForAllAgents(skill.id, folderName)
     }
 
-    logger.info('Skill installed (filesystem only)', { id: skill.id, name: metadata.name, folderName, source })
+    await this.writeSkillEnabledState(folderName, true)
+
+    logger.info('Skill installed and registered', { id: skill.id, remoteId, name: skill.name, folderName, source })
     return skill
   }
 
@@ -763,15 +926,19 @@ export class SkillService extends BaseService {
   private async listGlobalSkills(options: { isEnabled?: boolean } = {}): Promise<InstalledSkill[]> {
     return this.listInstalledSkillsInDirectory(getGlobalSkillsRoot(), {
       source: 'global',
-      isEnabled: options.isEnabled ?? true
+      isEnabled: options.isEnabled
     })
   }
 
   private async listInstalledSkillsInDirectory(
     root: string,
-    options: { source: string; isEnabled: boolean }
+    options: { source: string; isEnabled?: boolean }
   ): Promise<InstalledSkill[]> {
     await fs.promises.mkdir(root, { recursive: true })
+    const enabledStates = await this.readSkillEnabledStates()
+    const database = await this.getDatabase()
+    const registryRows = await database.select().from(skillsTable)
+    const registryByFolder = new Map(registryRows.map((row) => [row.folder_name, row]))
     const entries = await fs.promises.readdir(root, { withFileTypes: true })
     const dirs = entries.filter(
       (entry) => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== '__pycache__'
@@ -788,20 +955,25 @@ export class SkillService extends BaseService {
           const stat = await fs.promises.stat(skillPath)
           const metadata = await parseSkillMetadata(skillPath, folderName, 'skills')
           const contentHash = await this.installer.computeContentHash(skillPath).catch(() => '')
+          const registry = registryByFolder.get(folderName)
           return {
-            id: folderName,
+            id: registry?.id ?? this.generateLocalSkillId(metadata.name, folderName, new Set(registryRows.map((row) => row.id))),
+            remoteId: registry?.remote_id ?? null,
             name: metadata.name,
             description: metadata.description ?? null,
+            iconUrl: registry?.icon_url ?? null,
+            previewVideoUrl: registry?.preview_video_url ?? null,
             folderName,
-            source: options.source,
-            sourceUrl: null,
-            namespace: null,
-            author: metadata.author ?? null,
-            tags: metadata.tags ?? [],
+            source: registry?.source ?? options.source,
+            sourceUrl: registry?.source_url ?? null,
+            namespace: registry?.namespace ?? null,
+            author: registry?.author ?? metadata.author ?? null,
+            tags: this.parseRegistryTags(registry?.tags, metadata.tags ?? []),
             contentHash,
-            isEnabled: options.isEnabled,
-            createdAt: Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : Date.now(),
-            updatedAt: Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs) : Date.now()
+            path: skillPath,
+            isEnabled: registry?.is_enabled ?? enabledStates[folderName] ?? options.isEnabled ?? true,
+            createdAt: registry?.created_at ?? (Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : Date.now()),
+            updatedAt: registry?.updated_at ?? (Number.isFinite(stat.mtimeMs) ? Math.floor(stat.mtimeMs) : Date.now())
           } as InstalledSkill
         } catch (error) {
           logger.warn('Skipping invalid skill directory while listing skills', {
@@ -814,7 +986,239 @@ export class SkillService extends BaseService {
       })
     )
 
-    return results.filter((item): item is InstalledSkill => Boolean(item))
+    return results.filter((item): item is InstalledSkill => (
+      Boolean(item) && (options.isEnabled === undefined || item.isEnabled === options.isEnabled)
+    ))
+  }
+
+  private getSkillEnabledStatePath(): string {
+    return path.join(getGlobalSkillsRoot(), '.skill-states.json')
+  }
+
+  private async readSkillEnabledStates(): Promise<Record<string, boolean>> {
+    try {
+      const raw = await fs.promises.readFile(this.getSkillEnabledStatePath(), 'utf-8')
+      const parsed = JSON.parse(raw) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+      return Object.fromEntries(
+        Object.entries(parsed).filter(([, value]) => typeof value === 'boolean')
+      )
+    } catch {
+      return {}
+    }
+  }
+
+  private async writeSkillEnabledStates(states: Record<string, boolean>): Promise<void> {
+    const statePath = this.getSkillEnabledStatePath()
+    await fs.promises.mkdir(path.dirname(statePath), { recursive: true })
+    await fs.promises.writeFile(statePath, JSON.stringify(states, null, 2), 'utf-8')
+  }
+
+  private async writeSkillEnabledState(folderName: string, isEnabled: boolean): Promise<void> {
+    const states = await this.readSkillEnabledStates()
+    states[folderName] = isEnabled
+    await this.writeSkillEnabledStates(states)
+  }
+
+  /**
+   * Initialize the local skill registry from the existing GlobalSkills tree.
+   * This is deliberately idempotent so it can run on every application start.
+   */
+  private async ensureSkillRegistryInitialized(): Promise<void> {
+    if (this.registryInitialized) return
+    if (!this.registryInitializationPromise) {
+      this.registryInitializationPromise = this.initializeSkillRegistry()
+    }
+    try {
+      await this.registryInitializationPromise
+      this.registryInitialized = true
+    } finally {
+      this.registryInitializationPromise = null
+    }
+  }
+
+  private async initializeSkillRegistry(): Promise<void> {
+    // Older packaged clients may not contain the latest Drizzle migration
+    // resources. Keep the registry self-healing so the new local icon field is
+    // available before Drizzle queries the table.
+    await this.ensureIconUrlColumn()
+    await this.ensurePreviewVideoUrlColumn()
+    const database = await this.getDatabase()
+    const root = getGlobalSkillsRoot()
+    await fs.promises.mkdir(root, { recursive: true })
+    const enabledStates = await this.readSkillEnabledStates()
+    const existingRows = await database.select().from(skillsTable)
+    const rowsByFolder = new Map(existingRows.map((row) => [row.folder_name, row]))
+    const usedIds = new Set(existingRows.map((row) => row.id))
+    const entries = await fs.promises.readdir(root, { withFileTypes: true })
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === '__pycache__') continue
+      const skillPath = path.join(root, entry.name)
+      if (await this.isSkillHiddenAtPath(skillPath, entry.name)) continue
+
+      try {
+        const metadata = await parseSkillMetadata(skillPath, entry.name, 'skills')
+        const stat = await fs.promises.stat(skillPath)
+        const contentHash = await this.installer.computeContentHash(skillPath).catch(() => '')
+        const existing = rowsByFolder.get(entry.name)
+        const now = Date.now()
+        const id = existing?.id ?? this.generateLocalSkillId(metadata.name, entry.name, usedIds)
+        usedIds.add(id)
+        const values = {
+          id,
+          remote_id: existing?.remote_id ?? null,
+          name: metadata.name,
+          description: metadata.description ?? null,
+          icon_url: existing?.icon_url ?? null,
+          preview_video_url: existing?.preview_video_url ?? null,
+          folder_name: entry.name,
+          source: existing?.source ?? 'local',
+          source_url: existing?.source_url ?? null,
+          namespace: existing?.namespace ?? null,
+          author: metadata.author ?? existing?.author ?? null,
+          tags: JSON.stringify(metadata.tags ?? []),
+          content_hash: contentHash,
+          is_enabled: existing?.is_enabled ?? enabledStates[entry.name] ?? true,
+          created_at: existing?.created_at ?? (Number.isFinite(stat.birthtimeMs) ? Math.floor(stat.birthtimeMs) : now),
+          updated_at: now
+        }
+
+        if (existing) {
+          await database.update(skillsTable).set(values).where(eq(skillsTable.id, existing.id))
+        } else {
+          await database.insert(skillsTable).values(values)
+        }
+      } catch (error) {
+        logger.warn('Failed to initialize skill registry entry', {
+          folderName: entry.name,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    logger.info('Skill registry initialized from GlobalSkills', {
+      root,
+      registeredCount: Math.max(0, (await database.select().from(skillsTable)).length - existingRows.length)
+    })
+  }
+
+  private async ensureIconUrlColumn(): Promise<void> {
+    const databaseManager = await DatabaseManager.getInstance()
+    const client = await databaseManager.getClient()
+    const columns = await client.execute("PRAGMA table_info('skills')")
+    const hasIconUrl = columns.rows.some((row) => {
+      const column = row as Record<string, unknown>
+      return String(column.name ?? column[1] ?? '') === 'icon_url'
+    })
+    if (!hasIconUrl) {
+      await client.execute('ALTER TABLE `skills` ADD COLUMN `icon_url` text')
+      logger.info('Added missing skills.icon_url column for local registry compatibility')
+    }
+  }
+
+  private async ensurePreviewVideoUrlColumn(): Promise<void> {
+    const databaseManager = await DatabaseManager.getInstance()
+    const client = await databaseManager.getClient()
+    const columns = await client.execute("PRAGMA table_info('skills')")
+    const hasPreviewVideoUrl = columns.rows.some((row) => {
+      const column = row as Record<string, unknown>
+      return String(column.name ?? column[1] ?? '') === 'preview_video_url'
+    })
+    if (!hasPreviewVideoUrl) {
+      await client.execute('ALTER TABLE `skills` ADD COLUMN `preview_video_url` text')
+      logger.info('Added missing skills.preview_video_url column for local registry compatibility')
+    }
+  }
+
+  private generateLocalSkillId(name: string, folderName: string, usedIds: Set<string>): string {
+    const normalizedName = String(name || folderName).trim().normalize('NFKC').toLowerCase()
+    let salt = ''
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const candidate = createHash('sha256')
+        .update(`${normalizedName}\u0000${salt}`)
+        .digest('hex')
+        .slice(0, 16)
+        .toUpperCase()
+      if (!usedIds.has(candidate)) return candidate
+      salt = `${folderName}:${attempt + 1}`
+    }
+    throw new Error(`Unable to generate a unique local skill id for ${name}`)
+  }
+
+  private async findSkillRegistryRow(identifier: string): Promise<SkillRow | null> {
+    const value = String(identifier || '').trim()
+    if (!value) return null
+    const database = await this.getDatabase()
+    const result = await database
+      .select()
+      .from(skillsTable)
+      .where(or(eq(skillsTable.id, value), eq(skillsTable.remote_id, value), eq(skillsTable.folder_name, value), eq(skillsTable.name, value)))
+      .limit(1)
+    return result[0] ?? null
+  }
+
+  private async upsertSkillRegistryRecord(input: {
+    id: string | null
+    remoteId: string | null
+    name: string
+    description: string | null
+    iconUrl: string | null
+    previewVideoUrl: string | null
+    folderName: string
+    source: string
+    sourceUrl: string | null
+    namespace: string | null
+    author: string | null
+    tags: string[]
+    contentHash: string
+    isEnabled: boolean
+    createdAt: number
+    updatedAt: number
+  }): Promise<string> {
+    const database = await this.getDatabase()
+    const existing = await database.select().from(skillsTable).where(eq(skillsTable.folder_name, input.folderName)).limit(1)
+    const usedIds = new Set((await database.select({ id: skillsTable.id }).from(skillsTable)).map((row) => row.id))
+    const id = existing[0]?.id ?? input.id ?? this.generateLocalSkillId(input.name, input.folderName, usedIds)
+    const values = {
+      id,
+      remote_id: input.remoteId ?? existing[0]?.remote_id ?? null,
+      name: input.name,
+      description: input.description,
+      icon_url: input.iconUrl ?? existing[0]?.icon_url ?? null,
+      preview_video_url: input.previewVideoUrl ?? existing[0]?.preview_video_url ?? null,
+      folder_name: input.folderName,
+      source: input.source,
+      source_url: input.sourceUrl,
+      namespace: input.namespace,
+      author: input.author,
+      tags: JSON.stringify(input.tags),
+      content_hash: input.contentHash,
+      is_enabled: input.isEnabled,
+      created_at: existing[0]?.created_at ?? input.createdAt,
+      updated_at: input.updatedAt
+    }
+    if (existing[0]) {
+      await database.update(skillsTable).set(values).where(eq(skillsTable.id, existing[0].id))
+    } else {
+      await database.insert(skillsTable).values(values)
+    }
+    return id
+  }
+
+  private async updateSkillEnabledState(folderName: string, isEnabled: boolean): Promise<void> {
+    const database = await this.getDatabase()
+    await database.update(skillsTable).set({ is_enabled: isEnabled, updated_at: Date.now() }).where(eq(skillsTable.folder_name, folderName))
+  }
+
+  private parseRegistryTags(value: string | null | undefined, fallback: string[]): string[] {
+    if (!value) return fallback
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : fallback
+    } catch {
+      return fallback
+    }
   }
 
   /** Full path to a skill in global storage */
@@ -833,6 +1237,13 @@ export class SkillService extends BaseService {
     folderName: string
     skillPath: string
   } | null> {
+    const registryRow = await this.findSkillRegistryRow(name)
+    if (registryRow) {
+      const registryPath = await this.resolveExistingSkillStoragePath(registryRow.folder_name)
+      if (registryPath) {
+        return { folderName: registryRow.folder_name, skillPath: registryPath }
+      }
+    }
     for (const folderName of this.getCandidateFolderNames(name)) {
       const skillPath = await this.resolveExistingSkillStoragePath(folderName)
       if (skillPath) {
@@ -858,6 +1269,14 @@ export class SkillService extends BaseService {
     }
 
     return preserved
+  }
+
+  private validateRemoteFolderName(folderName: string | null | undefined): string {
+    const normalized = String(folderName || '').trim()
+    if (!/^[a-z0-9][a-z0-9_-]{0,127}$/.test(normalized)) {
+      throw new Error('Remote skill folder name must use lowercase English letters, numbers, hyphens, or underscores')
+    }
+    return normalized
   }
 
   private async resolveExistingSkillStoragePath(folderName: string): Promise<string | null> {
