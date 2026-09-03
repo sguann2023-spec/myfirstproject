@@ -7,6 +7,8 @@ const SkillImportModal = ({ onClose, onInstall }) => {
   const [status, setStatus] = useState('idle');
   const [statusMessage, setStatusMessage] = useState('');
   const closeTimerRef = useRef(null);
+  const isWindows = typeof navigator !== 'undefined'
+    && /Windows/i.test(`${navigator.platform || ''} ${navigator.userAgent || ''}`);
 
   useEffect(() => () => {
     if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
@@ -29,7 +31,30 @@ const SkillImportModal = ({ onClose, onInstall }) => {
     }
   };
 
+  const chooseZipFile = async () => {
+    const selected = (await window.api?.file?.select?.({
+      title: '选择技能 ZIP 压缩包',
+      properties: ['openFile'],
+      filters: [{ name: '技能 ZIP 压缩包', extensions: ['zip'] }]
+    }))?.[0]?.path;
+    if (!selected) return;
+    await installSelected('zip', selected);
+  };
+
+  const chooseSkillFolder = async () => {
+    const selected = await window.api?.file?.selectFolder?.({
+      title: '选择技能文件夹'
+    });
+    if (!selected) return;
+    await installSelected('folder', selected);
+  };
+
   const chooseImportSource = async () => {
+    if (isWindows) {
+      await chooseSkillFolder();
+      return;
+    }
+
     const selected = (await window.api?.file?.select?.({
       title: '选择技能文件夹或 ZIP 文件',
       properties: ['openFile', 'openDirectory'],
@@ -78,6 +103,15 @@ const SkillImportModal = ({ onClose, onInstall }) => {
           <span>• 文件夹或者 .zip 需要包含 SKILL.md 文件</span>
           <span>• .md 文件需包含 YAML 格式的技能名称和描述</span>
         </div>
+        {isWindows ? (
+          <button
+            type="button"
+            className="skill-import-zip-link"
+            onClick={() => void chooseZipFile()}
+          >
+            选择 ZIP 文件
+          </button>
+        ) : null}
       </div>
     </div>
   );
