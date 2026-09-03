@@ -23,6 +23,9 @@ export const SkillCatalogPackageSchema = z.object({
 export const SkillCatalogItemSchema = z.object({
   id: z.string(),
   name: z.string(),
+  // The server uses snake_case. This is the local installation directory
+  // name and must not be replaced with the display name.
+  folder_name: z.string().optional().default(''),
   description: z.string().default(''),
   icon_url: z.string().optional().default(''),
   version: z.string().optional(),

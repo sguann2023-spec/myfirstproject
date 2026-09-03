@@ -56,7 +56,7 @@
 .skill-card-skeleton .ant-skeleton-header { padding-right: 12px; }
 .skill-card-skeleton .ant-skeleton-avatar { width: 27px; height: 27px; }
 .skill-card-skeleton .ant-skeleton-content { padding-top: 0; }
-.skill-card-skeleton .ant-skeleton-title { height: 16px; margin-top: 5px; }
+.skill-card-skeleton .ant-skeleton-title { height: 16px; margin-top: 5px; margin-block-start: 5px !important; }
 .skill-card-skeleton .ant-skeleton-paragraph { margin-top: 15px; }
 .skill-card-skeleton .ant-skeleton-paragraph > li { height: 12px; margin-top: 5px; }
 .skill-card-shell { position: relative; min-width: 0; }
@@ -71,22 +71,23 @@
 .skill-card-icon { flex: 0 0 27px; width: 27px; height: 27px; border-radius: 50%; object-fit: cover; }
 .skill-card-icon-fallback { display: flex; align-items: center; justify-content: center; background: #d8d8d8; color: #fff; font-weight: 700; }
 .skill-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
-.skill-card-description-wrap { position: relative; min-width: 0; margin-top: 16px; }
+.skill-card-description-wrap { position: relative; width: 100%; min-width: 0; margin-top: 16px; padding-right: 0; box-sizing: border-box; }
 .skill-card.is-batch-mode .skill-card-description-wrap { margin-left: 21px; }
-.skill-card-description { display: -webkit-box; min-height: 30px; margin: 0; overflow: hidden; color: #666; font-size: 12px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.skill-card-description { display: -webkit-box; width: 100%; min-height: 30px; margin: 0; overflow: hidden; box-sizing: border-box; color: #666; font-size: 12px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .skill-card-actions { display: flex; align-items: center; gap: 8px; }
 .skill-card-more, .skill-card-add { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 7px; background-color: #e9e9e9; color: #222; cursor: pointer; }
-.skill-card-more { background-color: transparent; border-radius: 0; }
-.skill-card-more:hover { background-color: transparent; }
+.skill-card-more { background-color: transparent; border-radius: 3px; }
+.skill-card-more:hover { background-color: #dedede; }
 .skill-card-add { width: 24px; height: 24px; padding: 0; border-radius: 3px; }
 .skill-card-add.is-loading { cursor: pointer; }
 .skill-card-add:hover { background-color: #dedede; }
-.skill-card-more { width: 12px; height: 12px; padding: 0; }
-.skill-card-action-icon, .skill-card-check-icon { width: 12px; height: 12px; display: block; object-fit: contain; }
+.skill-card-more { width: 24px; height: 24px; padding: 0; }
+.skill-card-more .skill-card-action-icon { width: 14px; height: 14px; }
+.skill-card-action-icon, .skill-card-check-icon { width: 14px; height: 14px; display: block; object-fit: contain; }
 .skill-card-add-icon { width: 14px; height: 14px; display: block; object-fit: contain; }
-.skill-card-installed { display: inline-flex; align-items: center; justify-content: center; color: #111; }
+.skill-card-installed { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; color: #111; }
 .skill-card-more-wrap { position: relative; display: inline-flex; }
-.skill-card-action-menu { position: absolute; right: 0; top: calc(100% + 4px); width: 106px; height: 90px; box-sizing: border-box; padding: 5px; border: 1px solid #e1e1e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 20; }
+.skill-card-action-menu { position: absolute; right: 0; top: calc(100% + 4px); width: 106px; box-sizing: border-box; padding: 5px; border: 1px solid #e1e1e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 20; }
 .skill-card-action-menu button { height: 26px; box-sizing: border-box; padding: 0 10px; gap: 8px; font-size: 12px; }
 .skill-card-action-menu button svg { width: 14px; height: 14px; flex: 0 0 14px; }
 .skill-detail-menu button { height: 33px; box-sizing: border-box; padding: 0 10px; gap: 8px; font-size: 12px; }
@@ -98,12 +99,12 @@
 .skill-card-toggle span, .skill-detail-switch span { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
 .skill-card-toggle.is-on, .skill-detail-switch.is-on { background: #16b98e; }
 .skill-card-toggle.is-on span, .skill-detail-switch.is-on span { transform: translateX(13px); }
-.skill-card-toggle { width: 18px; height: 10px; }
-.skill-card-toggle span { top: 2px; left: 2px; width: 6px; height: 6px; }
-.skill-card-toggle.is-on span { transform: translateX(8px); }
-.skill-detail-switch { width: 18px; height: 10px; }
-.skill-detail-switch span { top: 2px; left: 2px; width: 6px; height: 6px; }
-.skill-detail-switch.is-on span { transform: translateX(8px); }
+.skill-card-toggle { width: 26px; height: 16px; }
+.skill-card-toggle span { top: 2px; left: 2px; width: 12px; height: 12px; }
+.skill-card-toggle.is-on span { transform: translateX(10px); }
+.skill-detail-switch { width: 36px; height: 20px; }
+.skill-detail-switch span { top: 4px; left: 4px; width: 12px; height: 12px; }
+.skill-detail-switch.is-on span { transform: translateX(16px); }
 .skill-card-checkbox { position: absolute; top: 20px; left: 15px; width: 12px; min-width: 12px; max-width: 12px; height: 12px; min-height: 12px; max-height: 12px; flex: 0 0 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #ddd; border-radius: 2px; appearance: none; background: #fff; cursor: pointer; z-index: 2; }
 .skill-card-checkbox.is-checked { border-color: #000; background: #000; color: #fff; opacity: 1; }
 .skill-card-checkbox-icon { width: 10px; height: 10px; display: block; object-fit: contain; filter: brightness(0) invert(1); }
@@ -131,8 +132,8 @@
 .skill-detail-add.is-loading { gap: 4px; cursor: wait; }
 .skill-detail-use { width: 60px; height: 25px; padding: 0; background: #e7e7e7; color: #222; }
 .skill-detail-more-wrap { position: relative; }
-.skill-detail-more { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.skill-detail-more-icon { width: 14px; height: 14px; display: block; object-fit: contain; }
+.skill-detail-more { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.skill-detail-more-icon { width: 16px; height: 16px; display: block; object-fit: contain; }
 .skill-detail-body { width: 100%; max-width: none; margin: 0; box-sizing: border-box; padding: 20px 22px 0; }
 .skill-detail-title-row { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
 .skill-detail-icon { width: 58px; height: 58px; border-radius: 16px; object-fit: cover; }
@@ -162,18 +163,19 @@
 @keyframes skill-spin { to { transform: rotate(360deg); } }
 
 .skill-modal-mask { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.38); }
-.skill-import-modal { width: 325px; height: 318px; box-sizing: border-box; padding: 22px 24px; overflow: hidden; border-radius: 18px; background: #fff; box-shadow: 0 18px 50px rgba(0,0,0,.2); }
+.skill-import-modal { width: 460px; height: 340px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 20px 30px; overflow: hidden; border-radius: 18px; background: #fff; box-shadow: 0 18px 50px rgba(0,0,0,.2); }
 .skill-modal-title-row { display: flex; align-items: center; justify-content: space-between; }
-.skill-modal-title-row h2 { margin: 0; font-size: 14px; font-weight: 700; }
-.skill-import-close { width: 12px; height: 12px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-.skill-import-dropzone { height: 154px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin-top: 18px; padding: 20px; border: 1px dashed #aaa; border-radius: 13px; color: #555; cursor: pointer; }
-.skill-import-dropzone strong { color: #222; font-size: 14px; font-weight: 400; }
-.skill-import-dropzone span { font-size: 10px; text-align: center; }
+.skill-modal-title-row h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.skill-import-close { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.skill-import-close svg { width: 16px; height: 16px; }
+.skill-import-dropzone { height: 154px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; margin-top: 18px; padding: 20px; border: 1px dashed #aaa; border-radius: 13px; color: #555; cursor: pointer; }
+.skill-import-dropzone strong { color: #222; font-size: 18px; font-weight: 400; }
+.skill-import-dropzone span { font-size: 14px; text-align: center; }
 .skill-import-buttons { display: flex; gap: 9px; margin-top: 7px; }
 .skill-import-buttons button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; padding: 8px 12px; background: #e9e9e9; cursor: pointer; }
 .skill-import-buttons button:disabled { cursor: default; opacity: .55; }
-.skill-import-requirements { display: flex; flex-direction: column; gap: 5px; margin-top: 16px; color: #777; font-size: 10px; line-height: 15px; }
-.skill-import-requirements strong { color: #333; font-size: 13px; font-weight: 700; line-height: 18px; }
+.skill-import-requirements { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; color: #777; font-size: 13px; line-height: 18px; }
+.skill-import-requirements strong { color: #333; font-size: 16px; font-weight: 700; line-height: 22px; }
 
 @media (max-width: 900px) { .skill-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .skill-store-toolbar { flex-wrap: wrap; } .skill-search-box { flex-basis: 100%; } }
 @media (max-width: 620px) { .skill-card-grid { grid-template-columns: 1fr; } .skill-detail-body { padding: 22px; } .skill-detail-media { grid-template-columns: 1fr; } }

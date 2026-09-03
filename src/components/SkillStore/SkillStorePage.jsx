@@ -6,6 +6,7 @@ import SkillCard from './SkillCard';
 import SkillCardActionMenu from './SkillCardActionMenu';
 import SkillDetailPage from './SkillDetailPage';
 import SkillImportModal from './SkillImportModal';
+import { getSkillInstallErrorMessage } from './skillInstallError';
 import CirclePlusIcon from '../../../public/circle-plus.svg';
 import PackageIcon from '../../../public/package.svg';
 import BatchSettingsIcon from '../../../public/skill-settings.svg';
@@ -17,6 +18,17 @@ import BatchDisableDisabledIcon from '../../../public/skill-circle-x-disabled.sv
 import BatchUninstallIcon from '../../../public/skill-trash-2.svg';
 import BatchUninstallDisabledIcon from '../../../public/skill-trash-2-disabled.svg';
 import './SkillStorePage.css';
+
+const BATCH_TOGGLE_CONCURRENCY = 5;
+
+const runWithConcurrency = async (items, worker, limit) => {
+  const results = [];
+  for (let index = 0; index < items.length; index += limit) {
+    const batch = items.slice(index, index + limit);
+    results.push(...await Promise.allSettled(batch.map(worker)));
+  }
+  return results;
+};
 
 const SkillCardSkeleton = () => (
   <div className="skill-card-skeleton" aria-hidden="true">
@@ -60,6 +72,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   } = useSkillStore();
   const [view, setView] = useState('featured');
   const [searchQuery, setSearchQuery] = useState('');
+  const [settledSearchQuery, setSettledSearchQuery] = useState('');
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [detailReturnView, setDetailReturnView] = useState('featured');
   const [menuSkillId, setMenuSkillId] = useState('');
@@ -73,9 +86,18 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
   const [hasSkillScroll, setHasSkillScroll] = useState(false);
   const [isSkillScrolling, setIsSkillScrolling] = useState(false);
   const [skillScrollMetrics, setSkillScrollMetrics] = useState({ clientHeight: 0, scrollHeight: 0, scrollTop: 0 });
+  const latestSearchQueryRef = useRef('');
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void search(searchQuery), 250);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    latestSearchQueryRef.current = normalizedQuery;
+    setSettledSearchQuery('');
+    const timer = window.setTimeout(async () => {
+      await search(searchQuery);
+      if (latestSearchQueryRef.current === normalizedQuery) {
+        setSettledSearchQuery(normalizedQuery);
+      }
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [searchQuery, search]);
 
@@ -109,10 +131,17 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     return Array.from(map.values()).filter((item) => String(item?.name || '').toLowerCase().includes(normalized));
   }, [installedSkills, searchQuery, searchResults]);
 
-  const visibleSkills = view === 'search' ? searchVisibleSkills : view === 'installed' ? installedCards : featured;
   const isSearch = view === 'search';
   const isInstalledView = view === 'installed';
-  const showLoading = loading || searching;
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const searchPending = isSearch && Boolean(normalizedSearchQuery) && settledSearchQuery !== normalizedSearchQuery;
+  const showLoading = loading || searching || searchPending;
+  const visibleSkills = view === 'search'
+    ? (searchPending ? [] : searchVisibleSkills)
+    : view === 'installed' ? installedCards : featured;
+  const shouldShowEmptyState = !showLoading
+    && visibleSkills.length === 0
+    && (!isSearch || Boolean(normalizedSearchQuery));
 
   useEffect(() => {
     const grid = skillGridRef.current;
@@ -163,15 +192,17 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   const showInstallSuccessToast = (skill) => {
     const name = String(skill?.name || skill?.folderName || '技能').trim();
-    window.toast?.success?.({
-      title: (
+    message.open({
+      type: 'success',
+      content: (
         <span>
           「{name}」技能已安装，
           <button type="button" onClick={() => onGoChat?.(skill)} style={{ border: 0, padding: 0, background: 'transparent', color: '#16b98d', cursor: 'pointer', font: 'inherit' }}>
             去试试
           </button>
         </span>
-      )
+      ),
+      duration: 2
     });
   };
 
@@ -188,7 +219,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
       await install(skill);
       showInstallSuccessToast(skill);
     } catch (installError) {
-      window.toast?.error?.(installError?.message || '安装技能失败');
+      message.error(getSkillInstallErrorMessage(installError));
     } finally {
       setInstallingSkillId('');
     }
@@ -212,7 +243,6 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
     if (!result?.success) throw new Error(result?.error?.message || result?.error || '技能安装失败');
     await refreshInstalled();
     window.dispatchEvent(new Event('skill-store-updated'));
-    setImportOpen(false);
     showInstallSuccessToast(result.data || { name: '技能' });
   };
 
@@ -223,11 +253,21 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
 
   const handleBatchToggle = async (enabled) => {
     const selectedSkills = installedCards.filter((skill) => selectedIds.includes(skill.id));
-    await Promise.all(selectedSkills.map((skill) => toggle(skill, enabled)));
+    const skillsToToggle = selectedSkills.filter((skill) => getEnabled(skill) !== enabled);
+    const results = await runWithConcurrency(
+      skillsToToggle,
+      (skill) => toggle(skill, enabled),
+      BATCH_TOGGLE_CONCURRENCY
+    );
+    const successCount = results.filter((result) => result.status === 'fulfilled').length;
+    const failedCount = results.length - successCount;
     setSelectedIds([]);
     setBatchMode(false);
-    if (selectedSkills.length > 0) {
-      message.success(`成功${enabled ? '开启' : '关闭'} ${selectedSkills.length} 个技能`);
+    if (successCount > 0) {
+      message.success(`成功${enabled ? '开启' : '关闭'} ${successCount} 个技能`);
+    }
+    if (failedCount > 0) {
+      message.error(`${failedCount} 个技能${enabled ? '开启' : '关闭'}失败，请稍后重试`);
     }
   };
 
@@ -352,7 +392,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
         </div>
       ) : null}
       {error ? <div className="skill-store-state is-error">{error}</div> : null}
-      {!showLoading && visibleSkills.length === 0 ? <div className="skill-store-state">暂未找到相关技能</div> : null}
+      {shouldShowEmptyState ? <div className="skill-store-state">暂未找到相关技能</div> : null}
       {!showLoading ? (
         <div className="skill-card-grid-wrap">
           <div
@@ -376,6 +416,7 @@ const SkillStorePage = ({ onGoChat, onEditSkill, onCreateSkill }) => {
                 menuOpen={menuSkillId === skill.id}
                 actionMenu={menuSkillId === skill.id ? (
                   <SkillCardActionMenu
+                    enabled={getEnabled(skill)}
                     onChat={() => { setMenuSkillId(''); onGoChat?.(skill); }}
                     onEdit={() => { setMenuSkillId(''); onEditSkill?.(skill); }}
                     onUninstall={() => void handleUninstall(skill)}

@@ -67,6 +67,7 @@ declare global {
           isEnabled?: boolean
           remoteId?: string | null
           remoteName?: string | null
+          folderName?: string | null
           source?: string
           sourceUrl?: string | null
           iconUrl?: string | null
@@ -76,6 +77,7 @@ declare global {
           packageUrl: string
           remoteId: string
           remoteName?: string | null
+          folderName?: string | null
           iconUrl?: string | null
           previewVideoUrl?: string | null
           sourceUrl?: string | null

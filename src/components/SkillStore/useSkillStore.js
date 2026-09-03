@@ -7,14 +7,34 @@ import {
 const AGENT_ID = 'vectcut_claw_default';
 const FEATURED_PAGE_SIZE = 20;
 const TOGGLE_STATE_KEY = 'skill-store:toggle-state:v1';
-const QUICK_SKILL_FOLDERS = {
-  '儿童绘本': '儿童绘本',
-  '旅游攻略混剪': '旅游攻略混剪',
-  '直播切片': '直播切片',
-  '毛衣带货口播': '毛衣带货口播',
-  '便利店探店': '便利店探店',
-  '教育知识讲解': '教育知识讲解'
+const QUICK_SKILLS_MANIFEST_RELATIVE_PATH = 'quick/skills/manifest.json';
+let quickSkillFolderMapPromise = null;
+
+const loadQuickSkillFolderMap = async () => {
+  if (!quickSkillFolderMapPromise) {
+    quickSkillFolderMapPromise = (async () => {
+      const folderMap = new Map();
+      try {
+        const appInfo = await window.api?.getAppInfo?.();
+        const resourcesPath = String(appInfo?.resourcesPath || '').replace(/[\\/]+$/, '');
+        if (!resourcesPath || typeof window.api?.fs?.readText !== 'function') return folderMap;
+        const manifestPath = `${resourcesPath}/${QUICK_SKILLS_MANIFEST_RELATIVE_PATH}`;
+        const manifest = JSON.parse(await window.api.fs.readText(manifestPath));
+        Object.values(manifest?.skills || {}).forEach((item) => {
+          const name = String(item?.name || '').trim().toLowerCase();
+          const folderName = String(item?.folderName || '').trim();
+          if (name && folderName) folderMap.set(name, folderName);
+        });
+      } catch {
+        // Remote marketplace skills can still be installed from their package.
+      }
+      return folderMap;
+    })();
+  }
+  return quickSkillFolderMapPromise;
 };
+
+const getRemoteFolderName = (skill) => String(skill?.folder_name || skill?.folderName || '').trim();
 
 const readJson = (key, fallback) => {
   try {
@@ -208,27 +228,34 @@ export const useSkillStore = () => {
         return next;
       });
     };
-    const folderName = QUICK_SKILL_FOLDERS[skill?.name];
+    const quickSkillFolderMap = await loadQuickSkillFolderMap();
+    const skillNameKey = String(skill?.name || '').trim().toLowerCase();
+    const bundledFolderName = quickSkillFolderMap.get(skillNameKey) || '';
+    let folderName = getRemoteFolderName(skill) || bundledFolderName;
+    const isBundledQuickSkill = Boolean(
+      bundledFolderName && (!getRemoteFolderName(skill) || getRemoteFolderName(skill) === bundledFolderName)
+    );
     let detail = null;
-    if (skill?.id && !skill?.previewVideoUrl) {
+    if (skill?.id && (!skill?.previewVideoUrl || !folderName)) {
       try {
         detail = await skillCatalogService.getSkillDetail(skill.id);
+        folderName = getRemoteFolderName(detail) || folderName;
       } catch (error) {
-        // The bundled quick-skill path can still install locally when its
-        // marketplace detail is temporarily unavailable. Remote packages
-        // require the detail response below to obtain the package URL.
-        if (!folderName) throw error;
+        // A bundled quick skill can still install from local resources when
+        // its marketplace detail is temporarily unavailable.
+        if (!isBundledQuickSkill) throw error;
       }
     }
     const previewVideoUrl = skill?.previewVideoUrl || detail?.media?.[0]?.url || null;
-    if (folderName && window.api?.getAppInfo && window.api?.skill?.installFromDirectory) {
+    if (isBundledQuickSkill && bundledFolderName && window.api?.getAppInfo && window.api?.skill?.installFromDirectory) {
       const appInfo = await window.api.getAppInfo();
       const separator = String(appInfo?.resourcesPath || '').includes('\\') ? '\\' : '/';
-      const directoryPath = [appInfo?.resourcesPath, 'quick', 'skills', folderName].filter(Boolean).join(separator);
+      const directoryPath = [appInfo?.resourcesPath, 'quick', 'skills', bundledFolderName].filter(Boolean).join(separator);
       const result = await window.api.skill.installFromDirectory({
         directoryPath,
         remoteId: skill?.id || null,
         remoteName: skill?.name || null,
+        folderName: bundledFolderName,
         source: 'marketplace',
         sourceUrl: skill?.source_url || skill?.sourceUrl || null,
         iconUrl: skill?.icon_url || skill?.iconUrl || null,
@@ -243,12 +270,15 @@ export const useSkillStore = () => {
 
     if (skill?.id && window.api?.skill?.installFromRemotePackage) {
       detail = detail || await skillCatalogService.getSkillDetail(skill.id);
+      folderName = getRemoteFolderName(detail) || folderName;
+      if (!folderName) throw new Error('该技能缺少安装文件夹名称');
       const packageUrl = detail?.package?.download_url;
       if (!packageUrl) throw new Error('该技能暂未提供安装包');
       const result = await window.api.skill.installFromRemotePackage({
         packageUrl,
         remoteId: skill.id,
         remoteName: skill.name || null,
+        folderName,
         iconUrl: skill?.icon_url || skill?.iconUrl || null,
         previewVideoUrl,
         sourceUrl: skill?.source_url || skill?.sourceUrl || null

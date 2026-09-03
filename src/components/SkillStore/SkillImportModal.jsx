@@ -1,21 +1,31 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { message } from 'antd';
 import { CheckCircle2, LoaderCircle, Upload, X } from 'lucide-react';
+import { getSkillInstallErrorMessage } from './skillInstallError';
 
 const SkillImportModal = ({ onClose, onInstall }) => {
   const [status, setStatus] = useState('idle');
-  const [message, setMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const closeTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   const installSelected = async (type, selected) => {
     try {
       if (!selected) return;
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
       setStatus('loading');
-      setMessage('正在校验技能结构并安装…');
+      setStatusMessage('正在校验技能结构并安装…');
       await onInstall?.(type, selected);
       setStatus('success');
-      setMessage('技能安装成功');
+      setStatusMessage('技能安装成功');
+      closeTimerRef.current = window.setTimeout(() => onClose?.(), 2000);
     } catch (error) {
-      setStatus('error');
-      setMessage(error?.message || '技能校验或安装失败');
+      setStatus('idle');
+      setStatusMessage('');
+      message.error(getSkillInstallErrorMessage(error, '技能校验或安装失败'));
     }
   };
 
@@ -35,8 +45,9 @@ const SkillImportModal = ({ onClose, onInstall }) => {
     const dropped = event.dataTransfer.files?.[0];
     const selected = dropped?.path;
     if (!selected) {
-      setStatus('error');
-      setMessage('无法读取拖拽的文件');
+      setStatus('idle');
+      setStatusMessage('');
+      message.error('无法读取拖拽的文件');
       return;
     }
     await installSelected(selected.toLowerCase().endsWith('.zip') ? 'zip' : 'folder', selected);
@@ -60,7 +71,7 @@ const SkillImportModal = ({ onClose, onInstall }) => {
         >
           {status === 'loading' ? <LoaderCircle size={30} className="skill-spin" /> : status === 'success' ? <CheckCircle2 size={30} color="#16b98d" /> : <Upload size={30} />}
           <strong>{status === 'loading' ? '正在校验并安装' : status === 'success' ? '安装完成' : '拖拽文件或点击上传'}</strong>
-          {message ? <span>{message}</span> : null}
+          {statusMessage ? <span>{statusMessage}</span> : null}
         </div>
         <div className="skill-import-requirements">
           <strong>文件要求</strong>
