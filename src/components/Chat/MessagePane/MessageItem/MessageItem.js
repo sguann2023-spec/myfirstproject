@@ -8,9 +8,7 @@ import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
-import { loggerService } from '@logger';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
-const logger = loggerService.withContext('ChatLoading/MessageItem');
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
   (Array.isArray(attachments) ? attachments : []).map((item) => ({
@@ -59,10 +57,6 @@ const LiveAssistantMessageTokens = ({ fallbackMessage, storeAssistantMessageId }
       metrics: storeMessage?.metrics ?? fallbackMessage?.metrics
     }
     : fallbackMessage;
-
-  if (!resolvedMessage?.usage) {
-    return null;
-  }
 
   return <MessageTokens message={resolvedMessage} />;
 };
@@ -160,20 +154,18 @@ const MessageItem = ({
                 <Trash2 size={15} className="chat-panel__message-action-icon" />
               </button>
             </Tooltip>
-            {(canUseLiveAssistantTokens || message?.usage) ? (
-              <div className="chat-panel__message-tokens">
-                {canUseLiveAssistantTokens ? (
-                  <Provider store={appStore}>
-                    <LiveAssistantMessageTokens
-                      fallbackMessage={message}
-                      storeAssistantMessageId={storeAssistantMessageId}
-                    />
-                  </Provider>
-                ) : (
-                  <MessageTokens message={message} />
-                )}
-              </div>
-            ) : null}
+            <div className="chat-panel__message-tokens">
+              {canUseLiveAssistantTokens ? (
+                <Provider store={appStore}>
+                  <LiveAssistantMessageTokens
+                    fallbackMessage={message}
+                    storeAssistantMessageId={storeAssistantMessageId}
+                  />
+                </Provider>
+              ) : (
+                <MessageTokens message={message} />
+              )}
+            </div>
           </div>
         )}
       </div>

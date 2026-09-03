@@ -3,12 +3,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet, storeState, mockUploadLocalFile } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, storeState } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn(),
-  storeState: new Map<string, unknown>(),
-  mockUploadLocalFile: vi.fn()
+  storeState: new Map<string, unknown>()
 }))
 
 vi.mock('electron', () => ({
@@ -37,12 +36,6 @@ vi.mock('@logger', () => ({
       error: vi.fn(),
       debug: vi.fn()
     }))
-  }
-}))
-
-vi.mock('@main/services/OssUploadService', () => ({
-  ossUploadService: {
-    uploadLocalFile: mockUploadLocalFile
   }
 }))
 
@@ -91,7 +84,6 @@ describe('CutWorkflowServer', () => {
     mockNetFetch.mockReset()
     mockStoreGet.mockReset()
     mockStoreSet.mockReset()
-    mockUploadLocalFile.mockReset()
     storeState.clear()
     mockStoreGet.mockImplementation((key: string) => storeState.get(key))
     mockStoreSet.mockImplementation((key: string, value: unknown) => {
@@ -184,7 +176,6 @@ describe('CutWorkflowServer', () => {
         has_inputs: true,
         script_steps: 1
       },
-      source_summary: [],
       success: true,
       error: '',
       output: {
@@ -317,7 +308,7 @@ describe('CutWorkflowServer', () => {
     await fs.rm(outsideRoot, { recursive: true, force: true })
   })
 
-  it('should upload local workflow media references internally before executing', async () => {
+  it('should pass through local workflow media references without uploading', async () => {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-workflow-local-media-'))
     const localImagePath = path.join(workspaceRoot, 'cover.png')
     const localVideoPath = path.join(workspaceRoot, 'clip.mp4')
@@ -326,16 +317,6 @@ describe('CutWorkflowServer', () => {
     await fs.writeFile(localVideoPath, 'video', 'utf8')
     await fs.writeFile(localAudioPath, 'audio', 'utf8')
 
-    mockUploadLocalFile
-      .mockResolvedValueOnce({
-        signedPublicUrl: 'https://oss.example.com/cover.png?token=1'
-      })
-      .mockResolvedValueOnce({
-        signedPublicUrl: 'https://oss.example.com/clip.mp4?token=2'
-      })
-      .mockResolvedValueOnce({
-        signedPublicUrl: 'https://oss.example.com/voice.mp3?token=3'
-      })
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -381,18 +362,9 @@ describe('CutWorkflowServer', () => {
       ]
     })
 
-    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(
-      1,
-      localImagePath,
-      expect.objectContaining({
-        objectKeyPrefix: 'vectcut_cut_workflow_'
-      })
-    )
-    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(2, localVideoPath, expect.any(Object))
-    expect(mockUploadLocalFile).toHaveBeenNthCalledWith(3, localAudioPath, expect.any(Object))
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       inputs: {
-        cover: 'https://oss.example.com/cover.png?token=1'
+        cover: `file://${localImagePath}`
       },
       script: [
         {
@@ -401,7 +373,7 @@ describe('CutWorkflowServer', () => {
           index: 0,
           action_type: 'add_video',
           params: {
-            video_url: 'https://oss.example.com/clip.mp4?token=2'
+            video_url: localVideoPath
           }
         },
         {
@@ -410,7 +382,7 @@ describe('CutWorkflowServer', () => {
           index: 1,
           action_type: 'add_audio',
           params: {
-            audio_url: 'https://oss.example.com/voice.mp3?token=3'
+            audio_url: localAudioPath
           }
         }
       ]
@@ -418,23 +390,11 @@ describe('CutWorkflowServer', () => {
 
     expect(JSON.parse(result.content[0].text)).toEqual(
       expect.objectContaining({
-        source_summary: [
-          {
-            originalInput: `file://${localImagePath}`,
-            submittedUrl: 'https://oss.example.com/cover.png?token=1',
-            sourceKind: 'local_media'
-          },
-          {
-            originalInput: localVideoPath,
-            submittedUrl: 'https://oss.example.com/clip.mp4?token=2',
-            sourceKind: 'local_media'
-          },
-          {
-            originalInput: localAudioPath,
-            submittedUrl: 'https://oss.example.com/voice.mp3?token=3',
-            sourceKind: 'local_media'
-          }
-        ]
+        success: true,
+        output: {
+          draft_id: 'dfd_workflow_local_media',
+          draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_workflow_local_media'
+        }
       })
     )
 

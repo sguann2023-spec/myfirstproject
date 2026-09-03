@@ -1186,6 +1186,16 @@ const countAssistantUsageSteps = (messages = []) => (
   }, 0)
 );
 
+const countAssistantUsageMessages = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    const hasUsage = Boolean(message?.usage);
+    const hasUsageSteps = Array.isArray(message?.usageSteps) && message.usageSteps.length > 0;
+    const hasCompletionMetrics = Number(message?.metrics?.completion_tokens || 0) > 0;
+    return hasUsage || hasUsageSteps || hasCompletionMetrics ? count + 1 : count;
+  }, 0)
+);
+
 const countAssistantPricedUsageMessages = (messages = []) => (
   (Array.isArray(messages) ? messages : []).reduce((count, message) => {
     if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
@@ -1441,6 +1451,7 @@ const shouldApplyHydratedMessages = ({
   const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
   const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
   const beforeAssistantUsageStepCount = countAssistantUsageSteps(currentMessages);
+  const beforeAssistantUsageMessageCount = countAssistantUsageMessages(currentMessages);
   const beforePricedUsageMessageCount = countAssistantPricedUsageMessages(currentMessages);
   const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
   const beforeHasInterruptedAssistantState = (Array.isArray(currentMessages) ? currentMessages : []).some(hasInterruptedAssistantState);
@@ -1448,6 +1459,7 @@ const shouldApplyHydratedMessages = ({
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
   const afterAssistantUsageStepCount = countAssistantUsageSteps(hydratedMessages);
+  const afterAssistantUsageMessageCount = countAssistantUsageMessages(hydratedMessages);
   const afterPricedUsageMessageCount = countAssistantPricedUsageMessages(hydratedMessages);
   const afterHasInterruptedAssistantState = (Array.isArray(hydratedMessages) ? hydratedMessages : []).some(hasInterruptedAssistantState);
 
@@ -1458,6 +1470,7 @@ const shouldApplyHydratedMessages = ({
     || afterVisibleAssistantCount > beforeVisibleAssistantCount
     || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
     || afterAssistantUsageStepCount > beforeAssistantUsageStepCount
+    || afterAssistantUsageMessageCount > beforeAssistantUsageMessageCount
     || afterPricedUsageMessageCount > beforePricedUsageMessageCount
     || (beforeHasInterruptedAssistantState && !afterHasInterruptedAssistantState)
     || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
@@ -1842,10 +1855,16 @@ const HomePage = () => {
       const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
         .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptionsRef.current))
         .filter((message) => message?.id));
-      const hasAssistantContent = hydratedMessages.some((message) => (
-        message.role === 'assistant' && String(message.content || '').trim()
+      const hasAssistantContentOrUsage = hydratedMessages.some((message) => (
+        message.role === 'assistant'
+        && (
+          String(message.content || '').trim()
+          || message?.usage
+          || (Array.isArray(message?.usageSteps) && message.usageSteps.length > 0)
+          || Number(message?.metrics?.completion_tokens || 0) > 0
+        )
       ));
-      if (!hasAssistantContent) {
+      if (!hasAssistantContentOrUsage) {
         logger.warn('[HomePage][HistoryHydrate] skipped persisted sync without assistant content', {
           chatId: normalizedChatId,
           sessionId: normalizedSessionId,
@@ -2631,10 +2650,16 @@ const HomePage = () => {
         const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
           .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptions))
           .filter((message) => message?.id));
-        const hasAssistantContent = hydratedMessages.some((message) => (
-          message.role === 'assistant' && String(message.content || '').trim()
+        const hasAssistantContentOrUsage = hydratedMessages.some((message) => (
+          message.role === 'assistant'
+          && (
+            String(message.content || '').trim()
+            || message?.usage
+            || (Array.isArray(message?.usageSteps) && message.usageSteps.length > 0)
+            || Number(message?.metrics?.completion_tokens || 0) > 0
+          )
         ));
-        if (!hasAssistantContent) {
+        if (!hasAssistantContentOrUsage) {
           chatHistoryHydrateSettledRef.current.add(hydrateKey);
           logger.warn('[HomePage][HistoryHydrate] skipped missing assistant content', {
             chatId: activeChatSession.id,
@@ -2887,6 +2912,9 @@ const HomePage = () => {
         content: nextContent,
         blocks: nextBlocks,
         usage: snapshot?.usage ? { ...snapshot.usage } : message?.usage,
+        usageSteps: Array.isArray(snapshot?.usageSteps)
+          ? snapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+          : message?.usageSteps,
         metrics: snapshot?.metrics ? { ...snapshot.metrics } : message?.metrics,
         model: nextModel,
         modelId: nextModelId,
@@ -3431,6 +3459,9 @@ const HomePage = () => {
                       content: snapshot.content || '',
                       blocks: snapshot.blocks || [],
                       usage: snapshot?.usage ? { ...snapshot.usage } : message.usage,
+                      usageSteps: Array.isArray(snapshot?.usageSteps)
+                        ? snapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+                        : message.usageSteps,
                       metrics: snapshot?.metrics ? { ...snapshot.metrics } : message.metrics,
                       model: nextModel,
                       modelId: nextModelId,
@@ -3576,6 +3607,14 @@ const HomePage = () => {
               chatPerfByRequestIdRef.current.delete(requestId);
             }
           }
+          if (agentSessionId) {
+            chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+            void hydratePersistedChatSessionFromHistory({
+              chatId,
+              sessionId: agentSessionId,
+              reason: 'chunk.error.aborted'
+            });
+          }
           return;
         }
         if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
@@ -3603,6 +3642,14 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
+        if (agentSessionId) {
+          chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+          void hydratePersistedChatSessionFromHistory({
+            chatId,
+            sessionId: agentSessionId,
+            reason: 'chunk.error'
+          });
+        }
         return;
       }
 
@@ -3623,6 +3670,14 @@ const HomePage = () => {
           if (completedPerf) {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
+        }
+        if (agentSessionId) {
+          chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+          void hydratePersistedChatSessionFromHistory({
+            chatId,
+            sessionId: agentSessionId,
+            reason: 'chunk.cancelled'
+          });
         }
         return;
       }
@@ -3671,6 +3726,9 @@ const HomePage = () => {
                         content: finalizedContent || message.content || '',
                         blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
                         usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
+                        usageSteps: Array.isArray(finalSnapshot?.usageSteps)
+                          ? finalSnapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+                          : message.usageSteps,
                         metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
                         model: nextModel,
                         modelId: nextModelId,

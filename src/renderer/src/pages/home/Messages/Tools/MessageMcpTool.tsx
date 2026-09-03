@@ -35,6 +35,16 @@ import {
   formatArgValue,
   ResponseSection
 } from './shared/ArgsTable'
+import {
+  extractImageUnderstandeBillingSummary,
+  getImageUnderstandePointIconUrl,
+  isImageUnderstandeToolName
+} from './MessageAgentTools/imageUnderstandeTool'
+import {
+  extractVideoUnderstandeBillingSummary,
+  getVideoUnderstandePointIconUrl,
+  isVideoUnderstandeToolName
+} from './MessageAgentTools/videoUnderstandeTool'
 import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
 import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
@@ -46,6 +56,7 @@ import {
   SubtitleRecognitionToolBody
 } from './MessageAgentTools/SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './MessageAgentTools/SubtitleTemplateTool'
+import './MessageAgentTools/ImageUnderstandeTool.css'
 
 interface Props {
   block: ToolMessageBlock
@@ -221,6 +232,19 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
     () => getMcpToolDisplayName({ serverName: tool?.serverName, toolName: tool?.name || '', t }),
     [t, tool?.name, tool?.serverName]
   )
+  const billingSummary = useMemo(
+    () => {
+      const toolName = tool?.name || ''
+      if (isImageUnderstandeToolName(toolName)) {
+        return extractImageUnderstandeBillingSummary(toolResponse.response)
+      }
+      if (isVideoUnderstandeToolName(toolName)) {
+        return extractVideoUnderstandeBillingSummary(toolResponse.response)
+      }
+      return null
+    },
+    [tool?.name, toolResponse.response]
+  )
 
   useEffect(() => {
     const removeListener = window.electron.ipcRenderer.on(
@@ -316,6 +340,17 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
               <Progress type="circle" size={14} percent={Number((progress * 100)?.toFixed(0))} />
             ) : (
               <ToolStatusIndicator status={getEffectiveStatus(status, approval.isWaiting)} hasError={hasError} />
+            )}
+            {billingSummary && !isPending && progress <= 0 && (
+              <span className="image-understand-tool-billing-badge" title={`总消耗 ${billingSummary.displayText}`}>
+                <img
+                  className="image-understand-tool-billing-icon"
+                  src={isVideoUnderstandeToolName(tool?.name || '') ? getVideoUnderstandePointIconUrl() : getImageUnderstandePointIconUrl()}
+                  alt=""
+                  aria-hidden="true"
+                />
+                <span className="image-understand-tool-billing-text">{billingSummary.displayText}</span>
+              </span>
             )}
             {!isPending && (
               <Tooltip title={t('common.copy')} mouseEnterDelay={0.5}>

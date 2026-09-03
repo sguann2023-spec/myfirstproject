@@ -1,11 +1,11 @@
 {
-  "lastUpdated": "2026-08-31T02:46:00.000Z",
+  "lastUpdated": "2026-09-02T00:12:00.000Z",
   "githubProxyPrefixes": [
-    "https://github.chenc.dev/",
-    "https://github-proxy.memory-echoes.cn/",
-    "https://gh-proxy.org/",
     "https://axisnow.gh-proxy.org/",
-    "https://v4.gh-proxy.org/"
+    "https://ghproxy.felicity.land/",
+    "https://gh.meali.top/",
+    "https://gh-proxy.org/",
+    "https://ghproxy.imciel.com/"
   ],
   "versions": {}
 }
