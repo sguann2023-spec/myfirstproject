@@ -53,6 +53,12 @@ function extractNestedOutputPayload(value: unknown, depth = 0): Record<string, u
       'success' in value ||
       'output' in value ||
       'result' in value ||
+      'billing' in value ||
+      'task_status' in value ||
+      'digital_human_url' in value ||
+      'upstream_response' in value ||
+      'copywriting' in value ||
+      'voice_id' in value ||
       'image_url' in value ||
       'video_url' in value ||
       'audio_url' in value
@@ -167,9 +173,11 @@ function getPromptFromContent(value: unknown): string | undefined {
 
 export function getPrompt(input: Record<string, unknown> | null, output: Record<string, unknown> | null): string | undefined {
   const nestedOutput = output && isRecord(output.output) ? output.output : null
+  const nestedResult = output && isRecord(output.result) ? output.result : null
   const request = output && isRecord(output.request) ? output.request : null
   const promptCandidates = [
     input?.prompt,
+    input?.copywriting,
     input?.text,
     getPromptFromContent(input?.content),
     getPromptFromContent(request?.content),
@@ -179,6 +187,9 @@ export function getPrompt(input: Record<string, unknown> | null, output: Record<
     nestedOutput?.prompt,
     nestedOutput?.text_prompt,
     nestedOutput?.copywriting,
+    nestedResult?.prompt,
+    nestedResult?.text_prompt,
+    nestedResult?.copywriting,
     getPromptFromContent(output?.content),
     getPromptFromContent(nestedOutput?.content)
   ]
@@ -247,7 +258,18 @@ export function getVideoUrl(output: Record<string, unknown> | null): string | un
 export function getDigitalHumanVideoUrl(output: Record<string, unknown> | null): string | undefined {
   if (!output) return undefined
   const nestedOutput = isRecord(output.output) ? output.output : null
-  const candidates = [nestedOutput?.video_url, output.video_url, output.digital_human_url]
+  const nestedResult = isRecord(output.result) ? output.result : null
+  const upstreamResponse = isRecord(output.upstream_response) ? output.upstream_response : null
+  const upstreamResp = upstreamResponse && isRecord(upstreamResponse.Resp) ? upstreamResponse.Resp : null
+  const customerPaths = upstreamResp && isRecord(upstreamResp.customer_paths) ? upstreamResp.customer_paths : null
+  const candidates = [
+    nestedOutput?.video_url,
+    nestedResult?.video_url,
+    output.video_url,
+    output.digital_human_url,
+    upstreamResp?.url,
+    customerPaths?.customer_video_url
+  ]
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
   }

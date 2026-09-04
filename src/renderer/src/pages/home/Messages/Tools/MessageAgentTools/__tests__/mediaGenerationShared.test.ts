@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getImageUrl, getPrompt, parseOutput } from '../mediaGenerationShared'
+import { getDigitalHumanVideoUrl, getImageUrl, getPrompt, parseOutput } from '../mediaGenerationShared'
 
 describe('mediaGenerationShared.getPrompt', () => {
   it('prefers prompt from input content text items', () => {
@@ -28,6 +28,19 @@ describe('mediaGenerationShared.getPrompt', () => {
         }
       })
     ).toBe('让画面动起来')
+  })
+
+  it('uses copywriting for seedance digital human prompt', () => {
+    expect(
+      getPrompt(
+        {
+          imageUrl: 'file:///tmp/avatar.png',
+          voiceId: 'gv_demo_voice',
+          copywriting: '退休后最香的旅游，从不是走马观花赶景点。'
+        },
+        null
+      )
+    ).toBe('退休后最香的旅游，从不是走马观花赶景点。')
   })
 })
 
@@ -99,5 +112,43 @@ describe('mediaGenerationShared.parseOutput', () => {
       success: true
     })
     expect(getImageUrl(parsed)).toBe('https://example.com/result.jpg')
+  })
+
+  it('unwraps lip sync digital human payload and finds nested upstream video url', () => {
+    const parsed = parseOutput({
+      responseRaw: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              billing: {
+                consume: 400
+              },
+              digital_human_url: '',
+              message: '5',
+              task_status: '5',
+              upstream_response: {
+                Resp: {
+                  duration: 39,
+                  customer_paths: {
+                    customer_video_url: 'https://media.pixverseai.cn/openapi/source-video.mp4',
+                    lip_sync_audio_url: 'https://media.pixverseai.cn/openapi/source-audio.mp3'
+                  },
+                  url: 'https://media.pixverseai.cn/pixverse/final-video.mp4'
+                }
+              }
+            })
+          }
+        ]
+      }
+    })
+
+    expect(parsed).toMatchObject({
+      billing: {
+        consume: 400
+      },
+      task_status: '5'
+    })
+    expect(getDigitalHumanVideoUrl(parsed)).toBe('https://media.pixverseai.cn/pixverse/final-video.mp4')
   })
 })

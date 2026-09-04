@@ -633,8 +633,34 @@ class DigitalHumanServer {
   }
 
   private extractVideoUrl(result: DigitalHumanStatusResponse): string | undefined {
-    const candidate = typeof result.video_url === 'string' ? result.video_url : result.digital_human_url
-    return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined
+    const directCandidates = [result.video_url, result.digital_human_url]
+    for (const candidate of directCandidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim()
+      }
+    }
+
+    const upstreamResponse =
+      result.upstream_response && typeof result.upstream_response === 'object' && !Array.isArray(result.upstream_response)
+        ? (result.upstream_response as Record<string, unknown>)
+        : null
+    const upstreamResp =
+      upstreamResponse?.Resp && typeof upstreamResponse.Resp === 'object' && !Array.isArray(upstreamResponse.Resp)
+        ? (upstreamResponse.Resp as Record<string, unknown>)
+        : null
+    const customerPaths =
+      upstreamResp?.customer_paths && typeof upstreamResp.customer_paths === 'object' && !Array.isArray(upstreamResp.customer_paths)
+        ? (upstreamResp.customer_paths as Record<string, unknown>)
+        : null
+
+    const nestedCandidates = [upstreamResp?.url, customerPaths?.customer_video_url]
+    for (const candidate of nestedCandidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim()
+      }
+    }
+
+    return undefined
   }
 
   private normalizeStatus(value: unknown): string {
@@ -643,7 +669,8 @@ class DigitalHumanServer {
 
   private isCompleted(mode: 'lip_sync' | 'image_driven' | 'seedance_image_driven', result: DigitalHumanStatusResponse): boolean {
     if (mode === 'lip_sync') {
-      return String(result.task_status ?? '').trim() === '1'
+      const taskStatus = String(result.task_status ?? '').trim().toLowerCase()
+      return Boolean(this.extractVideoUrl(result)) || ['1', '5', 'done', 'success', 'completed'].includes(taskStatus)
     }
     const status = this.normalizeStatus(result.status)
     return Boolean(this.extractVideoUrl(result)) || status === 'success' || status === 'succeeded' || status === 'completed'
