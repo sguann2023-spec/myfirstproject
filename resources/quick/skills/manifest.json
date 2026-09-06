@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-30T03:46:39Z",
+  "updatedAt": "2026-09-06T15:22:35Z",
   "skills": {
     "网感口播": {
       "version": "1.0.7",
@@ -18,7 +18,7 @@
       "minAppVersion": "1.6.13"
     },
     "旅游攻略混剪": {
-      "version": "1.0.1",
+      "version": "1.0.2",
       "name": "旅游攻略混剪",
       "folderName": "travelguide",
       "action": "bootstrap-travel-guide",
@@ -30,7 +30,7 @@
       "coverUrl": "https://player.install-ai-guider.top/quick/skills/travelguide/website/cover.png",
       "previewVideoUrl": "https://player.install-ai-guider.top/example/hunjian_chaoshan_result.mp4",
       "packageSlug": "travel-guide",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/travel-guide/1_0_1/travel-guide.zip",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/travel-guide/1_0_2/travel-guide.zip",
       "minAppVersion": "1.6.13"
     },
     "直播切片": {

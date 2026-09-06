@@ -1,7 +1,108 @@
 import React from 'react';
+import { DynamicVirtualList } from '@renderer/components/VirtualList';
 import './MessagePane.css';
 import MessageGroup from './MessageGroup/MessageGroup';
 import WelcomePage from './WelcomePage';
+
+const DEFAULT_GROUP_ESTIMATED_HEIGHT = 180;
+
+const buildGroupKey = (group, index) => `group-${group.role}-${group.messages[0]?.id || index}`;
+
+const buildLastMessageSignature = (messages = []) => {
+  if (!Array.isArray(messages) || messages.length === 0) return '';
+
+  const message = messages[messages.length - 1] || {};
+  return JSON.stringify({
+    id: message.id || '',
+    role: message.role || '',
+    content: message.content || '',
+    createdAt: message.createdAt || '',
+    updatedAt: message.updatedAt || '',
+    error: message.error?.message || '',
+    imageAttachmentCount: Array.isArray(message.imageAttachments) ? message.imageAttachments.length : 0
+  });
+};
+
+const MeasuredMessageGroup = React.memo(
+  ({
+    index,
+    group,
+    onResize,
+    onCopyAssistantMessage,
+    onRetryAssistantMessage,
+    onDeleteAssistantMessage,
+    sending,
+    formatMessageTime,
+    model,
+    modelOptions,
+    formatModelDisplayName,
+    loadingMessageId,
+    userName,
+    userAvatar,
+    messageEndRef,
+    isLast
+  }) => {
+    const groupRef = React.useRef(null);
+
+    React.useLayoutEffect(() => {
+      const element = groupRef.current;
+      if (!element) return undefined;
+
+      const reportHeight = () => {
+        const nextHeight = Math.ceil(element.getBoundingClientRect().height);
+        if (nextHeight > 0) {
+          onResize(index, nextHeight);
+        }
+      };
+
+      reportHeight();
+
+      if (typeof ResizeObserver === 'undefined') {
+        return undefined;
+      }
+
+      const observer = new ResizeObserver(() => {
+        reportHeight();
+      });
+
+      observer.observe(element);
+      return () => observer.disconnect();
+    }, [group, index, onResize]);
+
+    React.useEffect(() => {
+      if (!messageEndRef || !('current' in messageEndRef) || !isLast) {
+        return undefined;
+      }
+
+      messageEndRef.current = groupRef.current;
+      return () => {
+        if (messageEndRef.current === groupRef.current) {
+          messageEndRef.current = null;
+        }
+      };
+    }, [isLast, messageEndRef]);
+
+    return (
+      <div ref={groupRef}>
+        <MessageGroup
+          role={group.role}
+          messages={group.messages}
+          onCopyAssistantMessage={onCopyAssistantMessage}
+          onRetryAssistantMessage={onRetryAssistantMessage}
+          onDeleteAssistantMessage={onDeleteAssistantMessage}
+          actionsDisabled={sending}
+          formatMessageTime={formatMessageTime}
+          model={model}
+          modelOptions={modelOptions}
+          formatModelDisplayName={formatModelDisplayName}
+          loadingMessageId={loadingMessageId}
+          userName={userName}
+          userAvatar={userAvatar}
+        />
+      </div>
+    );
+  }
+);
 
 const MessagePane = ({
   messages,
@@ -27,31 +128,45 @@ const MessagePane = ({
   childrensBookQuickPromptRef,
   beginnerGuideQuickSkillsViewportRef,
 }) => {
-  const scrollContainerRef = React.useRef(null);
+  const virtualListRef = React.useRef(null);
+  const groupSizeMapRef = React.useRef(new Map());
   const autoScrollEnabledRef = React.useRef(true);
   const autoScrollFrameRef = React.useRef(null);
-  const previousMessageCountRef = React.useRef(0);
+  const previousScrollStateRef = React.useRef({
+    count: 0,
+    signature: ''
+  });
   const visibleMessages = messages;
+
+  const getScrollElement = React.useCallback(() => virtualListRef.current?.scrollElement?.() || null, []);
+
   const isNearBottom = React.useCallback((element) => {
     if (!element) return true;
     const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
     return distanceToBottom <= 48;
   }, []);
+
   const scrollToBottom = React.useCallback((behavior = 'auto') => {
-    const element = scrollContainerRef.current;
+    const element = getScrollElement();
     if (!element) return;
+
     if (autoScrollFrameRef.current) {
       window.cancelAnimationFrame(autoScrollFrameRef.current);
     }
+
     autoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      const totalSize = virtualListRef.current?.getTotalSize?.() ?? element.scrollHeight;
+      const top = Math.max(totalSize - element.clientHeight, 0);
       element.scrollTo({
-        top: element.scrollHeight,
+        top,
         behavior
       });
     });
-  }, []);
+  }, [getScrollElement]);
+
   const loadingMessageId = React.useMemo(() => {
     if (!sending || visibleMessages.length === 0) return null;
+
     for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
       const message = visibleMessages[i];
       const role = message?.role;
@@ -62,6 +177,7 @@ const MessagePane = ({
         break;
       }
     }
+
     return null;
   }, [sending, visibleMessages]);
 
@@ -76,37 +192,56 @@ const MessagePane = ({
         groups.push({ role, messages: [message] });
       }
     });
-    return groups;
+
+    return groups.map((group, index) => ({
+      ...group,
+      key: buildGroupKey(group, index)
+    }));
   }, [visibleMessages]);
 
   React.useEffect(() => {
-    const element = scrollContainerRef.current;
+    const element = getScrollElement();
     if (!element) return undefined;
 
-    const handleMutation = () => {
-      if (!autoScrollEnabledRef.current) return;
-      scrollToBottom('auto');
+    const handleScroll = (event) => {
+      autoScrollEnabledRef.current = isNearBottom(event.currentTarget);
     };
 
-    const observer = new MutationObserver(handleMutation);
-    observer.observe(element, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
+    const handleWheelCapture = (event) => {
+      if (event.deltaY < 0) {
+        autoScrollEnabledRef.current = false;
+      }
+    };
+
+    element.addEventListener('scroll', handleScroll, { passive: true });
+    element.addEventListener('wheel', handleWheelCapture, { capture: true, passive: true });
+    autoScrollEnabledRef.current = isNearBottom(element);
 
     return () => {
-      observer.disconnect();
+      element.removeEventListener('scroll', handleScroll);
+      element.removeEventListener('wheel', handleWheelCapture, true);
     };
-  }, [scrollToBottom]);
+  }, [getScrollElement, groupedMessages.length, isNearBottom]);
 
   React.useEffect(() => {
     const nextCount = Array.isArray(visibleMessages) ? visibleMessages.length : 0;
-    const previousCount = previousMessageCountRef.current;
-    if (nextCount > previousCount && autoScrollEnabledRef.current) {
-      scrollToBottom('smooth');
+    const nextSignature = buildLastMessageSignature(visibleMessages);
+    const previousState = previousScrollStateRef.current;
+    const hasNewMessage = nextCount > previousState.count;
+    const hasLastMessageChanged = nextSignature !== previousState.signature;
+
+    if (autoScrollEnabledRef.current) {
+      if (hasNewMessage) {
+        scrollToBottom('smooth');
+      } else if (hasLastMessageChanged) {
+        scrollToBottom('auto');
+      }
     }
-    previousMessageCountRef.current = nextCount;
+
+    previousScrollStateRef.current = {
+      count: nextCount,
+      signature: nextSignature
+    };
   }, [scrollToBottom, visibleMessages]);
 
   React.useEffect(() => () => {
@@ -115,31 +250,40 @@ const MessagePane = ({
     }
   }, []);
 
-  const handleScroll = React.useCallback((event) => {
-    autoScrollEnabledRef.current = isNearBottom(event.currentTarget);
-  }, [isNearBottom]);
+  React.useEffect(() => {
+    virtualListRef.current?.measure?.();
+  }, [groupedMessages.length]);
 
-  const handleWheelCapture = React.useCallback((event) => {
-    if (event.deltaY < 0) {
-      autoScrollEnabledRef.current = false;
+  const handleGroupResize = React.useCallback((index, size) => {
+    const previousSize = groupSizeMapRef.current.get(index);
+    if (previousSize === size) return;
+
+    groupSizeMapRef.current.set(index, size);
+    virtualListRef.current?.resizeItem?.(index, size);
+
+    if (autoScrollEnabledRef.current) {
+      scrollToBottom('auto');
     }
-  }, []);
+  }, [scrollToBottom]);
+
+  const estimateGroupSize = React.useCallback(
+    (index) => groupSizeMapRef.current.get(index) || DEFAULT_GROUP_ESTIMATED_HEIGHT,
+    []
+  );
 
   return (
     <div className="chat-panel__message-pane">
-      <div
-        ref={scrollContainerRef}
-        className="chat-panel__messages"
-        onScroll={handleScroll}
-        onWheelCapture={handleWheelCapture}>
-        {historyLoading && visibleMessages.length === 0 ? (
+      {historyLoading && visibleMessages.length === 0 ? (
+        <div className="chat-panel__messages">
           <div className="chat-panel__history-loading" role="status" aria-live="polite">
             <div className="chat-panel__history-loading-spinner" />
             <div className="chat-panel__history-loading-title">正在加载对话记录</div>
             <div className="chat-panel__history-loading-subtitle">请稍候...</div>
           </div>
-        ) : visibleMessages.length === 0 ? (
-          messages.length === 0 ? (
+        </div>
+      ) : visibleMessages.length === 0 ? (
+        <div className="chat-panel__messages">
+          {messages.length === 0 ? (
             <WelcomePage
               emptyWelcomeText={emptyWelcomeText}
               quickPrompts={quickPrompts}
@@ -153,17 +297,28 @@ const MessagePane = ({
             />
           ) : (
             <div className="chat-panel__empty">没有匹配的消息</div>
-          )
-        ) : (
-          groupedMessages.map((group, index) => (
-            <MessageGroup
-              key={`group-${group.role}-${group.messages[0]?.id || index}`}
-              role={group.role}
-              messages={group.messages}
+          )}
+        </div>
+      ) : (
+        <DynamicVirtualList
+          ref={virtualListRef}
+          className="chat-panel__messages"
+          list={groupedMessages}
+          estimateSize={estimateGroupSize}
+          overscan={4}
+          scrollerStyle={{
+            padding: '12px 14px'
+          }}>
+          {(group, index) => (
+            <MeasuredMessageGroup
+              key={group.key}
+              index={index}
+              group={group}
+              onResize={handleGroupResize}
               onCopyAssistantMessage={onCopyAssistantMessage}
               onRetryAssistantMessage={onRetryAssistantMessage}
               onDeleteAssistantMessage={onDeleteAssistantMessage}
-              actionsDisabled={sending}
+              sending={sending}
               formatMessageTime={formatMessageTime}
               model={model}
               modelOptions={modelOptions}
@@ -171,11 +326,12 @@ const MessagePane = ({
               loadingMessageId={loadingMessageId}
               userName={userName}
               userAvatar={userAvatar}
+              messageEndRef={messageEndRef}
+              isLast={index === groupedMessages.length - 1}
             />
-          ))
-        )}
-        <div ref={messageEndRef} />
-      </div>
+          )}
+        </DynamicVirtualList>
+      )}
     </div>
   );
 };
