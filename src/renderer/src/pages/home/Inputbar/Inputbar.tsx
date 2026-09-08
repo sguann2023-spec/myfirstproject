@@ -52,6 +52,7 @@ import React, { useCallback, useEffect, useEffectEvent, useMemo, useRef, useStat
 import { useTranslation } from 'react-i18next'
 
 import { InputbarCore } from './components/InputbarCore'
+import PinnedDraftPannel from './components/PinnedDraftPannel/PinnedDraftPannel'
 import { PinnedTodoPanel } from './components/PinnedTodoPanel'
 import InputbarTools from './InputbarTools'
 import KnowledgeBaseInput from './KnowledgeBaseInput'
@@ -63,6 +64,40 @@ const logger = loggerService.withContext('Inputbar')
 
 const INPUTBAR_DRAFT_CACHE_KEY = 'inputbar-draft'
 const DRAFT_CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
+const MOCK_PINNED_DRAFTS = [
+  {
+    id: 'mock-draft-1',
+    title: '测试视频-春季上新',
+    activeTitle: '正在处理：测试视频-春季上新',
+    description: '正在更新草稿名和封面',
+    coverLabel: '新封面',
+    resolutionLabel: '1080P',
+    status: 'in_progress' as const
+  },
+  {
+    id: 'mock-draft-2',
+    title: '品牌口播合集',
+    description: '等待处理',
+    coverLabel: '保持原封面',
+    resolutionLabel: '4K',
+    status: 'pending' as const
+  },
+  {
+    id: 'mock-draft-3',
+    title: '产品介绍短片',
+    description: '草稿处理完成',
+    coverLabel: '封面已更新',
+    resolutionLabel: '720P',
+    status: 'completed' as const
+  },
+  {
+    id: 'mock-draft-4',
+    title: '直播切片备选',
+    description: '本轮处理已结束',
+    metaLabel: '未命中修改项',
+    status: 'finished' as const
+  }
+]
 
 const getMentionedModelsCacheKey = (assistantId: string) => `inputbar-mentioned-models-${assistantId}`
 
@@ -139,6 +174,7 @@ const Inputbar: FC<Props> = ({ assistant: initialAssistant, setActiveTopic, topi
 const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, setActiveTopic, topic, actionsRef }) => {
   const scope = topic.type ?? TopicType.Chat
   const config = getInputbarConfig(scope)
+  const [showMockDraftPanel, setShowMockDraftPanel] = useState(true)
 
   const { files, mentionedModels, selectedKnowledgeBases } = useInputbarToolsState()
   const { setFiles, setMentionedModels, setSelectedKnowledgeBases } = useInputbarToolsDispatch()
@@ -566,7 +602,20 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
     return Boolean(loadingByTopic[topic.id] || loadingByTopic[pinnedTodoTopicId])
   })
 
-  const pinnedContent = <PinnedTodoPanel topicId={pinnedTodoTopicId} sessionActive={pinnedTodoSessionActive} />
+  const pinnedContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+      {showMockDraftPanel && (
+        <PinnedDraftPannel
+          drafts={MOCK_PINNED_DRAFTS}
+          sessionActive
+          title="草稿处理中"
+          defaultCollapsed={false}
+          onClose={() => setShowMockDraftPanel(false)}
+        />
+      )}
+      <PinnedTodoPanel topicId={pinnedTodoTopicId} sessionActive={pinnedTodoSessionActive} />
+    </div>
+  )
 
   return (
     <InputbarCore

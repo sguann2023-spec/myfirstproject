@@ -1,13 +1,19 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { message } from 'antd';
+import { Check, SquarePen, X } from 'lucide-react';
 import './DraftPreview.css';
 import DraftIcon from '../../../public/draft_selected_icon.svg';
 import { DownloadController } from '../../shared/DownloadController.js';
-import { deleteDraft } from '../../api/capcut';
+import { deleteDraft, modifyDraft } from '../../api/capcut';
 import { toMediaSrc } from '../../shared/mediaSrc.js';
 
-function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
+function DraftPreview({ draft, drafts = [], onDeleteDraft, onRenameDraft }) {
   const [isDeleting, setDeleting] = useState(false);
+  const [isEditingName, setEditingName] = useState(false);
+  const [isSavingName, setSavingName] = useState(false);
+  const [draftNameInput, setDraftNameInput] = useState('');
   const previewLayoutCacheRef = useRef(new Map());
+  const draftNameInputRef = useRef(null);
   const selectedDrafts = Array.isArray(drafts) ? drafts.filter(Boolean) : [];
   const activeDraft = draft || selectedDrafts[selectedDrafts.length - 1] || null;
   const isMultiSelected = selectedDrafts.length > 1;
@@ -73,6 +79,23 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
     if (sortedTimes.length === 0) return '修改时间: -';
     return `修改时间从${formatTime(sortedTimes[0])}至${formatTime(sortedTimes[sortedTimes.length - 1])}`;
   })();
+
+  useEffect(() => {
+    setDraftNameInput(name);
+    setEditingName(false);
+    setSavingName(false);
+  }, [activeDraft?.draft_id, name]);
+
+  useEffect(() => {
+    if (!isEditingName) return;
+    const timer = setTimeout(() => {
+      draftNameInputRef.current?.focus();
+      draftNameInputRef.current?.select?.();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [isEditingName]);
+
   const previewCards = useMemo(() => {
     const sourceDrafts = (isMultiSelected ? selectedDrafts : [activeDraft]).slice(0, 6);
     const visibleIds = new Set(sourceDrafts.map((item) => item?.draft_id).filter(Boolean));
@@ -161,6 +184,62 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
     }
   };
 
+  const handleStartRename = () => {
+    if (isMultiSelected || !activeDraft?.draft_id || isSavingName) return;
+    setDraftNameInput(name);
+    setEditingName(true);
+  };
+
+  const handleCancelRename = () => {
+    if (isSavingName) return;
+    setDraftNameInput(name);
+    setEditingName(false);
+  };
+
+  const handleSaveRename = async () => {
+    if (isMultiSelected || !activeDraft?.draft_id || isSavingName) return;
+
+    const nextName = String(draftNameInput || '').trim();
+    if (!nextName) {
+      message.error('请输入草稿名');
+      return;
+    }
+
+    if (nextName === name) {
+      setEditingName(false);
+      return;
+    }
+
+    try {
+      setSavingName(true);
+      const res = await modifyDraft({
+        draft_id: activeDraft.draft_id,
+        name: nextName,
+      });
+      if (res?.success === false) {
+        throw new Error(res?.error || '修改草稿名失败');
+      }
+
+      const renamedDraft = {
+        ...activeDraft,
+        draft_name: nextName,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (typeof onRenameDraft === 'function') {
+        await onRenameDraft(renamedDraft);
+      }
+
+      setDraftNameInput(nextName);
+      setEditingName(false);
+      message.success('草稿名已更新');
+    } catch (error) {
+      message.error(error?.message || '修改草稿名失败');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
   return (
     <div className="draft-preview">
       <div className="preview-box">
@@ -189,7 +268,67 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft }) {
           <img src={DraftIcon} alt="preview" className="preview-placeholder" />
         )}
       </div>
-      <div className="preview-title">{titleText}</div>
+      <div className="preview-title-row">
+        {isEditingName ? (
+          <div className="preview-title-edit-row">
+            <input
+              ref={draftNameInputRef}
+              type="text"
+              value={draftNameInput}
+              className="preview-title-input"
+              maxLength={100}
+              disabled={isSavingName}
+              onChange={(event) => setDraftNameInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleSaveRename();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  handleCancelRename();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="preview-title-icon-button"
+              onClick={handleCancelRename}
+              disabled={isSavingName}
+              aria-label="取消修改"
+              title="取消"
+            >
+              <X size={14} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="preview-title-icon-button preview-title-icon-button-save"
+              onClick={() => void handleSaveRename()}
+              disabled={isSavingName}
+              aria-label="保存草稿名"
+              title="保存"
+            >
+              <Check size={14} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </div>
+        ) : (
+          <div className="preview-title-wrap">
+            <div className="preview-title">{titleText}</div>
+            {!isMultiSelected ? (
+              <button
+                type="button"
+                className="preview-title-edit-button"
+                onClick={handleStartRename}
+                disabled={isDeleting || isSavingName}
+                aria-label="修改草稿名"
+                title="修改草稿名"
+              >
+                <SquarePen size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
       <div className="preview-draft-id">{draftIdText}</div>
       <div className="preview-subtitle">{subtitleText}</div>
       <div className="preview-download">

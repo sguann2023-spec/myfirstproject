@@ -2244,6 +2244,34 @@ const HomePage = () => {
     await refreshTodayCount();
   };
 
+  const handleDraftRenamed = useCallback(async (updatedDraft) => {
+    const targetDraftId = String(updatedDraft?.draft_id || '').trim();
+    const nextDraftName = String(updatedDraft?.draft_name || '').trim();
+    if (!targetDraftId || !nextDraftName) return;
+
+    setSelectedDrafts((prev) => prev.map((item) => (
+      item?.draft_id === targetDraftId
+        ? {
+            ...item,
+            ...updatedDraft,
+            draft_name: nextDraftName,
+          }
+        : item
+    )));
+
+    setSelectedDraft((prev) => (
+      prev?.draft_id === targetDraftId
+        ? {
+            ...prev,
+            ...updatedDraft,
+            draft_name: nextDraftName,
+          }
+        : prev
+    ));
+
+    setDraftListRefreshToken((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     countTodayDrafts()
@@ -5722,7 +5750,12 @@ const HomePage = () => {
             }`}
           >
             {selectedPane === 'draft' && (selectedDraft || selectedDrafts.length > 0) ? (
-              <DraftPreview draft={selectedDraft} drafts={selectedDrafts} onDeleteDraft={handleDraftDeleted} />
+              <DraftPreview
+                draft={selectedDraft}
+                drafts={selectedDrafts}
+                onDeleteDraft={handleDraftDeleted}
+                onRenameDraft={handleDraftRenamed}
+              />
             ) : null}
             {selectedPane === 'preset' ? (
               <Preset preset={selectedPreset} />

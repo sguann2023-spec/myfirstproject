@@ -54,11 +54,120 @@
   opacity: 0.6;
 }
 
-.preview-title {
+.preview-title-row {
   margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.preview-title-edit-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: min(420px, 80%);
+}
+
+.preview-title-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: min(420px, 80%);
+}
+
+.preview-title {
+  margin-top: 0px !important;
   font-size: 14px;
   color: #000000;
   font-weight: 500;
+  line-height: 24px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-title-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  outline: none;
+  font-size: 14px;
+  color: #000;
+  text-align: center;
+  background: #fff;
+}
+
+.preview-title-input:focus {
+  border-color: #0099ff;
+  box-shadow: 0 0 0 2px rgba(0, 153, 255, 0.12);
+}
+
+.preview-title-edit-button {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 6px);
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b5b5b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.preview-title-edit-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: #000;
+}
+
+.preview-title-edit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.preview-title-icon-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #8c8c8c;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.preview-title-icon-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: #303030;
+}
+
+.preview-title-icon-button-save {
+  color: #0099ff;
+}
+
+.preview-title-icon-button-save:hover:not(:disabled) {
+  background: rgba(0, 153, 255, 0.08);
+  color: #008deb;
+}
+
+.preview-title-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .preview-draft-id {

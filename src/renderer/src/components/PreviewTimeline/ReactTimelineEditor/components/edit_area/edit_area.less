@@ -1,0 +1,44 @@
+.timeline-editor {
+
+  &:hover {
+
+    .timeline-editor-edit-area {
+
+      .ReactVirtualized__Grid {
+      }
+    }
+  }
+
+  &-edit-area {
+    flex: 1 1 auto;
+    margin-top: 10px;
+    overflow: visible;
+    position: relative;
+    touch-action: none;
+    .ReactVirtualized__Grid {
+      outline: none !important;
+      overflow: auto !important;
+
+      &::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+    
+      &::-webkit-scrollbar-track {
+        background-color: transparent !important;
+      }
+    
+      &::-webkit-scrollbar-thumb {
+        background: #7a7a7a;
+        border-radius: 8px;
+      }  
+    }
+
+    &-hover-line {
+      width: 1px;
+      top: -6px !important;
+      background-color: #888888; // 半透明白色
+      pointer-events: none;
+    }
+  }
+}
