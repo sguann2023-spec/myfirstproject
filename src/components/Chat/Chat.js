@@ -64,6 +64,40 @@ const PINNED_DRAFTS = [];
 
 const buildPinnedDraftKey = (draft, index = 0) => draft?.id || draft?.draftId || `${draft?.title || draft?.name || 'draft'}-${index}`;
 
+const normalizePinnedDraftFromEvent = (payload = {}) => {
+  const draftId = String(payload?.draftId || payload?.draft_id || '').trim();
+  if (!draftId) return null;
+
+  const action = payload?.action === 'modify' ? 'modify' : 'create';
+  const draftName = String(payload?.name || payload?.title || '').trim();
+  const draftStatus = payload?.status === 'in_progress' ? 'in_progress' : 'completed';
+  const clientRequestId = String(payload?.clientRequestId || '').trim();
+  const nextDraft = {
+    id: draftId,
+    draftId,
+    clientRequestId,
+    createdAt: typeof payload?.createdAt === 'number' ? payload.createdAt : Date.now(),
+    status: draftStatus
+  };
+
+  if (draftName) {
+    nextDraft.title = draftName;
+    nextDraft.name = draftName;
+    nextDraft.activeTitle = draftName;
+  } else if (action === 'create') {
+    nextDraft.title = draftId;
+    nextDraft.name = draftId;
+    nextDraft.activeTitle = draftId;
+  }
+
+  const cover = String(payload?.cover || '').trim();
+  if (cover) {
+    nextDraft.cover = cover;
+  }
+
+  return nextDraft;
+};
+
 const parseQueryScriptOutput = (response) => {
   const output = response?.output || response?.data?.output || response?.result?.output;
   return typeof output === 'string' ? JSON.parse(output) : output;
@@ -104,6 +138,32 @@ const ChatPinnedDraftPanel = () => {
   const [previewErrorKey, setPreviewErrorKey] = React.useState(null);
   const [previewErrorMessage, setPreviewErrorMessage] = React.useState('');
   const previewCacheRef = React.useRef(new Map());
+
+  React.useEffect(() => {
+    const offDraftCreated = window.ipc?.on(IpcChannel.App_DraftCreated, (payload) => {
+      const nextDraft = normalizePinnedDraftFromEvent(payload);
+      if (!nextDraft) {
+        return;
+      }
+
+      setVisible(true);
+      setDrafts((currentDrafts) => {
+        const pendingIndex = nextDraft.clientRequestId
+          ? currentDrafts.findIndex((item) => String(item?.clientRequestId || '').trim() === nextDraft.clientRequestId)
+          : -1;
+        const existingIndex = currentDrafts.findIndex((item) => String(item?.draftId || item?.id || '').trim() === nextDraft.draftId);
+        const targetIndex = pendingIndex >= 0 ? pendingIndex : existingIndex;
+        if (targetIndex >= 0) {
+          return currentDrafts.map((item, index) => (index === targetIndex ? { ...item, ...nextDraft } : item));
+        }
+        return [nextDraft, ...currentDrafts];
+      });
+    });
+
+    return () => {
+      offDraftCreated?.();
+    };
+  }, []);
 
   const handlePreviewItem = React.useCallback(async (draft) => {
     const draftId = String(draft?.id || draft?.draftId || '').trim();
@@ -158,12 +218,15 @@ const ChatPinnedDraftPanel = () => {
     return null;
   }
 
+  const hasInProgressDraft = drafts.some((draft) => draft?.status === 'in_progress');
+
   return (
     <div style={{ padding: '1px 24px 8px 16px' }}>
       <PinnedDraftPannel
         drafts={drafts}
-        sessionActive
-        title={drafts.some((draft) => draft.status === 'in_progress') ? '草稿处理中' : '草稿处理完成'}
+        sessionActive={hasInProgressDraft}
+        sessionFulfilled={!hasInProgressDraft && drafts.length > 0}
+        title={hasInProgressDraft ? '草稿处理中' : '草稿处理完成'}
         defaultCollapsed={false}
         onDownloadAll={handleMockDraftDownloadAll}
         onDownloadItem={handleMockDraftDownloadItem}

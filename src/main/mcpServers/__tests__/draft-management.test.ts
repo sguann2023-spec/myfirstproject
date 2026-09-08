@@ -10,6 +10,8 @@ const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
   mockStoreSet: vi.fn()
 }))
 
+const mockWebContentsSend = vi.fn()
+
 vi.mock('electron', () => ({
   net: {
     fetch: mockNetFetch
@@ -36,6 +38,23 @@ vi.mock('@logger', () => ({
       error: vi.fn(),
       debug: vi.fn()
     }))
+  }
+}))
+
+vi.mock('@main/services/WindowService', () => ({
+  windowService: {
+    getMainWindow: vi.fn(() => ({
+      isDestroyed: () => false,
+      webContents: {
+        send: mockWebContentsSend
+      }
+    }))
+  }
+}))
+
+vi.mock('@main/services/OssUploadService', () => ({
+  ossUploadService: {
+    uploadLocalFile: vi.fn()
   }
 }))
 
@@ -149,6 +168,32 @@ describe('DraftManagementServer', () => {
       },
       success: true
     })
+
+    expect(mockWebContentsSend).toHaveBeenCalledWith(
+      'app:draft-created',
+      expect.objectContaining({
+        action: 'create',
+        draftId: expect.stringMatching(/^pending:/),
+        name: '测试草稿',
+        cover: 'https://example.com/cover.png',
+        width: 1080,
+        height: 1920,
+        status: 'in_progress'
+      })
+    )
+
+    expect(mockWebContentsSend).toHaveBeenCalledWith(
+      'app:draft-created',
+      expect.objectContaining({
+        action: 'create',
+        draftId: 'dfd_create_1',
+        name: '测试草稿',
+        cover: 'https://example.com/cover.png',
+        width: 1080,
+        height: 1920,
+        status: 'completed'
+      })
+    )
   })
 
   it('should modify draft metadata with snake_case alias support', async () => {
@@ -200,6 +245,28 @@ describe('DraftManagementServer', () => {
       },
       success: true
     })
+
+    expect(mockWebContentsSend).toHaveBeenCalledWith(
+      'app:draft-created',
+      expect.objectContaining({
+        action: 'modify',
+        draftId: 'dfd_meta_1',
+        name: '新草稿名',
+        cover: 'https://example.com/new-cover.png',
+        status: 'in_progress'
+      })
+    )
+
+    expect(mockWebContentsSend).toHaveBeenCalledWith(
+      'app:draft-created',
+      expect.objectContaining({
+        action: 'modify',
+        draftId: 'dfd_meta_1',
+        name: '新草稿名',
+        cover: 'https://example.com/new-cover.png',
+        status: 'completed'
+      })
+    )
   })
 
   it('should inspect draft script and return a parsed summary', async () => {

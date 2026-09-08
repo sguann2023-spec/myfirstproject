@@ -1,8 +1,10 @@
 import { stat as fsStat } from 'node:fs/promises'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 import { loggerService } from '@logger'
+import { windowService } from '@main/services/WindowService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -27,6 +29,7 @@ const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
 const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
 const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_draft_cover_'
 const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const DRAFT_CREATED_EVENT_CHANNEL = 'app:draft-created'
 
 const CREATE_DRAFT_TOOL: Tool = {
   name: 'create_draft',
@@ -50,6 +53,10 @@ const CREATE_DRAFT_TOOL: Tool = {
       name: {
         type: 'string',
         description: 'Optional draft name.'
+      },
+      clientRequestId: {
+        type: 'string',
+        description: 'Optional client request ID used to correlate pending and completed UI updates.'
       }
     },
     additionalProperties: false
@@ -78,6 +85,10 @@ const MODIFY_DRAFT_TOOL: Tool = {
       cover: {
         type: 'string',
         description: 'Optional new draft cover image URL, file URL, or absolute local path.'
+      },
+      clientRequestId: {
+        type: 'string',
+        description: 'Optional client request ID used to correlate pending and completed UI updates.'
       }
     },
     additionalProperties: false
@@ -295,6 +306,37 @@ class DraftManagementServer {
     }
   }
 
+  private emitDraftCreated(payload: {
+    action: 'create' | 'modify'
+    clientRequestId?: string
+    draftId: string
+    name?: string
+    cover?: string
+    width?: number
+    height?: number
+    status: 'in_progress' | 'completed'
+  }) {
+    const mainWindow = windowService.getMainWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      logger.warn('Skip draft created event because main window is unavailable', {
+        draftId: payload.draftId
+      })
+      return
+    }
+
+    mainWindow.webContents.send(DRAFT_CREATED_EVENT_CHANNEL, {
+      action: payload.action,
+      clientRequestId: payload.clientRequestId,
+      draftId: payload.draftId,
+      name: payload.name,
+      cover: payload.cover,
+      width: payload.width,
+      height: payload.height,
+      status: payload.status,
+      createdAt: Date.now()
+    })
+  }
+
   private getRequiredDraftId(args: Record<string, unknown>, toolName: string): string {
     const rawValue = typeof args.draftId === 'string' ? args.draftId : args.draft_id
     const draftId = typeof rawValue === 'string' ? rawValue.trim() : ''
@@ -456,6 +498,20 @@ class DraftManagementServer {
 
   private async createDraft(args: Record<string, unknown>) {
     const payload = await this.buildCreateDraftPayload(args)
+    const clientRequestId = this.getOptionalTrimmedString(args.clientRequestId) || randomUUID()
+    const pendingDraftId = `pending:${clientRequestId}`
+
+    this.emitDraftCreated({
+      action: 'create',
+      clientRequestId,
+      draftId: pendingDraftId,
+      name: this.getOptionalTrimmedString(args.name),
+      cover: this.getOptionalTrimmedString(payload.cover),
+      width: typeof payload.width === 'number' ? payload.width : undefined,
+      height: typeof payload.height === 'number' ? payload.height : undefined,
+      status: 'in_progress'
+    })
+
     const response = await this.requestWithAuth(CREATE_DRAFT_ENDPOINT, payload)
 
     if (!response.ok) {
@@ -470,6 +526,20 @@ class DraftManagementServer {
       draftId: result.output?.draft_id
     })
 
+    const createdDraftId = this.getOptionalTrimmedString(result.output?.draft_id)
+    if (createdDraftId) {
+      this.emitDraftCreated({
+        action: 'create',
+        clientRequestId,
+        draftId: createdDraftId,
+        name: this.getOptionalTrimmedString(args.name),
+        cover: this.getOptionalTrimmedString(payload.cover),
+        width: typeof payload.width === 'number' ? payload.width : undefined,
+        height: typeof payload.height === 'number' ? payload.height : undefined,
+        status: 'completed'
+      })
+    }
+
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'create_draft',
@@ -479,6 +549,17 @@ class DraftManagementServer {
 
   private async modifyDraft(args: Record<string, unknown>) {
     const payload = await this.buildModifyDraftPayload(args)
+    const clientRequestId = this.getOptionalTrimmedString(args.clientRequestId) || randomUUID()
+
+    this.emitDraftCreated({
+      action: 'modify',
+      clientRequestId,
+      draftId: String(payload.draft_id),
+      name: this.getOptionalTrimmedString(args.name),
+      cover: this.getOptionalTrimmedString(payload.cover),
+      status: 'in_progress'
+    })
+
     const response = await this.requestWithAuth(MODIFY_DRAFT_ENDPOINT, payload)
 
     if (!response.ok) {
@@ -491,6 +572,15 @@ class DraftManagementServer {
     logger.info('Draft metadata updated', {
       success: result.success,
       draftId: result.output?.draft_id ?? payload.draft_id
+    })
+
+    this.emitDraftCreated({
+      action: 'modify',
+      clientRequestId,
+      draftId: this.getOptionalTrimmedString(result.output?.draft_id) || String(payload.draft_id),
+      name: this.getOptionalTrimmedString(args.name),
+      cover: this.getOptionalTrimmedString(payload.cover),
+      status: 'completed'
     })
 
     return this.formatJsonResult({
