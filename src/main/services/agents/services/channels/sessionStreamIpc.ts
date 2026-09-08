@@ -1,4 +1,6 @@
 import { modelsService } from '@main/apiServer/services/models'
+import DraftDownloadServer from '@main/mcpServers/draft-download'
+import DraftManagementServer from '@main/mcpServers/draft-management'
 import { loggerService } from '@logger'
 import { getDataPath } from '@main/utils'
 import { IpcChannel } from '@shared/IpcChannel'
@@ -6,12 +8,16 @@ import { sql } from 'drizzle-orm'
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
+import { EOL } from 'node:os'
 import path from 'node:path'
 
 import { windowService } from '../../../WindowService'
 import { agentsTable } from '../../database/schema'
+import { agentMessageRepository } from '../../database/sessionMessageRepository'
+import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
 import { sessionService } from '../SessionService'
 import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
+import { conversationSegmentService } from '../claudecode/session-architecture/ConversationSegmentService'
 import { sessionStreamBus, type SessionStreamChunk } from './SessionStreamBus'
 
 const activeSubscriptions = new Map<string, () => void>()
@@ -27,6 +33,404 @@ const DEFAULT_RUNTIME_AGENT_ID = CHERRY_CLAW_AGENT_ID
 const SESSION_MESSAGE_START_RETRY_LIMIT = 5
 const SESSION_MESSAGE_START_RETRY_BASE_DELAY_MS = 800
 const SESSION_MESSAGE_START_TIMEOUT_MS = 15_000
+const DIRECT_DRAFT_SYSTEM_PROMPT_VERSION = 'draft-request-v1'
+const DIRECT_DRAFT_SYSTEM_PROMPT_HASH = 'draft-request'
+
+type DirectDraftRequestPayload = {
+  sessionId: string
+  agent_id?: string
+  requestId?: string
+  createdAt?: number
+  userMessageId?: string
+  assistantMessageId?: string
+  userContent?: string
+  model?: string
+  draftRequest?: {
+    action?: 'create'
+    width?: number
+    height?: number
+    name?: string
+    cover?: string
+  }
+  draftDownloadRequest?: {
+    draftId?: string
+    draftName?: string
+    cover?: string
+    drafts?: Array<{
+      draftId?: string
+      draftName?: string
+      cover?: string
+    }>
+  }
+  draftModifyRequest?: {
+    draftId?: string
+    draft_id?: string
+    name?: string
+    cover?: string
+  }
+}
+
+function parseDraftResultText(result: any): Record<string, any> {
+  const text = Array.isArray(result?.content)
+    ? result.content
+      .filter((item: any) => item?.type === 'text' && typeof item?.text === 'string')
+      .map((item: any) => item.text)
+      .join('\n')
+      .trim()
+    : ''
+  if (!text) return {}
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { rawText: text }
+  }
+}
+
+async function callDraftManagementTool(toolName: string, args: Record<string, unknown>) {
+  const server = new DraftManagementServer(getDefaultAgentWorkspacePath(DEFAULT_RUNTIME_AGENT_ID))
+  const handlers = (server.mcpServer.server as any)?._requestHandlers
+  const callToolHandler = handlers?.get('tools/call')
+  if (typeof callToolHandler !== 'function') {
+    throw new Error('Draft management server did not register tools/call handler')
+  }
+  return callToolHandler(
+    {
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args
+      }
+    },
+    {}
+  )
+}
+
+async function callDraftDownloadTool(toolName: string, args: Record<string, unknown>) {
+  const server = new DraftDownloadServer()
+  const handlers = (server.mcpServer.server as any)?._requestHandlers
+  const callToolHandler = handlers?.get('tools/call')
+  if (typeof callToolHandler !== 'function') {
+    throw new Error('Draft download server did not register tools/call handler')
+  }
+  return callToolHandler(
+    {
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args
+      }
+    },
+    {}
+  )
+}
+
+function normalizeDirectDraftDimension(value: unknown): number | undefined {
+  const numericValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return undefined
+  return Math.trunc(numericValue)
+}
+
+function getDirectDraftOrientation(width?: number, height?: number): string {
+  if (!width || !height) return ''
+  if (width === height) return '方屏'
+  return height > width ? '竖屏' : '横屏'
+}
+
+function buildDirectDraftAssistantText(input: {
+  action: 'create'
+  width?: number
+  height?: number
+  name?: string
+  cover?: string
+  toolResponse: Record<string, any>
+}): string {
+  const { width, height, name, cover, toolResponse } = input
+  const output = toolResponse?.output && typeof toolResponse.output === 'object' ? toolResponse.output : {}
+  const draftId = String(output?.draft_id || '').trim()
+  const orientation = getDirectDraftOrientation(width, height)
+  const resolutionText = width && height
+    ? `${width} × ${height}${orientation ? `（${orientation}）` : ''}`
+    : ''
+
+  return [
+    '草稿已创建成功！',
+    '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    name ? `- 草稿名：${name}` : '',
+    resolutionText ? `- 分辨率：${resolutionText}` : '',
+    cover ? '- 封面图：已设置' : '',
+    '',
+    '你可以继续往这个草稿中添加视频、图片、文字、音频等素材。需要我帮你做些什么吗？'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectDraftAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+}) {
+  const { assistantMessageId, modelId, toolCallId, toolArgs, toolResponse, assistantText, createdAtIso } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__draft-management__create_draft',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__draft-management__create_draft',
+            name: 'mcp__draft-management__create_draft',
+            serverName: 'draft-management',
+            serverId: 'draft-management',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function normalizeDirectDraftDownloadItem(input: Record<string, unknown>, index?: number) {
+  const draftIdRaw = typeof input?.draftId === 'string' ? input.draftId : input?.draft_id
+  const draftNameRaw = typeof input?.draftName === 'string' ? input.draftName : input?.draft_name
+  const coverRaw = typeof input?.cover === 'string' ? input.cover : undefined
+  const draftId = typeof draftIdRaw === 'string' ? draftIdRaw.trim() : ''
+  if (!draftId) {
+    const suffix = typeof index === 'number' ? ` at drafts[${index}]` : ''
+    throw new Error(`draftId is required for draft download request${suffix}`)
+  }
+  const draftName = typeof draftNameRaw === 'string' && draftNameRaw.trim() ? draftNameRaw.trim() : draftId
+  const cover = typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : undefined
+  return {
+    draftId,
+    draftName,
+    ...(cover ? { cover } : {})
+  }
+}
+
+function normalizeDirectDraftDownloadRequest(input: Record<string, unknown> = {}) {
+  const drafts = Array.isArray(input?.drafts) && input.drafts.length > 0
+    ? input.drafts.map((item, index) => normalizeDirectDraftDownloadItem(item as Record<string, unknown>, index))
+    : [normalizeDirectDraftDownloadItem(input)];
+  return {
+    drafts
+  }
+}
+
+function normalizeDirectDraftModifyRequest(input: Record<string, unknown> = {}) {
+  const draftIdRaw = typeof input?.draftId === 'string' ? input.draftId : input?.draft_id
+  const nameRaw = typeof input?.name === 'string' ? input.name : ''
+  const coverRaw = typeof input?.cover === 'string' ? input.cover : ''
+  const draftId = typeof draftIdRaw === 'string' ? draftIdRaw.trim() : ''
+  if (!draftId) {
+    throw new Error('draftId is required for draft modify request')
+  }
+  const name = typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : undefined
+  const cover = typeof coverRaw === 'string' && coverRaw.trim() ? coverRaw.trim() : undefined
+  return {
+    draftId,
+    ...(name ? { name } : {}),
+    ...(cover ? { cover } : {})
+  }
+}
+
+function buildDirectDraftDownloadAssistantText(input: {
+  drafts: Array<{
+    draftId: string
+    draftName?: string
+  }>
+}): string {
+  const drafts = Array.isArray(input?.drafts) ? input.drafts : []
+  return [
+    '草稿下载任务已提交成功！',
+    '',
+    ...drafts.map((item, index) => {
+      const draftId = String(item?.draftId || '').trim()
+      const draftName = String(item?.draftName || '').trim()
+      const primaryText = draftName && draftName !== draftId ? `${draftName}（${draftId}）` : draftId
+      return `- 草稿${index + 1}：${primaryText}`
+    }),
+    '',
+    `共 ${drafts.length} 个草稿已加入下载队列，下载完成后会自动打开剪映，您可以在剪映里继续编辑。`
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectDraftDownloadAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+}) {
+  const { assistantMessageId, modelId, toolCallId, toolArgs, toolResponse, assistantText, createdAtIso } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__draft-download__download_draft',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__draft-download__download_draft',
+            name: 'mcp__draft-download__download_draft',
+            serverName: 'draft-download',
+            serverId: 'draft-download',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectDraftModifyAssistantText(input: {
+  draftId: string
+  name?: string
+  cover?: string
+}): string {
+  const draftId = String(input?.draftId || '').trim()
+  const name = String(input?.name || '').trim()
+  const cover = String(input?.cover || '').trim()
+  const headline = name && cover
+    ? '草稿信息已修改成功！'
+    : name
+      ? '草稿名已修改成功！'
+      : cover
+        ? '草稿封面已修改成功！'
+        : '草稿已修改成功！'
+
+  return [
+    headline,
+    '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    name ? `- 新草稿名：${name}` : '',
+    cover ? '- 新封面：已设置' : '',
+    '',
+    '还需要对这个草稿做其他修改吗？'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectDraftModifyAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+}) {
+  const { assistantMessageId, modelId, toolCallId, toolArgs, toolResponse, assistantText, createdAtIso } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__draft-management__modify_draft',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__draft-management__modify_draft',
+            name: 'mcp__draft-management__modify_draft',
+            serverName: 'draft-management',
+            serverId: 'draft-management',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+async function ensureDirectRequestSegment(session: any): Promise<any> {
+  let activeSegment = await conversationSegmentService.getActiveSegment(session.id)
+  if (!activeSegment) {
+    activeSegment = await conversationSegmentService.createRootSegment({
+      topicId: session.id,
+      sdkSessionId: '',
+      systemPromptVersion: DIRECT_DRAFT_SYSTEM_PROMPT_VERSION,
+      systemPromptHash: DIRECT_DRAFT_SYSTEM_PROMPT_HASH,
+      basePromptSnapshot: String(session?.instructions || '')
+    })
+  }
+  return activeSegment
+}
 
 function getDefaultAgentWorkspacePath(agentId: string): string {
   return path.join(getDataPath(), 'Agents', agentId)
@@ -775,6 +1179,403 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleDraftRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const draftRequest = payload?.draftRequest && typeof payload.draftRequest === 'object'
+        ? payload.draftRequest
+        : {}
+      const action = draftRequest.action === 'create' ? 'create' : 'create'
+      if (action !== 'create') {
+        return { ok: false, error: 'unsupported draft request action' }
+      }
+
+      const width = normalizeDirectDraftDimension(draftRequest.width)
+      const height = normalizeDirectDraftDimension(draftRequest.height)
+      const name = String(draftRequest.name || '').trim()
+      const cover = String(draftRequest.cover || '').trim()
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+
+      const toolArgs: Record<string, unknown> = {}
+      if (width) toolArgs.width = width
+      if (height) toolArgs.height = height
+      if (name) toolArgs.name = name
+      if (cover) toolArgs.cover = cover
+      const normalizedDraftRequest = {
+        action: 'create',
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+        ...(name ? { name } : {}),
+        ...(cover ? { cover } : {})
+      }
+
+      const toolCallId = `draft_request_${requestId}`
+      const toolResult = await callDraftManagementTool('create_draft', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const assistantText = buildDirectDraftAssistantText({
+        action,
+        width,
+        height,
+        name,
+        cover,
+        toolResponse
+      })
+      const assistantBlocks = buildDirectDraftAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: 'completed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              draftRequest: normalizedDraftRequest,
+              blocks: [
+                `${userMessageId}-main`
+              ]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: 'success',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  const handleDraftDownloadRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedDraftDownloadRequest = normalizeDirectDraftDownloadRequest(
+        payload?.draftDownloadRequest && typeof payload.draftDownloadRequest === 'object'
+          ? payload.draftDownloadRequest as Record<string, unknown>
+          : {}
+      )
+      const drafts = normalizedDraftDownloadRequest.drafts
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `draft_download_request_${requestId}`
+      const toolArgs: Record<string, unknown> = drafts.length === 1
+        ? { ...drafts[0] }
+        : { drafts: drafts.map((item) => ({ ...item })) }
+
+      const toolResult = await callDraftDownloadTool('download_draft', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const assistantText = buildDirectDraftDownloadAssistantText({ drafts })
+      const assistantBlocks = buildDirectDraftDownloadAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: 'completed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              draftDownloadRequest: normalizedDraftDownloadRequest,
+              blocks: [
+                `${userMessageId}-main`
+              ]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: 'success',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  const handleDraftModifyRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedDraftModifyRequest = normalizeDirectDraftModifyRequest(
+        payload?.draftModifyRequest && typeof payload.draftModifyRequest === 'object'
+          ? payload.draftModifyRequest as Record<string, unknown>
+          : {}
+      )
+      const draftId = normalizedDraftModifyRequest.draftId
+      const name = String(normalizedDraftModifyRequest.name || '').trim()
+      const cover = String(normalizedDraftModifyRequest.cover || '').trim()
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `draft_modify_request_${requestId}`
+      const toolArgs: Record<string, unknown> = {
+        draftId,
+        ...(name ? { name } : {}),
+        ...(cover ? { cover } : {})
+      }
+
+      const toolResult = await callDraftManagementTool('modify_draft', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const assistantText = buildDirectDraftModifyAssistantText({
+        draftId,
+        name,
+        cover
+      })
+      const assistantBlocks = buildDirectDraftModifyAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: 'completed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              draftModifyRequest: normalizedDraftModifyRequest,
+              blocks: [
+                `${userMessageId}-main`
+              ]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: 'success',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleSessionCreate = async (_event: unknown, payload: any = {}) => {
     try {
       const agentId = String(payload?.agent_id || DEFAULT_RUNTIME_AGENT_ID).trim() || DEFAULT_RUNTIME_AGENT_ID
@@ -819,6 +1620,9 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(CherryChannels.SessionList, handleSessionList)
   ipcMain.handle(CherryChannels.SessionMessageList, handleSessionMessageList)
   ipcMain.handle(CherryChannels.SessionMessageCreate, handleSessionMessageCreate)
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, handleDraftRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, handleDraftDownloadRequest)
 
   sessionStreamIpcRegistered = true
   logger.info('[SessionStreamIpc] IPC registration completed')

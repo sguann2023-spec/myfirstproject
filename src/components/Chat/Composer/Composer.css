@@ -27,6 +27,10 @@
   margin-right: 24px;
 }
 
+.chat-panel__tool-bar--with-attachments {
+  transform: translateY(-1px);
+}
+
 .chat-panel__tool-left {
   display: flex;
   align-items: center;
@@ -629,6 +633,10 @@
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+.chat-panel__input-wrap--with-attachments {
+  transform: translateY(-1px);
 }
 
 .chat-panel__input-wrap.drag-active .chat-panel__input--tiptap {

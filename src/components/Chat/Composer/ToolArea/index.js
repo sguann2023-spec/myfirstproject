@@ -1,4 +1,8 @@
+import React from 'react';
+import { Popover } from 'antd';
+import { BookSearch, ChevronDown, ChevronUp, Download, SquarePen } from 'lucide-react';
 import './index.css';
+import DraftIcon from '../../../../../public/draft_icon.svg';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
 import AiVideoIcon from '../../../../../public/ai_video.svg';
 import ImagePanIcon from '../../../../../public/image_pan.svg';
@@ -27,23 +31,99 @@ const TOOL_ITEMS = [
   },
 ];
 
-const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => (
-  <div ref={toolAreaRef} className="chat-panel__tool-area" role="toolbar" aria-label="工具区">
-    {TOOL_ITEMS.map((tool) => (
-      <button
-        key={tool.id}
-        type="button"
-        className="chat-panel__tool-button"
-        aria-label={tool.label}
-        title={tool.label}
-        disabled={disabled}
-        onClick={() => onSelect && onSelect(tool.id)}
+const DRAFT_MENU_ITEMS = [
+  {
+    id: 'draft',
+    label: '新草稿',
+    icon: <img className="chat-panel__tool-icon" src={DraftIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'draft-modify',
+    label: '修改草稿',
+    icon: <SquarePen size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
+  {
+    id: 'draft-inspect',
+    label: '查看草稿',
+    icon: <BookSearch size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
+  {
+    id: 'draft-download',
+    label: '下载草稿',
+    icon: <Download size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
+];
+
+const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
+  const [draftMenuOpen, setDraftMenuOpen] = React.useState(false);
+
+  const draftMenuContent = (
+    <div className="chat-panel__tool-menu-list" role="menu" aria-label="草稿工具菜单">
+      {DRAFT_MENU_ITEMS.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className="chat-panel__tool-menu-item"
+          role="menuitem"
+          disabled={disabled}
+          onClick={() => {
+            setDraftMenuOpen(false);
+            onSelect && onSelect(item.id);
+          }}
+        >
+          {item.icon}
+          <span className="chat-panel__tool-menu-text">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div ref={toolAreaRef} className="chat-panel__tool-area" role="toolbar" aria-label="工具区">
+      <Popover
+        trigger="hover"
+        placement="topLeft"
+        open={draftMenuOpen}
+        onOpenChange={setDraftMenuOpen}
+        mouseEnterDelay={0}
+        mouseLeaveDelay={0}
+        align={{ offset: [0, 0] }}
+        classNames={{ root: 'chat-panel__tool-menu-popover' }}
+        content={draftMenuContent}
       >
-        <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
-        <span className="chat-panel__tool-text">{tool.label}</span>
-      </button>
-    ))}
-  </div>
-);
+        <button
+          type="button"
+          className="chat-panel__tool-button"
+          aria-label="新草稿"
+          title="新草稿"
+          disabled={disabled}
+          onClick={() => onSelect && onSelect('draft')}
+        >
+          <img className="chat-panel__tool-icon" src={DraftIcon} alt="" aria-hidden="true" />
+          <span className="chat-panel__tool-text">新草稿</span>
+          {draftMenuOpen ? (
+            <ChevronUp size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
+          ) : (
+            <ChevronDown size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
+          )}
+        </button>
+      </Popover>
+      {TOOL_ITEMS.map((tool) => (
+        <button
+          key={tool.id}
+          type="button"
+          className="chat-panel__tool-button"
+          aria-label={tool.label}
+          title={tool.label}
+          disabled={disabled}
+          onClick={() => onSelect && onSelect(tool.id)}
+        >
+          <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
+          <span className="chat-panel__tool-text">{tool.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
 
 export default ToolArea;

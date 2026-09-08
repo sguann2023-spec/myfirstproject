@@ -22,6 +22,10 @@ import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
 import VideoToolDetail from './VideoToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
+import DraftToolDetail, { getDraftToolSendState } from '../../DraftToolDetail/index';
+import DraftDownloadToolDetail, { getDraftDownloadToolSendState } from '../../DraftDownloadToolDetail/index';
+import DraftInspectToolDetail, { getDraftInspectToolSendState } from '../../DraftInspectToolDetail/index';
+import DraftModifyToolDetail, { getDraftModifyToolSendState } from '../../DraftModifyToolDetail/index';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_COUNT = 100;
@@ -267,6 +271,7 @@ const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-ava
 const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
 const IMAGE_PAN_MODEL_STORAGE_KEY = 'chat-panel:image-pan-model';
 const IMAGE_PAN_RESOLUTION_STORAGE_KEY = 'chat-panel:image-pan-resolution';
+const DRAFT_RESOLUTION_STORAGE_KEY = 'chat-panel:draft-resolution';
 const VIDEO_MODEL_STORAGE_KEY = 'chat-panel:video-model';
 const VIDEO_GENERATION_MODE_STORAGE_KEY = 'chat-panel:video-generation-mode';
 const VIDEO_RESOLUTION_STORAGE_KEY = 'chat-panel:video-resolution';
@@ -282,6 +287,7 @@ const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider
 const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
 const DEFAULT_IMAGE_PAN_MODEL = 'seedream-4.5';
 const DEFAULT_IMAGE_PAN_RESOLUTION = '1440x2560';
+const DEFAULT_DRAFT_RESOLUTION = '1920x1080';
 const DEFAULT_VIDEO_MODEL = 'seedance-2.0';
 const DEFAULT_VIDEO_GENERATION_MODE = 'text_to_video';
 const DEFAULT_VIDEO_RESOLUTION = '720x1280';
@@ -299,6 +305,13 @@ const VIDEO_GENERATION_MODE_LABELS = {
 const IMAGE_PAN_UPLOAD_MAX_COUNT = 10;
 const IMAGE_PAN_PLACEHOLDER_CONFIG = [
   { key: 'image_pan', label: '图片', kind: 'image' },
+];
+const DRAFT_UPLOAD_MAX_COUNT = 1;
+const DRAFT_PLACEHOLDER_CONFIG = [
+  { key: 'draft_cover', label: '封面', kind: 'image' },
+];
+const DRAFT_MODIFY_PLACEHOLDER_CONFIG = [
+  { key: 'draft_cover', label: '新封面', kind: 'image' },
 ];
 const VIDEO_REFERENCE_UPLOAD_MAX_COUNT = 10;
 const VIDEO_FRAME_SLOT_ORDER = {
@@ -383,6 +396,17 @@ const readPersistedImagePanResolution = () => {
     return normalizeImagePanResolution(localStorage.getItem(IMAGE_PAN_RESOLUTION_STORAGE_KEY));
   } catch (error) {
     return DEFAULT_IMAGE_PAN_RESOLUTION;
+  }
+};
+const normalizeDraftResolution = (value) => {
+  const normalizedValue = String(value || '').trim().toLowerCase();
+  return /^\d+x\d+$/.test(normalizedValue) ? normalizedValue : DEFAULT_DRAFT_RESOLUTION;
+};
+const readPersistedDraftResolution = () => {
+  try {
+    return normalizeDraftResolution(localStorage.getItem(DRAFT_RESOLUTION_STORAGE_KEY));
+  } catch (error) {
+    return DEFAULT_DRAFT_RESOLUTION;
   }
 };
 
@@ -2282,6 +2306,10 @@ const Composer = ({
   const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(() => readPersistedDigitalHumanAvatarSelection());
   const [selectedImagePanModel, setSelectedImagePanModel] = React.useState(() => readPersistedImagePanModel());
   const [selectedImagePanResolution, setSelectedImagePanResolution] = React.useState(() => readPersistedImagePanResolution());
+  const [selectedDraftResolution, setSelectedDraftResolution] = React.useState(() => readPersistedDraftResolution());
+  const [selectedDraftDownloadIds, setSelectedDraftDownloadIds] = React.useState([]);
+  const [selectedDraftModifyIds, setSelectedDraftModifyIds] = React.useState([]);
+  const [selectedDraftInspectIds, setSelectedDraftInspectIds] = React.useState([]);
   const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
   const [selectedVideoGenerationMode, setSelectedVideoGenerationMode] = React.useState(() => readPersistedVideoGenerationMode());
   const [selectedVideoResolution, setSelectedVideoResolution] = React.useState(() => readPersistedVideoResolution());
@@ -2354,11 +2382,19 @@ const Composer = ({
   const inputPlaceholder =
     activeTool === 'digital-human'
       ? ''
-      : activeTool === 'image-pan'
-        ? '描述你想要的图片，或者选择本地图片后修改'
-        : activeTool === 'ai-video'
-          ? '描述你想要的视频'
-      : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
+      : activeTool === 'draft'
+        ? '输入草稿名'
+        : activeTool === 'draft-modify'
+          ? '输入新草稿名'
+        : activeTool === 'draft-inspect'
+          ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看草稿的图片是否连续'
+        : activeTool === 'draft-download'
+          ? ''
+        : activeTool === 'image-pan'
+          ? '描述你想要的图片，或者选择本地图片后修改'
+          : activeTool === 'ai-video'
+            ? '描述你想要的视频'
+            : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
@@ -3538,9 +3574,17 @@ const Composer = ({
     validateFile: null,
     typeErrorMessage: '图片模式仅支持上传图片',
   }), []);
+  const draftUploadLimit = React.useMemo(() => ({
+    maxCount: DRAFT_UPLOAD_MAX_COUNT,
+    imageOnly: true,
+    accept: 'image/*',
+    validateFile: null,
+    typeErrorMessage: '新草稿仅支持上传封面图',
+  }), []);
   const activeUploadLimit = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoModeUploadLimit;
     if (activeTool === 'image-pan') return imagePanUploadLimit;
+    if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadLimit;
     return {
       maxCount: MAX_UPLOAD_COUNT,
       imageOnly: false,
@@ -3548,7 +3592,7 @@ const Composer = ({
       validateFile: null,
       typeErrorMessage: '',
     };
-  }, [activeTool, imagePanUploadLimit, videoModeUploadLimit]);
+  }, [activeTool, draftUploadLimit, imagePanUploadLimit, videoModeUploadLimit]);
   const uploadAccept = React.useMemo(() => {
     if (activeUploadLimit.imageOnly) return 'image/*';
     return activeUploadLimit.accept;
@@ -3557,6 +3601,12 @@ const Composer = ({
     if (activeTool !== 'image-pan') return [];
     const uploadedImageCount = uploadedFileMeta.filter((item) => isImageFileType(item?.fileType)).length;
     return uploadedImageCount >= IMAGE_PAN_UPLOAD_MAX_COUNT ? [] : IMAGE_PAN_PLACEHOLDER_CONFIG;
+  }, [activeTool, uploadedFileMeta]);
+  const draftUploadPlaceholders = React.useMemo(() => {
+    if (activeTool !== 'draft' && activeTool !== 'draft-modify') return [];
+    const uploadedImageCount = uploadedFileMeta.filter((item) => isImageFileType(item?.fileType)).length;
+    if (uploadedImageCount >= DRAFT_UPLOAD_MAX_COUNT) return [];
+    return activeTool === 'draft-modify' ? DRAFT_MODIFY_PLACEHOLDER_CONFIG : DRAFT_PLACEHOLDER_CONFIG;
   }, [activeTool, uploadedFileMeta]);
   const videoUploadPlaceholders = React.useMemo(() => {
     if (activeTool !== 'ai-video') return [];
@@ -3590,12 +3640,14 @@ const Composer = ({
   const activeUploadPlaceholders = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoUploadPlaceholders;
     if (activeTool === 'image-pan') return imagePanUploadPlaceholders;
+    if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadPlaceholders;
     return [];
-  }, [activeTool, imagePanUploadPlaceholders, videoUploadPlaceholders]);
+  }, [activeTool, draftUploadPlaceholders, imagePanUploadPlaceholders, videoUploadPlaceholders]);
   const activePreviewSlotOrder = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoPreviewSlotOrder;
     return [];
   }, [activeTool, videoPreviewSlotOrder]);
+  const hasToolPreviewRow = uploadedFileMeta.length > 0 || activeUploadPlaceholders.length > 0;
 
   const groupedModelOptions = React.useMemo(() => (
     availableModelOptions.length > 0
@@ -3651,7 +3703,42 @@ const Composer = ({
     () => getAiWriteTemplateCompletionState(editor, selectedAiWritePresetId),
     [editor, input, selectedAiWritePresetId]
   );
-  const canSend = String(input || '').trim().length > 0 || hasSelectedLocalFile;
+  const defaultSendState = React.useMemo(() => ({
+    canSend: String(input || '').trim().length > 0 || hasSelectedLocalFile
+  }), [input, hasSelectedLocalFile]);
+  const toolSendState = React.useMemo(() => {
+    const context = {
+      input,
+      hasSelectedLocalFile,
+      selectedDraftIds: activeTool === 'draft-download'
+        ? selectedDraftDownloadIds
+        : activeTool === 'draft-inspect'
+          ? selectedDraftInspectIds
+          : selectedDraftModifyIds
+    };
+    switch (activeTool) {
+      case 'draft':
+        return getDraftToolSendState(context);
+      case 'draft-download':
+        return getDraftDownloadToolSendState(context);
+      case 'draft-inspect':
+        return getDraftInspectToolSendState(context);
+      case 'draft-modify':
+        return getDraftModifyToolSendState(context);
+      default:
+        return defaultSendState;
+    }
+  }, [
+    activeTool,
+    defaultSendState,
+    hasSelectedLocalFile,
+    input,
+    selectedDraftDownloadIds,
+    selectedDraftInspectIds,
+    selectedDraftModifyIds
+  ]);
+  const canSend = Boolean(toolSendState?.canSend);
+  const sendDisabledReason = !canSend ? String(toolSendState?.disabledReason || '').trim() : '';
   const isDigitalHumanSendBlocked = activeTool === 'digital-human' && !digitalHumanCompletionState.isComplete;
   const isAiWriteSendBlocked = activeTool === 'ai-write' && !aiWriteCompletionState.isComplete;
   const isSendDisabled = !canSend || modelListLoading || isDigitalHumanSendBlocked || isAiWriteSendBlocked;
@@ -3700,7 +3787,7 @@ const Composer = ({
     });
 
     if (hasOverflow) {
-      message.error(activeTool === 'ai-video' || activeTool === 'image-pan'
+      message.error(activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify'
         ? `当前模式最多上传 ${maxCount} 个文件`
         : `最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
     }
@@ -3883,6 +3970,12 @@ const Composer = ({
     const remainingLocalReferences = uploadedFileMeta
       .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
       .map((item) => buildAttachmentReferenceText(item));
+    const draftCoverReferences = activeTool === 'draft' || activeTool === 'draft-modify'
+      ? uploadedFileMeta
+        .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
+        .filter((item) => String(item?.fileType || '').toLowerCase().startsWith('image/'))
+        .map((item) => buildAttachmentReferenceText(item))
+      : [];
     const voiceSquareComposeParts = activeTool === 'voice-square'
       ? getVoiceSquareComposeParts(editor)
       : null;
@@ -3890,13 +3983,39 @@ const Composer = ({
       ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (!combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-download' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && !combined) return;
+    const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
+    const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
     const nextMessage =
       activeTool === 'voice-square'
         ? [
           `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`,
           voiceSquareComposeParts?.extraText || '',
         ].filter(Boolean).join(' ')
+        : activeTool === 'draft'
+          ? [
+            `请创建一个新草稿，分辨率 ${selectedDraftResolution}。`,
+            text ? `草稿名：${text}` : '',
+            draftCoverReferences.length > 0 ? `封面图：${draftCoverReferences.join('\n')}` : '',
+          ].filter(Boolean).join('\n')
+        : activeTool === 'draft-modify'
+          ? [
+            '请修改当前草稿。',
+            selectedDraftModifyId ? `草稿ID：${selectedDraftModifyId}` : '',
+            text ? `草稿名：${text}` : '',
+            draftCoverReferences.length > 0 ? `封面图：${draftCoverReferences.join('\n')}` : '',
+          ].filter(Boolean).join('\n')
+        : activeTool === 'draft-inspect'
+          ? [
+            '请查看当前草稿。',
+            selectedDraftInspectId ? `草稿ID：${selectedDraftInspectId}` : '',
+            text ? `查看要求：${text}` : '',
+          ].filter(Boolean).join('\n')
+        : activeTool === 'draft-download'
+          ? [
+            '请下载以下草稿：',
+            ...selectedDraftDownloadIds.map((draftId) => `- ${draftId}`),
+          ].join('\n')
         : activeTool === 'image-pan'
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
           : activeTool === 'ai-video'
@@ -3904,6 +4023,26 @@ const Composer = ({
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
+      draftRequest: activeTool === 'draft'
+        ? {
+          action: 'create',
+          name: text,
+          resolution: selectedDraftResolution,
+        }
+        : null,
+      draftModifyRequest: activeTool === 'draft-modify'
+        ? {
+          draftId: String(selectedDraftModifyIds?.[0] || '').trim(),
+          ...(text ? { name: text } : {}),
+        }
+        : null,
+      draftDownloadRequest: activeTool === 'draft-download'
+        ? {
+          drafts: selectedDraftDownloadIds.map((draftId) => ({
+            draftId
+          }))
+        }
+        : null,
       images: imagePayloads.map(({ data, media_type }) => ({ data, media_type })),
       imageAttachmentPreviews,
       pendingLocalAttachments
@@ -3911,6 +4050,9 @@ const Composer = ({
     if (activeTool) {
       setActiveTool(null);
     }
+    setSelectedDraftDownloadIds([]);
+    setSelectedDraftInspectIds([]);
+    setSelectedDraftModifyIds([]);
     setUploadFileList([]);
     setUploadedFileMeta((prev) => {
       prev.forEach((item) => {
@@ -3920,9 +4062,23 @@ const Composer = ({
     });
   };
 
+  const attemptSendWithAttachments = React.useCallback(() => {
+    if (sessionSending) {
+      handleStop && handleStop();
+      return;
+    }
+    if (isSendDisabled) {
+      if (sendDisabledReason) {
+        message.warning(sendDisabledReason);
+      }
+      return;
+    }
+    void handleSendWithAttachments();
+  }, [handleSendWithAttachments, handleStop, isSendDisabled, sendDisabledReason, sessionSending]);
+
   React.useEffect(() => {
-    handleSendWithAttachmentsRef.current = handleSendWithAttachments;
-  }, [handleSendWithAttachments]);
+    handleSendWithAttachmentsRef.current = attemptSendWithAttachments;
+  }, [attemptSendWithAttachments]);
 
   React.useEffect(() => {
     if (activeTool !== 'digital-human') return;
@@ -3940,6 +4096,21 @@ const Composer = ({
   }, [activeTool, editor, selectedVoiceLibraryItem]);
 
   React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const shouldDisableInput = activeTool === 'draft-download';
+    editor.setEditable(!shouldDisableInput);
+    if (shouldDisableInput) {
+      latestInputRef.current = '';
+      setInput('');
+      editor.commands.clearContent();
+    }
+    return () => {
+      if (!editor || editor.isDestroyed) return;
+      editor.setEditable(true);
+    };
+  }, [activeTool, editor, setInput]);
+
+  React.useEffect(() => {
     try {
       localStorage.setItem(IMAGE_PAN_MODEL_STORAGE_KEY, normalizeImagePanModel(selectedImagePanModel));
     } catch (error) {
@@ -3954,6 +4125,14 @@ const Composer = ({
       // Ignore local storage persistence failures.
     }
   }, [selectedImagePanResolution]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(DRAFT_RESOLUTION_STORAGE_KEY, normalizeDraftResolution(selectedDraftResolution));
+    } catch (error) {
+      // Ignore local storage persistence failures.
+    }
+  }, [selectedDraftResolution]);
 
   React.useEffect(() => {
     try {
@@ -4068,11 +4247,19 @@ const Composer = ({
     }
     if (nextTool === 'ai-write') {
       applyAiWriteTemplate(selectedAiWritePresetId);
+      return;
     }
-  }, [activeTool, applyAiWriteTemplate, editor, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
+    if (nextTool === 'draft-download') {
+      latestInputRef.current = '';
+      setInput('');
+      editor.commands.clearContent();
+    }
+  }, [activeTool, applyAiWriteTemplate, editor, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem, setInput]);
 
   const handleToolDetailBack = React.useCallback(() => {
     setActiveTool(null);
+    setSelectedDraftDownloadIds([]);
+    setSelectedDraftInspectIds([]);
   }, []);
 
   return (
@@ -4085,7 +4272,10 @@ const Composer = ({
           onRemove={(file) => removeLocalFile(file?.uid)}
           onAddFile={(placeholder) => requestUploadPickerRef.current(placeholder?.key || '')}
         />
-        <div ref={toolBarRef} className="chat-panel__tool-bar">
+        <div
+          ref={toolBarRef}
+          className={`chat-panel__tool-bar ${hasToolPreviewRow ? 'chat-panel__tool-bar--with-attachments' : ''}`}
+        >
           <div className="chat-panel__tool-left">
             <div ref={toolLeftPrefixRef} className="chat-panel__tool-left-prefix">
               <AntUpload
@@ -4120,7 +4310,35 @@ const Composer = ({
                 ].filter(Boolean).join(' ')}
               >
                 <div ref={toolContentScrollRef} className="chat-panel__tool-content-scroll">
-                  {activeTool === 'voice-square' ? (
+                  {activeTool === 'draft' ? (
+                    <DraftToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedResolution={selectedDraftResolution}
+                      onResolutionChange={setSelectedDraftResolution}
+                    />
+                  ) : activeTool === 'draft-download' ? (
+                    <DraftDownloadToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedDraftDownloadIds}
+                      onSelectedDraftIdsChange={setSelectedDraftDownloadIds}
+                    />
+                  ) : activeTool === 'draft-inspect' ? (
+                    <DraftInspectToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedDraftInspectIds}
+                      onSelectedDraftIdsChange={setSelectedDraftInspectIds}
+                    />
+                  ) : activeTool === 'draft-modify' ? (
+                    <DraftModifyToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedDraftModifyIds}
+                      onSelectedDraftIdsChange={setSelectedDraftModifyIds}
+                    />
+                  ) : activeTool === 'voice-square' ? (
                     <VoiceSquareToolDetail
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}
@@ -4238,22 +4456,20 @@ const Composer = ({
                 }}
               />
             </div>
-            <button
-              type="button"
-              className={`chat-panel__send-btn ${isSendDisabled && !sessionSending ? 'disabled' : ''} ${sessionSending ? 'stopping' : ''}`}
-              onClick={() => {
-                if (sessionSending) {
-                  handleStop && handleStop();
-                  return;
-                }
-                if (!isSendDisabled) handleSendWithAttachments();
-              }}
-              aria-label={sessionSending ? '停止生成' : '发送消息'}
-              aria-disabled={sessionSending ? false : isSendDisabled}
-              disabled={sessionSending ? false : isSendDisabled}
-            >
-              {sessionSending ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
-            </button>
+            <Tooltip title={!sessionSending && isSendDisabled && sendDisabledReason ? sendDisabledReason : null}>
+              <span>
+                <button
+                  type="button"
+                  className={`chat-panel__send-btn ${isSendDisabled && !sessionSending ? 'disabled' : ''} ${sessionSending ? 'stopping' : ''}`}
+                  onClick={attemptSendWithAttachments}
+                  aria-label={sessionSending ? '停止生成' : '发送消息'}
+                  aria-disabled={sessionSending ? false : isSendDisabled}
+                  disabled={sessionSending ? false : isSendDisabled}
+                >
+                  {sessionSending ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
+                </button>
+              </span>
+            </Tooltip>
           </div>
         </div>
         <div
@@ -4263,7 +4479,7 @@ const Composer = ({
               beginnerGuideInputAreaRef.current = node;
             }
           }}
-          className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''}`}
+            className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''} ${hasToolPreviewRow ? 'chat-panel__input-wrap--with-attachments' : ''}`}
           onDragEnter={handleInputDragEnter}
           onDragOver={handleInputDragOver}
           onDragLeave={handleInputDragLeave}

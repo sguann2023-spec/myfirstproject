@@ -457,6 +457,7 @@ type IntentRoute = {
 - 对 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat`，如果输入媒体文件位于当前 workspace 且用户未指定输出路径，默认应将新文件生成在首个源文件同目录，而不是系统临时目录；`media_duration` 为只读探测，不生成新文件
 - 用户提到“创建草稿” / “创建一个草稿” / “创建一个剪映草稿” / “创建一个剪辑草稿”时，应命中 `draft_create` + `draft_update_meta`
 - 当同一句话同时包含“创建”语义，且路由结果同时带上 `workspace.write` 时，执行阶段仍应优先使用 `mcp__draft-management__create_draft`；不要因为存在通用写文件工具就手动创建本地草稿目录、草稿 JSON 或空白草稿脚手架
+- `draft_create` / `draft_update_meta` 的 `cover` 参数应支持远程 URL、`file://` URL 和绝对本地路径；若传入本地路径，应由工具内部完成上传与后续提交，不应额外前置独立 `workspace.upload`
 - 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
 - 当任务涉及复杂草稿修改、修改了多个元素，或用户明确要求确认结果时，应补充 `draft_inspect`，用于查看草稿内容并校验是否添加正确
 - 当句子中出现草稿标识（如 `草稿` / `draft` / `dfd_`），同时包含“检查 / 看一下 / 确认 / 校验 / 核对”等动词，且后续跟随视觉属性词（如动画、弹入、转场、位置、样式、特效等）时，应直接命中 `draft_inspect`

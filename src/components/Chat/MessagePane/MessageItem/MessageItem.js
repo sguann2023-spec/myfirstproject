@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Copy, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Code, Copy, RefreshCw, Trash2, Type } from 'lucide-react';
 import { Tooltip, message as antMessage } from 'antd';
 import { Provider, useSelector } from 'react-redux';
 import './MessageItem.css';
@@ -43,6 +43,89 @@ const buildMetricsSignature = (metrics = null) => JSON.stringify({
   time_completion_millsec: Number(metrics?.time_completion_millsec || 0),
   time_first_token_millsec: Number(metrics?.time_first_token_millsec || 0)
 });
+const buildDraftRequestSignature = (draftRequest = null) => {
+  if (!draftRequest || typeof draftRequest !== 'object') return '';
+  return JSON.stringify({
+    action: String(draftRequest?.action || ''),
+    width: Number(draftRequest?.width || 0),
+    height: Number(draftRequest?.height || 0),
+    cover: String(draftRequest?.cover || ''),
+    name: String(draftRequest?.name || '')
+  });
+};
+const buildDraftDownloadRequestSignature = (draftDownloadRequest = null) => {
+  if (!draftDownloadRequest || typeof draftDownloadRequest !== 'object') return '';
+  return JSON.stringify({
+    drafts: (Array.isArray(draftDownloadRequest?.drafts) ? draftDownloadRequest.drafts : []).map((item) => ({
+      draftId: String(item?.draftId || item?.draft_id || ''),
+      draftName: String(item?.draftName || item?.draft_name || ''),
+      cover: String(item?.cover || '')
+    }))
+  });
+};
+const buildDraftModifyRequestSignature = (draftModifyRequest = null) => {
+  if (!draftModifyRequest || typeof draftModifyRequest !== 'object') return '';
+  return JSON.stringify({
+    draftId: String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || ''),
+    name: String(draftModifyRequest?.name || ''),
+    cover: String(draftModifyRequest?.cover || '')
+  });
+};
+const isHttpLikeUrl = (value = '') => /^https?:\/\//i.test(String(value || '').trim());
+const resolveDraftApiCover = (draftRequest = null, message = {}) => {
+  const directCover = String(draftRequest?.cover || '').trim();
+  if (isHttpLikeUrl(directCover)) return directCover;
+
+  const attachmentCover = (Array.isArray(message?.imageAttachments) ? message.imageAttachments : []).reduce((matched, attachment) => {
+    if (matched) return matched;
+    const candidate = String(
+      attachment?.url
+      || attachment?.previewUrl
+      || attachment?.thumbnailUrl
+      || ''
+    ).trim();
+    return isHttpLikeUrl(candidate) ? candidate : matched;
+  }, '');
+  if (attachmentCover) return attachmentCover;
+  if (directCover) return directCover;
+  return '';
+};
+const buildDraftRequestApiCurl = (draftRequest = null, message = {}) => {
+  const width = Number(draftRequest?.width || 1080) || 1080;
+  const height = Number(draftRequest?.height || 1920) || 1920;
+  const cover = resolveDraftApiCover(draftRequest, message);
+  const name = String(draftRequest?.name || '').trim();
+  const payload = {
+    width,
+    height,
+    ...(cover ? { cover } : {}),
+    ...(name ? { name } : {})
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/create_draft' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
+const buildDraftModifyRequestApiCurl = (draftModifyRequest = null, message = {}) => {
+  const draftId = String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || '').trim();
+  const cover = resolveDraftApiCover(draftModifyRequest, message);
+  const name = String(draftModifyRequest?.name || '').trim();
+  const payload = {
+    draft_id: draftId,
+    ...(name ? { name } : {}),
+    ...(cover ? { cover } : {})
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/modify_draft' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
 
 const LiveAssistantMessageTokens = ({ fallbackMessage, storeAssistantMessageId }) => {
   const storeMessage = useSelector((state) => state?.messages?.entities?.[storeAssistantMessageId] || null);
@@ -77,9 +160,32 @@ const MessageItem = ({
   userAvatar,
 }) => {
   const isAssistant = role === 'assistant';
+  const isUser = role === 'user';
+  const draftRequest = message?.draftRequest && typeof message.draftRequest === 'object'
+    ? message.draftRequest
+    : null;
+  const draftDownloadRequest = message?.draftDownloadRequest && typeof message.draftDownloadRequest === 'object'
+    ? message.draftDownloadRequest
+    : null;
+  const draftModifyRequest = message?.draftModifyRequest && typeof message.draftModifyRequest === 'object'
+    ? message.draftModifyRequest
+    : null;
+  const canShowDraftApiAction = isUser && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
+  const [showDraftApiFormat, setShowDraftApiFormat] = React.useState(false);
+  const displayedMessage = React.useMemo(() => {
+    if (!canShowDraftApiAction || !showDraftApiFormat) return message;
+    const apiContent = draftModifyRequest
+      ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
+      : buildDraftRequestApiCurl(draftRequest, message);
+    return {
+      ...message,
+      content: apiContent,
+      imageAttachments: []
+    };
+  }, [canShowDraftApiAction, draftModifyRequest, draftRequest, message, showDraftApiFormat]);
 
   React.useEffect(() => {
     if (!DEBUG_CHAT_LOADING || !isAssistant) return;
@@ -94,9 +200,10 @@ const MessageItem = ({
 
   const handleCopy = async (event) => {
     event.stopPropagation();
+    event.currentTarget?.blur?.();
     if (!onCopyAssistantMessage) return;
     try {
-      await onCopyAssistantMessage(message);
+      await onCopyAssistantMessage(displayedMessage);
       antMessage.success('已复制');
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
@@ -104,6 +211,16 @@ const MessageItem = ({
       antMessage.error('复制失败');
     }
   };
+  const handleConvertToApi = React.useCallback((event) => {
+    event.stopPropagation();
+    event.currentTarget?.blur?.();
+    setShowDraftApiFormat(true);
+  }, []);
+  const handleConvertToText = React.useCallback((event) => {
+    event.stopPropagation();
+    event.currentTarget?.blur?.();
+    setShowDraftApiFormat(false);
+  }, []);
 
   return (
     <div className={`chat-panel__message ${role}`}>
@@ -118,8 +235,8 @@ const MessageItem = ({
         userAvatar={userAvatar}
       />
       <div className={`chat-panel__message-body ${isAssistant ? 'assistant' : 'user'}`}>
-        <MessageContent message={message} isLoading={isLoading} />
-        {isAssistant && !isLoading && (
+        <MessageContent message={displayedMessage} isLoading={isLoading} />
+        {!isLoading && isAssistant && (
           <div className="chat-panel__message-actions">
             <Tooltip title="复制" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
               <button
@@ -169,6 +286,44 @@ const MessageItem = ({
           </div>
         )}
       </div>
+      {!isLoading && isUser && (
+        <div className="chat-panel__message-actions chat-panel__message-actions--user">
+          {canShowDraftApiAction && showDraftApiFormat ? (
+            <div className="chat-panel__message-api-tip">替换token为你的API KEY</div>
+          ) : null}
+          {canShowDraftApiAction ? (
+            <>
+              <Tooltip title="文字" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
+                <button
+                  type="button"
+                  className={`chat-panel__message-action-btn ${!showDraftApiFormat ? 'is-active' : ''}`}
+                  onClick={handleConvertToText}
+                  disabled={actionsDisabled}>
+                  <Type size={15} className="chat-panel__message-action-icon" />
+                </button>
+              </Tooltip>
+              <Tooltip title="API" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
+                <button
+                  type="button"
+                  className={`chat-panel__message-action-btn ${showDraftApiFormat ? 'is-active' : ''}`}
+                  onClick={handleConvertToApi}
+                  disabled={actionsDisabled}>
+                  <Code size={15} className="chat-panel__message-action-icon" />
+                </button>
+              </Tooltip>
+            </>
+          ) : null}
+          <Tooltip title="复制" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
+            <button
+              type="button"
+              className="chat-panel__message-action-btn"
+              onClick={handleCopy}
+              disabled={actionsDisabled}>
+              {copied ? <Check size={15} className="chat-panel__message-action-icon copied" /> : <Copy size={15} className="chat-panel__message-action-icon" />}
+            </button>
+          </Tooltip>
+        </div>
+      )}
     </div>
   );
 };
@@ -231,6 +386,9 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevUsageSteps === nextUsageSteps
     && prevMetrics === nextMetrics
     && buildImageAttachmentSignature(prevMessage.imageAttachments) === buildImageAttachmentSignature(nextMessage.imageAttachments)
+    && buildDraftRequestSignature(prevMessage.draftRequest) === buildDraftRequestSignature(nextMessage.draftRequest)
+    && buildDraftDownloadRequestSignature(prevMessage.draftDownloadRequest) === buildDraftDownloadRequestSignature(nextMessage.draftDownloadRequest)
+    && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
     && prevError === nextError
   );
 });

@@ -888,20 +888,6 @@ const WORKSPACE_DOWNLOAD_KEYWORDS = [
   'save to workspace',
   'save locally'
 ]
-const WORKSPACE_UPLOAD_KEYWORDS = [
-  '上传',
-  '上传文件',
-  '上传这个文件',
-  '上传该文件',
-  '上传到oss',
-  '上传到 oss',
-  '传到oss',
-  '传到 oss',
-  '上传到对象存储',
-  'upload file',
-  'upload to oss'
-]
-
 const WEB_SEARCH_KEYWORDS = [
   '搜索',
   '查询',
@@ -1062,11 +1048,6 @@ const hasCutWorkflowIntent = (text: string) =>
     (/(剪辑|剪映|草稿|时间线|timeline)/.test(text) ||
       /create_draft|add_text|add_image|add_video|add_audio|add_subtitle|add_preset|add_video_keyframe/.test(text)))
 
-const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
-const hasLocalMediaContext = (text: string) =>
-  hasMediaFileReference(text) ||
-  /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
-  /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
 const MATERIALS_ID_PATTERN =
   /\b[a-f0-9]{32}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
 const hasMaterialsFolderIdReference = (text: string) =>
@@ -1574,17 +1555,6 @@ export class CapabilityRouter {
 
       if (!(args.imageCount > 0 && shouldUseImageUnderstand) && hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'search', 'prompt:search')
-      }
-
-      if (
-        hasAnyKeyword(text, WORKSPACE_UPLOAD_KEYWORDS) ||
-        /上传.{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
-        /上传.{0,12}(oss|对象存储)/.test(text) ||
-        /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
-        ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
-      ) {
-        addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
 
       if (hasWorkspaceDownloadIntent) {

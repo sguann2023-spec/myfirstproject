@@ -1,3 +1,7 @@
+import fsPromises from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
@@ -39,8 +43,8 @@ import DraftManagementServer from '../draft-management'
 
 type DraftManagementServerInstance = InstanceType<typeof DraftManagementServer>
 
-function createServer() {
-  return new DraftManagementServer()
+function createServer(workspacePath?: string) {
+  return new DraftManagementServer(workspacePath)
 }
 
 async function callTool(server: DraftManagementServerInstance, toolName: string, args: Record<string, unknown>) {
@@ -199,6 +203,8 @@ describe('DraftManagementServer', () => {
   })
 
   it('should inspect draft script and return a parsed summary', async () => {
+    const workspacePath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'draft-management-test-'))
+
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -223,38 +229,48 @@ describe('DraftManagementServer', () => {
         })
       )
 
-    const server = createServer()
-    const result = await callTool(server, 'query_script', {
-      draftId: 'dfd_query_1',
-      forceUpdate: false
-    })
-
-    expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/cut_jianying/query_script',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          draft_id: 'dfd_query_1',
-          force_update: false
-        })
+    try {
+      const server = createServer(workspacePath)
+      const result = await callTool(server, 'query_script', {
+        draftId: 'dfd_query_1',
+        forceUpdate: false
       })
-    )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'query_script',
-      script_summary: {
-        duration_us: 8_000_000,
-        duration_s: 8,
-        fps: 30,
-        canvas: { width: 1080, height: 1920 },
-        track_count: 2,
-        material_group_count: 2
-      },
-      success: true,
-      error: '',
-      output: JSON.stringify({
+      expect(mockNetFetch).toHaveBeenNthCalledWith(
+        2,
+        'https://open.vectcut.com/cut_jianying/query_script',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            draft_id: 'dfd_query_1',
+            force_update: false
+          })
+        })
+      )
+
+      const parsedResult = JSON.parse(result.content[0].text)
+      const expectedScriptPath = path.join(workspacePath, '.capcut', 'draft-scripts', 'dfd_query_1.json')
+
+      expect(parsedResult).toEqual({
+        provider: 'vectcut',
+        action: 'query_script',
+        draft_id: 'dfd_query_1',
+        script_summary: {
+          duration_us: 8_000_000,
+          duration_s: 8,
+          fps: 30,
+          canvas: { width: 1080, height: 1920 },
+          track_count: 2,
+          material_group_count: 2
+        },
+        script_file_path: expectedScriptPath,
+        script_relative_path: '.capcut/draft-scripts/dfd_query_1.json',
+        success: true,
+        error: ''
+      })
+
+      const savedScript = JSON.parse(await fsPromises.readFile(parsedResult.script_file_path, 'utf8'))
+      expect(savedScript).toEqual({
         duration: 8_000_000,
         fps: 30,
         canvas_config: { width: 1080, height: 1920 },
@@ -264,6 +280,8 @@ describe('DraftManagementServer', () => {
           texts: [{ id: 'text-1' }]
         }
       })
-    })
+    } finally {
+      await fsPromises.rm(workspacePath, { recursive: true, force: true })
+    }
   })
 })

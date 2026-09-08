@@ -370,6 +370,192 @@ const persistPendingChatLocalAttachments = async ({
     }
   };
 };
+const parseDraftResolutionDimensions = (value = '') => {
+  const [rawWidth = '', rawHeight = ''] = String(value || '').trim().toLowerCase().split('x');
+  const width = Number.parseInt(rawWidth, 10);
+  const height = Number.parseInt(rawHeight, 10);
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : undefined,
+    height: Number.isFinite(height) && height > 0 ? height : undefined,
+  };
+};
+const normalizeDraftRequestPayload = (draftRequest = {}, cover = '') => {
+  if (!draftRequest || typeof draftRequest !== 'object') return null;
+  const { width, height } = parseDraftResolutionDimensions(draftRequest?.resolution);
+  const resolvedWidth = Number.isFinite(Number(draftRequest?.width)) ? Number(draftRequest.width) : width;
+  const resolvedHeight = Number.isFinite(Number(draftRequest?.height)) ? Number(draftRequest.height) : height;
+  const resolvedName = String(draftRequest?.name || '').trim();
+  const resolvedCover = String(cover || draftRequest?.cover || '').trim();
+  return {
+    action: 'create',
+    ...(resolvedWidth ? { width: resolvedWidth } : {}),
+    ...(resolvedHeight ? { height: resolvedHeight } : {}),
+    ...(resolvedName ? { name: resolvedName } : {}),
+    ...(resolvedCover ? { cover: resolvedCover } : {})
+  };
+};
+const normalizeDraftDownloadRequestPayload = (draftDownloadRequest = {}) => {
+  if (!draftDownloadRequest || typeof draftDownloadRequest !== 'object') return null;
+  const normalizedDrafts = Array.isArray(draftDownloadRequest?.drafts)
+    ? draftDownloadRequest.drafts
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => {
+        const draftId = String(item?.draftId || item?.draft_id || '').trim();
+        if (!draftId) return null;
+        const draftName = String(item?.draftName || item?.draft_name || '').trim();
+        const cover = String(item?.cover || '').trim();
+        return {
+          draftId,
+          ...(draftName ? { draftName } : {}),
+          ...(cover ? { cover } : {})
+        };
+      })
+      .filter(Boolean)
+    : [];
+
+  if (normalizedDrafts.length > 0) {
+    return { drafts: normalizedDrafts };
+  }
+
+  const draftId = String(draftDownloadRequest?.draftId || draftDownloadRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const draftName = String(draftDownloadRequest?.draftName || draftDownloadRequest?.draft_name || '').trim();
+  const cover = String(draftDownloadRequest?.cover || '').trim();
+  return {
+    drafts: [{
+      draftId,
+      ...(draftName ? { draftName } : {}),
+      ...(cover ? { cover } : {})
+    }]
+  };
+};
+const normalizeDraftModifyRequestPayload = (draftModifyRequest = {}, cover = '') => {
+  if (!draftModifyRequest || typeof draftModifyRequest !== 'object') return null;
+  const draftId = String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const name = String(draftModifyRequest?.name || '').trim();
+  const resolvedCover = String(cover || draftModifyRequest?.cover || '').trim();
+  return {
+    draftId,
+    ...(name ? { name } : {}),
+    ...(resolvedCover ? { cover: resolvedCover } : {})
+  };
+};
+const resolveDraftRequestCover = (imageAttachmentPreviews = []) => {
+  const firstImage = imageAttachmentPreviews.find((item) => (
+    String(item?.fileType || '').toLowerCase().startsWith('image/')
+  ));
+  if (!firstImage) return '';
+  return String(
+    firstImage?.sourcePath
+    || firstImage?.url
+    || firstImage?.previewUrl
+    || firstImage?.thumbnailUrl
+    || ''
+  ).trim();
+};
+const buildDraftRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__draft-management__create_draft',
+    arguments: draftRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__draft-management__create_draft',
+          name: 'mcp__draft-management__create_draft',
+          serverName: 'draft-management',
+          serverId: 'draft-management',
+          type: 'mcp'
+        },
+        arguments: draftRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDraftDownloadRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftDownloadRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_download_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-download-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__draft-download__download_draft',
+    arguments: draftDownloadRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__draft-download__download_draft',
+          name: 'mcp__draft-download__download_draft',
+          serverName: 'draft-download',
+          serverId: 'draft-download',
+          type: 'mcp'
+        },
+        arguments: draftDownloadRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDraftModifyRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftModifyRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_modify_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-modify-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__draft-management__modify_draft',
+    arguments: draftModifyRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__draft-management__modify_draft',
+          name: 'mcp__draft-management__modify_draft',
+          serverName: 'draft-management',
+          serverId: 'draft-management',
+          type: 'mcp'
+        },
+        arguments: draftModifyRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
 const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
   const resourcesPath = normalizeLocalPath(appInfo?.resourcesPath || '').trim();
   const normalizedSkillName = String(skillName || '').trim();
@@ -1594,6 +1780,15 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
         return buildPersistedUserImageAttachmentsFromBlocks(normalizedBlocks);
       })()
     : undefined;
+  const draftRequest = role === 'user' && sourceMessage?.draftRequest && typeof sourceMessage.draftRequest === 'object'
+    ? { ...sourceMessage.draftRequest }
+    : undefined;
+  const draftDownloadRequest = role === 'user' && sourceMessage?.draftDownloadRequest && typeof sourceMessage.draftDownloadRequest === 'object'
+    ? { ...sourceMessage.draftDownloadRequest }
+    : undefined;
+  const draftModifyRequest = role === 'user' && sourceMessage?.draftModifyRequest && typeof sourceMessage.draftModifyRequest === 'object'
+    ? { ...sourceMessage.draftModifyRequest }
+    : undefined;
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
@@ -1601,6 +1796,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     content: limitInlineText(content, { label: '历史消息内容' }),
     blocks: normalizedBlocks,
     ...(role === 'user' && imageAttachments.length > 0 ? { imageAttachments } : {}),
+    ...(role === 'user' && draftRequest ? { draftRequest } : {}),
+    ...(role === 'user' && draftDownloadRequest ? { draftDownloadRequest } : {}),
+    ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -4599,6 +4797,15 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const draftRequest = options?.draftRequest && typeof options.draftRequest === 'object'
+      ? { ...options.draftRequest }
+      : null;
+    const draftModifyRequest = options?.draftModifyRequest && typeof options.draftModifyRequest === 'object'
+      ? { ...options.draftModifyRequest }
+      : null;
+    const draftDownloadRequest = options?.draftDownloadRequest && typeof options.draftDownloadRequest === 'object'
+      ? { ...options.draftDownloadRequest }
+      : null;
     const images = Array.isArray(options?.images)
       ? options.images.filter((item) => (
         item
@@ -4669,6 +4876,9 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
+        ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         createdAt: Date.now(),
       };
       const assistantMessage = {
@@ -4717,6 +4927,9 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
+        ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         createdAt: Date.now(),
       };
       const assistantMessage = {
@@ -4811,6 +5024,172 @@ const HomePage = () => {
         userMessage,
         images,
       });
+
+      if (draftRequest) {
+        const { width, height } = parseDraftResolutionDimensions(draftRequest?.resolution);
+        const resolvedDraftRequest = {
+          action: 'create',
+          width,
+          height,
+          name: String(draftRequest?.name || '').trim(),
+          cover: resolveDraftRequestCover(imageAttachmentPreviews),
+        };
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftRequest: resolvedDraftRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftRequest: resolvedDraftRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftResult = await window.electronAPI.cherryChatStream.createDraftRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftRequest: resolvedDraftRequest,
+        });
+        if (!directDraftResult?.ok) {
+          throw new Error(directDraftResult?.error || 'draft request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftResult?.assistantBlocks) ? directDraftResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (draftModifyRequest) {
+        const resolvedDraftModifyRequest = normalizeDraftModifyRequestPayload(draftModifyRequest, resolveDraftRequestCover(imageAttachmentPreviews));
+        if (!resolvedDraftModifyRequest || !String(resolvedDraftModifyRequest.draftId || '').trim()) {
+          throw new Error('draft modify request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftModifyRequest: resolvedDraftModifyRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftModifyRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftModifyRequest: resolvedDraftModifyRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftModifyResult = await window.electronAPI.cherryChatStream.createDraftModifyRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftModifyRequest: resolvedDraftModifyRequest,
+        });
+        if (!directDraftModifyResult?.ok) {
+          throw new Error(directDraftModifyResult?.error || 'draft modify request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftModifyResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftModifyResult?.assistantBlocks) ? directDraftModifyResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-modify-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-modify-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-modify-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-modify-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (draftDownloadRequest) {
+        const resolvedDraftDownloadRequest = normalizeDraftDownloadRequestPayload(draftDownloadRequest);
+        if (!resolvedDraftDownloadRequest || !Array.isArray(resolvedDraftDownloadRequest.drafts) || resolvedDraftDownloadRequest.drafts.length === 0) {
+          throw new Error('draft download request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftDownloadRequest: resolvedDraftDownloadRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftDownloadRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftDownloadRequest: resolvedDraftDownloadRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftDownloadResult = await window.electronAPI.cherryChatStream.createDraftDownloadRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftDownloadRequest: resolvedDraftDownloadRequest,
+        });
+        if (!directDraftDownloadResult?.ok) {
+          throw new Error(directDraftDownloadResult?.error || 'draft download request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftDownloadResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftDownloadResult?.assistantBlocks) ? directDraftDownloadResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-download-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-download-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-download-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-download-request.complete');
+        setChatSending(false);
+        return;
+      }
 
       const streamController = setupChannelStream(
         appStore.dispatch,

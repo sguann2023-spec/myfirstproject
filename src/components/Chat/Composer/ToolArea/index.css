@@ -5,3 +5,66 @@
   min-width: max-content;
   white-space: nowrap;
 }
+
+.chat-panel__tool-menu-trigger-icon {
+  color: #000000;
+  flex: 0 0 auto;
+}
+
+.chat-panel__tool-menu-popover .ant-popover-inner {
+  padding: 4px !important;
+  border-radius: 10px !important;
+}
+
+.chat-panel__tool-menu-popover .ant-popover-arrow {
+  display: none !important;
+}
+
+.chat-panel__tool-menu-popover.ant-popover,
+.chat-panel__tool-menu-popover .ant-popover-content,
+.chat-panel__tool-menu-popover .ant-popover-inner {
+  animation-duration: 0s !important;
+  transition-duration: 0s !important;
+}
+
+.chat-panel__tool-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+
+.chat-panel__tool-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-panel__tool-menu-item:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.chat-panel__tool-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-panel__tool-menu-icon {
+  width: 16px;
+  height: 16px;
+  color: #000000;
+  flex: 0 0 auto;
+}
+
+.chat-panel__tool-menu-text {
+  font-size: 13px;
+  line-height: 18px;
+  color: #000000;
+}

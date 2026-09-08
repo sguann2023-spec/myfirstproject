@@ -8,6 +8,9 @@
 
 .chat-panel__message.user {
   align-items: flex-end;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 .chat-panel__message.assistant {
@@ -36,6 +39,14 @@
   color: #111;
 }
 
+.chat-panel__message-api-tip {
+  font-size: 12px;
+  line-height: 18px;
+  color: #666666;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
 .chat-panel__message-actions {
   margin-top: 8px;
   display: flex;
@@ -48,7 +59,8 @@
 }
 
 .chat-panel__message.assistant:hover .chat-panel__message-actions,
-.chat-panel__message.assistant .chat-panel__message-actions:focus-within {
+.chat-panel__message.assistant .chat-panel__message-actions:focus-within,
+.chat-panel__message.user:hover .chat-panel__message-actions {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -87,6 +99,14 @@
   background: var(--color-background-mute, #e7e7e7);
 }
 
+.chat-panel__message-action-btn.is-active {
+  background: #e6e6e6;
+}
+
+.chat-panel__message-action-btn.is-active .chat-panel__message-action-icon {
+  color: #000000;
+}
+
 .chat-panel__message-action-btn:hover:not(:disabled) .chat-panel__message-action-icon {
   color: var(--color-text-1, #111);
 }
@@ -102,6 +122,17 @@
 
 .chat-panel__message.user .chat-message-header {
   flex-direction: row-reverse;
+}
+
+.chat-panel__message.user .chat-panel__message-actions {
+  justify-content: flex-end;
+}
+
+.chat-panel__message-actions--user {
+  margin-top: 8px;
+  margin-right: 45px;
+  align-self: flex-end;
+  width: calc(100% - 90px);
 }
 
 .chat-panel__message.user .chat-message-header__meta {

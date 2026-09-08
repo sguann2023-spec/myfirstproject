@@ -902,6 +902,12 @@ const legacyElectronAPI = {
         content,
         ...extraPayload
       }),
+    createDraftRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftRequest, payload),
+    createDraftModifyRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftModifyRequest, payload),
+    createDraftDownloadRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftDownloadRequest, payload),
     subscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Subscribe, { sessionId }),
     unsubscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Unsubscribe, { sessionId }),
     abort: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Abort, { sessionId }),
