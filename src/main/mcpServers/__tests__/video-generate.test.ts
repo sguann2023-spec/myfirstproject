@@ -411,6 +411,53 @@ describe('VideoGenerateServer', () => {
     })
   })
 
+  it('should keep super_resolve in submission payload', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          capabilities: {
+            'minimax-h3-max': {
+              super_resolve_supported: true,
+              resolutions: {
+                '480p': [{ ratio: '16:9', size: '864x496' }]
+              }
+            }
+          },
+          prices: {}
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'ok',
+          task_id: 'video-task-super-resolve'
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, {
+      action: 'submit',
+      prompt: '月球上一个人类基地内的日常生活',
+      model: 'minimax-h3-max',
+      resolution: '864x496',
+      gen_duration: 5,
+      super_resolve: true
+    })
+
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      prompt: '月球上一个人类基地内的日常生活',
+      model: 'minimax-h3-max',
+      resolution: '864x496',
+      gen_duration: 5,
+      super_resolve: true
+    })
+  })
+
   it('should resolve video model aliases before submission', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -843,7 +890,7 @@ describe('VideoGenerateServer', () => {
     expect(genDurationResult.content[0].text).toContain("only accepts 'gen_duration'")
   })
 
-  it('should reject video or audio references for non-Seedance 2.0 models', async () => {
+  it('should submit video references for non-Seedance 2.0 models without local support checks', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -863,16 +910,34 @@ describe('VideoGenerateServer', () => {
           prices: {}
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'ok',
+          task_id: 'video-task-non-seedance-reference'
+        })
+      )
 
     const server = createServer()
-    const result = await callTool(server, {
+    await callTool(server, {
+      action: 'submit',
       model: 'seedance-1.5-pro',
       prompt: '生成一个镜头平稳推进的视频',
       referenceVideos: ['https://example.com/reference-video.mp4']
     })
 
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain('does not support Seedance 2.0 style video/audio reference inputs')
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      model: 'seedance-1.5-pro',
+      prompt: '生成一个镜头平稳推进的视频',
+      content: [
+        {
+          type: 'video_url',
+          video_url: {
+            url: 'https://example.com/reference-video.mp4'
+          },
+          role: 'reference_video'
+        }
+      ]
+    })
   })
 
   it('should append convenience reference arrays into content', async () => {

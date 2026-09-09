@@ -74,6 +74,10 @@ const VIDEO_GENERATE_TOOL: Tool = {
         type: 'boolean',
         description: 'Whether the generated video should include audio when the chosen model supports it.'
       },
+      super_resolve: {
+        type: 'boolean',
+        description: 'Whether to enable video super-resolution when the chosen model supports it.'
+      },
       content: {
         type: 'array',
         items: {
@@ -1070,19 +1074,18 @@ class VideoGenerateServer {
 
     const resolvedModel = typeof payload.model === 'string' ? payload.model.trim() : ''
     const contentForRouting = this.normalizeContentArray(payload.content)
-    const hasImplicitSeedance20Reference =
-      !resolvedModel &&
-      (this.getStringArray(args.referenceVideos).length > 0 ||
-        this.getStringArray(args.referenceAudios).length > 0 ||
-        contentForRouting.some(
-          (item) =>
-            Boolean(this.extractMediaUrlFromContentItem(item, 'video_url')) ||
-            Boolean(this.extractMediaUrlFromContentItem(item, 'audio_url'))
-        ))
-    const isSeedance20 = this.isSeedance20Model(resolvedModel) || hasImplicitSeedance20Reference
+    const hasVideoOrAudioReferences =
+      this.getStringArray(args.referenceVideos).length > 0 ||
+      this.getStringArray(args.referenceAudios).length > 0 ||
+      contentForRouting.some(
+        (item) =>
+          Boolean(this.extractMediaUrlFromContentItem(item, 'video_url')) ||
+          Boolean(this.extractMediaUrlFromContentItem(item, 'audio_url'))
+      )
+    const shouldUseStructuredContent = this.isSeedance20Model(resolvedModel) || hasVideoOrAudioReferences
     let preparedReferenceAssets: PreparedReferenceAsset[] = []
 
-    if (isSeedance20) {
+    if (shouldUseStructuredContent) {
       this.appendConvenienceReferenceContent(payload, args, generationMode)
 
       const normalizedContent = this.normalizeContentArray(payload.content)
@@ -1112,28 +1115,10 @@ class VideoGenerateServer {
         generationMode
       )
       const promptSegments: string[] = []
-      let hasVideoReference = this.getStringArray(args.referenceVideos).length > 0
-      let hasAudioReference = this.getStringArray(args.referenceAudios).length > 0
-
       for (const item of normalizedContent) {
         if (typeof item.text === 'string' && item.text.trim()) {
           promptSegments.push(item.text.trim())
         }
-
-        if (this.extractMediaUrlFromContentItem(item, 'video_url')) {
-          hasVideoReference = true
-        }
-
-        if (this.extractMediaUrlFromContentItem(item, 'audio_url')) {
-          hasAudioReference = true
-        }
-      }
-
-      if (hasVideoReference || hasAudioReference) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          `Model '${resolvedModel || rawModel || 'current'}' does not support Seedance 2.0 style video/audio reference inputs. Use only prompt + images for this model, or switch to seedance-2.0 / seedance-2.0-fast.`
-        )
       }
 
       if ((!payload.prompt || typeof payload.prompt !== 'string' || !payload.prompt.trim()) && promptSegments.length > 0) {
