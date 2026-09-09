@@ -554,6 +554,26 @@ const readPersistedVideoSuperResolve = () => {
     return DEFAULT_VIDEO_SUPER_RESOLVE;
   }
 };
+const buildVideoOptionPromptSegments = ({
+  capability = null,
+  generateAudio = true,
+  seedanceOffline = false,
+  superResolve = false,
+} = {}) => {
+  if (!capability || typeof capability !== 'object') return [];
+
+  const segments = [];
+  if (capability.generate_audio_supported) {
+    segments.push(generateAudio ? '输出有声音' : '输出无声音');
+  }
+  if (capability.seedance_offline_supported) {
+    segments.push(seedanceOffline ? '开启闲时生成' : '关闭闲时生成');
+  }
+  if (capability.super_resolve_supported) {
+    segments.push(superResolve ? '开启超分' : '关闭超分');
+  }
+  return segments;
+};
 const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   uid: overrides.uid ?? file.uid ?? '',
   name: overrides.name ?? file.name ?? '',
@@ -2317,6 +2337,7 @@ const Composer = ({
   const [selectedVideoGenerateAudio, setSelectedVideoGenerateAudio] = React.useState(() => readPersistedVideoGenerateAudio());
   const [selectedVideoSeedanceOffline, setSelectedVideoSeedanceOffline] = React.useState(() => readPersistedVideoSeedanceOffline());
   const [selectedVideoSuperResolve, setSelectedVideoSuperResolve] = React.useState(() => readPersistedVideoSuperResolve());
+  const [videoCapabilityModels, setVideoCapabilityModels] = React.useState([]);
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
@@ -2379,6 +2400,16 @@ const Composer = ({
     () => getBaseName(primarySkillWorkdir) || '工作空间',
     [primarySkillWorkdir]
   );
+  const videoCapabilityMap = React.useMemo(() => videoCapabilityModels.reduce((acc, item) => {
+    const key = String(item?.model || '').trim();
+    if (!key) return acc;
+    acc[key] = item;
+    return acc;
+  }, {}), [videoCapabilityModels]);
+  const activeVideoCapability = React.useMemo(
+    () => videoCapabilityMap[String(selectedVideoModel || '').trim()] || null,
+    [selectedVideoModel, videoCapabilityMap]
+  );
   const inputPlaceholder =
     activeTool === 'digital-human'
       ? ''
@@ -2400,6 +2431,32 @@ const Composer = ({
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
     toolbarUploadTriggerRef.current?.click?.();
   };
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadVideoCapabilities = async () => {
+      const api = window?.electronAPI?.videoGeneration;
+      if (!api || typeof api.getCapabilities !== 'function') return;
+
+      try {
+        const result = await api.getCapabilities({ includePrices: true });
+        const models = Array.isArray(result?.models) ? result.models : [];
+        if (!cancelled) {
+          setVideoCapabilityModels(models);
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setVideoCapabilityModels([]);
+        }
+      }
+    };
+
+    void loadVideoCapabilities();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -3986,6 +4043,12 @@ const Composer = ({
     if (activeTool !== 'draft' && activeTool !== 'draft-download' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && !combined) return;
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
     const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
+    const videoOptionPromptSegments = buildVideoOptionPromptSegments({
+      capability: activeVideoCapability,
+      generateAudio: selectedVideoGenerateAudio,
+      seedanceOffline: selectedVideoSeedanceOffline,
+      superResolve: selectedVideoSuperResolve,
+    });
     const nextMessage =
       activeTool === 'voice-square'
         ? [
@@ -4019,7 +4082,13 @@ const Composer = ({
         : activeTool === 'image-pan'
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
           : activeTool === 'ai-video'
-            ? `请使用模型 ${selectedVideoModel}，生成方式 ${VIDEO_GENERATION_MODE_LABELS[normalizeVideoGenerationMode(selectedVideoGenerationMode)] || VIDEO_GENERATION_MODE_LABELS[DEFAULT_VIDEO_GENERATION_MODE]}，分辨率 ${selectedVideoResolution}，时长 ${selectedVideoDuration} 秒，${selectedVideoGenerateAudio ? '输出有声音' : '输出无声音'}，${selectedVideoSeedanceOffline ? '开启闲时生成' : '关闭闲时生成'}，${selectedVideoSuperResolve ? '开启超分' : '关闭超分'} 生成视频提示词：${combined}`
+            ? [
+              `请使用模型 ${selectedVideoModel}`,
+              `生成方式 ${VIDEO_GENERATION_MODE_LABELS[normalizeVideoGenerationMode(selectedVideoGenerationMode)] || VIDEO_GENERATION_MODE_LABELS[DEFAULT_VIDEO_GENERATION_MODE]}`,
+              `分辨率 ${selectedVideoResolution}`,
+              `时长 ${selectedVideoDuration} 秒`,
+              ...videoOptionPromptSegments,
+            ].join('，') + ` 生成视频提示词：${combined}`
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {

@@ -14,6 +14,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { configManager } from './ConfigManager'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
+import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('LegacyMainCompatIpc')
@@ -887,6 +888,7 @@ function registerLegacyLoginInitChannels() {
   safeHandle('app:initialize-login-services', async () => ({ success: true }))
   safeHandle('app:initialize-agent-services', async () => {
     registerSessionStreamIpc()
+    await initializeLocalAggregateMcpService()
     return { success: true }
   })
 }

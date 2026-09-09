@@ -2,28 +2,19 @@ import { API_SERVER_DEFAULTS } from '@shared/config/constant'
 import type { ApiServerConfig } from '@types'
 import { v4 as uuidv4 } from 'uuid'
 
-import { loggerService } from '../services/LoggerService'
 import { reduxService } from '../services/ReduxService'
 
-const logger = loggerService.withContext('ApiServerConfig')
-
-const describeApiKey = (value?: string | null) => {
-  const normalized = String(value || '').trim()
-  if (!normalized) {
-    return {
-      exists: false,
-      length: 0,
-      prefix: '',
-      suffix: ''
-    }
+const normalizeApiServerPort = (port?: number | null): number => {
+  const numericPort = Number(port)
+  if (
+    Number.isInteger(numericPort)
+    && numericPort >= API_SERVER_DEFAULTS.PORT
+    && numericPort <= API_SERVER_DEFAULTS.MAX_PORT
+  ) {
+    return numericPort
   }
 
-  return {
-    exists: true,
-    length: normalized.length,
-    prefix: normalized.slice(0, 6),
-    suffix: normalized.slice(-6)
-  }
+  return API_SERVER_DEFAULTS.PORT
 }
 
 class ConfigManager {
@@ -46,23 +37,16 @@ class ConfigManager {
         })
       }
       this._config = {
-        enabled: serverSettings?.enabled ?? false,
-        port: serverSettings?.port ?? API_SERVER_DEFAULTS.PORT,
+        enabled: true,
+        port: normalizeApiServerPort(serverSettings?.port),
         host: serverSettings?.host ?? API_SERVER_DEFAULTS.HOST,
         apiKey: apiKey
       }
-      logger.info('Loaded API server config from Redux', {
-        host: this._config.host,
-        port: this._config.port,
-        enabled: this._config.enabled,
-        apiKey: describeApiKey(this._config.apiKey)
-      })
       return this._config
     } catch (error: any) {
-      logger.warn('Failed to load config from Redux, using defaults', { error })
       this._config = {
-        enabled: false,
-        port: API_SERVER_DEFAULTS.PORT,
+        enabled: true,
+        port: normalizeApiServerPort(API_SERVER_DEFAULTS.PORT),
         host: API_SERVER_DEFAULTS.HOST,
         apiKey: this.generateApiKey()
       }
@@ -77,13 +61,6 @@ class ConfigManager {
     if (!this._config) {
       throw new Error('Failed to load API server configuration')
     }
-    logger.info('Returning API server config', {
-      source: 'cache',
-      host: this._config.host,
-      port: this._config.port,
-      enabled: this._config.enabled,
-      apiKey: describeApiKey(this._config.apiKey)
-    })
     return this._config
   }
 

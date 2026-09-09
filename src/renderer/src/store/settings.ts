@@ -23,6 +23,7 @@ import type {
   ApiServerConfig,
   AssistantsSortType,
   CodeStyleVarious,
+  LocalMcpExposureConfig,
   LanguageVarious,
   MathEngine,
   MinAppRegionFilter,
@@ -33,6 +34,7 @@ import type {
   TranslateLanguageCode
 } from '@renderer/types'
 import { ThemeMode } from '@renderer/types'
+import { DEFAULT_LOCAL_MCP_EXPOSURE_CONFIG } from '@renderer/types'
 import type {
   OpenAICompletionsStreamOptions,
   OpenAIReasoningSummary,
@@ -247,6 +249,7 @@ export interface SettingsState {
   navbarPosition: 'left' | 'top'
   // API Server
   apiServer: ApiServerConfig
+  localMcpExposure: LocalMcpExposureConfig
   showMessageOutline: boolean
 }
 
@@ -444,11 +447,12 @@ export const initialState: SettingsState = {
   navbarPosition: 'top',
   // API Server
   apiServer: {
-    enabled: false,
+    enabled: true,
     host: API_SERVER_DEFAULTS.HOST,
     port: API_SERVER_DEFAULTS.PORT,
     apiKey: `cs-sk-${uuid()}`
   },
+  localMcpExposure: DEFAULT_LOCAL_MCP_EXPOSURE_CONFIG,
   showMessageOutline: false
 }
 
@@ -897,6 +901,9 @@ const settingsSlice = createSlice({
         apiKey: action.payload
       }
     },
+    setLocalMcpExposure: (state, action: PayloadAction<LocalMcpExposureConfig>) => {
+      state.localMcpExposure = action.payload
+    },
     setShowMessageOutline: (state, action: PayloadAction<boolean>) => {
       state.showMessageOutline = action.payload
     }
@@ -1033,7 +1040,8 @@ export const {
   // API Server actions
   setApiServerEnabled,
   setApiServerPort,
-  setApiServerApiKey
+  setApiServerApiKey,
+  setLocalMcpExposure
 } = settingsSlice.actions
 
 export default settingsSlice.reducer

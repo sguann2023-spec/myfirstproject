@@ -114,3 +114,64 @@ export function buildFunctionCallToolName(serverName: string, toolName: string):
     maxLength: 63
   })
 }
+
+export const VECTCUT_MCP_NAMESPACE = 'vectcut'
+
+export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
+  'agent-memory',
+  'assistant',
+  'browser',
+  'claw',
+  'copylab',
+  'cut-workflow',
+  'digital-human',
+  'draft-download',
+  'draft-elements',
+  'draft-management',
+  'ffmpeg-media',
+  'file-upload',
+  'filesystem-server',
+  'image',
+  'image-understand',
+  'koubo-template',
+  'materials',
+  'search',
+  'seed-audio',
+  'skills',
+  'speech',
+  'subtitle-recognition',
+  'subtitle-template',
+  'system',
+  'video',
+  'video-understand',
+  'voice-conversion'
+])
+
+export function buildVectcutMcpToolName(serverName: string, toolName: string): string {
+  return `mcp__${VECTCUT_MCP_NAMESPACE}__${serverName}__${toolName}`
+}
+
+export function buildVectcutMcpPattern(serverName: string): string {
+  return `mcp__${VECTCUT_MCP_NAMESPACE}__${serverName}__*`
+}
+
+export function normalizeVectcutMcpToolName(toolName: string): string {
+  const normalized = String(toolName || '').trim()
+  if (!normalized.startsWith('mcp__') || normalized.startsWith(`mcp__${VECTCUT_MCP_NAMESPACE}__`)) {
+    return normalized
+  }
+
+  const raw = normalized.slice('mcp__'.length)
+  const separatorIndex = raw.indexOf('__')
+  if (separatorIndex <= 0) {
+    return normalized
+  }
+
+  const serverName = raw.slice(0, separatorIndex)
+  const rest = raw.slice(separatorIndex + 2)
+  if (!serverName || !rest || !VECTCUT_BUILTIN_MCP_SERVERS.has(serverName)) {
+    return normalized
+  }
+
+  return buildVectcutMcpToolName(serverName, rest)
+}

@@ -29,6 +29,7 @@ import type {
   KnowledgeBaseParams,
   KnowledgeItem,
   KnowledgeSearchResult,
+  LocalMcpDetectedAgent,
   MCPServer,
   MemoryConfig,
   MemoryListOptions,
@@ -39,6 +40,7 @@ import type {
   Provider,
   RestartApiServerStatusResult,
   S3Config,
+  SetLocalMcpAgentRegistrationResult,
   Shortcut,
   StartApiServerStatusResult,
   StopApiServerStatusResult,
@@ -500,6 +502,14 @@ const api = {
   },
   externalApps: {
     detectInstalled: (): Promise<ExternalAppInfo[]> => ipcRenderer.invoke(IpcChannel.ExternalApps_DetectInstalled)
+  },
+  localMcp: {
+    detectAgents: (): Promise<LocalMcpDetectedAgent[]> => ipcRenderer.invoke(IpcChannel.LocalMcp_DetectAgents),
+    setAgentRegistration: (
+      agentId: LocalMcpDetectedAgent['id'],
+      enabled: boolean
+    ): Promise<SetLocalMcpAgentRegistrationResult> =>
+      ipcRenderer.invoke(IpcChannel.LocalMcp_SetAgentRegistration, agentId, enabled)
   },
   nutstore: {
     getSSOUrl: () => ipcRenderer.invoke(IpcChannel.Nutstore_GetSsoUrl),

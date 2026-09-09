@@ -173,8 +173,8 @@ ${evidenceLine}
       sections.push(`## Web and browser
 
 - Use search for discovery, direct fetch for known static URLs, and browser tools only for interaction, visual inspection, login, or JavaScript-rendered pages.
-- When the user asks to open or visit an external webpage, prefer \`mcp__browser__open\` as the first tool.
-- Do not use host navigation tools such as \`mcp__assistant__navigate\` for normal external websites.
+- When the user asks to open or visit an external webpage, prefer \`mcp__vectcut__browser__open\` as the first tool.
+- Do not use host navigation tools such as \`mcp__vectcut__assistant__navigate\` for normal external websites.
 - Prefer targeted reads over dumping full pages into context.
 - Cite or summarize source-specific facts carefully.`)
     }

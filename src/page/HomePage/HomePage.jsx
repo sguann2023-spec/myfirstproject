@@ -470,16 +470,16 @@ const buildDraftRequestProcessingBlocks = ({
     status: 'processing',
     model: modelId,
     toolId: toolCallId,
-    toolName: 'mcp__draft-management__create_draft',
+    toolName: 'mcp__vectcut__draft-management__create_draft',
     arguments: draftRequest,
     metadata: {
       rawMcpToolResponse: {
         id: toolCallId,
         tool: {
-          id: 'mcp__draft-management__create_draft',
-          name: 'mcp__draft-management__create_draft',
-          serverName: 'draft-management',
-          serverId: 'draft-management',
+          id: 'mcp__vectcut__draft-management__create_draft',
+          name: 'mcp__vectcut__draft-management__create_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
           type: 'mcp'
         },
         arguments: draftRequest,
@@ -504,16 +504,16 @@ const buildDraftDownloadRequestProcessingBlocks = ({
     status: 'processing',
     model: modelId,
     toolId: toolCallId,
-    toolName: 'mcp__draft-download__download_draft',
+    toolName: 'mcp__vectcut__draft-download__download_draft',
     arguments: draftDownloadRequest,
     metadata: {
       rawMcpToolResponse: {
         id: toolCallId,
         tool: {
-          id: 'mcp__draft-download__download_draft',
-          name: 'mcp__draft-download__download_draft',
-          serverName: 'draft-download',
-          serverId: 'draft-download',
+          id: 'mcp__vectcut__draft-download__download_draft',
+          name: 'mcp__vectcut__draft-download__download_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
           type: 'mcp'
         },
         arguments: draftDownloadRequest,
@@ -538,16 +538,16 @@ const buildDraftModifyRequestProcessingBlocks = ({
     status: 'processing',
     model: modelId,
     toolId: toolCallId,
-    toolName: 'mcp__draft-management__modify_draft',
+    toolName: 'mcp__vectcut__draft-management__modify_draft',
     arguments: draftModifyRequest,
     metadata: {
       rawMcpToolResponse: {
         id: toolCallId,
         tool: {
-          id: 'mcp__draft-management__modify_draft',
-          name: 'mcp__draft-management__modify_draft',
-          serverName: 'draft-management',
-          serverId: 'draft-management',
+          id: 'mcp__vectcut__draft-management__modify_draft',
+          name: 'mcp__vectcut__draft-management__modify_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
           type: 'mcp'
         },
         arguments: draftModifyRequest,
@@ -804,6 +804,7 @@ const isBrowserOpenToolBlock = (block = {}) => {
   return (
     (serverName.includes('browser') && toolName === 'open')
     || toolName === 'browser:open'
+    || toolName === 'mcp__vectcut__browser__open'
     || toolName === 'mcp__browser__open'
     || toolName === 'browser__open'
   );
@@ -1392,8 +1393,10 @@ const countAssistantPricedUsageMessages = (messages = []) => (
 const HYDRATED_IMAGE_TOOL_NAMES = new Set([
   'generate_or_edit_image',
   'mcp__image__generate_or_edit_image',
+  'mcp__vectcut__image__generate_or_edit_image',
   'generate_image',
-  'mcp__image__generate_image'
+  'mcp__image__generate_image',
+  'mcp__vectcut__image__generate_image'
 ]);
 
 const inferPersistedImageAttachmentFileType = (value = '') => {

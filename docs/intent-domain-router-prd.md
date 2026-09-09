@@ -82,7 +82,7 @@ type IntentRoute = {
 
 已接入工具：
 
-- `image_understand` -> `mcp__image-understand__inspect_image`；固定走视觉理解模型 `qwen3.7-plus`，远程图片 URL 直接透传，本地图片路径或 `file://` URL 由工具内部自动转成可提交格式；这是 chat 域默认挂载的识图能力，不需要先命中 `ai_media.image`
+- `image_understand` -> `mcp__vectcut__image-understand__inspect_image`；固定走视觉理解模型 `qwen3.7-plus`，远程图片 URL 直接透传，本地图片路径或 `file://` URL 由工具内部自动转成可提交格式；这是 chat 域默认挂载的识图能力，不需要先命中 `ai_media.image`
 - `bash` -> `Bash`
 
 说明：
@@ -122,8 +122,8 @@ type IntentRoute = {
 - `find` -> `Bash`
 - `notebook` -> `NotebookRead` / `NotebookEdit`
 - `task` -> `Task` / `TodoWrite`
-- `download` -> `mcp__filesystem-server__download`
-- `upload` -> `mcp__file-upload__upload_file_to_oss`
+- `download` -> `mcp__vectcut__filesystem-server__download`
+- `upload` -> `mcp__vectcut__file-upload__upload_file_to_oss`
 
 说明：
 
@@ -142,7 +142,7 @@ type IntentRoute = {
 
 已接入工具：
 
-- `folder_links` -> `mcp__materials__folder_links`
+- `folder_links` -> `mcp__vectcut__materials__folder_links`
 
 说明：
 
@@ -163,11 +163,11 @@ type IntentRoute = {
 
 已接入工具：
 
-- `search` -> `WebSearch` / `mcp__search__web_search`
-- `browser` -> `mcp__browser__open` / `mcp__browser__click` / `mcp__browser__type` / `mcp__browser__press` / `mcp__browser__scroll` / `mcp__browser__focus` / `mcp__browser__hover` / `mcp__browser__wait_for` / `mcp__browser__inspect` / `mcp__browser__reload` / `mcp__browser__list_tabs` / `mcp__browser__switch_tab` / `mcp__browser__close_tab` / `mcp__browser__reset`
-- `execute` -> `mcp__browser__execute`
-- `download` -> `mcp__filesystem-server__download`
-- `screenshot` -> `mcp__browser__screenshot` / `mcp__browser__snapshot`
+- `search` -> `WebSearch` / `mcp__vectcut__search__web_search`
+- `browser` -> `mcp__vectcut__browser__open` / `mcp__vectcut__browser__click` / `mcp__vectcut__browser__type` / `mcp__vectcut__browser__press` / `mcp__vectcut__browser__scroll` / `mcp__vectcut__browser__focus` / `mcp__vectcut__browser__hover` / `mcp__vectcut__browser__wait_for` / `mcp__vectcut__browser__inspect` / `mcp__vectcut__browser__reload` / `mcp__vectcut__browser__list_tabs` / `mcp__vectcut__browser__switch_tab` / `mcp__vectcut__browser__close_tab` / `mcp__vectcut__browser__reset`
+- `execute` -> `mcp__vectcut__browser__execute`
+- `download` -> `mcp__vectcut__filesystem-server__download`
+- `screenshot` -> `mcp__vectcut__browser__screenshot` / `mcp__vectcut__browser__snapshot`
 
 说明：
 
@@ -190,18 +190,18 @@ type IntentRoute = {
 
 已接入工具：
 
-- `image` -> `mcp__image__generate_or_edit_image` / `mcp__image__generate_image` / `mcp__image__get_image_capabilities`；图片生成/编辑默认通过单个长任务工具直出最终结果；远程参考图可直接传入，本地图片路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理；其中截图/剪贴板图片等无稳定 `filePath` 的附件素材仍可走 `workspace.upload` 的 `base64` / `dataUrl` 上传语义
-- `video` -> `mcp__video__generate_video` / `mcp__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；默认通过单个长任务工具直出最终结果；远程参考图、参考视频、参考音频可直接传入，本地路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理
-- `speech` -> `mcp__speech__generate_speech`
-- `voice_conversion` -> `mcp__voice-conversion__submit_voice_conversion_task` / `mcp__voice-conversion__get_voice_conversion_task_status`
-- `seed_audio` -> `mcp__seed-audio__generate_seed_audio`
-- `digital_human` -> `mcp__digital-human__create_lip_sync_digital_human` / `mcp__digital-human__create_image_driven_digital_human` / `mcp__digital-human__create_omni_image_driven_digital_human` / `mcp__digital-human__create_seedance_digital_human`（各工具内部完成提交与轮询，直接返回最终视频结果）
+- `image` -> `mcp__vectcut__image__generate_or_edit_image` / `mcp__vectcut__image__generate_image` / `mcp__vectcut__image__get_image_capabilities`；图片生成/编辑默认通过单个长任务工具直出最终结果；远程参考图可直接传入，本地图片路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理；其中截图/剪贴板图片等无稳定 `filePath` 的附件素材仍可走 `workspace.upload` 的 `base64` / `dataUrl` 上传语义
+- `video` -> `mcp__vectcut__video__generate_video` / `mcp__vectcut__video__get_video_capabilities`；用于 AI 视频生成聚合能力，覆盖文生视频、图生视频、首帧扩展、首尾帧视频，以及 Seedance 2.0 系列的多模态参考视频生成；默认通过单个长任务工具直出最终结果；远程参考图、参考视频、参考音频可直接传入，本地路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理
+- `speech` -> `mcp__vectcut__speech__generate_speech`
+- `voice_conversion` -> `mcp__vectcut__voice-conversion__submit_voice_conversion_task` / `mcp__vectcut__voice-conversion__get_voice_conversion_task_status`
+- `seed_audio` -> `mcp__vectcut__seed-audio__generate_seed_audio`
+- `digital_human` -> `mcp__vectcut__digital-human__create_lip_sync_digital_human` / `mcp__vectcut__digital-human__create_image_driven_digital_human` / `mcp__vectcut__digital-human__create_omni_image_driven_digital_human` / `mcp__vectcut__digital-human__create_seedance_digital_human`（各工具内部完成提交与轮询，直接返回最终视频结果）
 
 说明：
 
 - 本地参考图片 / 视频 / 音频不再默认视为独立前置上传步骤；对 `image` / `video` / `digital_human` 这类远端生成能力，只要工具本身已支持本地路径或 `file://` URL，就应优先直接调用对应工具，由工具内部完成上传与后续提交；只有用户明确要单独拿可复用公网 URL，或输入形态是截图 / 剪贴板 / base64 附件且没有稳定本地路径时，才应补充 `workspace.upload`
 - `image`：图片生成/编辑默认可直接使用文本提示词；若还带参考图片，远程图片链接可直接传入，本地图片路径或 `file://` URL 也允许直接传入并由工具内部处理；对 Agent 暴露时应优先按单个长任务工具理解，等待其直接返回最终图片结果，而不是拆成独立状态查询步骤
-- `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__video__generate_video`，并把它视为单个长任务工具，等待其直接返回最终视频结果；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
+- `video`：AI 视频生成默认命中该子能力，适用于“生成视频”“文生视频”“图生视频”“首帧扩展”“首尾帧视频”“视频生成”等表述；调用上应优先使用 `mcp__vectcut__video__generate_video`，并把它视为单个长任务工具，等待其直接返回最终视频结果；当用户要查询可用模型、分辨率、时长、是否支持音频、首尾帧、多图参考、超分等能力时，应命中 `mcp__vectcut__video__get_video_capabilities`；对于 Seedance 2.0 系列的多模态参考生成，优先使用 `content` 数组表达 `text` / `reference_image` / `reference_video` / `reference_audio` 输入
 ；如果用户给的是“参考视频”，应优先原样保留为 `video_url` + `role=reference_video`，不要默认把视频拆成抽帧图片 + 分离音频，除非用户明确要求“抽帧”“拆音轨”“提取参考图/参考音频”
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
 - `voice_conversion`：AI 变声 / 声音转换，输入应是原始音频或视频，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；远程音频/视频链接可直接传入，本地音频/视频绝对路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理，不需要额外先走 `workspace.upload`
@@ -222,10 +222,10 @@ type IntentRoute = {
 
 已接入工具：
 
-- `search_skill` -> `mcp__skills__skills`
-- `list_skill` -> `mcp__skills__skills`
-- `create_skill` -> `mcp__skills__skills`
-- `register_skill` -> `mcp__skills__skills`
+- `search_skill` -> `mcp__vectcut__skills__skills`
+- `list_skill` -> `mcp__vectcut__skills__skills`
+- `create_skill` -> `mcp__vectcut__skills__skills`
+- `register_skill` -> `mcp__vectcut__skills__skills`
 - `invoke_skill` -> 宿主侧本地 skill invoke 能力
 
 说明：
@@ -283,9 +283,9 @@ type IntentRoute = {
 
 已接入工具：
 
-- `assistant` -> `mcp__assistant__navigate` / `mcp__assistant__diagnose`
-- `automation` -> `mcp__claw__cron` / `mcp__claw__notify` / `mcp__claw__config`
-- `system` -> `mcp__system__open_deeplink`
+- `assistant` -> `mcp__vectcut__assistant__navigate` / `mcp__vectcut__assistant__diagnose`
+- `automation` -> `mcp__vectcut__claw__cron` / `mcp__vectcut__claw__notify` / `mcp__vectcut__claw__config`
+- `system` -> `mcp__vectcut__system__open_deeplink`
 
 ### 8. `scrapt`
 
@@ -297,7 +297,7 @@ type IntentRoute = {
 
 已接入工具：
 
-- `derive_prompt` -> `mcp__copylab__derive_copy_prompt`
+- `derive_prompt` -> `mcp__vectcut__copylab__derive_copy_prompt`
 
 
 ### 9. `cut`
@@ -363,60 +363,60 @@ type IntentRoute = {
 
 已接入工具：
 
-- `audio_extract` -> `mcp__ffmpeg-media__extract_audio_from_video`
-- `audio_concat` -> `mcp__ffmpeg-media__concatenate_audio_files`
-- `media_download` -> `mcp__filesystem-server__download`
-- `frame_capture` -> `mcp__ffmpeg-media__capture_frame_at_timestamp`
-- `media_duration` -> `mcp__ffmpeg-media__get_media_duration`
-- `media_trim` -> `mcp__ffmpeg-media__trim_media_segment`
-- `video_concat` -> `mcp__ffmpeg-media__concatenate_video_files`
-- `draft_create` -> `mcp__draft-management__create_draft`
-- `draft_update_meta` -> `mcp__draft-management__modify_draft`
-- `draft_inspect` -> `mcp__draft-management__query_script`
-- `draft_download` -> `mcp__draft-download__download_draft`
-- `text_add` -> `mcp__draft-elements__add_text`
-- `text_add_batch` -> `mcp__draft-elements__add_batch_text`
-- `text_delete` -> `mcp__draft-elements__remove_text`
-- `text_update` -> `mcp__draft-elements__modify_text`
-- `subtitle_srt` -> `mcp__draft-elements__add_subtitle`
-- `subtitle_recognition` -> `mcp__subtitle-recognition__submit_subtitle_recognition_task`（单工具封装任务提交 + 轮询直到完成，不再对 Agent 暴露独立的 task_status 工具；支持 `basic`、`nlp`、`llm`、`llm_vad` 四个档位；回包中的字幕内容可能很长，完整结果优先直接写入当前 workspace 根目录下的 `<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理，MCP tool 超时与前端运行态展示可参考 `mcp__koubo-template__submit_koubo_template_task` / `KouboTemplateTool.tsx`）
-- `video_understand` -> `mcp__video-understand__submit_video_detail_task`（单工具封装本地视频上传 / 远程视频直传、异步任务提交与轮询直到完成；完整结果优先直接写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理）
-- `text_intro_animation_list` -> `mcp__draft-elements__get_text_intro_types`
-- `text_outro_animation_list` -> `mcp__draft-elements__get_text_outro_types`
-- `text_loop_animation_list` -> `mcp__draft-elements__get_text_loop_anim_types`
-- `font_list` -> `mcp__draft-elements__get_font_types`
-- `image_add` -> `mcp__draft-elements__add_image`
-- `image_add_batch` -> `mcp__draft-elements__add_batch_image`
-- `add_preset` -> `mcp__draft-elements__add_preset`
-- `add_batch_preset` -> `mcp__draft-elements__add_batch_preset`
-- `image_update` -> `mcp__draft-elements__modify_image`
-- `image_delete` -> `mcp__draft-elements__remove_image`
-- `video_add` -> `mcp__draft-elements__add_video`
-- `video_add_batch` -> `mcp__draft-elements__add_batch_video`
-- `video_update` -> `mcp__draft-elements__modify_video`
-- `video_delete` -> `mcp__draft-elements__remove_video`
-- `transition_type_list` -> `mcp__draft-elements__get_transition_types`
-- `audio_add` -> `mcp__draft-elements__add_audio`
-- `audio_add_batch` -> `mcp__draft-elements__add_batch_audio`
-- `audio_update` -> `mcp__draft-elements__modify_audio`
-- `audio_delete` -> `mcp__draft-elements__remove_audio`
-- `audio_effect_type_list` -> `mcp__draft-elements__get_audio_effect_types`
-- `keyframe_add` -> `mcp__draft-elements__add_video_keyframe`
-- `effect_add` -> `mcp__draft-elements__add_effect`
-- `effect_update` -> `mcp__draft-elements__modify_effect`
-- `effect_delete` -> `mcp__draft-elements__remove_effect`
-- `character_effect_type_list` -> `mcp__draft-elements__get_video_character_effect_types`
-- `scene_effect_type_list` -> `mcp__draft-elements__get_video_scene_effect_types`
-- `filter_add` -> `mcp__draft-elements__add_filter`
-- `filter_update` -> `mcp__draft-elements__modify_filter`
-- `filter_delete` -> `mcp__draft-elements__remove_filter`
-- `filter_type_list` -> `mcp__draft-elements__get_filter_types`
-- `image_intro_animation_list` -> `mcp__draft-elements__get_intro_animation_types`
-- `image_outro_animation_list` -> `mcp__draft-elements__get_outro_animation_types`
-- `image_loop_animation_list` -> `mcp__draft-elements__get_combo_animation_types`
-- `workflow` -> `mcp__cut-workflow__execute_workflow`
-- `subtitle_template` -> `mcp__subtitle-template__generate_smart_subtitle`
-- `template` -> `mcp__koubo-template__submit_koubo_template_task`
+- `audio_extract` -> `mcp__vectcut__ffmpeg-media__extract_audio_from_video`
+- `audio_concat` -> `mcp__vectcut__ffmpeg-media__concatenate_audio_files`
+- `media_download` -> `mcp__vectcut__filesystem-server__download`
+- `frame_capture` -> `mcp__vectcut__ffmpeg-media__capture_frame_at_timestamp`
+- `media_duration` -> `mcp__vectcut__ffmpeg-media__get_media_duration`
+- `media_trim` -> `mcp__vectcut__ffmpeg-media__trim_media_segment`
+- `video_concat` -> `mcp__vectcut__ffmpeg-media__concatenate_video_files`
+- `draft_create` -> `mcp__vectcut__draft-management__create_draft`
+- `draft_update_meta` -> `mcp__vectcut__draft-management__modify_draft`
+- `draft_inspect` -> `mcp__vectcut__draft-management__query_script`
+- `draft_download` -> `mcp__vectcut__draft-download__download_draft`
+- `text_add` -> `mcp__vectcut__draft-elements__add_text`
+- `text_add_batch` -> `mcp__vectcut__draft-elements__add_batch_text`
+- `text_delete` -> `mcp__vectcut__draft-elements__remove_text`
+- `text_update` -> `mcp__vectcut__draft-elements__modify_text`
+- `subtitle_srt` -> `mcp__vectcut__draft-elements__add_subtitle`
+- `subtitle_recognition` -> `mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task`（单工具封装任务提交 + 轮询直到完成，不再对 Agent 暴露独立的 task_status 工具；支持 `basic`、`nlp`、`llm`、`llm_vad` 四个档位；回包中的字幕内容可能很长，完整结果优先直接写入当前 workspace 根目录下的 `<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理，MCP tool 超时与前端运行态展示可参考 `mcp__vectcut__koubo-template__submit_koubo_template_task` / `KouboTemplateTool.tsx`）
+- `video_understand` -> `mcp__vectcut__video-understand__submit_video_detail_task`（单工具封装本地视频上传 / 远程视频直传、异步任务提交与轮询直到完成；完整结果优先直接写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理）
+- `text_intro_animation_list` -> `mcp__vectcut__draft-elements__get_text_intro_types`
+- `text_outro_animation_list` -> `mcp__vectcut__draft-elements__get_text_outro_types`
+- `text_loop_animation_list` -> `mcp__vectcut__draft-elements__get_text_loop_anim_types`
+- `font_list` -> `mcp__vectcut__draft-elements__get_font_types`
+- `image_add` -> `mcp__vectcut__draft-elements__add_image`
+- `image_add_batch` -> `mcp__vectcut__draft-elements__add_batch_image`
+- `add_preset` -> `mcp__vectcut__draft-elements__add_preset`
+- `add_batch_preset` -> `mcp__vectcut__draft-elements__add_batch_preset`
+- `image_update` -> `mcp__vectcut__draft-elements__modify_image`
+- `image_delete` -> `mcp__vectcut__draft-elements__remove_image`
+- `video_add` -> `mcp__vectcut__draft-elements__add_video`
+- `video_add_batch` -> `mcp__vectcut__draft-elements__add_batch_video`
+- `video_update` -> `mcp__vectcut__draft-elements__modify_video`
+- `video_delete` -> `mcp__vectcut__draft-elements__remove_video`
+- `transition_type_list` -> `mcp__vectcut__draft-elements__get_transition_types`
+- `audio_add` -> `mcp__vectcut__draft-elements__add_audio`
+- `audio_add_batch` -> `mcp__vectcut__draft-elements__add_batch_audio`
+- `audio_update` -> `mcp__vectcut__draft-elements__modify_audio`
+- `audio_delete` -> `mcp__vectcut__draft-elements__remove_audio`
+- `audio_effect_type_list` -> `mcp__vectcut__draft-elements__get_audio_effect_types`
+- `keyframe_add` -> `mcp__vectcut__draft-elements__add_video_keyframe`
+- `effect_add` -> `mcp__vectcut__draft-elements__add_effect`
+- `effect_update` -> `mcp__vectcut__draft-elements__modify_effect`
+- `effect_delete` -> `mcp__vectcut__draft-elements__remove_effect`
+- `character_effect_type_list` -> `mcp__vectcut__draft-elements__get_video_character_effect_types`
+- `scene_effect_type_list` -> `mcp__vectcut__draft-elements__get_video_scene_effect_types`
+- `filter_add` -> `mcp__vectcut__draft-elements__add_filter`
+- `filter_update` -> `mcp__vectcut__draft-elements__modify_filter`
+- `filter_delete` -> `mcp__vectcut__draft-elements__remove_filter`
+- `filter_type_list` -> `mcp__vectcut__draft-elements__get_filter_types`
+- `image_intro_animation_list` -> `mcp__vectcut__draft-elements__get_intro_animation_types`
+- `image_outro_animation_list` -> `mcp__vectcut__draft-elements__get_outro_animation_types`
+- `image_loop_animation_list` -> `mcp__vectcut__draft-elements__get_combo_animation_types`
+- `workflow` -> `mcp__vectcut__cut-workflow__execute_workflow`
+- `subtitle_template` -> `mcp__vectcut__subtitle-template__generate_smart_subtitle`
+- `template` -> `mcp__vectcut__koubo-template__submit_koubo_template_task`
 
 说明：
 
@@ -456,7 +456,7 @@ type IntentRoute = {
 - 若“下载”请求同时满足草稿标识和普通 URL 特征，应以 `draft_download` 为最高优先级；只有在没有任何草稿上下文时，才考虑 `workspace.download` 或 `media_download`
 - 对 `audio_extract` / `audio_concat` / `frame_capture` / `media_trim` / `video_concat`，如果输入媒体文件位于当前 workspace 且用户未指定输出路径，默认应将新文件生成在首个源文件同目录，而不是系统临时目录；`media_duration` 为只读探测，不生成新文件
 - 用户提到“创建草稿” / “创建一个草稿” / “创建一个剪映草稿” / “创建一个剪辑草稿”时，应命中 `draft_create` + `draft_update_meta`
-- 当同一句话同时包含“创建”语义，且路由结果同时带上 `workspace.write` 时，执行阶段仍应优先使用 `mcp__draft-management__create_draft`；不要因为存在通用写文件工具就手动创建本地草稿目录、草稿 JSON 或空白草稿脚手架
+- 当同一句话同时包含“创建”语义，且路由结果同时带上 `workspace.write` 时，执行阶段仍应优先使用 `mcp__vectcut__draft-management__create_draft`；不要因为存在通用写文件工具就手动创建本地草稿目录、草稿 JSON 或空白草稿脚手架
 - `draft_create` / `draft_update_meta` 的 `cover` 参数应支持远程 URL、`file://` URL 和绝对本地路径；若传入本地路径，应由工具内部完成上传与后续提交，不应额外前置独立 `workspace.upload`
 - 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
 - 若用户使用结构化提示词表达草稿元信息修改，例如“请修改当前草稿”并同时给出 `草稿ID` + `草稿名` / `封面图` 字段，也应命中 `draft_update_meta`
@@ -518,13 +518,13 @@ type IntentRoute = {
 
 默认挂：
 
-- `mcp__image-understand__inspect_image`
+- `mcp__vectcut__image-understand__inspect_image`
 
 #### `materials.folder_links`
 
 默认挂：
 
-- `mcp__materials__folder_links`
+- `mcp__vectcut__materials__folder_links`
 - `Write` / `Edit` / `MultiEdit`（用于将链接结果落盘到 workspace，并仅返回文件路径）
 
 #### `web.search`

@@ -536,6 +536,9 @@ importers:
       nanoid:
         specifier: ^5.1.11
         version: 5.1.11
+      node-get-installed-apps:
+        specifier: ^2.0.0
+        version: 2.0.0
       node-stream-zip:
         specifier: ^1.15.0
         version: 1.15.0
@@ -8635,6 +8638,9 @@ packages:
   node-fetch@3.3.2:
     resolution: {integrity: sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
+  node-get-installed-apps@2.0.0:
+    resolution: {integrity: sha512-8qp+UcB3cEaV/ZuZ9hkOitu6FatmqOJuWSpucu46VPjD/Bizx8A+0DRoI+ckWvBpf2GNKS0hZdegGnk/j39uVw==}
 
   node-gyp-build@4.8.4:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
@@ -20589,6 +20595,10 @@ snapshots:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
+
+  node-get-installed-apps@2.0.0:
+    dependencies:
+      iconv-lite: 0.6.3
 
   node-gyp-build@4.8.4: {}
 

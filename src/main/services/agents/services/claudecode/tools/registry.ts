@@ -27,6 +27,7 @@ import VideoUnderstandServer from '@main/mcpServers/video-understand'
 import VoiceConversionServer from '@main/mcpServers/voice-conversion'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
+import { buildVectcutMcpPattern, buildVectcutMcpToolName } from '@shared/mcp'
 
 import type { GetAgentSessionResponse } from '../..'
 import type { CapabilityDecision, RuntimeCapability } from '../capability-router'
@@ -115,6 +116,8 @@ export async function mountRuntimeMcpServers(input: {
     options.mcpServers![key] = config
     mountedRuntimeMcpServers.push(key)
   }
+  const vt = (serverName: string, toolName: string) => buildVectcutMcpToolName(serverName, toolName)
+  const vp = (serverName: string) => buildVectcutMcpPattern(serverName)
   const allowMcpPattern = (pattern: string) => {
     addAutoAllowedTool(toolSurface, pattern)
     options.allowedTools = toolSurface.allowedToolsOption
@@ -131,62 +134,62 @@ export async function mountRuntimeMcpServers(input: {
     const fileSystemServer = new FileSystemServer(cwd)
     mountMcpServer('filesystem', { type: 'sdk', name: 'filesystem-server', instance: fileSystemServer.mcpServer })
     allowMcpTools([
-      'mcp__filesystem-server__glob',
-      'mcp__filesystem-server__ls',
-      'mcp__filesystem-server__grep',
-      'mcp__filesystem-server__download',
-      'mcp__filesystem-server__edit',
-      'mcp__filesystem-server__write',
-      'mcp__filesystem-server__delete'
+      vt('filesystem-server', 'glob'),
+      vt('filesystem-server', 'ls'),
+      vt('filesystem-server', 'grep'),
+      vt('filesystem-server', 'download'),
+      vt('filesystem-server', 'edit'),
+      vt('filesystem-server', 'write'),
+      vt('filesystem-server', 'delete')
     ])
   }
 
   if (hasMaterialsDomain) {
     const materialsServer = new MaterialsServer(cwd)
     mountMcpServer('materials', { type: 'sdk', name: 'materials', instance: materialsServer.mcpServer })
-    autoAllowTools.add('mcp__materials__folder_links')
-    allowMcpPattern('mcp__materials__*')
+    autoAllowTools.add(vt('materials', 'folder_links'))
+    allowMcpPattern(vp('materials'))
   }
 
   if (hasWebDomain) {
     const browserServer = await getOrCreateBrowserServer(session.id)
     mountMcpServer('browser', { type: 'sdk', name: '@cherry/browser', instance: browserServer.mcpServer })
     for (const toolName of [
-      'mcp__browser__open',
-      'mcp__browser__click',
-      'mcp__browser__type',
-      'mcp__browser__press',
-      'mcp__browser__scroll',
-      'mcp__browser__focus',
-      'mcp__browser__hover',
-      'mcp__browser__wait_for',
-      'mcp__browser__inspect',
-      'mcp__browser__execute',
-      'mcp__browser__reload',
-      'mcp__browser__screenshot',
-      'mcp__browser__snapshot',
-      'mcp__browser__list_tabs',
-      'mcp__browser__switch_tab',
-      'mcp__browser__close_tab',
-      'mcp__browser__reset'
+      vt('browser', 'open'),
+      vt('browser', 'click'),
+      vt('browser', 'type'),
+      vt('browser', 'press'),
+      vt('browser', 'scroll'),
+      vt('browser', 'focus'),
+      vt('browser', 'hover'),
+      vt('browser', 'wait_for'),
+      vt('browser', 'inspect'),
+      vt('browser', 'execute'),
+      vt('browser', 'reload'),
+      vt('browser', 'screenshot'),
+      vt('browser', 'snapshot'),
+      vt('browser', 'list_tabs'),
+      vt('browser', 'switch_tab'),
+      vt('browser', 'close_tab'),
+      vt('browser', 'reset')
     ]) {
       autoAllowTools.add(toolName)
     }
-    allowMcpPattern('mcp__browser__*')
+    allowMcpPattern(vp('browser'))
   }
 
   if (hasWebDomain) {
     const zhipuSearchServer = new ZhipuSearchServer()
     mountMcpServer('search', { type: 'sdk', name: 'search', instance: zhipuSearchServer.mcpServer })
-    autoAllowTools.add('mcp__search__web_search')
-    allowMcpPattern('mcp__search__*')
+    autoAllowTools.add(vt('search', 'web_search'))
+    allowMcpPattern(vp('search'))
   }
 
   if (hasWorkspaceDomain) {
     const fileUploadServer = new FileUploadServer()
     mountMcpServer('file-upload', { type: 'sdk', name: 'file-upload', instance: fileUploadServer.mcpServer })
-    autoAllowTools.add('mcp__file-upload__upload_file_to_oss')
-    allowMcpPattern('mcp__file-upload__*')
+    autoAllowTools.add(vt('file-upload', 'upload_file_to_oss'))
+    allowMcpPattern(vp('file-upload'))
   }
 
   if (hasChatTurn || shouldMountCapability('imageUnderstand')) {
@@ -196,8 +199,8 @@ export async function mountRuntimeMcpServers(input: {
       name: 'image-understand',
       instance: imageUnderstandServer.mcpServer
     })
-    autoAllowTools.add('mcp__image-understand__inspect_image')
-    allowMcpPattern('mcp__image-understand__*')
+    autoAllowTools.add(vt('image-understand', 'inspect_image'))
+    allowMcpPattern(vp('image-understand'))
   }
 
   if (hasAiMediaDomain) {
@@ -208,9 +211,9 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 10 * 60
     })
-    autoAllowTools.add('mcp__image__generate_or_edit_image')
-    autoAllowTools.add('mcp__image__generate_image')
-    allowMcpPattern('mcp__image__*')
+    autoAllowTools.add(vt('image', 'generate_or_edit_image'))
+    autoAllowTools.add(vt('image', 'generate_image'))
+    allowMcpPattern(vp('image'))
   }
 
   if (hasAiMediaDomain) {
@@ -221,16 +224,16 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 35 * 60
     })
-    autoAllowTools.add('mcp__video__generate_video')
-    autoAllowTools.add('mcp__video__get_video_capabilities')
-    allowMcpPattern('mcp__video__*')
+    autoAllowTools.add(vt('video', 'generate_video'))
+    autoAllowTools.add(vt('video', 'get_video_capabilities'))
+    allowMcpPattern(vp('video'))
   }
 
   if (hasAiMediaDomain) {
     const speechGenerateServer = new SpeechGenerateServer()
     mountMcpServer('speech', { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer })
-    autoAllowTools.add('mcp__speech__generate_speech')
-    allowMcpPattern('mcp__speech__*')
+    autoAllowTools.add(vt('speech', 'generate_speech'))
+    allowMcpPattern(vp('speech'))
   }
 
   if (hasAiMediaDomain) {
@@ -240,16 +243,16 @@ export async function mountRuntimeMcpServers(input: {
       name: 'voice-conversion',
       instance: voiceConversionServer.mcpServer
     })
-    autoAllowTools.add('mcp__voice-conversion__submit_voice_conversion_task')
-    autoAllowTools.add('mcp__voice-conversion__get_voice_conversion_task_status')
-    allowMcpPattern('mcp__voice-conversion__*')
+    autoAllowTools.add(vt('voice-conversion', 'submit_voice_conversion_task'))
+    autoAllowTools.add(vt('voice-conversion', 'get_voice_conversion_task_status'))
+    allowMcpPattern(vp('voice-conversion'))
   }
 
   if (hasAiMediaDomain) {
     const seedAudioServer = new SeedAudioServer()
     mountMcpServer('seed-audio', { type: 'sdk', name: 'seed-audio', instance: seedAudioServer.mcpServer })
-    autoAllowTools.add('mcp__seed-audio__generate_seed_audio')
-    allowMcpPattern('mcp__seed-audio__*')
+    autoAllowTools.add(vt('seed-audio', 'generate_seed_audio'))
+    allowMcpPattern(vp('seed-audio'))
   }
 
   if (hasCutDomain) {
@@ -259,13 +262,13 @@ export async function mountRuntimeMcpServers(input: {
       name: 'ffmpeg-media',
       instance: ffmpegMediaServer.mcpServer
     })
-    if (shouldMountCapability('audioExtract')) autoAllowTools.add('mcp__ffmpeg-media__extract_audio_from_video')
-    if (shouldMountCapability('audioConcat')) autoAllowTools.add('mcp__ffmpeg-media__concatenate_audio_files')
-    if (shouldMountCapability('frameCapture')) autoAllowTools.add('mcp__ffmpeg-media__capture_frame_at_timestamp')
-    if (shouldMountCapability('mediaDuration')) autoAllowTools.add('mcp__ffmpeg-media__get_media_duration')
-    if (shouldMountCapability('mediaTrim')) autoAllowTools.add('mcp__ffmpeg-media__trim_media_segment')
-    if (shouldMountCapability('videoConcat')) autoAllowTools.add('mcp__ffmpeg-media__concatenate_video_files')
-    allowMcpPattern('mcp__ffmpeg-media__*')
+    if (shouldMountCapability('audioExtract')) autoAllowTools.add(vt('ffmpeg-media', 'extract_audio_from_video'))
+    if (shouldMountCapability('audioConcat')) autoAllowTools.add(vt('ffmpeg-media', 'concatenate_audio_files'))
+    if (shouldMountCapability('frameCapture')) autoAllowTools.add(vt('ffmpeg-media', 'capture_frame_at_timestamp'))
+    if (shouldMountCapability('mediaDuration')) autoAllowTools.add(vt('ffmpeg-media', 'get_media_duration'))
+    if (shouldMountCapability('mediaTrim')) autoAllowTools.add(vt('ffmpeg-media', 'trim_media_segment'))
+    if (shouldMountCapability('videoConcat')) autoAllowTools.add(vt('ffmpeg-media', 'concatenate_video_files'))
+    allowMcpPattern(vp('ffmpeg-media'))
   }
 
   if (hasCutDomain) {
@@ -275,10 +278,10 @@ export async function mountRuntimeMcpServers(input: {
       name: 'draft-management',
       instance: draftManagementServer.mcpServer
     })
-    if (shouldMountCapability('draftCreate')) autoAllowTools.add('mcp__draft-management__create_draft')
-    if (shouldMountCapability('draftUpdateMeta')) autoAllowTools.add('mcp__draft-management__modify_draft')
-    if (shouldMountCapability('draftInspect')) autoAllowTools.add('mcp__draft-management__query_script')
-    allowMcpPattern('mcp__draft-management__*')
+    if (shouldMountCapability('draftCreate')) autoAllowTools.add(vt('draft-management', 'create_draft'))
+    if (shouldMountCapability('draftUpdateMeta')) autoAllowTools.add(vt('draft-management', 'modify_draft'))
+    if (shouldMountCapability('draftInspect')) autoAllowTools.add(vt('draft-management', 'query_script'))
+    allowMcpPattern(vp('draft-management'))
   }
 
   if (hasCutDomain) {
@@ -288,8 +291,8 @@ export async function mountRuntimeMcpServers(input: {
       name: 'draft-download',
       instance: draftDownloadServer.mcpServer
     })
-    autoAllowTools.add('mcp__draft-download__download_draft')
-    allowMcpPattern('mcp__draft-download__*')
+    autoAllowTools.add(vt('draft-download', 'download_draft'))
+    allowMcpPattern(vp('draft-download'))
   }
 
   if (hasCutDomain) {
@@ -299,55 +302,55 @@ export async function mountRuntimeMcpServers(input: {
       name: 'draft-elements',
       instance: draftElementsServer.mcpServer
     })
-    if (shouldMountCapability('textAdd')) autoAllowTools.add('mcp__draft-elements__add_text')
-    if (shouldMountCapability('textAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_text')
-    if (shouldMountCapability('textDelete')) autoAllowTools.add('mcp__draft-elements__remove_text')
-    if (shouldMountCapability('textUpdate')) autoAllowTools.add('mcp__draft-elements__modify_text')
-    if (shouldMountCapability('subtitleSrt')) autoAllowTools.add('mcp__draft-elements__add_subtitle')
-    if (shouldMountCapability('textIntroAnimationList')) autoAllowTools.add('mcp__draft-elements__get_text_intro_types')
-    if (shouldMountCapability('textOutroAnimationList')) autoAllowTools.add('mcp__draft-elements__get_text_outro_types')
-    if (shouldMountCapability('textLoopAnimationList')) autoAllowTools.add('mcp__draft-elements__get_text_loop_anim_types')
-    if (shouldMountCapability('fontList')) autoAllowTools.add('mcp__draft-elements__get_font_types')
-    if (shouldMountCapability('imageAdd')) autoAllowTools.add('mcp__draft-elements__add_image')
-    if (shouldMountCapability('imageAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_image')
-    if (shouldMountCapability('presetAdd')) autoAllowTools.add('mcp__draft-elements__add_preset')
-    if (shouldMountCapability('presetAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_preset')
-    if (shouldMountCapability('imageUpdate')) autoAllowTools.add('mcp__draft-elements__modify_image')
-    if (shouldMountCapability('imageDelete')) autoAllowTools.add('mcp__draft-elements__remove_image')
-    if (shouldMountCapability('videoAdd')) autoAllowTools.add('mcp__draft-elements__add_video')
-    if (shouldMountCapability('videoAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_video')
-    if (shouldMountCapability('videoUpdate')) autoAllowTools.add('mcp__draft-elements__modify_video')
-    if (shouldMountCapability('videoDelete')) autoAllowTools.add('mcp__draft-elements__remove_video')
-    if (shouldMountCapability('transitionTypeList')) autoAllowTools.add('mcp__draft-elements__get_transition_types')
-    if (shouldMountCapability('audioAdd')) autoAllowTools.add('mcp__draft-elements__add_audio')
-    if (shouldMountCapability('audioAddBatch')) autoAllowTools.add('mcp__draft-elements__add_batch_audio')
-    if (shouldMountCapability('audioUpdate')) autoAllowTools.add('mcp__draft-elements__modify_audio')
-    if (shouldMountCapability('audioDelete')) autoAllowTools.add('mcp__draft-elements__remove_audio')
-    if (shouldMountCapability('audioEffectTypeList')) autoAllowTools.add('mcp__draft-elements__get_audio_effect_types')
-    if (shouldMountCapability('keyframeAdd')) autoAllowTools.add('mcp__draft-elements__add_video_keyframe')
-    if (shouldMountCapability('effectAdd')) autoAllowTools.add('mcp__draft-elements__add_effect')
-    if (shouldMountCapability('effectUpdate')) autoAllowTools.add('mcp__draft-elements__modify_effect')
-    if (shouldMountCapability('effectDelete')) autoAllowTools.add('mcp__draft-elements__remove_effect')
+    if (shouldMountCapability('textAdd')) autoAllowTools.add(vt('draft-elements', 'add_text'))
+    if (shouldMountCapability('textAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_text'))
+    if (shouldMountCapability('textDelete')) autoAllowTools.add(vt('draft-elements', 'remove_text'))
+    if (shouldMountCapability('textUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_text'))
+    if (shouldMountCapability('subtitleSrt')) autoAllowTools.add(vt('draft-elements', 'add_subtitle'))
+    if (shouldMountCapability('textIntroAnimationList')) autoAllowTools.add(vt('draft-elements', 'get_text_intro_types'))
+    if (shouldMountCapability('textOutroAnimationList')) autoAllowTools.add(vt('draft-elements', 'get_text_outro_types'))
+    if (shouldMountCapability('textLoopAnimationList')) autoAllowTools.add(vt('draft-elements', 'get_text_loop_anim_types'))
+    if (shouldMountCapability('fontList')) autoAllowTools.add(vt('draft-elements', 'get_font_types'))
+    if (shouldMountCapability('imageAdd')) autoAllowTools.add(vt('draft-elements', 'add_image'))
+    if (shouldMountCapability('imageAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_image'))
+    if (shouldMountCapability('presetAdd')) autoAllowTools.add(vt('draft-elements', 'add_preset'))
+    if (shouldMountCapability('presetAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_preset'))
+    if (shouldMountCapability('imageUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_image'))
+    if (shouldMountCapability('imageDelete')) autoAllowTools.add(vt('draft-elements', 'remove_image'))
+    if (shouldMountCapability('videoAdd')) autoAllowTools.add(vt('draft-elements', 'add_video'))
+    if (shouldMountCapability('videoAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_video'))
+    if (shouldMountCapability('videoUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_video'))
+    if (shouldMountCapability('videoDelete')) autoAllowTools.add(vt('draft-elements', 'remove_video'))
+    if (shouldMountCapability('transitionTypeList')) autoAllowTools.add(vt('draft-elements', 'get_transition_types'))
+    if (shouldMountCapability('audioAdd')) autoAllowTools.add(vt('draft-elements', 'add_audio'))
+    if (shouldMountCapability('audioAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_audio'))
+    if (shouldMountCapability('audioUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_audio'))
+    if (shouldMountCapability('audioDelete')) autoAllowTools.add(vt('draft-elements', 'remove_audio'))
+    if (shouldMountCapability('audioEffectTypeList')) autoAllowTools.add(vt('draft-elements', 'get_audio_effect_types'))
+    if (shouldMountCapability('keyframeAdd')) autoAllowTools.add(vt('draft-elements', 'add_video_keyframe'))
+    if (shouldMountCapability('effectAdd')) autoAllowTools.add(vt('draft-elements', 'add_effect'))
+    if (shouldMountCapability('effectUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_effect'))
+    if (shouldMountCapability('effectDelete')) autoAllowTools.add(vt('draft-elements', 'remove_effect'))
     if (shouldMountCapability('characterEffectTypeList')) {
-      autoAllowTools.add('mcp__draft-elements__get_video_character_effect_types')
+      autoAllowTools.add(vt('draft-elements', 'get_video_character_effect_types'))
     }
     if (shouldMountCapability('sceneEffectTypeList')) {
-      autoAllowTools.add('mcp__draft-elements__get_video_scene_effect_types')
+      autoAllowTools.add(vt('draft-elements', 'get_video_scene_effect_types'))
     }
-    if (shouldMountCapability('filterAdd')) autoAllowTools.add('mcp__draft-elements__add_filter')
-    if (shouldMountCapability('filterUpdate')) autoAllowTools.add('mcp__draft-elements__modify_filter')
-    if (shouldMountCapability('filterDelete')) autoAllowTools.add('mcp__draft-elements__remove_filter')
-    if (shouldMountCapability('filterTypeList')) autoAllowTools.add('mcp__draft-elements__get_filter_types')
+    if (shouldMountCapability('filterAdd')) autoAllowTools.add(vt('draft-elements', 'add_filter'))
+    if (shouldMountCapability('filterUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_filter'))
+    if (shouldMountCapability('filterDelete')) autoAllowTools.add(vt('draft-elements', 'remove_filter'))
+    if (shouldMountCapability('filterTypeList')) autoAllowTools.add(vt('draft-elements', 'get_filter_types'))
     if (shouldMountCapability('imageIntroAnimationList')) {
-      autoAllowTools.add('mcp__draft-elements__get_intro_animation_types')
+      autoAllowTools.add(vt('draft-elements', 'get_intro_animation_types'))
     }
     if (shouldMountCapability('imageOutroAnimationList')) {
-      autoAllowTools.add('mcp__draft-elements__get_outro_animation_types')
+      autoAllowTools.add(vt('draft-elements', 'get_outro_animation_types'))
     }
     if (shouldMountCapability('imageLoopAnimationList')) {
-      autoAllowTools.add('mcp__draft-elements__get_combo_animation_types')
+      autoAllowTools.add(vt('draft-elements', 'get_combo_animation_types'))
     }
-    allowMcpPattern('mcp__draft-elements__*')
+    allowMcpPattern(vp('draft-elements'))
   }
 
   if (hasCutDomain) {
@@ -359,8 +362,8 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 35 * 60
     })
-    autoAllowTools.add('mcp__subtitle-recognition__submit_subtitle_recognition_task')
-    allowMcpPattern('mcp__subtitle-recognition__*')
+    autoAllowTools.add(vt('subtitle-recognition', 'submit_subtitle_recognition_task'))
+    allowMcpPattern(vp('subtitle-recognition'))
   }
 
   if (hasCutDomain) {
@@ -372,8 +375,8 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 35 * 60
     })
-    autoAllowTools.add('mcp__video-understand__submit_video_detail_task')
-    allowMcpPattern('mcp__video-understand__*')
+    autoAllowTools.add(vt('video-understand', 'submit_video_detail_task'))
+    allowMcpPattern(vp('video-understand'))
   }
 
   if (hasCutDomain) {
@@ -385,8 +388,8 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 35 * 60
     })
-    autoAllowTools.add('mcp__subtitle-template__generate_smart_subtitle')
-    allowMcpPattern('mcp__subtitle-template__*')
+    autoAllowTools.add(vt('subtitle-template', 'generate_smart_subtitle'))
+    allowMcpPattern(vp('subtitle-template'))
   }
 
   if (hasCutDomain) {
@@ -398,8 +401,8 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 35 * 60
     })
-    autoAllowTools.add('mcp__cut-workflow__execute_workflow')
-    allowMcpPattern('mcp__cut-workflow__*')
+    autoAllowTools.add(vt('cut-workflow', 'execute_workflow'))
+    allowMcpPattern(vp('cut-workflow'))
   }
 
   if (hasScraptDomain) {
@@ -409,8 +412,8 @@ export async function mountRuntimeMcpServers(input: {
       name: 'copylab',
       instance: socialCopywritingServer.mcpServer
     })
-    autoAllowTools.add('mcp__copylab__derive_copy_prompt')
-    allowMcpPattern('mcp__copylab__*')
+    autoAllowTools.add(vt('copylab', 'derive_copy_prompt'))
+    allowMcpPattern(vp('copylab'))
   }
 
   if (hasAiMediaDomain) {
@@ -422,11 +425,11 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 35 * 60
     })
-    autoAllowTools.add('mcp__digital-human__create_lip_sync_digital_human')
-    autoAllowTools.add('mcp__digital-human__create_image_driven_digital_human')
-    autoAllowTools.add('mcp__digital-human__create_omni_image_driven_digital_human')
-    autoAllowTools.add('mcp__digital-human__create_seedance_digital_human')
-    allowMcpPattern('mcp__digital-human__*')
+    autoAllowTools.add(vt('digital-human', 'create_lip_sync_digital_human'))
+    autoAllowTools.add(vt('digital-human', 'create_image_driven_digital_human'))
+    autoAllowTools.add(vt('digital-human', 'create_omni_image_driven_digital_human'))
+    autoAllowTools.add(vt('digital-human', 'create_seedance_digital_human'))
+    allowMcpPattern(vp('digital-human'))
   }
 
   if (hasCutDomain) {
@@ -438,22 +441,22 @@ export async function mountRuntimeMcpServers(input: {
       longRunning: true,
       timeout: 20 * 60
     })
-    autoAllowTools.add('mcp__koubo-template__submit_koubo_template_task')
-    allowMcpPattern('mcp__koubo-template__*')
+    autoAllowTools.add(vt('koubo-template', 'submit_koubo_template_task'))
+    allowMcpPattern(vp('koubo-template'))
   }
 
   if (hasAuxiliaryDomain) {
     const systemServer = new SystemServer()
     mountMcpServer('system', { type: 'sdk', name: 'system', instance: systemServer.mcpServer })
-    autoAllowTools.add('mcp__system__open_deeplink')
-    allowMcpPattern('mcp__system__*')
+    autoAllowTools.add(vt('system', 'open_deeplink'))
+    allowMcpPattern(vp('system'))
   }
 
   if (hasSkillsDomain) {
     const skillsServer = new SkillsServer(session.agent_id, cwd)
     mountMcpServer('skills', { type: 'sdk', name: 'skills', instance: skillsServer.mcpServer })
-    autoAllowTools.add('mcp__skills__skills')
-    allowMcpPattern('mcp__skills__*')
+    autoAllowTools.add(vt('skills', 'skills'))
+    allowMcpPattern(vp('skills'))
   }
 
   if (hasAuxiliaryDomain) {
@@ -463,18 +466,18 @@ export async function mountRuntimeMcpServers(input: {
       name: 'agent-memory',
       instance: workspaceMemoryServer.mcpServer
     })
-    autoAllowTools.add('mcp__agent-memory__memory')
-    allowMcpPattern('mcp__agent-memory__*')
+    autoAllowTools.add(vt('agent-memory', 'memory'))
+    allowMcpPattern(vp('agent-memory'))
   }
 
   if (autonomousEnabled && hasAuxiliaryDomain) {
     const sourceChannelId = await resolveSourceChannel(session.agent_id, session.id)
     const clawServer = new ClawServer(session.agent_id, sourceChannelId)
     mountMcpServer('claw', { type: 'sdk', name: 'claw', instance: clawServer.mcpServer })
-    autoAllowTools.add('mcp__claw__cron')
-    autoAllowTools.add('mcp__claw__notify')
-    autoAllowTools.add('mcp__claw__config')
-    allowMcpPattern('mcp__claw__*')
+    autoAllowTools.add(vt('claw', 'cron'))
+    autoAllowTools.add(vt('claw', 'notify'))
+    autoAllowTools.add(vt('claw', 'config'))
+    allowMcpPattern(vp('claw'))
 
     logger.debug('Injected autonomous claw MCP server', {
       agentId: session.agent_id,
@@ -485,12 +488,12 @@ export async function mountRuntimeMcpServers(input: {
   if (isAssistant && hasAuxiliaryDomain) {
     const assistantServer = new AssistantServer()
     mountMcpServer('assistant', { type: 'sdk', name: 'assistant', instance: assistantServer.mcpServer })
-    autoAllowTools.add('mcp__assistant__navigate')
-    autoAllowTools.add('mcp__assistant__diagnose')
+    autoAllowTools.add(vt('assistant', 'navigate'))
+    autoAllowTools.add(vt('assistant', 'diagnose'))
     if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      allowMcpPattern('mcp__assistant__*')
+      allowMcpPattern(vp('assistant'))
     } else {
-      options.allowedTools = ['mcp__assistant__*']
+      options.allowedTools = [vp('assistant')]
     }
 
     logger.debug('Cherry Assistant: injected assistant MCP server', {

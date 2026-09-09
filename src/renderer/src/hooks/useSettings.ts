@@ -43,14 +43,10 @@ import type { UpgradeChannel } from '@shared/config/constant'
 export function useSettings() {
   const settings = useAppSelector((state) => state.settings)
   const dispatch = useAppDispatch()
-  const apiServer = {
-    ...settings.apiServer,
-    enabled: false
-  }
 
   return {
     ...settings,
-    apiServer,
+    apiServer: settings.apiServer,
     setSendMessageShortcut(shortcut: SendMessageShortcut) {
       dispatch(_setSendMessageShortcut(shortcut))
     },

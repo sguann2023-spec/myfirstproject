@@ -232,7 +232,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   }, [tool?.name, status, toolResponse?.toolCallId, args, partialArguments, response])
 
   // Navigate tool renders as a simple inline button, not a tool card
-  if (tool?.name === 'mcp__assistant__navigate') {
+  if (tool?.name === 'mcp__vectcut__assistant__navigate' || tool?.name === 'mcp__assistant__navigate') {
     return <NavigateToolInline input={args ?? parsedPartialArgs} output={response} />
   }
 

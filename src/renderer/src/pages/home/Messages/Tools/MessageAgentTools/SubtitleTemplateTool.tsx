@@ -41,7 +41,8 @@ type SubtitleTemplateResult = {
 
 const SUBTITLE_TEMPLATE_TOOL_NAMES = new Set([
   'generate_smart_subtitle',
-  'mcp__subtitle-template__generate_smart_subtitle'
+  'mcp__subtitle-template__generate_smart_subtitle',
+  'mcp__vectcut__subtitle-template__generate_smart_subtitle'
 ])
 
 function isRecord(value: unknown): value is Record<string, unknown> {

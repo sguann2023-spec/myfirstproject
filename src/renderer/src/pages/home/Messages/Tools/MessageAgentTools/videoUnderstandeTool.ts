@@ -26,7 +26,8 @@ export type VideoUnderstandeOutputSummary = {
   artifactFile: VideoUnderstandeResultFile | null
 }
 
-export const VIDEO_UNDERSTANDE_TOOL_NAME = 'mcp__video-understand__submit_video_detail_task'
+export const VIDEO_UNDERSTANDE_TOOL_NAME = 'mcp__vectcut__video-understand__submit_video_detail_task'
+export const LEGACY_VIDEO_UNDERSTANDE_TOOL_NAME = 'mcp__video-understand__submit_video_detail_task'
 
 export function getVideoUnderstandePointIconUrl(): string {
   return point2IconUrl
@@ -373,7 +374,7 @@ function extractTotalDurationSeconds(payload: GenericRecord | null): number | nu
 }
 
 export function isVideoUnderstandeToolName(name: string): boolean {
-  return name === VIDEO_UNDERSTANDE_TOOL_NAME
+  return name === VIDEO_UNDERSTANDE_TOOL_NAME || name === LEGACY_VIDEO_UNDERSTANDE_TOOL_NAME
 }
 
 export function extractVideoUnderstandeBillingSummary(output: unknown): VideoUnderstandeBillingSummary | null {

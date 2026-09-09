@@ -422,6 +422,8 @@ export enum IpcChannel {
 
   // ExternalApps
   ExternalApps_DetectInstalled = 'external-apps:detect-installed',
+  LocalMcp_DetectAgents = 'local-mcp:detect-agents',
+  LocalMcp_SetAgentRegistration = 'local-mcp:set-agent-registration',
 
   // CodeTools
   CodeTools_Run = 'code-tools:run',

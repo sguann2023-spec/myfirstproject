@@ -29,7 +29,8 @@ type SubtitleRecognitionResult = {
 
 const SUBTITLE_RECOGNITION_TOOL_NAMES = new Set([
   'submit_subtitle_recognition_task',
-  'mcp__subtitle-recognition__submit_subtitle_recognition_task'
+  'mcp__subtitle-recognition__submit_subtitle_recognition_task',
+  'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task'
 ])
 
 function isRecord(value: unknown): value is Record<string, unknown> {

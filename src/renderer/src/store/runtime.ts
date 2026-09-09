@@ -78,6 +78,8 @@ export interface RuntimeState {
   // Migrated from useApiServer, it's global state now
   /** Is the api server running */
   apiServerRunning: boolean
+  /** Actual bound api server port when running */
+  apiServerPort: number | null
 }
 
 export interface ExportState {
@@ -122,7 +124,8 @@ const initialState: RuntimeState = {
   },
   detectedRegion: null,
   loadingMap: {},
-  apiServerRunning: false
+  apiServerRunning: false,
+  apiServerPort: null
 }
 
 const runtimeSlice = createSlice({
@@ -219,6 +222,9 @@ const runtimeSlice = createSlice({
     },
     setApiServerRunningAction: (state, action: PayloadAction<boolean>) => {
       state.apiServerRunning = action.payload
+    },
+    setApiServerPortAction: (state, action: PayloadAction<number | null>) => {
+      state.apiServerPort = action.payload
     }
   }
 })
@@ -252,7 +258,8 @@ export const {
   setWebSearchStatus,
   // Region detection
   setDetectedRegion,
-  setApiServerRunningAction
+  setApiServerRunningAction,
+  setApiServerPortAction
 } = runtimeSlice.actions
 
 export default runtimeSlice.reducer

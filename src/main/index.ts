@@ -233,23 +233,27 @@ if (!app.requestSingleInstanceLock()) {
     initSelectionService()
 
     void runAsyncFunction(async () => {
+      try {
+        logger.info('Starting API server during app startup')
+        await apiServerService.start()
+      } catch (error: any) {
+        logger.error('Failed to start API server during app startup:', error)
+      }
+    })
+
+    void runAsyncFunction(async () => {
       // Initialize built-in skills and agents (sequential to avoid SQLITE_BUSY)
       // TODO: v2 lifecycle
       await bootstrapBuiltinAgents()
 
-      // The API server implementation is kept in the repo, but its runtime entry is disabled.
       try {
-        const config = await apiServerService.getCurrentConfig()
-        logger.info('API server config:', config)
-        logger.info('API server startup skipped because the entry is disabled')
-
         // Restore VectcutClaw schedulers after services are ready
         await schedulerService.restoreSchedulers()
 
         // Start VectcutClaw channel adapters (Telegram, etc.)
         await channelManager.start()
       } catch (error: any) {
-        logger.error('Failed to check/start API server:', error)
+        logger.error('Failed to finish post-bootstrap startup tasks:', error)
       }
     })
   })

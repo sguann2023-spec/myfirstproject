@@ -16,28 +16,36 @@ export type MediaGenerationVariant = 'audio' | 'image' | 'video' | 'digitalHuman
 const AUDIO_TOOL_NAMES = new Set([
   'generate_speech',
   'mcp__speech__generate_speech',
+  'mcp__vectcut__speech__generate_speech',
   'generate_seed_audio',
-  'mcp__seed-audio__generate_seed_audio'
+  'mcp__seed-audio__generate_seed_audio',
+  'mcp__vectcut__seed-audio__generate_seed_audio'
 ])
 
 const IMAGE_TOOL_NAMES = new Set([
   'generate_or_edit_image',
   'mcp__image__generate_or_edit_image',
+  'mcp__vectcut__image__generate_or_edit_image',
   'generate_image',
-  'mcp__image__generate_image'
+  'mcp__image__generate_image',
+  'mcp__vectcut__image__generate_image'
 ])
 
-const VIDEO_TOOL_NAMES = new Set(['generate_video', 'mcp__video__generate_video'])
+const VIDEO_TOOL_NAMES = new Set(['generate_video', 'mcp__video__generate_video', 'mcp__vectcut__video__generate_video'])
 
 const DIGITAL_HUMAN_TOOL_NAMES = new Set([
   'create_lip_sync_digital_human',
   'mcp__digital-human__create_lip_sync_digital_human',
+  'mcp__vectcut__digital-human__create_lip_sync_digital_human',
   'create_image_driven_digital_human',
   'mcp__digital-human__create_image_driven_digital_human',
+  'mcp__vectcut__digital-human__create_image_driven_digital_human',
   'create_omni_image_driven_digital_human',
   'mcp__digital-human__create_omni_image_driven_digital_human',
+  'mcp__vectcut__digital-human__create_omni_image_driven_digital_human',
   'create_seedance_digital_human',
-  'mcp__digital-human__create_seedance_digital_human'
+  'mcp__digital-human__create_seedance_digital_human',
+  'mcp__vectcut__digital-human__create_seedance_digital_human'
 ])
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

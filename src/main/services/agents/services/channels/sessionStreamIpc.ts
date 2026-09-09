@@ -184,17 +184,17 @@ function buildDirectDraftAssistantBlocks(input: {
       status: 'success',
       model: modelId,
       toolId: toolCallId,
-      toolName: 'mcp__draft-management__create_draft',
+      toolName: 'mcp__vectcut__draft-management__create_draft',
       arguments: toolArgs,
       content: toolResponse,
       metadata: {
         rawMcpToolResponse: {
           id: toolCallId,
           tool: {
-            id: 'mcp__draft-management__create_draft',
-            name: 'mcp__draft-management__create_draft',
-            serverName: 'draft-management',
-            serverId: 'draft-management',
+            id: 'mcp__vectcut__draft-management__create_draft',
+            name: 'mcp__vectcut__draft-management__create_draft',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
             type: 'mcp'
           },
           arguments: toolArgs,
@@ -303,17 +303,17 @@ function buildDirectDraftDownloadAssistantBlocks(input: {
       status: 'success',
       model: modelId,
       toolId: toolCallId,
-      toolName: 'mcp__draft-download__download_draft',
+      toolName: 'mcp__vectcut__draft-download__download_draft',
       arguments: toolArgs,
       content: toolResponse,
       metadata: {
         rawMcpToolResponse: {
           id: toolCallId,
           tool: {
-            id: 'mcp__draft-download__download_draft',
-            name: 'mcp__draft-download__download_draft',
-            serverName: 'draft-download',
-            serverId: 'draft-download',
+            id: 'mcp__vectcut__draft-download__download_draft',
+            name: 'mcp__vectcut__draft-download__download_draft',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
             type: 'mcp'
           },
           arguments: toolArgs,
@@ -384,17 +384,17 @@ function buildDirectDraftModifyAssistantBlocks(input: {
       status: 'success',
       model: modelId,
       toolId: toolCallId,
-      toolName: 'mcp__draft-management__modify_draft',
+      toolName: 'mcp__vectcut__draft-management__modify_draft',
       arguments: toolArgs,
       content: toolResponse,
       metadata: {
         rawMcpToolResponse: {
           id: toolCallId,
           tool: {
-            id: 'mcp__draft-management__modify_draft',
-            name: 'mcp__draft-management__modify_draft',
-            serverName: 'draft-management',
-            serverId: 'draft-management',
+            id: 'mcp__vectcut__draft-management__modify_draft',
+            name: 'mcp__vectcut__draft-management__modify_draft',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
             type: 'mcp'
           },
           arguments: toolArgs,

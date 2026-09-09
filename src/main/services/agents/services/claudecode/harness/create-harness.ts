@@ -16,6 +16,7 @@ import { loggerService } from '@logger'
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 import type { MCPProgressEvent } from '@shared/config/types'
 import { IpcChannel } from '@shared/IpcChannel'
+import { buildVectcutMcpToolName } from '@shared/mcp'
 import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
@@ -29,7 +30,7 @@ import { buildToolOutputPreview } from './tool-output-preview'
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
 const MAX_RECORDED_PROJECTION_EVENTS = 200
-const WORKSPACE_UPLOAD_TOOL_NAME = 'mcp__file-upload__upload_file_to_oss'
+const WORKSPACE_UPLOAD_TOOL_NAME = buildVectcutMcpToolName('file-upload', 'upload_file_to_oss')
 const WORKSPACE_UPLOAD_TIMEOUT_MS = 3 * 60 * 1000
 
 export type ClaudeCodeHarnessProjectionEvent = {
@@ -78,6 +79,13 @@ type PiMcpClientBridge = {
   timeoutMs?: number
   longRunning?: boolean
   close(): Promise<void>
+}
+
+function resolveRuntimeMcpNamespace(serverKey: string): string {
+  if (serverKey === 'filesystem') {
+    return 'filesystem-server'
+  }
+  return serverKey
 }
 
 type PiRuntimeBridge = {
@@ -1215,6 +1223,7 @@ async function buildMcpTools(input: {
     const bridge = await createMcpClientBridge(serverKey, config)
     if (!bridge) continue
     clients.push(bridge)
+    const runtimeNamespace = resolveRuntimeMcpNamespace(serverKey)
 
     let listedTools: McpTool[] = []
     try {
@@ -1229,7 +1238,7 @@ async function buildMcpTools(input: {
     }
 
     for (const tool of listedTools) {
-      const namespacedName = `mcp__${serverKey}__${tool.name}`
+      const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
       if (!matchAllowedTool(invokeContext.tools.allowedTools, namespacedName)) continue
 
       const mcpTool: PiAgentHarnessTool = {

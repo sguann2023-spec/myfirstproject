@@ -9,7 +9,8 @@ export const bookExts = ['.epub']
 
 export const API_SERVER_DEFAULTS = {
   HOST: '127.0.0.1',
-  PORT: 23333
+  PORT: 18845,
+  MAX_PORT: 19845
 }
 
 /**

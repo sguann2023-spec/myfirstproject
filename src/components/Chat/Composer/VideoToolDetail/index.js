@@ -38,7 +38,9 @@ const normalizeModelLabel = (model) => {
   return raw;
 };
 
-const getModelIcon = (model) => {
+const getModelIcon = (model, remoteIcon = '') => {
+  const normalizedRemoteIcon = String(remoteIcon || '').trim();
+  if (normalizedRemoteIcon) return normalizedRemoteIcon;
   const normalized = String(model || '').trim().toLowerCase();
   if (normalized.startsWith('seedance-') || normalized.startsWith('doubao-seedance-')) return ImageModelJimengBlackIcon;
   return null;
@@ -79,8 +81,8 @@ const buildVideoTemplatePrompt = (template) => {
   return String(template?.prompt || '').trim();
 };
 
-const renderModelContent = (model, label, description = '') => {
-  const icon = getModelIcon(model);
+const renderModelContent = (model, label, description = '', remoteIcon = '') => {
+  const icon = getModelIcon(model, remoteIcon);
   return (
     <span className="chat-panel__video-option" title={description || label}>
       {icon ? <img className="chat-panel__video-option-icon" src={icon} alt="" aria-hidden="true" /> : null}
@@ -189,6 +191,7 @@ const VideoToolDetail = ({
       value: String(item?.model || '').trim(),
       label: String(item?.display_name || '').trim() || normalizeModelLabel(item?.model),
       description: String(item?.description || '').trim(),
+      icon: String(item?.icon || '').trim(),
     })).filter((item) => item.value);
   }, [capabilityModels]);
 
@@ -282,8 +285,8 @@ const VideoToolDetail = ({
 
   const modelOptions = React.useMemo(() => resolvedModelOptions.map((item) => ({
     value: item.value,
-    label: renderModelContent(item.value, item.label, item.description),
-    selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value)),
+    label: renderModelContent(item.value, item.label, item.description, item.icon),
+    selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value, item.icon)),
   })), [modelPickerOpen, resolvedModelOptions]);
 
   const generationModeOptions = React.useMemo(() => resolvedGenerationModeOptions.map((item) => ({

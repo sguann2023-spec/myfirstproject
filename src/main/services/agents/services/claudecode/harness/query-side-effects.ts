@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { loggerService } from '@logger'
+import { buildVectcutMcpToolName } from '@shared/mcp'
 
 import { syncSlashCommandsFromSdk } from '../bridges/slash-commands'
 import {
@@ -22,6 +23,7 @@ import type {
 import { summarizeToolResultForArtifact } from '../tool-result-text'
 
 const logger = loggerService.withContext('ClaudeCodeQueryEffects')
+const BROWSER_SCREENSHOT_TOOL_NAME = buildVectcutMcpToolName('browser', 'screenshot')
 
 export type QueryArchitectureContext = {
   traceId: string
@@ -233,7 +235,7 @@ export function maybeBridgeScreenshotToolResult(input: {
   enqueuePromptMessage: (value: SDKUserMessage | null) => void
 }): void {
   const { chunk, sessionId, bridgedScreenshotUrls, enqueuePromptMessage } = input
-  if (chunk.type !== 'tool-result' || chunk.toolName !== 'mcp__browser__screenshot') {
+  if (chunk.type !== 'tool-result' || chunk.toolName !== BROWSER_SCREENSHOT_TOOL_NAME) {
     return
   }
 

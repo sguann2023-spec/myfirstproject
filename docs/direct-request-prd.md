@@ -248,13 +248,13 @@
 - `toolName`
 - `metadata.rawMcpToolResponse`
 - `tool.type === 'mcp'`
-- 名称遵循 `mcp__[server]__[tool]`
+- 对外统一名称遵循 `mcp__vectcut__[server]__[tool]`
 
 当前对应关系：
 
-- 创建草稿：`mcp__draft-management__create_draft`
-- 修改草稿：`mcp__draft-management__modify_draft`
-- 下载草稿：`mcp__draft-download__download_draft`
+- 创建草稿：`mcp__vectcut__draft-management__create_draft`
+- 修改草稿：`mcp__vectcut__draft-management__modify_draft`
+- 下载草稿：`mcp__vectcut__draft-download__download_draft`
 
 否则前端可能无法正确渲染工具卡片或标题。
 

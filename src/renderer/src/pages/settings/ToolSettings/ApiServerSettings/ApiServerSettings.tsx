@@ -1,6 +1,5 @@
 import { useTheme } from '@renderer/context/ThemeProvider'
 import { useApiServer } from '@renderer/hooks/useApiServer'
-import type { RootState } from '@renderer/store'
 import { useAppDispatch } from '@renderer/store'
 import { setApiServerApiKey, setApiServerPort } from '@renderer/store/settings'
 import { formatErrorMessage } from '@renderer/utils/error'
@@ -9,7 +8,6 @@ import { Alert, Button, Input, InputNumber, Tooltip, Typography } from 'antd'
 import { Copy, ExternalLink, Play, RotateCcw, Square } from 'lucide-react'
 import type { FC } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -23,8 +21,7 @@ const ApiServerSettings: FC = () => {
   const { t } = useTranslation()
 
   // API Server state with proper defaults
-  const apiServerConfig = useSelector((state: RootState) => state.settings.apiServer)
-  const { apiServerRunning, apiServerLoading, startApiServer, stopApiServer, restartApiServer, setApiServerEnabled } =
+  const { apiServerConfig, apiServerRunning, apiServerLoading, apiServerPort, startApiServer, stopApiServer, restartApiServer } =
     useApiServer()
 
   const handleApiServerToggle = async (enabled: boolean) => {
@@ -36,8 +33,6 @@ const ApiServerSettings: FC = () => {
       }
     } catch (error) {
       window.toast.error(t('apiServer.messages.operationFailed') + formatErrorMessage(error))
-    } finally {
-      setApiServerEnabled(enabled)
     }
   }
 
@@ -58,7 +53,7 @@ const ApiServerSettings: FC = () => {
 
   const handlePortChange = (value: string) => {
     const port = parseInt(value) || API_SERVER_DEFAULTS.PORT
-    if (port >= 1000 && port <= 65535) {
+    if (port >= API_SERVER_DEFAULTS.PORT && port <= API_SERVER_DEFAULTS.MAX_PORT) {
       dispatch(setApiServerPort(port))
     }
   }
@@ -66,7 +61,7 @@ const ApiServerSettings: FC = () => {
   const openApiDocs = () => {
     if (apiServerRunning) {
       const host = apiServerConfig.host || API_SERVER_DEFAULTS.HOST
-      const port = apiServerConfig.port || API_SERVER_DEFAULTS.PORT
+      const port = apiServerPort || apiServerConfig.port || API_SERVER_DEFAULTS.PORT
       window.open(`http://${host}:${port}/api-docs`, '_blank')
     }
   }
@@ -102,7 +97,7 @@ const ApiServerSettings: FC = () => {
             </StatusText>
             <StatusSubtext>
               {apiServerRunning
-                ? `http://${apiServerConfig.host || API_SERVER_DEFAULTS.HOST}:${apiServerConfig.port || API_SERVER_DEFAULTS.PORT}`
+                ? `http://${apiServerConfig.host || API_SERVER_DEFAULTS.HOST}:${apiServerPort || apiServerConfig.port || API_SERVER_DEFAULTS.PORT}`
                 : t('apiServer.fields.port.description')}
             </StatusSubtext>
           </StatusContent>
@@ -125,8 +120,8 @@ const ApiServerSettings: FC = () => {
             <StyledInputNumber
               value={apiServerConfig.port}
               onChange={(value) => handlePortChange(String(value || API_SERVER_DEFAULTS.PORT))}
-              min={1000}
-              max={65535}
+              min={API_SERVER_DEFAULTS.PORT}
+              max={API_SERVER_DEFAULTS.MAX_PORT}
               disabled={apiServerRunning}
               placeholder={String(API_SERVER_DEFAULTS.PORT)}
               size="middle"

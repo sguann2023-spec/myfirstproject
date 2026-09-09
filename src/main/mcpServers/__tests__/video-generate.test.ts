@@ -144,6 +144,7 @@ describe('VideoGenerateServer', () => {
             'seedance-2.0': {
               display_name: 'Seedance 2.0',
               description: '高质量视频生成',
+              icon: 'https://example.com/seedance.svg',
               reference_supported: true,
               first_frame_extend_supported: true,
               first_last_frame_supported: true,
@@ -231,6 +232,7 @@ describe('VideoGenerateServer', () => {
           model: 'seedance-2.0',
           display_name: 'Seedance 2.0',
           description: '高质量视频生成',
+          icon: 'https://example.com/seedance.svg',
           reference_supported: true,
           first_frame_extend_supported: true,
           first_last_frame_supported: true,

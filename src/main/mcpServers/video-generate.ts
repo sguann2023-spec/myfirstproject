@@ -231,6 +231,7 @@ type VideoModelPrice = Record<string, Record<string, VideoPriceEntry>>
 type VideoModelCapability = {
   display_name?: string
   description?: string
+  icon?: string
   reference_supported?: boolean
   first_frame_extend_supported?: boolean
   first_last_frame_supported?: boolean
@@ -1422,6 +1423,7 @@ class VideoGenerateServer {
       model,
       display_name: typeof capability?.display_name === 'string' ? capability.display_name : undefined,
       description: typeof capability?.description === 'string' ? capability.description : undefined,
+      icon: typeof capability?.icon === 'string' ? capability.icon : undefined,
       reference_supported: Boolean(capability?.reference_supported),
       first_frame_extend_supported: Boolean(capability?.first_frame_extend_supported),
       first_last_frame_supported: Boolean(capability?.first_last_frame_supported),

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import path from 'node:path'
+import { buildVectcutMcpToolName, normalizeVectcutMcpToolName } from '@shared/mcp'
 
 import { fileChangeJournalService } from '../session-architecture/FileChangeJournalService'
 
@@ -28,7 +29,7 @@ export const attachInternalToolContext = (
   toolInput: Record<string, unknown>,
   toolCallId: string
 ): Record<string, unknown> => {
-  if (normalizeToolName(toolName) === 'mcp__copylab__derive_copy_prompt') {
+  if (normalizeVectcutMcpToolName(normalizeToolName(toolName)) === buildVectcutMcpToolName('copylab', 'derive_copy_prompt')) {
     return {
       ...toolInput,
       __toolCallId: toolCallId

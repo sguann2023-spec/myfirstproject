@@ -44,6 +44,12 @@ export function parseMcpToolName(rawName?: string): McpToolNameParts {
   const name = String(rawName || '').trim()
   if (name.startsWith('mcp__')) {
     const parts = name.slice('mcp__'.length).split('__')
+    if (parts[0] === 'vectcut' && parts.length >= 3) {
+      return {
+        serverName: parts[1],
+        toolName: parts.slice(2).join('__')
+      }
+    }
     if (parts.length >= 2) {
       return {
         serverName: parts[0],

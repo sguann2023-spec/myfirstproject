@@ -8,7 +8,8 @@ export type ImageUnderstandeBillingSummary = {
   displayText: string
 }
 
-export const IMAGE_UNDERSTANDE_TOOL_NAME = 'mcp__image-understand__inspect_image'
+export const IMAGE_UNDERSTANDE_TOOL_NAME = 'mcp__vectcut__image-understand__inspect_image'
+export const LEGACY_IMAGE_UNDERSTANDE_TOOL_NAME = 'mcp__image-understand__inspect_image'
 
 export function getImageUnderstandePointIconUrl(): string {
   return point2IconUrl
@@ -57,7 +58,7 @@ function extractMcpText(output: unknown): string | null {
 }
 
 export function isImageUnderstandeToolName(name: string): boolean {
-  return name === IMAGE_UNDERSTANDE_TOOL_NAME
+  return name === IMAGE_UNDERSTANDE_TOOL_NAME || name === LEGACY_IMAGE_UNDERSTANDE_TOOL_NAME
 }
 
 export function extractImageUnderstandeBillingSummary(output: unknown): ImageUnderstandeBillingSummary | null {

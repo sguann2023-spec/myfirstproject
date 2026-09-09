@@ -38,8 +38,10 @@ interface ToolCallbacksDependencies {
 const IMAGE_GENERATION_TOOL_NAMES = new Set([
   'generate_or_edit_image',
   'mcp__image__generate_or_edit_image',
+  'mcp__vectcut__image__generate_or_edit_image',
   'generate_image',
-  'mcp__image__generate_image'
+  'mcp__image__generate_image',
+  'mcp__vectcut__image__generate_image'
 ])
 
 const toFileUrl = (path: string): string => {

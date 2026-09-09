@@ -3,10 +3,13 @@ import express from 'express'
 
 import { loggerService } from '../../services/LoggerService'
 import { mcpApiService } from '../services/mcp'
+import { createExposedAggregateMcpServerForAgent, getExposedMcpServerForAgent, getExposedMcpServersForAgent } from '../utils/mcp'
 
 const logger = loggerService.withContext('ApiServerMCPRoutes')
 
 const router = express.Router()
+const localOnlyRouter = express.Router()
+const SINGLE_URL_AGENT_ID = 'codex_cli'
 
 /**
  * @swagger
@@ -61,6 +64,59 @@ router.get('/', async (req: Request, res: Response) => {
       }
     })
   }
+})
+
+router.get('/exposed/:agent_key/servers', async (req: Request, res: Response) => {
+  const { agent_key: agentKey } = req.params
+  const { servers, exposure } = await getExposedMcpServersForAgent(agentKey)
+  if (!exposure?.enabled) {
+    return res.status(404).json({
+      success: false,
+      error: {
+        message: 'MCP servers not exposed to this agent',
+        type: 'not_found',
+        code: 'servers_not_exposed'
+      }
+    })
+  }
+
+  return res.json({
+    success: true,
+    data: {
+      agentId: agentKey,
+      servers: servers.map((server) => ({
+        id: server.id,
+        name: server.name
+      }))
+    }
+  })
+})
+
+localOnlyRouter.all('/', async (req: Request, res: Response) => {
+  return mcpApiService.handleTransportRequest(req, res, `aggregate:${SINGLE_URL_AGENT_ID}`, async () => {
+    const mcpServer = await createExposedAggregateMcpServerForAgent(SINGLE_URL_AGENT_ID)
+    return {
+      serverId: SINGLE_URL_AGENT_ID,
+      mcpServer
+    }
+  })
+})
+
+router.all('/exposed/:agent_key/:server_id/mcp', async (req: Request, res: Response) => {
+  const { agent_key: agentKey, server_id: serverId } = req.params
+  const { server } = await getExposedMcpServerForAgent(agentKey, serverId)
+  if (!server) {
+    logger.warn('Exposed MCP server not found or not allowed', { agentKey, serverId })
+    return res.status(404).json({
+      success: false,
+      error: {
+        message: 'MCP server not exposed to this agent',
+        type: 'not_found',
+        code: 'server_not_exposed'
+      }
+    })
+  }
+  return await mcpApiService.handleRequest(req, res, server)
 })
 
 /**
@@ -194,3 +250,4 @@ router.all('/:server_id/mcp', async (req: Request, res: Response) => {
 })
 
 export { router as mcpRoutes }
+export { localOnlyRouter as localMcpSingleUrlRoutes }
