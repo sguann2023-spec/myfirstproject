@@ -649,6 +649,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const currentDraftUpdateMetaDecision = router.select({
+      prompt: '请修改当前草稿。\n草稿ID：dfd_cat_1788878755_e46d06a0\n草稿名：全量效果测试',
+      sessionId: 'session-current-draft-update-meta',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const inspectDecision = router.select({
       prompt: '看下这个草稿内容对不对',
       sessionId: 'session-draft-inspect',
@@ -796,6 +804,10 @@ describe('CapabilityRouter', () => {
     expect(updateMetaDecision.subdomains).toEqual(['draft'])
     expect(updateMetaDecision.selected.has('draftUpdateMeta')).toBe(true)
     expect(updateMetaDecision.selected.has('image')).toBe(false)
+    expect(currentDraftUpdateMetaDecision.primaryDomain).toBe('cut')
+    expect(currentDraftUpdateMetaDecision.subdomains).toEqual(['draft'])
+    expect(currentDraftUpdateMetaDecision.selected.has('draftUpdateMeta')).toBe(true)
+    expect(currentDraftUpdateMetaDecision.selected.has('draftInspect')).toBe(false)
     expect(inspectDecision.primaryDomain).toBe('cut')
     expect(inspectDecision.subdomains).toEqual(['draft'])
     expect(inspectDecision.selected.has('draftInspect')).toBe(true)

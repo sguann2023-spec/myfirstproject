@@ -1014,10 +1014,16 @@ const DRAFT_VISUAL_INSPECT_PATTERN = new RegExp(
   `(?:${DRAFT_REFERENCE_PATTERN.source}.{0,80}${DRAFT_INSPECT_VERB_PATTERN.source}|${DRAFT_INSPECT_VERB_PATTERN.source}.{0,40}${DRAFT_REFERENCE_PATTERN.source}).{0,40}${DRAFT_VISUAL_ATTRIBUTE_PATTERN.source}`
 )
 
+const DRAFT_META_FIELD_PATTERN = /(封面|封面图|名称|名字|标题|草稿名)/
+const DRAFT_ID_PATTERN = /(草稿id|draft[_\s-]?id|dfd_[a-z0-9_-]+)/
+
 const hasDraftMetaUpdateIntent = (text: string) =>
   (text.includes('草稿') || text.includes('draft')) &&
-  ((/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(封面|名称|名字|标题)/.test(text) ||
-    /(封面|名称|名字|标题).{0,12}(修改|更改|改一下|改下|更新|设置|替换)/.test(text)))
+  ((/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(封面|封面图|名称|名字|标题|草稿名)/.test(text) ||
+    /(封面|封面图|名称|名字|标题|草稿名).{0,12}(修改|更改|改一下|改下|更新|设置|替换)/.test(text) ||
+    (/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(当前草稿|这个草稿|该草稿|current draft)/.test(text) &&
+      DRAFT_ID_PATTERN.test(text) &&
+      DRAFT_META_FIELD_PATTERN.test(text))))
 
 const hasDraftInspectIntent = (text: string) =>
   hasAnyKeyword(text, ['query script', 'query_script']) ||

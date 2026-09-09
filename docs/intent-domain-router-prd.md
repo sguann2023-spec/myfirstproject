@@ -459,6 +459,7 @@ type IntentRoute = {
 - 当同一句话同时包含“创建”语义，且路由结果同时带上 `workspace.write` 时，执行阶段仍应优先使用 `mcp__draft-management__create_draft`；不要因为存在通用写文件工具就手动创建本地草稿目录、草稿 JSON 或空白草稿脚手架
 - `draft_create` / `draft_update_meta` 的 `cover` 参数应支持远程 URL、`file://` URL 和绝对本地路径；若传入本地路径，应由工具内部完成上传与后续提交，不应额外前置独立 `workspace.upload`
 - 用户提到“修改草稿封面”或“修改草稿名称”时，优先命中 `draft_update_meta`
+- 若用户使用结构化提示词表达草稿元信息修改，例如“请修改当前草稿”并同时给出 `草稿ID` + `草稿名` / `封面图` 字段，也应命中 `draft_update_meta`
 - 当任务涉及复杂草稿修改、修改了多个元素，或用户明确要求确认结果时，应补充 `draft_inspect`，用于查看草稿内容并校验是否添加正确
 - 当句子中出现草稿标识（如 `草稿` / `draft` / `dfd_`），同时包含“检查 / 看一下 / 确认 / 校验 / 核对”等动词，且后续跟随视觉属性词（如动画、弹入、转场、位置、样式、特效等）时，应直接命中 `draft_inspect`
 
@@ -643,6 +644,7 @@ type IntentRoute = {
 | `把这个 preset_id 加到草稿里，并替换里面的文字和图片` | `cut` | `["add_preset"]` | 单个预设片段插入，允许 replacements 覆盖素材 |
 | `批量添加 3 个预设片段，按顺序排到时间线上` | `cut` | `["add_batch_preset"]` | 多个预设批量插入，可按目标时间范围控制落点 |
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
+| `请修改当前草稿。草稿ID：dfd_cat_xxx 草稿名：全量效果测试` | `cut` | `["draft_update_meta"]` | 结构化的当前草稿元信息修改请求 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
 | `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 识别后按字幕样式模版上屏并写回草稿 |
 | `执行这个剪辑工作流，把多个 add_text 和 add_video 一次写进草稿` | `cut` | `["workflow"]` | 长耗时远端工作流执行 |
