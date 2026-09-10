@@ -2,12 +2,14 @@ import React from 'react';
 import { Bot, Check, Code, Copy, RefreshCw, Trash2, Type } from 'lucide-react';
 import { Tooltip, message as antMessage } from 'antd';
 import { Provider, useSelector } from 'react-redux';
+import CozeIcon from '../../../../../public/coze.svg';
 import './MessageItem.css';
 import MessageContent from '../MessageContent/MessageContent';
 import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
+import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -200,17 +202,28 @@ const MessageItem = ({
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
   const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
   const [draftDisplayMode, setDraftDisplayMode] = React.useState('text');
   const showDraftAgentFormat = draftDisplayMode === 'agent';
   const showDraftApiFormat = draftDisplayMode === 'api';
+  const showDraftCozeFormat = draftDisplayMode === 'coze';
   const displayedMessage = React.useMemo(() => {
     if (showDraftAgentFormat && canShowDraftAgentAction) {
       return {
         ...message,
         content: buildDraftAgentPrompt(message?.content)
+      };
+    }
+    if (showDraftCozeFormat && canShowDraftCozeAction) {
+      return {
+        ...message,
+        content: draftModifyRequest
+          ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
+          : buildDraftRequestCozeClipboardData(draftRequest),
+        imageAttachments: []
       };
     }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
@@ -225,11 +238,13 @@ const MessageItem = ({
   }, [
     canShowDraftAgentAction,
     canShowDraftApiAction,
+    canShowDraftCozeAction,
     draftModifyRequest,
     draftRequest,
     message,
     showDraftAgentFormat,
-    showDraftApiFormat
+    showDraftApiFormat,
+    showDraftCozeFormat
   ]);
 
   React.useEffect(() => {
@@ -237,10 +252,14 @@ const MessageItem = ({
       setDraftDisplayMode('text');
       return;
     }
+    if (showDraftCozeFormat && !canShowDraftCozeAction) {
+      setDraftDisplayMode('text');
+      return;
+    }
     if (showDraftApiFormat && !canShowDraftApiAction) {
       setDraftDisplayMode('text');
     }
-  }, [canShowDraftAgentAction, canShowDraftApiAction, showDraftAgentFormat, showDraftApiFormat]);
+  }, [canShowDraftAgentAction, canShowDraftApiAction, canShowDraftCozeAction, showDraftAgentFormat, showDraftApiFormat, showDraftCozeFormat]);
 
   React.useEffect(() => {
     if (!DEBUG_CHAT_LOADING || !isAssistant) return;
@@ -275,6 +294,11 @@ const MessageItem = ({
     event.stopPropagation();
     event.currentTarget?.blur?.();
     setDraftDisplayMode('agent');
+  }, []);
+  const handleConvertToCoze = React.useCallback((event) => {
+    event.stopPropagation();
+    event.currentTarget?.blur?.();
+    setDraftDisplayMode('coze');
   }, []);
   const handleConvertToText = React.useCallback((event) => {
     event.stopPropagation();
@@ -354,7 +378,10 @@ const MessageItem = ({
           {canShowDraftAgentAction && showDraftAgentFormat ? (
             <div className="chat-panel__message-api-tip">复制到其他agent使用</div>
           ) : null}
-          {(canShowDraftAgentAction || canShowDraftApiAction) ? (
+          {canShowDraftCozeAction && showDraftCozeFormat ? (
+            <div className="chat-panel__message-api-tip">复制到扣子工作流使用</div>
+          ) : null}
+          {(canShowDraftAgentAction || canShowDraftApiAction || canShowDraftCozeAction) ? (
             <>
               <Tooltip title="文字" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
                 <button
@@ -384,6 +411,17 @@ const MessageItem = ({
                     onClick={handleConvertToApi}
                     disabled={actionsDisabled}>
                     <Code size={15} className="chat-panel__message-action-icon" />
+                  </button>
+                </Tooltip>
+              ) : null}
+              {canShowDraftCozeAction ? (
+                <Tooltip title="Coze" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
+                  <button
+                    type="button"
+                    className={`chat-panel__message-action-btn ${showDraftCozeFormat ? 'is-active' : ''}`}
+                    onClick={handleConvertToCoze}
+                    disabled={actionsDisabled}>
+                    <img src={CozeIcon} alt="" className="chat-panel__message-action-image-icon" />
                   </button>
                 </Tooltip>
               ) : null}

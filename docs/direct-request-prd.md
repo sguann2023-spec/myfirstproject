@@ -10,20 +10,20 @@
 | 是否走直连 | 是否跳过普通 Agent 推理，直接调用指定 MCP tool |
 | 是否有 direct 回复 | 是否由主进程直接生成固定 assistant 回复 |
 | 前端是否可切换展示 | 这类 user message 是否支持前端展示态切换 |
-| 可展示类型 | 支持 `文字 / Agent / API` 中的哪些 |
+| 可展示类型 | 支持 `文字 / Agent / API / Coze` 中的哪些 |
 | 触发条件 | 什么时候允许显示某种切换卡片 |
 
 ---
 
 ## 2. 标记位总表
 
-| 标记位 | 业务语义 | MCP Server | MCP Tool | 是否 direct request | 是否 direct assistant 固定回复 | 前端是否支持切换卡片 | 文字 | Agent | API |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `draft_request` | 创建草稿 | `draft-management` | `create_draft` | 是 | 是 | 是 | 是 | 是 | 是 |
-| `draft_modify_request` | 修改草稿 | `draft-management` | `modify_draft` | 是 | 是 | 是 | 是 | 是 | 是 |
-| `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 |
-| `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 |
-| `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 |
+| 标记位 | 业务语义 | MCP Server | MCP Tool | 是否 direct request | 是否 direct assistant 固定回复 | 前端是否支持切换卡片 | 文字 | Agent | API | Coze |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `draft_request` | 创建草稿 | `draft-management` | `create_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `draft_modify_request` | 修改草稿 | `draft-management` | `modify_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
+| `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
+| `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 | 否 |
 
 ---
 
@@ -36,6 +36,7 @@
 | `文字` | 默认用户文案展示 | 否 | 否 |
 | `Agent` | 在原文前增加前缀：`使用vectcut工具，xxx` | 否 | 否 |
 | `API` | 将用户消息前端展示为 API / curl 形式 | 否 | 否 |
+| `Coze` | 将用户消息前端展示为 Coze 工作流剪贴板 JSON | 否 | 否 |
 
 ---
 
@@ -49,9 +50,10 @@
 | 目标 MCP | `draft-management.create_draft` |
 | 是否 direct request | 是 |
 | 是否 direct 回复 | 是 |
-| 支持展示类型 | `文字` / `Agent` / `API` |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
 | `API` 是否可展示 | 是 |
+| `Coze` 是否可展示 | 是，当前支持 `draft_request` / `draft_modify_request` |
 | 前端发送条件 | 默认允许发送 |
 
 典型 payload：
@@ -74,9 +76,10 @@
 | 目标 MCP | `draft-management.modify_draft` |
 | 是否 direct request | 是 |
 | 是否 direct 回复 | 是 |
-| 支持展示类型 | `文字` / `Agent` / `API` |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
 | `API` 是否可展示 | 是 |
+| `Coze` 是否可展示 | 是 |
 | 前端发送条件 | 必须先选择一个草稿，且 `name` / `cover` 至少一个有值 |
 
 典型 payload：
@@ -212,4 +215,5 @@
 | API | 是 / 否 |
 | `Agent` 展示条件 | 是否要求外部链接已连接 |
 | `API` 展示条件 | 是否支持 API 化展示 |
+| `Coze` 展示条件 | 是否支持 Coze 工作流剪贴板展示 |
 | 前端发送条件 | 例如至少选一个草稿 |

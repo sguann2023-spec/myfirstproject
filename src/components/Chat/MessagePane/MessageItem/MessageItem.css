@@ -91,6 +91,12 @@
   transition: color 0.2s ease;
 }
 
+.chat-panel__message-action-image-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
 .chat-panel__message-action-icon.copied {
   color: var(--color-primary, #5a95f0);
 }

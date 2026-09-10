@@ -1,0 +1,314 @@
+const COZE_WORKFLOW_SOURCE = {
+  workflowId: '7668682150007488554',
+  flowMode: 0,
+  spaceId: '7472683780642258985',
+  isDouyin: false,
+  host: 'www.coze.cn'
+};
+
+const COZE_CREATE_DRAFT_PLUGIN_META = {
+  apiID: '7579582015465537536',
+  apiName: 'create_draft',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: ''
+};
+
+const COZE_CREATE_DRAFT_NODE_META = {
+  title: 'create_draft',
+  icon: 'https://p3-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/f9322fc2b09d43909b6cf1d9af1fd4c4~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1791638762&x-signature=qWXAQDZ7A1uUbERLe9BSCpaXHpc%3D',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):create_draft',
+  description: '创建一个剪映草稿'
+};
+
+const COZE_CREATE_DRAFT_EXTERNAL_DATA = {
+  icon: '`https://lf9-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1791639443&x-signature=hXnFhPi4f1BdMaWjzHSE4zSpjR8%3D`',
+  apiName: 'create_draft',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '封面图', input: {}, name: 'cover', required: false, type: 'string' },
+    { defaultValue: 1920, description: '画布高度，像素值, default value is 1920', input: {}, name: 'height', required: false, type: 'integer' },
+    { description: '草稿名称', input: {}, name: 'name', required: false, type: 'string' },
+    { defaultValue: 1080, description: '画布宽度，像素值, default value is 1080', input: {}, name: 'width', required: false, type: 'integer' }
+  ],
+  outputs: [
+    {
+      input: {},
+      name: 'output',
+      required: false,
+      schema: [
+        { description: '草稿id，基于这个草稿继续编辑', input: {}, name: 'draft_id', required: false, type: 'string' },
+        { description: '草稿链接，复制到浏览器里打开可以预览', input: {}, name: 'draft_url', required: false, type: 'string' }
+      ],
+      type: 'object'
+    },
+    { input: {}, name: 'purchase_link', required: false, type: 'string' },
+    { input: {}, name: 'success', required: false, type: 'boolean' },
+    { input: {}, name: 'error', required: false, type: 'string' }
+  ],
+  updateTime: 1788775427,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '创建一个剪映草稿',
+  title: 'create_draft',
+  mainColor: '#CA61FF'
+};
+
+const COZE_MODIFY_DRAFT_PLUGIN_META = {
+  apiID: '7647446239436423204',
+  apiName: 'modify_draft',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: ''
+};
+
+const COZE_MODIFY_DRAFT_NODE_META = {
+  title: 'modify_draft',
+  icon: '`https://p3-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/f9322fc2b09d43909b6cf1d9af1fd4c4~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1791638762&x-signature=qWXAQDZ7A1uUbERLe9BSCpaXHpc%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):modify_draft',
+  description: '修改已有草稿'
+};
+
+const COZE_MODIFY_DRAFT_EXTERNAL_DATA = {
+  icon: '`https://lf26-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1791640107&x-signature=pEYSsx8omskxrL2vd2DIH8y2%2FWo%3D`',
+  apiName: 'modify_draft',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '草稿名', input: {}, name: 'name', required: false, type: 'string' },
+    { description: '封面图', input: {}, name: 'cover', required: false, type: 'string' },
+    { description: '草稿id', input: {}, name: 'draft_id', required: true, type: 'string' }
+  ],
+  outputs: [
+    { input: {}, name: 'error', required: false, type: 'string' },
+    {
+      input: {},
+      name: 'output',
+      required: false,
+      schema: [
+        { input: {}, name: 'draft_url', required: false, type: 'string' },
+        { input: {}, name: 'draft_id', required: false, type: 'string' }
+      ],
+      type: 'object'
+    },
+    { input: {}, name: 'purchase_link', required: false, type: 'string' },
+    { input: {}, name: 'success', required: false, type: 'boolean' }
+  ],
+  updateTime: 1788775427,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '修改已有草稿',
+  title: 'modify_draft',
+  mainColor: '#CA61FF'
+};
+
+const createLiteralValue = (content) => ({
+  type: 'literal',
+  content,
+  rawMeta: {
+    type: 1
+  }
+});
+
+const createInputParameter = (name, type, content) => ({
+  name,
+  input: {
+    type,
+    value: createLiteralValue(content)
+  }
+});
+
+const createApiParamEntries = (pluginMeta) => (
+  Object.entries(pluginMeta).map(([name, content]) => (
+    createInputParameter(name, 'string', content)
+  ))
+);
+
+const createDraftRequestInputParameters = (draftRequest = {}) => {
+  const width = Number(draftRequest?.width || 1080) || 1080;
+  const height = Number(draftRequest?.height || 1920) || 1920;
+  const name = String(draftRequest?.name || '').trim();
+  const cover = String(draftRequest?.cover || '').trim();
+
+  return [
+    createInputParameter('cover', 'string', cover),
+    createInputParameter('height', 'integer', height),
+    createInputParameter('name', 'string', name),
+    createInputParameter('width', 'integer', width)
+  ];
+};
+
+export const buildDraftRequestCozeClipboardData = (draftRequest = {}) => {
+  const inputParameters = createDraftRequestInputParameters(draftRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      ...COZE_WORKFLOW_SOURCE
+    },
+    json: {
+      nodes: [
+        {
+          id: '127143',
+          type: '4',
+          meta: {
+            position: {
+              x: 340.53846153846155,
+              y: -227.5
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_CREATE_DRAFT_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_CREATE_DRAFT_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: [
+              {
+                type: 'object',
+                name: 'output',
+                schema: [
+                  { type: 'string', name: 'draft_id', required: false, description: '草稿id，基于这个草稿继续编辑' },
+                  { type: 'string', name: 'draft_url', required: false, description: '草稿链接，复制到浏览器里打开可以预览' }
+                ],
+                required: false
+              },
+              { type: 'string', name: 'purchase_link', required: false },
+              { type: 'boolean', name: 'success', required: false },
+              { type: 'string', name: 'error', required: false }
+            ]
+          },
+          _temp: {
+            bounds: {
+              x: 160.53846153846155,
+              y: -227.5,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_CREATE_DRAFT_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: 160.53846153846155,
+      y: -227.5,
+      width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+const createDraftModifyRequestInputParameters = (draftModifyRequest = {}) => {
+  const draftId = String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || '').trim();
+  const name = String(draftModifyRequest?.name || '').trim();
+  const cover = String(draftModifyRequest?.cover || '').trim();
+  const parameters = [createInputParameter('draft_id', 'string', draftId)];
+
+  if (name) {
+    parameters.push(createInputParameter('name', 'string', name));
+  }
+  if (cover) {
+    parameters.push(createInputParameter('cover', 'string', cover));
+  }
+
+  return parameters;
+};
+
+export const buildDraftModifyRequestCozeClipboardData = (draftModifyRequest = {}) => {
+  const inputParameters = createDraftModifyRequestInputParameters(draftModifyRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      ...COZE_WORKFLOW_SOURCE
+    },
+    json: {
+      nodes: [
+        {
+          id: '199017',
+          type: '4',
+          meta: {
+            position: {
+              x: 1020.0388069319126,
+              y: 112.86787670007338
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_MODIFY_DRAFT_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_MODIFY_DRAFT_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: [
+              { type: 'string', name: 'error', required: false },
+              {
+                type: 'object',
+                name: 'output',
+                schema: [
+                  { type: 'string', name: 'draft_url', required: false },
+                  { type: 'string', name: 'draft_id', required: false }
+                ],
+                required: false
+              },
+              { type: 'string', name: 'purchase_link', required: false },
+              { type: 'boolean', name: 'success', required: false }
+            ]
+          },
+          _temp: {
+            bounds: {
+              x: 840.0388069319126,
+              y: 112.86787670007338,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_MODIFY_DRAFT_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: 840.0388069319126,
+      y: 112.86787670007338,
+      width: 360,
+      height: 112.00000000000001
+    }
+  }, null, 2);
+};
