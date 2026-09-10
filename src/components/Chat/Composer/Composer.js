@@ -2418,7 +2418,7 @@ const Composer = ({
         : activeTool === 'draft-modify'
           ? '输入新草稿名'
         : activeTool === 'draft-inspect'
-          ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看草稿的图片是否连续'
+          ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看图片是否是画中画'
         : activeTool === 'draft-export'
           ? ''
         : activeTool === 'image-pan'
@@ -4097,6 +4097,12 @@ const Composer = ({
           action: 'create',
           name: text,
           resolution: selectedDraftResolution,
+        }
+        : null,
+      draftInspectRequest: activeTool === 'draft-inspect'
+        ? {
+          draftId: String(selectedDraftInspectIds?.[0] || '').trim(),
+          requirement: text,
         }
         : null,
       draftModifyRequest: activeTool === 'draft-modify'

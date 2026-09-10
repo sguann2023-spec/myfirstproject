@@ -2160,6 +2160,13 @@ function classifyIntent(args: {
     ((!suppressGenericWebInferenceForImageUnderstand &&
       hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) ||
       /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text))
+  const hasGenericDraftLookupDomainIntent =
+    hasCutDraftContext(text) &&
+    hasLookupIntent(text) &&
+    !args.selected.has('draftCreate') &&
+    !args.selected.has('draftUpdateMeta') &&
+    !args.selected.has('draftDownload') &&
+    !args.selected.has('draftExport')
 
   if (hasWorkspaceReadIntent && !suppressWorkspaceInferenceForBash) {
     addDomainSubdomain('workspace', 'read', 'prompt:workspace-read')
@@ -2198,6 +2205,10 @@ function classifyIntent(args: {
   if (hasAnyKeyword(text, WEB_SCREENSHOT_KEYWORDS)) addDomainSubdomain('web', 'screenshot', 'prompt:web-screenshot')
   if (hasAnyKeyword(text, ['浏览器自动化', '自动操作页面', '网页执行', 'browser execute'])) {
     addDomainSubdomain('web', 'execute', 'prompt:web-execute')
+  }
+
+  if (hasGenericDraftLookupDomainIntent) {
+    addDomainSubdomain('cut', 'draft_inspect', 'prompt:cut-draft-lookup')
   }
 
   if (args.selected.has('materialsFolderLinks')) {

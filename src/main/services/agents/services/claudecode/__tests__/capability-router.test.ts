@@ -124,6 +124,34 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('search')).toBe(true)
   })
 
+  it('keeps web and cut domains together for current draft inspect prompts', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '请查看当前草稿。\n草稿ID：dfd_cat_1789035439_e69a752c\n查看要求：文字',
+      sessionId: 'session-current-draft-inspect',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('search')).toBe(true)
+    expect(decision.selected.has('draftInspect')).toBe(true)
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'web',
+          subdomains: expect.arrayContaining(['search'])
+        }),
+        expect.objectContaining({
+          domain: 'cut',
+          subdomains: expect.arrayContaining(['draft_inspect'])
+        })
+      ])
+    )
+  })
+
   it('routes page opening requests to web.browser', () => {
     const router = new CapabilityRouter()
 

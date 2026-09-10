@@ -5,6 +5,8 @@ import { useSelector } from 'react-redux';
 import { LOCAL_MCP_AGENT_OPTIONS } from './constants';
 import './MCPSettings.css';
 
+const LOCAL_MCP_AGENTS_UPDATED_EVENT = 'vectcut-local-mcp-agents-updated';
+
 const buildCustomMcpServerConfig = ({ apiServer, port }) => {
   const host = String(apiServer?.host || '127.0.0.1').trim() || '127.0.0.1';
   const resolvedPort = Number(port || apiServer?.port || 18845) || 18845;
@@ -55,9 +57,20 @@ const MCPSettings = () => {
   const refreshLocalMcpDetectedAgents = React.useCallback(async ({ silent = false } = {}) => {
     try {
       const detectedAgents = await window.api.localMcp.detectAgents();
-      setLocalMcpDetectedAgents(Array.isArray(detectedAgents) ? detectedAgents : []);
+      const normalizedDetectedAgents = Array.isArray(detectedAgents) ? detectedAgents : [];
+      setLocalMcpDetectedAgents(normalizedDetectedAgents);
+      window.dispatchEvent(new window.CustomEvent(LOCAL_MCP_AGENTS_UPDATED_EVENT, {
+        detail: {
+          detectedAgents: normalizedDetectedAgents
+        }
+      }));
     } catch (error) {
       setLocalMcpDetectedAgents([]);
+      window.dispatchEvent(new window.CustomEvent(LOCAL_MCP_AGENTS_UPDATED_EVENT, {
+        detail: {
+          detectedAgents: []
+        }
+      }));
       if (!silent) {
         message.error(`检测本地 Agent 失败：${error?.message || error}`);
       }

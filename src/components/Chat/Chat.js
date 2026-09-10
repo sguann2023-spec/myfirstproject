@@ -61,6 +61,10 @@ const buildHomeChatTopicId = (chatId) => {
   return normalizedChatId ? `home-chat-${normalizedChatId}` : '';
 };
 const PINNED_DRAFTS = [];
+const LOCAL_MCP_AGENTS_UPDATED_EVENT = 'vectcut-local-mcp-agents-updated';
+const hasRegisteredExternalAgent = (agents = []) => (
+  Array.isArray(agents) && agents.some((agent) => agent?.registrationStatus === 'registered')
+);
 
 const buildPinnedDraftKey = (draft, index = 0) => draft?.id || draft?.draftId || `${draft?.title || draft?.name || 'draft'}-${index}`;
 
@@ -315,6 +319,7 @@ const Chat = ({
   const beginnerGuideAiToolAreaRef = React.useRef(null);
   const beginnerGuideModelPickerRef = React.useRef(null);
   const beginnerGuideInputAreaRef = React.useRef(null);
+  const [hasConnectedExternalAgent, setHasConnectedExternalAgent] = React.useState(false);
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
   const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
   const currentWorkspacePath = React.useMemo(() => getSessionWorkspacePath(session), [session]);
@@ -334,9 +339,43 @@ const Chat = ({
 
   const messages = normalizeMessages(session);
 
+  const refreshLocalMcpConnectionState = React.useCallback(async () => {
+    try {
+      const detectedAgents = await window.api?.localMcp?.detectAgents?.();
+      setHasConnectedExternalAgent(hasRegisteredExternalAgent(detectedAgents));
+    } catch (error) {
+      setHasConnectedExternalAgent(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  React.useEffect(() => {
+    void refreshLocalMcpConnectionState();
+
+    const handleWindowFocus = () => {
+      void refreshLocalMcpConnectionState();
+    };
+    const handleLocalMcpAgentsUpdated = (event) => {
+      const detectedAgents = Array.isArray(event?.detail?.detectedAgents)
+        ? event.detail.detectedAgents
+        : null;
+      if (detectedAgents) {
+        setHasConnectedExternalAgent(hasRegisteredExternalAgent(detectedAgents));
+        return;
+      }
+      void refreshLocalMcpConnectionState();
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener(LOCAL_MCP_AGENTS_UPDATED_EVENT, handleLocalMcpAgentsUpdated);
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener(LOCAL_MCP_AGENTS_UPDATED_EVENT, handleLocalMcpAgentsUpdated);
+    };
+  }, [refreshLocalMcpConnectionState]);
 
   const insertSkillMention = React.useCallback((skill) => {
     const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
@@ -532,6 +571,7 @@ const Chat = ({
         messages={messages}
         sending={sending}
         historyLoading={historyLoading}
+        hasConnectedExternalAgent={hasConnectedExternalAgent}
         onCopyAssistantMessage={onCopyAssistantMessage}
         onRetryAssistantMessage={onRetryAssistantMessage}
         onDeleteAssistantMessage={onDeleteAssistantMessage}

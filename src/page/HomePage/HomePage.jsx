@@ -442,6 +442,23 @@ const normalizeDraftModifyRequestPayload = (draftModifyRequest = {}, cover = '')
     ...(resolvedCover ? { cover: resolvedCover } : {})
   };
 };
+const normalizeDraftInspectRequestPayload = (draftInspectRequest = {}, requestId = '') => {
+  if (!draftInspectRequest || typeof draftInspectRequest !== 'object') return null;
+  const draftId = String(draftInspectRequest?.draftId || draftInspectRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const requirement = String(
+    draftInspectRequest?.requirement
+    || draftInspectRequest?.inspectRequirement
+    || draftInspectRequest?.query
+    || ''
+  ).trim();
+  const resolvedRequestId = String(draftInspectRequest?.requestId || requestId || '').trim();
+  return {
+    draftId,
+    ...(requirement ? { requirement } : {}),
+    ...(resolvedRequestId ? { requestId: resolvedRequestId } : {})
+  };
+};
 const resolveDraftRequestCover = (imageAttachmentPreviews = []) => {
   const firstImage = imageAttachmentPreviews.find((item) => (
     String(item?.fileType || '').toLowerCase().startsWith('image/')
@@ -1830,6 +1847,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const draftModifyRequest = role === 'user' && sourceMessage?.draftModifyRequest && typeof sourceMessage.draftModifyRequest === 'object'
     ? { ...sourceMessage.draftModifyRequest }
     : undefined;
+  const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
+    ? { ...sourceMessage.draftInspectRequest }
+    : undefined;
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
@@ -1841,6 +1861,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && draftExportRequest ? { draftExportRequest } : {}),
     ...(role === 'user' && draftDownloadRequest ? { draftDownloadRequest } : {}),
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
+    ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -4879,6 +4900,9 @@ const HomePage = () => {
     const draftDownloadRequest = options?.draftDownloadRequest && typeof options.draftDownloadRequest === 'object'
       ? { ...options.draftDownloadRequest }
       : null;
+    const draftInspectRequest = options?.draftInspectRequest && typeof options.draftInspectRequest === 'object'
+      ? { ...options.draftInspectRequest }
+      : null;
     const images = Array.isArray(options?.images)
       ? options.images.filter((item) => (
         item
@@ -4938,6 +4962,7 @@ const HomePage = () => {
       message?.role === 'user' && String(message?.content || '').trim()
     )).length;
     const shouldRequestTitleFromFirstUserMessage = existingUserMessageCount === 0;
+    const requestId = createRequestId();
 
     applyImmediateChatTitleFromFirstUserMessage(targetSessionId, text);
 
@@ -4953,6 +4978,7 @@ const HomePage = () => {
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
+        ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
         createdAt: Date.now(),
       };
       const assistantMessage = {
@@ -4988,7 +5014,6 @@ const HomePage = () => {
       return;
     }
 
-    const requestId = createRequestId();
     const assistantMessageId = createMessageId();
     let userMessage = null;
     try {
@@ -5005,6 +5030,7 @@ const HomePage = () => {
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
+        ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
         createdAt: Date.now(),
       };
       const assistantMessage = {

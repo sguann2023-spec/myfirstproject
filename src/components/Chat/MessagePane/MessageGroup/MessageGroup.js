@@ -21,6 +21,7 @@ const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
 const MessageGroup = ({
   role,
   messages,
+  hasConnectedExternalAgent = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
   onDeleteAssistantMessage,
@@ -49,6 +50,7 @@ const MessageGroup = ({
           key={message.id || `${role}-${index}`}
           role={role}
           message={message}
+          hasConnectedExternalAgent={hasConnectedExternalAgent}
           onCopyAssistantMessage={onCopyAssistantMessage}
           onRetryAssistantMessage={onRetryAssistantMessage}
           onDeleteAssistantMessage={onDeleteAssistantMessage}
@@ -115,6 +117,7 @@ const areModelOptionsEqual = (prevOptions = [], nextOptions = []) => {
 export default React.memo(MessageGroup, (prevProps, nextProps) => (
   prevProps.role === nextProps.role
   && areMessagesEqual(prevProps.messages, nextProps.messages)
+  && prevProps.hasConnectedExternalAgent === nextProps.hasConnectedExternalAgent
   && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
   && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
   && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage

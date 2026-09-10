@@ -28,6 +28,7 @@ const MeasuredMessageGroup = React.memo(
     index,
     group,
     onResize,
+    hasConnectedExternalAgent,
     onCopyAssistantMessage,
     onRetryAssistantMessage,
     onDeleteAssistantMessage,
@@ -87,6 +88,7 @@ const MeasuredMessageGroup = React.memo(
         <MessageGroup
           role={group.role}
           messages={group.messages}
+          hasConnectedExternalAgent={hasConnectedExternalAgent}
           onCopyAssistantMessage={onCopyAssistantMessage}
           onRetryAssistantMessage={onRetryAssistantMessage}
           onDeleteAssistantMessage={onDeleteAssistantMessage}
@@ -108,6 +110,7 @@ const MessagePane = ({
   messages,
   sending,
   historyLoading = false,
+  hasConnectedExternalAgent = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
   onDeleteAssistantMessage,
@@ -315,6 +318,7 @@ const MessagePane = ({
               index={index}
               group={group}
               onResize={handleGroupResize}
+              hasConnectedExternalAgent={hasConnectedExternalAgent}
               onCopyAssistantMessage={onCopyAssistantMessage}
               onRetryAssistantMessage={onRetryAssistantMessage}
               onDeleteAssistantMessage={onDeleteAssistantMessage}
@@ -385,6 +389,7 @@ export default React.memo(MessagePane, (prevProps, nextProps) => (
   areMessagesEqual(prevProps.messages, nextProps.messages)
   && prevProps.sending === nextProps.sending
   && prevProps.historyLoading === nextProps.historyLoading
+  && prevProps.hasConnectedExternalAgent === nextProps.hasConnectedExternalAgent
   && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
   && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
   && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage

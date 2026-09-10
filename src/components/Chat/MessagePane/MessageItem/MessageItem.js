@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Code, Copy, RefreshCw, Trash2, Type } from 'lucide-react';
+import { Bot, Check, Code, Copy, RefreshCw, Trash2, Type } from 'lucide-react';
 import { Tooltip, message as antMessage } from 'antd';
 import { Provider, useSelector } from 'react-redux';
 import './MessageItem.css';
@@ -72,6 +72,19 @@ const buildDraftModifyRequestSignature = (draftModifyRequest = null) => {
     cover: String(draftModifyRequest?.cover || '')
   });
 };
+const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
+  if (!draftInspectRequest || typeof draftInspectRequest !== 'object') return '';
+  return JSON.stringify({
+    requestId: String(draftInspectRequest?.requestId || ''),
+    draftId: String(draftInspectRequest?.draftId || draftInspectRequest?.draft_id || ''),
+    requirement: String(
+      draftInspectRequest?.requirement
+      || draftInspectRequest?.inspectRequirement
+      || draftInspectRequest?.query
+      || ''
+    )
+  });
+};
 const isHttpLikeUrl = (value = '') => /^https?:\/\//i.test(String(value || '').trim());
 const resolveDraftApiCover = (draftRequest = null, message = {}) => {
   const directCover = String(draftRequest?.cover || '').trim();
@@ -127,6 +140,10 @@ const buildDraftModifyRequestApiCurl = (draftModifyRequest = null, message = {})
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildDraftAgentPrompt = (content = '') => {
+  const normalizedContent = String(content || '').trim();
+  return normalizedContent ? `使用vectcut工具，${normalizedContent}` : '使用vectcut工具';
+};
 
 const LiveAssistantMessageTokens = ({ fallbackMessage, storeAssistantMessageId }) => {
   const storeMessage = useSelector((state) => state?.messages?.entities?.[storeAssistantMessageId] || null);
@@ -148,6 +165,7 @@ const LiveAssistantMessageTokens = ({ fallbackMessage, storeAssistantMessageId }
 const MessageItem = ({
   message,
   role,
+  hasConnectedExternalAgent = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
   onDeleteAssistantMessage,
@@ -174,12 +192,27 @@ const MessageItem = ({
   const draftModifyRequest = message?.draftModifyRequest && typeof message.draftModifyRequest === 'object'
     ? message.draftModifyRequest
     : null;
+  const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
+    ? message.draftInspectRequest
+    : null;
+  const hasDraftAgentCompatibleRequest = Boolean(
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || draftInspectRequest
+  );
+  const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
   const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
-  const [showDraftApiFormat, setShowDraftApiFormat] = React.useState(false);
+  const [draftDisplayMode, setDraftDisplayMode] = React.useState('text');
+  const showDraftAgentFormat = draftDisplayMode === 'agent';
+  const showDraftApiFormat = draftDisplayMode === 'api';
   const displayedMessage = React.useMemo(() => {
+    if (showDraftAgentFormat && canShowDraftAgentAction) {
+      return {
+        ...message,
+        content: buildDraftAgentPrompt(message?.content)
+      };
+    }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
     const apiContent = draftModifyRequest
       ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
@@ -189,7 +222,25 @@ const MessageItem = ({
       content: apiContent,
       imageAttachments: []
     };
-  }, [canShowDraftApiAction, draftModifyRequest, draftRequest, message, showDraftApiFormat]);
+  }, [
+    canShowDraftAgentAction,
+    canShowDraftApiAction,
+    draftModifyRequest,
+    draftRequest,
+    message,
+    showDraftAgentFormat,
+    showDraftApiFormat
+  ]);
+
+  React.useEffect(() => {
+    if (showDraftAgentFormat && !canShowDraftAgentAction) {
+      setDraftDisplayMode('text');
+      return;
+    }
+    if (showDraftApiFormat && !canShowDraftApiAction) {
+      setDraftDisplayMode('text');
+    }
+  }, [canShowDraftAgentAction, canShowDraftApiAction, showDraftAgentFormat, showDraftApiFormat]);
 
   React.useEffect(() => {
     if (!DEBUG_CHAT_LOADING || !isAssistant) return;
@@ -218,12 +269,17 @@ const MessageItem = ({
   const handleConvertToApi = React.useCallback((event) => {
     event.stopPropagation();
     event.currentTarget?.blur?.();
-    setShowDraftApiFormat(true);
+    setDraftDisplayMode('api');
+  }, []);
+  const handleConvertToAgent = React.useCallback((event) => {
+    event.stopPropagation();
+    event.currentTarget?.blur?.();
+    setDraftDisplayMode('agent');
   }, []);
   const handleConvertToText = React.useCallback((event) => {
     event.stopPropagation();
     event.currentTarget?.blur?.();
-    setShowDraftApiFormat(false);
+    setDraftDisplayMode('text');
   }, []);
 
   return (
@@ -295,26 +351,42 @@ const MessageItem = ({
           {canShowDraftApiAction && showDraftApiFormat ? (
             <div className="chat-panel__message-api-tip">替换token为你的API KEY</div>
           ) : null}
-          {canShowDraftApiAction ? (
+          {canShowDraftAgentAction && showDraftAgentFormat ? (
+            <div className="chat-panel__message-api-tip">复制到其他agent使用</div>
+          ) : null}
+          {(canShowDraftAgentAction || canShowDraftApiAction) ? (
             <>
               <Tooltip title="文字" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
                 <button
                   type="button"
-                  className={`chat-panel__message-action-btn ${!showDraftApiFormat ? 'is-active' : ''}`}
+                  className={`chat-panel__message-action-btn ${draftDisplayMode === 'text' ? 'is-active' : ''}`}
                   onClick={handleConvertToText}
                   disabled={actionsDisabled}>
                   <Type size={15} className="chat-panel__message-action-icon" />
                 </button>
               </Tooltip>
-              <Tooltip title="API" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
-                <button
-                  type="button"
-                  className={`chat-panel__message-action-btn ${showDraftApiFormat ? 'is-active' : ''}`}
-                  onClick={handleConvertToApi}
-                  disabled={actionsDisabled}>
-                  <Code size={15} className="chat-panel__message-action-icon" />
-                </button>
-              </Tooltip>
+              {canShowDraftAgentAction ? (
+                <Tooltip title="Agent" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
+                  <button
+                    type="button"
+                    className={`chat-panel__message-action-btn ${showDraftAgentFormat ? 'is-active' : ''}`}
+                    onClick={handleConvertToAgent}
+                    disabled={actionsDisabled}>
+                    <Bot size={15} className="chat-panel__message-action-icon" />
+                  </button>
+                </Tooltip>
+              ) : null}
+              {canShowDraftApiAction ? (
+                <Tooltip title="API" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
+                  <button
+                    type="button"
+                    className={`chat-panel__message-action-btn ${showDraftApiFormat ? 'is-active' : ''}`}
+                    onClick={handleConvertToApi}
+                    disabled={actionsDisabled}>
+                    <Code size={15} className="chat-panel__message-action-icon" />
+                  </button>
+                </Tooltip>
+              ) : null}
             </>
           ) : null}
           <Tooltip title="复制" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
@@ -373,6 +445,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
     && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
     && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage
+    && prevProps.hasConnectedExternalAgent === nextProps.hasConnectedExternalAgent
     && prevProps.actionsDisabled === nextProps.actionsDisabled
     && prevProps.isLoading === nextProps.isLoading
     && prevProps.model === nextProps.model
@@ -394,6 +467,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildDraftExportRequestSignature(prevMessage.draftExportRequest) === buildDraftExportRequestSignature(nextMessage.draftExportRequest)
     && buildDraftDownloadRequestSignature(prevMessage.draftDownloadRequest) === buildDraftDownloadRequestSignature(nextMessage.draftDownloadRequest)
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
+    && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && prevError === nextError
   );
 });
