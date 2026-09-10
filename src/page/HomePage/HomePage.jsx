@@ -5392,7 +5392,8 @@ const HomePage = () => {
         createdAt: userMessage.createdAt,
         requestId,
         model: chatModel,
-        images
+        images,
+        ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {})
       });
       logger.info('[HomePage] cherryChatStream createMessage result', {
         chatId: targetSessionId,

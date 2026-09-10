@@ -78,6 +78,14 @@ type DirectDraftRequestPayload = {
     name?: string
     cover?: string
   }
+  draftInspectRequest?: {
+    requestId?: string
+    draftId?: string
+    draft_id?: string
+    requirement?: string
+    inspectRequirement?: string
+    query?: string
+  }
 }
 
 function parseDraftResultText(result: any): Record<string, any> {
@@ -1002,6 +1010,10 @@ export function registerSessionStreamIpc(): void {
               typeof (item as { media_type?: unknown }).media_type === 'string'
           )
         : undefined
+      const draftInspectRequest =
+        payload?.draftInspectRequest && typeof payload.draftInspectRequest === 'object'
+          ? payload.draftInspectRequest as Record<string, unknown>
+          : undefined
       if (!sessionId) return { ok: false, error: 'sessionId is required' }
       if (!content) return { ok: false, error: 'content is required' }
 
@@ -1066,7 +1078,12 @@ export function registerSessionStreamIpc(): void {
                 thinking: payload?.thinking
               },
               abortController,
-              { persist: true, displayContent: content, images }
+              {
+                persist: true,
+                displayContent: content,
+                images,
+                userMessageExtras: draftInspectRequest ? { draftInspectRequest } : undefined
+              }
             ),
             SESSION_MESSAGE_START_TIMEOUT_MS,
             abortController.signal

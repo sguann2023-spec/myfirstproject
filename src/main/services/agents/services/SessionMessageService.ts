@@ -56,6 +56,8 @@ export type CreateMessageOptions = {
   displayContent?: string
   /** User images for persistence and optional multimodal model input. */
   images?: Array<{ data: string; media_type: string }>
+  /** Extra user-message metadata that should survive persisted hydrate. */
+  userMessageExtras?: Record<string, unknown>
 }
 
 // Ensure errors emitted through SSE are serializable
@@ -251,6 +253,7 @@ export class SessionMessageService extends BaseService {
                     resolvedSessionId,
                     headlessAssistantMsgId,
                     options?.images,
+                    options?.userMessageExtras,
                     req.model,
                     accumulator.getUsage(),
                     accumulator.getUsageSteps(),
@@ -283,6 +286,7 @@ export class SessionMessageService extends BaseService {
                       resolvedSessionId,
                       headlessAssistantMsgId,
                       options?.images,
+                      options?.userMessageExtras,
                       req.model,
                       usage,
                       accumulator.getUsageSteps(),
@@ -336,6 +340,7 @@ export class SessionMessageService extends BaseService {
     agentSessionId: string,
     assistantMsgId: string,
     images?: Array<{ data: string; media_type: string }>,
+    userMessageExtras?: Record<string, unknown>,
     modelId?: string,
     usage?: PersistedUsage,
     usageSteps?: PersistedUsage[],
@@ -382,7 +387,8 @@ export class SessionMessageService extends BaseService {
         topicId,
         createdAt: normalizedUserCreatedAt,
         status: 'success',
-        blocks: [userBlockId, ...imageBlocks.map((b) => b.id)]
+        blocks: [userBlockId, ...imageBlocks.map((b) => b.id)],
+        ...(userMessageExtras && typeof userMessageExtras === 'object' ? userMessageExtras : {})
       },
       blocks: [
         {
