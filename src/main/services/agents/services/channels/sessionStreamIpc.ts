@@ -62,6 +62,16 @@ type DirectDraftRequestPayload = {
       cover?: string
     }>
   }
+  draftExportRequest?: {
+    draftId?: string
+    draftName?: string
+    cover?: string
+    drafts?: Array<{
+      draftId?: string
+      draftName?: string
+      cover?: string
+    }>
+  }
   draftModifyRequest?: {
     draftId?: string
     draft_id?: string
@@ -245,6 +255,10 @@ function normalizeDirectDraftDownloadRequest(input: Record<string, unknown> = {}
   }
 }
 
+function normalizeDirectDraftExportRequest(input: Record<string, unknown> = {}) {
+  return normalizeDirectDraftDownloadRequest(input)
+}
+
 function normalizeDirectDraftModifyRequest(input: Record<string, unknown> = {}) {
   const draftIdRaw = typeof input?.draftId === 'string' ? input.draftId : input?.draft_id
   const nameRaw = typeof input?.name === 'string' ? input.name : ''
@@ -283,6 +297,27 @@ function buildDirectDraftDownloadAssistantText(input: {
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
+function buildDirectDraftExportAssistantText(input: {
+  drafts: Array<{
+    draftId: string
+    draftName?: string
+  }>
+}): string {
+  const drafts = Array.isArray(input?.drafts) ? input.drafts : []
+  return [
+    '草稿导出任务已提交成功！',
+    '',
+    ...drafts.map((item, index) => {
+      const draftId = String(item?.draftId || '').trim()
+      const draftName = String(item?.draftName || '').trim()
+      const primaryText = draftName && draftName !== draftId ? `${draftName}（${draftId}）` : draftId
+      return `- 草稿${index + 1}：${primaryText}`
+    }),
+    '',
+    `共 ${drafts.length} 个草稿已加入导出队列，导出完成后，您可以在桌面端查看导出的文件。`
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
 function buildDirectDraftDownloadAssistantBlocks(input: {
   assistantMessageId: string
   modelId: string
@@ -312,6 +347,60 @@ function buildDirectDraftDownloadAssistantBlocks(input: {
           tool: {
             id: 'mcp__vectcut__draft-download__download_draft',
             name: 'mcp__vectcut__draft-download__download_draft',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectDraftExportAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+}) {
+  const { assistantMessageId, modelId, toolCallId, toolArgs, toolResponse, assistantText, createdAtIso } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status: 'success',
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__vectcut__draft-download__export_draft',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__vectcut__draft-download__export_draft',
+            name: 'mcp__vectcut__draft-download__export_draft',
             serverName: 'vectcut',
             serverId: 'vectcut',
             type: 'mcp'
@@ -1324,6 +1413,127 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleDraftExportRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedDraftExportRequest = normalizeDirectDraftExportRequest(
+        payload?.draftExportRequest && typeof payload.draftExportRequest === 'object'
+          ? payload.draftExportRequest as Record<string, unknown>
+          : {}
+      )
+      const drafts = normalizedDraftExportRequest.drafts
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `draft_export_request_${requestId}`
+      const toolArgs: Record<string, unknown> = drafts.length === 1
+        ? { ...drafts[0] }
+        : { drafts: drafts.map((item) => ({ ...item })) }
+
+      const toolResult = await callDraftDownloadTool('export_draft', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const assistantText = buildDirectDraftExportAssistantText({ drafts })
+      const assistantBlocks = buildDirectDraftExportAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: 'completed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              draftExportRequest: normalizedDraftExportRequest,
+              blocks: [
+                `${userMessageId}-main`
+              ]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: 'success',
+              content: assistantText,
+              blocks: assistantBlocks.map((block) => block.id)
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+      return {
+        ok: true,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('handleDraftExportRequest failed', { error: message })
+      return { ok: false, error: message }
+    }
+  }
+
   const handleDraftDownloadRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
     try {
       const sessionId = String(payload?.sessionId || '').trim()
@@ -1622,6 +1832,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(CherryChannels.SessionMessageCreate, handleSessionMessageCreate)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, handleDraftRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, handleDraftDownloadRequest)
 
   sessionStreamIpcRegistered = true

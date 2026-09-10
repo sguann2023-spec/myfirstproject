@@ -1,6 +1,6 @@
 import React from 'react';
 import { Popover } from 'antd';
-import { BookSearch, ChevronDown, ChevronUp, Download, SquarePen } from 'lucide-react';
+import { BookSearch, ChevronDown, ChevronUp, SquareArrowOutUpRight, SquarePen } from 'lucide-react';
 import './index.css';
 import DraftIcon from '../../../../../public/draft_icon.svg';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
@@ -48,9 +48,9 @@ const DRAFT_MENU_ITEMS = [
     icon: <BookSearch size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
   {
-    id: 'draft-download',
-    label: '下载草稿',
-    icon: <Download size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+    id: 'draft-export',
+    label: '导出草稿',
+    icon: <SquareArrowOutUpRight size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
 ];
 

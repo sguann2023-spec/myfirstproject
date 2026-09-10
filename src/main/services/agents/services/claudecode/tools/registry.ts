@@ -291,7 +291,8 @@ export async function mountRuntimeMcpServers(input: {
       name: 'draft-download',
       instance: draftDownloadServer.mcpServer
     })
-    autoAllowTools.add(vt('draft-download', 'download_draft'))
+    if (shouldMountCapability('draftDownload')) autoAllowTools.add(vt('draft-download', 'download_draft'))
+    if (shouldMountCapability('draftExport')) autoAllowTools.add(vt('draft-download', 'export_draft'))
     allowMcpPattern(vp('draft-download'))
   }
 

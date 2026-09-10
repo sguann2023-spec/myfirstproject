@@ -167,6 +167,24 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('browser')).toBe(false)
   })
 
+  it('does not let draft export requests with URLs fall into browser intent', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '导出这个草稿 https://vectcut.com/draft/downloader?draft_id=dfd_test_456',
+      sessionId: 'session-draft-export-url',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(['draft'])
+    expect(decision.selected.has('draftExport')).toBe(true)
+    expect(decision.selected.has('browser')).toBe(false)
+  })
+
   it('routes multi media url downloads to cut.media_download instead of browser', () => {
     const router = new CapabilityRouter()
 
@@ -681,6 +699,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const draftExportDecision = router.select({
+      prompt: '导出草稿',
+      sessionId: 'session-draft-export',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const subtitleTemplateDecision = router.select({
       prompt: '给这段视频添加字幕模板，默认样式就行',
       sessionId: 'session-subtitle-template',
@@ -817,6 +843,10 @@ describe('CapabilityRouter', () => {
     expect(draftDecision.primaryDomain).toBe('cut')
     expect(draftDecision.subdomains).toEqual(['draft'])
     expect(draftDecision.selected.has('draftDownload')).toBe(true)
+    expect(draftExportDecision.primaryDomain).toBe('cut')
+    expect(draftExportDecision.subdomains).toEqual(['draft'])
+    expect(draftExportDecision.selected.has('draftExport')).toBe(true)
+    expect(draftExportDecision.selected.has('draftDownload')).toBe(false)
     expect(subtitleTemplateDecision.primaryDomain).toBe('cut')
     expect(subtitleTemplateDecision.subdomains).toEqual(['template'])
     expect(subtitleTemplateDecision.selected.has('subtitleTemplate')).toBe(true)

@@ -1,6 +1,6 @@
 import { CloseOutlined } from '@ant-design/icons';
 import { Tooltip } from 'antd';
-import { Download } from 'lucide-react';
+import { SquareArrowOutUpRight } from 'lucide-react';
 import DraftSelect from '../DraftSelect/index';
 import './index.css';
 
@@ -24,14 +24,14 @@ const DraftDownloadToolDetail = ({
         <button
           type="button"
           className="chat-panel__tool-button chat-panel__tool-button--active"
-          aria-label="下载草稿"
-          title="下载草稿"
+          aria-label="导出草稿"
+          title="导出草稿"
           aria-pressed="true"
           disabled={disabled}
           onClick={onBack}
         >
-          <Download className="chat-panel__tool-icon chat-panel__tool-download-icon" aria-hidden="true" />
-          <span className="chat-panel__tool-text chat-panel__tool-text--active">下载草稿</span>
+          <SquareArrowOutUpRight className="chat-panel__tool-icon chat-panel__tool-download-icon" aria-hidden="true" />
+          <span className="chat-panel__tool-text chat-panel__tool-text--active">导出草稿</span>
           <CloseOutlined className="chat-panel__tool-close-icon" aria-hidden="true" />
         </button>
       </span>

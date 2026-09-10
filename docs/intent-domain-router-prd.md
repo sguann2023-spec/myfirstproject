@@ -317,6 +317,7 @@ type IntentRoute = {
 - `draft_update_meta`
 - `draft_inspect`
 - `draft_download`
+- `draft_export`
 - `text_add`
 - `text_add_batch`
 - `text_delete`
@@ -374,6 +375,7 @@ type IntentRoute = {
 - `draft_update_meta` -> `mcp__vectcut__draft-management__modify_draft`
 - `draft_inspect` -> `mcp__vectcut__draft-management__query_script`
 - `draft_download` -> `mcp__vectcut__draft-download__download_draft`
+- `draft_export` -> `mcp__vectcut__draft-download__export_draft`
 - `text_add` -> `mcp__vectcut__draft-elements__add_text`
 - `text_add_batch` -> `mcp__vectcut__draft-elements__add_batch_text`
 - `text_delete` -> `mcp__vectcut__draft-elements__remove_text`
@@ -432,6 +434,8 @@ type IntentRoute = {
 - `transition_type_list`：转场类型主要用于图片/视频等视觉素材衔接；用户提到“查看可用的转场类型”时应直接命中该子能力
 - `image_intro_animation_list` / `image_outro_animation_list` / `image_loop_animation_list`：图片和视频共用同一套动画查询工具；用户提到“查看视频入场动画 / 视频出场动画 / 视频循环动画”时，也应命中这三个子能力
 - `draft_download`：专用于下载剪映草稿；当当前句子或前文上下文里已经出现 `草稿` / `draft` / `draft_id` / `draft_url` / `dfd_` 等草稿标识时，下载语义应优先命中 `draft_download`，不要误落到 `workspace.download` 或 `media_download`
+- `draft_export`：专用于导出剪映草稿；当当前句子或前文上下文里已经出现 `草稿` / `draft` / `draft_id` / `draft_url` / `dfd_` 等草稿标识时，导出语义应优先命中 `draft_export`，不要误落到 `workspace.download`、`media_download` 或 `draft_download`
+- `draft_export` 与 `draft_download` 在路由语义层保持分离，但执行层共用同一个 `draft-download` server 实现，分别调用 `mcp__vectcut__draft-download__export_draft` 与 `mcp__vectcut__draft-download__download_draft`
 
 - 用户提到“分离视频里的音频”“提取视频音频”“提取 xxx 文件的音频”“导出音轨”时，应优先命中 `audio_extract`
 - 用户提到“把两个音频拼在一起”“合并多个音频”“拼接音频文件”“把几段录音接成一个”时，应优先命中 `audio_concat`
@@ -445,6 +449,7 @@ type IntentRoute = {
 - 用户提到“帮我看下这张图”“识别图里文字”“解释这个截图界面是什么”“描述图片里有什么”“看看这张图在讲什么”时，应优先命中 `chat.image_understand`
 - 用户提到“执行剪辑工作流”“运行 workflow_id”“把 inputs + script 一次性写进草稿”“调用 execute_workflow”“按工作流执行”时，应优先命中 `workflow`，且不要再并行命中 `add_batch_*` 或其他单步草稿编辑工具
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`
+- 用户提到“导出草稿”“把这个 draft 导出来”“导出这个 draft_url”“导出 dfd_xxx 对应的草稿”时，应优先命中 `draft_export`
 - `subtitle_recognition` 支持服务端可访问的音频/视频链接，也支持本地音频/视频文件路径、拖入文件或 workspace 内文件；遇到本地媒体时，工具内部负责上传后再调用远端字幕识别接口，Agent 不需要额外先走 `workspace.upload`
 - `video_understand` 支持服务端可访问的视频链接，也支持本地视频文件路径、拖入文件或 workspace 内视频；遇到本地视频时，工具内部负责上传后再调用远端视频理解接口，Agent 不需要额外先走 `workspace.upload`
 - 当用户明确表达“只提取字幕”“不要上屏”“不要添加到草稿”“先识别出字幕文本/时间轴”时，必须命中 `subtitle_recognition`，不要误落到 `subtitle_template`
@@ -646,6 +651,7 @@ type IntentRoute = {
 | `把这个草稿的封面和名称改一下` | `cut` | `["draft_update_meta"]` | 草稿元信息修改 |
 | `请修改当前草稿。草稿ID：dfd_cat_xxx 草稿名：全量效果测试` | `cut` | `["draft_update_meta"]` | 结构化的当前草稿元信息修改请求 |
 | `下载草稿` | `cut` | `["draft_download"]` | 剪辑任务 |
+| `导出草稿` | `cut` | `["draft_export"]` | 剪辑任务 |
 | `给这段视频添加字幕模板` | `cut` | `["subtitle_template"]` | 识别后按字幕样式模版上屏并写回草稿 |
 | `执行这个剪辑工作流，把多个 add_text 和 add_video 一次写进草稿` | `cut` | `["workflow"]` | 长耗时远端工作流执行 |
 | `剪一下口播` | `cut` | `["template"]` | 剪辑任务，后续可再细分 |

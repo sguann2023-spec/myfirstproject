@@ -7,6 +7,7 @@
 - 创建草稿
 - 修改草稿
 - 下载草稿
+- 导出草稿
 
 这类请求如果仍然走完整 Agent 对话策略，会带来几个问题：
 
@@ -28,6 +29,7 @@
 - `draft_request`
 - `draft_modify_request`
 - `draft_download_request`
+- `draft_export_request`
 
 满足以下要求：
 
@@ -77,6 +79,15 @@
 
 - server: `draft-download`
 - tool: `download_draft`
+
+### 3.4 `draft_export_request`
+
+表示“导出草稿”请求。
+
+目标 MCP：
+
+- server: `draft-download`
+- tool: `export_draft`
 
 ---
 
@@ -168,6 +179,33 @@
 - 支持单个或多个草稿
 - 至少选择一个草稿才允许发送
 
+### 5.4 `draft_export_request`
+
+语义：将一个或多个草稿提交到本地导出队列。
+
+典型字段：
+
+```json
+{
+  "drafts": [
+    {
+      "draftId": "dfd_cat_xxx",
+      "draftName": "草稿A"
+    },
+    {
+      "draftId": "dfd_cat_yyy",
+      "draftName": "草稿B"
+    }
+  ]
+}
+```
+
+说明：
+
+- 字段结构与 `draft_download_request` 完全一致
+- 支持单个或多个草稿
+- 至少选择一个草稿才允许发送
+
 ---
 
 ## 6. 前端职责
@@ -197,6 +235,7 @@
 
 - 新建草稿：默认可发送，无禁发提示
 - 下载草稿：未选草稿时提示 `至少选择一个草稿`
+- 导出草稿：未选草稿时提示 `至少选择一个草稿`
 - 修改草稿：未选草稿时提示 `必须选择一个草稿进行修改`
 
 ### 6.3 HomePage
@@ -208,6 +247,7 @@
 - 有 `draft_request` -> 走 create 直连
 - 有 `draft_modify_request` -> 走 modify 直连
 - 有 `draft_download_request` -> 走 download 直连
+- 有 `draft_export_request` -> 走 export 直连
 
 分流后职责：
 
@@ -255,6 +295,7 @@
 - 创建草稿：`mcp__vectcut__draft-management__create_draft`
 - 修改草稿：`mcp__vectcut__draft-management__modify_draft`
 - 下载草稿：`mcp__vectcut__draft-download__download_draft`
+- 导出草稿：`mcp__vectcut__draft-download__export_draft`
 
 否则前端可能无法正确渲染工具卡片或标题。
 
@@ -295,6 +336,14 @@
 
 - 使用系统换行符 `EOL`
 - 文案由主进程统一拼接，避免 renderer 与持久化结果不一致
+
+### 9.4 导出草稿
+
+固定回复包含：
+
+- 导出任务提交成功提示
+- 被提交的草稿列表
+- 队列完成后的说明
 
 ---
 
@@ -353,12 +402,14 @@ user message 的 API 化展示仅是前端展示态：
 
 - `CherryChatStream_DraftRequest`
 - `CherryChatStream_DraftModifyRequest`
+- `CherryChatStream_DraftExportRequest`
 - `CherryChatStream_DraftDownloadRequest`
 
 preload 对应方法：
 
 - `createDraftRequest`
 - `createDraftModifyRequest`
+- `createDraftExportRequest`
 - `createDraftDownloadRequest`
 
 ---

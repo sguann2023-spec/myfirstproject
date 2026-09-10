@@ -2633,7 +2633,8 @@
             "remove_video": "Remove Video"
           },
           "draft_download": {
-            "download_draft": "Download Draft"
+            "download_draft": "Download Draft",
+            "export_draft": "Export Draft"
           },
           "draft_management": {
             "create_draft": "Create Draft",

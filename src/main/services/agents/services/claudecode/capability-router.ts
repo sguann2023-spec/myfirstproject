@@ -67,6 +67,7 @@ export type RuntimeCapability =
   | 'draftUpdateMeta'
   | 'draftInspect'
   | 'draftDownload'
+  | 'draftExport'
   | 'copylab'
   | 'digitalHuman'
   | 'kouboTemplate'
@@ -357,6 +358,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('draft_download') && !selected.has('draftDownload')) {
         addCapabilityReason(selected, reasons, 'draftDownload', 'intent:cut.draft_download')
       }
+      if (activeDomain.subdomains.includes('draft_export') && !selected.has('draftExport')) {
+        addCapabilityReason(selected, reasons, 'draftExport', 'intent:cut.draft_export')
+      }
       if (activeDomain.subdomains.includes('subtitle_template') && !selected.has('subtitleTemplate')) {
         addCapabilityReason(selected, reasons, 'subtitleTemplate', 'intent:cut.subtitle_template')
       }
@@ -472,6 +476,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'draftUpdateMeta',
   'draftInspect',
   'draftDownload',
+  'draftExport',
   'copylab',
   'digitalHuman',
   'kouboTemplate',
@@ -549,6 +554,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'draftUpdateMeta',
   'draftInspect',
   'draftDownload',
+  'draftExport',
   'digitalHuman',
   'kouboTemplate',
   'copylab'
@@ -609,6 +615,7 @@ const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
   draft_update_meta: 'draft',
   draft_inspect: 'draft',
   draft_download: 'draft',
+  draft_export: 'draft',
   subtitle_template: 'template',
   template: 'template'
 }
@@ -1040,6 +1047,13 @@ const hasDraftDownloadIntent = (text: string) =>
   /\bdownload\b.{0,12}\bdraft\b/i.test(text) ||
   /\bdraft\b.{0,12}\bdownload\b/i.test(text)
 
+const hasDraftExportIntent = (text: string) =>
+  hasAnyKeyword(text, ['导出草稿', '草稿导出', 'draft export', 'export draft']) ||
+  /导出.{0,8}草稿/.test(text) ||
+  /草稿.{0,8}导出/.test(text) ||
+  /\bexport\b.{0,12}\bdraft\b/i.test(text) ||
+  /\bdraft\b.{0,12}\bexport\b/i.test(text)
+
 const hasSubtitleTemplateIntent = (text: string) =>
   hasAnyKeyword(text, CUT_SUBTITLE_TEMPLATE_KEYWORDS) ||
   ((/(给|帮|把|为|对).{0,8}(音频|视频|音轨|素材|录音)/.test(text) ||
@@ -1391,7 +1405,8 @@ export class CapabilityRouter {
           /draft.{0,8}(create|new|start)/.test(text))
       const hasDraftUpdateIntent = !hasCutWorkflow && hasDraftMetaUpdateIntent(text)
       const shouldInspectDraft = !hasCutWorkflow && hasDraftInspectIntent(text)
-      const shouldDownloadDraft = hasDraftDownloadIntent(text)
+      const shouldExportDraft = hasDraftExportIntent(text)
+      const shouldDownloadDraft = hasDraftDownloadIntent(text) && !shouldExportDraft
       const hasTextAdd = !hasCutWorkflow && hasTextAddIntent(text)
       const hasTextAddBatch = !hasCutWorkflow && hasTextAddBatchIntent(text)
       const hasTextDelete = !hasCutWorkflow && hasTextDeleteIntent(text)
@@ -1492,13 +1507,19 @@ export class CapabilityRouter {
         hasDraftUpdateIntent ||
         shouldInspectDraft ||
         shouldDownloadDraft ||
+        shouldExportDraft ||
         shouldApplySubtitleTemplate ||
         hasTemplateIntent ||
         hasVideoConcat
       const hasWebPageSourceDownloadIntent = /(网页|页面|网站).{0,12}(上的|里|中)/.test(text)
       const hasWorkspaceDownloadIntent =
-        hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft && !hasWebPageSourceDownloadIntent
-      const hasWebDownloadIntent = hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft
+        hasDownloadKeyword(text) &&
+        !hasMediaDownload &&
+        !shouldDownloadDraft &&
+        !shouldExportDraft &&
+        !hasWebPageSourceDownloadIntent
+      const hasWebDownloadIntent =
+        hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft && !shouldExportDraft
       const hasAiImageIntent =
         hasAnyKeyword(text, [
           '生成图',
@@ -1650,6 +1671,10 @@ export class CapabilityRouter {
 
       if (shouldDownloadDraft) {
         addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
+      }
+
+      if (shouldExportDraft) {
+        addCapabilityReason(selected, reasons, 'draftExport', 'prompt:draft-export')
       }
 
       if (hasTextAdd) {
@@ -2112,6 +2137,7 @@ function classifyIntent(args: {
     args.selected.has('draftUpdateMeta') ||
     args.selected.has('draftInspect') ||
     args.selected.has('draftDownload') ||
+    args.selected.has('draftExport') ||
     args.selected.has('subtitleTemplate') ||
     args.selected.has('kouboTemplate')
   const suppressWorkspaceInferenceForBash =
@@ -2285,6 +2311,7 @@ function classifyIntent(args: {
   if (args.selected.has('draftUpdateMeta')) addDomainSubdomain('cut', 'draft_update_meta', 'capability:draft-update-meta')
   if (args.selected.has('draftInspect')) addDomainSubdomain('cut', 'draft_inspect', 'capability:draft-inspect')
   if (args.selected.has('draftDownload')) addDomainSubdomain('cut', 'draft_download', 'capability:draft-download')
+  if (args.selected.has('draftExport')) addDomainSubdomain('cut', 'draft_export', 'capability:draft-export')
   if (args.selected.has('subtitleTemplate')) addDomainSubdomain('cut', 'subtitle_template', 'capability:subtitle-template')
   if (args.selected.has('kouboTemplate')) addDomainSubdomain('cut', 'template', 'capability:koubo-template')
 

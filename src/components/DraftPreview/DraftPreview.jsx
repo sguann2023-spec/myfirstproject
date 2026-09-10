@@ -333,7 +333,7 @@ function DraftPreview({ draft, drafts = [], onDeleteDraft, onRenameDraft }) {
       <div className="preview-subtitle">{subtitleText}</div>
       <div className="preview-download">
         <button className="download-button" onClick={handleDownload} disabled={isDeleting}>
-          {selectedCount > 1 ? `下载全部 (${selectedCount})` : '下载'}
+          {selectedCount > 1 ? `导出全部 (${selectedCount})` : '导出'}
         </button>
         <button className="delete-button" onClick={handleDelete} disabled={isDeleting}>
           {isDeleting ? '删除中...' : selectedCount > 1 ? `删除全部 (${selectedCount})` : '删除'}

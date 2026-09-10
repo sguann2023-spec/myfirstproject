@@ -2419,7 +2419,7 @@ const Composer = ({
           ? '输入新草稿名'
         : activeTool === 'draft-inspect'
           ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看草稿的图片是否连续'
-        : activeTool === 'draft-download'
+        : activeTool === 'draft-export'
           ? ''
         : activeTool === 'image-pan'
           ? '描述你想要的图片，或者选择本地图片后修改'
@@ -3767,7 +3767,7 @@ const Composer = ({
     const context = {
       input,
       hasSelectedLocalFile,
-      selectedDraftIds: activeTool === 'draft-download'
+      selectedDraftIds: activeTool === 'draft-export'
         ? selectedDraftDownloadIds
         : activeTool === 'draft-inspect'
           ? selectedDraftInspectIds
@@ -3776,7 +3776,7 @@ const Composer = ({
     switch (activeTool) {
       case 'draft':
         return getDraftToolSendState(context);
-      case 'draft-download':
+      case 'draft-export':
         return getDraftDownloadToolSendState(context);
       case 'draft-inspect':
         return getDraftInspectToolSendState(context);
@@ -4040,7 +4040,7 @@ const Composer = ({
       ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (activeTool !== 'draft' && activeTool !== 'draft-download' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && !combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && !combined) return;
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
     const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
     const videoOptionPromptSegments = buildVideoOptionPromptSegments({
@@ -4074,9 +4074,9 @@ const Composer = ({
             selectedDraftInspectId ? `草稿ID：${selectedDraftInspectId}` : '',
             text ? `查看要求：${text}` : '',
           ].filter(Boolean).join('\n')
-        : activeTool === 'draft-download'
+        : activeTool === 'draft-export'
           ? [
-            '请下载以下草稿：',
+            '请导出以下草稿：',
             ...selectedDraftDownloadIds.map((draftId) => `- ${draftId}`),
           ].join('\n')
         : activeTool === 'image-pan'
@@ -4105,7 +4105,7 @@ const Composer = ({
           ...(text ? { name: text } : {}),
         }
         : null,
-      draftDownloadRequest: activeTool === 'draft-download'
+      draftExportRequest: activeTool === 'draft-export'
         ? {
           drafts: selectedDraftDownloadIds.map((draftId) => ({
             draftId
@@ -4166,7 +4166,7 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const shouldDisableInput = activeTool === 'draft-download';
+    const shouldDisableInput = activeTool === 'draft-export';
     editor.setEditable(!shouldDisableInput);
     if (shouldDisableInput) {
       latestInputRef.current = '';
@@ -4318,7 +4318,7 @@ const Composer = ({
       applyAiWriteTemplate(selectedAiWritePresetId);
       return;
     }
-    if (nextTool === 'draft-download') {
+    if (nextTool === 'draft-export') {
       latestInputRef.current = '';
       setInput('');
       editor.commands.clearContent();
@@ -4386,7 +4386,7 @@ const Composer = ({
                       selectedResolution={selectedDraftResolution}
                       onResolutionChange={setSelectedDraftResolution}
                     />
-                  ) : activeTool === 'draft-download' ? (
+                  ) : activeTool === 'draft-export' ? (
                     <DraftDownloadToolDetail
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}

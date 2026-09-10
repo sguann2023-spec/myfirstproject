@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox, Tooltip } from 'antd';
-import { CloseOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
+import { CloseOutlined, DeleteOutlined, ExportOutlined } from '@ant-design/icons';
 import { deleteDraft, draftList, getClientBanner, searchDraft } from '../../api/capcut';
 import './index.css';
 import SearchIcon from '../../../public/search_unfocus.svg';
@@ -497,14 +497,14 @@ function DraftList({ onRefreshTodayCount, onSelectDraft, onSelectionChange, sele
             {selectedCount} 已选
           </Checkbox>
           <div className="draftlist-selection-divider" />
-          <Tooltip title="下载" placement="top">
+          <Tooltip title="导出" placement="top">
             <button
               type="button"
               className="draftlist-selection-action"
               onClick={handleBatchDownload}
               disabled={isDeleting}
             >
-              <DownloadOutlined />
+              <ExportOutlined />
             </button>
           </Tooltip>
           <Tooltip title="删除" placement="top">

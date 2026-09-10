@@ -64,7 +64,7 @@ const LOCAL_MCP_AGENT_SPECS: AgentDetectionSpec[] = [
   },
   {
     id: 'codex_cli',
-    label: 'Codex CLI',
+    label: 'Codex(ChatGPT)',
     desktopAppNames: ['Codex', 'ChatGPT'],
     desktopAppIdentifiers: ['com.openai.codex'],
     commandNames: ['codex']

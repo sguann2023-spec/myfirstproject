@@ -63,6 +63,7 @@ const buildDraftDownloadRequestSignature = (draftDownloadRequest = null) => {
     }))
   });
 };
+const buildDraftExportRequestSignature = (draftExportRequest = null) => buildDraftDownloadRequestSignature(draftExportRequest);
 const buildDraftModifyRequestSignature = (draftModifyRequest = null) => {
   if (!draftModifyRequest || typeof draftModifyRequest !== 'object') return '';
   return JSON.stringify({
@@ -164,13 +165,16 @@ const MessageItem = ({
   const draftRequest = message?.draftRequest && typeof message.draftRequest === 'object'
     ? message.draftRequest
     : null;
+  const draftExportRequest = message?.draftExportRequest && typeof message.draftExportRequest === 'object'
+    ? message.draftExportRequest
+    : null;
   const draftDownloadRequest = message?.draftDownloadRequest && typeof message.draftDownloadRequest === 'object'
     ? message.draftDownloadRequest
     : null;
   const draftModifyRequest = message?.draftModifyRequest && typeof message.draftModifyRequest === 'object'
     ? message.draftModifyRequest
     : null;
-  const canShowDraftApiAction = isUser && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -387,6 +391,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevMetrics === nextMetrics
     && buildImageAttachmentSignature(prevMessage.imageAttachments) === buildImageAttachmentSignature(nextMessage.imageAttachments)
     && buildDraftRequestSignature(prevMessage.draftRequest) === buildDraftRequestSignature(nextMessage.draftRequest)
+    && buildDraftExportRequestSignature(prevMessage.draftExportRequest) === buildDraftExportRequestSignature(nextMessage.draftExportRequest)
     && buildDraftDownloadRequestSignature(prevMessage.draftDownloadRequest) === buildDraftDownloadRequestSignature(nextMessage.draftDownloadRequest)
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
     && prevError === nextError

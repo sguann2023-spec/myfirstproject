@@ -160,7 +160,7 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
                 <StatusTitle>已完成 </StatusTitle>
               </ProcessingTitleRow>
               <ResultLinkRow>
-                <ResultLinkText>下载草稿</ResultLinkText>
+                <ResultLinkText>导出草稿</ResultLinkText>
               </ResultLinkRow>
             </ProcessingState>
           </ResultStateLink>

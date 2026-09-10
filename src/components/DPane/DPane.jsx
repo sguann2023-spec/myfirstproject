@@ -161,7 +161,7 @@ const DPane = ({
           {downloadCount > 0 && (
             <span className="d-pane-badge">{displayDownloadCount}</span>
           )}
-          <div className="d-pane-tip">下载</div>
+          <div className="d-pane-tip">传输</div>
         </div>
         <div
           className={`d-pane-item ${isPresetSelected ? 'selected' : ''}`}

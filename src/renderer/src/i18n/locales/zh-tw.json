@@ -2631,7 +2631,8 @@
             "remove_video": "刪除影片"
           },
           "draft_download": {
-            "download_draft": "下載草稿"
+            "download_draft": "下載草稿",
+            "export_draft": "匯出草稿"
           },
           "draft_management": {
             "create_draft": "建立草稿",

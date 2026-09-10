@@ -2633,7 +2633,8 @@
             "remove_video": "删除视频"
           },
           "draft_download": {
-            "download_draft": "下载草稿"
+            "download_draft": "下载草稿",
+            "export_draft": "导出草稿"
           },
           "draft_management": {
             "create_draft": "创建草稿",

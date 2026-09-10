@@ -93,12 +93,6 @@ const SUPPORT_OPTION_LABELS = {
   superResolveOn: '开启',
   superResolveOff: '关闭',
 };
-const TRIGGER_STATUS_LABELS = {
-  audioOn: '有声',
-  audioOff: '无声',
-  offlineOn: '闲时',
-  superResolveOn: '超分',
-};
 
 const getModelCapability = (capabilities, model) => capabilities?.[model] || {};
 const normalizeGenerationModeValue = (value) => {
@@ -608,31 +602,7 @@ const VideoResolutionSelect = ({
             alt=""
             aria-hidden="true"
           />
-          <span className="chat-panel__video-resolution-trigger-text">
-            <span>{ratio}</span>
-            <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-            <span>{displayTierLabel(tier)}</span>
-            <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-            <span>{resolvedDuration}s</span>
-            {generateAudioSupported ? (
-              <>
-                <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-                <span>{generateAudio ? TRIGGER_STATUS_LABELS.audioOn : TRIGGER_STATUS_LABELS.audioOff}</span>
-              </>
-            ) : null}
-            {seedanceOfflineSupported && seedanceOffline ? (
-              <>
-                <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-                <span>{TRIGGER_STATUS_LABELS.offlineOn}</span>
-              </>
-            ) : null}
-            {superResolveSupported && superResolve ? (
-              <>
-                <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-                <span>{TRIGGER_STATUS_LABELS.superResolveOn}</span>
-              </>
-            ) : null}
-          </span>
+          <span className="chat-panel__video-resolution-trigger-text">{ratio}</span>
           <DownOutlined className={`chat-panel__video-resolution-trigger-arrow ${open ? 'is-open' : ''}`} aria-hidden="true" />
         </button>
       </Popover>

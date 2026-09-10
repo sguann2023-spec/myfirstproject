@@ -139,6 +139,7 @@ export enum IpcChannel {
   CherryChatStream_MessageCreate = 'cherry-chat-stream:message:create',
   CherryChatStream_DraftRequest = 'cherry-chat-stream:draft-request',
   CherryChatStream_DraftModifyRequest = 'cherry-chat-stream:draft-modify-request',
+  CherryChatStream_DraftExportRequest = 'cherry-chat-stream:draft-export-request',
   CherryChatStream_DraftDownloadRequest = 'cherry-chat-stream:draft-download-request',
   CherryChatStream_MessageList = 'cherry-chat-stream:message:list',
   CherryChatStream_Subscribe = 'cherry-chat-stream:subscribe',

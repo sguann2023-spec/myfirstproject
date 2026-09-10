@@ -1,6 +1,6 @@
 import { LoadingIcon } from '@renderer/components/Icons'
 import { Typography } from 'antd'
-import { CheckCircle, ChevronDown, ChevronUp, Download, Eye, X } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronUp, Eye, SquareArrowOutUpRight, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import PinnedDraftTrackView, {
@@ -229,8 +229,8 @@ export default function PinnedDraftPannel({
                     type="button"
                     className="pinned-draft-panel__action"
                     onClick={handleDownloadItem(previewDraft)}
-                    aria-label={`下载草稿 ${previewDraft.title}`}>
-                    <Download size={14} />
+                    aria-label={`导出草稿 ${previewDraft.title}`}>
+                    <SquareArrowOutUpRight size={14} />
                   </button>
                 ) : null}
               </>
@@ -248,16 +248,16 @@ export default function PinnedDraftPannel({
                 type="button"
                 className="pinned-draft-panel__action"
                 onClick={handleDownloadItem(activeDraft)}
-                aria-label={`下载草稿 ${activeDraft.title}`}>
-                <Download size={14} />
+                aria-label={`导出草稿 ${activeDraft.title}`}>
+                <SquareArrowOutUpRight size={14} />
               </button>
             ) : !isPreviewMode && displayDrafts.length > 0 ? (
               <button
                 type="button"
                 className="pinned-draft-panel__action"
                 onClick={handleDownloadAll}
-                aria-label="下载全部草稿">
-                <Download size={14} />
+                aria-label="导出全部草稿">
+                <SquareArrowOutUpRight size={14} />
               </button>
             ) : null}
             <button
@@ -321,8 +321,8 @@ export default function PinnedDraftPannel({
                       type="button"
                       className="pinned-draft-panel__item-action"
                       onClick={handleDownloadItem(draft)}
-                      aria-label={`下载草稿 ${draft.title}`}>
-                      <Download size={14} />
+                      aria-label={`导出草稿 ${draft.title}`}>
+                      <SquareArrowOutUpRight size={14} />
                     </button>
                   </div>
                 </div>

@@ -429,6 +429,7 @@ const normalizeDraftDownloadRequestPayload = (draftDownloadRequest = {}) => {
     }]
   };
 };
+const normalizeDraftExportRequestPayload = (draftExportRequest = {}) => normalizeDraftDownloadRequestPayload(draftExportRequest);
 const normalizeDraftModifyRequestPayload = (draftModifyRequest = {}, cover = '') => {
   if (!draftModifyRequest || typeof draftModifyRequest !== 'object') return null;
   const draftId = String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || '').trim();
@@ -517,6 +518,40 @@ const buildDraftDownloadRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: draftDownloadRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDraftExportRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftExportRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_export_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-export-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-download__export_draft',
+    arguments: draftExportRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-download__export_draft',
+          name: 'mcp__vectcut__draft-download__export_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: draftExportRequest,
         status: 'pending'
       }
     }
@@ -1786,6 +1821,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const draftRequest = role === 'user' && sourceMessage?.draftRequest && typeof sourceMessage.draftRequest === 'object'
     ? { ...sourceMessage.draftRequest }
     : undefined;
+  const draftExportRequest = role === 'user' && sourceMessage?.draftExportRequest && typeof sourceMessage.draftExportRequest === 'object'
+    ? { ...sourceMessage.draftExportRequest }
+    : undefined;
   const draftDownloadRequest = role === 'user' && sourceMessage?.draftDownloadRequest && typeof sourceMessage.draftDownloadRequest === 'object'
     ? { ...sourceMessage.draftDownloadRequest }
     : undefined;
@@ -1800,6 +1838,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     blocks: normalizedBlocks,
     ...(role === 'user' && imageAttachments.length > 0 ? { imageAttachments } : {}),
     ...(role === 'user' && draftRequest ? { draftRequest } : {}),
+    ...(role === 'user' && draftExportRequest ? { draftExportRequest } : {}),
     ...(role === 'user' && draftDownloadRequest ? { draftDownloadRequest } : {}),
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
     createdAt,
@@ -4834,6 +4873,9 @@ const HomePage = () => {
     const draftModifyRequest = options?.draftModifyRequest && typeof options.draftModifyRequest === 'object'
       ? { ...options.draftModifyRequest }
       : null;
+    const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
+      ? { ...options.draftExportRequest }
+      : null;
     const draftDownloadRequest = options?.draftDownloadRequest && typeof options.draftDownloadRequest === 'object'
       ? { ...options.draftDownloadRequest }
       : null;
@@ -4909,6 +4951,7 @@ const HomePage = () => {
         imageAttachments: imageAttachmentPreviews,
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         createdAt: Date.now(),
       };
@@ -4960,6 +5003,7 @@ const HomePage = () => {
         imageAttachments: imageAttachmentPreviews,
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         createdAt: Date.now(),
       };
@@ -5164,6 +5208,60 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'draft-modify-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'draft-modify-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'draft-modify-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (draftExportRequest) {
+        const resolvedDraftExportRequest = normalizeDraftExportRequestPayload(draftExportRequest);
+        if (!resolvedDraftExportRequest || !Array.isArray(resolvedDraftExportRequest.drafts) || resolvedDraftExportRequest.drafts.length === 0) {
+          throw new Error('draft export request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftExportRequest: resolvedDraftExportRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftExportRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftExportRequest: resolvedDraftExportRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftExportResult = await window.electronAPI.cherryChatStream.createDraftExportRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftExportRequest: resolvedDraftExportRequest,
+        });
+        if (!directDraftExportResult?.ok) {
+          throw new Error(directDraftExportResult?.error || 'draft export request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftExportResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftExportResult?.assistantBlocks) ? directDraftExportResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-export-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-export-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-export-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-export-request.complete');
         setChatSending(false);
         return;
       }
