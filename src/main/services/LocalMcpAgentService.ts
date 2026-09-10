@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 
 import { loggerService } from '@logger'
@@ -14,6 +15,7 @@ import { isMac, isWin } from '@main/constant'
 const logger = loggerService.withContext('LocalMcpAgentService')
 
 const COMMAND_LOOKUP_TIMEOUT_MS = 1500
+const TEN_DAYS_IN_MS = 10 * 24 * 60 * 60 * 1000
 type MacInstalledApp = ReturnData<'darwin', 'mdls'> | ReturnData<'darwin', 'plutil'>
 type WinInstalledApp = ReturnData<'win32', 'registry'>
 type DesktopInstalledApp = MacInstalledApp | WinInstalledApp
@@ -169,8 +171,46 @@ function getCodexConfigPath(): string {
   return path.join(os.homedir(), '.codex', 'config.toml')
 }
 
-function getCodexMcpUrl(port: number): string {
+function getWorkBuddyConfigPath(): string {
+  return path.join(os.homedir(), '.workbuddy', 'mcp.json')
+}
+
+function getWorkBuddyApprovalsPath(): string {
+  return path.join(os.homedir(), '.workbuddy', 'mcp-approvals.json')
+}
+
+function getLocalMcpUrl(port: number): string {
   return `http://127.0.0.1:${port}/api/v1/mcp`
+}
+
+function calculateWorkBuddyConfigHash(entry: Record<string, unknown>): string {
+  let raw = ''
+
+  if (entry?.command) {
+    const args = Array.isArray(entry.args) ? entry.args.map((arg) => String(arg)).sort() : []
+    const envKeys = entry.env && typeof entry.env === 'object' && !Array.isArray(entry.env)
+      ? Object.keys(entry.env).sort()
+      : []
+    raw = `${String(entry.command || '')}|${args.join(',')}|${envKeys.join(',')}`
+  } else if (entry?.url) {
+    try {
+      raw = new URL(String(entry.url)).origin
+    } catch {
+      raw = String(entry.url)
+    }
+  } else {
+    raw = JSON.stringify(entry)
+  }
+
+  return crypto.createHash('sha256').update(raw, 'utf8').digest('hex')
+}
+
+function getWorkBuddyApprovalKey(entry: Record<string, unknown>, serverName: string): string {
+  return `${calculateWorkBuddyConfigHash(entry)}::${serverName}`
+}
+
+function getWorkBuddyApprovalTimestamp(): number {
+  return Date.now() - TEN_DAYS_IN_MS
 }
 
 function buildCodexRegistrationBlock(input: { url: string }): string {
@@ -259,7 +299,69 @@ function getCodexRegistrationState(): RegistrationResult {
   }
 }
 
+function hasWorkBuddyRegistration(content: string): boolean {
+  try {
+    const parsed = JSON.parse(String(content || '{}'))
+    const entry = parsed?.mcpServers?.[VECTCUT_MCP_SERVER_NAME]
+    return Boolean(entry && typeof entry === 'object' && entry.url)
+  } catch {
+    return false
+  }
+}
+
+function hasWorkBuddyApproval(content: string, entry: Record<string, unknown> | null): boolean {
+  if (!entry) return false
+
+  try {
+    const parsed = JSON.parse(String(content || '{}'))
+    const approvalKey = getWorkBuddyApprovalKey(entry, VECTCUT_MCP_SERVER_NAME)
+    return Number.isFinite(Number(parsed?.[approvalKey])) || typeof parsed?.[approvalKey] === 'string'
+  } catch {
+    return false
+  }
+}
+
+function getWorkBuddyRegistrationState(): RegistrationResult {
+  const configPath = getWorkBuddyConfigPath()
+  const approvalsPath = getWorkBuddyApprovalsPath()
+
+  try {
+    if (!fs.existsSync(configPath) || !fs.existsSync(approvalsPath)) {
+      return {
+        registrationSupported: true,
+        registrationStatus: 'not_registered',
+        registrationHint: '可写入 ~/.workbuddy/mcp.json 与 mcp-approvals.json',
+        registrationPath: configPath
+      }
+    }
+
+    const configContent = fs.readFileSync(configPath, 'utf8')
+    const approvalsContent = fs.readFileSync(approvalsPath, 'utf8')
+    const config = JSON.parse(String(configContent || '{}'))
+    const entry = config?.mcpServers?.[VECTCUT_MCP_SERVER_NAME]
+    const registered = hasWorkBuddyRegistration(configContent) && hasWorkBuddyApproval(approvalsContent, entry)
+    return {
+      registrationSupported: true,
+      registrationStatus: registered ? 'registered' : 'not_registered',
+      registrationHint: registered ? '已写入 ~/.workbuddy/mcp.json 与 mcp-approvals.json' : '可写入 ~/.workbuddy/mcp.json 与 mcp-approvals.json',
+      registrationPath: configPath
+    }
+  } catch (error) {
+    logger.warn('Failed to read WorkBuddy registration state', { error, configPath })
+    return {
+      registrationSupported: true,
+      registrationStatus: 'not_registered',
+      registrationHint: 'WorkBuddy 配置读取失败（~/.workbuddy/mcp.json / mcp-approvals.json）',
+      registrationPath: configPath
+    }
+  }
+}
+
 function getRegistrationResult(agentId: LocalMcpDetectedAgent['id']): RegistrationResult {
+  if (agentId === 'workbuddy') {
+    return getWorkBuddyRegistrationState()
+  }
+
   if (agentId === 'codex_cli') {
     return getCodexRegistrationState()
   }
@@ -336,7 +438,10 @@ async function getInstalledDesktopApps(): Promise<DesktopInstalledApp[]> {
 
 class LocalMcpAgentService {
   hasPersistentRegistration(): boolean {
-    return getCodexRegistrationState().registrationStatus === 'registered'
+    return (
+      getWorkBuddyRegistrationState().registrationStatus === 'registered'
+      || getCodexRegistrationState().registrationStatus === 'registered'
+    )
   }
 
   async detectAgents(): Promise<LocalMcpDetectedAgent[]> {
@@ -372,48 +477,109 @@ class LocalMcpAgentService {
     agentId: LocalMcpDetectedAgent['id'],
     enabled: boolean
   ): Promise<SetLocalMcpAgentRegistrationResult> {
-    if (agentId !== 'codex_cli') {
+    try {
+      if (agentId === 'workbuddy') {
+        const configPath = getWorkBuddyConfigPath()
+        const approvalsPath = getWorkBuddyApprovalsPath()
+        const parentDir = path.dirname(configPath)
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true })
+        }
+
+        const currentContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '{}'
+        const currentConfig = currentContent.trim() ? JSON.parse(currentContent) : {}
+        const nextConfig = currentConfig && typeof currentConfig === 'object' && !Array.isArray(currentConfig)
+          ? { ...currentConfig }
+          : {}
+        const currentMcpServers = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object' && !Array.isArray(nextConfig.mcpServers)
+          ? { ...nextConfig.mcpServers }
+          : {}
+
+        if (enabled) {
+          const runningPort = apiServer.getListeningPort()
+          if (!runningPort) {
+            return {
+              success: false,
+              error: '本地 MCP 服务未启动，无法写入动态 endpoint'
+            }
+          }
+
+          const url = getLocalMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
+          currentMcpServers[VECTCUT_MCP_SERVER_NAME] = { url }
+        } else {
+          delete currentMcpServers[VECTCUT_MCP_SERVER_NAME]
+        }
+        nextConfig.mcpServers = currentMcpServers
+
+        fs.writeFileSync(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8')
+
+        const currentApprovalsContent = fs.existsSync(approvalsPath) ? fs.readFileSync(approvalsPath, 'utf8') : '{}'
+        const currentApprovals = currentApprovalsContent.trim() ? JSON.parse(currentApprovalsContent) : {}
+        const nextApprovals = currentApprovals && typeof currentApprovals === 'object' && !Array.isArray(currentApprovals)
+          ? { ...currentApprovals }
+          : {}
+
+        Object.keys(nextApprovals).forEach((key) => {
+          if (key.endsWith(`::${VECTCUT_MCP_SERVER_NAME}`)) {
+            delete nextApprovals[key]
+          }
+        })
+
+        const workBuddyEntry = currentMcpServers[VECTCUT_MCP_SERVER_NAME]
+        if (enabled && workBuddyEntry && typeof workBuddyEntry === 'object') {
+          nextApprovals[getWorkBuddyApprovalKey(workBuddyEntry, VECTCUT_MCP_SERVER_NAME)] = getWorkBuddyApprovalTimestamp()
+        }
+
+        fs.writeFileSync(approvalsPath, `${JSON.stringify(nextApprovals, null, 2)}\n`, 'utf8')
+
+        logger.info('Updated WorkBuddy MCP registration', {
+          enabled,
+          configPath,
+          approvalsPath,
+          registration: currentMcpServers[VECTCUT_MCP_SERVER_NAME] || null
+        })
+
+        return { success: true }
+      }
+
+      if (agentId === 'codex_cli') {
+        const runningPort = apiServer.getListeningPort()
+        if (!runningPort && enabled) {
+          return {
+            success: false,
+            error: '本地 MCP 服务未启动，无法写入动态 endpoint'
+          }
+        }
+
+        const url = getLocalMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
+        const configPath = getCodexConfigPath()
+        const parentDir = path.dirname(configPath)
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true })
+        }
+
+        const currentContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : ''
+        const nextContent = enabled
+          ? upsertCodexRegistrationBlock(currentContent, { url })
+          : removeCodexRegistrationBlock(currentContent)
+
+        fs.writeFileSync(configPath, nextContent ? `${nextContent}\n` : '', 'utf8')
+
+        logger.info('Updated Codex MCP registration', {
+          enabled,
+          configPath,
+          url
+        })
+
+        return { success: true }
+      }
+
       return {
         success: false,
-        error: '当前仅支持自动注册到 Codex'
+        error: '当前 Agent 暂不支持自动注册'
       }
-    }
-
-    const configPath = getCodexConfigPath()
-
-    try {
-      const parentDir = path.dirname(configPath)
-      if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true })
-      }
-
-      const runningPort = apiServer.getListeningPort()
-
-      if (!runningPort) {
-        return {
-          success: false,
-          error: '本地 MCP 服务未启动，无法写入动态 endpoint'
-        }
-      }
-
-      const url = getCodexMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
-
-      const currentContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : ''
-      const nextContent = enabled
-        ? upsertCodexRegistrationBlock(currentContent, { url })
-        : removeCodexRegistrationBlock(currentContent)
-
-      fs.writeFileSync(configPath, nextContent ? `${nextContent}\n` : '', 'utf8')
-
-      logger.info('Updated Codex MCP registration', {
-        enabled,
-        configPath,
-        url
-      })
-
-      return { success: true }
     } catch (error) {
-      logger.error('Failed to update Codex MCP registration', error as Error)
+      logger.error('Failed to update local MCP registration', error as Error)
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error)
