@@ -788,10 +788,6 @@ class VideoGenerateServer {
       .filter(Boolean)
   }
 
-  private isSeedance20Model(model: string) {
-    return /^seedance-2\.0(?:-fast)?$/i.test(model.trim())
-  }
-
   private normalizeGenerationMode(mode: unknown) {
     if (typeof mode !== 'string') {
       return ''
@@ -817,6 +813,38 @@ class VideoGenerateServer {
       return role
     }
     return ''
+  }
+
+  private hasStructuredSubmissionIntent(
+    args: Record<string, unknown>,
+    payload: Record<string, unknown>,
+    content: Record<string, unknown>[],
+    generationMode: string
+  ) {
+    if (content.length > 0) {
+      return true
+    }
+
+    if (this.getStringArray(args.referenceImages).length > 0) {
+      return true
+    }
+
+    if (this.getStringArray(args.referenceVideos).length > 0 || this.getStringArray(args.referenceAudios).length > 0) {
+      return true
+    }
+
+    if (this.getStringArray(args.firstFrameImage).length > 0 || this.getStringArray(args.lastFrameImage).length > 0) {
+      return true
+    }
+
+    if (
+      (generationMode === 'reference' || generationMode === 'first_frame' || generationMode === 'first_last_frame') &&
+      this.getStringArray(payload.images).length > 0
+    ) {
+      return true
+    }
+
+    return false
   }
 
   private appendConvenienceReferenceContent(
@@ -1072,7 +1100,6 @@ class VideoGenerateServer {
       payload.model = modelResolution.resolvedModel
     }
 
-    const resolvedModel = typeof payload.model === 'string' ? payload.model.trim() : ''
     const contentForRouting = this.normalizeContentArray(payload.content)
     const hasVideoOrAudioReferences =
       this.getStringArray(args.referenceVideos).length > 0 ||
@@ -1082,7 +1109,8 @@ class VideoGenerateServer {
           Boolean(this.extractMediaUrlFromContentItem(item, 'video_url')) ||
           Boolean(this.extractMediaUrlFromContentItem(item, 'audio_url'))
       )
-    const shouldUseStructuredContent = this.isSeedance20Model(resolvedModel) || hasVideoOrAudioReferences
+    const shouldUseStructuredContent =
+      hasVideoOrAudioReferences || this.hasStructuredSubmissionIntent(args, payload, contentForRouting, generationMode)
     let preparedReferenceAssets: PreparedReferenceAsset[] = []
 
     if (shouldUseStructuredContent) {
@@ -1135,7 +1163,7 @@ class VideoGenerateServer {
         }
         throw new McpError(
           ErrorCode.InvalidParams,
-          "A non-Seedance-2.0 video model requires 'prompt'. If you passed Seedance-style content, include at least one text item or a top-level prompt."
+          "Classic image-array submission requires 'prompt'. If you passed structured media content, include at least one text item or a top-level prompt."
         )
       }
 
