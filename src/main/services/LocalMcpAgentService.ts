@@ -27,6 +27,7 @@ type AgentDetectionSpec = {
   desktopAppIdentifiers?: string[]
   commandNames?: string[]
   protocolAppId?: string
+  configPathResolver?: () => string
 }
 
 type DetectionResult = {
@@ -73,7 +74,8 @@ const LOCAL_MCP_AGENT_SPECS: AgentDetectionSpec[] = [
     id: 'opencode',
     label: 'OpenCode',
     commandNames: ['opencode'],
-    desktopAppNames: ['OpenCode']
+    desktopAppNames: ['OpenCode'],
+    configPathResolver: () => getOpenCodeConfigPath()
   }
 ]
 
@@ -183,8 +185,16 @@ function getClaudeGlobalConfigPath(): string {
   return path.join(os.homedir(), '.claude.json')
 }
 
+function getCursorConfigPath(): string {
+  return path.join(os.homedir(), '.cursor', 'mcp.json')
+}
+
 function getWorkBuddyConfigPath(): string {
   return path.join(os.homedir(), '.workbuddy', 'mcp.json')
+}
+
+function getOpenCodeConfigPath(): string {
+  return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
 }
 
 function getWorkBuddyApprovalsPath(): string {
@@ -399,6 +409,70 @@ function hasWorkBuddyApproval(content: string, entry: Record<string, unknown> | 
   }
 }
 
+function hasJsonMcpServerRegistration(content: string): boolean {
+  try {
+    const parsed = JSON.parse(String(content || '{}'))
+    const entry = parsed?.mcpServers?.[VECTCUT_MCP_SERVER_NAME]
+    return Boolean(entry && typeof entry === 'object' && entry.url)
+  } catch {
+    return false
+  }
+}
+
+function getJsonMcpServerRegistrationState(input: {
+  configPath: string
+  configName: string
+}): RegistrationResult {
+  const { configPath, configName } = input
+
+  try {
+    if (!fs.existsSync(configPath)) {
+      return {
+        registrationSupported: true,
+        registrationStatus: 'not_registered',
+        registrationHint: `可写入 ${configName} 配置`,
+        registrationPath: configPath
+      }
+    }
+
+    const content = fs.readFileSync(configPath, 'utf8')
+    const registered = hasJsonMcpServerRegistration(content)
+    return {
+      registrationSupported: true,
+      registrationStatus: registered ? 'registered' : 'not_registered',
+      registrationHint: registered ? `已写入 ${configName} MCP 配置` : `可写入 ${configName} 配置`,
+      registrationPath: configPath
+    }
+  } catch (error) {
+    logger.warn(`Failed to read ${configName} registration state`, { error, configPath })
+    return {
+      registrationSupported: true,
+      registrationStatus: 'not_registered',
+      registrationHint: `${configName} 配置读取失败`,
+      registrationPath: configPath
+    }
+  }
+}
+
+function writeJsonMcpServerRegistration(input: {
+  configPath: string
+  enabled: boolean
+  serverEntry: Record<string, unknown>
+}): void {
+  const parentDir = path.dirname(input.configPath)
+  if (!fs.existsSync(parentDir)) {
+    fs.mkdirSync(parentDir, { recursive: true })
+  }
+
+  const currentContent = fs.existsSync(input.configPath) ? fs.readFileSync(input.configPath, 'utf8') : '{}'
+  const nextContent = upsertJsonMcpServerRegistration(currentContent, {
+    enabled: input.enabled,
+    serverEntry: input.serverEntry
+  })
+
+  fs.writeFileSync(input.configPath, nextContent, 'utf8')
+}
+
 function getWorkBuddyRegistrationState(): RegistrationResult {
   const configPath = getWorkBuddyConfigPath()
   const approvalsPath = getWorkBuddyApprovalsPath()
@@ -435,6 +509,70 @@ function getWorkBuddyRegistrationState(): RegistrationResult {
   }
 }
 
+function hasOpenCodeRegistration(content: string): boolean {
+  try {
+    const parsed = JSON.parse(String(content || '{}'))
+    const entry = parsed?.mcp?.[VECTCUT_MCP_SERVER_NAME]
+    return Boolean(entry && typeof entry === 'object' && entry.url)
+  } catch {
+    return false
+  }
+}
+
+function upsertOpenCodeRegistration(
+  content: string,
+  input: { enabled: boolean; serverEntry: Record<string, unknown> }
+): string {
+  const currentConfig = content.trim() ? JSON.parse(content) : {}
+  const nextConfig = currentConfig && typeof currentConfig === 'object' && !Array.isArray(currentConfig)
+    ? { ...currentConfig }
+    : {}
+  const currentMcp = nextConfig.mcp && typeof nextConfig.mcp === 'object' && !Array.isArray(nextConfig.mcp)
+    ? { ...nextConfig.mcp }
+    : {}
+
+  if (input.enabled) {
+    currentMcp[VECTCUT_MCP_SERVER_NAME] = input.serverEntry
+  } else {
+    delete currentMcp[VECTCUT_MCP_SERVER_NAME]
+  }
+
+  nextConfig.mcp = currentMcp
+  return `${JSON.stringify(nextConfig, null, 2)}\n`
+}
+
+function getOpenCodeRegistrationState(): RegistrationResult {
+  const configPath = getOpenCodeConfigPath()
+
+  try {
+    if (!fs.existsSync(configPath)) {
+      return {
+        registrationSupported: true,
+        registrationStatus: 'not_registered',
+        registrationHint: '可写入 OpenCode 配置',
+        registrationPath: configPath
+      }
+    }
+
+    const content = fs.readFileSync(configPath, 'utf8')
+    const registered = hasOpenCodeRegistration(content)
+    return {
+      registrationSupported: true,
+      registrationStatus: registered ? 'registered' : 'not_registered',
+      registrationHint: registered ? '已写入 OpenCode MCP 配置' : '可写入 OpenCode 配置',
+      registrationPath: configPath
+    }
+  } catch (error) {
+    logger.warn('Failed to read OpenCode registration state', { error, configPath })
+    return {
+      registrationSupported: true,
+      registrationStatus: 'not_registered',
+      registrationHint: 'OpenCode 配置读取失败',
+      registrationPath: configPath
+    }
+  }
+}
+
 function getRegistrationResult(agentId: LocalMcpDetectedAgent['id']): RegistrationResult {
   if (agentId === 'workbuddy') {
     return getWorkBuddyRegistrationState()
@@ -444,8 +582,19 @@ function getRegistrationResult(agentId: LocalMcpDetectedAgent['id']): Registrati
     return getClaudeCodeRegistrationState()
   }
 
+  if (agentId === 'cursor') {
+    return getJsonMcpServerRegistrationState({
+      configPath: getCursorConfigPath(),
+      configName: 'Cursor'
+    })
+  }
+
   if (agentId === 'codex_cli') {
     return getCodexRegistrationState()
+  }
+
+  if (agentId === 'opencode') {
+    return getOpenCodeRegistrationState()
   }
 
   return {
@@ -523,7 +672,12 @@ class LocalMcpAgentService {
     return (
       getWorkBuddyRegistrationState().registrationStatus === 'registered'
       || getClaudeCodeRegistrationState().registrationStatus === 'registered'
+      || getJsonMcpServerRegistrationState({
+        configPath: getCursorConfigPath(),
+        configName: 'Cursor'
+      }).registrationStatus === 'registered'
       || getCodexRegistrationState().registrationStatus === 'registered'
+      || getOpenCodeRegistrationState().registrationStatus === 'registered'
     )
   }
 
@@ -573,37 +727,53 @@ class LocalMcpAgentService {
         const url = getLocalMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
         const configPath = getClaudeCodeConfigPath()
         const globalConfigPath = getClaudeGlobalConfigPath()
-        const parentDir = path.dirname(configPath)
-        if (!fs.existsSync(parentDir)) {
-          fs.mkdirSync(parentDir, { recursive: true })
-        }
-        const globalParentDir = path.dirname(globalConfigPath)
-        if (!fs.existsSync(globalParentDir)) {
-          fs.mkdirSync(globalParentDir, { recursive: true })
-        }
-
-        const currentContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '{}'
-        const currentGlobalContent = fs.existsSync(globalConfigPath) ? fs.readFileSync(globalConfigPath, 'utf8') : '{}'
         const serverEntry = {
           url,
           type: 'http'
         }
-        const nextContent = upsertJsonMcpServerRegistration(currentContent, {
+        writeJsonMcpServerRegistration({
+          configPath,
           enabled,
           serverEntry
         })
-        const nextGlobalContent = upsertJsonMcpServerRegistration(currentGlobalContent, {
+        writeJsonMcpServerRegistration({
+          configPath: globalConfigPath,
           enabled,
           serverEntry
         })
-
-        fs.writeFileSync(configPath, nextContent, 'utf8')
-        fs.writeFileSync(globalConfigPath, nextGlobalContent, 'utf8')
 
         logger.info('Updated Claude Code MCP registration', {
           enabled,
           configPath,
           globalConfigPath,
+          registration: enabled ? serverEntry : null
+        })
+
+        return { success: true }
+      }
+
+      if (agentId === 'cursor') {
+        const runningPort = apiServer.getListeningPort()
+        if (!runningPort && enabled) {
+          return {
+            success: false,
+            error: '本地 MCP 服务未启动，无法写入动态 endpoint'
+          }
+        }
+
+        const url = getLocalMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
+        const configPath = getCursorConfigPath()
+        const serverEntry = { url }
+
+        writeJsonMcpServerRegistration({
+          configPath,
+          enabled,
+          serverEntry
+        })
+
+        logger.info('Updated Cursor MCP registration', {
+          enabled,
+          configPath,
           registration: enabled ? serverEntry : null
         })
 
@@ -706,6 +876,47 @@ class LocalMcpAgentService {
         return { success: true }
       }
 
+      if (agentId === 'opencode') {
+        const runningPort = apiServer.getListeningPort()
+        if (!runningPort && enabled) {
+          return {
+            success: false,
+            error: '本地 MCP 服务未启动，无法写入动态 endpoint'
+          }
+        }
+
+        const url = getLocalMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
+        const configPath = getOpenCodeConfigPath()
+        const parentDir = path.dirname(configPath)
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true })
+        }
+
+        const currentContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '{}'
+        const nextContent = upsertOpenCodeRegistration(currentContent, {
+          enabled,
+          serverEntry: {
+            url,
+            type: 'remote'
+          }
+        })
+
+        fs.writeFileSync(configPath, nextContent, 'utf8')
+
+        logger.info('Updated OpenCode MCP registration', {
+          enabled,
+          configPath,
+          registration: enabled
+            ? {
+                url,
+                type: 'remote'
+              }
+            : null
+        })
+
+        return { success: true }
+      }
+
       return {
         success: false,
         error: '当前 Agent 暂不支持自动注册'
@@ -743,6 +954,18 @@ class LocalMcpAgentService {
         }
       } catch {
         // Ignore protocol lookup failures and continue to other detection methods.
+      }
+    }
+
+    if (spec.configPathResolver) {
+      const configPath = spec.configPathResolver()
+      if (fs.existsSync(configPath)) {
+        return {
+          installed: true,
+          path: configPath,
+          installType: 'manual',
+          detectionHint: '已检测到配置文件'
+        }
       }
     }
 
