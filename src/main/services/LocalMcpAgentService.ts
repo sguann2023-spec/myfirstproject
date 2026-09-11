@@ -171,6 +171,18 @@ function getCodexConfigPath(): string {
   return path.join(os.homedir(), '.codex', 'config.toml')
 }
 
+function getClaudeCodeConfigPath(): string {
+  if (isWin) {
+    return path.join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json')
+  }
+
+  return path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+}
+
+function getClaudeGlobalConfigPath(): string {
+  return path.join(os.homedir(), '.claude.json')
+}
+
 function getWorkBuddyConfigPath(): string {
   return path.join(os.homedir(), '.workbuddy', 'mcp.json')
 }
@@ -299,6 +311,72 @@ function getCodexRegistrationState(): RegistrationResult {
   }
 }
 
+function hasClaudeCodeRegistration(content: string): boolean {
+  try {
+    const parsed = JSON.parse(String(content || '{}'))
+    const entry = parsed?.mcpServers?.[VECTCUT_MCP_SERVER_NAME]
+    return Boolean(entry && typeof entry === 'object' && entry.url)
+  } catch {
+    return false
+  }
+}
+
+function upsertJsonMcpServerRegistration(
+  content: string,
+  input: { enabled: boolean; serverEntry: Record<string, unknown> }
+): string {
+  const currentConfig = content.trim() ? JSON.parse(content) : {}
+  const nextConfig = currentConfig && typeof currentConfig === 'object' && !Array.isArray(currentConfig)
+    ? { ...currentConfig }
+    : {}
+  const currentMcpServers = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object' && !Array.isArray(nextConfig.mcpServers)
+    ? { ...nextConfig.mcpServers }
+    : {}
+
+  if (input.enabled) {
+    currentMcpServers[VECTCUT_MCP_SERVER_NAME] = input.serverEntry
+  } else {
+    delete currentMcpServers[VECTCUT_MCP_SERVER_NAME]
+  }
+
+  nextConfig.mcpServers = currentMcpServers
+  return `${JSON.stringify(nextConfig, null, 2)}\n`
+}
+
+function getClaudeCodeRegistrationState(): RegistrationResult {
+  const configPath = getClaudeCodeConfigPath()
+  const globalConfigPath = getClaudeGlobalConfigPath()
+
+  try {
+    if (!fs.existsSync(configPath) || !fs.existsSync(globalConfigPath)) {
+      return {
+        registrationSupported: true,
+        registrationStatus: 'not_registered',
+        registrationHint: '可写入 Claude Code 配置与 ~/.claude.json',
+        registrationPath: configPath
+      }
+    }
+
+    const content = fs.readFileSync(configPath, 'utf8')
+    const globalContent = fs.readFileSync(globalConfigPath, 'utf8')
+    const registered = hasClaudeCodeRegistration(content) && hasClaudeCodeRegistration(globalContent)
+    return {
+      registrationSupported: true,
+      registrationStatus: registered ? 'registered' : 'not_registered',
+      registrationHint: registered ? '已写入 Claude Code MCP 配置与 ~/.claude.json' : '可写入 Claude Code 配置与 ~/.claude.json',
+      registrationPath: configPath
+    }
+  } catch (error) {
+    logger.warn('Failed to read Claude Code registration state', { error, configPath })
+    return {
+      registrationSupported: true,
+      registrationStatus: 'not_registered',
+      registrationHint: 'Claude Code 配置读取失败（claude_desktop_config.json / ~/.claude.json）',
+      registrationPath: configPath
+    }
+  }
+}
+
 function hasWorkBuddyRegistration(content: string): boolean {
   try {
     const parsed = JSON.parse(String(content || '{}'))
@@ -360,6 +438,10 @@ function getWorkBuddyRegistrationState(): RegistrationResult {
 function getRegistrationResult(agentId: LocalMcpDetectedAgent['id']): RegistrationResult {
   if (agentId === 'workbuddy') {
     return getWorkBuddyRegistrationState()
+  }
+
+  if (agentId === 'claude_code') {
+    return getClaudeCodeRegistrationState()
   }
 
   if (agentId === 'codex_cli') {
@@ -440,6 +522,7 @@ class LocalMcpAgentService {
   hasPersistentRegistration(): boolean {
     return (
       getWorkBuddyRegistrationState().registrationStatus === 'registered'
+      || getClaudeCodeRegistrationState().registrationStatus === 'registered'
       || getCodexRegistrationState().registrationStatus === 'registered'
     )
   }
@@ -478,6 +561,55 @@ class LocalMcpAgentService {
     enabled: boolean
   ): Promise<SetLocalMcpAgentRegistrationResult> {
     try {
+      if (agentId === 'claude_code') {
+        const runningPort = apiServer.getListeningPort()
+        if (!runningPort && enabled) {
+          return {
+            success: false,
+            error: '本地 MCP 服务未启动，无法写入动态 endpoint'
+          }
+        }
+
+        const url = getLocalMcpUrl(Number(runningPort || API_SERVER_DEFAULTS.PORT) || API_SERVER_DEFAULTS.PORT)
+        const configPath = getClaudeCodeConfigPath()
+        const globalConfigPath = getClaudeGlobalConfigPath()
+        const parentDir = path.dirname(configPath)
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true })
+        }
+        const globalParentDir = path.dirname(globalConfigPath)
+        if (!fs.existsSync(globalParentDir)) {
+          fs.mkdirSync(globalParentDir, { recursive: true })
+        }
+
+        const currentContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '{}'
+        const currentGlobalContent = fs.existsSync(globalConfigPath) ? fs.readFileSync(globalConfigPath, 'utf8') : '{}'
+        const serverEntry = {
+          url,
+          type: 'http'
+        }
+        const nextContent = upsertJsonMcpServerRegistration(currentContent, {
+          enabled,
+          serverEntry
+        })
+        const nextGlobalContent = upsertJsonMcpServerRegistration(currentGlobalContent, {
+          enabled,
+          serverEntry
+        })
+
+        fs.writeFileSync(configPath, nextContent, 'utf8')
+        fs.writeFileSync(globalConfigPath, nextGlobalContent, 'utf8')
+
+        logger.info('Updated Claude Code MCP registration', {
+          enabled,
+          configPath,
+          globalConfigPath,
+          registration: enabled ? serverEntry : null
+        })
+
+        return { success: true }
+      }
+
       if (agentId === 'workbuddy') {
         const configPath = getWorkBuddyConfigPath()
         const approvalsPath = getWorkBuddyApprovalsPath()

@@ -34,3 +34,4 @@ dist-main/
 
 resources/ffmpeg
 resources/python/*/python/
+log.txt

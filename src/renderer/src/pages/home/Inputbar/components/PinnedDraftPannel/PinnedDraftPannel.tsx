@@ -260,13 +260,15 @@ export default function PinnedDraftPannel({
                 <SquareArrowOutUpRight size={14} />
               </button>
             ) : null}
-            <button
-              type="button"
-              className="pinned-draft-panel__close"
-              onClick={handleClose}
-              aria-label="关闭草稿面板">
-              <X size={14} />
-            </button>
+            {!isPreviewMode ? (
+              <button
+                type="button"
+                className="pinned-draft-panel__close"
+                onClick={handleClose}
+                aria-label="关闭草稿面板">
+                <X size={14} />
+              </button>
+            ) : null}
           </div>
         </div>
 
