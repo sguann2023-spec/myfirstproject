@@ -180,9 +180,7 @@ export default function PinnedDraftPannel({
   }
 
   const openPreviewItem = (draft: DisplayDraftItem) => {
-    if (previewDraftKey !== draft.key) {
-      onPreviewItem?.(draft)
-    }
+    onPreviewItem?.(draft)
     setPreviewDraftKey(draft.key)
   }
 

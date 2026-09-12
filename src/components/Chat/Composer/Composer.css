@@ -311,12 +311,16 @@
 
 .chat-panel__model-option-tag {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 6px;
+  min-height: 20px;
   border-radius: 999px;
   background: rgba(45, 119, 229, 0.12);
   color: #2d77e5;
   font-size: 12px;
-  line-height: 20px;
+  line-height: 1;
 }
 
 .chat-panel__model-option-multiplier {

@@ -197,6 +197,7 @@ type ResolutionItem = {
 type ModelCapability = {
   display_name?: string
   description?: string
+  badges?: string[]
   reference_supported?: boolean
   resolutions?: Record<string, ResolutionItem[]>
 }
@@ -452,6 +453,7 @@ class ImageGenerateServer {
         method,
         headers: {
           Authorization: `Bearer ${accessToken}`,
+          'X-Client-Type': 'pc',
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
         ...(options.body ? { body: JSON.stringify(options.body) } : {})
@@ -1190,6 +1192,9 @@ class ImageGenerateServer {
       model,
       display_name: typeof capability?.display_name === 'string' ? capability.display_name : undefined,
       description: typeof capability?.description === 'string' ? capability.description : undefined,
+      badges: Array.isArray(capability?.badges)
+        ? capability.badges.filter((badge): badge is string => typeof badge === 'string' && badge.trim().length > 0)
+        : undefined,
       reference_supported: Boolean(capability?.reference_supported),
       resolutions: normalizedResolutions
     }

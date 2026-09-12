@@ -134,6 +134,7 @@ describe('ImageGenerateServer', () => {
         mockJsonResponse({
           capabilities: {
             'seedream-4.5': {
+              badges: ['限时优惠'],
               reference_supported: true,
               resolutions: {
                 '1K': [
@@ -174,7 +175,8 @@ describe('ImageGenerateServer', () => {
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
-          Authorization: 'Bearer access-token'
+          Authorization: 'Bearer access-token',
+          'X-Client-Type': 'pc'
         })
       })
     )
@@ -187,6 +189,7 @@ describe('ImageGenerateServer', () => {
       models: [
         {
           model: 'seedream-4.5',
+          badges: ['限时优惠'],
           reference_supported: true,
           resolutions: {
             '1K': [{ ratio: '1:1', size: '1024x1024' }]
