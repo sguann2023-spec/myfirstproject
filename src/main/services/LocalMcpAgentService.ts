@@ -68,7 +68,11 @@ const LOCAL_MCP_AGENT_SPECS: AgentDetectionSpec[] = [
     label: 'Codex(ChatGPT)',
     desktopAppNames: ['Codex', 'ChatGPT'],
     desktopAppIdentifiers: ['com.openai.codex'],
-    commandNames: ['codex']
+    commandNames: ['codex'],
+    // Windows 商店（MSIX）版 Codex 不注册 codex 命令别名，也不会出现在
+    // 注册表已安装程序列表中，因此在 Windows 上回退检测 ~/.codex/config.toml。
+    // macOS 保持原有检测逻辑（桌面应用 / CLI 命令），不受影响。
+    configPathResolver: () => (isWin ? getCodexConfigPath() : '')
   },
   {
     id: 'opencode',
