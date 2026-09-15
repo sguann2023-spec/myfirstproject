@@ -707,9 +707,9 @@ class LocalMcpAgentService {
       })
     )
 
-    logger.info('Detected local MCP agents', {
-      detected: agents.map((agent) => ({ id: agent.id, installed: agent.installed, path: agent.path }))
-    })
+    // logger.info('Detected local MCP agents', {
+    //   detected: agents.map((agent) => ({ id: agent.id, installed: agent.installed, path: agent.path }))
+    // })
 
     return agents
   }

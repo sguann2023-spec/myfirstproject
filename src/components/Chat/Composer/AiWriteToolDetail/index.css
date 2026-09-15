@@ -33,6 +33,11 @@
   font-size: 12px;
 }
 
+.chat-panel__tool-detail-area .chat-panel__tool-icon--text {
+  transform: scale(1.08);
+  transform-origin: center;
+}
+
 .chat-panel__ai-write-picker {
   min-width: 0;
   display: inline-flex;

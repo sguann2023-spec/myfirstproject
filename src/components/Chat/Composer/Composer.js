@@ -16,6 +16,7 @@ import {
   getAiWriteFields,
   getAiWritePresetById,
 } from './AiWriteToolDetail/presetOptions';
+import AiWriteToolDetail from './AiWriteToolDetail/index';
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
@@ -26,6 +27,11 @@ import DraftToolDetail, { getDraftToolSendState } from '../../DraftToolDetail/in
 import DraftDownloadToolDetail, { getDraftDownloadToolSendState } from '../../DraftDownloadToolDetail/index';
 import DraftInspectToolDetail, { getDraftInspectToolSendState } from '../../DraftInspectToolDetail/index';
 import DraftModifyToolDetail, { getDraftModifyToolSendState } from '../../DraftModifyToolDetail/index';
+import TextAddDetail, {
+  buildTextAddSettingsPrompt,
+  DEFAULT_TEXT_ADD_SETTINGS,
+  getTextAddToolSendState
+} from '../../TextAddDetail/index';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_COUNT = 100;
@@ -39,6 +45,7 @@ const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
 const TOOL_BAR_SCROLL_STEP = 220;
 const TOOL_BAR_MIN_RIGHT_GAP = 32;
 const TOOL_BAR_NAV_VISIBILITY_THRESHOLD = 24;
+const AI_WRITE_TOOL_PREFIX = 'ai-write:';
 const TREE_LIST_MAX_ENTRIES = 20000;
 const IMAGE_FILE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
 const VIDEO_FILE_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
@@ -2330,6 +2337,8 @@ const Composer = ({
   const [selectedDraftDownloadIds, setSelectedDraftDownloadIds] = React.useState([]);
   const [selectedDraftModifyIds, setSelectedDraftModifyIds] = React.useState([]);
   const [selectedDraftInspectIds, setSelectedDraftInspectIds] = React.useState([]);
+  const [selectedTextAddDraftIds, setSelectedTextAddDraftIds] = React.useState([]);
+  const [textAddSettings, setTextAddSettings] = React.useState(DEFAULT_TEXT_ADD_SETTINGS);
   const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
   const [selectedVideoGenerationMode, setSelectedVideoGenerationMode] = React.useState(() => readPersistedVideoGenerationMode());
   const [selectedVideoResolution, setSelectedVideoResolution] = React.useState(() => readPersistedVideoResolution());
@@ -2417,6 +2426,8 @@ const Composer = ({
         ? '输入草稿名'
         : activeTool === 'draft-modify'
           ? '输入新草稿名'
+        : activeTool === 'text-add'
+          ? '输入你想添加的文本'
         : activeTool === 'draft-inspect'
           ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看图片是否是画中画'
         : activeTool === 'draft-export'
@@ -3769,6 +3780,8 @@ const Composer = ({
       hasSelectedLocalFile,
       selectedDraftIds: activeTool === 'draft-export'
         ? selectedDraftDownloadIds
+        : activeTool === 'text-add'
+          ? selectedTextAddDraftIds
         : activeTool === 'draft-inspect'
           ? selectedDraftInspectIds
           : selectedDraftModifyIds
@@ -3778,6 +3791,8 @@ const Composer = ({
         return getDraftToolSendState(context);
       case 'draft-export':
         return getDraftDownloadToolSendState(context);
+      case 'text-add':
+        return getTextAddToolSendState(context);
       case 'draft-inspect':
         return getDraftInspectToolSendState(context);
       case 'draft-modify':
@@ -3791,6 +3806,7 @@ const Composer = ({
     hasSelectedLocalFile,
     input,
     selectedDraftDownloadIds,
+    selectedTextAddDraftIds,
     selectedDraftInspectIds,
     selectedDraftModifyIds
   ]);
@@ -4040,7 +4056,8 @@ const Composer = ({
       ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && !combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && !combined) return;
+    const selectedTextAddDraftId = String(selectedTextAddDraftIds?.[0] || '').trim();
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
     const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
     const videoOptionPromptSegments = buildVideoOptionPromptSegments({
@@ -4067,6 +4084,13 @@ const Composer = ({
             selectedDraftModifyId ? `草稿ID：${selectedDraftModifyId}` : '',
             text ? `草稿名：${text}` : '',
             draftCoverReferences.length > 0 ? `封面图：${draftCoverReferences.join('\n')}` : '',
+          ].filter(Boolean).join('\n')
+        : activeTool === 'text-add'
+          ? [
+            '请向当前草稿添加文本。',
+            selectedTextAddDraftId ? `草稿ID：${selectedTextAddDraftId}` : '',
+            text ? `文本内容：${text}` : '',
+            buildTextAddSettingsPrompt(textAddSettings),
           ].filter(Boolean).join('\n')
         : activeTool === 'draft-inspect'
           ? [
@@ -4126,6 +4150,7 @@ const Composer = ({
       setActiveTool(null);
     }
     setSelectedDraftDownloadIds([]);
+    setSelectedTextAddDraftIds([]);
     setSelectedDraftInspectIds([]);
     setSelectedDraftModifyIds([]);
     setUploadFileList([]);
@@ -4271,6 +4296,17 @@ const Composer = ({
     editor.commands.focus('end');
   }, [editor]);
 
+  const handleAiWritePresetSelect = React.useCallback((presetId) => {
+    const resolvedPresetId = getAiWritePresetById(presetId)?.id || getDefaultAiWritePresetId();
+    setSelectedAiWritePresetId(resolvedPresetId);
+    if (resolvedPresetId === 'add-text') {
+      setActiveTool('text-add');
+      return;
+    }
+    setActiveTool('ai-write');
+    applyAiWriteTemplate(resolvedPresetId);
+  }, [applyAiWriteTemplate]);
+
   const handleImageTemplateApply = React.useCallback((prompt) => {
     setInput(String(prompt || ''));
     if (!editor || editor.isDestroyed) return;
@@ -4297,6 +4333,17 @@ const Composer = ({
   }, []);
 
   const handleToolSelect = React.useCallback((toolId) => {
+    const normalizedToolId = String(toolId || '').trim();
+    if (normalizedToolId.startsWith(AI_WRITE_TOOL_PREFIX)) {
+      handleAiWritePresetSelect(normalizedToolId.slice(AI_WRITE_TOOL_PREFIX.length));
+      return;
+    }
+
+    if (normalizedToolId === 'ai-write') {
+      handleAiWritePresetSelect(selectedAiWritePresetId);
+      return;
+    }
+
     const nextTool = activeTool === toolId ? null : toolId;
     setActiveTool(nextTool);
     if (!editor || editor.isDestroyed) return;
@@ -4320,21 +4367,18 @@ const Composer = ({
       editor.commands.focus('end');
       return;
     }
-    if (nextTool === 'ai-write') {
-      applyAiWriteTemplate(selectedAiWritePresetId);
-      return;
-    }
     if (nextTool === 'draft-export') {
       latestInputRef.current = '';
       setInput('');
       editor.commands.clearContent();
     }
-  }, [activeTool, applyAiWriteTemplate, editor, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem, setInput]);
+  }, [activeTool, editor, handleAiWritePresetSelect, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem, setInput]);
 
   const handleToolDetailBack = React.useCallback(() => {
     setActiveTool(null);
     setSelectedDraftDownloadIds([]);
     setSelectedDraftInspectIds([]);
+    setSelectedTextAddDraftIds([]);
   }, []);
 
   return (
@@ -4385,7 +4429,22 @@ const Composer = ({
                 ].filter(Boolean).join(' ')}
               >
                 <div ref={toolContentScrollRef} className="chat-panel__tool-content-scroll">
-                  {activeTool === 'draft' ? (
+                  {activeTool === 'text-add' ? (
+                    <TextAddDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedTextAddDraftIds}
+                      onSelectedDraftIdsChange={setSelectedTextAddDraftIds}
+                      onSettingsChange={setTextAddSettings}
+                    />
+                  ) : activeTool === 'ai-write' ? (
+                    <AiWriteToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedPresetId={selectedAiWritePresetId}
+                      onPresetSelect={handleAiWritePresetSelect}
+                    />
+                  ) : activeTool === 'draft' ? (
                     <DraftToolDetail
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}

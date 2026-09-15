@@ -1,12 +1,15 @@
 import React from 'react';
 import { Popover } from 'antd';
-import { BookSearch, ChevronDown, ChevronUp, SquareArrowOutUpRight, SquarePen } from 'lucide-react';
+import { BookSearch, ChevronDown, ChevronUp, SquareArrowOutUpRight, SquarePen, Undo2 } from 'lucide-react';
 import './index.css';
 import DraftIcon from '../../../../../public/draft_icon.svg';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
 import AiVideoIcon from '../../../../../public/ai_video.svg';
 import ImagePanIcon from '../../../../../public/image_pan.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
+import AiWriteIcon from '../../../../../public/ai_write.svg';
+import TagIcon from '../../../../../public/tag_icon.svg';
+import TitleIcon from '../../../../../public/title_icon.svg';
 
 const TOOL_ITEMS = [
   {
@@ -54,8 +57,32 @@ const DRAFT_MENU_ITEMS = [
   },
 ];
 
+const TEXT_MENU_ITEMS = [
+  {
+    id: 'ai-write:add-text',
+    label: '添加文本',
+    icon: <img className="chat-panel__tool-menu-icon chat-panel__tool-menu-icon--text" src={AiWriteIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'ai-write:reverse-prompt',
+    label: '反推提示词',
+    icon: <Undo2 size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
+  {
+    id: 'ai-write:summarize-title',
+    label: '总结标题',
+    icon: <img className="chat-panel__tool-menu-icon" src={TitleIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'ai-write:summarize-tag',
+    label: '总结标签',
+    icon: <img className="chat-panel__tool-menu-icon" src={TagIcon} alt="" aria-hidden="true" />,
+  },
+];
+
 const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
   const [draftMenuOpen, setDraftMenuOpen] = React.useState(false);
+  const [textMenuOpen, setTextMenuOpen] = React.useState(false);
 
   const draftMenuContent = (
     <div className="chat-panel__tool-menu-list" role="menu" aria-label="草稿工具菜单">
@@ -78,13 +105,37 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
     </div>
   );
 
+  const textMenuContent = (
+    <div className="chat-panel__tool-menu-list chat-panel__tool-menu-list--text" role="menu" aria-label="文本工具菜单">
+      {TEXT_MENU_ITEMS.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className="chat-panel__tool-menu-item"
+          role="menuitem"
+          disabled={disabled}
+          onClick={() => {
+            setTextMenuOpen(false);
+            onSelect && onSelect(item.id);
+          }}
+        >
+          {item.icon}
+          <span className="chat-panel__tool-menu-text">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div ref={toolAreaRef} className="chat-panel__tool-area" role="toolbar" aria-label="工具区">
       <Popover
         trigger="hover"
         placement="topLeft"
         open={draftMenuOpen}
-        onOpenChange={setDraftMenuOpen}
+        onOpenChange={(open) => {
+          setDraftMenuOpen(open);
+          if (open) setTextMenuOpen(false);
+        }}
         mouseEnterDelay={0}
         mouseLeaveDelay={0}
         align={{ offset: [0, 0] }}
@@ -102,6 +153,37 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           <img className="chat-panel__tool-icon" src={DraftIcon} alt="" aria-hidden="true" />
           <span className="chat-panel__tool-text">新草稿</span>
           {draftMenuOpen ? (
+            <ChevronUp size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
+          ) : (
+            <ChevronDown size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
+          )}
+        </button>
+      </Popover>
+      <Popover
+        trigger="hover"
+        placement="topLeft"
+        open={textMenuOpen}
+        onOpenChange={(open) => {
+          setTextMenuOpen(open);
+          if (open) setDraftMenuOpen(false);
+        }}
+        mouseEnterDelay={0}
+        mouseLeaveDelay={0}
+        align={{ offset: [0, 0] }}
+        classNames={{ root: 'chat-panel__tool-menu-popover' }}
+        content={textMenuContent}
+      >
+        <button
+          type="button"
+          className="chat-panel__tool-button"
+          aria-label="文本"
+          title="文本"
+          disabled={disabled}
+          onClick={() => onSelect && onSelect('ai-write:add-text')}
+        >
+          <img className="chat-panel__tool-icon chat-panel__tool-icon--text" src={AiWriteIcon} alt="" aria-hidden="true" />
+          <span className="chat-panel__tool-text">文本</span>
+          {textMenuOpen ? (
             <ChevronUp size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
           ) : (
             <ChevronDown size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />

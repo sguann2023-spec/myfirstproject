@@ -34,6 +34,11 @@
   min-width: 120px;
 }
 
+.chat-panel__tool-menu-list--text .chat-panel__tool-menu-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .chat-panel__tool-menu-item {
   display: inline-flex;
   align-items: center;
@@ -61,6 +66,11 @@
   height: 16px;
   color: #000000;
   flex: 0 0 auto;
+}
+
+.chat-panel__tool-icon--text {
+  transform: scale(1.08);
+  transform-origin: center;
 }
 
 .chat-panel__tool-menu-text {

@@ -142,6 +142,7 @@ const ChatPinnedDraftPanel = () => {
   const [previewErrorKey, setPreviewErrorKey] = React.useState(null);
   const [previewErrorMessage, setPreviewErrorMessage] = React.useState('');
   const previewCacheRef = React.useRef(new Map());
+  const pendingPreviewRequestRef = React.useRef(new Set());
 
   React.useEffect(() => {
     const offDraftCreated = window.ipc?.on(IpcChannel.App_DraftCreated, (payload) => {
@@ -171,7 +172,14 @@ const ChatPinnedDraftPanel = () => {
 
   const handlePreviewItem = React.useCallback(async (draft) => {
     const draftId = String(draft?.id || draft?.draftId || '').trim();
+    logger.info('[ChatPinnedDraftPanel] handle preview item', {
+      draftId,
+      draftKey: buildPinnedDraftKey(draft),
+      title: String(draft?.title || draft?.name || '').trim(),
+      hasTrackPreview: Boolean(draft?.trackPreview)
+    });
     if (!draftId) {
+      logger.warn('[ChatPinnedDraftPanel] skip preview because draftId is empty');
       return;
     }
 
@@ -181,19 +189,33 @@ const ChatPinnedDraftPanel = () => {
 
     const cachedPreview = previewCacheRef.current.get(draftId);
     if (cachedPreview) {
+      logger.info('[ChatPinnedDraftPanel] apply cached preview before refresh', { draftId, targetKey });
       setDrafts((currentDrafts) => currentDrafts.map((item, index) => (
         buildPinnedDraftKey(item, index) === targetKey
           ? { ...item, trackPreview: cachedPreview }
           : item
       )));
+    }
+
+    if (pendingPreviewRequestRef.current.has(targetKey)) {
+      logger.info('[ChatPinnedDraftPanel] skip duplicate preview request', { draftId, targetKey });
       return;
     }
 
+    logger.info('[ChatPinnedDraftPanel] start queryScript for preview', { draftId, targetKey });
+    pendingPreviewRequestRef.current.add(targetKey);
     setPreviewLoadingKey(targetKey);
 
     try {
       const response = await queryScript({ draft_id: draftId, force_update: false });
       const ok = response && (response.success === true || response.code === 200);
+      logger.info('[ChatPinnedDraftPanel] queryScript finished', {
+        draftId,
+        targetKey,
+        ok,
+        code: response?.code,
+        success: response?.success
+      });
       if (!ok) {
         throw new Error(response?.error || '查询草稿轨道失败');
       }
@@ -201,6 +223,13 @@ const ChatPinnedDraftPanel = () => {
       const script = parseQueryScriptOutput(response);
       const preview = script;
       previewCacheRef.current.set(draftId, preview);
+      logger.info('[ChatPinnedDraftPanel] preview loaded successfully', {
+        draftId,
+        targetKey,
+        trackCount: Array.isArray(preview?.tracks)
+          ? preview.tracks.length
+          : (preview?.tracks && typeof preview.tracks === 'object' ? Object.keys(preview.tracks).length : 0)
+      });
       setDrafts((currentDrafts) => currentDrafts.map((item) => (
         String(item?.id || item?.draftId || '').trim() === draftId
           ? { ...item, trackPreview: preview }
@@ -214,6 +243,8 @@ const ChatPinnedDraftPanel = () => {
       setPreviewErrorKey(targetKey);
       setPreviewErrorMessage(error?.message || '轨道预览加载失败');
     } finally {
+      pendingPreviewRequestRef.current.delete(targetKey);
+      logger.info('[ChatPinnedDraftPanel] finish preview request', { draftId, targetKey });
       setPreviewLoadingKey((currentKey) => (currentKey === targetKey ? null : currentKey));
     }
   }, []);

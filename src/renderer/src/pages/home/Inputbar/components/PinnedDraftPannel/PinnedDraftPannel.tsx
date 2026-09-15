@@ -1,7 +1,8 @@
+import { loggerService } from '@logger'
 import { LoadingIcon } from '@renderer/components/Icons'
 import { Typography } from 'antd'
 import { CheckCircle, ChevronDown, ChevronUp, Eye, SquareArrowOutUpRight, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import PinnedDraftTrackView, {
   type DraftTrackScriptData
@@ -9,6 +10,7 @@ import PinnedDraftTrackView, {
 import './index.css'
 
 const { Text } = Typography
+const logger = loggerService.withContext('PinnedDraftPannel')
 
 const STATUS_META = {
   in_progress: {
@@ -97,6 +99,7 @@ export default function PinnedDraftPannel({
 }: PinnedDraftPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
   const [previewDraftKey, setPreviewDraftKey] = useState<string | null>(null)
+  const lastTriggeredPreviewKeyRef = useRef<string | null>(null)
 
   const displayDrafts = useMemo<DisplayDraftItem[]>(() => {
     return drafts.map((draft, index) => {
@@ -131,7 +134,55 @@ export default function PinnedDraftPannel({
       : (isCollapsedView && activeDraft ? activeDraft.title : title))
   const headerStatus = isPreviewMode ? previewDraft?.status : activeDraft?.status
 
+  const openPreviewItem = (draft: DisplayDraftItem) => {
+    logger.info('[PinnedDraftPannel] open preview item', {
+      draftKey: draft.key,
+      draftId: draft.id || draft.draftId || '',
+      isSingleDraft,
+      isCollapsed
+    })
+    if (!isSingleDraft) {
+      setIsCollapsed(false)
+      onToggle?.(false)
+    }
+    setPreviewDraftKey(draft.key)
+  }
+
+  useEffect(() => {
+    if (!previewDraftKey) {
+      logger.info('[PinnedDraftPannel] clear preview draft key')
+      lastTriggeredPreviewKeyRef.current = null
+      return
+    }
+
+    if (lastTriggeredPreviewKeyRef.current === previewDraftKey) {
+      logger.info('[PinnedDraftPannel] skip duplicate preview trigger', { previewDraftKey })
+      return
+    }
+
+    const targetDraft = displayDrafts.find((draft) => draft.key === previewDraftKey)
+    if (!targetDraft) {
+      logger.warn('[PinnedDraftPannel] preview draft not found in displayDrafts', { previewDraftKey })
+      return
+    }
+
+    lastTriggeredPreviewKeyRef.current = previewDraftKey
+    logger.info('[PinnedDraftPannel] trigger onPreviewItem', {
+      previewDraftKey,
+      draftId: targetDraft.id || targetDraft.draftId || '',
+      title: targetDraft.title
+    })
+    onPreviewItem?.(targetDraft)
+  }, [displayDrafts, onPreviewItem, previewDraftKey])
+
   const handleToggle = () => {
+    logger.info('[PinnedDraftPannel] handle toggle', {
+      isSingleDraft,
+      isPreviewMode,
+      isCollapsed,
+      activeDraftKey: activeDraft?.key || null,
+      previewDraftKey
+    })
     if (isSingleDraft) {
       if (isPreviewMode) {
         setPreviewDraftKey(null)
@@ -146,9 +197,20 @@ export default function PinnedDraftPannel({
       return
     }
 
+    if (isCollapsed && activeDraft) {
+      openPreviewItem(activeDraft)
+      return
+    }
+
     const nextCollapsed = !isCollapsed
     setIsCollapsed(nextCollapsed)
     onToggle?.(nextCollapsed)
+  }
+
+  const handleBackToList = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    logger.info('[PinnedDraftPannel] back to list', { previewDraftKey })
+    setPreviewDraftKey(null)
   }
 
   const handleClose = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -170,23 +232,26 @@ export default function PinnedDraftPannel({
 
   const handlePreviewItem = (draft: DisplayDraftItem) => (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
+    logger.info('[PinnedDraftPannel] preview button clicked', {
+      draftKey: draft.key,
+      draftId: draft.id || draft.draftId || '',
+      currentPreviewDraftKey: previewDraftKey
+    })
     setPreviewDraftKey((currentKey) => {
       const nextKey = currentKey === draft.key ? null : draft.key
+      logger.info('[PinnedDraftPannel] update preview draft key', {
+        currentKey,
+        nextKey,
+        draftKey: draft.key
+      })
       if (nextKey) {
-        onPreviewItem?.(draft)
+        if (!isSingleDraft) {
+          setIsCollapsed(false)
+          onToggle?.(false)
+        }
       }
       return nextKey
     })
-  }
-
-  const openPreviewItem = (draft: DisplayDraftItem) => {
-    onPreviewItem?.(draft)
-    setPreviewDraftKey(draft.key)
-  }
-
-  const handleBackToList = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation()
-    setPreviewDraftKey(null)
   }
 
   if (displayDrafts.length === 0) {
