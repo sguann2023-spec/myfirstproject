@@ -442,6 +442,41 @@ const normalizeDraftModifyRequestPayload = (draftModifyRequest = {}, cover = '')
     ...(resolvedCover ? { cover: resolvedCover } : {})
   };
 };
+const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') => {
+  if (!textAddRequest || typeof textAddRequest !== 'object') return null;
+  const draftId = String(textAddRequest?.draftId || textAddRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const text = String(textAddRequest?.text || fallbackText || '').trim();
+  if (!text) return null;
+  const startValue = Number(textAddRequest?.start);
+  const start = Number.isFinite(startValue) ? startValue : 0;
+  const endValue = Number(textAddRequest?.end);
+  const end = Number.isFinite(endValue) && endValue > start ? endValue : start + 3;
+  const font = String(textAddRequest?.font || '').trim();
+  const fontColor = String(textAddRequest?.font_color || textAddRequest?.fontColor || '').trim();
+  const fontSize = Number(textAddRequest?.font_size ?? textAddRequest?.fontSize);
+  const letterSpacing = Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing);
+  const lineSpacing = Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing);
+  const align = Number(textAddRequest?.align);
+  const trackName = String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim();
+  return {
+    draft_id: draftId,
+    text,
+    start,
+    end,
+    ...(font ? { font } : {}),
+    ...(fontColor ? { font_color: fontColor } : {}),
+    ...(Number.isFinite(fontSize) && fontSize > 0 ? { font_size: fontSize } : {}),
+    ...(Number.isFinite(letterSpacing) ? { letter_spacing: letterSpacing } : {}),
+    ...(Number.isFinite(lineSpacing) ? { line_spacing: lineSpacing } : {}),
+    ...(typeof textAddRequest?.bold === 'boolean' ? { bold: textAddRequest.bold } : {}),
+    ...(typeof textAddRequest?.italic === 'boolean' ? { italic: textAddRequest.italic } : {}),
+    ...(typeof textAddRequest?.underline === 'boolean' ? { underline: textAddRequest.underline } : {}),
+    ...(typeof textAddRequest?.vertical === 'boolean' ? { vertical: textAddRequest.vertical } : {}),
+    ...(Number.isInteger(align) ? { align } : {}),
+    ...(trackName ? { track_name: trackName } : {})
+  };
+};
 const normalizeDraftInspectRequestPayload = (draftInspectRequest = {}, requestId = '') => {
   if (!draftInspectRequest || typeof draftInspectRequest !== 'object') return null;
   const draftId = String(draftInspectRequest?.draftId || draftInspectRequest?.draft_id || '').trim();
@@ -603,6 +638,40 @@ const buildDraftModifyRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: draftModifyRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildTextAddRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  textAddRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `text_add_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-text-add-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-elements__add_text',
+    arguments: textAddRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-elements__add_text',
+          name: 'mcp__vectcut__draft-elements__add_text',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: textAddRequest,
         status: 'pending'
       }
     }
@@ -1847,6 +1916,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const draftModifyRequest = role === 'user' && sourceMessage?.draftModifyRequest && typeof sourceMessage.draftModifyRequest === 'object'
     ? { ...sourceMessage.draftModifyRequest }
     : undefined;
+  const textAddRequest = role === 'user' && sourceMessage?.textAddRequest && typeof sourceMessage.textAddRequest === 'object'
+    ? { ...sourceMessage.textAddRequest }
+    : undefined;
   const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
     ? { ...sourceMessage.draftInspectRequest }
     : undefined;
@@ -1861,6 +1933,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && draftExportRequest ? { draftExportRequest } : {}),
     ...(role === 'user' && draftDownloadRequest ? { draftDownloadRequest } : {}),
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
+    ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     createdAt,
     updatedAt,
@@ -4894,6 +4967,9 @@ const HomePage = () => {
     const draftModifyRequest = options?.draftModifyRequest && typeof options.draftModifyRequest === 'object'
       ? { ...options.draftModifyRequest }
       : null;
+    const textAddRequest = options?.textAddRequest && typeof options.textAddRequest === 'object'
+      ? { ...options.textAddRequest }
+      : null;
     const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
       ? { ...options.draftExportRequest }
       : null;
@@ -4976,6 +5052,7 @@ const HomePage = () => {
         imageAttachments: imageAttachmentPreviews,
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5028,6 +5105,7 @@ const HomePage = () => {
         imageAttachments: imageAttachmentPreviews,
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5234,6 +5312,60 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'draft-modify-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'draft-modify-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'draft-modify-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (textAddRequest) {
+        const resolvedTextAddRequest = normalizeTextAddRequestPayload(textAddRequest, text);
+        if (!resolvedTextAddRequest || !String(resolvedTextAddRequest.draft_id || '').trim() || !String(resolvedTextAddRequest.text || '').trim()) {
+          throw new Error('text add request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          textAddRequest: resolvedTextAddRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildTextAddRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            textAddRequest: resolvedTextAddRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directTextAddResult = await window.electronAPI.cherryChatStream.createTextAddRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          textAddRequest: resolvedTextAddRequest,
+        });
+        if (!directTextAddResult?.ok) {
+          throw new Error(directTextAddResult?.error || 'text add request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directTextAddResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directTextAddResult?.assistantBlocks) ? directTextAddResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'text-add-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'text-add-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'text-add-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'text-add-request.complete');
         setChatSending(false);
         return;
       }

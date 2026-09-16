@@ -119,6 +119,68 @@ const COZE_MODIFY_DRAFT_EXTERNAL_DATA = {
   mainColor: '#CA61FF'
 };
 
+const COZE_ADD_TEXT_PLUGIN_META = {
+  apiID: '7579582015465472000',
+  apiName: 'add_text',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: ''
+};
+
+const COZE_ADD_TEXT_NODE_META = {
+  title: 'add_text',
+  icon: '`https://p6-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/f9322fc2b09d43909b6cf1d9af1fd4c4~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1792118381&x-signature=s0yOYPrnva15unvuNjypf4tacwc%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):add_text',
+  description: '添加文字'
+};
+
+const COZE_ADD_TEXT_EXTERNAL_DATA = {
+  icon: '`https://lf9-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1792119479&x-signature=x5Gdzmeygetf0b6mMVtJB6N%2BrAI%3D`',
+  apiName: 'add_text',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '草稿id，可以继续编辑', input: {}, name: 'draft_id', required: false, type: 'string' },
+    { description: '文本', input: {}, name: 'text', required: true, type: 'string' },
+    { description: '开始时间', input: {}, name: 'start', required: true, type: 'float' },
+    { description: '结束时间', input: {}, name: 'end', required: true, type: 'float' },
+    { description: '字体', input: {}, name: 'font', required: false, type: 'string' },
+    { description: '字体大小', input: {}, name: 'font_size', required: false, type: 'float' },
+    { description: '字体颜色', input: {}, name: 'font_color', required: false, type: 'string' },
+    { description: '是否竖排', input: {}, name: 'vertical', required: false, type: 'boolean' },
+    { description: '对齐方式', input: {}, name: 'align', required: false, type: 'integer' }
+  ],
+  outputs: [
+    { input: {}, name: 'success', required: false, type: 'boolean' },
+    { input: {}, name: 'error', required: false, type: 'string' },
+    {
+      input: {},
+      name: 'output',
+      required: false,
+      schema: [
+        { description: '草稿id，可以继续编辑', input: {}, name: 'draft_id', required: false, type: 'string' },
+        { description: '草稿链接，在浏览器里打开可以预览', input: {}, name: 'draft_url', required: false, type: 'string' }
+      ],
+      type: 'object'
+    },
+    { input: {}, name: 'purchase_link', required: false, type: 'string' }
+  ],
+  updateTime: 1789520259,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '添加文字',
+  title: 'add_text',
+  mainColor: '#CA61FF'
+};
+
 const createLiteralValue = (content) => ({
   type: 'literal',
   content,
@@ -242,6 +304,28 @@ const createDraftModifyRequestInputParameters = (draftModifyRequest = {}) => {
   return parameters;
 };
 
+const createTextAddRequestInputParameters = (textAddRequest = {}) => {
+  const draftId = String(textAddRequest?.draft_id || textAddRequest?.draftId || '').trim();
+  const text = String(textAddRequest?.text || '').trim();
+  const start = Number(textAddRequest?.start || 0) || 0;
+  const end = Number(textAddRequest?.end || 3) || 3;
+  const font = String(textAddRequest?.font || '').trim();
+  const fontSize = Number(textAddRequest?.font_size ?? textAddRequest?.fontSize);
+  const fontColor = String(textAddRequest?.font_color || textAddRequest?.fontColor || '').trim();
+  const parameters = [
+    createInputParameter('draft_id', 'string', draftId),
+    createInputParameter('text', 'string', text),
+    createInputParameter('start', 'float', start),
+    createInputParameter('end', 'float', end)
+  ];
+  if (font) parameters.push(createInputParameter('font', 'string', font));
+  if (Number.isFinite(fontSize) && fontSize > 0) parameters.push(createInputParameter('font_size', 'float', fontSize));
+  if (fontColor) parameters.push(createInputParameter('font_color', 'string', fontColor));
+  if (typeof textAddRequest?.vertical === 'boolean') parameters.push(createInputParameter('vertical', 'boolean', textAddRequest.vertical));
+  if (Number.isInteger(Number(textAddRequest?.align))) parameters.push(createInputParameter('align', 'integer', Number(textAddRequest.align)));
+  return parameters;
+};
+
 export const buildDraftModifyRequestCozeClipboardData = (draftModifyRequest = {}) => {
   const inputParameters = createDraftModifyRequestInputParameters(draftModifyRequest);
 
@@ -309,6 +393,81 @@ export const buildDraftModifyRequestCozeClipboardData = (draftModifyRequest = {}
       y: 112.86787670007338,
       width: 360,
       height: 112.00000000000001
+    }
+  }, null, 2);
+};
+
+export const buildTextAddRequestCozeClipboardData = (textAddRequest = {}) => {
+  const inputParameters = createTextAddRequestInputParameters(textAddRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      workflowId: '7684115562197712911',
+      flowMode: 0,
+      spaceId: '7472683780642258985',
+      isDouyin: false,
+      host: 'www.coze.cn'
+    },
+    json: {
+      nodes: [
+        {
+          id: '197345',
+          type: '4',
+          meta: {
+            position: {
+              x: 1072.2094926350246,
+              y: 143.43815504513285
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_ADD_TEXT_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_ADD_TEXT_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: [
+              { type: 'boolean', name: 'success', required: false },
+              { type: 'string', name: 'error', required: false },
+              {
+                type: 'object',
+                name: 'output',
+                schema: [
+                  { type: 'string', name: 'draft_id', required: false, description: '草稿id，可以继续编辑' },
+                  { type: 'string', name: 'draft_url', required: false, description: '草稿链接，在浏览器里打开可以预览' }
+                ],
+                required: false
+              },
+              { type: 'string', name: 'purchase_link', required: false }
+            ]
+          },
+          _temp: {
+            bounds: {
+              x: 892.2094926350246,
+              y: 143.43815504513285,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_ADD_TEXT_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: 892.2094926350246,
+      y: 143.43815504513285,
+      width: 360,
+      height: 112
     }
   }, null, 2);
 };

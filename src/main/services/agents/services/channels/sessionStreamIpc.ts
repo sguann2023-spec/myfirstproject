@@ -1,5 +1,6 @@
 import { modelsService } from '@main/apiServer/services/models'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
+import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
 import { loggerService } from '@logger'
 import { getDataPath } from '@main/utils'
@@ -78,6 +79,29 @@ type DirectDraftRequestPayload = {
     name?: string
     cover?: string
   }
+  textAddRequest?: {
+    draftId?: string
+    draft_id?: string
+    text?: string
+    start?: number
+    end?: number
+    font?: string
+    font_color?: string
+    fontColor?: string
+    font_size?: number
+    fontSize?: number
+    letter_spacing?: number
+    letterSpacing?: number
+    line_spacing?: number
+    lineSpacing?: number
+    bold?: boolean
+    italic?: boolean
+    underline?: boolean
+    vertical?: boolean
+    align?: number
+    track_name?: string
+    trackName?: string
+  }
   draftInspectRequest?: {
     requestId?: string
     draftId?: string
@@ -129,6 +153,25 @@ async function callDraftDownloadTool(toolName: string, args: Record<string, unkn
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
     throw new Error('Draft download server did not register tools/call handler')
+  }
+  return callToolHandler(
+    {
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args
+      }
+    },
+    {}
+  )
+}
+
+async function callDraftElementsTool(toolName: string, args: Record<string, unknown>) {
+  const server = new DraftElementsServer()
+  const handlers = (server.mcpServer.server as any)?._requestHandlers
+  const callToolHandler = handlers?.get('tools/call')
+  if (typeof callToolHandler !== 'function') {
+    throw new Error('Draft elements server did not register tools/call handler')
   }
   return callToolHandler(
     {
@@ -281,6 +324,66 @@ function normalizeDirectDraftModifyRequest(input: Record<string, unknown> = {}) 
     draftId,
     ...(name ? { name } : {}),
     ...(cover ? { cover } : {})
+  }
+}
+
+function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fallbackText = '') {
+  const draftIdRaw = typeof input?.draftId === 'string' ? input.draftId : input?.draft_id
+  const draftId = typeof draftIdRaw === 'string' ? draftIdRaw.trim() : ''
+  if (!draftId) {
+    throw new Error('draftId is required for text add request')
+  }
+
+  const textRaw = typeof input?.text === 'string' ? input.text : fallbackText
+  const text = String(textRaw || '').trim()
+  if (!text) {
+    throw new Error('text is required for text add request')
+  }
+
+  const startValue = typeof input?.start === 'number' ? input.start : Number(input?.start)
+  const normalizedStart = Number.isFinite(startValue) ? Number(startValue) : 0
+  const endValue = typeof input?.end === 'number' ? input.end : Number(input?.end)
+  const normalizedEnd = Number.isFinite(endValue) && Number(endValue) > normalizedStart
+    ? Number(endValue)
+    : normalizedStart + 3
+  const font = typeof input?.font === 'string' && input.font.trim() ? input.font.trim() : undefined
+  const fontColorRaw = typeof input?.font_color === 'string'
+    ? input.font_color
+    : (typeof input?.fontColor === 'string' ? input.fontColor : '')
+  const fontColor = typeof fontColorRaw === 'string' && fontColorRaw.trim() ? fontColorRaw.trim() : undefined
+  const fontSizeRaw = Number(input?.font_size ?? input?.fontSize)
+  const fontSize = Number.isFinite(fontSizeRaw) && fontSizeRaw > 0 ? fontSizeRaw : undefined
+  const letterSpacingRaw = Number(input?.letter_spacing ?? input?.letterSpacing)
+  const letterSpacing = Number.isFinite(letterSpacingRaw) ? letterSpacingRaw : undefined
+  const lineSpacingRaw = Number(input?.line_spacing ?? input?.lineSpacing)
+  const lineSpacing = Number.isFinite(lineSpacingRaw) ? lineSpacingRaw : undefined
+  const bold = typeof input?.bold === 'boolean' ? input.bold : undefined
+  const italic = typeof input?.italic === 'boolean' ? input.italic : undefined
+  const underline = typeof input?.underline === 'boolean' ? input.underline : undefined
+  const vertical = typeof input?.vertical === 'boolean' ? input.vertical : undefined
+  const alignRaw = Number(input?.align)
+  const align = Number.isInteger(alignRaw) ? alignRaw : undefined
+  const trackNameRaw = typeof input?.track_name === 'string'
+    ? input.track_name
+    : (typeof input?.trackName === 'string' ? input.trackName : '')
+  const trackName = typeof trackNameRaw === 'string' && trackNameRaw.trim() ? trackNameRaw.trim() : undefined
+
+  return {
+    draft_id: draftId,
+    text,
+    start: normalizedStart,
+    end: normalizedEnd,
+    ...(font ? { font } : {}),
+    ...(fontColor ? { font_color: fontColor } : {}),
+    ...(fontSize ? { font_size: fontSize } : {}),
+    ...(typeof letterSpacing === 'number' ? { letter_spacing: letterSpacing } : {}),
+    ...(typeof lineSpacing === 'number' ? { line_spacing: lineSpacing } : {}),
+    ...(typeof bold === 'boolean' ? { bold } : {}),
+    ...(typeof italic === 'boolean' ? { italic } : {}),
+    ...(typeof underline === 'boolean' ? { underline } : {}),
+    ...(typeof vertical === 'boolean' ? { vertical } : {}),
+    ...(typeof align === 'number' ? { align } : {}),
+    ...(trackName ? { track_name: trackName } : {}),
   }
 }
 
@@ -461,6 +564,74 @@ function buildDirectDraftModifyAssistantText(input: {
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
+function buildDirectTextAddAssistantText(input: {
+  draftId: string
+  text: string
+  start: number
+  end: number
+}): string {
+  const draftId = String(input?.draftId || '').trim()
+  const text = String(input?.text || '').trim()
+  const start = Number(input?.start || 0)
+  const end = Number(input?.end || 0)
+  const durationText = Number.isFinite(start) && Number.isFinite(end) && end > start
+    ? `${start}s - ${end}s`
+    : ''
+  return [
+    '文本已添加成功！',
+    '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    text ? `- 文本内容：${text}` : '',
+    durationText ? `- 时间范围：${durationText}` : '',
+    '',
+    '还需要继续添加其他文本，或者继续调整这个草稿吗？'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectTextAddErrorAssistantText(input: {
+  draftId: string
+  text: string
+  errorCode?: string
+}): string {
+  const draftId = String(input?.draftId || '').trim()
+  const text = String(input?.text || '').trim()
+  const errorCode = String(input?.errorCode || '').trim()
+  const errorHint = (() => {
+    switch (errorCode) {
+      case 'SEGMENT_OVERLAP':
+        return '当前时间段和现有文本片段发生了重叠。可以调整时间范围，或者换一个不同的轨道 track_name 再试。'
+      case 'UNSUPPORTED_FONT':
+        return '当前字体不被后端服务支持。请换一个受支持的字体名称后重试。'
+      case 'MISSING_REQUIRED_PARAM':
+        return '请求缺少必要参数。请确认草稿 ID、文本内容、开始时间和结束时间都已正确传入。'
+      case 'INVALID_PARAMETER':
+        return '请求参数不合法。请检查字号、颜色、对齐方式、字间距、行间距等设置是否超出允许范围。'
+      case 'DRAFT_NOT_FOUND':
+        return '目标草稿不存在，或者当前环境拿不到这个草稿。请重新选择草稿后再试。'
+      case 'TRACK_NOT_FOUND':
+        return '指定的轨道不存在。请改用已有轨道名，或者不要传自定义 track_name。'
+      case 'INVALID_TRACK_TYPE':
+        return '指定轨道类型不正确。请确认文本被添加到文本轨道，而不是视频或音频轨道。'
+      case 'MATERIAL_NOT_FOUND':
+        return '依赖的素材没有找到。请确认草稿资源完整，或重新选择目标草稿后再试。'
+      case 'UNKNOWN_ERROR':
+        return '后端返回了未知错误。建议先保留当前参数，再换一个 track_name 或稍后重试。'
+      default:
+        return '当前请求执行失败。请检查文本参数和草稿状态后重试。'
+    }
+  })()
+
+  return [
+    '文本添加失败。',
+    '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    text ? `- 文本内容：${text}` : '',
+    errorCode ? `- 错误码：${errorCode}` : '',
+    '',
+    errorHint
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
 function buildDirectDraftModifyAssistantBlocks(input: {
   assistantMessageId: string
   modelId: string
@@ -509,6 +680,70 @@ function buildDirectDraftModifyAssistantBlocks(input: {
       createdAt: createdAtIso,
       updatedAt: createdAtIso,
       status: 'success',
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectTextAddAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+  status?: 'success' | 'error'
+}) {
+  const {
+    assistantMessageId,
+    modelId,
+    toolCallId,
+    toolArgs,
+    toolResponse,
+    assistantText,
+    createdAtIso,
+    status = 'success'
+  } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__vectcut__draft-elements__add_text',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__vectcut__draft-elements__add_text',
+            name: 'mcp__vectcut__draft-elements__add_text',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
       modelId,
       content: assistantText
     }
@@ -1803,6 +2038,145 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleTextAddRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedTextAddRequest = normalizeDirectTextAddRequest(
+        payload?.textAddRequest && typeof payload.textAddRequest === 'object'
+          ? payload.textAddRequest as Record<string, unknown>
+          : {},
+        String(payload?.userContent || '').trim()
+      )
+      const draftId = String(normalizedTextAddRequest?.draft_id || '').trim()
+      const text = String(normalizedTextAddRequest?.text || '').trim()
+      const start = Number(normalizedTextAddRequest?.start || 0)
+      const end = Number(normalizedTextAddRequest?.end || 0)
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `text_add_request_${requestId}`
+      const toolArgs: Record<string, unknown> = { ...normalizedTextAddRequest }
+
+      const toolResult = await callDraftElementsTool('add_text', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const errorCode = String(toolResponse?.error_code || '').trim()
+      const errorMessage = String(toolResponse?.error || '').trim()
+      const responseSuccess = toolResponse?.success !== false && !errorCode
+      const assistantText = responseSuccess
+        ? buildDirectTextAddAssistantText({
+            draftId,
+            text,
+            start,
+            end
+          })
+        : buildDirectTextAddErrorAssistantText({
+            draftId,
+            text,
+            errorCode
+          })
+      const assistantBlocks = buildDirectTextAddAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso,
+        status: responseSuccess ? 'success' : 'error'
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: 'completed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              textAddRequest: normalizedTextAddRequest,
+              blocks: [
+                `${userMessageId}-main`
+              ]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: responseSuccess ? 'success' : 'error',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleSessionCreate = async (_event: unknown, payload: any = {}) => {
     try {
       const agentId = String(payload?.agent_id || DEFAULT_RUNTIME_AGENT_ID).trim() || DEFAULT_RUNTIME_AGENT_ID
@@ -1849,6 +2223,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(CherryChannels.SessionMessageCreate, handleSessionMessageCreate)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, handleDraftRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, handleTextAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, handleDraftDownloadRequest)
 

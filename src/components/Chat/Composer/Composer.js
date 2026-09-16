@@ -4135,6 +4135,37 @@ const Composer = ({
           ...(text ? { name: text } : {}),
         }
         : null,
+      textAddRequest: activeTool === 'text-add'
+        ? {
+          draftId: String(selectedTextAddDraftIds?.[0] || '').trim(),
+          text,
+          start: 0,
+          end: 3,
+          font: String(textAddSettings?.font || '').trim(),
+          fontSize: Number(textAddSettings?.fontSize || 24) || 24,
+          fontColor: String(textAddSettings?.color || '#FFFFFF').trim().toUpperCase(),
+          letterSpacing: Number(textAddSettings?.letterSpacing || 0) || 0,
+          lineSpacing: Number(textAddSettings?.lineSpacing || 0) || 0,
+          bold: Boolean(textAddSettings?.styles?.bold),
+          italic: Boolean(textAddSettings?.styles?.italic),
+          underline: Boolean(textAddSettings?.styles?.underline),
+          vertical: Boolean(
+            textAddSettings?.align === 'top'
+            || textAddSettings?.align === 'vertical-center'
+            || textAddSettings?.align === 'bottom'
+          ),
+          align:
+            textAddSettings?.align === 'left'
+              ? 0
+              : textAddSettings?.align === 'right'
+                ? 2
+                : textAddSettings?.align === 'top'
+                  ? 3
+                  : textAddSettings?.align === 'bottom'
+                    ? 4
+                    : 1,
+        }
+        : null,
       draftExportRequest: activeTool === 'draft-export'
         ? {
           drafts: selectedDraftDownloadIds.map((draftId) => ({
