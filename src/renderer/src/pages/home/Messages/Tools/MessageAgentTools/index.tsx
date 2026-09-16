@@ -36,6 +36,8 @@ import { TaskOutputTool } from './TaskOutputTool'
 import { TodoWriteTool } from './TodoWriteTool'
 import { ToolSearchTool } from './ToolSearchTool'
 import { isAgentMcpToolName, McpServerToolRenderer } from './McpServerToolRenderer'
+import { isMediaGenerationToolName } from './MediaGenerationTool'
+import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
 import type { ToolInput, ToolOutput } from './types'
 import { AgentToolsType } from './types'
 import { UnknownToolRenderer } from './UnknownToolRenderer'
@@ -88,38 +90,6 @@ const TransparentCollapse = styled(Collapse)`
     background: transparent !important;
   }
 `
-
-const summarizeValue = (value: unknown): { type: string; length: number; preview: string } => {
-  if (typeof value === 'string') {
-    return {
-      type: 'string',
-      length: value.length,
-      preview: value.slice(0, 240)
-    }
-  }
-  if (value === undefined || value === null) {
-    return {
-      type: String(value),
-      length: 0,
-      preview: ''
-    }
-  }
-  try {
-    const serialized = JSON.stringify(value)
-    return {
-      type: Array.isArray(value) ? 'array' : typeof value,
-      length: serialized.length,
-      preview: serialized.slice(0, 240)
-    }
-  } catch {
-    const fallback = String(value)
-    return {
-      type: typeof value,
-      length: fallback.length,
-      preview: fallback.slice(0, 240)
-    }
-  }
-}
 
 /**
  * Type-safe tool renderer invocation function.
@@ -205,7 +175,7 @@ function ToolContent({
 
 // 统一的组件渲染入口
 export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolResponse }) {
-  const { arguments: args, response, tool, status, partialArguments } = toolResponse
+  const { arguments: args, response, responseRaw, tool, status, partialArguments } = toolResponse
   const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
 
@@ -262,7 +232,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   }, [tool?.name, status, toolResponse?.toolCallId, args, partialArguments, response])
 
   // Navigate tool renders as a simple inline button, not a tool card
-  if (tool?.name === 'mcp__assistant__navigate') {
+  if (tool?.name === 'mcp__vectcut__assistant__navigate' || tool?.name === 'mcp__assistant__navigate') {
     return <NavigateToolInline input={args ?? parsedPartialArgs} output={response} />
   }
 
@@ -290,11 +260,72 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   }
 
   const isLoading = effectiveStatus === 'streaming' || effectiveStatus === 'invoking'
+  const toolName = tool?.name || ''
+  const resolvedOutput = (() => {
+    if (isLoading) return undefined
+
+    // Some MCP tools need both sanitized `response` and original `responseRaw`
+    // to recover complete metadata such as billing when one side is truncated.
+    if (
+      (isVideoUnderstandeToolName(toolName) || isMediaGenerationToolName(toolName)) &&
+      response !== undefined &&
+      responseRaw !== undefined
+    ) {
+      return {
+        response,
+        responseRaw
+      }
+    }
+
+    return isAgentMcpToolName(toolName) ? (responseRaw ?? response) : response
+  })()
+
+  if (!isLoading && isMediaGenerationToolName(toolName)) {
+    // #region debug-point A:message-agent-tools-resolved-output
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'media-billing-missing',
+        runId: 'pre-fix',
+        hypothesisId: 'A',
+        location: 'MessageAgentTools/index.tsx:resolvedOutput',
+        msg: '[DEBUG] media tool resolved output prepared',
+        data: {
+          toolName,
+          status: effectiveStatus,
+          hasResponse: response !== undefined,
+          hasResponseRaw: responseRaw !== undefined,
+          resolvedOutputType: Array.isArray(resolvedOutput) ? 'array' : typeof resolvedOutput,
+          resolvedOutputKeys:
+            resolvedOutput && typeof resolvedOutput === 'object' && !Array.isArray(resolvedOutput)
+              ? Object.keys(resolvedOutput as Record<string, unknown>).slice(0, 8)
+              : [],
+          responsePreview: (() => {
+            try {
+              return JSON.stringify(response).slice(0, 280)
+            } catch {
+              return String(response).slice(0, 280)
+            }
+          })(),
+          responseRawPreview: (() => {
+            try {
+              return JSON.stringify(responseRaw).slice(0, 280)
+            } catch {
+              return String(responseRaw).slice(0, 280)
+            }
+          })()
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
+  }
+
   return (
     <ToolContent
-      toolName={tool?.name}
+      toolName={toolName}
       input={args ?? parsedPartialArgs}
-      output={isLoading ? undefined : response}
+      output={resolvedOutput}
       isStreaming={isLoading}
       status={effectiveStatus}
       hasError={hasDisplayError}

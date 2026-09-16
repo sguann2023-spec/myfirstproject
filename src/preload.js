@@ -150,8 +150,8 @@ const electronBridge = {
         },
         toggle: ({ agentId = 'vectcut_claw_default', skillId, isEnabled } = {}) =>
             ipcRenderer.invoke(AGENT_CHANNELS.SkillToggle, { agentId, skillId, isEnabled }),
-        installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true, remoteId = null, remoteName = null, source = 'local', sourceUrl = null, iconUrl = null, previewVideoUrl = null } = {}) =>
-            ipcRenderer.invoke(AGENT_CHANNELS.SkillInstallFromDirectory, { agentId, directoryPath, isEnabled, remoteId, remoteName, source, sourceUrl, iconUrl, previewVideoUrl }),
+        installFromDirectory: ({ agentId = 'vectcut_claw_default', directoryPath, isEnabled = true, remoteId = null, remoteName = null, folderName = null, source = 'local', sourceUrl = null, iconUrl = null, previewVideoUrl = null } = {}) =>
+            ipcRenderer.invoke(AGENT_CHANNELS.SkillInstallFromDirectory, { agentId, directoryPath, isEnabled, remoteId, remoteName, folderName, source, sourceUrl, iconUrl, previewVideoUrl }),
         copyDirectoryToWorkspace: ({ agentId = 'vectcut_claw_default', directoryPath, workspace, sourceSubdir, targetRelativePath, excludeSubdirs } = {}) =>
             ipcRenderer.invoke('skill:copy-directory-to-workspace', { agentId, directoryPath, workspace, sourceSubdir, targetRelativePath, excludeSubdirs }),
         uninstall: ({ skillId } = {}) => ipcRenderer.invoke(AGENT_CHANNELS.SkillUninstall, skillId),

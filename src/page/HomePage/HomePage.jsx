@@ -53,13 +53,13 @@ const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const PASTED_MEDIA_DIRECTORY = 'pasted-media';
 const CHAT_BROWSER_PREVIEW_WIDTH = 400;
-const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = '儿童绘本';
-const QUICK_TRENDY_KOUBO_SKILL_NAME = '网感口播';
-const QUICK_LIVE_CLIPPING_SKILL_NAME = '直播切片';
-const QUICK_TRAVEL_GUIDE_SKILL_NAME = '旅游攻略混剪';
-const QUICK_SWEATER_SELLING_SKILL_NAME = '毛衣带货口播';
-const QUICK_CONVENIENCE_STORE_TOUR_SKILL_NAME = '便利店探店';
-const QUICK_EDUCATION_KNOWLEDGE_SKILL_NAME = '教育知识讲解';
+const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = 'childrensbook';
+const QUICK_TRENDY_KOUBO_SKILL_NAME = 'trendykoubo';
+const QUICK_LIVE_CLIPPING_SKILL_NAME = 'liveclipping';
+const QUICK_TRAVEL_GUIDE_SKILL_NAME = 'travelguide';
+const QUICK_SWEATER_SELLING_SKILL_NAME = 'sweaterselling';
+const QUICK_CONVENIENCE_STORE_TOUR_SKILL_NAME = 'conveniencestore';
+const QUICK_EDUCATION_KNOWLEDGE_SKILL_NAME = 'educationknowledge';
 const BLOCK_NEW_CHAT_AFTER_TIMEOUT_MESSAGE = '当前会话已超时，请先在当前会话继续，暂不支持自动新建对话。';
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
@@ -224,9 +224,79 @@ const writeWorkspaceStore = (store = {}) => {
     // ignore storage failures
   }
 };
-const buildAutoWorkspaceName = () => (
-  `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-);
+const removeWorkspacePathFromStore = (store = {}, workspacePath = '') => {
+  const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+  if (!normalizedWorkspacePath) {
+    return {
+      library: dedupeWorkspacePaths(store?.library),
+      recent: dedupeWorkspacePaths(store?.recent),
+      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [
+        ...dedupeWorkspacePaths(store?.library),
+        ...dedupeWorkspacePaths(store?.recent)
+      ])
+    };
+  }
+
+  const library = dedupeWorkspacePaths(store?.library).filter((path) => path !== normalizedWorkspacePath);
+  const recent = dedupeWorkspacePaths(store?.recent).filter((path) => path !== normalizedWorkspacePath);
+  return {
+    library,
+    recent,
+    accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
+  };
+};
+const getAutoWorkspaceDatePrefix = (value = Date.now()) => {
+  const date = new Date(value);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}_${day}`;
+};
+
+const getWorkspaceNameFromEntry = (entry) => {
+  const normalizedEntry = normalizeLocalPath(typeof entry === 'string' ? entry : entry?.name || '').trim();
+  if (!normalizedEntry) return '';
+  const segments = normalizedEntry.split('/').filter(Boolean);
+  return segments[segments.length - 1] || '';
+};
+
+const buildAutoWorkspaceName = async (parentDir = '') => {
+  const prefix = getAutoWorkspaceDatePrefix();
+  const normalizedParentDir = normalizeLocalPath(parentDir).trim();
+  if (!normalizedParentDir || !window?.api?.file?.listDirectory) {
+    return prefix;
+  }
+
+  try {
+    const entries = await window.api.file.listDirectory(normalizedParentDir, {
+      recursive: false,
+      includeHidden: false,
+      includeFiles: false,
+      includeDirectories: true,
+      maxEntries: 1000
+    });
+
+    const matchedSuffixes = (Array.isArray(entries) ? entries : []).reduce((acc, entry) => {
+      const name = getWorkspaceNameFromEntry(entry);
+      if (name === prefix) {
+        acc.push(0);
+        return acc;
+      }
+      const matched = name.match(new RegExp(`^${prefix}_(\\d+)$`));
+      if (matched) {
+        acc.push(Number(matched[1]) || 0);
+      }
+      return acc;
+    }, []);
+
+    if (matchedSuffixes.length === 0) {
+      return prefix;
+    }
+
+    return `${prefix}_${Math.max(...matchedSuffixes) + 1}`;
+  } catch (_error) {
+    return prefix;
+  }
+};
 const seedWorkspaceSkeleton = async (workspacePath) => {
   const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: workspacePath });
   if (!seedResult?.ok) {
@@ -299,6 +369,244 @@ const persistPendingChatLocalAttachments = async ({
       return nextContent;
     }
   };
+};
+const parseDraftResolutionDimensions = (value = '') => {
+  const [rawWidth = '', rawHeight = ''] = String(value || '').trim().toLowerCase().split('x');
+  const width = Number.parseInt(rawWidth, 10);
+  const height = Number.parseInt(rawHeight, 10);
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : undefined,
+    height: Number.isFinite(height) && height > 0 ? height : undefined,
+  };
+};
+const normalizeDraftRequestPayload = (draftRequest = {}, cover = '') => {
+  if (!draftRequest || typeof draftRequest !== 'object') return null;
+  const { width, height } = parseDraftResolutionDimensions(draftRequest?.resolution);
+  const resolvedWidth = Number.isFinite(Number(draftRequest?.width)) ? Number(draftRequest.width) : width;
+  const resolvedHeight = Number.isFinite(Number(draftRequest?.height)) ? Number(draftRequest.height) : height;
+  const resolvedName = String(draftRequest?.name || '').trim();
+  const resolvedCover = String(cover || draftRequest?.cover || '').trim();
+  return {
+    action: 'create',
+    ...(resolvedWidth ? { width: resolvedWidth } : {}),
+    ...(resolvedHeight ? { height: resolvedHeight } : {}),
+    ...(resolvedName ? { name: resolvedName } : {}),
+    ...(resolvedCover ? { cover: resolvedCover } : {})
+  };
+};
+const normalizeDraftDownloadRequestPayload = (draftDownloadRequest = {}) => {
+  if (!draftDownloadRequest || typeof draftDownloadRequest !== 'object') return null;
+  const normalizedDrafts = Array.isArray(draftDownloadRequest?.drafts)
+    ? draftDownloadRequest.drafts
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => {
+        const draftId = String(item?.draftId || item?.draft_id || '').trim();
+        if (!draftId) return null;
+        const draftName = String(item?.draftName || item?.draft_name || '').trim();
+        const cover = String(item?.cover || '').trim();
+        return {
+          draftId,
+          ...(draftName ? { draftName } : {}),
+          ...(cover ? { cover } : {})
+        };
+      })
+      .filter(Boolean)
+    : [];
+
+  if (normalizedDrafts.length > 0) {
+    return { drafts: normalizedDrafts };
+  }
+
+  const draftId = String(draftDownloadRequest?.draftId || draftDownloadRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const draftName = String(draftDownloadRequest?.draftName || draftDownloadRequest?.draft_name || '').trim();
+  const cover = String(draftDownloadRequest?.cover || '').trim();
+  return {
+    drafts: [{
+      draftId,
+      ...(draftName ? { draftName } : {}),
+      ...(cover ? { cover } : {})
+    }]
+  };
+};
+const normalizeDraftExportRequestPayload = (draftExportRequest = {}) => normalizeDraftDownloadRequestPayload(draftExportRequest);
+const normalizeDraftModifyRequestPayload = (draftModifyRequest = {}, cover = '') => {
+  if (!draftModifyRequest || typeof draftModifyRequest !== 'object') return null;
+  const draftId = String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const name = String(draftModifyRequest?.name || '').trim();
+  const resolvedCover = String(cover || draftModifyRequest?.cover || '').trim();
+  return {
+    draftId,
+    ...(name ? { name } : {}),
+    ...(resolvedCover ? { cover: resolvedCover } : {})
+  };
+};
+const normalizeDraftInspectRequestPayload = (draftInspectRequest = {}, requestId = '') => {
+  if (!draftInspectRequest || typeof draftInspectRequest !== 'object') return null;
+  const draftId = String(draftInspectRequest?.draftId || draftInspectRequest?.draft_id || '').trim();
+  if (!draftId) return null;
+  const requirement = String(
+    draftInspectRequest?.requirement
+    || draftInspectRequest?.inspectRequirement
+    || draftInspectRequest?.query
+    || ''
+  ).trim();
+  const resolvedRequestId = String(draftInspectRequest?.requestId || requestId || '').trim();
+  return {
+    draftId,
+    ...(requirement ? { requirement } : {}),
+    ...(resolvedRequestId ? { requestId: resolvedRequestId } : {})
+  };
+};
+const resolveDraftRequestCover = (imageAttachmentPreviews = []) => {
+  const firstImage = imageAttachmentPreviews.find((item) => (
+    String(item?.fileType || '').toLowerCase().startsWith('image/')
+  ));
+  if (!firstImage) return '';
+  return String(
+    firstImage?.sourcePath
+    || firstImage?.url
+    || firstImage?.previewUrl
+    || firstImage?.thumbnailUrl
+    || ''
+  ).trim();
+};
+const buildDraftRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-management__create_draft',
+    arguments: draftRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-management__create_draft',
+          name: 'mcp__vectcut__draft-management__create_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: draftRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDraftDownloadRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftDownloadRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_download_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-download-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-download__download_draft',
+    arguments: draftDownloadRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-download__download_draft',
+          name: 'mcp__vectcut__draft-download__download_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: draftDownloadRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDraftExportRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftExportRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_export_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-export-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-download__export_draft',
+    arguments: draftExportRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-download__export_draft',
+          name: 'mcp__vectcut__draft-download__export_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: draftExportRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDraftModifyRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  draftModifyRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `draft_modify_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-draft-modify-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-management__modify_draft',
+    arguments: draftModifyRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-management__modify_draft',
+          name: 'mcp__vectcut__draft-management__modify_draft',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: draftModifyRequest,
+        status: 'pending'
+      }
+    }
+  }];
 };
 const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
   const resourcesPath = normalizeLocalPath(appInfo?.resourcesPath || '').trim();
@@ -548,6 +856,7 @@ const isBrowserOpenToolBlock = (block = {}) => {
   return (
     (serverName.includes('browser') && toolName === 'open')
     || toolName === 'browser:open'
+    || toolName === 'mcp__vectcut__browser__open'
     || toolName === 'mcp__browser__open'
     || toolName === 'browser__open'
   );
@@ -756,8 +1065,15 @@ const getAgentApiKeyFromLoginState = async () => {
   return hit ? hit.trim() : '';
 };
 
-const createEmptyChatSession = () => {
+const createEmptyChatSession = (options = {}) => {
   const now = Date.now();
+  const workspacePath = normalizeLocalPath(options?.workspacePath || '').trim();
+  const configuration = workspacePath
+    ? {
+      ...(options?.configuration && typeof options.configuration === 'object' ? options.configuration : {}),
+      selected_workspace_path: workspacePath
+    }
+    : options?.configuration;
   return {
     id: createChatId(),
     title: DEFAULT_CHAT_TITLE,
@@ -765,6 +1081,8 @@ const createEmptyChatSession = () => {
     createdAt: now,
     updatedAt: now,
     runtimeSessionId: '',
+    accessible_paths: workspacePath ? [workspacePath] : [],
+    configuration,
     historyLoaded: true,
     messages: [],
   };
@@ -1107,6 +1425,16 @@ const countAssistantUsageSteps = (messages = []) => (
   }, 0)
 );
 
+const countAssistantUsageMessages = (messages = []) => (
+  (Array.isArray(messages) ? messages : []).reduce((count, message) => {
+    if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
+    const hasUsage = Boolean(message?.usage);
+    const hasUsageSteps = Array.isArray(message?.usageSteps) && message.usageSteps.length > 0;
+    const hasCompletionMetrics = Number(message?.metrics?.completion_tokens || 0) > 0;
+    return hasUsage || hasUsageSteps || hasCompletionMetrics ? count + 1 : count;
+  }, 0)
+);
+
 const countAssistantPricedUsageMessages = (messages = []) => (
   (Array.isArray(messages) ? messages : []).reduce((count, message) => {
     if (String(message?.role || '').toLowerCase() !== 'assistant') return count;
@@ -1117,8 +1445,10 @@ const countAssistantPricedUsageMessages = (messages = []) => (
 const HYDRATED_IMAGE_TOOL_NAMES = new Set([
   'generate_or_edit_image',
   'mcp__image__generate_or_edit_image',
+  'mcp__vectcut__image__generate_or_edit_image',
   'generate_image',
-  'mcp__image__generate_image'
+  'mcp__image__generate_image',
+  'mcp__vectcut__image__generate_image'
 ]);
 
 const inferPersistedImageAttachmentFileType = (value = '') => {
@@ -1362,6 +1692,7 @@ const shouldApplyHydratedMessages = ({
   const beforeMissingAssistantCount = countMissingVisibleAssistantMessages(currentMessages);
   const beforeStructuredAssistantBlockCount = countStructuredAssistantBlocks(currentMessages);
   const beforeAssistantUsageStepCount = countAssistantUsageSteps(currentMessages);
+  const beforeAssistantUsageMessageCount = countAssistantUsageMessages(currentMessages);
   const beforePricedUsageMessageCount = countAssistantPricedUsageMessages(currentMessages);
   const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
   const beforeHasInterruptedAssistantState = (Array.isArray(currentMessages) ? currentMessages : []).some(hasInterruptedAssistantState);
@@ -1369,6 +1700,7 @@ const shouldApplyHydratedMessages = ({
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
   const afterAssistantUsageStepCount = countAssistantUsageSteps(hydratedMessages);
+  const afterAssistantUsageMessageCount = countAssistantUsageMessages(hydratedMessages);
   const afterPricedUsageMessageCount = countAssistantPricedUsageMessages(hydratedMessages);
   const afterHasInterruptedAssistantState = (Array.isArray(hydratedMessages) ? hydratedMessages : []).some(hasInterruptedAssistantState);
 
@@ -1379,6 +1711,7 @@ const shouldApplyHydratedMessages = ({
     || afterVisibleAssistantCount > beforeVisibleAssistantCount
     || afterStructuredAssistantBlockCount > beforeStructuredAssistantBlockCount
     || afterAssistantUsageStepCount > beforeAssistantUsageStepCount
+    || afterAssistantUsageMessageCount > beforeAssistantUsageMessageCount
     || afterPricedUsageMessageCount > beforePricedUsageMessageCount
     || (beforeHasInterruptedAssistantState && !afterHasInterruptedAssistantState)
     || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
@@ -1502,6 +1835,21 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
         return buildPersistedUserImageAttachmentsFromBlocks(normalizedBlocks);
       })()
     : undefined;
+  const draftRequest = role === 'user' && sourceMessage?.draftRequest && typeof sourceMessage.draftRequest === 'object'
+    ? { ...sourceMessage.draftRequest }
+    : undefined;
+  const draftExportRequest = role === 'user' && sourceMessage?.draftExportRequest && typeof sourceMessage.draftExportRequest === 'object'
+    ? { ...sourceMessage.draftExportRequest }
+    : undefined;
+  const draftDownloadRequest = role === 'user' && sourceMessage?.draftDownloadRequest && typeof sourceMessage.draftDownloadRequest === 'object'
+    ? { ...sourceMessage.draftDownloadRequest }
+    : undefined;
+  const draftModifyRequest = role === 'user' && sourceMessage?.draftModifyRequest && typeof sourceMessage.draftModifyRequest === 'object'
+    ? { ...sourceMessage.draftModifyRequest }
+    : undefined;
+  const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
+    ? { ...sourceMessage.draftInspectRequest }
+    : undefined;
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
@@ -1509,6 +1857,11 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     content: limitInlineText(content, { label: '历史消息内容' }),
     blocks: normalizedBlocks,
     ...(role === 'user' && imageAttachments.length > 0 ? { imageAttachments } : {}),
+    ...(role === 'user' && draftRequest ? { draftRequest } : {}),
+    ...(role === 'user' && draftExportRequest ? { draftExportRequest } : {}),
+    ...(role === 'user' && draftDownloadRequest ? { draftDownloadRequest } : {}),
+    ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
+    ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -1636,6 +1989,10 @@ const HomePage = () => {
     setChatDraftInput(name ? `@${name} ` : '');
   }, []);
 
+  const handleOpenSkillStore = useCallback(() => {
+    setSelectedPane('skill');
+  }, []);
+
   const handleSkillEdit = useCallback((skill) => {
     const name = String(skill?.name || skill?.folderName || '').trim();
     setSelectedPane('chat');
@@ -1657,6 +2014,8 @@ const HomePage = () => {
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
   const chatHistoryHydratingRef = useRef(new Set());
   const chatHistoryHydrateSettledRef = useRef(new Set());
+  const chatWorkspaceMetaHydratingRef = useRef(new Set());
+  const chatWorkspaceHydrationSuppressedRef = useRef(new Set());
   const chatDeferredSessionChangeHydrateRef = useRef(new Map());
   const chatPersistTimerRef = useRef(null);
   const creditsBalanceMountedRef = useRef(true);
@@ -1761,10 +2120,16 @@ const HomePage = () => {
       const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
         .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptionsRef.current))
         .filter((message) => message?.id));
-      const hasAssistantContent = hydratedMessages.some((message) => (
-        message.role === 'assistant' && String(message.content || '').trim()
+      const hasAssistantContentOrUsage = hydratedMessages.some((message) => (
+        message.role === 'assistant'
+        && (
+          String(message.content || '').trim()
+          || message?.usage
+          || (Array.isArray(message?.usageSteps) && message.usageSteps.length > 0)
+          || Number(message?.metrics?.completion_tokens || 0) > 0
+        )
       ));
-      if (!hasAssistantContent) {
+      if (!hasAssistantContentOrUsage) {
         logger.warn('[HomePage][HistoryHydrate] skipped persisted sync without assistant content', {
           chatId: normalizedChatId,
           sessionId: normalizedSessionId,
@@ -1941,6 +2306,34 @@ const HomePage = () => {
     setDraftListRefreshToken((prev) => prev + 1);
     await refreshTodayCount();
   };
+
+  const handleDraftRenamed = useCallback(async (updatedDraft) => {
+    const targetDraftId = String(updatedDraft?.draft_id || '').trim();
+    const nextDraftName = String(updatedDraft?.draft_name || '').trim();
+    if (!targetDraftId || !nextDraftName) return;
+
+    setSelectedDrafts((prev) => prev.map((item) => (
+      item?.draft_id === targetDraftId
+        ? {
+            ...item,
+            ...updatedDraft,
+            draft_name: nextDraftName,
+          }
+        : item
+    )));
+
+    setSelectedDraft((prev) => (
+      prev?.draft_id === targetDraftId
+        ? {
+            ...prev,
+            ...updatedDraft,
+            draft_name: nextDraftName,
+          }
+        : prev
+    ));
+
+    setDraftListRefreshToken((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -2155,6 +2548,22 @@ const HomePage = () => {
           .filter((item) => item && typeof item === 'object' && item.id)
           .map((item) => {
             const runtimeSessionId = String(item.runtimeSessionId || '').trim();
+            const accessiblePaths = Array.isArray(item.accessible_paths)
+              ? item.accessible_paths.map((path) => normalizeLocalPath(path).trim()).filter(Boolean)
+              : [];
+            const configuration = item.configuration && typeof item.configuration === 'object' && !Array.isArray(item.configuration)
+              ? { ...item.configuration }
+              : undefined;
+            const selectedWorkspacePath = normalizeLocalPath(
+              configuration?.selected_workspace_path || ''
+            ).trim();
+            if (configuration) {
+              if (selectedWorkspacePath) {
+                configuration.selected_workspace_path = selectedWorkspacePath;
+              } else {
+                delete configuration.selected_workspace_path;
+              }
+            }
             const restoredMessages = runtimeSessionId
               ? []
               : (Array.isArray(item.messages)
@@ -2167,6 +2576,8 @@ const HomePage = () => {
               createdAt: Number(item.createdAt) || Date.now(),
               updatedAt: Number(item.updatedAt) || Date.now(),
               runtimeSessionId,
+              accessible_paths: accessiblePaths,
+              configuration,
               historyLoaded: runtimeSessionId ? false : true,
               messages: restoredMessages,
             };
@@ -2532,10 +2943,16 @@ const HomePage = () => {
         const hydratedMessages = enhancePersistedHydratedMessages(historicalMessages
           .map((entry, index) => toPersistedHistoryMessage(entry, index, chatModelOptions))
           .filter((message) => message?.id));
-        const hasAssistantContent = hydratedMessages.some((message) => (
-          message.role === 'assistant' && String(message.content || '').trim()
+        const hasAssistantContentOrUsage = hydratedMessages.some((message) => (
+          message.role === 'assistant'
+          && (
+            String(message.content || '').trim()
+            || message?.usage
+            || (Array.isArray(message?.usageSteps) && message.usageSteps.length > 0)
+            || Number(message?.metrics?.completion_tokens || 0) > 0
+          )
         ));
-        if (!hasAssistantContent) {
+        if (!hasAssistantContentOrUsage) {
           chatHistoryHydrateSettledRef.current.add(hydrateKey);
           logger.warn('[HomePage][HistoryHydrate] skipped missing assistant content', {
             chatId: activeChatSession.id,
@@ -2788,6 +3205,9 @@ const HomePage = () => {
         content: nextContent,
         blocks: nextBlocks,
         usage: snapshot?.usage ? { ...snapshot.usage } : message?.usage,
+        usageSteps: Array.isArray(snapshot?.usageSteps)
+          ? snapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+          : message?.usageSteps,
         metrics: snapshot?.metrics ? { ...snapshot.metrics } : message?.metrics,
         model: nextModel,
         modelId: nextModelId,
@@ -2820,6 +3240,83 @@ const HomePage = () => {
 
   useEffect(() => {
     chatSessionsRef.current = chatSessions;
+  }, [chatSessions]);
+
+  useEffect(() => {
+    const pendingSessions = chatSessions.filter((session) => {
+      const chatId = String(session?.id || '').trim();
+      const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+      const workspacePath = getSessionWorkspacePath(session);
+      if (!chatId || !runtimeSessionId || workspacePath) return false;
+      if (chatWorkspaceMetaHydratingRef.current.has(chatId)) return false;
+      if (chatWorkspaceHydrationSuppressedRef.current.has(chatId)) return false;
+      return true;
+    });
+
+    if (pendingSessions.length === 0) return undefined;
+
+    let cancelled = false;
+
+    pendingSessions.forEach((session) => {
+      const chatId = String(session?.id || '').trim();
+      const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+      if (!chatId || !runtimeSessionId) return;
+
+      chatWorkspaceMetaHydratingRef.current.add(chatId);
+      void window.electronAPI.cherryChatStream.getSession(runtimeSessionId)
+        .then((result) => {
+          if (cancelled) return;
+          const runtimeSession = result?.session || null;
+          const accessiblePaths = Array.isArray(runtimeSession?.accessible_paths)
+            ? runtimeSession.accessible_paths.map((path) => normalizeLocalPath(path).trim()).filter(Boolean)
+            : [];
+          const configuration = runtimeSession?.configuration && typeof runtimeSession.configuration === 'object'
+            ? runtimeSession.configuration
+            : undefined;
+          const selectedWorkspacePath = normalizeLocalPath(
+            configuration?.selected_workspace_path || accessiblePaths[0] || ''
+          ).trim();
+          if (chatWorkspaceHydrationSuppressedRef.current.has(chatId)) return;
+          if (!selectedWorkspacePath && accessiblePaths.length === 0) return;
+
+            logger.info('[HomePage][WorkspaceMeta] hydrated session workspace', {
+              chatId,
+              runtimeSessionId,
+              selectedWorkspacePath,
+              accessiblePathsCount: accessiblePaths.length,
+              firstAccessiblePath: accessiblePaths[0] || ''
+            });
+
+          setChatSessions((prev) => prev.map((item) => {
+            if (item.id !== chatId) return item;
+            return {
+              ...item,
+              accessible_paths: accessiblePaths.length > 0 ? accessiblePaths : item.accessible_paths,
+              configuration: configuration
+                ? {
+                  ...configuration,
+                  ...(selectedWorkspacePath ? { selected_workspace_path: selectedWorkspacePath } : {})
+                }
+                : item.configuration,
+              updatedAt: item.updatedAt
+            };
+          }));
+        })
+        .catch((error) => {
+          logger.debug('[HomePage] skipped workspace metadata hydration for chat session', {
+            chatId,
+            runtimeSessionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        })
+        .finally(() => {
+          chatWorkspaceMetaHydratingRef.current.delete(chatId);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [chatSessions]);
 
   useEffect(() => {
@@ -2978,8 +3475,10 @@ const HomePage = () => {
         return agentSessionId;
       };
 
+      const targetChatSession = chatSessions.find((item) => item.id === chatId) || null;
+      const preferredWorkspacePath = getSessionWorkspacePath(targetChatSession);
       const persistedRuntimeSessionId = String(
-        chatSessions.find((item) => item.id === chatId)?.runtimeSessionId || ''
+        targetChatSession?.runtimeSessionId || ''
       ).trim();
       const cached = chatAgentSessionIdByChatIdRef.current.get(chatId) || persistedRuntimeSessionId;
       if (cached) {
@@ -3000,14 +3499,16 @@ const HomePage = () => {
         chatId,
         agentId: DEFAULT_RUNTIME_AGENT_ID,
         model: chatModel,
+        workspacePath: preferredWorkspacePath,
         hasApiKey: Boolean(vectcutApiKey)
       });
       const created = await window.electronAPI.cherryChatStream.createSession({
         agent_id: DEFAULT_RUNTIME_AGENT_ID,
         model: chatModel,
-        accessible_paths: [],
+        accessible_paths: preferredWorkspacePath ? [preferredWorkspacePath] : [],
         configuration: {
           permission_mode: 'bypassPermissions',
+          ...(preferredWorkspacePath ? { selected_workspace_path: preferredWorkspacePath } : {}),
           env_vars: {
             VECTCUT_API_KEY: vectcutApiKey,
             VECTCUT_ANTHROPIC_API_BASE_URL
@@ -3251,6 +3752,9 @@ const HomePage = () => {
                       content: snapshot.content || '',
                       blocks: snapshot.blocks || [],
                       usage: snapshot?.usage ? { ...snapshot.usage } : message.usage,
+                      usageSteps: Array.isArray(snapshot?.usageSteps)
+                        ? snapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+                        : message.usageSteps,
                       metrics: snapshot?.metrics ? { ...snapshot.metrics } : message.metrics,
                       model: nextModel,
                       modelId: nextModelId,
@@ -3396,6 +3900,14 @@ const HomePage = () => {
               chatPerfByRequestIdRef.current.delete(requestId);
             }
           }
+          if (agentSessionId) {
+            chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+            void hydratePersistedChatSessionFromHistory({
+              chatId,
+              sessionId: agentSessionId,
+              reason: 'chunk.error.aborted'
+            });
+          }
           return;
         }
         if (/JWTTokenIsInvalid|invalid or expired jwt/i.test(errorMessage)) {
@@ -3423,6 +3935,14 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
+        if (agentSessionId) {
+          chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+          void hydratePersistedChatSessionFromHistory({
+            chatId,
+            sessionId: agentSessionId,
+            reason: 'chunk.error'
+          });
+        }
         return;
       }
 
@@ -3443,6 +3963,14 @@ const HomePage = () => {
           if (completedPerf) {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
+        }
+        if (agentSessionId) {
+          chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+          void hydratePersistedChatSessionFromHistory({
+            chatId,
+            sessionId: agentSessionId,
+            reason: 'chunk.cancelled'
+          });
         }
         return;
       }
@@ -3491,6 +4019,9 @@ const HomePage = () => {
                         content: finalizedContent || message.content || '',
                         blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
                         usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
+                        usageSteps: Array.isArray(finalSnapshot?.usageSteps)
+                          ? finalSnapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+                          : message.usageSteps,
                         metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
                         model: nextModel,
                         modelId: nextModelId,
@@ -3542,11 +4073,15 @@ const HomePage = () => {
   }, [canUseAgentRuntime]);
 
   const handleCreateChatSession = (metadata = {}) => {
-    const session = createEmptyChatSession();
+    const normalizedWorkspacePath = normalizeLocalPath(metadata?.workspacePath || '').trim();
+    const session = createEmptyChatSession({
+      workspacePath: normalizedWorkspacePath
+    });
     logger.info('[HomePage][SessionSending] create session', {
       sessionId: session.id,
       fromActiveChatId: activeChatId,
       source: String(metadata?.source || 'unknown'),
+      workspacePath: normalizedWorkspacePath,
       isTrusted: metadata?.isTrusted,
       detail: metadata?.detail,
       pointerType: metadata?.pointerType || '',
@@ -3639,7 +4174,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3723,7 +4258,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3801,7 +4336,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3879,7 +4414,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -3957,7 +4492,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -4035,7 +4570,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -4113,7 +4648,7 @@ const HomePage = () => {
         if (!workspaceParentDir) {
           throw new Error('创建新工作空间失败');
         }
-        workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+        workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
         await window.api.file.mkdir(workspacePath);
         await seedWorkspaceSkeleton(workspacePath);
       }
@@ -4178,40 +4713,117 @@ const HomePage = () => {
     setChatSessionFulfilled(sessionId, false, 'select-session');
   };
 
-  const handleDeleteChatSession = (sessionId) => {
-    const runtimeSessionId = String(
-      chatSessions.find((item) => item.id === sessionId)?.runtimeSessionId || ''
-    ).trim();
-    const timer = chatTitleRevealTimersRef.current.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      chatTitleRevealTimersRef.current.delete(sessionId);
-    }
-    setChatTitleRenamingSessionIds((prev) => prev.filter((id) => id !== sessionId));
-    setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => id !== sessionId));
-    removeChatHistoryLoading(sessionId);
-    removeChatSessionSending(sessionId);
-    removeChatSessionInFlight(sessionId);
-    removeChatSessionFulfilled(sessionId);
-    chatAgentSessionIdByChatIdRef.current.delete(sessionId);
-    if (runtimeSessionId) {
+  const deleteChatSessionsByIds = (sessionIds = []) => {
+    const normalizedSessionIds = Array.from(new Set(
+      (Array.isArray(sessionIds) ? sessionIds : []).map((sessionId) => String(sessionId || '').trim()).filter(Boolean)
+    ));
+    if (normalizedSessionIds.length === 0) return;
+
+    const sessionIdSet = new Set(normalizedSessionIds);
+    const runtimeSessionIds = normalizedSessionIds.map((sessionId) => String(
+      chatSessionsRef.current.find((item) => item.id === sessionId)?.runtimeSessionId || ''
+    ).trim()).filter(Boolean);
+
+    normalizedSessionIds.forEach((sessionId) => {
+      const timer = chatTitleRevealTimersRef.current.get(sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        chatTitleRevealTimersRef.current.delete(sessionId);
+      }
+      removeChatHistoryLoading(sessionId);
+      removeChatSessionSending(sessionId);
+      removeChatSessionInFlight(sessionId);
+      removeChatSessionFulfilled(sessionId);
+      chatAgentSessionIdByChatIdRef.current.delete(sessionId);
+      chatEnsuringAgentSessionByChatIdRef.current.delete(sessionId);
+      chatHistoryHydratingRef.current.delete(sessionId);
+      chatHistoryHydrateSettledRef.current.delete(sessionId);
+      chatWorkspaceMetaHydratingRef.current.delete(sessionId);
+      chatWorkspaceHydrationSuppressedRef.current.delete(sessionId);
+      chatDeferredSessionChangeHydrateRef.current.delete(sessionId);
+    });
+
+    setChatTitleRenamingSessionIds((prev) => prev.filter((id) => !sessionIdSet.has(id)));
+    setChatTitleNewlyRenamedSessionIds((prev) => prev.filter((id) => !sessionIdSet.has(id)));
+    setChatWorkspaceStatusMap((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      normalizedSessionIds.forEach((sessionId) => {
+        if (sessionId in next) {
+          delete next[sessionId];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+
+    runtimeSessionIds.forEach((runtimeSessionId) => {
       chatIdByAgentSessionIdRef.current.delete(runtimeSessionId);
       if (canUseAgentRuntime) {
         void window.electronAPI.cherryChatStream.unsubscribe(runtimeSessionId);
       }
-    }
+    });
+
     setChatSessions((prev) => {
-      const remaining = prev.filter((item) => item.id !== sessionId);
+      const remaining = prev.filter((item) => !sessionIdSet.has(String(item?.id || '').trim()));
       if (remaining.length === 0) {
         const next = createEmptyChatSession();
         setActiveChatId(next.id);
         return [next];
       }
-      if (activeChatId === sessionId) {
+      if (sessionIdSet.has(String(activeChatId || '').trim())) {
         setActiveChatId(remaining[0].id);
       }
       return remaining;
     });
+  };
+
+  const handleDeleteChatSession = (sessionId) => {
+    deleteChatSessionsByIds([sessionId]);
+  };
+
+  const handleDeleteWorkspace = async (workspacePath) => {
+    const normalizedWorkspacePath = normalizeLocalPath(workspacePath).trim();
+    if (!normalizedWorkspacePath) return;
+
+    const activeWorkspacePath = getSessionWorkspacePath(activeChatSession);
+    if (normalizeLocalPath(activeWorkspacePath).trim() === normalizedWorkspacePath) {
+      window.toast?.warning?.('当前对话正在使用该工作空间，无法删除');
+      return;
+    }
+
+    const workspaceName = normalizedWorkspacePath.split('/').filter(Boolean).pop() || normalizedWorkspacePath;
+    const deleteContent = `删除后不可恢复，确认删除「${workspaceName}」吗？`;
+    const confirmed = window?.modal?.confirm
+      ? await new Promise((resolve) => {
+          window.modal.confirm({
+            title: '确认删除工作空间',
+            content: deleteContent,
+            okText: '删除',
+            cancelText: '取消',
+            centered: true,
+            okType: 'danger',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        })
+      : window.confirm(deleteContent);
+
+    if (!confirmed) return;
+
+    try {
+      await window.api.file.deleteExternalDir(normalizedWorkspacePath);
+      const workspaceStore = readWorkspaceStore();
+      writeWorkspaceStore(removeWorkspacePathFromStore(workspaceStore, normalizedWorkspacePath));
+      const affectedChatIds = chatSessionsRef.current
+        .filter((session) => normalizeLocalPath(getSessionWorkspacePath(session)).trim() === normalizedWorkspacePath)
+        .map((session) => String(session?.id || '').trim())
+        .filter(Boolean);
+      deleteChatSessionsByIds(affectedChatIds);
+      window.toast?.success?.('工作空间已删除');
+    } catch (error) {
+      window.toast?.error?.(error?.message || '删除工作空间失败');
+    }
   };
 
   const handleRenameActiveChatTitle = (nextTitle) => {
@@ -4276,6 +4888,21 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const draftRequest = options?.draftRequest && typeof options.draftRequest === 'object'
+      ? { ...options.draftRequest }
+      : null;
+    const draftModifyRequest = options?.draftModifyRequest && typeof options.draftModifyRequest === 'object'
+      ? { ...options.draftModifyRequest }
+      : null;
+    const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
+      ? { ...options.draftExportRequest }
+      : null;
+    const draftDownloadRequest = options?.draftDownloadRequest && typeof options.draftDownloadRequest === 'object'
+      ? { ...options.draftDownloadRequest }
+      : null;
+    const draftInspectRequest = options?.draftInspectRequest && typeof options.draftInspectRequest === 'object'
+      ? { ...options.draftInspectRequest }
+      : null;
     const images = Array.isArray(options?.images)
       ? options.images.filter((item) => (
         item
@@ -4335,6 +4962,7 @@ const HomePage = () => {
       message?.role === 'user' && String(message?.content || '').trim()
     )).length;
     const shouldRequestTitleFromFirstUserMessage = existingUserMessageCount === 0;
+    const requestId = createRequestId();
 
     applyImmediateChatTitleFromFirstUserMessage(targetSessionId, text);
 
@@ -4346,6 +4974,11 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
+        ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
+        ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
+        ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
         createdAt: Date.now(),
       };
       const assistantMessage = {
@@ -4381,7 +5014,6 @@ const HomePage = () => {
       return;
     }
 
-    const requestId = createRequestId();
     const assistantMessageId = createMessageId();
     let userMessage = null;
     try {
@@ -4394,6 +5026,11 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
+        ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
+        ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
+        ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
+        ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
         createdAt: Date.now(),
       };
       const assistantMessage = {
@@ -4440,7 +5077,7 @@ const HomePage = () => {
           if (!workspaceParentDir) {
             throw new Error('创建默认工作空间失败');
           }
-          const workspacePath = joinLocalPath(workspaceParentDir, buildAutoWorkspaceName());
+          const workspacePath = joinLocalPath(workspaceParentDir, await buildAutoWorkspaceName(workspaceParentDir));
           await window.api.file.mkdir(workspacePath);
           await seedWorkspaceSkeleton(workspacePath);
 
@@ -4489,6 +5126,226 @@ const HomePage = () => {
         images,
       });
 
+      if (draftRequest) {
+        const { width, height } = parseDraftResolutionDimensions(draftRequest?.resolution);
+        const resolvedDraftRequest = {
+          action: 'create',
+          width,
+          height,
+          name: String(draftRequest?.name || '').trim(),
+          cover: resolveDraftRequestCover(imageAttachmentPreviews),
+        };
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftRequest: resolvedDraftRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftRequest: resolvedDraftRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftResult = await window.electronAPI.cherryChatStream.createDraftRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftRequest: resolvedDraftRequest,
+        });
+        if (!directDraftResult?.ok) {
+          throw new Error(directDraftResult?.error || 'draft request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftResult?.assistantBlocks) ? directDraftResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (draftModifyRequest) {
+        const resolvedDraftModifyRequest = normalizeDraftModifyRequestPayload(draftModifyRequest, resolveDraftRequestCover(imageAttachmentPreviews));
+        if (!resolvedDraftModifyRequest || !String(resolvedDraftModifyRequest.draftId || '').trim()) {
+          throw new Error('draft modify request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftModifyRequest: resolvedDraftModifyRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftModifyRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftModifyRequest: resolvedDraftModifyRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftModifyResult = await window.electronAPI.cherryChatStream.createDraftModifyRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftModifyRequest: resolvedDraftModifyRequest,
+        });
+        if (!directDraftModifyResult?.ok) {
+          throw new Error(directDraftModifyResult?.error || 'draft modify request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftModifyResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftModifyResult?.assistantBlocks) ? directDraftModifyResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-modify-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-modify-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-modify-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-modify-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (draftExportRequest) {
+        const resolvedDraftExportRequest = normalizeDraftExportRequestPayload(draftExportRequest);
+        if (!resolvedDraftExportRequest || !Array.isArray(resolvedDraftExportRequest.drafts) || resolvedDraftExportRequest.drafts.length === 0) {
+          throw new Error('draft export request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftExportRequest: resolvedDraftExportRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftExportRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftExportRequest: resolvedDraftExportRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftExportResult = await window.electronAPI.cherryChatStream.createDraftExportRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftExportRequest: resolvedDraftExportRequest,
+        });
+        if (!directDraftExportResult?.ok) {
+          throw new Error(directDraftExportResult?.error || 'draft export request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftExportResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftExportResult?.assistantBlocks) ? directDraftExportResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-export-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-export-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-export-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-export-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (draftDownloadRequest) {
+        const resolvedDraftDownloadRequest = normalizeDraftDownloadRequestPayload(draftDownloadRequest);
+        if (!resolvedDraftDownloadRequest || !Array.isArray(resolvedDraftDownloadRequest.drafts) || resolvedDraftDownloadRequest.drafts.length === 0) {
+          throw new Error('draft download request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          draftDownloadRequest: resolvedDraftDownloadRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDraftDownloadRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            draftDownloadRequest: resolvedDraftDownloadRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDraftDownloadResult = await window.electronAPI.cherryChatStream.createDraftDownloadRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          draftDownloadRequest: resolvedDraftDownloadRequest,
+        });
+        if (!directDraftDownloadResult?.ok) {
+          throw new Error(directDraftDownloadResult?.error || 'draft download request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDraftDownloadResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDraftDownloadResult?.assistantBlocks) ? directDraftDownloadResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'draft-download-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'draft-download-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'draft-download-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'draft-download-request.complete');
+        setChatSending(false);
+        return;
+      }
+
       const streamController = setupChannelStream(
         appStore.dispatch,
         appStore.getState,
@@ -4535,7 +5392,8 @@ const HomePage = () => {
         createdAt: userMessage.createdAt,
         requestId,
         model: chatModel,
-        images
+        images,
+        ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {})
       });
       logger.info('[HomePage] cherryChatStream createMessage result', {
         chatId: targetSessionId,
@@ -5005,6 +5863,7 @@ const HomePage = () => {
                 onCreateSession={handleCreateChatSession}
                 onSelectSession={handleSelectChatSession}
                 onDeleteSession={handleDeleteChatSession}
+                onDeleteWorkspace={handleDeleteWorkspace}
                 visible={chatHistoryVisible}
               />
             )}
@@ -5019,7 +5878,12 @@ const HomePage = () => {
             }`}
           >
             {selectedPane === 'draft' && (selectedDraft || selectedDrafts.length > 0) ? (
-              <DraftPreview draft={selectedDraft} drafts={selectedDrafts} onDeleteDraft={handleDraftDeleted} />
+              <DraftPreview
+                draft={selectedDraft}
+                drafts={selectedDrafts}
+                onDeleteDraft={handleDraftDeleted}
+                onRenameDraft={handleDraftRenamed}
+              />
             ) : null}
             {selectedPane === 'preset' ? (
               <Preset preset={selectedPreset} />
@@ -5099,6 +5963,7 @@ const HomePage = () => {
                   return Promise.resolve();
                 }}
                 onRefreshCredits={refreshRechargeBalance}
+                onOpenSkillStore={handleOpenSkillStore}
                 beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
                 beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
               />

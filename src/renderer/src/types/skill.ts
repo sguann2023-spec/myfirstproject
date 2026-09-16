@@ -180,6 +180,8 @@ export interface SkillInstallFromRemotePackageOptions {
   packageUrl: string
   remoteId: string
   remoteName?: string | null
+  /** Remote English directory name used in GlobalSkills. */
+  folderName?: string | null
   iconUrl?: string | null
   previewVideoUrl?: string | null
   sourceUrl?: string | null
@@ -197,6 +199,8 @@ export interface SkillInstallFromDirectoryOptions {
   /** Optional marketplace metadata persisted with the local installation. */
   remoteId?: string | null
   remoteName?: string | null
+  /** Remote English directory name used in GlobalSkills. */
+  folderName?: string | null
   source?: string
   sourceUrl?: string | null
   iconUrl?: string | null

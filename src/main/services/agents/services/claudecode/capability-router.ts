@@ -8,6 +8,7 @@ export type RuntimeCapability =
   | 'workspaceDownload'
   | 'webDownload'
   | 'uploadFile'
+  | 'imageUnderstand'
   | 'image'
   | 'video'
   | 'speech'
@@ -66,6 +67,7 @@ export type RuntimeCapability =
   | 'draftUpdateMeta'
   | 'draftInspect'
   | 'draftDownload'
+  | 'draftExport'
   | 'copylab'
   | 'digitalHuman'
   | 'kouboTemplate'
@@ -141,6 +143,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
 ) => {
   for (const activeDomain of activeDomains) {
     if (activeDomain.domain === 'chat') {
+      if (activeDomain.subdomains.includes('image_understand') && !selected.has('imageUnderstand')) {
+        addCapabilityReason(selected, reasons, 'imageUnderstand', 'intent:chat.image_understand')
+      }
       if (activeDomain.subdomains.includes('bash') && !selected.has('bash')) {
         addCapabilityReason(selected, reasons, 'bash', 'intent:chat.bash')
       }
@@ -353,6 +358,9 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       if (activeDomain.subdomains.includes('draft_download') && !selected.has('draftDownload')) {
         addCapabilityReason(selected, reasons, 'draftDownload', 'intent:cut.draft_download')
       }
+      if (activeDomain.subdomains.includes('draft_export') && !selected.has('draftExport')) {
+        addCapabilityReason(selected, reasons, 'draftExport', 'intent:cut.draft_export')
+      }
       if (activeDomain.subdomains.includes('subtitle_template') && !selected.has('subtitleTemplate')) {
         addCapabilityReason(selected, reasons, 'subtitleTemplate', 'intent:cut.subtitle_template')
       }
@@ -409,6 +417,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'workspaceDownload',
   'webDownload',
   'uploadFile',
+  'imageUnderstand',
   'image',
   'video',
   'speech',
@@ -467,6 +476,7 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'draftUpdateMeta',
   'draftInspect',
   'draftDownload',
+  'draftExport',
   'copylab',
   'digitalHuman',
   'kouboTemplate',
@@ -485,6 +495,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'workspaceDownload',
   'webDownload',
   'uploadFile',
+  'imageUnderstand',
   'image',
   'video',
   'speech',
@@ -543,6 +554,7 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'draftUpdateMeta',
   'draftInspect',
   'draftDownload',
+  'draftExport',
   'digitalHuman',
   'kouboTemplate',
   'copylab'
@@ -603,6 +615,7 @@ const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
   draft_update_meta: 'draft',
   draft_inspect: 'draft',
   draft_download: 'draft',
+  draft_export: 'draft',
   subtitle_template: 'template',
   template: 'template'
 }
@@ -882,20 +895,6 @@ const WORKSPACE_DOWNLOAD_KEYWORDS = [
   'save to workspace',
   'save locally'
 ]
-const WORKSPACE_UPLOAD_KEYWORDS = [
-  '上传',
-  '上传文件',
-  '上传这个文件',
-  '上传该文件',
-  '上传到oss',
-  '上传到 oss',
-  '传到oss',
-  '传到 oss',
-  '上传到对象存储',
-  'upload file',
-  'upload to oss'
-]
-
 const WEB_SEARCH_KEYWORDS = [
   '搜索',
   '查询',
@@ -1022,10 +1021,16 @@ const DRAFT_VISUAL_INSPECT_PATTERN = new RegExp(
   `(?:${DRAFT_REFERENCE_PATTERN.source}.{0,80}${DRAFT_INSPECT_VERB_PATTERN.source}|${DRAFT_INSPECT_VERB_PATTERN.source}.{0,40}${DRAFT_REFERENCE_PATTERN.source}).{0,40}${DRAFT_VISUAL_ATTRIBUTE_PATTERN.source}`
 )
 
+const DRAFT_META_FIELD_PATTERN = /(封面|封面图|名称|名字|标题|草稿名)/
+const DRAFT_ID_PATTERN = /(草稿id|draft[_\s-]?id|dfd_[a-z0-9_-]+)/
+
 const hasDraftMetaUpdateIntent = (text: string) =>
   (text.includes('草稿') || text.includes('draft')) &&
-  ((/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(封面|名称|名字|标题)/.test(text) ||
-    /(封面|名称|名字|标题).{0,12}(修改|更改|改一下|改下|更新|设置|替换)/.test(text)))
+  ((/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(封面|封面图|名称|名字|标题|草稿名)/.test(text) ||
+    /(封面|封面图|名称|名字|标题|草稿名).{0,12}(修改|更改|改一下|改下|更新|设置|替换)/.test(text) ||
+    (/(修改|更改|改一下|改下|更新|设置|替换).{0,12}(当前草稿|这个草稿|该草稿|current draft)/.test(text) &&
+      DRAFT_ID_PATTERN.test(text) &&
+      DRAFT_META_FIELD_PATTERN.test(text))))
 
 const hasDraftInspectIntent = (text: string) =>
   hasAnyKeyword(text, ['query script', 'query_script']) ||
@@ -1042,6 +1047,13 @@ const hasDraftDownloadIntent = (text: string) =>
   /\bdownload\b.{0,12}\bdraft\b/i.test(text) ||
   /\bdraft\b.{0,12}\bdownload\b/i.test(text)
 
+const hasDraftExportIntent = (text: string) =>
+  hasAnyKeyword(text, ['导出草稿', '草稿导出', 'draft export', 'export draft']) ||
+  /导出.{0,8}草稿/.test(text) ||
+  /草稿.{0,8}导出/.test(text) ||
+  /\bexport\b.{0,12}\bdraft\b/i.test(text) ||
+  /\bdraft\b.{0,12}\bexport\b/i.test(text)
+
 const hasSubtitleTemplateIntent = (text: string) =>
   hasAnyKeyword(text, CUT_SUBTITLE_TEMPLATE_KEYWORDS) ||
   ((/(给|帮|把|为|对).{0,8}(音频|视频|音轨|素材|录音)/.test(text) ||
@@ -1056,11 +1068,6 @@ const hasCutWorkflowIntent = (text: string) =>
     (/(剪辑|剪映|草稿|时间线|timeline)/.test(text) ||
       /create_draft|add_text|add_image|add_video|add_audio|add_subtitle|add_preset|add_video_keyframe/.test(text)))
 
-const hasMediaFileReference = (text: string) => AUDIO_FILE_REFERENCE_PATTERN.test(text) || hasVideoFileReference(text)
-const hasLocalMediaContext = (text: string) =>
-  hasMediaFileReference(text) ||
-  /(本地|工作区|workspace).{0,8}(音频|视频|文件|素材|录音)/.test(text) ||
-  /(音频|视频|文件|素材|录音).{0,8}(本地|工作区|workspace)/.test(text)
 const MATERIALS_ID_PATTERN =
   /\b[a-f0-9]{32}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
 const hasMaterialsFolderIdReference = (text: string) =>
@@ -1081,6 +1088,17 @@ const hasSubtitleRecognitionIntent = (text: string) =>
   (((/(识别|提取|抽取|转写|转成|转换成|导出)/.test(text) || /\basr\b/.test(text)) &&
     /(字幕|文案|台词|时间轴)/.test(text)) ||
     (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text)))
+
+const hasImageUnderstandIntent = (text: string) =>
+  hasAnyKeyword(text, ['识图', '看图', '读图', '图片理解', '图像理解', '帮我看一下这张图', '分析这张图']) ||
+  (((/(理解|分析|总结|概括|描述|识别|识别下|看懂|看下|看一下|看看|读出|提取)/.test(text) ||
+    /写了什么/.test(text) ||
+    /是什么/.test(text) ||
+    /有什么/.test(text) ||
+    /二维码/.test(text) ||
+    /文字/.test(text)) &&
+    (/(图|图片|截图|照片|海报|封面|二维码|image|screenshot|photo)/.test(text) ||
+      hasUrlLikeText(text))))
 
 const hasVideoUnderstandIntent = (text: string) =>
   hasAnyKeyword(text, CUT_VIDEO_UNDERSTAND_KEYWORDS) ||
@@ -1387,12 +1405,14 @@ export class CapabilityRouter {
           /draft.{0,8}(create|new|start)/.test(text))
       const hasDraftUpdateIntent = !hasCutWorkflow && hasDraftMetaUpdateIntent(text)
       const shouldInspectDraft = !hasCutWorkflow && hasDraftInspectIntent(text)
-      const shouldDownloadDraft = hasDraftDownloadIntent(text)
+      const shouldExportDraft = hasDraftExportIntent(text)
+      const shouldDownloadDraft = hasDraftDownloadIntent(text) && !shouldExportDraft
       const hasTextAdd = !hasCutWorkflow && hasTextAddIntent(text)
       const hasTextAddBatch = !hasCutWorkflow && hasTextAddBatchIntent(text)
       const hasTextDelete = !hasCutWorkflow && hasTextDeleteIntent(text)
       const hasTextUpdate = !hasCutWorkflow && hasTextUpdateIntent(text)
       const hasSubtitleRecognition = hasSubtitleRecognitionIntent(text)
+      const hasImageUnderstand = !hasCutWorkflow && !hasVideoUnderstandIntent(text) && hasImageUnderstandIntent(text)
       const hasVideoUnderstand = hasVideoUnderstandIntent(text)
       const hasSubtitleSrt = !hasCutWorkflow && hasSubtitleSrtIntent(text)
       const hasTextIntroAnimationList = !hasCutWorkflow && hasTextIntroAnimationListIntent(text)
@@ -1487,15 +1507,20 @@ export class CapabilityRouter {
         hasDraftUpdateIntent ||
         shouldInspectDraft ||
         shouldDownloadDraft ||
+        shouldExportDraft ||
         shouldApplySubtitleTemplate ||
         hasTemplateIntent ||
         hasVideoConcat
       const hasWebPageSourceDownloadIntent = /(网页|页面|网站).{0,12}(上的|里|中)/.test(text)
       const hasWorkspaceDownloadIntent =
-        hasDownloadKeyword(text) && !hasMediaDownload && !shouldDownloadDraft && !hasWebPageSourceDownloadIntent
-      const hasWebDownloadIntent = hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft
+        hasDownloadKeyword(text) &&
+        !hasMediaDownload &&
+        !shouldDownloadDraft &&
+        !shouldExportDraft &&
+        !hasWebPageSourceDownloadIntent
+      const hasWebDownloadIntent =
+        hasDownloadKeyword(text) && hasUrlLikeText(args.prompt) && !hasMediaDownload && !shouldDownloadDraft && !shouldExportDraft
       const hasAiImageIntent =
-        args.imageCount > 0 ||
         hasAnyKeyword(text, [
           '生成图',
           '生成图片',
@@ -1511,6 +1536,7 @@ export class CapabilityRouter {
           'poster'
         ]) ||
         (text.includes('封面') && !hasDraftUpdateIntent)
+      const shouldUseImageUnderstand = args.imageCount > 0 ? !hasAiImageIntent : hasImageUnderstand
       const hasAiVideoIntent =
         (hasAnyKeyword(text, [
           '生成视频',
@@ -1554,19 +1580,8 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'browser', 'prompt:browser-or-url')
       }
 
-      if (hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
+      if (!(args.imageCount > 0 && shouldUseImageUnderstand) && hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'search', 'prompt:search')
-      }
-
-      if (
-        hasAnyKeyword(text, WORKSPACE_UPLOAD_KEYWORDS) ||
-        /上传.{0,8}(文件|附件|素材|音频|视频|图片)/.test(text) ||
-        /上传.{0,12}(oss|对象存储)/.test(text) ||
-        /(文件|附件|素材|音频|视频|图片).{0,8}(上传|传到oss|上传到oss)/.test(text) ||
-        ((hasSubtitleRecognition || hasVideoUnderstand) && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text)) ||
-        (hasCutWorkflow && !hasUrlLikeText(args.prompt) && hasLocalMediaContext(text))
-      ) {
-        addCapabilityReason(selected, reasons, 'uploadFile', 'prompt:upload-file')
       }
 
       if (hasWorkspaceDownloadIntent) {
@@ -1579,6 +1594,15 @@ export class CapabilityRouter {
 
       if (hasMaterialsFolderLinks) {
         addCapabilityReason(selected, reasons, 'materialsFolderLinks', 'prompt:materials-folder-links')
+      }
+
+      if (shouldUseImageUnderstand) {
+        addCapabilityReason(
+          selected,
+          reasons,
+          'imageUnderstand',
+          args.imageCount > 0 ? 'prompt:image-understand-with-attachment' : 'prompt:image-understand'
+        )
       }
 
       if (hasAiImageIntent) {
@@ -1649,6 +1673,10 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'draftDownload', 'prompt:draft-download')
       }
 
+      if (shouldExportDraft) {
+        addCapabilityReason(selected, reasons, 'draftExport', 'prompt:draft-export')
+      }
+
       if (hasTextAdd) {
         addCapabilityReason(selected, reasons, 'textAdd', 'prompt:text-add')
       }
@@ -1671,6 +1699,10 @@ export class CapabilityRouter {
 
       if (hasSubtitleRecognition) {
         addCapabilityReason(selected, reasons, 'subtitleRecognition', 'prompt:subtitle-recognition')
+      }
+
+      if (hasImageUnderstand) {
+        addCapabilityReason(selected, reasons, 'imageUnderstand', 'prompt:image-understand')
       }
 
       if (hasVideoUnderstand) {
@@ -1942,6 +1974,7 @@ export class CapabilityRouter {
       prompt: intentPrompt,
       normalizedPrompt: text,
       selected,
+      imageCount: args.imageCount,
       matchedWorkspaceSkill: matchedWorkspaceSkill?.skill,
       matchedWorkspaceSkillTriggerMode: matchedWorkspaceSkill?.triggerMode,
       hasCustomMcpServers: args.hasCustomMcpServers,
@@ -1998,6 +2031,7 @@ function classifyIntent(args: {
   prompt: string
   normalizedPrompt: string
   selected: Set<RuntimeCapability>
+  imageCount: number
   matchedWorkspaceSkill?: WorkspaceSkillRef
   matchedWorkspaceSkillTriggerMode?: SkillTriggerMode
   hasCustomMcpServers: boolean
@@ -2103,6 +2137,7 @@ function classifyIntent(args: {
     args.selected.has('draftUpdateMeta') ||
     args.selected.has('draftInspect') ||
     args.selected.has('draftDownload') ||
+    args.selected.has('draftExport') ||
     args.selected.has('subtitleTemplate') ||
     args.selected.has('kouboTemplate')
   const suppressWorkspaceInferenceForBash =
@@ -2119,10 +2154,19 @@ function classifyIntent(args: {
     )
   const hasWebOpenIntent =
     hasImplicitWebUrlOpenIntent || hasExplicitWebOpenIntent
+  const suppressGenericWebInferenceForImageUnderstand = args.imageCount > 0 && args.selected.has('imageUnderstand')
   const hasWebSearchIntent =
     args.selected.has('search') ||
-    hasAnyKeyword(text, WEB_SEARCH_KEYWORDS) ||
-    /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text)
+    ((!suppressGenericWebInferenceForImageUnderstand &&
+      hasAnyKeyword(text, WEB_SEARCH_KEYWORDS)) ||
+      /(查一下|看下|看一下|搜索).*(官方|官网|文档|资料|热点|热搜)/.test(text))
+  const hasGenericDraftLookupDomainIntent =
+    hasCutDraftContext(text) &&
+    hasLookupIntent(text) &&
+    !args.selected.has('draftCreate') &&
+    !args.selected.has('draftUpdateMeta') &&
+    !args.selected.has('draftDownload') &&
+    !args.selected.has('draftExport')
 
   if (hasWorkspaceReadIntent && !suppressWorkspaceInferenceForBash) {
     addDomainSubdomain('workspace', 'read', 'prompt:workspace-read')
@@ -2163,10 +2207,15 @@ function classifyIntent(args: {
     addDomainSubdomain('web', 'execute', 'prompt:web-execute')
   }
 
+  if (hasGenericDraftLookupDomainIntent) {
+    addDomainSubdomain('cut', 'draft_inspect', 'prompt:cut-draft-lookup')
+  }
+
   if (args.selected.has('materialsFolderLinks')) {
     addDomainSubdomain('materials', 'folder_links', 'capability:materials-folder-links')
   }
 
+  if (args.selected.has('imageUnderstand')) addDomainSubdomain('chat', 'image_understand', 'capability:image-understand')
   if (args.selected.has('image')) addDomainSubdomain('ai_media', 'image', 'capability:image')
   if (args.selected.has('video')) addDomainSubdomain('ai_media', 'video', 'capability:video')
   if (args.selected.has('speech')) addDomainSubdomain('ai_media', 'speech', 'capability:speech')
@@ -2273,6 +2322,7 @@ function classifyIntent(args: {
   if (args.selected.has('draftUpdateMeta')) addDomainSubdomain('cut', 'draft_update_meta', 'capability:draft-update-meta')
   if (args.selected.has('draftInspect')) addDomainSubdomain('cut', 'draft_inspect', 'capability:draft-inspect')
   if (args.selected.has('draftDownload')) addDomainSubdomain('cut', 'draft_download', 'capability:draft-download')
+  if (args.selected.has('draftExport')) addDomainSubdomain('cut', 'draft_export', 'capability:draft-export')
   if (args.selected.has('subtitleTemplate')) addDomainSubdomain('cut', 'subtitle_template', 'capability:subtitle-template')
   if (args.selected.has('kouboTemplate')) addDomainSubdomain('cut', 'template', 'capability:koubo-template')
 

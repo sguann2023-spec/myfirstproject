@@ -11,7 +11,7 @@ import { agentsRoutes } from './routes/agents'
 import { channelsRouter } from './routes/channels'
 import { chatRoutes } from './routes/chat'
 import { clawMcpRoutes } from './routes/claw-mcp'
-import { mcpRoutes } from './routes/mcp'
+import { localMcpSingleUrlRoutes, mcpRoutes } from './routes/mcp'
 import { messagesProviderRoutes, messagesRoutes } from './routes/messages'
 import { modelsRoutes } from './routes/models'
 import { tasksRouter } from './routes/tasks'
@@ -22,6 +22,29 @@ const extendMessagesTimeout: express.RequestHandler = (req, res, next) => {
   req.setTimeout(LONG_POLL_TIMEOUT_MS)
   res.setTimeout(LONG_POLL_TIMEOUT_MS)
   next()
+}
+
+const isLoopbackAddress = (value?: string | null): boolean => {
+  const normalized = String(value || '').trim()
+  return normalized === '127.0.0.1'
+    || normalized === '::1'
+    || normalized === '::ffff:127.0.0.1'
+    || normalized === 'localhost'
+}
+
+const localOnlyMiddleware: express.RequestHandler = (req, res, next) => {
+  const remoteAddress = req.socket?.remoteAddress || ''
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim() || ''
+  if (isLoopbackAddress(remoteAddress) || isLoopbackAddress(forwardedFor)) {
+    return next()
+  }
+
+  logger.warn('Rejected non-local MCP request', {
+    remoteAddress,
+    forwardedFor,
+    path: req.path
+  })
+  return res.status(403).json({ error: 'Forbidden: local access only' })
 }
 
 const app = express()
@@ -36,12 +59,24 @@ app.use((req, res, next) => {
   const start = Date.now()
   res.on('finish', () => {
     const duration = Date.now() - start
-    logger.info('API request completed', {
-      method: req.method,
-      path: req.path,
-      statusCode: res.statusCode,
-      durationMs: duration
-    })
+    if (res.statusCode >= 400) {
+      logger.warn('API request failed', {
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: duration
+      })
+      return
+    }
+
+    if (duration >= 2000) {
+      logger.info('API request was slow', {
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: duration
+      })
+    }
   })
   next()
 })
@@ -143,6 +178,9 @@ app.get('/', (_req, res) => {
 
 // Setup OpenAPI documentation before protected routes so docs remain public
 setupOpenAPIDocumentation(app)
+
+// Local-only single URL MCP endpoint for same-machine external agents
+app.use('/api/v1/mcp', localOnlyMiddleware, localMcpSingleUrlRoutes)
 
 // Provider-specific messages route requires authentication
 app.use('/:provider/v1/messages', authMiddleware, extendMessagesTimeout, messagesProviderRoutes)

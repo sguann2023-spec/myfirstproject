@@ -99,6 +99,25 @@ function redactSensitive(input: any): any {
   return redact(input)
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseStructuredJsonString(value: string): unknown {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return value
+  }
+  if (!(trimmed.startsWith('[') || trimmed.startsWith('{'))) {
+    return value
+  }
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return value
+  }
+}
+
 // Create a context-aware logger for a server
 function getServerLogger(server: MCPServer, extra?: Record<string, any>) {
   const base = {
@@ -252,6 +271,54 @@ class McpService {
 
   public getServerLogs(_: Electron.IpcMainInvokeEvent, server: MCPServer): MCPServerLogEntry[] {
     return this.serverLogs.get(this.getServerKey(server))
+  }
+
+  private coerceArgsValueBySchema(value: unknown, schema: any): unknown {
+    if (!schema || typeof schema !== 'object') {
+      return value
+    }
+
+    const schemaType = typeof schema.type === 'string' ? schema.type : undefined
+    const maybeParsedValue =
+      typeof value === 'string' && (schemaType === 'array' || schemaType === 'object')
+        ? parseStructuredJsonString(value)
+        : value
+
+    if (schemaType === 'array' && Array.isArray(maybeParsedValue)) {
+      return maybeParsedValue.map((item) => this.coerceArgsValueBySchema(item, schema.items))
+    }
+
+    if (schemaType === 'object' && isPlainObject(maybeParsedValue)) {
+      const properties = isPlainObject(schema.properties) ? schema.properties : {}
+      return Object.fromEntries(
+        Object.entries(maybeParsedValue).map(([key, itemValue]) => [
+          key,
+          this.coerceArgsValueBySchema(itemValue, properties[key])
+        ])
+      )
+    }
+
+    return maybeParsedValue
+  }
+
+  private async normalizeArgsByToolSchema(server: MCPServer, toolName: string, args: unknown): Promise<unknown> {
+    if (!isPlainObject(args)) {
+      return args
+    }
+
+    try {
+      const tools = await this.listTools(null as unknown as Electron.IpcMainInvokeEvent, server)
+      const matchedTool = tools.find((tool) => tool.name === toolName)
+      if (!matchedTool?.inputSchema) {
+        return args
+      }
+      return this.coerceArgsValueBySchema(args, matchedTool.inputSchema)
+    } catch (error) {
+      getServerLogger(server, { tool: toolName }).warn('Failed to normalize args by tool schema', {
+        error: (error as Error)?.message || String(error)
+      })
+      return args
+    }
   }
 
   async initClient(server: MCPServer): Promise<Client> {
@@ -933,6 +1000,7 @@ class McpService {
             args = {}
           }
         }
+        args = await this.normalizeArgsByToolSchema(server, name, args)
         const client = await this.initClient(server)
         const result = await client.callTool({ name, arguments: args }, undefined, {
           onprogress: (process) => {

@@ -29,6 +29,7 @@ import { extractPdfText } from '@shared/utils/pdf'
 import type {
   AgentPersistedMessage,
   FileMetadata,
+  LocalMcpDetectedAgent,
   Notification,
   OcrProvider,
   Provider,
@@ -58,10 +59,12 @@ import CopilotService from './services/CopilotService'
 import DxtService from './services/DxtService'
 import { ExportService } from './services/ExportService'
 import { externalAppsService } from './services/ExternalAppsService'
+import { localMcpAgentService } from './services/LocalMcpAgentService'
 import { feedbackMailService } from './services/FeedbackMailService'
 import { fileStorage as fileManager } from './services/FileStorage'
 import FileService from './services/FileSystemService'
 import { lanTransferClientService } from './services/lanTransfer'
+import { initializeLocalAggregateMcpService } from './services/LocalAggregateMcpService'
 import { localTransferService } from './services/LocalTransferService'
 import mcpService from './services/MCPService'
 import { openTraceWindow, setTraceWindowTitle } from './services/NodeTraceService'
@@ -734,6 +737,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   ipcMain.handle(IpcChannel.App_BootstrapBuiltinSkills, async () => {
     await installBuiltinSkills({ distributeToAgents: true })
+    await initializeLocalAggregateMcpService()
     return { success: true }
   })
 
@@ -1422,6 +1426,10 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   // ExternalApps
   ipcMain.handle(IpcChannel.ExternalApps_DetectInstalled, () => externalAppsService.detectInstalledApps())
+  ipcMain.handle(IpcChannel.LocalMcp_DetectAgents, () => localMcpAgentService.detectAgents())
+  ipcMain.handle(IpcChannel.LocalMcp_SetAgentRegistration, (_, agentId: LocalMcpDetectedAgent['id'], enabled: boolean) =>
+    localMcpAgentService.setAgentRegistration(agentId, enabled)
+  )
 
   // CodeTools
   ipcMain.handle(IpcChannel.CodeTools_Run, codeToolsService.run)

@@ -11,8 +11,19 @@ vi.mock('@main/services/WindowService', () => ({
   }
 }))
 
+vi.mock('@logger', () => ({
+  loggerService: {
+    withContext: vi.fn(() => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn()
+    }))
+  }
+}))
+
 import { getMCPServersFromRedux } from '@main/apiServer/utils/mcp'
-import mcpService from '@main/services/MCPService'
+import mcpService from '../MCPService'
 
 const baseInputSchema: { type: 'object'; properties: Record<string, unknown>; required: string[] } = {
   type: 'object',
@@ -71,5 +82,95 @@ describe('MCPService.listAllActiveServerTools', () => {
 
     expect(listToolsSpy).toHaveBeenCalledTimes(2)
     expect(tools.map((tool) => tool.name)).toEqual(['enabled_tool', 'beta_tool'])
+  })
+})
+
+describe('MCPService.callTool', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('coerces stringified structured fields according to tool input schema before invocation', async () => {
+    const server = {
+      id: 'video',
+      name: 'video',
+      isActive: true
+    } as MCPServer
+
+    const clientCallTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+    vi.spyOn(mcpService as any, 'initClient').mockResolvedValue({
+      callTool: clientCallTool
+    })
+    vi.spyOn(mcpService as any, 'listToolsImpl').mockResolvedValue([
+      createTool({
+        serverId: 'video',
+        serverName: 'video',
+        name: 'generate_video',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            model: { type: 'string' },
+            content: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string' },
+                  text: { type: 'string' },
+                  role: { type: 'string' },
+                  image_url: {
+                    type: 'object',
+                    properties: {
+                      url: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          required: ['content']
+        }
+      })
+    ])
+
+    await mcpService.callTool(null as unknown as Electron.IpcMainInvokeEvent, {
+      server,
+      name: 'generate_video',
+      args: {
+        model: 'seedance-2.5',
+        content:
+          '[{"type":"image_url","image_url":{"url":"file:///tmp/ref.jpg"},"role":"reference_image"},{"type":"text","text":"hello"}]'
+      }
+    })
+
+    expect(clientCallTool).toHaveBeenCalledWith(
+      {
+        name: 'generate_video',
+        arguments: {
+          model: 'seedance-2.5',
+          content: [
+            {
+              type: 'image_url',
+              image_url: {
+                url: 'file:///tmp/ref.jpg'
+              },
+              role: 'reference_image'
+            },
+            {
+              type: 'text',
+              text: 'hello'
+            }
+          ]
+        }
+      },
+      undefined,
+      expect.objectContaining({
+        timeout: 60000
+      })
+    )
   })
 })

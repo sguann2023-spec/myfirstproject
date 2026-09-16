@@ -1,5 +1,6 @@
 import { loggerService } from '@logger'
 import { isMac, isWin } from '@main/constant'
+import { findBundledPython } from '@main/utils/process'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { execFile, spawn } from 'node:child_process'
 import http from 'node:http'
@@ -13,6 +14,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { configManager } from './ConfigManager'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
+import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('LegacyMainCompatIpc')
@@ -51,9 +53,9 @@ function getMainWindow() {
   return mainWindow
 }
 
-function execFileAsync(file: string, args: string[]) {
+function execFileAsync(file: string, args: string[], options: { windowsHide?: boolean; timeout?: number } = {}) {
   return new Promise<void>((resolve, reject) => {
-    execFile(file, args, (error) => {
+    execFile(file, args, options, (error) => {
       if (error) {
         reject(error)
         return
@@ -255,9 +257,11 @@ function spawnDetached(command: string) {
   const child = spawn(command, [], {
     detached: true,
     stdio: 'ignore',
-    shell: isWin
+    // 启动 exe 时不要再套一层 cmd.exe，避免拿不到真实窗口进程并增加启动延迟。
+    shell: false
   })
   child.unref()
+  return child
 }
 
 async function activateMacEditingApp(executablePath: string, appMode: EditingAppMode) {
@@ -270,6 +274,174 @@ async function activateMacEditingApp(executablePath: string, appMode: EditingApp
   }
 
   await execFileAsync('/usr/bin/osascript', ['-e', `tell application "${getMacAppName(executablePath, appMode)}" to activate`])
+}
+
+function getWindowsWindowTitleKeywords(appMode: EditingAppMode) {
+  return appMode === 'capcut'
+    ? ['CapCut']
+    : ['JianyingPro', '剪映专业版', '剪映']
+}
+
+// 用自带 Python + ctypes 直接调 Win32 API 置顶窗口。
+// 旧方案每次冷启动 powershell.exe 在某些机器上要 10 秒左右，
+// 打包的 embedded Python 启动只需几百毫秒，能消除这段等待。
+const WINDOWS_FOREGROUND_PYTHON_SCRIPT = `
+import ctypes
+import ctypes.wintypes as wt
+import os
+import sys
+import time
+
+user32 = ctypes.WinDLL('user32', use_last_error=True)
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+
+SW_RESTORE = 9
+INPUT_KEYBOARD = 1
+KEYEVENTF_KEYUP = 2
+VK_MENU = 0x12
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+keywords = [k for k in sys.argv[1:] if k]
+process_names = ['capcut.exe'] if 'CapCut' in keywords else ['jianyingpro.exe']
+
+EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ('wVk', wt.WORD),
+        ('wScan', wt.WORD),
+        ('dwFlags', wt.DWORD),
+        ('time', wt.DWORD),
+        ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong)),
+    ]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ('dx', ctypes.c_long),
+        ('dy', ctypes.c_long),
+        ('mouseData', wt.DWORD),
+        ('dwFlags', wt.DWORD),
+        ('time', wt.DWORD),
+        ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong)),
+    ]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ('uMsg', wt.DWORD),
+        ('wParamLo', wt.WORD),
+        ('wParamHi', wt.WORD),
+    ]
+
+
+class INPUTUNION(ctypes.Union):
+    _fields_ = [('ki', KEYBDINPUT), ('mi', MOUSEINPUT), ('hi', HARDWAREINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [('type', wt.DWORD), ('union', INPUTUNION)]
+
+
+def press_alt():
+    down = INPUT(type=INPUT_KEYBOARD)
+    down.union.ki.wVk = VK_MENU
+    user32.SendInput(1, ctypes.byref(down), ctypes.sizeof(INPUT))
+    up = INPUT(type=INPUT_KEYBOARD)
+    up.union.ki.wVk = VK_MENU
+    up.union.ki.dwFlags = KEYEVENTF_KEYUP
+    user32.SendInput(1, ctypes.byref(up), ctypes.sizeof(INPUT))
+
+
+def window_text(hwnd):
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length <= 0:
+        return ''
+    buf = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buf, length + 1)
+    return buf.value
+
+
+def process_image(pid):
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ''
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wt.DWORD(len(buf))
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return buf.value
+        return ''
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def find_window():
+    match = {'process': 0, 'title': 0}
+    pid_buf = wt.DWORD()
+
+    def callback(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        title = window_text(hwnd)
+        if not title.strip():
+            return True
+        if not match['process']:
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_buf))
+            image = process_image(pid_buf.value)
+            if image and os.path.basename(image).lower() in process_names:
+                match['process'] = hwnd
+                return False
+        if not match['title']:
+            lowered = title.lower()
+            for keyword in keywords:
+                if keyword.lower() in lowered:
+                    match['title'] = hwnd
+                    break
+        return True
+
+    enum_proc = EnumWindowsProc(callback)
+    user32.EnumWindows(enum_proc, 0)
+    return match['process'] or match['title']
+
+
+hwnd = 0
+deadline = time.time() + 12.0
+while time.time() < deadline and not hwnd:
+    hwnd = find_window()
+    if not hwnd:
+        time.sleep(0.1)
+
+if not hwnd:
+    sys.exit(1)
+
+user32.ShowWindow(hwnd, SW_RESTORE)
+press_alt()
+user32.SetForegroundWindow(hwnd)
+user32.BringWindowToTop(hwnd)
+
+for _ in range(5):
+    if user32.GetForegroundWindow() == hwnd:
+        sys.exit(0)
+    press_alt()
+    time.sleep(0.05)
+    user32.SetForegroundWindow(hwnd)
+    user32.BringWindowToTop(hwnd)
+    time.sleep(0.1)
+
+sys.exit(0 if user32.GetForegroundWindow() == hwnd else 1)
+`
+
+async function activateWindowsEditingApp(appMode: EditingAppMode) {
+  const bundledPythonPath = findBundledPython()
+  const pythonExe = bundledPythonPath || 'python.exe'
+
+  await execFileAsync(
+    pythonExe,
+    ['-I', '-c', WINDOWS_FOREGROUND_PYTHON_SCRIPT, ...getWindowsWindowTitleKeywords(appMode)],
+    { windowsHide: true, timeout: 20000 }
+  )
 }
 
 async function launchEditingApp(isCapcut?: boolean) {
@@ -305,12 +477,6 @@ async function launchEditingApp(isCapcut?: boolean) {
 
     try {
       spawnDetached(executablePath)
-      logger.info('[DLTRACE][Main] launched editing app on Windows', {
-        appLabel,
-        appMode,
-        executablePath
-      })
-      return true
     } catch (error) {
       logger.warn('[DLTRACE][Main] failed to launch editing app on Windows', {
         appLabel,
@@ -319,6 +485,27 @@ async function launchEditingApp(isCapcut?: boolean) {
         error: error instanceof Error ? error.message : String(error)
       })
       return false
+    }
+
+    let broughtToFront = false
+    try {
+      await activateWindowsEditingApp(appMode)
+      broughtToFront = true
+      logger.info('[DLTRACE][Main] launched editing app on Windows', {
+        appLabel,
+        appMode,
+        executablePath,
+        broughtToFront
+      })
+      return true
+    } catch (error) {
+      logger.warn('[DLTRACE][Main] launched editing app on Windows but failed to foreground it', {
+        appLabel,
+        appMode,
+        executablePath,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return true
     }
   }
 
@@ -701,6 +888,7 @@ function registerLegacyLoginInitChannels() {
   safeHandle('app:initialize-login-services', async () => ({ success: true }))
   safeHandle('app:initialize-agent-services', async () => {
     registerSessionStreamIpc()
+    await initializeLocalAggregateMcpService()
     return { success: true }
   })
 }
@@ -786,8 +974,13 @@ function registerLegacyWindowChannels() {
   })
 
   safeOn('window-controls', (_event, action: string) => {
-    const win = BrowserWindow.getFocusedWindow() || getMainWindow()
-    if (!win) return
+    // Prefer operating on the window that sent the event (works for both main and settings windows)
+    const senderWin = BrowserWindow.fromWebContents(_event.sender)
+    const win =
+      (senderWin && !senderWin.isDestroyed() ? senderWin : null) ||
+      BrowserWindow.getFocusedWindow() ||
+      getMainWindow()
+    if (!win || win.isDestroyed()) return
     if (action === 'minimize') {
       win.minimize()
     } else if (action === 'maximize') {

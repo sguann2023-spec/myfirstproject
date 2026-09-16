@@ -1,0 +1,162 @@
+.video-understand-tool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.video-understand-tool-header-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.video-understand-tool-header-icon {
+  color: var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.video-understand-tool-header-title {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: normal;
+  line-height: 1.5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.video-understand-tool-header-message {
+  min-width: 0;
+  color: var(--color-text-2);
+  font-size: 13px;
+  font-weight: normal;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-understand-tool-billing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+  padding-right: 4px;
+  color: #000000;
+  font-size: 14px;
+  font-weight: normal;
+  flex-shrink: 0;
+}
+
+.video-understand-tool-billing-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.video-understand-tool-billing-text {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.5;
+}
+
+.video-understand-tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.video-understand-tool-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.video-understand-tool-summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg-1);
+}
+
+.video-understand-tool-summary-label {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.video-understand-tool-summary-value {
+  margin-top: 4px;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.video-understand-tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-understand-tool-section-title {
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.video-understand-tool-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-understand-tool-file-item {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg-1);
+}
+
+.video-understand-tool-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.video-understand-tool-file-kind {
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.video-understand-tool-file-extra {
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.video-understand-tool-json-preview {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg-1);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

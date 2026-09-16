@@ -75,8 +75,8 @@ vi.mock('node-stream-zip', () => ({
     async: class MockStreamZip {
       async entries() {
         return {
-          '网感口播/SKILL.md': { size: 128 },
-          '网感口播/website/index.html': { size: 256 }
+          'trendykoubo/SKILL.md': { size: 128 },
+          'trendykoubo/website/index.html': { size: 256 }
         }
       }
 
@@ -93,7 +93,7 @@ const globalSkillsRoot = '/userData/Data/GlobalSkills'
 const localManifestPath = path.join(resourceSkillsPath, 'manifest.json')
 const syncStatePath = path.join(globalSkillsRoot, '.builtin-sync-state.json')
 const quickManifestCachePath = path.join('/userData/Data/QuickSkills', 'manifest.json')
-const quickSkillStoragePath = path.join('/userData/Data/QuickSkills', 'skills', '网感口播')
+const quickSkillStoragePath = path.join('/userData/Data/QuickSkills', 'skills', 'trendykoubo')
 const localManifest = {
   updatedAt: '2026-05-13T00:00:00Z',
   skills: {
@@ -411,9 +411,9 @@ describe('installBuiltinSkills', () => {
           skills: {
             '网感口播': {
               version: '1.0.0',
-              folderName: '网感口播',
+              folderName: 'trendykoubo',
               action: 'bootstrap-trendy-koubo',
-              downloadUrl: 'https://player.install-ai-guider.top/quick/skills/%E7%BD%91%E6%84%9F%E5%8F%A3%E6%92%AD/1_0_0/%E7%BD%91%E6%84%9F%E5%8F%A3%E6%92%AD.zip'
+              downloadUrl: 'https://player.install-ai-guider.top/skills/quick/trendy-koubo/1_0_0/trendy-koubo.zip'
             }
           }
         })
@@ -427,7 +427,7 @@ describe('installBuiltinSkills', () => {
     await installBuiltinSkills({ waitForRemoteSync: true })
 
     expect(fs.cp).toHaveBeenCalledWith(
-      expect.stringContaining(`${path.sep}网感口播`),
+      expect.stringContaining(`${path.sep}trendykoubo`),
       quickSkillStoragePath,
       { recursive: true }
     )

@@ -1,7 +1,5 @@
 import { SkillCatalogApiClient } from '@renderer/api/skillCatalog'
-import { mockSkillCatalog } from '@renderer/services/mock/skillCatalogMock'
 
-const USE_MOCK = false
 const DEFAULT_SKILL_CATALOG_API_BASE_URL = 'https://open.vectcut.com'
 export const SKILL_CATALOG_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const apiClient = new SkillCatalogApiClient({
@@ -43,20 +41,14 @@ export const skillCatalogService = {
   async listFeatured(options: { limit?: number; offset?: number } = {}) {
     const limit = options.limit ?? 20
     const offset = options.offset ?? 0
-    if (USE_MOCK) return mockSkillCatalog.listFeatured(limit, offset)
     return fetchFeatured(limit, offset)
   },
   async searchSkills(query: string, options: { limit?: number; offset?: number } = {}) {
     const limit = options.limit ?? 20
     const offset = options.offset ?? 0
-    if (USE_MOCK) return mockSkillCatalog.searchSkills(query, limit, offset)
     return apiClient.searchSkills(query, { limit, offset })
   },
   async getSkillDetail(skillId: string) {
-    if (USE_MOCK) {
-      const response = await mockSkillCatalog.getSkillDetail(skillId)
-      return response.data
-    }
     return apiClient.getSkillDetail(skillId)
   }
 }

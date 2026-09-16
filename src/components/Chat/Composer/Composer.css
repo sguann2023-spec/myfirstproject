@@ -27,6 +27,10 @@
   margin-right: 24px;
 }
 
+.chat-panel__tool-bar--with-attachments {
+  transform: translateY(-1px);
+}
+
 .chat-panel__tool-left {
   display: flex;
   align-items: center;
@@ -307,12 +311,16 @@
 
 .chat-panel__model-option-tag {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 6px;
+  min-height: 20px;
   border-radius: 999px;
   background: rgba(45, 119, 229, 0.12);
   color: #2d77e5;
   font-size: 12px;
-  line-height: 20px;
+  line-height: 1;
 }
 
 .chat-panel__model-option-multiplier {
@@ -631,6 +639,10 @@
   position: relative;
 }
 
+.chat-panel__input-wrap--with-attachments {
+  transform: translateY(-1px);
+}
+
 .chat-panel__input-wrap.drag-active .chat-panel__input--tiptap {
   opacity: 0.2;
   pointer-events: none;
@@ -710,8 +722,10 @@
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
-  max-height: 240px;
+  /* 8 rows: (19.6px line-height + 12px vertical padding) * 8 + 2px * 7 gaps. */
+  max-height: 267px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 6px;
 }
 
@@ -925,6 +939,7 @@
 }
 
 .chat-panel__skill-mention-item {
+  flex: 0 0 auto;
   width: auto;
   min-width: 100%;
   border: none;

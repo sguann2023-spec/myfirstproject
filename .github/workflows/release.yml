@@ -297,6 +297,37 @@ jobs:
             ossutil cp -f "$f" "$DEST" -c /tmp/.ossutilconfig
           done
 
+      - name: Publish macOS assets to GitHub release
+        shell: bash
+        env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="v$(node -p "require('./package.json').version")"
+          TARGET_REPO="sun-guannan/CapCutMaker"
+          LATEST_PREFIX="VectCut"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            TARGET_REPO="sun-guannan/CapCutMakerBingo"
+            LATEST_PREFIX="BingoCut"
+          fi
+
+          gh auth status
+          gh repo view "${TARGET_REPO}" >/dev/null
+
+          gh release view "${VERSION_TAG}" -R "${TARGET_REPO}" >/dev/null 2>&1 || \
+            gh release create "${VERSION_TAG}" -R "${TARGET_REPO}" --draft --title "${VERSION_TAG}" --notes ""
+
+          gh release upload "${VERSION_TAG}" \
+            "build/${LATEST_PREFIX}-latest-x64.zip" \
+            "build/${LATEST_PREFIX}-latest-arm64.zip" \
+            "build/${LATEST_PREFIX}-latest-x64.dmg" \
+            "build/${LATEST_PREFIX}-latest-arm64.dmg" \
+            "build/latest-mac.yml" \
+            "build/latest-mac-arm64.yml" \
+            --repo "${TARGET_REPO}" \
+            --clobber
+
   # 任务 2B: Windows 构建并上传 Windows 资产到 OSS
   # 注意：保留 Job 名称以避免影响外部状态检查配置
   build-and-upload-win:
@@ -449,6 +480,33 @@ jobs:
           ./ossutil64.exe cp -f "build/${LATEST_SETUP_NAME}" "${DEST}" -c /tmp/.ossutilconfig
           ./ossutil64.exe cp -f build/latest.yml "${DEST}latest.yml" -c /tmp/.ossutilconfig
 
+      - name: Publish Windows assets to GitHub release
+        shell: bash
+        env:
+          CHANNEL_BRAND: ${{ matrix.channel_brand }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="v$(node -p "require('./package.json').version")"
+          TARGET_REPO="sun-guannan/CapCutMaker"
+          LATEST_SETUP_NAME="VectCut-Setup-latest-x64.exe"
+          if [ "${CHANNEL_BRAND}" = "bingo" ]; then
+            TARGET_REPO="sun-guannan/CapCutMakerBingo"
+            LATEST_SETUP_NAME="BingoCut-Setup-latest-x64.exe"
+          fi
+
+          gh auth status
+          gh repo view "${TARGET_REPO}" >/dev/null
+
+          gh release view "${VERSION_TAG}" -R "${TARGET_REPO}" >/dev/null 2>&1 || \
+            gh release create "${VERSION_TAG}" -R "${TARGET_REPO}" --draft --title "${VERSION_TAG}" --notes ""
+
+          gh release upload "${VERSION_TAG}" \
+            "build/${LATEST_SETUP_NAME}" \
+            "build/latest.yml" \
+            --repo "${TARGET_REPO}" \
+            --clobber
+
   refresh-dcdn:
     runs-on: ubuntu-latest
     needs:
@@ -456,6 +514,8 @@ jobs:
       - build-and-upload-win
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install Alibaba Cloud CLI
         shell: bash
         run: |
@@ -479,6 +539,43 @@ jobs:
             --access-key-id "${ALIBABA_CLOUD_ACCESS_KEY_ID}" \
             --access-key-secret "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}" \
             --region cn-hangzhou
+
+      - name: Publish GitHub releases as latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="v$(node -p "require('./package.json').version")"
+
+          for TARGET_REPO in sun-guannan/CapCutMaker sun-guannan/CapCutMakerBingo; do
+            echo "Publishing ${VERSION_TAG} in ${TARGET_REPO}..."
+            gh auth status
+            gh repo view "${TARGET_REPO}" >/dev/null
+            RELEASE_ID=$(
+              gh api "repos/${TARGET_REPO}/releases" --paginate \
+                --jq ".[] | select(.tag_name == \"${VERSION_TAG}\") | .id" | head -n1
+            )
+            [ -n "${RELEASE_ID}" ] || {
+              echo "Release ${VERSION_TAG} not found in ${TARGET_REPO}"
+              exit 1
+            }
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${TARGET_REPO}/releases/${RELEASE_ID}" \
+              -f draft=false \
+              -f prerelease=false >/dev/null
+
+            gh release edit "${VERSION_TAG}" \
+              --repo "${TARGET_REPO}" \
+              --latest
+
+            gh api "repos/${TARGET_REPO}/releases/${RELEASE_ID}" \
+              --jq '{tag_name: .tag_name, draft: .draft, prerelease: .prerelease, html_url: .html_url}'
+            gh api "repos/${TARGET_REPO}/releases/latest" \
+              --jq '{latest_tag: .tag_name, latest_url: .html_url}'
+          done
 
       - name: Refresh and preload DCDN caches
         shell: bash

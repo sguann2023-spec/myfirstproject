@@ -19,19 +19,19 @@ const makeDecision = (args: Partial<CapabilityDecision> & Pick<CapabilityDecisio
 })
 
 describe('buildToolSurface', () => {
-  it('exposes InspectImage and AskUserQuestion for plain chat turns', () => {
+  it('exposes AskUserQuestion for plain chat turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({ toolLayer: 'chat' }),
       sessionAllowedTools: ['Bash', 'mcp__skills__*'],
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion'])
-    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__skills__*'])
+    expect(surface.toolsOption).toEqual(['AskUserQuestion'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion'])
+    expect(surface.allowedToolsOption).toEqual(['mcp__skills__*'])
   })
 
-  it('exposes InspectImage, AskUserQuestion and Bash for chat.bash turns without auto-allowing Bash', () => {
+  it('exposes AskUserQuestion and Bash for chat.bash turns without auto-allowing Bash', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -45,10 +45,10 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.toolsOption).toEqual(['AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion', 'Bash'])
     expect(surface.allowedToolsOption).not.toContain('Bash')
-    expect(surface.allowedToolsOption).toContain('InspectImage')
+    expect(surface.allowedToolsOption).not.toContain('InspectImage')
   })
 
   it('enables only read tools for workspace-read turns', () => {
@@ -64,7 +64,6 @@ describe('buildToolSurface', () => {
     })
 
     expect(surface.toolsOption).toEqual([
-      'InspectImage',
       'AskUserQuestion',
       'Read',
       'Bash',
@@ -76,10 +75,10 @@ describe('buildToolSurface', () => {
       'Task',
       'TodoWrite'
     ])
-    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'NotebookRead', 'Read', 'TodoWrite'])
+    expect(surface.allowedToolsOption).toEqual(['NotebookRead', 'Read', 'TodoWrite'])
   })
 
-  it('adds InspectImage, AskUserQuestion and Bash to web turns while keeping workspace builtins hidden', () => {
+  it('adds AskUserQuestion and web tools to web turns while keeping workspace builtins hidden', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'web',
@@ -91,12 +90,12 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'WebSearch', 'WebFetch', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'WebSearch', 'WebFetch', 'Bash'])
-    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__browser__*', 'mcp__search__*'])
+    expect(surface.toolsOption).toEqual(['AskUserQuestion', 'WebSearch', 'WebFetch', 'Bash'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion', 'WebSearch', 'WebFetch', 'Bash'])
+    expect(surface.allowedToolsOption).toEqual(['mcp__browser__*', 'mcp__search__*'])
   })
 
-  it('adds InspectImage, AskUserQuestion and Bash to cut turns', () => {
+  it('adds AskUserQuestion and Bash to cut turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -108,14 +107,14 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.toolsOption).toEqual(['AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion', 'Bash'])
     expect(surface.allowedToolsOption).toContain('mcp__ffmpeg-media__*')
     expect(surface.allowedToolsOption).not.toContain('Bash')
-    expect(surface.allowedToolsOption).toContain('InspectImage')
+    expect(surface.allowedToolsOption).not.toContain('InspectImage')
   })
 
-  it('adds InspectImage, AskUserQuestion and Bash to materials turns', () => {
+  it('adds AskUserQuestion and Bash to materials turns', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -127,14 +126,14 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion', 'Bash'])
+    expect(surface.toolsOption).toEqual(['AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion', 'Bash'])
     expect(surface.allowedToolsOption).toContain('mcp__materials__*')
     expect(surface.allowedToolsOption).not.toContain('Bash')
-    expect(surface.allowedToolsOption).toContain('InspectImage')
+    expect(surface.allowedToolsOption).not.toContain('InspectImage')
   })
 
-  it('keeps ai_media turns free of Bash while still exposing InspectImage and AskUserQuestion', () => {
+  it('keeps ai_media turns free of Bash while still exposing AskUserQuestion', () => {
     const surface = buildToolSurface({
       decision: makeDecision({
         toolLayer: 'chat',
@@ -146,9 +145,9 @@ describe('buildToolSurface', () => {
       isAssistant: false
     })
 
-    expect(surface.toolsOption).toEqual(['InspectImage', 'AskUserQuestion'])
-    expect(surface.builtinTools).toEqual(['InspectImage', 'AskUserQuestion'])
-    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__speech__*'])
+    expect(surface.toolsOption).toEqual(['AskUserQuestion'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion'])
+    expect(surface.allowedToolsOption).toEqual(['mcp__speech__*'])
   })
 
   it('exposes Bash in the workspace-write layer without auto-allowing write tools', () => {
@@ -165,12 +164,29 @@ describe('buildToolSurface', () => {
 
     expect(surface.builtinTools).toContain('Write')
     expect(surface.builtinTools).toContain('Bash')
-    expect(surface.builtinTools).toContain('InspectImage')
     expect(surface.builtinTools).toContain('AskUserQuestion')
     expect(surface.allowedToolsOption).not.toContain('Write')
     expect(surface.allowedToolsOption).not.toContain('Edit')
     expect(surface.allowedToolsOption).not.toContain('Bash')
-    expect(surface.allowedToolsOption).toContain('InspectImage')
+    expect(surface.allowedToolsOption).not.toContain('InspectImage')
+  })
+
+  it('keeps builtin surface minimal when chat image understand MCP is selected', () => {
+    const surface = buildToolSurface({
+      decision: makeDecision({
+        toolLayer: 'chat',
+        activeDomains: [{ domain: 'chat', subdomains: ['image_understand'], role: 'primary', score: 7 }],
+        primaryDomain: 'chat',
+        subdomains: ['image_understand'],
+        selected: new Set(['imageUnderstand'] as any)
+      }),
+      sessionAllowedTools: ['mcp__image-understand__*'],
+      isAssistant: false
+    })
+
+    expect(surface.toolsOption).toEqual(['AskUserQuestion', 'Bash'])
+    expect(surface.builtinTools).toEqual(['AskUserQuestion', 'Bash'])
+    expect(surface.allowedToolsOption).toEqual(['mcp__image-understand__*'])
   })
 
   it('filters known expensive or unsupported defaults from auto-allow lists', () => {
@@ -212,7 +228,6 @@ describe('buildToolSurface', () => {
         'Task',
         'WebSearch',
         'WebFetch',
-        'InspectImage',
         'AskUserQuestion'
       ])
     )
@@ -227,6 +242,6 @@ describe('buildToolSurface', () => {
 
     addAutoAllowedTool(surface, 'mcp__skills__*')
 
-    expect(surface.allowedToolsOption).toEqual(['InspectImage', 'mcp__skills__*'])
+    expect(surface.allowedToolsOption).toEqual(['mcp__skills__*'])
   })
 })

@@ -6,6 +6,9 @@ import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import {
   ArtworkArm,
   ArtworkBackground,
+  BillingBadge,
+  BillingIcon,
+  BillingText,
   ArtworkRotation,
   ArtworkSpinner,
   ArtworkWrapper,
@@ -13,6 +16,7 @@ import {
   AudioRow,
   AudioStatus,
   AudioTitle,
+  AudioTitleRow,
   Container,
   HiddenAudio,
   OriginalCopy,
@@ -38,6 +42,7 @@ import {
   parseOutput,
   type MediaGenerationToolProps
 } from './mediaGenerationShared'
+import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl } from './mediaGenerationBilling'
 
 const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item'
 const GenerateSpeechPlayBackground = new URL(
@@ -158,6 +163,7 @@ export function AudioGenerationToolBody({ input, output, progressMessage, isRunn
   const originalCopy = useMemo(() => getOriginalCopy(parsedInput, parsedOutput), [parsedInput, parsedOutput])
   const voiceLabel = useMemo(() => getVoiceLabel(parsedInput, parsedOutput), [parsedInput, parsedOutput])
   const fallbackDuration = useMemo(() => getDurationSeconds(parsedOutput), [parsedOutput])
+  const billingSummary = useMemo(() => extractMediaGenerationBillingSummary(output), [output])
 
   const taskMessage = getTaskMessage(parsedOutput, progressMessage, outputText)
   const normalizedStatus = getNormalizedStatus(parsedOutput)
@@ -258,7 +264,15 @@ export function AudioGenerationToolBody({ input, output, progressMessage, isRunn
 
         <RightSection>
           <AudioInfo>
-            <AudioTitle>{statusText}</AudioTitle>
+            <AudioTitleRow>
+              <AudioTitle>{statusText}</AudioTitle>
+              {billingSummary ? (
+                <BillingBadge title={`总消耗 ${billingSummary.displayText}`}>
+                  <BillingIcon src={getMediaGenerationPointIconUrl()} alt="" aria-hidden="true" />
+                  <BillingText>{billingSummary.displayText}</BillingText>
+                </BillingBadge>
+              ) : null}
+            </AudioTitleRow>
             {secondaryText ? <AudioStatus>{secondaryText}</AudioStatus> : null}
           </AudioInfo>
 

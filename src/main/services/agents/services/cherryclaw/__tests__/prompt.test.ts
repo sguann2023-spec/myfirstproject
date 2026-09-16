@@ -160,6 +160,8 @@ describe('PromptBuilder', () => {
       expect(result).toContain('## Web and browser')
       expect(result).toContain('## Workspace work')
       expect(result).toContain('## File editing')
+      expect(result).toContain('prefer Git Bash-compatible commands and POSIX shell syntax')
+      expect(result).toContain('avoid suggesting or emitting PowerShell- or cmd.exe-specific syntax')
       expect(result).toContain('copy `old_string` exactly from the latest Read output')
       expect(result).toContain('including whitespace, indentation, emojis, quotes, and escape sequences')
       expect(result).toContain('prefer `MultiEdit` so related edits are grouped into one tool call')

@@ -1,9 +1,19 @@
+import { stat as fsStat } from 'node:fs/promises'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+
 import { loggerService } from '@logger'
+import { windowService } from '@main/services/WindowService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
+
+import { ossUploadService } from '@main/services/OssUploadService'
+
+import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
 
 const logger = loggerService.withContext('MCPServer:DraftManagement')
 
@@ -14,11 +24,17 @@ const QUERY_SCRIPT_ENDPOINT = '/cut_jianying/query_script'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
+const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
+const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
+const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
+const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_draft_cover_'
+const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const DRAFT_CREATED_EVENT_CHANNEL = 'app:draft-created'
 
 const CREATE_DRAFT_TOOL: Tool = {
   name: 'create_draft',
   description:
-    'Create a new VectCut draft. Use this when the user asks to create or start a draft. Supports optional width, height, cover, and name.',
+    'Create a new VectCut draft. Use this when the user asks to create or start a draft. Supports optional width, height, cover, and name. The cover can be a remote URL, file URL, or absolute local path; local covers are uploaded internally before submission. Use workspace upload only for inline screenshot/base64 inputs without a stable local file path, or when a reusable public URL is explicitly required.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -32,11 +48,15 @@ const CREATE_DRAFT_TOOL: Tool = {
       },
       cover: {
         type: 'string',
-        description: 'Optional draft cover image URL.'
+        description: 'Optional draft cover image URL, file URL, or absolute local path.'
       },
       name: {
         type: 'string',
         description: 'Optional draft name.'
+      },
+      clientRequestId: {
+        type: 'string',
+        description: 'Optional client request ID used to correlate pending and completed UI updates.'
       }
     },
     additionalProperties: false
@@ -46,7 +66,7 @@ const CREATE_DRAFT_TOOL: Tool = {
 const MODIFY_DRAFT_TOOL: Tool = {
   name: 'modify_draft',
   description:
-    'Modify a VectCut draft name or cover. Use this when the user asks to update a draft title, name, or cover without changing timeline elements.',
+    'Modify a VectCut draft name or cover. Use this when the user asks to update a draft title, name, or cover without changing timeline elements. The cover can be a remote URL, file URL, or absolute local path; local covers are uploaded internally before submission. Use workspace upload only for inline screenshot/base64 inputs without a stable local file path, or when a reusable public URL is explicitly required.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -64,7 +84,11 @@ const MODIFY_DRAFT_TOOL: Tool = {
       },
       cover: {
         type: 'string',
-        description: 'Optional new draft cover image URL.'
+        description: 'Optional new draft cover image URL, file URL, or absolute local path.'
+      },
+      clientRequestId: {
+        type: 'string',
+        description: 'Optional client request ID used to correlate pending and completed UI updates.'
       }
     },
     additionalProperties: false
@@ -74,7 +98,7 @@ const MODIFY_DRAFT_TOOL: Tool = {
 const QUERY_SCRIPT_TOOL: Tool = {
   name: 'query_script',
   description:
-    'Inspect the current script content of a VectCut draft. Use this proactively after complex draft edits or when the user asks to verify whether draft elements were added correctly.',
+    'Inspect the current script content of a VectCut draft. Use this proactively after complex draft edits or when the user asks to verify whether draft elements were added correctly. The full script is saved into a JSON file in the current workspace, and the tool returns the absolute file path plus a lightweight summary.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -123,13 +147,17 @@ type QueryScriptResponse = {
   [key: string]: unknown
 }
 
+const HTTP_URL_PATTERN = /^https?:\/\//i
+
 class DraftManagementServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
+  private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(workspacePath?: string) {
+    this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
         name: 'draft-management',
@@ -278,6 +306,37 @@ class DraftManagementServer {
     }
   }
 
+  private emitDraftCreated(payload: {
+    action: 'create' | 'modify'
+    clientRequestId?: string
+    draftId: string
+    name?: string
+    cover?: string
+    width?: number
+    height?: number
+    status: 'in_progress' | 'completed'
+  }) {
+    const mainWindow = windowService.getMainWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      logger.warn('Skip draft created event because main window is unavailable', {
+        draftId: payload.draftId
+      })
+      return
+    }
+
+    mainWindow.webContents.send(DRAFT_CREATED_EVENT_CHANNEL, {
+      action: payload.action,
+      clientRequestId: payload.clientRequestId,
+      draftId: payload.draftId,
+      name: payload.name,
+      cover: payload.cover,
+      width: payload.width,
+      height: payload.height,
+      status: payload.status,
+      createdAt: Date.now()
+    })
+  }
+
   private getRequiredDraftId(args: Record<string, unknown>, toolName: string): string {
     const rawValue = typeof args.draftId === 'string' ? args.draftId : args.draft_id
     const draftId = typeof rawValue === 'string' ? rawValue.trim() : ''
@@ -298,6 +357,53 @@ class DraftManagementServer {
     }
     const normalized = value.trim()
     return normalized || undefined
+  }
+
+  private isHttpLikeUrl(value: string) {
+    return HTTP_URL_PATTERN.test(value)
+  }
+
+  private normalizeCoverInput(value: unknown): string | undefined {
+    const raw = this.getOptionalTrimmedString(value)
+    if (!raw) return undefined
+    if (raw.startsWith('file://')) {
+      return fileURLToPath(raw)
+    }
+    return raw
+  }
+
+  private async uploadLocalCover(filePath: string) {
+    return ossUploadService.uploadLocalFile(filePath, {
+      bucket: FILE_UPLOAD_BUCKET,
+      region: FILE_UPLOAD_REGION,
+      folder: FILE_UPLOAD_FOLDER_TEMPLATE,
+      objectKeyPrefix: FILE_UPLOAD_OBJECT_KEY_PREFIX,
+      signExpiresSeconds: FILE_UPLOAD_SIGN_EXPIRES_SECONDS
+    })
+  }
+
+  private async resolveCoverForSubmission(value: unknown): Promise<string | undefined> {
+    const normalizedCover = this.normalizeCoverInput(value)
+    if (!normalizedCover) return undefined
+    if (this.isHttpLikeUrl(normalizedCover)) return normalizedCover
+
+    if (!path.isAbsolute(normalizedCover)) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "'cover' must be a remote URL, file URL, or absolute local path"
+      )
+    }
+
+    const stats = await fsStat(normalizedCover)
+    if (!stats.isFile()) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "'cover' must point to a local file when using an absolute local path"
+      )
+    }
+
+    const uploaded = await this.uploadLocalCover(normalizedCover)
+    return uploaded.signedPublicUrl
   }
 
   private buildScriptSummary(rawOutput: string | undefined): Record<string, unknown> | undefined {
@@ -333,7 +439,21 @@ class DraftManagementServer {
     }
   }
 
-  private buildCreateDraftPayload(args: Record<string, unknown>) {
+  private buildScriptArtifactPayload(rawOutput: string | undefined): unknown {
+    if (!rawOutput) {
+      return {}
+    }
+
+    try {
+      return JSON.parse(rawOutput)
+    } catch {
+      return {
+        raw_output: rawOutput
+      }
+    }
+  }
+
+  private async buildCreateDraftPayload(args: Record<string, unknown>) {
     const payload: Record<string, unknown> = {}
 
     if (typeof args.width === 'number' && Number.isFinite(args.width)) {
@@ -343,7 +463,7 @@ class DraftManagementServer {
       payload.height = Math.trunc(args.height)
     }
 
-    const cover = this.getOptionalTrimmedString(args.cover)
+    const cover = await this.resolveCoverForSubmission(args.cover)
     const name = this.getOptionalTrimmedString(args.name)
     if (cover) payload.cover = cover
     if (name) payload.name = name
@@ -351,14 +471,14 @@ class DraftManagementServer {
     return payload
   }
 
-  private buildModifyDraftPayload(args: Record<string, unknown>) {
+  private async buildModifyDraftPayload(args: Record<string, unknown>) {
     const draftId = this.getRequiredDraftId(args, 'modify_draft')
     const payload: Record<string, unknown> = {
       draft_id: draftId
     }
 
     const name = this.getOptionalTrimmedString(args.name)
-    const cover = this.getOptionalTrimmedString(args.cover)
+    const cover = await this.resolveCoverForSubmission(args.cover)
     if (name) payload.name = name
     if (cover) payload.cover = cover
 
@@ -377,7 +497,21 @@ class DraftManagementServer {
   }
 
   private async createDraft(args: Record<string, unknown>) {
-    const payload = this.buildCreateDraftPayload(args)
+    const payload = await this.buildCreateDraftPayload(args)
+    const clientRequestId = this.getOptionalTrimmedString(args.clientRequestId) || randomUUID()
+    const pendingDraftId = `pending:${clientRequestId}`
+
+    this.emitDraftCreated({
+      action: 'create',
+      clientRequestId,
+      draftId: pendingDraftId,
+      name: this.getOptionalTrimmedString(args.name),
+      cover: this.getOptionalTrimmedString(payload.cover),
+      width: typeof payload.width === 'number' ? payload.width : undefined,
+      height: typeof payload.height === 'number' ? payload.height : undefined,
+      status: 'in_progress'
+    })
+
     const response = await this.requestWithAuth(CREATE_DRAFT_ENDPOINT, payload)
 
     if (!response.ok) {
@@ -392,6 +526,20 @@ class DraftManagementServer {
       draftId: result.output?.draft_id
     })
 
+    const createdDraftId = this.getOptionalTrimmedString(result.output?.draft_id)
+    if (createdDraftId) {
+      this.emitDraftCreated({
+        action: 'create',
+        clientRequestId,
+        draftId: createdDraftId,
+        name: this.getOptionalTrimmedString(args.name),
+        cover: this.getOptionalTrimmedString(payload.cover),
+        width: typeof payload.width === 'number' ? payload.width : undefined,
+        height: typeof payload.height === 'number' ? payload.height : undefined,
+        status: 'completed'
+      })
+    }
+
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'create_draft',
@@ -400,7 +548,18 @@ class DraftManagementServer {
   }
 
   private async modifyDraft(args: Record<string, unknown>) {
-    const payload = this.buildModifyDraftPayload(args)
+    const payload = await this.buildModifyDraftPayload(args)
+    const clientRequestId = this.getOptionalTrimmedString(args.clientRequestId) || randomUUID()
+
+    this.emitDraftCreated({
+      action: 'modify',
+      clientRequestId,
+      draftId: String(payload.draft_id),
+      name: this.getOptionalTrimmedString(args.name),
+      cover: this.getOptionalTrimmedString(payload.cover),
+      status: 'in_progress'
+    })
+
     const response = await this.requestWithAuth(MODIFY_DRAFT_ENDPOINT, payload)
 
     if (!response.ok) {
@@ -413,6 +572,15 @@ class DraftManagementServer {
     logger.info('Draft metadata updated', {
       success: result.success,
       draftId: result.output?.draft_id ?? payload.draft_id
+    })
+
+    this.emitDraftCreated({
+      action: 'modify',
+      clientRequestId,
+      draftId: this.getOptionalTrimmedString(result.output?.draft_id) || String(payload.draft_id),
+      name: this.getOptionalTrimmedString(args.name),
+      cover: this.getOptionalTrimmedString(payload.cover),
+      status: 'completed'
     })
 
     return this.formatJsonResult({
@@ -433,6 +601,17 @@ class DraftManagementServer {
 
     const result = (await response.json()) as QueryScriptResponse
     const scriptSummary = this.buildScriptSummary(result.output)
+    const artifact = await persistWorkspaceJsonArtifact({
+      toolName: 'draft-script',
+      taskId: payload.draft_id,
+      payload: this.buildScriptArtifactPayload(result.output),
+      workspaceRoot: this.workspacePath,
+      relativeDirSegments: ['']
+    })
+
+    if (!artifact) {
+      throw new Error('No workspace root available to persist the draft script file')
+    }
 
     logger.info('Draft script queried', {
       success: result.success,
@@ -442,8 +621,12 @@ class DraftManagementServer {
     return this.formatJsonResult({
       provider: 'vectcut',
       action: 'query_script',
+      draft_id: payload.draft_id,
       script_summary: scriptSummary,
-      ...result
+      script_file_path: artifact.filePath,
+      script_relative_path: artifact.relativePath,
+      success: result.success,
+      error: result.error
     })
   }
 }

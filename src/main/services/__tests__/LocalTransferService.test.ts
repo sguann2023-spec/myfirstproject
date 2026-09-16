@@ -31,6 +31,12 @@ vi.mock('@logger', () => ({
   }
 }))
 
+vi.mock('@shared/IpcChannel', () => ({
+  IpcChannel: {
+    LocalTransfer_ServicesUpdated: 'local-transfer-services-updated'
+  }
+}))
+
 vi.mock('../WindowService', () => ({
   windowService: {
     getMainWindow: vi.fn(() => mockMainWindow)
@@ -38,7 +44,12 @@ vi.mock('../WindowService', () => ({
 }))
 
 vi.mock('bonjour-service', () => ({
-  default: vi.fn(() => mockBonjour)
+  default: vi.fn(function MockBonjour() {
+    return mockBonjour
+  }),
+  Bonjour: vi.fn(function MockBonjourNamed() {
+    return mockBonjour
+  })
 }))
 
 describe('LocalTransferService', () => {

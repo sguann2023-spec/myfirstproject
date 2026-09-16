@@ -173,8 +173,8 @@ ${evidenceLine}
       sections.push(`## Web and browser
 
 - Use search for discovery, direct fetch for known static URLs, and browser tools only for interaction, visual inspection, login, or JavaScript-rendered pages.
-- When the user asks to open or visit an external webpage, prefer \`mcp__browser__open\` as the first tool.
-- Do not use host navigation tools such as \`mcp__assistant__navigate\` for normal external websites.
+- When the user asks to open or visit an external webpage, prefer \`mcp__vectcut__browser__open\` as the first tool.
+- Do not use host navigation tools such as \`mcp__vectcut__assistant__navigate\` for normal external websites.
 - Prefer targeted reads over dumping full pages into context.
 - Cite or summarize source-specific facts carefully.`)
     }
@@ -200,6 +200,8 @@ ${evidenceLine}
 
 - The current workspace absolute path is: ${workspacePath}
 - Treat this absolute path as the workspace root for this turn.
+- On Windows, prefer Git Bash-compatible commands and POSIX shell syntax for shell work whenever possible.
+- On Windows, avoid suggesting or emitting PowerShell- or cmd.exe-specific syntax unless the user explicitly asks for PowerShell/cmd or the task truly requires a Windows-native shell.
 - Before any file-related action, first confirm the current workspace structure and the relevant target path with available workspace tools such as Read or Bash.
 - When a file, command output, or JSON document is large, do not dump the full body inline into the conversation. Prefer targeted reads, filters, or scripts, and write intermediate full inputs/outputs to files inside the workspace.
 - For very large JSON, logs, transcripts, or generated text, prefer shell or code workflows such as \`jq\`, \`rg\`, \`head\`, \`tail\`, or small scripts that extract only the needed slice before responding.

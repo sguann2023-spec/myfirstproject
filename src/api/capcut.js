@@ -154,3 +154,26 @@ export async function addBatchPreset({
     draft_id,
   });
 }
+
+export async function modifyDraft({ draft_id, name, cover } = {}) {
+  if (!draft_id) {
+    throw new Error('draft_id is required');
+  }
+
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  const normalizedCover = typeof cover === 'string' ? cover.trim() : '';
+
+  if (!normalizedName && !normalizedCover) {
+    throw new Error('name or cover is required');
+  }
+
+  const payload = { draft_id };
+  if (normalizedName) {
+    payload.name = normalizedName;
+  }
+  if (normalizedCover) {
+    payload.cover = normalizedCover;
+  }
+
+  return http.postJson(`${BASE_URL}/cut_jianying/modify_draft`, payload);
+}

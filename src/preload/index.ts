@@ -29,6 +29,7 @@ import type {
   KnowledgeBaseParams,
   KnowledgeItem,
   KnowledgeSearchResult,
+  LocalMcpDetectedAgent,
   MCPServer,
   MemoryConfig,
   MemoryListOptions,
@@ -39,6 +40,7 @@ import type {
   Provider,
   RestartApiServerStatusResult,
   S3Config,
+  SetLocalMcpAgentRegistrationResult,
   Shortcut,
   StartApiServerStatusResult,
   StopApiServerStatusResult,
@@ -501,6 +503,14 @@ const api = {
   externalApps: {
     detectInstalled: (): Promise<ExternalAppInfo[]> => ipcRenderer.invoke(IpcChannel.ExternalApps_DetectInstalled)
   },
+  localMcp: {
+    detectAgents: (): Promise<LocalMcpDetectedAgent[]> => ipcRenderer.invoke(IpcChannel.LocalMcp_DetectAgents),
+    setAgentRegistration: (
+      agentId: LocalMcpDetectedAgent['id'],
+      enabled: boolean
+    ): Promise<SetLocalMcpAgentRegistrationResult> =>
+      ipcRenderer.invoke(IpcChannel.LocalMcp_SetAgentRegistration, agentId, enabled)
+  },
   nutstore: {
     getSSOUrl: () => ipcRenderer.invoke(IpcChannel.Nutstore_GetSsoUrl),
     decryptToken: (token: string) => ipcRenderer.invoke(IpcChannel.Nutstore_DecryptToken, token),
@@ -902,6 +912,14 @@ const legacyElectronAPI = {
         content,
         ...extraPayload
       }),
+    createDraftRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftRequest, payload),
+    createDraftModifyRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftModifyRequest, payload),
+    createDraftExportRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftExportRequest, payload),
+    createDraftDownloadRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftDownloadRequest, payload),
     subscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Subscribe, { sessionId }),
     unsubscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Unsubscribe, { sessionId }),
     abort: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Abort, { sessionId }),
@@ -949,6 +967,7 @@ const legacyElectronAPI = {
       isEnabled = true,
         remoteId = null,
         remoteName = null,
+        folderName = null,
         source = 'local',
       sourceUrl = null,
       iconUrl = null,
@@ -960,6 +979,7 @@ const legacyElectronAPI = {
         isEnabled,
         remoteId,
         remoteName,
+        folderName,
         source,
         sourceUrl,
         iconUrl,

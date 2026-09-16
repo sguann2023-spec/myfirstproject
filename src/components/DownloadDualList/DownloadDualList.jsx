@@ -162,7 +162,7 @@ function DownloadDualList({
             className={`dual-switch-option ${view === 'downloading' ? 'is-active' : ''}`}
             onClick={() => setView('downloading')}
           >
-            下载中
+            传输中
           </button>
           <button
             type="button"
@@ -296,7 +296,7 @@ function DownloadDualList({
                     </div>
                     <div className="draftlist-time">
                       <span className="draftlist-status">
-                        {item.status === 'success' ? '下载成功，去剪映草稿箱查看该草稿' : '下载失败'}
+                        {item.status === 'success' ? '导出成功，去剪映草稿箱查看该草稿' : '下载失败'}
                       </span>
                       <div className="draftlist-actions">
                         <button

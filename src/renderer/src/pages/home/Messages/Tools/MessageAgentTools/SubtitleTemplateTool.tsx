@@ -41,7 +41,8 @@ type SubtitleTemplateResult = {
 
 const SUBTITLE_TEMPLATE_TOOL_NAMES = new Set([
   'generate_smart_subtitle',
-  'mcp__subtitle-template__generate_smart_subtitle'
+  'mcp__subtitle-template__generate_smart_subtitle',
+  'mcp__vectcut__subtitle-template__generate_smart_subtitle'
 ])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -171,7 +172,7 @@ export function SubtitleTemplateToolBody({
                 <StatusTitle>已完成</StatusTitle>
               </ProcessingTitleRow>
               <ResultLinkRow>
-                <ResultLinkText>下载草稿</ResultLinkText>
+                <ResultLinkText>导出草稿</ResultLinkText>
               </ResultLinkRow>
             </ProcessingState>
           </ResultStateLink>

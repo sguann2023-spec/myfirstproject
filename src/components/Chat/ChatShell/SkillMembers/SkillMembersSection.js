@@ -6,6 +6,7 @@ import {
   Folder,
   FolderOpen,
   Link,
+  Search,
   SquarePen,
   Trash2,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ const SkillMembersSection = ({
   beginnerGuideChildrensBookRunButtonRef,
   beginnerGuideChildrensBookEditButtonRef,
   onToggleSkillExpanded,
+  onOpenSkillStore,
   onOpenSkillWebPreview,
   onRunSkillExample,
   onSelectSkill,
@@ -48,23 +50,25 @@ const SkillMembersSection = ({
       {skillsLoading && <div className="chat-panel__members-empty">加载中...</div>}
       {!skillsLoading && skillsError && <div className="chat-panel__members-empty">{skillsError}</div>}
       {!skillsLoading && !skillsError && skills.length === 0 && (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="未发现技能"
-          className="chat-panel__empty-state"
-        />
+        <div className="chat-panel__members-empty-state">
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="未发现技能"
+            className="chat-panel__empty-state"
+          />
+        </div>
       )}
       {!skillsLoading && !skillsError && skills.map((skill) => {
         const skillKey = getSkillKey(skill);
         const folderLabel = getSkillFolderLabel(skill);
-        const displayName = getSkillDisplayName(skill);
+        const skillName = getSkillDisplayName(skill);
         const skillPreviewPath = skillPreviewPaths[skillKey] || '';
         const skillExamplePath = skillExamplePaths[skillKey] || '';
         const isExpanded = expandedSkillKeys.has(skillKey);
         const treeNodes = skillTrees[skillKey] || [];
         const isTreeLoading = Boolean(skillTreeLoading[skillKey]);
-        const isChildrensBookSkill = folderLabel === childrensBookSkillLabel || displayName === childrensBookSkillLabel;
-        const primaryLabel = displayName || folderLabel;
+        const isChildrensBookSkill = skillName === childrensBookSkillLabel || folderLabel === childrensBookSkillLabel;
+        const primaryLabel = skillName || folderLabel;
         const hasWebExampleAction = Boolean(skillExamplePath || skillPreviewPath);
         const hasMentionAction = typeof onSelectSkill === 'function';
         const hasModifyPromptAction = typeof onModifySkill === 'function';
@@ -195,6 +199,16 @@ const SkillMembersSection = ({
           </Popover>
         );
       })}
+      {!skillsLoading && !skillsError && skills.length === 0 && (
+        <button
+          type="button"
+          className="chat-panel__find-skills-button"
+          onClick={onOpenSkillStore}
+        >
+          <Search size={15} strokeWidth={1.8} aria-hidden="true" />
+          <span>寻找技能</span>
+        </button>
+      )}
       <div className="chat-panel__section-divider" aria-hidden="true" />
     </>
   );

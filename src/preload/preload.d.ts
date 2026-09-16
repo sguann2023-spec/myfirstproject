@@ -32,6 +32,10 @@ declare global {
         listSessions: (payload?: any) => Promise<any>
         listMessages: (sessionId: string) => Promise<any>
         createMessage: (payload: any) => Promise<any>
+        createDraftRequest: (payload: any) => Promise<any>
+        createDraftModifyRequest: (payload: any) => Promise<any>
+        createDraftExportRequest: (payload: any) => Promise<any>
+        createDraftDownloadRequest: (payload: any) => Promise<any>
         subscribe: (sessionId: string) => Promise<any>
         unsubscribe: (sessionId: string) => Promise<any>
         abort: (sessionId: string) => Promise<any>
@@ -67,6 +71,7 @@ declare global {
           isEnabled?: boolean
           remoteId?: string | null
           remoteName?: string | null
+          folderName?: string | null
           source?: string
           sourceUrl?: string | null
           iconUrl?: string | null
@@ -76,6 +81,7 @@ declare global {
           packageUrl: string
           remoteId: string
           remoteName?: string | null
+          folderName?: string | null
           iconUrl?: string | null
           previewVideoUrl?: string | null
           sourceUrl?: string | null

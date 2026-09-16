@@ -373,6 +373,7 @@ export class SkillService extends BaseService {
     const packageUrl = String(options.packageUrl || '').trim()
     if (!packageUrl) throw new Error('Skill package URL is required')
     if (!/^https?:\/\//i.test(packageUrl)) throw new Error('Skill package URL must use HTTP or HTTPS')
+    const folderName = this.validateRemoteFolderName(options.folderName)
 
     const response = await net.fetch(packageUrl)
     if (!response.ok) {
@@ -395,7 +396,8 @@ export class SkillService extends BaseService {
         options.remoteId,
         options.remoteName ?? null,
         options.iconUrl ?? null,
-        options.previewVideoUrl ?? null
+        options.previewVideoUrl ?? null,
+        folderName
       )
     } finally {
       await this.safeRemoveDirectory(tempDir)
@@ -421,6 +423,7 @@ export class SkillService extends BaseService {
       directoryPath,
       remoteId = null,
       remoteName = null,
+      folderName = null,
       source = 'local',
       sourceUrl = null,
       iconUrl = null,
@@ -432,7 +435,17 @@ export class SkillService extends BaseService {
       throw new Error(`Directory not found: ${directoryPath}`)
     }
 
-    return this.installSkillDir(directoryPath, source, sourceUrl, remoteId, remoteName, iconUrl, previewVideoUrl)
+    const normalizedFolderName = folderName ? this.validateRemoteFolderName(folderName) : null
+    return this.installSkillDir(
+      directoryPath,
+      source,
+      sourceUrl,
+      remoteId,
+      remoteName,
+      iconUrl,
+      previewVideoUrl,
+      normalizedFolderName
+    )
   }
 
   async copyDirectoryToWorkspace(
@@ -701,12 +714,17 @@ export class SkillService extends BaseService {
     remoteId: string | null = null,
     remoteName: string | null = null,
     iconUrl: string | null = null,
-    previewVideoUrl: string | null = null
+    previewVideoUrl: string | null = null,
+    folderNameOverride: string | null = null
   ): Promise<InstalledSkill> {
     const metadata = await parseSkillMetadata(skillDir, path.basename(skillDir), 'skills')
     const skillsRoot = path.resolve(getGlobalSkillsRoot())
     const isInPlace = path.resolve(path.dirname(skillDir)) === skillsRoot
-    const folderName = isInPlace ? path.basename(skillDir) : this.preserveFolderName(metadata.filename)
+    const folderName = folderNameOverride
+      ? this.validateRemoteFolderName(folderNameOverride)
+      : isInPlace
+        ? path.basename(skillDir)
+        : this.preserveFolderName(metadata.filename)
     const destPath = this.getSkillStoragePath(folderName)
     const legacySanitizedDestPath = this.getSkillStoragePath(this.sanitizeFolderName(folderName))
 
@@ -1251,6 +1269,14 @@ export class SkillService extends BaseService {
     }
 
     return preserved
+  }
+
+  private validateRemoteFolderName(folderName: string | null | undefined): string {
+    const normalized = String(folderName || '').trim()
+    if (!/^[a-z0-9][a-z0-9_-]{0,127}$/.test(normalized)) {
+      throw new Error('Remote skill folder name must use lowercase English letters, numbers, hyphens, or underscores')
+    }
+    return normalized
   }
 
   private async resolveExistingSkillStoragePath(folderName: string): Promise<string | null> {

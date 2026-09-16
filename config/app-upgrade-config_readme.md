@@ -1,1 +1,20 @@
-gh代理可以在https://github.akams.cn/ 这里获取。让AI做一下探测，找到5个可用的代理地址。不能光检测是否联通，要真实的去访问。要真的去https://github.com/sun-guannan/CapCutMaker/releases/latest 看看能不能获取yml, 能不能下载部分片段。
+gh proxy candidates can be collected from `https://github.akams.cn/`.
+
+Probe requirements:
+- Do not only check connectivity.
+- Must really fetch `https://github.com/sun-guannan/CapCutMaker/releases/latest/download/latest.yml`.
+- Must really do ZIP range download checks.
+- Must verify a deep range near `600MB`, not only the file head.
+
+Automation script:
+
+```bash
+python3 /Users/sunguannan/CapCutHelper/config/refresh_app-upgrade-config.py
+python3 /Users/sunguannan/CapCutHelper/config/refresh_app-upgrade-config.py --dry-run
+python3 /Users/sunguannan/CapCutHelper/config/refresh_app-upgrade-config.py --publish
+```
+
+Behavior:
+- Default: probe candidates, keep the best 5 proxies, and update local `app-upgrade-config.json`
+- `--dry-run`: print results only, do not write or publish
+- `--publish`: update config and then publish it through `publish_app-upgrade-config.py`

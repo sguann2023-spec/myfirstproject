@@ -1,17 +1,18 @@
 import { loggerService } from '@logger'
-import { useAppDispatch, useAppSelector } from '@renderer/store'
-import { setApiServerRunningAction } from '@renderer/store/runtime'
-import { setApiServerEnabled as setApiServerEnabledAction } from '@renderer/store/settings'
+import { handleSaveData, useAppDispatch, useAppSelector } from '@renderer/store'
+import { setApiServerPortAction, setApiServerRunningAction } from '@renderer/store/runtime'
+import { API_SERVER_DEFAULTS } from '@shared/config/constant'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { setApiServerApiKey, setApiServerEnabled as setApiServerEnabledAction } from '../store/settings'
 
 const logger = loggerService.withContext('useApiServer')
-const API_SERVER_DISABLED_MESSAGE = 'API Server has been disabled in this build.'
 
 // Module-level single instance subscription to prevent EventEmitter memory leak
 // Only one IPC listener will be registered regardless of how many components use this hook
 const onReadyCallbacks = new Set<() => void>()
 let removeIpcListener: (() => void) | null = null
+let recoveryStartPromise: Promise<void> | null = null
 
 const ensureIpcSubscribed = () => {
   if (!removeIpcListener) {
@@ -34,19 +35,25 @@ export const useApiServer = () => {
   // which carries the risk of data inconsistency. This should be modified so that the main process stores
   // the data, and the renderer retrieves it.
   const storedApiServerConfig = useAppSelector((state) => state.settings.apiServer)
-  const apiServerConfig = {
-    ...storedApiServerConfig,
-    enabled: false
-  }
+  const apiServerPort = useAppSelector((state) => state.runtime.apiServerPort)
   const dispatch = useAppDispatch()
 
-  const apiServerRunning = false
+  const apiServerRunning = useAppSelector((state) => state.runtime.apiServerRunning)
+  const apiServerKeyRef = useRef(String(storedApiServerConfig.apiKey || '').trim())
   // Is checking the API server status
   const [apiServerLoading, setApiServerLoading] = useState(true)
+  const [apiServerPreferredPort, setApiServerPreferredPort] = useState<number | null>(null)
 
   const setApiServerRunning = useCallback(
     (running: boolean) => {
       dispatch(setApiServerRunningAction(running))
+    },
+    [dispatch]
+  )
+
+  const setResolvedApiServerPort = useCallback(
+    (port: number | null) => {
+      dispatch(setApiServerPortAction(port))
     },
     [dispatch]
   )
@@ -58,59 +65,95 @@ export const useApiServer = () => {
     [dispatch]
   )
 
+  const syncApiServerApiKey = useCallback(
+    (apiKey?: string | null) => {
+      const normalized = String(apiKey || '').trim()
+      if (!normalized || normalized === apiServerKeyRef.current) {
+        return
+      }
+      apiServerKeyRef.current = normalized
+      dispatch(setApiServerApiKey(normalized))
+    },
+    [dispatch]
+  )
+
   // API Server functions
   const checkApiServerStatus = useCallback(async () => {
     setApiServerLoading(true)
     try {
-      setApiServerRunning(false)
-      setApiServerEnabled(false)
+      const result = await window.api.apiServer.getStatus()
+      syncApiServerApiKey(result?.config?.apiKey)
+      setApiServerRunning(Boolean(result?.running))
+      setApiServerEnabled(Boolean(result?.config?.enabled))
+      setApiServerPreferredPort(Number(result?.config?.port) || null)
+      setResolvedApiServerPort(Number(result?.actualPort) || null)
     } catch (error: any) {
       logger.error('Failed to check API server status:', error)
+      setApiServerPreferredPort(null)
+      setResolvedApiServerPort(null)
     } finally {
       setApiServerLoading(false)
     }
-  }, [apiServerConfig.enabled, setApiServerEnabled, setApiServerLoading, setApiServerRunning])
+  }, [setApiServerEnabled, setApiServerLoading, setApiServerRunning, setResolvedApiServerPort, syncApiServerApiKey])
 
   const startApiServer = useCallback(async () => {
     if (apiServerLoading) return
     setApiServerLoading(true)
     try {
-      setApiServerRunning(false)
-      setApiServerEnabled(false)
-      window.toast.error(API_SERVER_DISABLED_MESSAGE)
+      const result = await window.api.apiServer.start()
+      if (!result?.success) {
+        throw new Error('error' in result ? result.error : 'Unknown error')
+      }
+      setApiServerEnabled(true)
+      await handleSaveData()
+      await checkApiServerStatus()
     } catch (error: any) {
       window.toast.error(t('apiServer.messages.startError') + (error.message || error))
     } finally {
       setApiServerLoading(false)
     }
-  }, [apiServerLoading, setApiServerEnabled, setApiServerLoading, setApiServerRunning, t])
+  }, [apiServerLoading, checkApiServerStatus, setApiServerEnabled, setApiServerLoading, t])
 
   const stopApiServer = useCallback(async () => {
     if (apiServerLoading) return
     setApiServerLoading(true)
     try {
-      setApiServerRunning(false)
+      const result = await window.api.apiServer.stop()
+      if (!result?.success) {
+        throw new Error('error' in result ? result.error : 'Unknown error')
+      }
       setApiServerEnabled(false)
+      setApiServerRunning(false)
+      setResolvedApiServerPort(null)
+      await handleSaveData()
     } catch (error: any) {
       window.toast.error(t('apiServer.messages.stopError') + (error.message || error))
     } finally {
       setApiServerLoading(false)
     }
-  }, [apiServerLoading, setApiServerEnabled, setApiServerLoading, setApiServerRunning, t])
+  }, [apiServerLoading, setApiServerLoading, setApiServerRunning, setResolvedApiServerPort, t])
 
   const restartApiServer = useCallback(async () => {
     if (apiServerLoading) return
     setApiServerLoading(true)
     try {
-      setApiServerRunning(false)
-      setApiServerEnabled(false)
-      window.toast.error(API_SERVER_DISABLED_MESSAGE)
+      const result = await window.api.apiServer.restart()
+      if (!result?.success) {
+        throw new Error('error' in result ? result.error : 'Unknown error')
+      }
+      setApiServerEnabled(true)
+      await handleSaveData()
+      await checkApiServerStatus()
     } catch (error) {
       window.toast.error(t('apiServer.messages.restartFailed') + (error as Error).message)
     } finally {
       setApiServerLoading(false)
     }
   }, [apiServerLoading, checkApiServerStatus, setApiServerEnabled, setApiServerLoading, t])
+
+  useEffect(() => {
+    apiServerKeyRef.current = String(storedApiServerConfig.apiKey || '').trim()
+  }, [storedApiServerConfig.apiKey])
 
   useEffect(() => {
     void checkApiServerStatus()
@@ -124,20 +167,20 @@ export const useApiServer = () => {
 
   // Create stable callback for the single instance subscription
   const handleReady = useCallback(() => {
-    logger.info('API server ready event received, checking status')
     void checkStatusRef.current()
   }, [])
 
   // Listen for API server ready event using single instance subscription
   useEffect(() => {
-    if (!apiServerConfig.enabled) {
+    if (!storedApiServerConfig.enabled) {
       dispatch(setApiServerEnabledAction(false))
       dispatch(setApiServerRunningAction(false))
+      dispatch(setApiServerPortAction(null))
     }
-  }, [apiServerConfig.enabled, dispatch])
+  }, [storedApiServerConfig.enabled, dispatch])
 
   useEffect(() => {
-    if (!apiServerConfig.enabled) {
+    if (!storedApiServerConfig.enabled) {
       return
     }
     ensureIpcSubscribed()
@@ -147,12 +190,30 @@ export const useApiServer = () => {
       onReadyCallbacks.delete(handleReady)
       cleanupIpcIfEmpty()
     }
-  }, [handleReady])
+  }, [handleReady, storedApiServerConfig.enabled])
+
+  useEffect(() => {
+    if (apiServerLoading || !storedApiServerConfig.enabled || apiServerRunning) {
+      return
+    }
+
+    if (!recoveryStartPromise) {
+      recoveryStartPromise = startApiServer().finally(() => {
+        recoveryStartPromise = null
+      })
+    }
+  }, [apiServerLoading, apiServerRunning, startApiServer, storedApiServerConfig.enabled])
+
+  const apiServerConfig = {
+    ...storedApiServerConfig,
+    port: apiServerPort ?? apiServerPreferredPort ?? storedApiServerConfig.port ?? API_SERVER_DEFAULTS.PORT
+  }
 
   return {
     apiServerConfig,
     apiServerRunning,
     apiServerLoading,
+    apiServerPort,
     startApiServer,
     stopApiServer,
     restartApiServer,

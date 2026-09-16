@@ -128,10 +128,45 @@ export const AudioInfo = styled.div`
   gap: 10px;
 `
 
+export const AudioTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+`
+
 export const AudioTitle = styled.div`
   font-size: 16px;
   font-weight: 500;
   color: rgb(15, 20, 25);
+`
+
+export const BillingBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+  padding-right: 4px;
+  color: #000000;
+  font-size: 14px;
+  font-weight: 400;
+  flex: 0 0 auto;
+  white-space: nowrap;
+`
+
+export const BillingIcon = styled.img`
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+`
+
+export const BillingText = styled.span`
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
 `
 
 export const AudioStatus = styled.div`

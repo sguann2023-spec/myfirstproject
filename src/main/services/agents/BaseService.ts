@@ -3,7 +3,7 @@ import { mcpApiService } from '@main/apiServer/services/mcp'
 import type { ModelValidationError } from '@main/apiServer/utils'
 import { validateModelId } from '@main/apiServer/utils'
 import { getDataPath } from '@main/utils'
-import { buildFunctionCallToolName } from '@shared/mcp'
+import { buildFunctionCallToolName, normalizeVectcutMcpToolName } from '@shared/mcp'
 import type { AgentType, MCPTool, SlashCommand, SystemProviderId, Tool } from '@types'
 import { objectKeys } from '@types'
 import fs from 'fs'
@@ -130,11 +130,7 @@ export abstract class BaseService {
       resolvedLegacyIdMap.set(legacyId, tool.id)
     }
 
-    if (resolvedLegacyIdMap.size === 0) {
-      return allowedTools
-    }
-
-    const normalized = allowedTools.map((toolId) => resolvedLegacyIdMap.get(toolId) ?? toolId)
+    const normalized = allowedTools.map((toolId) => normalizeVectcutMcpToolName(resolvedLegacyIdMap.get(toolId) ?? toolId))
     return Array.from(new Set(normalized))
   }
 

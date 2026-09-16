@@ -1,7 +1,8 @@
 import mcpService from '@main/services/MCPService'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import type { JSONRPCMessage, MessageExtraInfo } from '@modelcontextprotocol/sdk/types.js'
-import { isJSONRPCRequest, JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js'
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { MCPServer } from '@types'
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
@@ -120,58 +121,90 @@ class MCPApiService extends EventEmitter {
   }
 
   async handleRequest(req: Request, res: Response, server: MCPServer) {
+    return this.handleTransportRequest(req, res, `server:${server.id}`, async () => {
+      const mcpServer = await createMcpServerForTransport(server.id)
+      return {
+        serverId: server.id,
+        mcpServer
+      }
+    }, (messages) => {
+      for (const message of messages) {
+        if (message && typeof message === 'object' && 'method' in message && 'params' in message) {
+          const requestMessage = message as any
+          if (!requestMessage.params) {
+            requestMessage.params = {}
+          }
+          if (!requestMessage.params._meta) {
+            requestMessage.params._meta = {}
+          }
+          requestMessage.params._meta.serverId = server.id
+        }
+      }
+    })
+  }
+
+  async handleTransportRequest(
+    req: Request,
+    res: Response,
+    transportKeyPrefix: string,
+    createServer: () => Promise<{ serverId: string; mcpServer: Server }>,
+    decorateMessages?: (messages: JSONRPCMessage[]) => void
+  ) {
     const sessionId = req.headers['mcp-session-id'] as string | undefined
-    logger.debug('Handling MCP request', { sessionId, serverId: server.id })
+    logger.debug('Handling MCP request', { sessionId, transportKeyPrefix })
     let transport: StreamableHTTPServerTransport
-    if (sessionId && transports[sessionId]) {
-      transport = transports[sessionId]
+    const transportKey = sessionId ? `${transportKeyPrefix}:${sessionId}` : ''
+    if (transportKey && transports[transportKey]) {
+      transport = transports[transportKey]
     } else {
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
-          transports[sessionId] = transport
+        onsessioninitialized: (newSessionId) => {
+          transports[`${transportKeyPrefix}:${newSessionId}`] = transport
         }
       })
 
       transport.onclose = () => {
-        logger.info('Transport closed', { sessionId })
+        logger.info('Transport closed', { sessionId, transportKeyPrefix })
         if (transport.sessionId) {
-          delete transports[transport.sessionId]
+          delete transports[`${transportKeyPrefix}:${transport.sessionId}`]
         }
       }
-      const mcpServer = await createMcpServerForTransport(server.id)
+      const { mcpServer, serverId } = await createServer()
       await mcpServer.connect(transport)
+      logger.debug('Connected MCP transport', { transportKeyPrefix, serverId, sessionId: transport.sessionId })
     }
-    const jsonpayload = req.body
-    const messages: JSONRPCMessage[] = []
 
-    if (Array.isArray(jsonpayload)) {
-      for (const payload of jsonpayload) {
-        const message = JSONRPCMessageSchema.parse(payload)
+    if (req.method === 'POST') {
+      const jsonpayload = req.body
+      const messages: JSONRPCMessage[] = []
+
+      if (Array.isArray(jsonpayload)) {
+        for (const payload of jsonpayload) {
+          const message = JSONRPCMessageSchema.parse(payload)
+          messages.push(message)
+        }
+      } else {
+        const message = JSONRPCMessageSchema.parse(jsonpayload)
         messages.push(message)
       }
-    } else {
-      const message = JSONRPCMessageSchema.parse(jsonpayload)
-      messages.push(message)
+
+      decorateMessages?.(messages)
+
+      logger.debug('Dispatching MCP POST request', {
+        sessionId: transport.sessionId ?? sessionId,
+        messageCount: messages.length
+      })
+      await transport.handleRequest(req as IncomingMessage, res as ServerResponse, messages)
+      return
     }
 
-    for (const message of messages) {
-      if (isJSONRPCRequest(message)) {
-        if (!message.params) {
-          message.params = {}
-        }
-        if (!message.params._meta) {
-          message.params._meta = {}
-        }
-        message.params._meta.serverId = server.id
-      }
-    }
-
-    logger.debug('Dispatching MCP request', {
+    logger.debug('Dispatching MCP request without JSON body', {
+      method: req.method,
       sessionId: transport.sessionId ?? sessionId,
-      messageCount: messages.length
+      transportKeyPrefix
     })
-    await transport.handleRequest(req as IncomingMessage, res as ServerResponse, messages)
+    await transport.handleRequest(req as IncomingMessage, res as ServerResponse)
   }
 
   private onMessage(message: JSONRPCMessage, extra?: MessageExtraInfo) {

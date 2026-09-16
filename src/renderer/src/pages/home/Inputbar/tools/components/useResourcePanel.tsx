@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next'
 const logger = loggerService.withContext('useResourcePanel')
 const MAX_FILE_RESULTS = 500
 const MAX_SEARCH_RESULTS = 20
+const getSkillLabel = (skill: InstalledSkill) => String(skill?.name || skill?.folderName || skill?.id || '').trim()
 
 const areFileListsEqual = (prev: string[], next: string[]) => {
   if (prev === next) return true
@@ -279,7 +280,7 @@ export const useResourcePanel = (params: Params, role: 'button' | 'manager' = 'b
   const onSelectSkill = useCallback(
     (skill: InstalledSkill) => {
       const trigger = triggerInfoRef.current
-      insertText(skill.name, trigger)
+      insertText(getSkillLabel(skill), trigger)
       close()
     },
     [close, insertText]
@@ -315,10 +316,10 @@ export const useResourcePanel = (params: Params, role: 'button' | 'manager' = 'b
   const createSkillItems = useCallback(
     (skillList: InstalledSkill[]): QuickPanelListItem[] => {
       return skillList.map((skill) => ({
-        label: skill.name,
+        label: getSkillLabel(skill),
         description: skill.description || '',
         icon: <Zap size={16} />,
-        filterText: `${skill.name} ${skill.description || ''} ${skill.folderName}`,
+        filterText: `${getSkillLabel(skill)} ${skill.description || ''} ${skill.folderName}`,
         action: () => onSelectSkill(skill),
         isSelected: false
       }))
@@ -333,7 +334,7 @@ export const useResourcePanel = (params: Params, role: 'button' | 'manager' = 'b
     if (!searchText.trim()) return skillList
     const lowerSearch = searchText.toLowerCase()
     return skillList.filter((skill) => {
-      const name = skill.name.toLowerCase()
+      const name = getSkillLabel(skill).toLowerCase()
       const desc = (skill.description || '').toLowerCase()
       return name.includes(lowerSearch) || desc.includes(lowerSearch)
     })

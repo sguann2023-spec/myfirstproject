@@ -2049,7 +2049,7 @@ const migrateConfig = {
       // Initialize API server configuration if not present
       if (!state.settings.apiServer) {
         state.settings.apiServer = {
-          enabled: false,
+          enabled: true,
           host: API_SERVER_DEFAULTS.HOST,
           port: API_SERVER_DEFAULTS.PORT,
           apiKey: `cs-sk-${uuid()}`

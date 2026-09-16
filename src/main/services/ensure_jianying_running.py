@@ -17,81 +17,30 @@ except ImportError:
     winreg = None
 
 
-APP_CHOICES = ("auto", "jianying", "capcut")
+MAC_APP_CANDIDATES = [
+    "/Applications/JianyingPro.app",
+    "/Applications/剪映专业版.app",
+    "/Applications/VideoFusion-macOS.app",
+    "/Applications/CapCut.app",
+    str(Path.home() / "Applications" / "JianyingPro.app"),
+    str(Path.home() / "Applications" / "剪映专业版.app"),
+    str(Path.home() / "Applications" / "VideoFusion-macOS.app"),
+    str(Path.home() / "Applications" / "CapCut.app"),
+    "/Applications/JianyingPro.app/Contents/MacOS/JianyingPro",
+    "/Applications/VideoFusion-macOS.app/Contents/MacOS/VideoFusion-macOS",
+    "/Applications/CapCut.app/Contents/MacOS/CapCut",
+]
 
-MAC_APP_CANDIDATES = {
-    "jianying": [
-        "/Applications/JianyingPro.app",
-        "/Applications/剪映专业版.app",
-        "/Applications/VideoFusion-macOS.app",
-        str(Path.home() / "Applications" / "JianyingPro.app"),
-        str(Path.home() / "Applications" / "剪映专业版.app"),
-        str(Path.home() / "Applications" / "VideoFusion-macOS.app"),
-        "/Applications/JianyingPro.app/Contents/MacOS/JianyingPro",
-        "/Applications/VideoFusion-macOS.app/Contents/MacOS/VideoFusion-macOS",
-    ],
-    "capcut": [
-        "/Applications/CapCut.app",
-        str(Path.home() / "Applications" / "CapCut.app"),
-        "/Applications/CapCut.app/Contents/MacOS/CapCut",
-    ],
-}
-
-WINDOWS_EXE_CANDIDATES = {
-    "jianying": [
-        r"C:\Program Files\JianyingPro\JianyingPro.exe",
-        r"C:\Program Files (x86)\JianyingPro\JianyingPro.exe",
-        r"D:\JianyingPro\JianyingPro.exe",
-        r"D:\JianyingPro_high\JianyingPro.exe",
-    ],
-    "capcut": [
-        r"C:\Program Files\CapCut\CapCut.exe",
-        r"C:\Program Files (x86)\CapCut\CapCut.exe",
-        r"D:\CapCut\CapCut.exe",
-    ],
-}
-
-WINDOWS_EXE_NAMES = {
-    "jianying": ["JianyingPro.exe"],
-    "capcut": ["CapCut.exe"],
-}
+WINDOWS_EXE_CANDIDATES = [
+    r"C:\Program Files\JianyingPro\JianyingPro.exe",
+    r"C:\Program Files (x86)\JianyingPro\JianyingPro.exe",
+    r"D:\JianyingPro\JianyingPro.exe",
+    r"D:\JianyingPro_high\JianyingPro.exe",
+]
 
 
 def _expand_path(path: str) -> str:
     return os.path.abspath(os.path.expanduser((path or "").strip().strip('"')))
-
-
-def _normalize_app_choice(app: str) -> str:
-    value = (app or "auto").strip().lower()
-    return value if value in APP_CHOICES else "auto"
-
-
-def _candidate_apps(app: str) -> list[str]:
-    normalized = _normalize_app_choice(app)
-    if normalized == "auto":
-        return ["jianying", "capcut"]
-    return [normalized]
-
-
-def _windows_exe_names(app: str) -> list[str]:
-    names: list[str] = []
-    for candidate_app in _candidate_apps(app):
-        names.extend(WINDOWS_EXE_NAMES[candidate_app])
-    return _unique(names)
-
-
-def _mac_app_candidates(app: str) -> list[str]:
-    candidates: list[str] = []
-    for candidate_app in _candidate_apps(app):
-        candidates.extend(MAC_APP_CANDIDATES[candidate_app])
-    return _unique(candidates)
-
-
-def _windows_exe_candidates(app: str) -> list[str]:
-    candidates: list[str] = []
-    for candidate_app in _candidate_apps(app):
-        candidates.extend(WINDOWS_EXE_CANDIDATES[candidate_app])
-    return _unique(candidates)
 
 
 def _normalize_existing_dir(path: str) -> str:
@@ -99,7 +48,7 @@ def _normalize_existing_dir(path: str) -> str:
     return resolved if os.path.isdir(resolved) else ""
 
 
-def _normalize_existing_file(path: str, app: str = "auto") -> str:
+def _normalize_existing_file(path: str) -> str:
     resolved = _expand_path(path)
     if sys.platform == "darwin":
         if os.path.isdir(resolved) and resolved.endswith(".app"):
@@ -108,8 +57,7 @@ def _normalize_existing_file(path: str, app: str = "auto") -> str:
 
     if not os.path.isfile(resolved):
         return ""
-    allowed = {name.lower() for name in _windows_exe_names(app)}
-    if os.path.basename(resolved).lower() not in allowed:
+    if os.path.basename(resolved).lower() != "jianyingpro.exe":
         return ""
     return resolved
 
@@ -136,37 +84,41 @@ def _run_command(command: list[str], timeout: float = 10.0) -> subprocess.Comple
     )
 
 
-def _macos_app_name(executable: str = "", app: str = "auto") -> str:
+def _macos_app_name(executable: str = "") -> str:
     explicit = str(os.environ.get("JY_CLIENT_MAC_APP_NAME", "") or "").strip()
     if explicit:
         return explicit
-    candidate = executable or detect_jianying_executable(app=app)
+    candidate = executable or detect_jianying_executable()
     if candidate:
         name = os.path.basename(candidate.rstrip("/"))
         if name.endswith(".app"):
             return name[:-4]
         if name:
             return name
-    return "CapCut" if _normalize_app_choice(app) == "capcut" else "JianyingPro"
+    return "JianyingPro"
 
 
-def _macos_process_names(executable: str = "", app: str = "auto") -> list[str]:
+def _macos_process_names(executable: str = "") -> list[str]:
     explicit = str(os.environ.get("JY_CLIENT_MAC_PROCESS_NAME", "") or "").strip()
     names = [explicit] if explicit else []
-    names.append(_macos_app_name(executable, app=app))
-    if _normalize_app_choice(app) in {"auto", "jianying"}:
-        names.extend(["JianyingPro", "剪映专业版", "VideoFusion-macOS"])
-    if _normalize_app_choice(app) in {"auto", "capcut"}:
-        names.append("CapCut")
+    names.extend(
+        [
+            _macos_app_name(executable),
+            "JianyingPro",
+            "剪映专业版",
+            "VideoFusion-macOS",
+            "CapCut",
+        ]
+    )
     return _unique(names)
 
 
-def _macos_jianying_pids(executable: str = "", app: str = "auto") -> list[int]:
+def _macos_jianying_pids(executable: str = "") -> list[int]:
     current_pid = os.getpid()
     parent_pid = os.getppid()
     pids: list[int] = []
 
-    for name in _macos_process_names(executable, app=app):
+    for name in _macos_process_names(executable):
         for matcher in ("-x", "-f"):
             try:
                 result = _run_command(["pgrep", matcher, name], timeout=5)
@@ -186,41 +138,38 @@ def _macos_jianying_pids(executable: str = "", app: str = "auto") -> list[int]:
     return pids
 
 
-def _detect_from_running_process(app: str = "auto") -> str:
+def _detect_from_running_process() -> str:
     if sys.platform != "win32":
         return ""
 
-    for exe_name in _windows_exe_names(app):
-        command = (
-            f"Get-CimInstance Win32_Process -Filter \"Name = '{exe_name}'\" "
-            "| Where-Object { $_.ExecutablePath } "
-            "| Select-Object -First 1 -ExpandProperty ExecutablePath"
-        )
-        try:
-            result = _run_command(["powershell", "-NoProfile", "-Command", command], timeout=10)
-        except Exception:
-            continue
+    command = (
+        "Get-CimInstance Win32_Process -Filter \"Name = 'JianyingPro.exe'\" "
+        "| Where-Object { $_.ExecutablePath } "
+        "| Select-Object -First 1 -ExpandProperty ExecutablePath"
+    )
+    try:
+        result = _run_command(["powershell", "-NoProfile", "-Command", command], timeout=10)
+    except Exception:
+        return ""
 
-        for line in result.stdout.splitlines():
-            normalized = _normalize_existing_file(line, app=app)
-            if normalized:
-                return normalized
+    for line in result.stdout.splitlines():
+        normalized = _normalize_existing_file(line)
+        if normalized:
+            return normalized
     return ""
 
 
-def _jianying_exe_paths_under(root: str, app: str = "auto", max_depth: int = 3) -> list[str]:
+def _jianying_exe_paths_under(root: str, max_depth: int = 3) -> list[str]:
     resolved_root = _normalize_existing_dir(root)
     if not resolved_root:
         return []
 
     root_depth = resolved_root.rstrip("\\/").count(os.sep)
     matches: list[str] = []
-    target_names = set(_windows_exe_names(app))
     try:
         for current, dirs, files in os.walk(resolved_root):
-            for exe_name in target_names:
-                if exe_name in files:
-                    matches.append(os.path.join(current, exe_name))
+            if "JianyingPro.exe" in files:
+                matches.append(os.path.join(current, "JianyingPro.exe"))
             depth = current.rstrip("\\/").count(os.sep) - root_depth
             if depth >= max_depth:
                 dirs[:] = []
@@ -231,7 +180,7 @@ def _jianying_exe_paths_under(root: str, app: str = "auto", max_depth: int = 3) 
     return matches
 
 
-def _detect_from_registry(app: str = "auto") -> str:
+def _detect_from_registry() -> str:
     if sys.platform != "win32" or winreg is None:
         return ""
 
@@ -255,14 +204,7 @@ def _detect_from_registry(app: str = "auto") -> str:
                                 continue
 
                             lowered = display_name.lower()
-                            app_matches = (
-                                ("剪映" in display_name or "jianying" in lowered)
-                                if _normalize_app_choice(app) == "jianying"
-                                else ("capcut" in lowered)
-                                if _normalize_app_choice(app) == "capcut"
-                                else ("剪映" in display_name or "jianying" in lowered or "capcut" in lowered)
-                            )
-                            if not app_matches:
+                            if "剪映" not in display_name and "jianying" not in lowered:
                                 continue
                             if "assistant" in lowered or "小助手" in display_name:
                                 continue
@@ -276,15 +218,14 @@ def _detect_from_registry(app: str = "auto") -> str:
                                 candidate = value.split(",", 1)[0].strip().strip('"')
                                 candidates = [candidate]
                                 if value_name == "InstallLocation":
-                                    for exe_name in _windows_exe_names(app):
-                                        candidates.append(os.path.join(candidate, exe_name))
+                                    candidates.append(os.path.join(candidate, "JianyingPro.exe"))
                                 if os.path.basename(candidate).lower() in {"uninst.exe", "uninstall.exe"}:
                                     candidates.extend(
-                                        _jianying_exe_paths_under(os.path.dirname(candidate), app=app, max_depth=2)
+                                        _jianying_exe_paths_under(os.path.dirname(candidate), max_depth=2)
                                     )
 
                                 for raw_candidate in candidates:
-                                    normalized = _normalize_existing_file(raw_candidate, app=app)
+                                    normalized = _normalize_existing_file(raw_candidate)
                                     if normalized:
                                         return normalized
                     except OSError:
@@ -295,82 +236,67 @@ def _detect_from_registry(app: str = "auto") -> str:
     return ""
 
 
-def _detect_from_known_app_dirs(app: str = "auto") -> str:
+def _detect_from_known_app_dirs() -> str:
     if sys.platform != "win32":
         return ""
 
-    roots: list[str] = []
-    if _normalize_app_choice(app) in {"auto", "jianying"}:
-        roots.extend([
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "JianyingPro", "Apps"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "JianyingPro"),
-            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "JianyingPro"),
-            os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "JianyingPro"),
-        ])
-    if _normalize_app_choice(app) in {"auto", "capcut"}:
-        roots.extend([
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "CapCut", "Apps"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "CapCut"),
-            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "CapCut"),
-            os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "CapCut"),
-        ])
+    roots = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "JianyingPro", "Apps"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "JianyingPro"),
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "JianyingPro"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "JianyingPro"),
+    ]
     for root in roots:
-        for candidate in _jianying_exe_paths_under(root, app=app, max_depth=3):
-            normalized = _normalize_existing_file(candidate, app=app)
+        for candidate in _jianying_exe_paths_under(root, max_depth=3):
+            normalized = _normalize_existing_file(candidate)
             if normalized:
                 return normalized
     return ""
 
 
-def detect_jianying_executable(app: str = "auto") -> str:
+def detect_jianying_executable() -> str:
     candidates = [
         os.environ.get("JY_CLIENT_JIANYING_EXE", ""),
         os.environ.get("CLOUD_RENDER_JIANYING_EXE", ""),
         os.environ.get("JIANYING_EXE", ""),
         os.environ.get("JIANYING_PATH", ""),
-        os.environ.get("CAPCUT_EXE", ""),
-        os.environ.get("CAPCUT_PATH", ""),
     ]
 
     if sys.platform == "darwin":
-        candidates.extend(_mac_app_candidates(app))
+        candidates.extend(MAC_APP_CANDIDATES)
     elif sys.platform == "win32":
         candidates.extend(
             [
-                _detect_from_running_process(app=app),
-                _detect_from_registry(app=app),
-                _detect_from_known_app_dirs(app=app),
+                _detect_from_running_process(),
+                _detect_from_registry(),
+                _detect_from_known_app_dirs(),
                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "JianyingPro", "JianyingPro.exe"),
-                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "CapCut", "CapCut.exe"),
-                *_windows_exe_candidates(app),
+                *WINDOWS_EXE_CANDIDATES,
             ]
         )
 
     for candidate in candidates:
-        normalized = _normalize_existing_file(candidate, app=app)
+        normalized = _normalize_existing_file(candidate)
         if normalized:
             return normalized
     return ""
 
 
-def is_jianying_running(executable: str = "", app: str = "auto") -> bool:
+def is_jianying_running(executable: str = "") -> bool:
     if sys.platform == "darwin":
-        return bool(_macos_jianying_pids(executable, app=app))
+        return bool(_macos_jianying_pids(executable))
 
     if sys.platform != "win32":
         return False
 
     try:
-        for exe_name in _windows_exe_names(app):
-            result = _run_command(["tasklist", "/FI", f"IMAGENAME eq {exe_name}"], timeout=10)
-            if exe_name in result.stdout:
-                return True
-        return False
+        result = _run_command(["tasklist", "/FI", "IMAGENAME eq JianyingPro.exe"], timeout=10)
+        return "JianyingPro.exe" in result.stdout
     except Exception:
         return False
 
 
-def _macos_activate_app(executable: str, app: str = "auto") -> None:
+def _macos_activate_app(executable: str) -> None:
     if executable:
         if os.path.isdir(executable) and executable.endswith(".app"):
             subprocess.run(["open", executable], check=False, timeout=20)
@@ -382,24 +308,24 @@ def _macos_activate_app(executable: str, app: str = "auto") -> None:
                 stdin=subprocess.DEVNULL,
             )
         subprocess.run(
-            ["osascript", "-e", f'tell application "{_macos_app_name(executable, app=app)}" to activate'],
+            ["osascript", "-e", f'tell application "{_macos_app_name(executable)}" to activate'],
             check=False,
             timeout=10,
         )
         return
 
-    subprocess.run(["open", "-a", _macos_app_name(executable, app=app)], check=False, timeout=20)
+    subprocess.run(["open", "-a", _macos_app_name(executable)], check=False, timeout=20)
     subprocess.run(
-        ["osascript", "-e", f'tell application "{_macos_app_name(executable, app=app)}" to activate'],
+        ["osascript", "-e", f'tell application "{_macos_app_name(executable)}" to activate'],
         check=False,
         timeout=10,
     )
 
 
-def _macos_wait_window_ready(timeout: int, executable: str = "", app: str = "auto") -> bool:
+def _macos_wait_window_ready(timeout: int, executable: str = "") -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        for process_name in _macos_process_names(executable, app=app):
+        for process_name in _macos_process_names(executable):
             script = (
                 'tell application "System Events"\n'
                 f'  if exists process "{process_name}" then\n'
@@ -438,29 +364,29 @@ def _macos_frontmost_app_name() -> str:
     return (result.stdout or "").strip()
 
 
-def _macos_is_frontmost(executable: str = "", app: str = "auto") -> bool:
+def _macos_is_frontmost(executable: str = "") -> bool:
     frontmost_name = _macos_frontmost_app_name()
     if not frontmost_name:
         return False
-    return frontmost_name in _macos_process_names(executable, app=app)
+    return frontmost_name in _macos_process_names(executable)
 
 
-def _macos_wait_frontmost(timeout: int, executable: str = "", app: str = "auto") -> bool:
+def _macos_wait_frontmost(timeout: int, executable: str = "") -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if _macos_is_frontmost(executable, app=app):
+        if _macos_is_frontmost(executable):
             return True
         time.sleep(0.5)
-    return _macos_is_frontmost(executable, app=app)
+    return _macos_is_frontmost(executable)
 
 
-def _windows_wait_window_ready(timeout: int, app: str = "auto") -> bool:
+def _windows_wait_window_ready(timeout: int) -> bool:
     try:
         import uiautomation as uia  # type: ignore
     except Exception:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if is_jianying_running(app=app):
+            if is_jianying_running():
                 return True
             time.sleep(0.5)
         return False
@@ -469,16 +395,8 @@ def _windows_wait_window_ready(timeout: int, app: str = "auto") -> bool:
         try:
             name = getattr(window, "Name", "") or ""
             class_name = getattr(window, "ClassName", "") or ""
-            lowered_name = name.lower()
-            if _normalize_app_choice(app) == "capcut":
-                if "capcut" not in lowered_name:
-                    return False
-            elif _normalize_app_choice(app) == "jianying":
-                if name != "剪映专业版":
-                    return False
-            else:
-                if name != "剪映专业版" and "capcut" not in lowered_name:
-                    return False
+            if name != "剪映专业版":
+                return False
             lowered = class_name.lower()
             if "homepage" in lowered or "mainwindow" in lowered:
                 return True
@@ -520,17 +438,158 @@ def _windows_wait_window_ready(timeout: int, app: str = "auto") -> bool:
     return False
 
 
-def wait_jianying_ready(timeout: int = 60, executable: str = "", app: str = "auto") -> bool:
+def wait_jianying_ready(timeout: int = 60, executable: str = "") -> bool:
     if sys.platform == "darwin":
-        return _macos_wait_window_ready(timeout, executable, app=app)
+        return _macos_wait_window_ready(timeout, executable)
     if sys.platform == "win32":
-        return _windows_wait_window_ready(timeout, app=app)
+        return _windows_wait_window_ready(timeout)
     return False
 
 
-def ensure_jianying_running(timeout: int = 60, app: str = "auto") -> dict[str, Any]:
-    app = _normalize_app_choice(app)
-    executable = detect_jianying_executable(app=app)
+def _win32_bring_to_frontmost(timeout: float = 5.0) -> bool:
+    """Bring the Jianying window to the foreground on Windows."""
+    try:
+        import ctypes
+        import ctypes.wintypes
+    except ImportError:
+        return False
+
+    user32 = ctypes.windll.user32
+    if not user32:
+        return False
+
+    # Try common window titles for Jianying (prioritize "JianyingPro" as it's the main window)
+    window_titles = ["JianyingPro", "剪映专业版", "剪映"]
+    hwnd = 0
+    for title in window_titles:
+        hwnd = user32.FindWindowW(None, title)
+        if hwnd:
+            break
+
+    if not hwnd:
+        # Fallback: enumerate top-level windows to find Jianying
+        import ctypes.wintypes
+
+        EnumWindows = user32.EnumWindows
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        GetWindowTextW = user32.GetWindowTextW
+        GetWindowTextLengthW = user32.GetWindowTextLengthW
+        IsWindowVisible = user32.IsWindowVisible
+
+        found_hwnd = [0]
+
+        def _enum_callback(hwnd_val, _lparam):
+            if not IsWindowVisible(hwnd_val):
+                return True
+            length = GetWindowTextLengthW(hwnd_val)
+            if length == 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            GetWindowTextW(hwnd_val, buf, length + 1)
+            title_text = buf.value
+            if "剪映" in title_text or "jianying" in title_text.lower():
+                found_hwnd[0] = hwnd_val
+                return False  # stop enumeration
+            return True
+
+        EnumWindows(EnumWindowsProc(_enum_callback), 0)
+        hwnd = found_hwnd[0]
+
+    if not hwnd:
+        return False
+
+    SW_RESTORE = 9
+
+    # Restore window if minimized
+    user32.ShowWindow(hwnd, SW_RESTORE)
+    time.sleep(0.1)
+
+    # Windows restricts SetForegroundWindow to the foreground process.
+    # Use the SendInput Alt-key trick to bypass this restriction:
+    # simulating an Alt key press/release makes Windows think the user is interacting,
+    # which allows SetForegroundWindow to succeed.
+    INPUT_KEYBOARD = 1
+    KEYEVENTF_KEYUP = 0x0002
+    VK_MENU = 0x12  # Alt key
+
+    class _KEYBDINPUT(ctypes.Structure):
+        _fields_ = [
+            ("wVk", ctypes.wintypes.WORD),
+            ("wScan", ctypes.wintypes.WORD),
+            ("dwFlags", ctypes.wintypes.DWORD),
+            ("time", ctypes.wintypes.DWORD),
+            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ]
+
+    class _MOUSEINPUT(ctypes.Structure):
+        _fields_ = [
+            ("dx", ctypes.c_long),
+            ("dy", ctypes.c_long),
+            ("mouseData", ctypes.wintypes.DWORD),
+            ("dwFlags", ctypes.wintypes.DWORD),
+            ("time", ctypes.wintypes.DWORD),
+            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ]
+
+    class _HARDWAREINPUT(ctypes.Structure):
+        _fields_ = [
+            ("uMsg", ctypes.wintypes.DWORD),
+            ("wParamLo", ctypes.wintypes.WORD),
+            ("wParamHi", ctypes.wintypes.WORD),
+        ]
+
+    class _INPUTUNION(ctypes.Union):
+        _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT), ("hi", _HARDWAREINPUT)]
+
+    class _INPUT(ctypes.Structure):
+        _fields_ = [("type", ctypes.wintypes.DWORD), ("union", _INPUTUNION)]
+
+    # Press Alt
+    inp_down = _INPUT()
+    inp_down.type = INPUT_KEYBOARD
+    inp_down.union.ki.wVk = VK_MENU
+    inp_down.union.ki.dwFlags = 0
+    user32.SendInput(1, ctypes.byref(inp_down), ctypes.sizeof(_INPUT))
+
+    # Release Alt
+    inp_up = _INPUT()
+    inp_up.type = INPUT_KEYBOARD
+    inp_up.union.ki.wVk = VK_MENU
+    inp_up.union.ki.dwFlags = KEYEVENTF_KEYUP
+    user32.SendInput(1, ctypes.byref(inp_up), ctypes.sizeof(_INPUT))
+
+    time.sleep(0.1)
+
+    # Now SetForegroundWindow should succeed
+    user32.SetForegroundWindow(hwnd)
+    user32.BringWindowToTop(hwnd)
+    time.sleep(0.3)
+
+    # Verify it's the foreground window
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+        # Retry with Alt trick
+        inp_down2 = _INPUT()
+        inp_down2.type = INPUT_KEYBOARD
+        inp_down2.union.ki.wVk = VK_MENU
+        inp_down2.union.ki.dwFlags = 0
+        user32.SendInput(1, ctypes.byref(inp_down2), ctypes.sizeof(_INPUT))
+        inp_up2 = _INPUT()
+        inp_up2.type = INPUT_KEYBOARD
+        inp_up2.union.ki.wVk = VK_MENU
+        inp_up2.union.ki.dwFlags = KEYEVENTF_KEYUP
+        user32.SendInput(1, ctypes.byref(inp_up2), ctypes.sizeof(_INPUT))
+        time.sleep(0.1)
+        user32.SetForegroundWindow(hwnd)
+        time.sleep(0.3)
+
+    return user32.GetForegroundWindow() == hwnd
+
+
+def ensure_jianying_running(timeout: int = 60) -> dict[str, Any]:
+    executable = detect_jianying_executable()
 
     if sys.platform not in {"darwin", "win32"}:
         return {
@@ -541,20 +600,19 @@ def ensure_jianying_running(timeout: int = 60, app: str = "auto") -> dict[str, A
             "jianying_exe": executable,
         }
 
-    if is_jianying_running(executable, app=app):
+    if is_jianying_running(executable):
         if sys.platform == "darwin":
-            _macos_activate_app(executable, app=app)
-            frontmost = _macos_wait_frontmost(timeout=min(timeout, 15), executable=executable, app=app)
-            ready = wait_jianying_ready(timeout=3, executable=executable, app=app) if frontmost else False
+            _macos_activate_app(executable)
+            frontmost = _macos_wait_frontmost(timeout=min(timeout, 15), executable=executable)
+            ready = wait_jianying_ready(timeout=3, executable=executable) if frontmost else False
             action = "activate_existing_process"
         else:
-            frontmost = False
-            ready = wait_jianying_ready(timeout=min(timeout, 15), executable=executable, app=app)
+            frontmost = _win32_bring_to_frontmost(timeout=min(timeout, 5.0))
+            ready = wait_jianying_ready(timeout=min(timeout, 15), executable=executable)
             action = "reuse_existing_process"
         return {
             "success": True,
             "running": True,
-            "app": app,
             "frontmost": frontmost,
             "window_ready": ready,
             "platform": sys.platform,
@@ -573,7 +631,7 @@ def ensure_jianying_running(timeout: int = 60, app: str = "auto") -> dict[str, A
 
     try:
         if sys.platform == "darwin":
-            _macos_activate_app(executable, app=app)
+            _macos_activate_app(executable)
             action = "open_or_activate_app"
         else:
             subprocess.Popen([executable], shell=True)
@@ -589,19 +647,18 @@ def ensure_jianying_running(timeout: int = 60, app: str = "auto") -> dict[str, A
 
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if is_jianying_running(executable, app=app):
+        if is_jianying_running(executable):
             if sys.platform == "darwin":
-                frontmost = _macos_wait_frontmost(timeout=3, executable=executable, app=app)
-                ready = wait_jianying_ready(timeout=3, executable=executable, app=app) if frontmost else False
+                frontmost = _macos_wait_frontmost(timeout=3, executable=executable)
+                ready = wait_jianying_ready(timeout=3, executable=executable) if frontmost else False
                 success = frontmost
             else:
                 frontmost = False
-                ready = wait_jianying_ready(timeout=min(timeout, 20), executable=executable, app=app)
+                ready = wait_jianying_ready(timeout=min(timeout, 20), executable=executable)
                 success = True
             return {
                 "success": True if sys.platform == "darwin" else success,
                 "running": True,
-                "app": app,
                 "frontmost": frontmost,
                 "window_ready": ready,
                 "platform": sys.platform,
@@ -619,14 +676,12 @@ def ensure_jianying_running(timeout: int = 60, app: str = "auto") -> dict[str, A
     }
 
 
-def stop_jianying(timeout: int = 20, app: str = "auto") -> dict[str, Any]:
-    app = _normalize_app_choice(app)
-    executable = detect_jianying_executable(app=app)
-    if not is_jianying_running(executable, app=app):
+def stop_jianying(timeout: int = 20) -> dict[str, Any]:
+    executable = detect_jianying_executable()
+    if not is_jianying_running(executable):
         return {
             "success": True,
             "running": False,
-            "app": app,
             "platform": sys.platform,
             "action": "already_stopped",
             "jianying_exe": executable,
@@ -634,21 +689,20 @@ def stop_jianying(timeout: int = 20, app: str = "auto") -> dict[str, Any]:
 
     try:
         if sys.platform == "darwin":
-            pids = _macos_jianying_pids(executable, app=app)
+            pids = _macos_jianying_pids(executable)
             for pid in pids:
                 try:
                     os.kill(pid, signal.SIGTERM)
                 except OSError:
                     continue
         elif sys.platform == "win32":
-            for exe_name in _windows_exe_names(app):
-                subprocess.run(
-                    ["taskkill", "/IM", exe_name, "/T"],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
+            subprocess.run(
+                ["taskkill", "/IM", "JianyingPro.exe", "/T"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
         else:
             return {
                 "success": False,
@@ -668,11 +722,10 @@ def stop_jianying(timeout: int = 20, app: str = "auto") -> dict[str, Any]:
 
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if not is_jianying_running(executable, app=app):
+        if not is_jianying_running(executable):
             return {
                 "success": True,
                 "running": False,
-                "app": app,
                 "platform": sys.platform,
                 "action": "stopped",
                 "jianying_exe": executable,
@@ -688,18 +741,16 @@ def stop_jianying(timeout: int = 20, app: str = "auto") -> dict[str, Any]:
     }
 
 
-def get_status(app: str = "auto") -> dict[str, Any]:
-    app = _normalize_app_choice(app)
-    executable = detect_jianying_executable(app=app)
-    running = is_jianying_running(executable, app=app)
-    frontmost = _macos_is_frontmost(executable, app=app) if running and sys.platform == "darwin" else False
+def get_status() -> dict[str, Any]:
+    executable = detect_jianying_executable()
+    running = is_jianying_running(executable)
+    frontmost = _macos_is_frontmost(executable) if running and sys.platform == "darwin" else False
     return {
         "success": True,
-        "app": app,
         "platform": sys.platform,
         "running": running,
         "frontmost": frontmost,
-        "window_ready": wait_jianying_ready(timeout=3, executable=executable, app=app) if running else False,
+        "window_ready": wait_jianying_ready(timeout=3, executable=executable) if running else False,
         "jianying_exe": executable,
     }
 
@@ -722,12 +773,6 @@ def main() -> int:
         help="How many seconds to wait for the app state to settle.",
     )
     parser.add_argument(
-        "--app",
-        choices=list(APP_CHOICES),
-        default="auto",
-        help="Choose which app to target: Jianying or CapCut.",
-    )
-    parser.add_argument(
         "--json",
         action="store_true",
         help="Print JSON only.",
@@ -735,11 +780,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "status":
-        result = get_status(app=args.app)
+        result = get_status()
     elif args.command == "stop":
-        result = stop_jianying(timeout=args.timeout, app=args.app)
+        result = stop_jianying(timeout=args.timeout)
     else:
-        result = ensure_jianying_running(timeout=args.timeout, app=args.app)
+        result = ensure_jianying_running(timeout=args.timeout)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("success") else 1

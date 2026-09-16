@@ -124,6 +124,34 @@ describe('CapabilityRouter', () => {
     expect(decision.selected.has('search')).toBe(true)
   })
 
+  it('keeps web and cut domains together for current draft inspect prompts', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '请查看当前草稿。\n草稿ID：dfd_cat_1789035439_e69a752c\n查看要求：文字',
+      sessionId: 'session-current-draft-inspect',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.selected.has('search')).toBe(true)
+    expect(decision.selected.has('draftInspect')).toBe(true)
+    expect(decision.activeDomains).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'web',
+          subdomains: expect.arrayContaining(['search'])
+        }),
+        expect.objectContaining({
+          domain: 'cut',
+          subdomains: expect.arrayContaining(['draft_inspect'])
+        })
+      ])
+    )
+  })
+
   it('routes page opening requests to web.browser', () => {
     const router = new CapabilityRouter()
 
@@ -164,6 +192,24 @@ describe('CapabilityRouter', () => {
     expect(decision.primaryDomain).toBe('cut')
     expect(decision.subdomains).toEqual(['draft'])
     expect(decision.selected.has('draftDownload')).toBe(true)
+    expect(decision.selected.has('browser')).toBe(false)
+  })
+
+  it('does not let draft export requests with URLs fall into browser intent', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '导出这个草稿 https://vectcut.com/draft/downloader?draft_id=dfd_test_456',
+      sessionId: 'session-draft-export-url',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.subdomains).toEqual(['draft'])
+    expect(decision.selected.has('draftExport')).toBe(true)
     expect(decision.selected.has('browser')).toBe(false)
   })
 
@@ -649,6 +695,14 @@ describe('CapabilityRouter', () => {
       autonomousEnabled: false,
       hasCustomMcpServers: false
     })
+    const currentDraftUpdateMetaDecision = router.select({
+      prompt: '请修改当前草稿。\n草稿ID：dfd_cat_1788878755_e46d06a0\n草稿名：全量效果测试',
+      sessionId: 'session-current-draft-update-meta',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
     const inspectDecision = router.select({
       prompt: '看下这个草稿内容对不对',
       sessionId: 'session-draft-inspect',
@@ -668,6 +722,14 @@ describe('CapabilityRouter', () => {
     const draftDecision = router.select({
       prompt: '下载草稿',
       sessionId: 'session-draft-download',
+      imageCount: 0,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+    const draftExportDecision = router.select({
+      prompt: '导出草稿',
+      sessionId: 'session-draft-export',
       imageCount: 0,
       isAssistant: false,
       autonomousEnabled: false,
@@ -796,6 +858,10 @@ describe('CapabilityRouter', () => {
     expect(updateMetaDecision.subdomains).toEqual(['draft'])
     expect(updateMetaDecision.selected.has('draftUpdateMeta')).toBe(true)
     expect(updateMetaDecision.selected.has('image')).toBe(false)
+    expect(currentDraftUpdateMetaDecision.primaryDomain).toBe('cut')
+    expect(currentDraftUpdateMetaDecision.subdomains).toEqual(['draft'])
+    expect(currentDraftUpdateMetaDecision.selected.has('draftUpdateMeta')).toBe(true)
+    expect(currentDraftUpdateMetaDecision.selected.has('draftInspect')).toBe(false)
     expect(inspectDecision.primaryDomain).toBe('cut')
     expect(inspectDecision.subdomains).toEqual(['draft'])
     expect(inspectDecision.selected.has('draftInspect')).toBe(true)
@@ -805,6 +871,10 @@ describe('CapabilityRouter', () => {
     expect(draftDecision.primaryDomain).toBe('cut')
     expect(draftDecision.subdomains).toEqual(['draft'])
     expect(draftDecision.selected.has('draftDownload')).toBe(true)
+    expect(draftExportDecision.primaryDomain).toBe('cut')
+    expect(draftExportDecision.subdomains).toEqual(['draft'])
+    expect(draftExportDecision.selected.has('draftExport')).toBe(true)
+    expect(draftExportDecision.selected.has('draftDownload')).toBe(false)
     expect(subtitleTemplateDecision.primaryDomain).toBe('cut')
     expect(subtitleTemplateDecision.subdomains).toEqual(['template'])
     expect(subtitleTemplateDecision.selected.has('subtitleTemplate')).toBe(true)
@@ -1323,10 +1393,7 @@ describe('CapabilityRouter', () => {
     expect(buildToolSurface({ decision: skillsDecision, isAssistant: false }).builtinTools).toEqual(
       expect.arrayContaining(['Read', 'Write', 'Bash', 'Task', 'WebSearch', 'WebFetch'])
     )
-    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual([
-      'InspectImage',
-      'AskUserQuestion'
-    ])
+    expect(buildToolSurface({ decision: memoryDecision, isAssistant: false }).builtinTools).toEqual(['AskUserQuestion'])
   })
 
   it('routes prompts matching workspace skill metadata into the skills domain', () => {
@@ -1446,6 +1513,24 @@ describe('CapabilityRouter', () => {
     expect(imageDecision.selected.has('image')).toBe(true)
   })
 
+  it('routes attached image inspection into image understand instead of image generation', () => {
+    const router = new CapabilityRouter()
+
+    const decision = router.select({
+      prompt: '帮我看看这张图里写了什么',
+      sessionId: 'session-image-understand',
+      imageCount: 1,
+      isAssistant: false,
+      autonomousEnabled: false,
+      hasCustomMcpServers: false
+    })
+
+    expect(decision.primaryDomain).toBe('chat')
+    expect(decision.subdomains).toEqual(['image_understand'])
+    expect(decision.selected.has('imageUnderstand')).toBe(true)
+    expect(decision.selected.has('image')).toBe(false)
+  })
+
   it('routes from bounded conversation context instead of only the latest short prompt', () => {
     const router = new CapabilityRouter()
 
@@ -1536,12 +1621,12 @@ describe('CapabilityRouter', () => {
     const workspaceSurface = buildToolSurface({ decision: workspaceDecision, isAssistant: false })
     const mixedSurface = buildToolSurface({ decision: mixedDecision, isAssistant: false })
 
-    expect(webSurface.builtinTools).toEqual(expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'WebSearch']))
+    expect(webSurface.builtinTools).toEqual(expect.arrayContaining(['AskUserQuestion', 'WebSearch']))
     expect(workspaceSurface.builtinTools).toEqual(
-      expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'Read', 'Bash', 'Write', 'Edit', 'MultiEdit'])
+      expect.arrayContaining(['AskUserQuestion', 'Read', 'Bash', 'Write', 'Edit', 'MultiEdit'])
     )
     expect(mixedSurface.builtinTools).toEqual(
-      expect.arrayContaining(['InspectImage', 'AskUserQuestion', 'Read', 'Bash', 'WebSearch'])
+      expect.arrayContaining(['AskUserQuestion', 'Read', 'Bash', 'WebSearch'])
     )
   })
 })

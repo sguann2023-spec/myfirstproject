@@ -42,7 +42,11 @@ type KouboTemplateInput = {
   video_urls?: string[]
 }
 
-const KOUBO_TEMPLATE_TOOL_NAMES = new Set(['submit_koubo_template_task', 'mcp__koubo-template__submit_koubo_template_task'])
+const KOUBO_TEMPLATE_TOOL_NAMES = new Set([
+  'submit_koubo_template_task',
+  'mcp__koubo-template__submit_koubo_template_task',
+  'mcp__vectcut__koubo-template__submit_koubo_template_task'
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -156,7 +160,7 @@ export function KouboTemplateToolBody({ input, output, progress, progressMessage
                 <StatusTitle>已完成 </StatusTitle>
               </ProcessingTitleRow>
               <ResultLinkRow>
-                <ResultLinkText>下载草稿</ResultLinkText>
+                <ResultLinkText>导出草稿</ResultLinkText>
               </ResultLinkRow>
             </ProcessingState>
           </ResultStateLink>

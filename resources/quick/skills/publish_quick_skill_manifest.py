@@ -3,10 +3,11 @@
 
 Usage:
     python3 publish_quick_skill_manifest.py "直播切片"
-    python3 publish_quick_skill_manifest.py "直播切片" --version 1.0.1
-    python3 publish_quick_skill_manifest.py "直播切片" --min-app-version 1.6.7
-    python3 publish_quick_skill_manifest.py "直播切片" --delete --tombstone-version 2.0.0
-    python3 publish_quick_skill_manifest.py "直播切片" --version 1.0.1 --dry-run
+    python3 publish_quick_skill_manifest.py "liveclipping"
+    python3 publish_quick_skill_manifest.py "liveclipping" --version 1.0.1
+    python3 publish_quick_skill_manifest.py "liveclipping" --min-app-version 1.6.7
+    python3 publish_quick_skill_manifest.py "liveclipping" --delete --tombstone-version 2.0.0
+    python3 publish_quick_skill_manifest.py "liveclipping" --version 1.0.1 --dry-run
     python3 publish_quick_skill_manifest.py --manifest-only
     python3 publish_quick_skill_manifest.py --manifest-only --dry-run
 
@@ -93,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "skill_name",
         nargs="?",
-        help="Quick skill directory name, for example: 直播切片",
+        help="Quick skill display name or directory name, for example: 直播切片 or liveclipping",
     )
     parser.add_argument(
         "--skills-root",
@@ -203,6 +204,26 @@ def ensure_skill_entry(manifest: dict[str, Any], skill_name: str) -> dict[str, A
     if not isinstance(skill_meta, dict):
         raise KeyError(f"Quick skill '{skill_name}' not found in manifest.json")
     return skill_meta
+
+
+def resolve_skill_key_and_entry(manifest: dict[str, Any], skill_name: str) -> tuple[str, dict[str, Any]]:
+    skills = manifest.get("skills")
+    if not isinstance(skills, dict):
+        raise ValueError("manifest.json is missing a valid 'skills' object")
+
+    direct_entry = skills.get(skill_name)
+    if isinstance(direct_entry, dict):
+        return skill_name, direct_entry
+
+    normalized_input = skill_name.strip().lower()
+    for manifest_skill_name, skill_meta in skills.items():
+        if not isinstance(skill_meta, dict):
+            continue
+        folder_name = str(skill_meta.get("folderName") or "").strip().lower()
+        if folder_name and folder_name == normalized_input:
+            return str(manifest_skill_name), skill_meta
+
+    raise KeyError(f"Quick skill '{skill_name}' not found in manifest.json")
 
 
 def build_skill_slug(skill_name: str, manifest_data: dict[str, Any] | None = None) -> str:
@@ -500,17 +521,20 @@ def publish_skill(
     oss_config = load_oss_config()
     cdn_config = load_cdn_config()
     manifest_data = load_manifest(manifest_path)
-    version = resolve_publish_version(manifest_data, skill_name, version_override)
-    min_app_version = resolve_min_app_version(manifest_data, skill_name, min_app_version_override)
-    skill_path = skills_root / skill_name
+    skill_key, skill_meta = resolve_skill_key_and_entry(manifest_data, skill_name)
+    folder_name = str(skill_meta.get("folderName") or skill_key).strip() or skill_key
+    version = resolve_publish_version(manifest_data, skill_key, version_override)
+    min_app_version = resolve_min_app_version(manifest_data, skill_key, min_app_version_override)
+    skill_path = skills_root / folder_name
 
-    skill_slug = build_skill_slug(skill_name, manifest_data)
+    skill_slug = build_skill_slug(skill_key, manifest_data)
     zip_object_name = f"skills/quick/{skill_slug}/{version_to_path(version)}/{skill_slug}.zip"
-    zip_download_url = build_download_url(oss_config, skill_name, version, manifest_data)
+    zip_download_url = build_download_url(oss_config, skill_key, version, manifest_data)
     manifest_object_name = "skills/quick/manifest.json"
     manifest_url = build_manifest_url(oss_config)
 
-    print(f"Quick skill: {skill_name}")
+    print(f"Quick skill: {skill_key}")
+    print(f"Folder name: {folder_name}")
     print(f"Version: {version}")
     print(f"Skill path: {skill_path}")
     print(f"Zip object: {zip_object_name}")
@@ -522,7 +546,7 @@ def publish_skill(
 
         updated_manifest = prepare_manifest_for_publish(
             manifest_data,
-            skill_name,
+            skill_key,
             version,
             zip_download_url,
             min_app_version,
@@ -565,17 +589,18 @@ def publish_skill_deletion(
     oss_config = load_oss_config()
     cdn_config = load_cdn_config()
     manifest_data = load_manifest(manifest_path)
+    skill_key, _skill_meta = resolve_skill_key_and_entry(manifest_data, skill_name)
     tombstone_version = resolve_tombstone_version(
         manifest_data,
-        skill_name,
+        skill_key,
         tombstone_version_override,
         version_override,
     )
-    min_app_version = resolve_min_app_version(manifest_data, skill_name, min_app_version_override)
+    min_app_version = resolve_min_app_version(manifest_data, skill_key, min_app_version_override)
     manifest_object_name = "skills/quick/manifest.json"
     manifest_url = build_manifest_url(oss_config)
 
-    print(f"Quick skill: {skill_name}")
+    print(f"Quick skill: {skill_key}")
     print(f"Tombstone version: {tombstone_version}")
     if min_app_version:
         print(f"Min app version: {min_app_version}")
@@ -584,7 +609,7 @@ def publish_skill_deletion(
         temp_root = Path(temp_dir)
         updated_manifest = prepare_manifest_for_deletion(
             manifest_data,
-            skill_name,
+            skill_key,
             tombstone_version,
             min_app_version,
         )

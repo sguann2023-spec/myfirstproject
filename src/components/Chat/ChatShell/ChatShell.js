@@ -1,10 +1,7 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
 import { Tooltip, Tour, message } from 'antd';
 import {
-  Check,
   ChevronRight,
-  ExternalLink,
   FileArchive,
   FileCode,
   FileImage,
@@ -14,19 +11,15 @@ import {
   FileVideoCamera,
   Folder,
   FolderOpen,
-  FolderPlus,
-  LoaderCircle,
-  SquarePen,
   Trash2,
-  RefreshCw,
-  Upload as UploadIcon,
-  X,
 } from 'lucide-react';
 import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
 import SkillMembersSection from './SkillMembers/SkillMembersSection';
+import MCPSettings from './MCPSettings/MCPSettings';
 import WebPagePreview from './WebPagePreview';
+import WorkSpace from './WorkSpace/WorkSpace';
 import { claimNewguiderReward } from '../../../api/newguiderReward';
 import { loggerService } from '@logger';
 import {
@@ -37,11 +30,6 @@ import {
   isBeginnerGuideReopenPending,
   setBeginnerGuideCompleted
 } from '../../../shared/beginnerGuide';
-import {
-  readWorkspaceParentDirForAgent,
-  resolveWorkspaceParentDirForAgent,
-  writeWorkspaceParentDirForAgent
-} from '../../../shared/workspaceParentDir';
 
 const logger = loggerService.withContext('ChatShell');
 
@@ -66,79 +54,6 @@ const getBaseName = (value) => {
   const normalized = normalizePath(value).replace(/\/$/, '');
   const segments = normalized.split('/').filter(Boolean);
   return segments[segments.length - 1] || normalized;
-};
-const areSameFileName = (left, right) => {
-  const normalizedLeft = String(left || '').trim();
-  const normalizedRight = String(right || '').trim();
-  if (isWindows) {
-    return normalizedLeft.toLowerCase() === normalizedRight.toLowerCase();
-  }
-  return normalizedLeft === normalizedRight;
-};
-const splitFileName = (value = '') => {
-  const normalized = String(value || '').trim();
-  const extensionIndex = normalized.lastIndexOf('.');
-  if (extensionIndex <= 0) {
-    return { name: normalized, extension: '' };
-  }
-  return {
-    name: normalized.slice(0, extensionIndex),
-    extension: normalized.slice(extensionIndex),
-  };
-};
-const sanitizeDroppedEntryName = (value = '') => {
-  const sanitized = String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_');
-  return sanitized || 'untitled';
-};
-const appendIndexToFileName = (fileName = '', index = 0) => {
-  if (index <= 0) return fileName;
-  const { name, extension } = splitFileName(fileName);
-  const nextName = name || 'untitled';
-  return `${nextName}-${index}${extension}`;
-};
-const getParentPath = (value) => {
-  const normalized = normalizePath(value).replace(/\/$/, '');
-  if (!normalized) return '';
-  const separatorIndex = normalized.lastIndexOf('/');
-  if (separatorIndex <= 0) return '';
-  return normalized.slice(0, separatorIndex);
-};
-const isPathInsideRoot = (candidatePath, rootPath) => {
-  const normalizedCandidate = normalizeComparablePath(candidatePath);
-  const normalizedRoot = normalizeComparablePath(rootPath);
-  if (!normalizedCandidate || !normalizedRoot) return false;
-  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}/`);
-};
-const WORKSPACE_MUTATION_TOOL_NAMES = new Set([
-  'Write',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-  'DeleteFile',
-  'Bash',
-  'BashOutput',
-  'RunCommand'
-]);
-const getWorkspaceMutationPaths = (chunk) => {
-  const input = chunk?.input && typeof chunk.input === 'object' ? chunk.input : {};
-  const candidates = [
-    input?.file_path,
-    input?.cwd,
-    ...(Array.isArray(input?.file_paths) ? input.file_paths : [])
-  ];
-  return dedupePaths(candidates);
-};
-const shouldRefreshWorkspaceForChunk = (payload, workspacePath) => {
-  if (payload?.type !== 'chunk') return false;
-  const chunk = payload?.chunk;
-  if (!chunk || (chunk.type !== 'tool-result' && chunk.type !== 'tool-error')) return false;
-  const toolName = String(chunk?.toolName || '').trim();
-  if (!WORKSPACE_MUTATION_TOOL_NAMES.has(toolName)) return false;
-  const mutationPaths = getWorkspaceMutationPaths(chunk);
-  if (mutationPaths.length === 0) {
-    return toolName === 'Bash' || toolName === 'BashOutput' || toolName === 'RunCommand';
-  }
-  return mutationPaths.some((candidatePath) => isPathInsideRoot(candidatePath, workspacePath));
 };
 const CODE_EXTENSIONS = new Set([
   'c', 'cc', 'cpp', 'cs', 'css', 'go', 'h', 'hpp', 'html', 'java', 'js', 'jsx', 'mjs',
@@ -191,7 +106,6 @@ const createFilePreviewUrl = (filePath = '') => {
   const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
   return encodeURI(`file://${normalizedPathname}`);
 };
-const dedupePaths = (paths) => Array.from(new Set((Array.isArray(paths) ? paths : []).map((path) => normalizePath(path)).filter(Boolean)));
 const getConfigObject = (value) => (value && typeof value === 'object' ? value : {});
 const getSelectedWorkspacePath = (session) => {
   const config = getConfigObject(session?.configuration);
@@ -199,121 +113,6 @@ const getSelectedWorkspacePath = (session) => {
   if (configuredPath) return configuredPath;
   return normalizePath(session?.accessible_paths?.[0] || '');
 };
-const movePathToFront = (paths, targetPath) => {
-  const normalizedTarget = normalizePath(targetPath);
-  return dedupePaths([normalizedTarget, ...dedupePaths(paths).filter((path) => path !== normalizedTarget)]);
-};
-const getWorkspaceVisitTimestamp = (value) => {
-  const timestamp = Number(value);
-  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
-};
-const normalizeWorkspaceAccessTimes = (accessTimes, knownPaths = []) => {
-  const normalizedKnownPaths = dedupePaths(knownPaths);
-  const normalizedTimes = {};
-  if (accessTimes && typeof accessTimes === 'object') {
-    Object.entries(accessTimes).forEach(([workspacePath, value]) => {
-      const normalizedPath = normalizePath(workspacePath);
-      const timestamp = getWorkspaceVisitTimestamp(value);
-      if (normalizedPath && timestamp > 0) {
-        normalizedTimes[normalizedPath] = timestamp;
-      }
-    });
-  }
-
-  const migrationBase = Date.now();
-  normalizedKnownPaths.forEach((workspacePath, index) => {
-    if (!normalizedTimes[workspacePath]) {
-      normalizedTimes[workspacePath] = migrationBase - index;
-    }
-  });
-
-  return normalizedTimes;
-};
-const markWorkspaceVisited = (store, workspacePath, visitedAt = Date.now()) => {
-  const normalizedWorkspacePath = normalizePath(workspacePath);
-  if (!normalizedWorkspacePath) {
-    return {
-      library: getWorkspaceLibrary(store?.library),
-      recent: dedupePaths(store?.recent),
-      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes)
-    };
-  }
-
-  const nextLibrary = getWorkspaceLibrary([...(store?.library || []), normalizedWorkspacePath]);
-  const nextRecent = movePathToFront(store?.recent || [], normalizedWorkspacePath);
-  const nextAccessTimes = normalizeWorkspaceAccessTimes(store?.accessTimes, [...nextLibrary, ...nextRecent]);
-  nextAccessTimes[normalizedWorkspacePath] = getWorkspaceVisitTimestamp(visitedAt) || Date.now();
-
-  return {
-    library: nextLibrary,
-    recent: nextRecent,
-    accessTimes: nextAccessTimes
-  };
-};
-const replaceWorkspacePathInStore = (store, previousPath, nextPath) => {
-  const normalizedPreviousPath = normalizePath(previousPath);
-  const normalizedNextPath = normalizePath(nextPath);
-  if (!normalizedPreviousPath || !normalizedNextPath) {
-    return {
-      library: getWorkspaceLibrary(store?.library),
-      recent: dedupePaths(store?.recent),
-      accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes)
-    };
-  }
-
-  const library = getWorkspaceLibrary(
-    (store?.library || []).map((path) => (normalizePath(path) === normalizedPreviousPath ? normalizedNextPath : path))
-  );
-  const recent = dedupePaths(
-    (store?.recent || []).map((path) => (normalizePath(path) === normalizedPreviousPath ? normalizedNextPath : path))
-  );
-  const accessTimes = normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent]);
-  const previousVisitedAt = accessTimes[normalizedPreviousPath];
-  if (previousVisitedAt && !accessTimes[normalizedNextPath]) {
-    accessTimes[normalizedNextPath] = previousVisitedAt;
-  }
-  delete accessTimes[normalizedPreviousPath];
-
-  return {
-    library,
-    recent,
-    accessTimes: normalizeWorkspaceAccessTimes(accessTimes, [...library, ...recent])
-  };
-};
-const removeWorkspacePathFromStore = (store, workspacePath) => {
-  const normalizedWorkspacePath = normalizePath(workspacePath);
-  const allowedPaths = dedupePaths([...(store?.library || []), ...(store?.recent || [])])
-    .filter((path) => normalizePath(path) !== normalizedWorkspacePath);
-  return filterWorkspaceStorePaths(store, allowedPaths);
-};
-const filterWorkspaceStorePaths = (store, allowedPaths) => {
-  const normalizedAllowedPaths = new Set(dedupePaths(allowedPaths));
-  const library = getWorkspaceLibrary((store?.library || []).filter((path) => normalizedAllowedPaths.has(normalizePath(path))));
-  const recent = dedupePaths((store?.recent || []).filter((path) => normalizedAllowedPaths.has(normalizePath(path))));
-  return {
-    library,
-    recent,
-    accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
-  };
-};
-const isSameWorkspaceStore = (left, right) => {
-  const normalizedLeft = filterWorkspaceStorePaths(left, [...(left?.library || []), ...(left?.recent || [])]);
-  const normalizedRight = filterWorkspaceStorePaths(right, [...(right?.library || []), ...(right?.recent || [])]);
-  return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
-};
-const getRecentWorkspacePaths = (agent, library) => {
-  const normalizedLibrary = getWorkspaceLibrary(library);
-  const configuredRecent = dedupePaths(agent?.recent).filter((path) => normalizedLibrary.includes(path));
-  const fallbackOrder = [...configuredRecent, ...normalizedLibrary.filter((path) => !configuredRecent.includes(path))];
-  const fallbackIndexMap = new Map(fallbackOrder.map((path, index) => [path, index]));
-  const accessTimes = normalizeWorkspaceAccessTimes(agent?.accessTimes, fallbackOrder);
-  return [...normalizedLibrary].sort((left, right) => {
-    const accessDiff = (accessTimes[right] || 0) - (accessTimes[left] || 0);
-    if (accessDiff !== 0) return accessDiff;
-    return (fallbackIndexMap.get(left) ?? Number.MAX_SAFE_INTEGER) - (fallbackIndexMap.get(right) ?? Number.MAX_SAFE_INTEGER);
-  });
-};
-const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const WEB_PREVIEW_WIDTH_STORE_KEY = 'chat-web-preview-width:v1';
 const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v1';
 const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
@@ -328,7 +127,6 @@ const MIN_WEB_PREVIEW_WIDTH = 320;
 const MIN_MAIN_PANEL_WIDTH = 260;
 const MAX_WEB_PREVIEW_WIDTH = 880;
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
-const getWorkspaceLibrary = (paths) => dedupePaths(paths);
 const clampMembersPanelWidth = (nextWidth, containerWidth, hasLeadingFilePreview = false, trailingWebPreviewWidth = 0) => {
   const safeContainerWidth = Number(containerWidth) || 0;
   const leadingWidth = hasLeadingFilePreview ? DEFAULT_PREVIEW_PANE_WIDTH : 0;
@@ -407,54 +205,6 @@ const writeWebPreviewWidth = (width) => {
     // ignore storage failures
   }
 };
-const readCreateWorkspaceParentForAgent = (agentId) => {
-  const normalizedAgentId = String(agentId || '').trim();
-  if (!normalizedAgentId) return '';
-  return normalizePath(readWorkspaceParentDirForAgent(normalizedAgentId));
-};
-const writeCreateWorkspaceParentForAgent = (agentId, parentDir) => {
-  const normalizedAgentId = String(agentId || '').trim();
-  const normalizedParentDir = normalizePath(parentDir);
-  if (!normalizedAgentId || !normalizedParentDir) return;
-  writeWorkspaceParentDirForAgent(normalizedAgentId, normalizedParentDir);
-};
-const readWorkspaceStore = () => {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return { library: [], recent: [], accessTimes: {} };
-  }
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_STORE_KEY);
-    if (!raw) return { library: [], recent: [], accessTimes: {} };
-    const parsed = JSON.parse(raw);
-    const library = getWorkspaceLibrary(parsed?.library);
-    const recent = dedupePaths(parsed?.recent);
-    return {
-      library,
-      recent,
-      accessTimes: normalizeWorkspaceAccessTimes(parsed?.accessTimes, [...library, ...recent])
-    };
-  } catch (_error) {
-    return { library: [], recent: [], accessTimes: {} };
-  }
-};
-const writeWorkspaceStore = (store) => {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    const library = getWorkspaceLibrary(store?.library);
-    const recent = dedupePaths(store?.recent);
-    window.localStorage.setItem(
-      WORKSPACE_STORE_KEY,
-      JSON.stringify({
-        library,
-        recent,
-        accessTimes: normalizeWorkspaceAccessTimes(store?.accessTimes, [...library, ...recent])
-      })
-    );
-  } catch (_error) {
-    // ignore storage failures
-  }
-};
-
 const sortTreeNodes = (nodes) => (
   [...nodes].sort((left, right) => {
     if (left.type !== right.type) {
@@ -520,8 +270,8 @@ const buildTreeFromEntries = (rootPath, entries, directoryFlags) => {
 };
 
 const getSkillKey = (skill) => String(skill?.id || skill?.folderName || skill?.filename || skill?.name || '').trim();
-const getSkillFolderLabel = (skill) => String(skill?.folderName || skill?.filename || skill?.id || skill?.name || '').trim();
-const getSkillDisplayName = (skill) => String(skill?.name || skill?.filename || skill?.id || '').trim();
+const getSkillFolderLabel = (skill) => String(skill?.folderName || skill?.filename || skill?.id || '').trim();
+const getSkillDisplayName = (skill) => String(skill?.name || '').trim();
 
 const MarqueeText = ({ text, className = '' }) => {
   const containerRef = React.useRef(null);
@@ -574,119 +324,6 @@ const MarqueeText = ({ text, className = '' }) => {
   );
 };
 
-const WorkspaceCreateDialog = ({
-  open = false,
-  parentDir = '',
-  workspaceName = '',
-  workspaceNameError = '',
-  submitting = false,
-  dialogRef = null,
-  workspaceNameInputRef = null,
-  onClose,
-  onPickParentDir,
-  onWorkspaceNameChange,
-  onConfirm
-}) => {
-  if (!open || typeof document === 'undefined') return null;
-
-  const canConfirm = Boolean(String(parentDir || '').trim() && String(workspaceName || '').trim() && !submitting);
-
-  return createPortal(
-    <div className="chat-panel__workspace-create-mask" onClick={() => !submitting && onClose?.()}>
-      <div
-        ref={dialogRef}
-        className="chat-panel__workspace-create-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="workspace-create-dialog-title"
-        onClick={(event) => event.stopPropagation()}>
-        <div className={`chat-panel__workspace-create-header ${isWindows ? 'is-win' : 'is-mac'}`}>
-          {!isWindows && (
-            <button
-              type="button"
-              className="traffic-btn close chat-panel__workspace-create-traffic-close chat-panel__workspace-create-traffic-close--mac"
-              aria-label="关闭"
-              disabled={submitting}
-              onClick={() => onClose?.()}>
-            </button>
-          )}
-          <h2 id="workspace-create-dialog-title" className="chat-panel__workspace-create-title">
-            新建工作空间
-          </h2>
-          {isWindows && (
-            <button
-              type="button"
-              className="traffic-btn close chat-panel__workspace-create-traffic-close chat-panel__workspace-create-traffic-close--win"
-              aria-label="关闭"
-              disabled={submitting}
-              onClick={() => onClose?.()}>
-            </button>
-          )}
-        </div>
-        <div className="chat-panel__workspace-create-body">
-          <div className="chat-panel__workspace-create-row">
-            <div className="chat-panel__workspace-create-path-row">
-              <div className="chat-panel__workspace-create-input-wrap">
-                <div
-                  className="chat-panel__workspace-create-input chat-panel__workspace-create-input--with-action"
-                  title={parentDir || '请选择工作空间父目录'}>
-                  {parentDir || '请选择工作空间父目录'}
-                </div>
-                <button
-                  type="button"
-                  className="chat-panel__workspace-create-picker chat-panel__workspace-create-picker--inline"
-                  disabled={submitting}
-                  onClick={() => onPickParentDir?.()}>
-                  <FolderOpen size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="chat-panel__workspace-create-name-field">
-              <input
-                ref={workspaceNameInputRef}
-                type="text"
-                maxLength={50}
-                className={`chat-panel__workspace-create-input chat-panel__workspace-create-input--name ${workspaceNameError ? 'chat-panel__workspace-create-input--error' : ''}`.trim()}
-                placeholder="空间名称"
-                value={workspaceName}
-                disabled={submitting}
-                aria-invalid={workspaceNameError ? 'true' : 'false'}
-                onChange={(event) => onWorkspaceNameChange?.(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && canConfirm) {
-                    event.preventDefault();
-                    onConfirm?.();
-                  }
-                }}
-              />
-              {workspaceNameError ? (
-                <div className="chat-panel__workspace-create-error">{workspaceNameError}</div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        <div className="chat-panel__workspace-create-footer">
-          <button
-            type="button"
-            className="chat-panel__workspace-create-cancel"
-            disabled={submitting}
-            onClick={() => onClose?.()}>
-            取消
-          </button>
-          <button
-            type="button"
-            className={`chat-panel__workspace-create-confirm ${canConfirm ? 'chat-panel__workspace-create-confirm--enabled' : ''}`}
-            disabled={!canConfirm}
-            onClick={() => onConfirm?.()}>
-            {submitting ? '创建中...' : '确认'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-};
-
 const ChatShell = ({
   agentId,
   chatSessionId = '',
@@ -702,6 +339,7 @@ const ChatShell = ({
   workspaceStatus = '',
   currentModelMeta = null,
   onSelectSkill,
+  onOpenSkillStore,
   onModifySkill,
   onSubmitFileComment,
   sessionSending = false,
@@ -722,7 +360,6 @@ const ChatShell = ({
 }) => {
   const [resolvedSessionId, setResolvedSessionId] = React.useState(runtimeSessionId || '');
   const [runtimeSession, setRuntimeSession] = React.useState(null);
-  const [workspaceStore, setWorkspaceStore] = React.useState(() => readWorkspaceStore());
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [titleDraft, setTitleDraft] = React.useState(sessionTitle);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
@@ -734,21 +371,6 @@ const ChatShell = ({
   const [expandedNodeKeys, setExpandedNodeKeys] = React.useState(() => new Set());
   const [skillTrees, setSkillTrees] = React.useState({});
   const [skillTreeLoading, setSkillTreeLoading] = React.useState({});
-  const [workspaceTrees, setWorkspaceTrees] = React.useState({});
-  const [workspaceTreeLoading, setWorkspaceTreeLoading] = React.useState({});
-  const [workspaceExpanded, setWorkspaceExpanded] = React.useState(true);
-  const [isWorkspaceDragActive, setIsWorkspaceDragActive] = React.useState(false);
-  const [workspaceDropPending, setWorkspaceDropPending] = React.useState(false);
-  const [showAllRecentWorkspaces, setShowAllRecentWorkspaces] = React.useState(false);
-  const [createWorkspaceDialogOpen, setCreateWorkspaceDialogOpen] = React.useState(false);
-  const [createWorkspaceParentDir, setCreateWorkspaceParentDir] = React.useState('');
-  const [createWorkspaceName, setCreateWorkspaceName] = React.useState('');
-  const [createWorkspaceNameError, setCreateWorkspaceNameError] = React.useState('');
-  const [createWorkspaceSubmitting, setCreateWorkspaceSubmitting] = React.useState(false);
-  const [renamingWorkspacePath, setRenamingWorkspacePath] = React.useState('');
-  const [renameWorkspaceDraft, setRenameWorkspaceDraft] = React.useState('');
-  const [renameWorkspaceError, setRenameWorkspaceError] = React.useState('');
-  const [renameWorkspaceSubmitting, setRenameWorkspaceSubmitting] = React.useState(false);
   const [filePreview, setFilePreview] = React.useState(null);
   const [panePreview, setPanePreview] = React.useState(() => (
     webPreview?.key && webPreview?.url
@@ -766,7 +388,6 @@ const ChatShell = ({
   const [beginnerGuideReopenPending, setBeginnerGuideReopenPending] = React.useState(() => isBeginnerGuideReopenPending());
   const previousChatSessionIdRef = React.useRef(String(chatSessionId || '').trim());
   const titleInputRef = React.useRef(null);
-  const renameWorkspaceInputRef = React.useRef(null);
   const pendingFilePreviewKeysRef = React.useRef(new Set());
   const closedFilePreviewKeysRef = React.useRef(new Set());
   const contentRef = React.useRef(null);
@@ -777,23 +398,8 @@ const ChatShell = ({
   const beginnerGuideChildrensBookRunButtonRef = React.useRef(null);
   const beginnerGuideChildrensBookEditButtonRef = React.useRef(null);
   const beginnerGuideRewardClaimingRef = React.useRef(false);
-  const workspaceRefreshTimeoutRef = React.useRef(null);
-  const workspaceDragCounterRef = React.useRef(0);
-  const workspaceLibrary = React.useMemo(() => getWorkspaceLibrary(workspaceStore?.library), [workspaceStore]);
-  const recentWorkspacePaths = React.useMemo(
-    () => getRecentWorkspacePaths(workspaceStore, workspaceLibrary),
-    [workspaceStore, workspaceLibrary]
-  );
   const currentWorkspacePath = React.useMemo(() => getSelectedWorkspacePath(runtimeSession), [runtimeSession]);
   const hasLockedWorkspace = Boolean(currentWorkspacePath);
-  const visibleRecentWorkspaces = React.useMemo(
-    () => (showAllRecentWorkspaces ? recentWorkspacePaths : recentWorkspacePaths.slice(0, 5)),
-    [recentWorkspacePaths, showAllRecentWorkspaces]
-  );
-  const workspaceStorePathSignature = React.useMemo(
-    () => dedupePaths([...(workspaceStore?.library || []), ...(workspaceStore?.recent || [])]).join('\n'),
-    [workspaceStore?.library, workspaceStore?.recent]
-  );
   const showLeadingFilePreview = false;
   const showTrailingWebPreview = Boolean(panePreview);
   const showMembersPanel = !membersPanelCollapsed;
@@ -805,19 +411,6 @@ const ChatShell = ({
   );
   const shouldForceReopenBeginnerGuide = Boolean(beginnerGuideReopenPending);
   const shouldStartBeginnerGuide = shouldAutoStartBeginnerGuide || shouldForceReopenBeginnerGuide;
-  React.useEffect(() => {
-    if (!renamingWorkspacePath) return;
-    const input = renameWorkspaceInputRef.current;
-    if (!input) return;
-
-    const timer = window.setTimeout(() => {
-      input.focus();
-      input.select();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [renamingWorkspacePath]);
-
   React.useEffect(() => {
     if (typeof onInlinePreviewVisibilityChange !== 'function') return undefined;
     onInlinePreviewVisibilityChange(showTrailingWebPreview);
@@ -987,56 +580,6 @@ const ChatShell = ({
   }, [beginnerGuideCurrent, beginnerGuideOpen]);
 
   React.useEffect(() => {
-    writeWorkspaceStore(workspaceStore);
-  }, [workspaceStore]);
-
-  React.useEffect(() => {
-    const api = window?.api?.file;
-    if (!workspaceStorePathSignature || typeof api?.isDirectory !== 'function') return undefined;
-
-    let cancelled = false;
-    const validateWorkspaceStore = async () => {
-      const candidatePaths = workspaceStorePathSignature.split('\n').filter(Boolean);
-      if (!candidatePaths.length) return;
-
-      const results = await Promise.all(
-        candidatePaths.map(async (workspacePath) => ({
-          workspacePath,
-          exists: await api.isDirectory(workspacePath)
-        }))
-      );
-      if (cancelled) return;
-
-      const validPaths = results.filter((item) => item.exists).map((item) => item.workspacePath);
-      if (validPaths.length === candidatePaths.length) return;
-
-      setWorkspaceStore((prev) => {
-        const nextStore = filterWorkspaceStorePaths(prev, validPaths);
-        return isSameWorkspaceStore(prev, nextStore) ? prev : nextStore;
-      });
-    };
-
-    void validateWorkspaceStore();
-
-    const handleWindowFocus = () => {
-      void validateWorkspaceStore();
-    };
-    window.addEventListener('focus', handleWindowFocus);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener('focus', handleWindowFocus);
-    };
-  }, [workspaceStorePathSignature]);
-
-  const persistVisitedWorkspace = React.useCallback((workspacePath, visitedAt = Date.now()) => {
-    const nextStore = markWorkspaceVisited(readWorkspaceStore(), workspacePath, visitedAt);
-    writeWorkspaceStore(nextStore);
-    setWorkspaceStore(nextStore);
-    return nextStore;
-  }, []);
-
-  React.useEffect(() => {
     writeMembersPanelWidth(membersPanelWidth);
   }, [membersPanelWidth]);
 
@@ -1123,7 +666,6 @@ const ChatShell = ({
       void (async () => {
         try {
           const result = await window.electronAPI.cherryChatStream.getSession(targetSessionId);
-          setWorkspaceStore(readWorkspaceStore());
           setRuntimeSession(result?.ok ? result.session || null : null);
         } catch (_error) {
           setRuntimeSession(null);
@@ -1137,11 +679,6 @@ const ChatShell = ({
       setTitleDraft(sessionTitle);
     }
   }, [sessionTitle, isEditingTitle]);
-
-  React.useEffect(() => {
-    if (!currentWorkspacePath) return;
-    persistVisitedWorkspace(currentWorkspacePath);
-  }, [currentWorkspacePath, persistVisitedWorkspace]);
 
   React.useEffect(() => {
     if (isEditingTitle) {
@@ -1287,21 +824,6 @@ const ChatShell = ({
     setSkillTrees({});
     setSkillTreeLoading({});
   }, [skills]);
-
-  React.useEffect(() => {
-    setExpandedNodeKeys(new Set());
-    setWorkspaceTrees({});
-    setWorkspaceTreeLoading({});
-    setWorkspaceExpanded(true);
-    setShowAllRecentWorkspaces(false);
-  }, [workspaceLibrary]);
-
-  React.useEffect(() => {
-    if (createWorkspaceDialogOpen) return;
-    setCreateWorkspaceSubmitting(false);
-    setCreateWorkspaceName('');
-    setCreateWorkspaceNameError('');
-  }, [createWorkspaceDialogOpen]);
 
   React.useEffect(() => {
     const normalizedChatSessionId = String(chatSessionId || '').trim();
@@ -1463,127 +985,6 @@ const ChatShell = ({
     });
   }, []);
 
-  const toggleWorkspaceExpanded = React.useCallback(() => {
-    setWorkspaceExpanded((prev) => !prev);
-  }, []);
-
-  const loadWorkspaceTree = React.useCallback(async (workspacePath) => {
-    const workspaceKey = normalizePath(workspacePath);
-    if (!workspaceKey) return;
-    setWorkspaceTreeLoading((prev) => ({ ...prev, [workspaceKey]: true }));
-
-    try {
-      const entries = await window.api.file.listDirectory(workspaceKey, {
-        recursive: true,
-        maxDepth: 10,
-        includeHidden: false,
-        includeFiles: true,
-        includeDirectories: true,
-        maxEntries: TREE_LIST_MAX_ENTRIES,
-        searchPattern: '.'
-      });
-
-      const rootPath = workspaceKey.replace(/\/$/, '');
-      const normalizedEntries = Array.isArray(entries)
-        ? Array.from(
-            new Set(
-              entries
-                .map((entryPath) => resolveListedEntryPath(rootPath, entryPath))
-                .filter((entryPath) => {
-                  if (!entryPath.startsWith(`${rootPath}/`)) return false;
-                  const relativePath = entryPath.slice(rootPath.length + 1);
-                  return relativePath && !relativePath.split('/').includes('.claude');
-                })
-            )
-          )
-        : [];
-
-      const directoryChecks = await Promise.all(
-        normalizedEntries.map(async (entryPath) => {
-          try {
-            const isDirectory = await window.api.file.isDirectory(entryPath);
-            return [entryPath, Boolean(isDirectory)];
-          } catch (_error) {
-            return [entryPath, false];
-          }
-        })
-      );
-
-      setWorkspaceTrees((prev) => ({
-        ...prev,
-        [workspaceKey]: buildTreeFromEntries(workspaceKey, normalizedEntries, new Map(directoryChecks))
-      }));
-    } catch (_error) {
-      setWorkspaceTrees((prev) => ({ ...prev, [workspaceKey]: [] }));
-    } finally {
-      setWorkspaceTreeLoading((prev) => ({ ...prev, [workspaceKey]: false }));
-    }
-  }, []);
-
-  React.useEffect(() => {
-    if (!workspaceExpanded || !hasLockedWorkspace || !currentWorkspacePath) return;
-    if (Object.prototype.hasOwnProperty.call(workspaceTrees, currentWorkspacePath)) return;
-    void loadWorkspaceTree(currentWorkspacePath);
-  }, [currentWorkspacePath, hasLockedWorkspace, loadWorkspaceTree, workspaceExpanded, workspaceTrees]);
-
-  const invalidateWorkspaceTree = React.useCallback((workspacePath) => {
-    const workspaceKey = normalizePath(workspacePath);
-    if (!workspaceKey) return;
-    setWorkspaceTrees((prev) => {
-      if (!Object.prototype.hasOwnProperty.call(prev, workspaceKey)) return prev;
-      const next = { ...prev };
-      delete next[workspaceKey];
-      return next;
-    });
-    setWorkspaceTreeLoading((prev) => {
-      if (!Object.prototype.hasOwnProperty.call(prev, workspaceKey)) return prev;
-      const next = { ...prev };
-      delete next[workspaceKey];
-      return next;
-    });
-  }, []);
-
-  const scheduleWorkspaceTreeRefresh = React.useCallback((workspacePath) => {
-    const workspaceKey = normalizePath(workspacePath);
-    if (!workspaceKey) return;
-    if (workspaceRefreshTimeoutRef.current) {
-      window.clearTimeout(workspaceRefreshTimeoutRef.current);
-    }
-    workspaceRefreshTimeoutRef.current = window.setTimeout(() => {
-      workspaceRefreshTimeoutRef.current = null;
-      void loadWorkspaceTree(workspaceKey);
-    }, 120);
-  }, [loadWorkspaceTree]);
-
-  React.useEffect(() => () => {
-    if (workspaceRefreshTimeoutRef.current) {
-      window.clearTimeout(workspaceRefreshTimeoutRef.current);
-      workspaceRefreshTimeoutRef.current = null;
-    }
-  }, []);
-
-  React.useEffect(() => {
-    const api = window?.electronAPI?.cherryChatStream;
-    const targetSessionId = String(resolvedSessionId || '').trim();
-    if (!targetSessionId || !currentWorkspacePath || typeof api?.onChunk !== 'function') return undefined;
-
-    return api.onChunk((payload) => {
-      if (String(payload?.sessionId || '').trim() !== targetSessionId) return;
-      if (!shouldRefreshWorkspaceForChunk(payload, currentWorkspacePath)) return;
-      if (workspaceExpanded) {
-        scheduleWorkspaceTreeRefresh(currentWorkspacePath);
-        return;
-      }
-      invalidateWorkspaceTree(currentWorkspacePath);
-    });
-  }, [
-    currentWorkspacePath,
-    invalidateWorkspaceTree,
-    resolvedSessionId,
-    scheduleWorkspaceTreeRefresh,
-    workspaceExpanded
-  ]);
-
   const bindWorkspaceToSession = React.useCallback(async (workspacePath, options = {}) => {
     const { seedSkills = false } = options;
     if (!agentId) {
@@ -1631,7 +1032,6 @@ const ChatShell = ({
         throw new Error(updateResult?.error || '绑定工作空间失败');
       }
 
-      persistVisitedWorkspace(normalizedSelected);
       setRuntimeSession(updateResult.session);
       return true;
     } catch (error) {
@@ -1642,378 +1042,11 @@ const ChatShell = ({
     agentId,
     hasLockedWorkspace,
     onEnsureRuntimeSession,
-    persistVisitedWorkspace,
     resolvedSessionId,
     runtimeSessionId,
     runtimeSession?.configuration,
-    runtimeSession?.id,
-    workspaceLibrary
+    runtimeSession?.id
   ]);
-
-  const handleAddWorkspace = React.useCallback(async (event) => {
-    event?.stopPropagation?.();
-    try {
-      const selected = await window.api.file.selectFolder();
-      if (!selected) return;
-      await bindWorkspaceToSession(selected);
-    } catch (_error) {
-      window.toast.error('打开文件夹失败');
-    }
-  }, [bindWorkspaceToSession]);
-
-  const handleOpenCreateWorkspaceDialog = React.useCallback((event) => {
-    event?.stopPropagation?.();
-
-    const openDialog = async () => {
-      const rememberedParentDir = readCreateWorkspaceParentForAgent(agentId);
-      if (rememberedParentDir) {
-        setCreateWorkspaceParentDir(rememberedParentDir);
-        setCreateWorkspaceName('');
-        setCreateWorkspaceNameError('');
-        setCreateWorkspaceDialogOpen(true);
-        return;
-      }
-
-      let nextParentDir = '';
-      try {
-        const appInfo = typeof window?.api?.getAppInfo === 'function' ? await window.api.getAppInfo() : null;
-        const appDataPath = normalizePath(appInfo?.appDataPath || '');
-        nextParentDir = normalizePath(resolveWorkspaceParentDirForAgent({
-          agentId,
-          appDataPath,
-          joinPath: window?.electronAPI?.path?.join
-        }));
-      } catch (_error) {
-        nextParentDir = '';
-      }
-
-      if (!nextParentDir) {
-        nextParentDir = getParentPath(currentWorkspacePath || recentWorkspacePaths[0] || '');
-      }
-
-      setCreateWorkspaceParentDir(nextParentDir);
-      setCreateWorkspaceName('');
-      setCreateWorkspaceNameError('');
-      setCreateWorkspaceDialogOpen(true);
-    };
-
-    void openDialog();
-  }, [agentId, currentWorkspacePath, recentWorkspacePaths]);
-
-  const handlePickWorkspaceParentDir = React.useCallback(async () => {
-    try {
-      const parentDir = await window.api.file.selectFolder();
-      if (!parentDir) return;
-      const normalizedParentDir = normalizePath(parentDir);
-      setCreateWorkspaceParentDir(normalizedParentDir);
-      setCreateWorkspaceNameError('');
-      writeCreateWorkspaceParentForAgent(agentId, normalizedParentDir);
-    } catch (_error) {
-      window.toast.error('选择目录失败');
-    }
-  }, [agentId]);
-
-  const handleCreateWorkspace = React.useCallback(async () => {
-    const parentDir = normalizePath(createWorkspaceParentDir);
-    const normalizedName = String(createWorkspaceName || '').trim();
-    if (!parentDir || !normalizedName || createWorkspaceSubmitting) return;
-
-    try {
-      setCreateWorkspaceSubmitting(true);
-      setCreateWorkspaceNameError('');
-
-      const checkResult = await window.api.file.checkFileName(parentDir, normalizedName, false);
-      const folderName = String(checkResult?.safeName || normalizedName).trim();
-      if (!folderName) {
-        window.toast.error('工作空间名称无效');
-        return;
-      }
-      if (checkResult?.requestedExists) {
-        setCreateWorkspaceNameError(`名称“${normalizedName}”已被占用`);
-        return;
-      }
-
-      const joinPath = window?.electronAPI?.path?.join;
-      const workspacePath = normalizePath(
-        typeof joinPath === 'function' ? joinPath(parentDir, folderName) : `${parentDir}/${folderName}`
-      );
-
-      await window.api.file.mkdir(workspacePath);
-      writeCreateWorkspaceParentForAgent(agentId, parentDir);
-      const success = await bindWorkspaceToSession(workspacePath, { seedSkills: true });
-      if (success) {
-        setCreateWorkspaceDialogOpen(false);
-        setCreateWorkspaceName('');
-        setCreateWorkspaceNameError('');
-      }
-    } catch (error) {
-      window.toast.error(error?.message || '新建工作空间失败');
-    } finally {
-      setCreateWorkspaceSubmitting(false);
-    }
-  }, [
-    bindWorkspaceToSession,
-    createWorkspaceName,
-    createWorkspaceParentDir,
-    createWorkspaceSubmitting
-  ]);
-
-  const handleStartRenameWorkspace = React.useCallback((event, workspacePath) => {
-    event?.stopPropagation?.();
-    if (!workspacePath || renameWorkspaceSubmitting) return;
-    setRenamingWorkspacePath(workspacePath);
-    setRenameWorkspaceDraft(getBaseName(workspacePath));
-    setRenameWorkspaceError('');
-  }, [renameWorkspaceSubmitting]);
-
-  const handleCancelRenameWorkspace = React.useCallback((event) => {
-    event?.stopPropagation?.();
-    if (renameWorkspaceSubmitting) return;
-    setRenamingWorkspacePath('');
-    setRenameWorkspaceDraft('');
-    setRenameWorkspaceError('');
-  }, [renameWorkspaceSubmitting]);
-
-  const handleConfirmRenameWorkspace = React.useCallback(async (event) => {
-    event?.stopPropagation?.();
-    if (!renamingWorkspacePath || renameWorkspaceSubmitting) return;
-
-    const parentDir = getParentPath(renamingWorkspacePath);
-    const currentName = getBaseName(renamingWorkspacePath);
-    const requestedName = String(renameWorkspaceDraft || '').trim();
-
-    if (!parentDir) {
-      window.toast.error('重命名工作空间失败');
-      return;
-    }
-    if (!requestedName) {
-      setRenameWorkspaceError('名称不能为空');
-      return;
-    }
-    if (areSameFileName(requestedName, currentName)) {
-      setRenamingWorkspacePath('');
-      setRenameWorkspaceDraft('');
-      setRenameWorkspaceError('');
-      return;
-    }
-
-    try {
-      setRenameWorkspaceSubmitting(true);
-      setRenameWorkspaceError('');
-
-      const { safeName, requestedExists } = await window.api.file.checkFileName(parentDir, requestedName, false);
-      const nextName = String(safeName || requestedName).trim();
-      if (!nextName) {
-        setRenameWorkspaceError('工作空间名称无效');
-        return;
-      }
-      if (requestedExists) {
-        setRenameWorkspaceError(`名称“${requestedName}”已被占用`);
-        return;
-      }
-
-      await window.api.file.renameDir(renamingWorkspacePath, nextName);
-      const joinPath = window?.electronAPI?.path?.join;
-      const nextWorkspacePath = normalizePath(
-        typeof joinPath === 'function' ? joinPath(parentDir, nextName) : `${parentDir}/${nextName}`
-      );
-
-      setWorkspaceStore((prev) => replaceWorkspacePathInStore(prev, renamingWorkspacePath, nextWorkspacePath));
-      setRenamingWorkspacePath('');
-      setRenameWorkspaceDraft('');
-      setRenameWorkspaceError('');
-      message.success('工作空间已重命名');
-    } catch (error) {
-      window.toast.error(error?.message || '重命名工作空间失败');
-    } finally {
-      setRenameWorkspaceSubmitting(false);
-    }
-  }, [renameWorkspaceDraft, renameWorkspaceSubmitting, renamingWorkspacePath]);
-
-  const handleDeleteWorkspace = React.useCallback(async (event, workspacePath) => {
-    event?.stopPropagation?.();
-    const normalizedWorkspacePath = normalizePath(workspacePath).trim();
-    if (!normalizedWorkspacePath) return;
-
-    if (normalizedWorkspacePath === normalizePath(currentWorkspacePath)) {
-      window.toast.warning('当前对话正在使用该工作空间，无法删除');
-      return;
-    }
-
-    const workspaceName = getBaseName(normalizedWorkspacePath);
-    const deleteContent = `删除后不可恢复，确认删除「${workspaceName}」吗？`;
-    const confirmed = window?.modal?.confirm
-      ? await new Promise((resolve) => {
-          window.modal.confirm({
-            title: '确认删除工作空间',
-            content: deleteContent,
-            okText: '删除',
-            cancelText: '取消',
-            centered: true,
-            okType: 'danger',
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-          });
-        })
-      : window.confirm(deleteContent);
-    if (!confirmed) return;
-
-    try {
-      await window.api.file.deleteExternalDir(normalizedWorkspacePath);
-      invalidateWorkspaceTree(normalizedWorkspacePath);
-      setWorkspaceStore((prev) => removeWorkspacePathFromStore(prev, normalizedWorkspacePath));
-      if (normalizePath(renamingWorkspacePath) === normalizedWorkspacePath) {
-        setRenamingWorkspacePath('');
-        setRenameWorkspaceDraft('');
-        setRenameWorkspaceError('');
-      }
-      message.success('工作空间已删除');
-    } catch (error) {
-      window.toast.error(error?.message || '删除工作空间失败');
-    }
-  }, [currentWorkspacePath, invalidateWorkspaceTree, renamingWorkspacePath]);
-
-  const openWorkspaceInFinder = React.useCallback((event, workspacePath) => {
-    event.stopPropagation();
-    if (!workspacePath) return;
-    void window.api.file.openPath(workspacePath);
-  }, []);
-
-  const refreshWorkspaceTree = React.useCallback((event) => {
-    event.stopPropagation();
-    if (!currentWorkspacePath) return;
-    void loadWorkspaceTree(currentWorkspacePath);
-  }, [currentWorkspacePath, loadWorkspaceTree]);
-
-  const hasDraggedFiles = React.useCallback((event) => {
-    const dataTransferTypes = Array.from(event?.dataTransfer?.types || []);
-    return dataTransferTypes.includes('Files');
-  }, []);
-
-  const resetWorkspaceDragState = React.useCallback(() => {
-    workspaceDragCounterRef.current = 0;
-    setIsWorkspaceDragActive(false);
-  }, []);
-
-  const resolveWorkspaceDropPath = React.useCallback(async (workspacePath, entryName) => {
-    const normalizedWorkspacePath = normalizePath(workspacePath).trim();
-    const normalizedEntryName = sanitizeDroppedEntryName(entryName);
-    const joinPath = window?.electronAPI?.path?.join;
-    const fileApi = window?.api?.file;
-    if (!normalizedWorkspacePath || !fileApi) return '';
-
-    for (let index = 0; index < 200; index += 1) {
-      const candidateName = appendIndexToFileName(normalizedEntryName, index);
-      const candidatePath = normalizePath(
-        typeof joinPath === 'function'
-          ? joinPath(normalizedWorkspacePath, candidateName)
-          : `${normalizedWorkspacePath}/${candidateName}`
-      );
-      try {
-        const [fileEntry, isDirectory] = await Promise.all([
-          typeof fileApi.get === 'function' ? fileApi.get(candidatePath) : Promise.resolve(null),
-          typeof fileApi.isDirectory === 'function' ? fileApi.isDirectory(candidatePath) : Promise.resolve(false),
-        ]);
-        if (!fileEntry && !isDirectory) {
-          return candidatePath;
-        }
-      } catch (_error) {
-        return candidatePath;
-      }
-    }
-
-    return '';
-  }, []);
-
-  const copyDroppedFilesToWorkspace = React.useCallback(async (fileList) => {
-    const workspacePath = normalizePath(currentWorkspacePath).trim();
-    const copyApi = window?.api?.copy;
-    const fileApi = window?.api?.file;
-    if (!workspacePath || typeof copyApi !== 'function' || !fileApi || typeof fileApi.getPathForFile !== 'function') {
-      window.toast.error('工作空间拖拽上传不可用');
-      return;
-    }
-
-    const droppedEntries = Array.from(fileList || []).filter(Boolean);
-    if (droppedEntries.length === 0) return;
-
-    setWorkspaceDropPending(true);
-    try {
-      let successCount = 0;
-      for (const file of droppedEntries) {
-        const sourcePath = normalizePath(fileApi.getPathForFile(file) || '').trim();
-        if (!sourcePath) {
-          continue;
-        }
-        const targetPath = await resolveWorkspaceDropPath(workspacePath, file.name || getBaseName(sourcePath));
-        if (!targetPath) {
-          throw new Error('生成目标路径失败');
-        }
-        const copyResult = await copyApi(sourcePath, targetPath);
-        if (!copyResult?.success) {
-          throw new Error(copyResult?.error || '复制文件失败');
-        }
-        successCount += 1;
-      }
-
-      if (successCount === 0) {
-        window.toast.warning('未识别到可导入的本地文件');
-        return;
-      }
-
-      setWorkspaceExpanded(true);
-      await loadWorkspaceTree(workspacePath);
-      message.success(
-        successCount > 1
-          ? `已添加 ${successCount} 个文件到工作空间`
-          : '已添加 1 个文件到工作空间'
-      );
-    } catch (error) {
-      window.toast.error(error?.message || '拖拽导入工作空间失败');
-    } finally {
-      setWorkspaceDropPending(false);
-    }
-  }, [currentWorkspacePath, loadWorkspaceTree, resolveWorkspaceDropPath]);
-
-  const handleWorkspaceDragEnter = React.useCallback((event) => {
-    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    workspaceDragCounterRef.current += 1;
-    setIsWorkspaceDragActive(true);
-  }, [hasDraggedFiles, hasLockedWorkspace]);
-
-  const handleWorkspaceDragOver = React.useCallback((event) => {
-    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-    if (!isWorkspaceDragActive) {
-      setIsWorkspaceDragActive(true);
-    }
-  }, [hasDraggedFiles, hasLockedWorkspace, isWorkspaceDragActive]);
-
-  const handleWorkspaceDragLeave = React.useCallback((event) => {
-    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    workspaceDragCounterRef.current = Math.max(0, workspaceDragCounterRef.current - 1);
-    if (workspaceDragCounterRef.current === 0) {
-      setIsWorkspaceDragActive(false);
-    }
-  }, [hasDraggedFiles, hasLockedWorkspace]);
-
-  const handleWorkspaceDrop = React.useCallback((event) => {
-    if (!hasLockedWorkspace || !hasDraggedFiles(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const droppedFiles = Array.from(event.dataTransfer?.files || []).filter(Boolean);
-    resetWorkspaceDragState();
-    if (droppedFiles.length === 0) return;
-    void copyDroppedFilesToWorkspace(droppedFiles);
-  }, [copyDroppedFilesToWorkspace, hasDraggedFiles, hasLockedWorkspace, resetWorkspaceDragState]);
 
   const handlePreviewTabClose = React.useCallback((tab) => {
     if (String(tab?.type || '').trim() !== 'file') return;
@@ -2430,7 +1463,7 @@ const ChatShell = ({
     }
   }, [beginnerGuideCurrent, beginnerGuideOpen, onOpenWebPreview, skillExamplePaths]);
 
-  const renderTreeNodes = React.useCallback((scopeKey, rootPath, nodes, depth = 1) => {
+  const renderTreeNodes = React.useCallback((scopeKey, rootPath, nodes, depth = 1, options = {}) => {
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
 
     return nodes.map((node) => {
@@ -2438,8 +1471,9 @@ const ChatShell = ({
       const isDirectory = node.type === 'directory';
       const isExpanded = isDirectory && expandedNodeKeys.has(compositeKey);
       const FileIcon = isDirectory ? null : getFileIcon(node.name);
-      const absolutePath = isDirectory ? '' : resolveListedEntryPath(rootPath, node.path);
+      const absolutePath = resolveListedEntryPath(rootPath, node.path);
       const isPreviewSelected = !isDirectory && absolutePath && filePreview?.path === absolutePath;
+      const showDeleteAction = Boolean(options?.showDeleteAction && typeof options?.onDeleteNode === 'function');
 
       return (
         <React.Fragment key={compositeKey}>
@@ -2482,8 +1516,27 @@ const ChatShell = ({
               {isDirectory ? (isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />) : <FileIcon size={14} />}
             </span>
             <MarqueeText className="chat-panel__tree-label" text={node.name} />
+            {showDeleteAction ? (
+              <button
+                type="button"
+                className="chat-panel__tree-action chat-panel__tree-action--danger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void options.onDeleteNode({
+                    scopeKey,
+                    rootPath,
+                    node,
+                    absolutePath,
+                    isDirectory,
+                  });
+                }}
+                title={`删除${isDirectory ? '文件夹' : '文件'}：${node.name}`}
+                aria-label={`删除${isDirectory ? '文件夹' : '文件'}：${node.name}`}>
+                <Trash2 size={14} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
-          {isDirectory && isExpanded && Array.isArray(node.children) && renderTreeNodes(scopeKey, rootPath, node.children, depth + 1)}
+          {isDirectory && isExpanded && Array.isArray(node.children) && renderTreeNodes(scopeKey, rootPath, node.children, depth + 1, options)}
         </React.Fragment>
       );
     });
@@ -2549,6 +1602,8 @@ const ChatShell = ({
             {sessionTitle}
           </span>
         )}
+        <span className="chat-panel__navbar-spacer" />
+        <MCPSettings />
       </div>
 
       <div className={`chat-panel__content ${isResizingAnyPanel ? 'is-resizing-web-preview' : ''}`.trim()} ref={contentRef}>
@@ -2596,6 +1651,7 @@ const ChatShell = ({
               onOpenSkillWebPreview={openSkillWebPreview}
               onRunSkillExample={runSkillExample}
               onSelectSkill={onSelectSkill}
+              onOpenSkillStore={onOpenSkillStore}
               onModifySkill={onModifySkill}
               onDeleteSkill={deleteSkill}
               renderSkillTooltip={renderSkillTooltip}
@@ -2605,213 +1661,18 @@ const ChatShell = ({
               getSkillDisplayName={getSkillDisplayName}
               childrensBookSkillLabel={CHILDRENS_BOOK_SKILL_LABEL}
             />
-            <div
-              className="chat-panel__workspace-header"
-              onClick={toggleWorkspaceExpanded}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  toggleWorkspaceExpanded();
-                }
-              }}>
-              <div className="chat-panel__workspace-header-main">
-                <div className="chat-panel__members-title chat-panel__members-title--secondary chat-panel__workspace-title">
-                  {hasLockedWorkspace ? getBaseName(currentWorkspacePath) : '工作空间'}
-                </div>
-              </div>
-              {hasLockedWorkspace && (
-                <div className="chat-panel__workspace-header-actions">
-                  <button
-                    type="button"
-                    className="chat-panel__member-action"
-                    onClick={refreshWorkspaceTree}
-                    disabled={Boolean(workspaceTreeLoading[currentWorkspacePath])}
-                    title="刷新工作空间">
-                    <RefreshCw
-                      size={12}
-                      aria-hidden="true"
-                      className={workspaceTreeLoading[currentWorkspacePath] ? 'chat-panel__action-icon-spinning' : ''}
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    className="chat-panel__member-action"
-                    onClick={(event) => openWorkspaceInFinder(event, currentWorkspacePath)}
-                    title="打开文件管理器">
-                    <ExternalLink size={12} aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
-            {workspaceExpanded && (
-              <div
-                className={`chat-panel__workspace-section ${hasLockedWorkspace ? 'is-bound' : ''} ${isWorkspaceDragActive ? 'drag-active' : ''}`.trim()}
-                onDragEnter={handleWorkspaceDragEnter}
-                onDragOver={handleWorkspaceDragOver}
-                onDragLeave={handleWorkspaceDragLeave}
-                onDrop={handleWorkspaceDrop}
-              >
-                {!hasLockedWorkspace && (
-                  <>
-                    <div className="chat-panel__workspace-actions">
-                      <button
-                        type="button"
-                        className="chat-panel__members-create-btn chat-panel__members-create-btn--stacked"
-                        disabled={Boolean(workspaceStatus)}
-                        onClick={(event) => void handleAddWorkspace(event)}>
-                        <FolderOpen size={14} aria-hidden="true" />
-                        <span>打开文件夹</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="chat-panel__members-create-btn chat-panel__members-create-btn--stacked"
-                        ref={beginnerGuideCreateWorkspaceButtonRef}
-                        disabled={Boolean(workspaceStatus)}
-                        onClick={handleOpenCreateWorkspaceDialog}>
-                        <FolderPlus size={14} aria-hidden="true" />
-                        <span>新建工作空间</span>
-                      </button>
-                    </div>
-                    {workspaceStatus && (
-                      <div className="chat-panel__members-empty">{workspaceStatus}</div>
-                    )}
-                    {visibleRecentWorkspaces.map((workspacePath) => {
-                      const isRenamingWorkspace = renamingWorkspacePath === workspacePath;
-
-                      return (
-                        <div key={workspacePath} className="chat-panel__member-group chat-panel__member-group--history">
-                          <div className={`chat-panel__member-item chat-panel__member-item--history ${isRenamingWorkspace ? 'is-renaming' : ''}`.trim()}>
-                            {isRenamingWorkspace ? (
-                              <div
-                                className="chat-panel__workspace-rename-inline"
-                                onClick={(event) => event.stopPropagation()}>
-                                <span className="chat-panel__tree-icon" aria-hidden="true">
-                                  <Folder size={14} />
-                                </span>
-                                <input
-                                  ref={renameWorkspaceInputRef}
-                                  type="text"
-                                  className={`chat-panel__workspace-rename-input ${renameWorkspaceError ? 'is-error' : ''}`.trim()}
-                                  value={renameWorkspaceDraft}
-                                  title={renameWorkspaceError || workspacePath}
-                                  aria-label="工作空间新名称"
-                                  disabled={renameWorkspaceSubmitting}
-                                  onChange={(event) => {
-                                    setRenameWorkspaceDraft(event.target.value);
-                                    if (renameWorkspaceError) {
-                                      setRenameWorkspaceError('');
-                                    }
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                      void handleConfirmRenameWorkspace(event);
-                                      return;
-                                    }
-                                    if (event.key === 'Escape') {
-                                      handleCancelRenameWorkspace(event);
-                                    }
-                                  }}
-                                />
-                                <div className="chat-panel__workspace-rename-actions">
-                                  <button
-                                    type="button"
-                                    className="chat-panel__member-action"
-                                    onClick={(event) => void handleConfirmRenameWorkspace(event)}
-                                    title="确认重命名"
-                                    aria-label="确认重命名"
-                                    disabled={renameWorkspaceSubmitting}>
-                                    {renameWorkspaceSubmitting ? (
-                                      <LoaderCircle size={12} aria-hidden="true" className="chat-panel__action-icon-spinning" />
-                                    ) : (
-                                      <Check size={12} aria-hidden="true" />
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="chat-panel__member-action"
-                                    onClick={handleCancelRenameWorkspace}
-                                    title="取消重命名"
-                                    aria-label="取消重命名"
-                                    disabled={renameWorkspaceSubmitting}>
-                                    <X size={12} aria-hidden="true" />
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  className="chat-panel__member-main chat-panel__member-main--history"
-                                  onClick={() => void bindWorkspaceToSession(workspacePath)}
-                                  title={workspacePath}>
-                                  <span className="chat-panel__tree-icon" aria-hidden="true">
-                                    <Folder size={14} />
-                                  </span>
-                                  <span className="chat-panel__member-text chat-panel__member-text--history">
-                                    <span className="chat-panel__member-name chat-panel__member-name--history">{getBaseName(workspacePath)}</span>
-                                  </span>
-                                </button>
-                                <div className="chat-panel__member-actions-overlay">
-                                  <button
-                                    type="button"
-                                    className="chat-panel__member-action"
-                                    onClick={(event) => handleStartRenameWorkspace(event, workspacePath)}
-                                    title="重命名工作空间"
-                                    aria-label={`重命名 ${getBaseName(workspacePath)}`}>
-                                    <SquarePen size={12} aria-hidden="true" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="chat-panel__member-action chat-panel__member-action--danger"
-                                    onClick={(event) => void handleDeleteWorkspace(event, workspacePath)}
-                                    title="删除工作空间"
-                                    aria-label={`删除 ${getBaseName(workspacePath)}`}>
-                                    <Trash2 size={12} aria-hidden="true" />
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {recentWorkspacePaths.length > 5 && (
-                      <button
-                        type="button"
-                        className="chat-panel__workspace-more-btn"
-                        onClick={() => setShowAllRecentWorkspaces((prev) => !prev)}>
-                        {showAllRecentWorkspaces ? '收起' : '查看更多'}
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasLockedWorkspace && (
-                  <>
-                    {isWorkspaceDragActive ? (
-                      <div className="chat-panel__workspace-drag-upload-overlay" aria-hidden="true">
-                        <div className="chat-panel__workspace-drag-upload-card">
-                          <UploadIcon className="chat-panel__workspace-drag-upload-icon" />
-                          <div className="chat-panel__workspace-drag-upload-text">
-                            {workspaceDropPending ? '正在添加文件到工作空间' : '将文件拖放到此处以添加到工作空间中'}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="chat-panel__workspace-tree">
-                      {workspaceTreeLoading[currentWorkspacePath] && <div className="chat-panel__members-empty">加载目录中...</div>}
-                      {!workspaceTreeLoading[currentWorkspacePath] && (workspaceTrees[currentWorkspacePath] || []).length === 0 && (
-                        <div className="chat-panel__members-empty">工作空间为空</div>
-                      )}
-                      {!workspaceTreeLoading[currentWorkspacePath] && (workspaceTrees[currentWorkspacePath] || []).length > 0 && (
-                        renderTreeNodes(`workspace:${currentWorkspacePath}`, currentWorkspacePath, workspaceTrees[currentWorkspacePath], 0)
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+            <WorkSpace
+              agentId={agentId}
+              resolvedSessionId={resolvedSessionId}
+              currentWorkspacePath={currentWorkspacePath}
+              hasLockedWorkspace={hasLockedWorkspace}
+              workspaceStatus={workspaceStatus}
+              onBindWorkspace={bindWorkspaceToSession}
+              renderTreeNodes={renderTreeNodes}
+              beginnerGuideCreateWorkspaceButtonRef={beginnerGuideCreateWorkspaceButtonRef}
+              beginnerGuideWorkspaceDialogRef={beginnerGuideWorkspaceDialogRef}
+              beginnerGuideWorkspaceNameInputRef={beginnerGuideWorkspaceNameInputRef}
+            />
             </div>
           </div>
         </div>
@@ -2845,27 +1706,6 @@ const ChatShell = ({
           )}
         </div>
       </div>
-      <WorkspaceCreateDialog
-        open={createWorkspaceDialogOpen}
-        parentDir={createWorkspaceParentDir}
-        workspaceName={createWorkspaceName}
-        workspaceNameError={createWorkspaceNameError}
-        submitting={createWorkspaceSubmitting}
-        dialogRef={beginnerGuideWorkspaceDialogRef}
-        workspaceNameInputRef={beginnerGuideWorkspaceNameInputRef}
-        onClose={() => {
-          if (createWorkspaceSubmitting) return;
-          setCreateWorkspaceDialogOpen(false);
-        }}
-        onPickParentDir={handlePickWorkspaceParentDir}
-        onWorkspaceNameChange={(value) => {
-          setCreateWorkspaceName(value);
-          if (createWorkspaceNameError) {
-            setCreateWorkspaceNameError('');
-          }
-        }}
-        onConfirm={() => void handleCreateWorkspace()}
-      />
       <Tour
         open={beginnerGuideOpen}
         current={beginnerGuideCurrent}

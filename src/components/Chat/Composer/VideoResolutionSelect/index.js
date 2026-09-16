@@ -9,7 +9,7 @@ import VideoTemplatePopover from '../VideoTemplatePopover/index';
 import './index.css';
 
 const RATIO_ORDER = ['9:16', '2:3', '3:4', '1:1', '4:3', '3:2', '16:9', '21:9'];
-const TIER_ORDER = ['480p', '720p', '1080p'];
+const TIER_ORDER = ['480p', '720p', '768p', '1080p', '2k'];
 
 const TIER_LABEL_MAP = {
   '480p': '480P',
@@ -29,6 +29,25 @@ const RATIO_ICON_SIZE_MAP = {
 };
 
 const displayTierLabel = (tier) => TIER_LABEL_MAP[tier] || String(tier || '').toUpperCase();
+const normalizeTierKey = (tier) => String(tier || '').trim().toLowerCase();
+
+const getOrderedTiers = (resByTier) => {
+  const tiers = Object.keys(resByTier || {});
+  return tiers.sort((left, right) => {
+    const leftKey = normalizeTierKey(left);
+    const rightKey = normalizeTierKey(right);
+    const leftIndex = TIER_ORDER.indexOf(leftKey);
+    const rightIndex = TIER_ORDER.indexOf(rightKey);
+
+    if (leftIndex !== -1 || rightIndex !== -1) {
+      if (leftIndex === -1) return 1;
+      if (rightIndex === -1) return -1;
+      return leftIndex - rightIndex;
+    }
+
+    return leftKey.localeCompare(rightKey);
+  });
+};
 
 const getRatioIconSize = (ratio) => RATIO_ICON_SIZE_MAP[ratio] || RATIO_ICON_SIZE_MAP['1:1'];
 
@@ -57,7 +76,7 @@ const getAvailableRatios = (capabilities, model) => {
 
 const getAvailableTiersForRatio = (capabilities, model, ratio) => {
   const resByTier = capabilities?.[model]?.resolutions || {};
-  return TIER_ORDER.filter((tier) => (resByTier[tier] || []).some((item) => item?.ratio === ratio));
+  return getOrderedTiers(resByTier).filter((tier) => (resByTier[tier] || []).some((item) => item?.ratio === ratio));
 };
 
 const pickSize = (capabilities, model, ratio, tier) => {
@@ -73,12 +92,6 @@ const SUPPORT_OPTION_LABELS = {
   offlineOff: '关闭',
   superResolveOn: '开启',
   superResolveOff: '关闭',
-};
-const TRIGGER_STATUS_LABELS = {
-  audioOn: '有声',
-  audioOff: '无声',
-  offlineOn: '闲时',
-  superResolveOn: '超分',
 };
 
 const getModelCapability = (capabilities, model) => capabilities?.[model] || {};
@@ -255,7 +268,7 @@ const VideoResolutionSelect = ({
     if (info && ratios.includes(info.ratio)) return info;
     const fallbackRatio = ratios[0] || '1:1';
     const tiers = getAvailableTiersForRatio(capabilities, model, fallbackRatio);
-    const fallbackTier = tiers[0] || TIER_ORDER[0];
+    const fallbackTier = tiers[0] || getOrderedTiers(capabilities?.[model]?.resolutions || {})[0] || TIER_ORDER[0];
     return { ratio: fallbackRatio, tier: fallbackTier };
   }, [capabilities, model, value, ratios]);
 
@@ -589,31 +602,7 @@ const VideoResolutionSelect = ({
             alt=""
             aria-hidden="true"
           />
-          <span className="chat-panel__video-resolution-trigger-text">
-            <span>{ratio}</span>
-            <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-            <span>{displayTierLabel(tier)}</span>
-            <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-            <span>{resolvedDuration}s</span>
-            {generateAudioSupported ? (
-              <>
-                <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-                <span>{generateAudio ? TRIGGER_STATUS_LABELS.audioOn : TRIGGER_STATUS_LABELS.audioOff}</span>
-              </>
-            ) : null}
-            {seedanceOfflineSupported && seedanceOffline ? (
-              <>
-                <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-                <span>{TRIGGER_STATUS_LABELS.offlineOn}</span>
-              </>
-            ) : null}
-            {superResolveSupported && superResolve ? (
-              <>
-                <span className="chat-panel__video-resolution-trigger-divider" aria-hidden="true" />
-                <span>{TRIGGER_STATUS_LABELS.superResolveOn}</span>
-              </>
-            ) : null}
-          </span>
+          <span className="chat-panel__video-resolution-trigger-text">{ratio}</span>
           <DownOutlined className={`chat-panel__video-resolution-trigger-arrow ${open ? 'is-open' : ''}`} aria-hidden="true" />
         </button>
       </Popover>

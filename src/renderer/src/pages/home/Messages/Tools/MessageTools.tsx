@@ -2,7 +2,6 @@ import { loggerService } from '@logger'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
 import React from 'react'
 
-import MessageMcpTool from './MessageMcpTool'
 import MessageTool from './MessageTool'
 
 interface Props {
@@ -20,11 +19,6 @@ export default function MessageTools({ block }: Props) {
       toolName: block.toolName
     })
     return null
-  }
-
-  const tool = toolResponse.tool
-  if (tool.type === 'mcp') {
-    return <MessageMcpTool block={block} />
   }
 
   return <MessageTool block={block} />

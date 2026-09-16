@@ -430,6 +430,47 @@ class SpeechGenerateServer {
 
     const result = (await response.json()) as SpeechGenerateResponse
 
+    // #region debug-point D:speech-generate-server-result
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'media-billing-missing',
+        runId: 'pre-fix',
+        hypothesisId: 'D',
+        location: 'speech-generate.ts:generateSpeech',
+        msg: '[DEBUG] speech generate server received backend result',
+        data: {
+          provider: payload.provider,
+          onlyTts: payload.only_tts ?? payload.onlyTts ?? null,
+          resultKeys: result && typeof result === 'object' ? Object.keys(result as Record<string, unknown>).slice(0, 12) : [],
+          hasBilling:
+            typeof result === 'object' &&
+            result !== null &&
+            !Array.isArray(result) &&
+            'billing' in (result as Record<string, unknown>),
+          hasPointsConsumed:
+            typeof result === 'object' &&
+            result !== null &&
+            !Array.isArray(result) &&
+            'points_consumed' in (result as Record<string, unknown>),
+          hasConsume:
+            typeof result === 'object' &&
+            result !== null &&
+            !Array.isArray(result) &&
+            'consume' in (result as Record<string, unknown>),
+          resultPreview: (() => {
+            try {
+              return JSON.stringify(result).slice(0, 320)
+            } catch {
+              return String(result).slice(0, 320)
+            }
+          })()
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
+
     logger.info('Speech generation completed', {
       provider: payload.provider,
       voiceId: payload.voice_id,

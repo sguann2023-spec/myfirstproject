@@ -51,6 +51,13 @@ const DOWNLOAD_DRAFT_TOOL: Tool = {
   }
 }
 
+const EXPORT_DRAFT_TOOL: Tool = {
+  name: 'export_draft',
+  description:
+    'Queue one or more VectCut drafts for export in the desktop app. Use this when the user asks to export drafts locally.',
+  inputSchema: DOWNLOAD_DRAFT_TOOL.inputSchema
+}
+
 type DraftDownloadItem = {
   draft_id: string
   draft_name?: string
@@ -78,7 +85,7 @@ class DraftDownloadServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [DOWNLOAD_DRAFT_TOOL]
+      tools: [DOWNLOAD_DRAFT_TOOL, EXPORT_DRAFT_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -88,7 +95,9 @@ class DraftDownloadServer {
       try {
         switch (toolName) {
           case 'download_draft':
-            return await this.downloadDraft(args as Record<string, unknown>)
+            return await this.processDraftAction('download_draft', args as Record<string, unknown>)
+          case 'export_draft':
+            return await this.processDraftAction('export_draft', args as Record<string, unknown>)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -103,7 +112,7 @@ class DraftDownloadServer {
     })
   }
 
-  private normalizeDraft(input: Record<string, unknown>, index?: number): DraftDownloadItem {
+  private normalizeDraft(input: Record<string, unknown>, toolName: 'download_draft' | 'export_draft', index?: number): DraftDownloadItem {
     const draftIdRaw = typeof input.draftId === 'string' ? input.draftId : input.draft_id
     const draftNameRaw = typeof input.draftName === 'string' ? input.draftName : input.draft_name
     const coverRaw = typeof input.cover === 'string' ? input.cover : undefined
@@ -112,7 +121,7 @@ class DraftDownloadServer {
     const draft_id = typeof draftIdRaw === 'string' ? draftIdRaw.trim() : ''
     if (!draft_id) {
       const suffix = typeof index === 'number' ? ` at drafts[${index}]` : ''
-      throw new McpError(ErrorCode.InvalidParams, `'draftId' is required for download_draft${suffix}`)
+      throw new McpError(ErrorCode.InvalidParams, `'draftId' is required for ${toolName}${suffix}`)
     }
 
     const draft_name = typeof draftNameRaw === 'string' && draftNameRaw.trim() ? draftNameRaw.trim() : draft_id
@@ -128,30 +137,31 @@ class DraftDownloadServer {
     }
   }
 
-  private normalizeDrafts(args: Record<string, unknown>): DraftDownloadItem[] {
+  private normalizeDrafts(args: Record<string, unknown>, toolName: 'download_draft' | 'export_draft'): DraftDownloadItem[] {
     if (Array.isArray(args.drafts) && args.drafts.length > 0) {
       return args.drafts.map((item, index) => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) {
           throw new McpError(ErrorCode.InvalidParams, `Each item in 'drafts' must be an object. Invalid entry at index ${index}`)
         }
-        return this.normalizeDraft(item as Record<string, unknown>, index)
+        return this.normalizeDraft(item as Record<string, unknown>, toolName, index)
       })
     }
 
-    return [this.normalizeDraft(args)]
+    return [this.normalizeDraft(args, toolName)]
   }
 
-  private async downloadDraft(args: Record<string, unknown>) {
-    const drafts = this.normalizeDrafts(args)
+  private async processDraftAction(toolName: 'download_draft' | 'export_draft', args: Record<string, unknown>) {
+    const drafts = this.normalizeDrafts(args, toolName)
     const mainWindow = windowService.getMainWindow()
 
     if (!mainWindow || mainWindow.isDestroyed()) {
-      throw new Error('Main window is unavailable, cannot enqueue draft download')
+      throw new Error(`Main window is unavailable, cannot enqueue draft ${toolName === 'export_draft' ? 'export' : 'download'}`)
     }
 
     mainWindow.webContents.send('mcp-download-draft-enqueue', { drafts })
 
-    logger.info('Queued drafts for download via MCP tool', {
+    logger.info('Queued drafts for local draft action via MCP tool', {
+      action: toolName,
       count: drafts.length,
       draftIds: drafts.map((item) => item.draft_id)
     })
@@ -163,7 +173,7 @@ class DraftDownloadServer {
           text: JSON.stringify(
             {
               provider: 'vectcut',
-              action: 'download_draft',
+              action: toolName,
               accepted: drafts.length,
               drafts
             },

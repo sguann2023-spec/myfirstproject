@@ -1,4 +1,5 @@
 import React from 'react';
+import { Tooltip } from 'antd';
 import { LoaderCircle } from 'lucide-react';
 import SkillCheckIcon from '../../../public/skill-check.svg';
 import SkillEllipsisIcon from '../../../public/skill-ellipsis.svg';
@@ -94,10 +95,13 @@ const SkillCard = ({
       </div>
 
       <div className="skill-card-description-wrap">
-        <p className="skill-card-description">{skill?.description || '暂无技能描述'}</p>
-        <div className="skill-card-description-tooltip" role="tooltip">
-          {skill?.description || '暂无技能描述'}
-        </div>
+        <Tooltip
+          title={skill?.description || '暂无技能描述'}
+          color="#fff"
+          styles={{ body: { color: '#666', fontSize: 12 } }}
+        >
+          <p className="skill-card-description">{skill?.description || '暂无技能描述'}</p>
+        </Tooltip>
       </div>
     </article>
   );

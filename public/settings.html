@@ -5,29 +5,34 @@
   <title>设置</title> <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval';">
   <link rel="stylesheet">
   <style>
-    /* 设置页的自定义窗口按钮样式（与 App.css 保持一致） */
-    .titlebar-overlay {
+    /* 设置页的自定义窗口按钮样式（Windows 风格：最小化/最大化/关闭） */
+    .win-caption-controls {
       position: fixed;
-      top: 8px;
-      right: 10px;
-      height: 30px;
+      top: 0;
+      right: 0;
       display: flex;
-      gap: 8px;
-      -webkit-app-region: drag;
-      z-index: 1000;
+      align-items: stretch;
+      z-index: 2000;
+      -webkit-app-region: no-drag;
     }
-    .traffic-btn {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
+    .win-caption-btn {
+      width: 46px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       border: none;
       outline: none;
+      padding: 0;
+      background-color: transparent;
+      color: #1f1f1f;
       cursor: pointer;
       -webkit-app-region: no-drag;
     }
-    .traffic-btn.close { background-color: #ff5f56; }
-    .traffic-btn.minimize { background-color: #ffbd2e; }
-    .traffic-btn.maximize { background-color: #27c93f; }
+    .win-caption-btn:hover { background-color: rgba(0, 0, 0, 0.08); }
+    .win-caption-btn:active { background-color: rgba(0, 0, 0, 0.12); }
+    .win-caption-btn--close:hover,
+    .win-caption-btn--close:active { background-color: #e81123; color: #ffffff; }
   </style>
 </head>
 <body>
@@ -36,26 +41,32 @@
   <script defer src="settings.bundle.js"></script> 
 
   <!-- Windows 自定义窗口控制按钮 -->
-  <div class="titlebar-overlay">
-    <button class="traffic-btn minimize" title="最小化"></button>
-    <button class="traffic-btn maximize" title="最大化/还原"></button>
-    <button class="traffic-btn close" title="关闭"></button>
+  <div class="win-caption-controls">
+    <button class="win-caption-btn minimize" title="最小化">
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0" y="4.5" width="10" height="1" fill="currentColor"/></svg>
+    </button>
+    <button class="win-caption-btn maximize" title="最大化/还原">
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+    </button>
+    <button class="win-caption-btn win-caption-btn--close close" title="关闭">
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" stroke="currentColor" stroke-width="1" fill="none"/></svg>
+    </button>
   </div>
 
   <script>
     // 仅在 Windows 显示（避免干扰 macOS）
     const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
     if (!isWindows) {
-      document.querySelector('.titlebar-overlay').style.display = 'none';
+      document.querySelector('.win-caption-controls').style.display = 'none';
     } else {
       const { ipcRenderer } = window.require('electron');
-      document.querySelector('.traffic-btn.minimize').addEventListener('click', () => {
+      document.querySelector('.win-caption-btn.minimize').addEventListener('click', () => {
         ipcRenderer.send('window-controls', 'minimize');
       });
-      document.querySelector('.traffic-btn.maximize').addEventListener('click', () => {
+      document.querySelector('.win-caption-btn.maximize').addEventListener('click', () => {
         ipcRenderer.send('window-controls', 'maximize');
       });
-      document.querySelector('.traffic-btn.close').addEventListener('click', () => {
+      document.querySelector('.win-caption-btn.win-caption-btn--close').addEventListener('click', () => {
         ipcRenderer.send('window-controls', 'close');
       });
     }

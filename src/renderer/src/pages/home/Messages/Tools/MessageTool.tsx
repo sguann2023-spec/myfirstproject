@@ -40,7 +40,7 @@ const ChooseTool = (toolResponse: NormalToolResponse): React.ReactNode | null =>
       default:
         return null
     }
-  } else if (isAgentTool(toolName as AgentToolsType)) {
+  } else if (toolType === 'mcp' || isAgentTool(toolName as AgentToolsType)) {
     return <MessageAgentTools toolResponse={toolResponse} />
   }
   return null

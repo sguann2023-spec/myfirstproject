@@ -112,6 +112,25 @@ describe('VideoGenerateServer', () => {
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['generate_video', 'get_video_capabilities'])
   })
 
+  it('describes local references as tool-internal uploads instead of pre-upload requirements', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const generateVideoTool = result.tools.find((tool: { name: string }) => tool.name === 'generate_video')
+
+    expect(generateVideoTool).toBeTruthy()
+    expect(generateVideoTool.description).toContain('uploaded internally before submission')
+    expect(generateVideoTool.description).toContain('Use workspace upload only when')
+    expect(generateVideoTool.description).not.toContain('Prefer remotely accessible URLs produced by workspace upload')
+
+    const properties = generateVideoTool.inputSchema?.properties ?? {}
+    expect(properties.content.description).toContain('uploaded internally before submission')
+    expect(properties.prompt).toBeUndefined()
+    expect(properties.images).toBeUndefined()
+    expect(properties.referenceImages).toBeUndefined()
+    expect(properties.referenceVideos).toBeUndefined()
+    expect(properties.referenceAudios).toBeUndefined()
+  })
+
   it('should return filtered video capabilities', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -126,6 +145,7 @@ describe('VideoGenerateServer', () => {
             'seedance-2.0': {
               display_name: 'Seedance 2.0',
               description: '高质量视频生成',
+              icon: 'https://example.com/seedance.svg',
               reference_supported: true,
               first_frame_extend_supported: true,
               first_last_frame_supported: true,
@@ -213,6 +233,7 @@ describe('VideoGenerateServer', () => {
           model: 'seedance-2.0',
           display_name: 'Seedance 2.0',
           description: '高质量视频生成',
+          icon: 'https://example.com/seedance.svg',
           reference_supported: true,
           first_frame_extend_supported: true,
           first_last_frame_supported: true,
@@ -351,7 +372,12 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
-      prompt: '猫咪开车疾驰，开出跑道',
+      content: [
+        {
+          type: 'text',
+          text: '猫咪开车疾驰，开出跑道'
+        }
+      ],
       model: 'seedance-1.5-pro',
       resolution: '1080x1920',
       gen_duration: 10
@@ -372,7 +398,12 @@ describe('VideoGenerateServer', () => {
       })
     )
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
-      prompt: '猫咪开车疾驰，开出跑道',
+      content: [
+        {
+          type: 'text',
+          text: '猫咪开车疾驰，开出跑道'
+        }
+      ],
       model: 'seedance-1.5-pro',
       resolution: '1080x1920',
       gen_duration: 10
@@ -388,6 +419,63 @@ describe('VideoGenerateServer', () => {
         draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_video_123',
         video_url: 'https://example.com/result.mp4'
       }
+    })
+  })
+
+  it('should keep super_resolve in submission payload', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          capabilities: {
+            'minimax-h3-max': {
+              super_resolve_supported: true,
+              resolutions: {
+                '480p': [{ ratio: '16:9', size: '864x496' }]
+              }
+            }
+          },
+          prices: {}
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'ok',
+          task_id: 'video-task-super-resolve'
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, {
+      action: 'submit',
+      content: [
+        {
+          type: 'text',
+          text: '月球上一个人类基地内的日常生活'
+        }
+      ],
+      model: 'minimax-h3-max',
+      resolution: '864x496',
+      gen_duration: 5,
+      super_resolve: true
+    })
+
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      content: [
+        {
+          type: 'text',
+          text: '月球上一个人类基地内的日常生活'
+        }
+      ],
+      model: 'minimax-h3-max',
+      resolution: '864x496',
+      gen_duration: 5,
+      super_resolve: true
     })
   })
 
@@ -421,12 +509,22 @@ describe('VideoGenerateServer', () => {
     const server = createServer()
     const result = await callTool(server, {
       action: 'submit',
-      prompt: '一位女孩在海边奔跑',
+      content: [
+        {
+          type: 'text',
+          text: '一位女孩在海边奔跑'
+        }
+      ],
       model: 'doubao-seedance-2-0'
     })
 
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
-      prompt: '一位女孩在海边奔跑',
+      content: [
+        {
+          type: 'text',
+          text: '一位女孩在海边奔跑'
+        }
+      ],
       model: 'seedance-2.0'
     })
     expect(JSON.parse(result.content[0].text)).toMatchObject({
@@ -551,7 +649,7 @@ describe('VideoGenerateServer', () => {
     })
   })
 
-  it('should reshape Seedance 1.5 style content into prompt plus images', async () => {
+  it('should preserve structured content instead of reshaping it into classic image arrays', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -602,15 +700,26 @@ describe('VideoGenerateServer', () => {
 
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
       model: 'seedance-1.5-pro',
-      prompt: '生成一个女生在海边慢慢回头的镜头',
-      images: ['https://example.com/first-frame.png'],
+      content: [
+        {
+          type: 'text',
+          text: '生成一个女生在海边慢慢回头的镜头'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/first-frame.png'
+          },
+          role: 'reference_image'
+        }
+      ],
       resolution: '720x1280',
       gen_duration: 5,
       generate_audio: true
     })
   })
 
-  it('should map image arrays into Seedance 2.0 content and gen_duration', async () => {
+  it('should preserve structured reference images when no explicit semantic mode is provided', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -641,8 +750,26 @@ describe('VideoGenerateServer', () => {
     await callTool(server, {
       action: 'submit',
       model: 'seedance-2.0',
-      prompt: '做一个镜头平稳推进的产品视频',
-      images: ['https://example.com/reference-1.png', 'https://example.com/reference-2.png'],
+      content: [
+        {
+          type: 'text',
+          text: '做一个镜头平稳推进的产品视频'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/reference-1.png'
+          },
+          role: 'reference_image'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/reference-2.png'
+          },
+          role: 'reference_image'
+        }
+      ],
       gen_duration: 8,
       generateAudio: false,
       resolution: '1280x720'
@@ -650,8 +777,11 @@ describe('VideoGenerateServer', () => {
 
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
       model: 'seedance-2.0',
-      prompt: '做一个镜头平稳推进的产品视频',
       content: [
+        {
+          type: 'text',
+          text: '做一个镜头平稳推进的产品视频'
+        },
         {
           type: 'image_url',
           image_url: {
@@ -705,8 +835,26 @@ describe('VideoGenerateServer', () => {
       action: 'submit',
       model: 'seedance-2.0',
       generationMode: 'first_last_frame',
-      prompt: '表情自然的转场。',
-      images: ['https://example.com/first.jpg', 'https://example.com/last.jpg'],
+      content: [
+        {
+          type: 'text',
+          text: '表情自然的转场。'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/first.jpg'
+          },
+          role: 'first_frame'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/last.jpg'
+          },
+          role: 'last_frame'
+        }
+      ],
       gen_duration: 5,
       resolution: '720p',
       ratio: '16:9',
@@ -715,8 +863,11 @@ describe('VideoGenerateServer', () => {
 
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
       model: 'seedance-2.0',
-      prompt: '表情自然的转场。',
       content: [
+        {
+          type: 'text',
+          text: '表情自然的转场。'
+        },
         {
           type: 'image_url',
           image_url: {
@@ -739,7 +890,7 @@ describe('VideoGenerateServer', () => {
     })
   })
 
-  it('should preserve first and last frame roles when reshaping Seedance 1.5 content into images', async () => {
+  it('should preserve explicit first and last frame roles in structured content', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -796,8 +947,26 @@ describe('VideoGenerateServer', () => {
 
     expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
       model: 'seedance-1.5-pro',
-      prompt: '猫咪开车疾驰，开出跑道',
-      images: ['https://example.com/car1.png', 'https://example.com/car2.png'],
+      content: [
+        {
+          type: 'text',
+          text: '猫咪开车疾驰，开出跑道'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/car1.png'
+          },
+          role: 'first_frame'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/car2.png'
+          },
+          role: 'last_frame'
+        }
+      ],
       resolution: '1280x720',
       gen_duration: 4
     })
@@ -808,7 +977,12 @@ describe('VideoGenerateServer', () => {
 
     const durationResult = await callTool(server, {
       model: 'seedance-2.0',
-      prompt: '生成一个产品视频',
+      content: [
+        {
+          type: 'text',
+          text: '生成一个产品视频'
+        }
+      ],
       duration: 5
     })
     expect(durationResult.isError).toBe(true)
@@ -816,14 +990,19 @@ describe('VideoGenerateServer', () => {
 
     const genDurationResult = await callTool(server, {
       model: 'seedance-2.0',
-      prompt: '生成一个产品视频',
+      content: [
+        {
+          type: 'text',
+          text: '生成一个产品视频'
+        }
+      ],
       genDuration: 5
     })
     expect(genDurationResult.isError).toBe(true)
     expect(genDurationResult.content[0].text).toContain("only accepts 'gen_duration'")
   })
 
-  it('should reject video or audio references for non-Seedance 2.0 models', async () => {
+  it('should submit video references for non-Seedance 2.0 models without local support checks', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -843,19 +1022,67 @@ describe('VideoGenerateServer', () => {
           prices: {}
         })
       )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'ok',
+          task_id: 'video-task-non-seedance-reference'
+        })
+      )
 
     const server = createServer()
-    const result = await callTool(server, {
+    await callTool(server, {
+      action: 'submit',
       model: 'seedance-1.5-pro',
-      prompt: '生成一个镜头平稳推进的视频',
-      referenceVideos: ['https://example.com/reference-video.mp4']
+      content: [
+        {
+          type: 'text',
+          text: '生成一个镜头平稳推进的视频'
+        },
+        {
+          type: 'video_url',
+          video_url: {
+            url: 'https://example.com/reference-video.mp4'
+          },
+          role: 'reference_video'
+        }
+      ]
+    })
+
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      model: 'seedance-1.5-pro',
+      content: [
+        {
+          type: 'text',
+          text: '生成一个镜头平稳推进的视频'
+        },
+        {
+          type: 'video_url',
+          video_url: {
+            url: 'https://example.com/reference-video.mp4'
+          },
+          role: 'reference_video'
+        }
+      ]
+    })
+  })
+
+  it('should reject legacy prompt and convenience media fields', async () => {
+    const server = createServer()
+    const result = await callTool(server, {
+      action: 'submit',
+      prompt: '做一个产品宣传视频',
+      referenceImages: ['https://example.com/ref-1.png'],
+      referenceVideos: ['https://example.com/ref-2.mp4'],
+      referenceAudios: ['https://example.com/ref-3.mp3']
     })
 
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain('does not support Seedance 2.0 style video/audio reference inputs')
+    expect(result.content[0].text).toContain('Legacy video submission fields are no longer supported')
+    expect(result.content[0].text).toContain('prompt')
+    expect(result.content[0].text).toContain('referenceImages')
   })
 
-  it('should append convenience reference arrays into content', async () => {
+  it('should preserve reference image semantics whenever reference mode is explicit', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -865,45 +1092,66 @@ describe('VideoGenerateServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
+          capabilities: {
+            'minimax-h3': {
+              reference_supported: true,
+              first_frame_extend_supported: true,
+              first_last_frame_supported: true,
+              multi_image_reference_supported: true,
+              resolutions: {
+                '720p': [{ ratio: '9:16', size: '720x1280' }]
+              }
+            }
+          },
+          prices: {}
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
           status: 'ok',
-          task_id: 'video-task-content-alias'
+          task_id: 'video-task-minimax-reference'
         })
       )
 
     const server = createServer()
     await callTool(server, {
       action: 'submit',
-      prompt: '做一个产品宣传视频',
-      referenceImages: ['https://example.com/ref-1.png'],
-      referenceVideos: ['https://example.com/ref-2.mp4'],
-      referenceAudios: ['https://example.com/ref-3.mp3']
-    })
-
-    expect(JSON.parse(String(mockNetFetch.mock.calls[1]?.[1]?.body))).toEqual({
-      prompt: '做一个产品宣传视频',
+      model: 'minimax-h3',
+      generation_mode: 'reference',
       content: [
+        {
+          type: 'text',
+          text: '生成一个产品参考视频'
+        },
         {
           type: 'image_url',
           image_url: {
-            url: 'https://example.com/ref-1.png'
+            url: 'https://example.com/reference.png'
           },
           role: 'reference_image'
-        },
-        {
-          type: 'video_url',
-          video_url: {
-            url: 'https://example.com/ref-2.mp4'
-          },
-          role: 'reference_video'
-        },
-        {
-          type: 'audio_url',
-          audio_url: {
-            url: 'https://example.com/ref-3.mp3'
-          },
-          role: 'reference_audio'
         }
-      ]
+      ],
+      resolution: '720x1280',
+      gen_duration: 15
+    })
+
+    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+      model: 'minimax-h3',
+      content: [
+        {
+          type: 'text',
+          text: '生成一个产品参考视频'
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: 'https://example.com/reference.png'
+          },
+          role: 'reference_image'
+        }
+      ],
+      resolution: '720x1280',
+      gen_duration: 15
     })
   })
 
@@ -962,7 +1210,7 @@ describe('VideoGenerateServer', () => {
     })
 
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain("Either 'prompt' or 'content' is required")
+    expect(result.content[0].text).toContain("'content' is required")
   })
 
   it('should reject unknown capability model filters', async () => {

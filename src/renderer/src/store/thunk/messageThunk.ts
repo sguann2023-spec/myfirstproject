@@ -215,6 +215,11 @@ const buildAgentBaseURL = (apiServer: ApiServerConfig) => {
   return `${baseHost}${portSegment}`
 }
 
+const getResolvedApiServerConfig = (state: RootState): ApiServerConfig => ({
+  ...state.settings.apiServer,
+  port: state.runtime.apiServerPort ?? state.settings.apiServer.port
+})
+
 const createDefaultRuntimeAgentSession = async (
   dispatch: AppDispatch,
   getState: () => RootState,
@@ -222,7 +227,7 @@ const createDefaultRuntimeAgentSession = async (
   topicId: string
 ): Promise<AgentSessionContext> => {
   const state = getState()
-  const apiServer = state.settings.apiServer
+  const apiServer = getResolvedApiServerConfig(state)
 
   if (!apiServer?.enabled || !apiServer.apiKey) {
     throw new Error('Agent API server is disabled')
@@ -300,7 +305,7 @@ const syncAgentSessionWithAssistant = async (
   agentSession: AgentSessionContext,
   assistant: Assistant
 ): Promise<AgentSessionContext> => {
-  const apiServer = getState().settings.apiServer
+  const apiServer = getResolvedApiServerConfig(getState())
   if (!apiServer?.enabled || !apiServer.apiKey) {
     return agentSession
   }
@@ -344,7 +349,7 @@ export const renameAgentSessionIfNeeded = async (
 
   try {
     const state = getState()
-    const apiServer = state.settings.apiServer
+    const apiServer = getResolvedApiServerConfig(state)
     if (!apiServer?.enabled || !apiServer.apiKey) {
       return
     }
@@ -871,7 +876,7 @@ const fetchAndProcessAgentResponseImpl = async (
     addAbortController(userMessageId, () => abortController.abort())
 
     const stream = await createAgentMessageStream(
-      state.settings.apiServer,
+      getResolvedApiServerConfig(state),
       agentSession,
       userContent,
       abortController.signal
@@ -933,7 +938,7 @@ const fetchAndProcessAgentResponseImpl = async (
 
         // Refresh session data to get updated slash_commands from backend
         // This happens after the SDK init message updates the session in the database
-        const apiServer = stateAfterUpdate.settings.apiServer
+        const apiServer = getResolvedApiServerConfig(stateAfterUpdate)
         if (apiServer?.enabled && apiServer.apiKey) {
           const baseURL = buildAgentBaseURL(apiServer)
           const client = new AgentApiClient({
@@ -1190,7 +1195,7 @@ const fetchAndProcessAssistantResponseImpl = async (
     // Fetch agent allowed_tools for MCP auto-approval
     let allowedTools: string[] | undefined
     const activeAgentId = getState().runtime.chat.activeAgentId
-    const apiServer = getState().settings.apiServer
+    const apiServer = getResolvedApiServerConfig(getState())
     if (activeAgentId && apiServer?.enabled && apiServer.apiKey) {
       try {
         const baseURL = buildAgentBaseURL(apiServer)

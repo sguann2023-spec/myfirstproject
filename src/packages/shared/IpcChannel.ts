@@ -52,6 +52,7 @@ export enum IpcChannel {
 
   App_QuoteToMain = 'app:quote-to-main',
   App_SendTextToMain = 'app:send-text-to-main',
+  App_DraftCreated = 'app:draft-created',
   App_SetDisableHardwareAcceleration = 'app:set-disable-hardware-acceleration',
   App_SetUseSystemTitleBar = 'app:set-use-system-title-bar',
   App_BootstrapBuiltinSkills = 'app:bootstrap-builtin-skills',
@@ -136,6 +137,10 @@ export enum IpcChannel {
   CherryChatStream_SessionUpdate = 'cherry-chat-stream:session:update',
   CherryChatStream_SessionList = 'cherry-chat-stream:session:list',
   CherryChatStream_MessageCreate = 'cherry-chat-stream:message:create',
+  CherryChatStream_DraftRequest = 'cherry-chat-stream:draft-request',
+  CherryChatStream_DraftModifyRequest = 'cherry-chat-stream:draft-modify-request',
+  CherryChatStream_DraftExportRequest = 'cherry-chat-stream:draft-export-request',
+  CherryChatStream_DraftDownloadRequest = 'cherry-chat-stream:draft-download-request',
   CherryChatStream_MessageList = 'cherry-chat-stream:message:list',
   CherryChatStream_Subscribe = 'cherry-chat-stream:subscribe',
   CherryChatStream_Unsubscribe = 'cherry-chat-stream:unsubscribe',
@@ -418,6 +423,8 @@ export enum IpcChannel {
 
   // ExternalApps
   ExternalApps_DetectInstalled = 'external-apps:detect-installed',
+  LocalMcp_DetectAgents = 'local-mcp:detect-agents',
+  LocalMcp_SetAgentRegistration = 'local-mcp:set-agent-registration',
 
   // CodeTools
   CodeTools_Run = 'code-tools:run',

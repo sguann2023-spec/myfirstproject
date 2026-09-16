@@ -1,0 +1,25 @@
+.timeline-editor {
+
+  &-edit-row {
+    background-image: none;
+    background-repeat: no-repeat;
+    display: flex;
+    flex-direction: row;
+    box-sizing: border-box;
+    border-radius: 3px;
+  }
+  &-action-movable {
+    background-color: transparent !important;
+    padding-bottom: 4px;
+  }
+  &-action-grow {
+    transform-origin: left center;
+    animation: growRightRow 280ms ease-out forwards;
+    will-change: transform;
+  }
+}
+
+@keyframes growRightRow {
+  0% { transform: scaleX(0.0001); opacity: 0.85; }
+  100% { transform: scaleX(1); opacity: 1; }
+}

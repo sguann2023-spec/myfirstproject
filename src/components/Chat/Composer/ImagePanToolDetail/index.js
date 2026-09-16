@@ -77,13 +77,29 @@ const pickResolutionByTemplate = (capabilityMap, model, ratio) => {
   return '';
 };
 
-const renderModelContent = (model, label, description = '') => {
+const renderModelBadge = (badge) => (
+  <span
+    key={badge}
+    className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
+  >
+    {badge}
+  </span>
+);
+
+const renderModelContent = (model, label, description = '', badges = []) => {
   const icon = getModelIcon(model);
   return (
     <span className="chat-panel__image-pan-option">
       {icon ? <img className="chat-panel__image-pan-option-icon" src={icon} alt="" aria-hidden="true" /> : null}
       <span className="chat-panel__image-pan-option-main">
-        <span className="chat-panel__image-pan-option-text">{label}</span>
+        <span className="chat-panel__image-pan-option-header">
+          <span className="chat-panel__image-pan-option-text">{label}</span>
+          {Array.isArray(badges) && badges.length > 0 ? (
+            <span className="chat-panel__image-pan-option-tags">
+              {badges.map((badge) => renderModelBadge(badge))}
+            </span>
+          ) : null}
+        </span>
         {description ? <span className="chat-panel__image-pan-option-description">{description}</span> : null}
       </span>
     </span>
@@ -147,6 +163,7 @@ const ImagePanToolDetail = ({
       value: String(item?.model || '').trim(),
       label: String(item?.display_name || '').trim() || normalizeModelLabel(item?.model),
       description: String(item?.description || '').trim(),
+      badges: Array.isArray(item?.badges) ? item.badges.filter((badge) => typeof badge === 'string' && badge.trim()) : [],
       priceText: formatImagePriceText(item?.price?.resource_points_per_unit),
     })).filter((item) => item.value);
   }, [capabilityModels]);
@@ -200,7 +217,7 @@ const ImagePanToolDetail = ({
     value: item.value,
     label: (
       <span className="chat-panel__image-pan-option-wrap">
-        {renderModelContent(item.value, item.label, item.description)}
+        {renderModelContent(item.value, item.label, item.description, item.badges)}
         <span className="chat-panel__image-pan-option-price-wrap">
           <img className="chat-panel__image-pan-option-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
           <span className="chat-panel__image-pan-option-price">{item.priceText || '--/张'}</span>

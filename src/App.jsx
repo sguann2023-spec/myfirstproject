@@ -151,14 +151,24 @@ function App() {
   }, [prepareHomeRuntime]);
 
   const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
+  // 登录页不展示最小化/最大化按钮，只保留关闭
+  const showFullCaption = currentPage === 'home' || currentPage === 'guider';
 
   const handleWinCtrl = (action) => {
-      try {
-          const { ipcRenderer } = window.require('electron');
-          ipcRenderer.send('window-controls', action);
-      } catch (e) {
-          // ignore
+    try {
+      if (window.ipc?.send) {
+        window.ipc.send('window-controls', action);
+        return;
       }
+    } catch (e) {
+      // ignore, fallback below
+    }
+    try {
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('window-controls', action);
+    } catch (e) {
+      // ignore
+    }
   };
 
   return (
@@ -188,25 +198,28 @@ function App() {
             toggleLanguage={toggleLanguage}
           />
         )}
-        {/* 新增：仅在 Windows 渲染自定义窗口控制按钮 */}
         {isWindows && (
-            <div className="titlebar-overlay">
-                <button
-                    className="traffic-btn minimize"
-                    onClick={() => handleWinCtrl('minimize')}
-                    title="最小化"
-                />
-                <button
-                    className="traffic-btn maximize"
-                    onClick={() => handleWinCtrl('maximize')}
-                    title="最大化/还原"
-                />
-                <button
-                    className="traffic-btn close"
-                    onClick={() => handleWinCtrl('close')}
-                    title="关闭"
-                />
-            </div>
+          <div className="win-caption-controls">
+            {showFullCaption && (
+              <>
+                <button type="button" className="win-caption-btn" onClick={() => handleWinCtrl('minimize')} aria-label="最小化" title="最小化">
+                  <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                    <rect x="0" y="4.5" width="10" height="1" fill="currentColor" />
+                  </svg>
+                </button>
+                <button type="button" className="win-caption-btn" onClick={() => handleWinCtrl('maximize')} aria-label="最大化/还原" title="最大化/还原">
+                  <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                    <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
+                  </svg>
+                </button>
+              </>
+            )}
+            <button type="button" className="win-caption-btn win-caption-btn--close" onClick={() => handleWinCtrl('close')} aria-label="关闭" title="关闭">
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" stroke="currentColor" strokeWidth="1" fill="none" />
+              </svg>
+            </button>
+          </div>
         )}
       </div>
     </ConfigProvider>

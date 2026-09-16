@@ -13,16 +13,14 @@ import { config } from '../apiServer/config'
 import { loggerService } from './LoggerService'
 const logger = loggerService.withContext('ApiServerService')
 
-const API_SERVER_DISABLED_MESSAGE = 'API Server has been disabled in this build.'
-
 export class ApiServerService {
   constructor() {
     // Use the new clean implementation
   }
 
   async start(): Promise<void> {
-    logger.warn(API_SERVER_DISABLED_MESSAGE)
-    throw new Error(API_SERVER_DISABLED_MESSAGE)
+    await apiServer.start()
+    logger.info('API Server started successfully')
   }
 
   async stop(): Promise<void> {
@@ -36,8 +34,8 @@ export class ApiServerService {
   }
 
   async restart(): Promise<void> {
-    logger.warn(API_SERVER_DISABLED_MESSAGE)
-    throw new Error(API_SERVER_DISABLED_MESSAGE)
+    await apiServer.restart()
+    logger.info('API Server restarted successfully')
   }
 
   isRunning(): boolean {
@@ -45,11 +43,11 @@ export class ApiServerService {
   }
 
   async getCurrentConfig(): Promise<ApiServerConfig> {
-    const currentConfig = await config.get()
-    return {
-      ...currentConfig,
-      enabled: false
-    }
+    return await config.reload()
+  }
+
+  getListeningPort(): number | null {
+    return apiServer.getListeningPort()
   }
 
   registerIpcHandlers(): void {
@@ -86,12 +84,14 @@ export class ApiServerService {
         const config = await this.getCurrentConfig()
         return {
           running: this.isRunning(),
-          config
+          config,
+          actualPort: this.getListeningPort()
         }
       } catch (error: any) {
         return {
           running: this.isRunning(),
-          config: null
+          config: null,
+          actualPort: this.getListeningPort()
         }
       }
     })

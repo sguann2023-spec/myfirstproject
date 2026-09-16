@@ -1,0 +1,201 @@
+.pinned-draft-panel {
+  width: 100%;
+}
+
+.pinned-draft-panel__body {
+  border: 0.5px solid var(--color-border);
+  border-radius: 17px;
+  overflow: hidden;
+  background-color: var(--color-background-opacity);
+}
+
+body[theme-mode='dark'] .pinned-draft-panel__body {
+  background-color: var(--color-background-mute);
+}
+
+.pinned-draft-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+
+.pinned-draft-panel__header-left,
+.pinned-draft-panel__header-right {
+  display: flex;
+  align-items: center;
+}
+
+.pinned-draft-panel__header-left {
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+}
+
+.pinned-draft-panel__header-right {
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.pinned-draft-panel__header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-2);
+}
+
+.pinned-draft-panel__count {
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.pinned-draft-panel__action,
+.pinned-draft-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.pinned-draft-panel__action:hover,
+.pinned-draft-panel__close:hover {
+  color: var(--color-text-1);
+  background-color: var(--color-fill-2);
+}
+
+.pinned-draft-panel__list {
+  overflow-y: auto;
+  transition: max-height 0.2s ease;
+}
+
+.pinned-draft-panel__list.is-collapsed {
+  max-height: 0;
+}
+
+.pinned-draft-panel__list.is-expanded {
+  max-height: 260px;
+}
+
+.pinned-draft-panel__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 0.5px solid var(--color-border);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.pinned-draft-panel__item:hover {
+  background-color: var(--color-fill-1);
+}
+
+.pinned-draft-panel__item:focus-visible {
+  outline: none;
+  background-color: var(--color-fill-1);
+}
+
+.pinned-draft-panel__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pinned-draft-panel__item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pinned-draft-panel__item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+}
+
+.pinned-draft-panel__item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pinned-draft-panel__item-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.pinned-draft-panel__item-action:hover {
+  color: var(--color-text-1);
+  background-color: var(--color-fill-2);
+}
+
+.pinned-draft-panel__item-action.is-active {
+  color: var(--color-primary);
+  background-color: var(--color-fill-2);
+}
+
+.pinned-draft-panel__action.is-active {
+  color: var(--color-primary);
+  background-color: var(--color-fill-2);
+}
+
+.pinned-draft-panel__preview {
+  border-top: 0.5px solid var(--color-border);
+  background: #fff;
+}
+
+.pinned-draft-panel__list.is-expanded + .pinned-draft-panel__preview,
+.pinned-draft-panel__preview:first-child {
+  border-top: 0.5px solid var(--color-border);
+}
+
+.pinned-draft-panel__preview-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  background: #fff;
+}
+
+.pinned-draft-panel__preview-state.is-error {
+  color: var(--color-error);
+}

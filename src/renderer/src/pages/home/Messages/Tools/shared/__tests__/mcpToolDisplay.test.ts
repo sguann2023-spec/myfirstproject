@@ -14,6 +14,8 @@ describe('mcpToolDisplay', () => {
         'message.tools.mcp.tools.materials.folder_links': '查看文件夹',
         'message.tools.mcp.servers.image': '图像',
         'message.tools.mcp.tools.image.generate_or_edit_image': '生成或编辑图片',
+        'message.tools.mcp.servers.image_understand': '图片理解',
+        'message.tools.mcp.tools.image_understand.inspect_image': '识图',
         'message.tools.mcp.servers.video': '视频',
         'message.tools.mcp.tools.video.generate_video': '生成视频'
       } as Record<string, string>
@@ -64,6 +66,16 @@ describe('mcpToolDisplay', () => {
         t
       })
     ).toBe('视频：生成视频')
+  })
+
+  it('returns translated names for image understand MCP tools', () => {
+    expect(
+      getMcpToolDisplayName({
+        serverName: 'image-understand',
+        toolName: 'inspect_image',
+        t
+      })
+    ).toBe('图片理解：识图')
   })
 
   it('falls back to humanized English for unknown MCP tools', () => {
