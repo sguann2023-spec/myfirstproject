@@ -457,6 +457,13 @@ const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') 
   const fontSize = Number(textAddRequest?.font_size ?? textAddRequest?.fontSize);
   const letterSpacing = Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing);
   const lineSpacing = Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing);
+  const scaleX = Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX);
+  const scaleY = Number(textAddRequest?.scale_y ?? textAddRequest?.scaleY);
+  const transformXPx = Number(textAddRequest?.transform_x_px ?? textAddRequest?.transformXPx);
+  const transformYPx = Number(textAddRequest?.transform_y_px ?? textAddRequest?.transformYPx);
+  const fixedWidth = Number(textAddRequest?.fixed_width_px ?? textAddRequest?.fixedWidthPx ?? textAddRequest?.fixed_width ?? textAddRequest?.fixedWidth);
+  const fixedHeight = Number(textAddRequest?.fixed_height_px ?? textAddRequest?.fixedHeightPx ?? textAddRequest?.fixed_height ?? textAddRequest?.fixedHeight);
+  const rotation = Number(textAddRequest?.rotation);
   const align = Number(textAddRequest?.align);
   const trackName = String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim();
   return {
@@ -469,6 +476,13 @@ const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') 
     ...(Number.isFinite(fontSize) && fontSize > 0 ? { font_size: fontSize } : {}),
     ...(Number.isFinite(letterSpacing) ? { letter_spacing: letterSpacing } : {}),
     ...(Number.isFinite(lineSpacing) ? { line_spacing: lineSpacing } : {}),
+    ...(Number.isFinite(scaleX) ? { scale_x: scaleX } : {}),
+    ...(Number.isFinite(scaleY) ? { scale_y: scaleY } : {}),
+    ...(Number.isFinite(transformXPx) ? { transform_x_px: transformXPx } : {}),
+    ...(Number.isFinite(transformYPx) ? { transform_y_px: transformYPx } : {}),
+    ...(Number.isFinite(fixedWidth) ? { fixed_width_px: fixedWidth } : {}),
+    ...(Number.isFinite(fixedHeight) ? { fixed_height_px: fixedHeight } : {}),
+    ...(Number.isFinite(rotation) ? { rotation } : {}),
     ...(typeof textAddRequest?.bold === 'boolean' ? { bold: textAddRequest.bold } : {}),
     ...(typeof textAddRequest?.italic === 'boolean' ? { italic: textAddRequest.italic } : {}),
     ...(typeof textAddRequest?.underline === 'boolean' ? { underline: textAddRequest.underline } : {}),

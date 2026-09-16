@@ -93,8 +93,8 @@ const TOOLS: Tool[] = [
       track_name: { type: 'string', description: 'Optional track name.' },
       vertical: { type: 'boolean', description: 'Optional vertical text mode. false means horizontal alignment, true means vertical alignment.' },
       font_alpha: { type: 'number', description: 'Optional font alpha.' },
-      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
-      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed layout width in pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
       border_width: { type: 'number', description: 'Optional border width.' },
@@ -171,8 +171,8 @@ const TOOLS: Tool[] = [
       relative_index: { type: 'integer', description: 'Optional relative track index.' },
       vertical: { type: 'boolean', description: 'Optional vertical text mode. false means horizontal alignment, true means vertical alignment.' },
       font_alpha: { type: 'number', description: 'Optional font alpha.' },
-      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
-      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed layout width in pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
       border_width: { type: 'integer', description: 'Optional border width.' },
@@ -279,8 +279,8 @@ const TOOLS: Tool[] = [
       outro_duration: { type: 'number', description: 'Optional outro animation duration.' },
       loop_animation: { type: 'string', description: 'Optional loop animation name.' },
       loop_duration: { type: 'number', description: 'Optional loop animation duration.' },
-      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
-      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed layout width in pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       text_styles: {
         type: 'array',
         items: { type: 'string' },
@@ -991,8 +991,10 @@ const ARG_ALIASES: Record<string, string> = {
   fontColor: 'font_color',
   fontSize: 'font_size',
   fontAlpha: 'font_alpha',
-  fixedWidth: 'fixed_width',
-  fixedHeight: 'fixed_height',
+  fixedWidth: 'fixed_width_px',
+  fixedHeight: 'fixed_height_px',
+  fixedWidthPx: 'fixed_width_px',
+  fixedHeightPx: 'fixed_height_px',
   borderAlpha: 'border_alpha',
   borderColor: 'border_color',
   borderWidth: 'border_width',
@@ -1115,6 +1117,7 @@ type PendingToken = {
 
 type VectCutResponse = {
   error?: string
+  error_code?: string
   output?: unknown
   purchase_link?: string
   success?: boolean
@@ -1333,6 +1336,10 @@ class DraftElementsServer {
       success: response.success,
       error: response.error,
       output
+    }
+
+    if (typeof response.error_code !== 'undefined') {
+      payload.error_code = response.error_code
     }
 
     if (typeof response.purchase_link !== 'undefined') {

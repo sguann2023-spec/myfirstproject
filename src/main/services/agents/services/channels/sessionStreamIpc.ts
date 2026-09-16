@@ -99,6 +99,19 @@ type DirectDraftRequestPayload = {
     underline?: boolean
     vertical?: boolean
     align?: number
+    scale_x?: number
+    scaleX?: number
+    scale_y?: number
+    scaleY?: number
+    transform_x_px?: number
+    transformXPx?: number
+    transform_y_px?: number
+    transformYPx?: number
+    fixed_width_px?: number
+    fixedWidthPx?: number
+    fixed_height_px?: number
+    fixedHeightPx?: number
+    rotation?: number
     track_name?: string
     trackName?: string
   }
@@ -363,6 +376,20 @@ function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fall
   const vertical = typeof input?.vertical === 'boolean' ? input.vertical : undefined
   const alignRaw = Number(input?.align)
   const align = Number.isInteger(alignRaw) ? alignRaw : undefined
+  const scaleXRaw = Number(input?.scale_x ?? input?.scaleX)
+  const scaleX = Number.isFinite(scaleXRaw) ? scaleXRaw : undefined
+  const scaleYRaw = Number(input?.scale_y ?? input?.scaleY)
+  const scaleY = Number.isFinite(scaleYRaw) ? scaleYRaw : undefined
+  const transformXPxRaw = Number(input?.transform_x_px ?? input?.transformXPx)
+  const transformXPx = Number.isFinite(transformXPxRaw) ? transformXPxRaw : undefined
+  const transformYPxRaw = Number(input?.transform_y_px ?? input?.transformYPx)
+  const transformYPx = Number.isFinite(transformYPxRaw) ? transformYPxRaw : undefined
+  const fixedWidthPxRaw = Number(input?.fixed_width_px ?? input?.fixedWidthPx ?? input?.fixed_width ?? input?.fixedWidth)
+  const fixedWidthPx = Number.isFinite(fixedWidthPxRaw) ? fixedWidthPxRaw : undefined
+  const fixedHeightPxRaw = Number(input?.fixed_height_px ?? input?.fixedHeightPx ?? input?.fixed_height ?? input?.fixedHeight)
+  const fixedHeightPx = Number.isFinite(fixedHeightPxRaw) ? fixedHeightPxRaw : undefined
+  const rotationRaw = Number(input?.rotation)
+  const rotation = Number.isFinite(rotationRaw) ? rotationRaw : undefined
   const trackNameRaw = typeof input?.track_name === 'string'
     ? input.track_name
     : (typeof input?.trackName === 'string' ? input.trackName : '')
@@ -383,6 +410,13 @@ function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fall
     ...(typeof underline === 'boolean' ? { underline } : {}),
     ...(typeof vertical === 'boolean' ? { vertical } : {}),
     ...(typeof align === 'number' ? { align } : {}),
+    ...(typeof scaleX === 'number' ? { scale_x: scaleX } : {}),
+    ...(typeof scaleY === 'number' ? { scale_y: scaleY } : {}),
+    ...(typeof transformXPx === 'number' ? { transform_x_px: transformXPx } : {}),
+    ...(typeof transformYPx === 'number' ? { transform_y_px: transformYPx } : {}),
+    ...(typeof fixedWidthPx === 'number' ? { fixed_width_px: fixedWidthPx } : {}),
+    ...(typeof fixedHeightPx === 'number' ? { fixed_height_px: fixedHeightPx } : {}),
+    ...(typeof rotation === 'number' ? { rotation } : {}),
     ...(trackName ? { track_name: trackName } : {}),
   }
 }

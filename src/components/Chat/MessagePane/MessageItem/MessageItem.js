@@ -84,8 +84,21 @@ const buildTextAddRequestSignature = (textAddRequest = null) => {
     font: String(textAddRequest?.font || ''),
     fontColor: String(textAddRequest?.font_color || textAddRequest?.fontColor || ''),
     fontSize: Number(textAddRequest?.font_size ?? textAddRequest?.fontSize ?? 0),
+    letterSpacing: Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing ?? 0),
+    lineSpacing: Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing ?? 0),
+    scaleX: Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX ?? 0),
+    scaleY: Number(textAddRequest?.scale_y ?? textAddRequest?.scaleY ?? 0),
+    transformXPx: Number(textAddRequest?.transform_x_px ?? textAddRequest?.transformXPx ?? 0),
+    transformYPx: Number(textAddRequest?.transform_y_px ?? textAddRequest?.transformYPx ?? 0),
+    fixedWidthPx: Number(textAddRequest?.fixed_width_px ?? textAddRequest?.fixedWidthPx ?? textAddRequest?.fixed_width ?? textAddRequest?.fixedWidth ?? 0),
+    fixedHeightPx: Number(textAddRequest?.fixed_height_px ?? textAddRequest?.fixedHeightPx ?? textAddRequest?.fixed_height ?? textAddRequest?.fixedHeight ?? 0),
+    rotation: Number(textAddRequest?.rotation ?? 0),
+    bold: Boolean(textAddRequest?.bold),
+    italic: Boolean(textAddRequest?.italic),
+    underline: Boolean(textAddRequest?.underline),
     vertical: Boolean(textAddRequest?.vertical),
-    align: Number(textAddRequest?.align ?? 0)
+    align: Number(textAddRequest?.align ?? 0),
+    trackName: String(textAddRequest?.track_name || textAddRequest?.trackName || '')
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -157,6 +170,13 @@ const buildDraftModifyRequestApiCurl = (draftModifyRequest = null, message = {})
   ].join('\n');
 };
 const buildTextAddRequestApiCurl = (textAddRequest = null) => {
+  const scaleX = Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX);
+  const scaleY = Number(textAddRequest?.scale_y ?? textAddRequest?.scaleY);
+  const transformXPx = Number(textAddRequest?.transform_x_px ?? textAddRequest?.transformXPx);
+  const transformYPx = Number(textAddRequest?.transform_y_px ?? textAddRequest?.transformYPx);
+  const fixedWidthPx = Number(textAddRequest?.fixed_width_px ?? textAddRequest?.fixedWidthPx ?? textAddRequest?.fixed_width ?? textAddRequest?.fixedWidth);
+  const fixedHeightPx = Number(textAddRequest?.fixed_height_px ?? textAddRequest?.fixedHeightPx ?? textAddRequest?.fixed_height ?? textAddRequest?.fixedHeight);
+  const rotation = Number(textAddRequest?.rotation);
   const payload = {
     draft_id: String(textAddRequest?.draft_id || textAddRequest?.draftId || '').trim(),
     text: String(textAddRequest?.text || '').trim(),
@@ -169,8 +189,27 @@ const buildTextAddRequestApiCurl = (textAddRequest = null) => {
     ...(String(textAddRequest?.font_color || textAddRequest?.fontColor || '').trim()
       ? { font_color: String(textAddRequest?.font_color || textAddRequest?.fontColor || '').trim() }
       : {}),
+    ...(Number.isFinite(Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing))
+      ? { letter_spacing: Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing) }
+      : {}),
+    ...(Number.isFinite(Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing))
+      ? { line_spacing: Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing) }
+      : {}),
+    ...(typeof textAddRequest?.bold === 'boolean' ? { bold: textAddRequest.bold } : {}),
+    ...(typeof textAddRequest?.italic === 'boolean' ? { italic: textAddRequest.italic } : {}),
+    ...(typeof textAddRequest?.underline === 'boolean' ? { underline: textAddRequest.underline } : {}),
     ...(typeof textAddRequest?.vertical === 'boolean' ? { vertical: textAddRequest.vertical } : {}),
-    ...(Number.isInteger(Number(textAddRequest?.align)) ? { align: Number(textAddRequest.align) } : {})
+    ...(Number.isInteger(Number(textAddRequest?.align)) ? { align: Number(textAddRequest.align) } : {}),
+    ...(Number.isFinite(scaleX) ? { scale_x: scaleX } : {}),
+    ...(Number.isFinite(scaleY) ? { scale_y: scaleY } : {}),
+    ...(Number.isFinite(transformXPx) ? { transform_x_px: transformXPx } : {}),
+    ...(Number.isFinite(transformYPx) ? { transform_y_px: transformYPx } : {}),
+    ...(Number.isFinite(fixedWidthPx) ? { fixed_width_px: fixedWidthPx } : {}),
+    ...(Number.isFinite(fixedHeightPx) ? { fixed_height_px: fixedHeightPx } : {}),
+    ...(Number.isFinite(rotation) ? { rotation } : {}),
+    ...(String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim()
+      ? { track_name: String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim() }
+      : {})
   };
   const payloadText = JSON.stringify(payload, null, 4);
   return [

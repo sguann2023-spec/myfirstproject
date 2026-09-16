@@ -125,7 +125,14 @@
   "italic": false,
   "underline": false,
   "vertical": false,
-  "align": 1
+  "align": 1,
+  "scale_x": 1,
+  "scale_y": 1,
+  "transform_x_px": 0,
+  "transform_y_px": 0,
+  "fixed_width_px": 600,
+  "fixed_height_px": 120,
+  "rotation": 0
 }
 ```
 
@@ -143,8 +150,20 @@ curl --request POST \
     "font": "优设标题黑",
     "font_size": 24,
     "font_color": "#FFFFFF",
+    "letter_spacing": 0,
+    "line_spacing": 0,
+    "bold": false,
+    "italic": false,
+    "underline": false,
     "vertical": false,
-    "align": 1
+    "align": 1,
+    "scale_x": 1,
+    "scale_y": 1,
+    "transform_x_px": 0,
+    "transform_y_px": 0,
+    "fixed_width_px": 600,
+    "fixed_height_px": 120,
+    "rotation": 0
   }'
 ```
 
@@ -184,8 +203,20 @@ curl --request POST \
               { "name": "font", "type": "string" },
               { "name": "font_size", "type": "float" },
               { "name": "font_color", "type": "string" },
+              { "name": "letter_spacing", "type": "float" },
+              { "name": "line_spacing", "type": "float" },
+              { "name": "bold", "type": "boolean" },
+              { "name": "italic", "type": "boolean" },
+              { "name": "underline", "type": "boolean" },
               { "name": "vertical", "type": "boolean" },
-              { "name": "align", "type": "integer" }
+              { "name": "align", "type": "integer" },
+              { "name": "scale_x", "type": "float" },
+              { "name": "scale_y", "type": "float" },
+              { "name": "transform_x_px", "type": "integer" },
+              { "name": "transform_y_px", "type": "integer" },
+              { "name": "fixed_width_px", "type": "integer" },
+              { "name": "fixed_height_px", "type": "integer" },
+              { "name": "rotation", "type": "float" }
             ]
           }
         }

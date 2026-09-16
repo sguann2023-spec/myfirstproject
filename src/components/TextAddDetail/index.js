@@ -1,6 +1,6 @@
 import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
-import { ColorPicker, Dropdown, InputNumber, Select, Slider, Tooltip } from 'antd';
+import { ColorPicker, Dropdown, InputNumber, Select, Slider, Switch, Tooltip } from 'antd';
 import {
   AlignCenter,
   AlignLeft,
@@ -82,6 +82,25 @@ const TEXT_SETTINGS_TAB_CONTENT = {
   },
 };
 
+const clampNumber = (value, min, max, fallback) => {
+  const resolvedValue = Number(value);
+  if (!Number.isFinite(resolvedValue)) return fallback;
+  return Math.min(max, Math.max(min, resolvedValue));
+};
+
+const normalizeScalePercent = (value, fallback = 100) => clampNumber(value, 1, 500, fallback);
+const normalizePositionValue = (value, fallback = 0) => clampNumber(value, -10000, 10000, fallback);
+const normalizeFixedLayoutValue = (value, fallback = null) => {
+  if (value === null || value === undefined || String(value).trim() === '') return fallback;
+  const resolvedValue = Number(value);
+  if (!Number.isFinite(resolvedValue) || resolvedValue < 0) return fallback;
+  return Math.round(clampNumber(resolvedValue, 0, 10000, fallback ?? 0));
+};
+const normalizeRotationValue = (value, fallback = 0) => {
+  const clampedValue = clampNumber(value, -360, 360, fallback);
+  return Math.round(clampedValue);
+};
+
 export const DEFAULT_TEXT_ADD_SETTINGS = {
   font: DEFAULT_FONT_OPTIONS[0],
   fontSize: 24,
@@ -94,6 +113,14 @@ export const DEFAULT_TEXT_ADD_SETTINGS = {
   letterSpacing: 0,
   lineSpacing: 0,
   align: 'horizontal-center',
+  scaleXPercent: 100,
+  scaleYPercent: 100,
+  uniformScale: true,
+  positionX: 0,
+  positionY: 0,
+  fixedWidth: null,
+  fixedHeight: null,
+  rotation: 0,
 };
 
 export const buildTextAddSettingsPrompt = (settings = DEFAULT_TEXT_ADD_SETTINGS) => {
@@ -108,6 +135,19 @@ export const buildTextAddSettingsPrompt = (settings = DEFAULT_TEXT_ADD_SETTINGS)
   const alignLabel = ALIGN_OPTIONS.find((option) => option.key === resolvedAlignKey)?.label
     || '水平居中对齐';
   const alignPromptParams = ALIGN_PROMPT_PARAM_MAP[resolvedAlignKey] || ALIGN_PROMPT_PARAM_MAP[DEFAULT_TEXT_ADD_SETTINGS.align];
+  const scaleXPercent = normalizeScalePercent(settings?.scaleXPercent, DEFAULT_TEXT_ADD_SETTINGS.scaleXPercent);
+  const scaleYPercent = normalizeScalePercent(settings?.scaleYPercent, DEFAULT_TEXT_ADD_SETTINGS.scaleYPercent);
+  const uniformScale = typeof settings?.uniformScale === 'boolean'
+    ? settings.uniformScale
+    : DEFAULT_TEXT_ADD_SETTINGS.uniformScale;
+  const positionX = normalizePositionValue(settings?.positionX, DEFAULT_TEXT_ADD_SETTINGS.positionX);
+  const positionY = normalizePositionValue(settings?.positionY, DEFAULT_TEXT_ADD_SETTINGS.positionY);
+  const fixedWidth = normalizeFixedLayoutValue(settings?.fixedWidth, DEFAULT_TEXT_ADD_SETTINGS.fixedWidth);
+  const fixedHeight = normalizeFixedLayoutValue(settings?.fixedHeight, DEFAULT_TEXT_ADD_SETTINGS.fixedHeight);
+  const rotation = normalizeRotationValue(settings?.rotation, DEFAULT_TEXT_ADD_SETTINGS.rotation);
+  const scalePrompt = uniformScale || scaleXPercent === scaleYPercent
+    ? `${scaleXPercent}%`
+    : `X=${scaleXPercent}%，Y=${scaleYPercent}%`;
 
   return [
     '文本设置：',
@@ -118,6 +158,12 @@ export const buildTextAddSettingsPrompt = (settings = DEFAULT_TEXT_ADD_SETTINGS)
     `字间距：${Number(settings?.letterSpacing) || 0}`,
     `行间距：${Number(settings?.lineSpacing) || 0}`,
     `对齐方式：${alignLabel}（vertical=${String(Boolean(alignPromptParams?.vertical))}，align=${Number(alignPromptParams?.align) || 0}）`,
+    `缩放：${scalePrompt}`,
+    `等比缩放：${uniformScale ? '开启' : '关闭'}`,
+    `位置：X=${positionX}，Y=${positionY}`,
+    Number.isFinite(fixedWidth) ? `固定宽度：${fixedWidth}` : '',
+    Number.isFinite(fixedHeight) ? `固定高度：${fixedHeight}` : '',
+    `平面旋转：${rotation}°`,
   ].filter(Boolean).join('\n');
 };
 
@@ -148,6 +194,7 @@ const TextAddDetail = ({
   onSelectedDraftIdsChange = null,
   onSettingsChange = null,
 }) => {
+  const rotationPreviewRef = React.useRef(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = React.useState(TEXT_SETTINGS_TABS[0].key);
   const [fontOptions] = React.useState(DEFAULT_FONT_OPTIONS);
@@ -164,6 +211,16 @@ const TextAddDetail = ({
   const [letterSpacing, setLetterSpacing] = React.useState(0);
   const [lineSpacing, setLineSpacing] = React.useState(0);
   const [textAlign, setTextAlign] = React.useState('horizontal-center');
+  const [scaleXPercent, setScaleXPercent] = React.useState(100);
+  const [scaleYPercent, setScaleYPercent] = React.useState(100);
+  const [uniformScale, setUniformScale] = React.useState(true);
+  const [positionX, setPositionX] = React.useState(0);
+  const [positionY, setPositionY] = React.useState(0);
+  const [fixedWidth, setFixedWidth] = React.useState(null);
+  const [fixedHeight, setFixedHeight] = React.useState(null);
+  const [rotation, setRotation] = React.useState(0);
+  const [isRotationDragging, setIsRotationDragging] = React.useState(false);
+  const [isTransformSectionExpanded, setIsTransformSectionExpanded] = React.useState(true);
 
   const activeTabContent = TEXT_SETTINGS_TAB_CONTENT[activeSettingsTab] || TEXT_SETTINGS_TAB_CONTENT.basic;
   React.useEffect(() => {
@@ -176,16 +233,32 @@ const TextAddDetail = ({
       letterSpacing,
       lineSpacing,
       align: textAlign,
+      scaleXPercent,
+      scaleYPercent,
+      uniformScale,
+      positionX,
+      positionY,
+      fixedWidth,
+      fixedHeight,
+      rotation,
     });
   }, [
+    fixedHeight,
+    fixedWidth,
     fontSize,
     letterSpacing,
     lineSpacing,
     onSettingsChange,
+    positionX,
+    positionY,
+    rotation,
+    scaleXPercent,
+    scaleYPercent,
     selectedFont,
     textAlign,
     textColor,
     textStyles,
+    uniformScale,
   ]);
 
   const handleStyleToggle = React.useCallback((styleKey) => {
@@ -198,6 +271,119 @@ const TextAddDetail = ({
   const handlePresetColorSelect = React.useCallback((colorValue) => {
     setTextColor(colorValue.toUpperCase());
   }, []);
+
+  const handleUniformScaleChange = React.useCallback((checked) => {
+    setUniformScale(checked);
+    if (checked) {
+      setScaleYPercent((prev) => normalizeScalePercent(scaleXPercent, prev));
+    }
+  }, [scaleXPercent]);
+
+  const handleScaleSliderChange = React.useCallback((value) => {
+    const nextScaleValue = normalizeScalePercent(value, scaleXPercent);
+    setScaleXPercent(nextScaleValue);
+    setScaleYPercent(nextScaleValue);
+  }, [scaleXPercent]);
+
+  const handleScaleXInputChange = React.useCallback((value) => {
+    const nextScaleValue = normalizeScalePercent(value, scaleXPercent);
+    setScaleXPercent(nextScaleValue);
+    if (uniformScale) {
+      setScaleYPercent(nextScaleValue);
+    }
+  }, [scaleXPercent, uniformScale]);
+
+  const handleScaleYInputChange = React.useCallback((value) => {
+    const nextScaleValue = normalizeScalePercent(value, scaleYPercent);
+    setScaleYPercent(nextScaleValue);
+  }, [scaleYPercent]);
+
+  const resolveRotationFromPointer = React.useCallback((clientX, clientY) => {
+    const previewElement = rotationPreviewRef.current;
+    if (!previewElement) return rotation;
+
+    const rect = previewElement.getBoundingClientRect();
+    const centerX = rect.left + (rect.width / 2);
+    const centerY = rect.top + (rect.height / 2);
+    const nextRotation = (Math.atan2(clientY - centerY, clientX - centerX) * 180) / Math.PI;
+    const normalizedRotation = ((nextRotation % 360) + 360) % 360;
+
+    return normalizeRotationValue(
+      normalizedRotation > 180 ? normalizedRotation - 360 : normalizedRotation,
+      rotation,
+    );
+  }, [rotation]);
+
+  const handleRotationPointerDown = React.useCallback((event) => {
+    if (disabled) return;
+
+    event.preventDefault();
+    setRotation(resolveRotationFromPointer(event.clientX, event.clientY));
+    setIsRotationDragging(true);
+  }, [disabled, resolveRotationFromPointer]);
+
+  const handleRotationPreviewKeyDown = React.useCallback((event) => {
+    if (disabled) return;
+
+    const step = event.shiftKey ? 10 : 1;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      setRotation((prev) => normalizeRotationValue(prev - step, -360));
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      setRotation((prev) => normalizeRotationValue(prev + step, 360));
+    }
+  }, [disabled]);
+
+  React.useEffect(() => {
+    if (!isRotationDragging) return undefined;
+
+    const handlePointerMove = (event) => {
+      setRotation(resolveRotationFromPointer(event.clientX, event.clientY));
+    };
+
+    const handlePointerUp = () => {
+      setIsRotationDragging(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isRotationDragging, resolveRotationFromPointer]);
+
+  const renderScaleControl = React.useCallback((value, onChange) => (
+    <div className="chat-panel__text-settings-control chat-panel__text-settings-control--size">
+      <Slider
+        min={1}
+        max={500}
+        value={value}
+        disabled={disabled}
+        className="chat-panel__text-settings-slider"
+        tooltip={{ open: false }}
+        styles={{
+          rail: { backgroundColor: '#f5f5f5' },
+          track: { backgroundColor: '#888888' }
+        }}
+        onChange={onChange}
+      />
+      <InputNumber
+        min={1}
+        max={500}
+        value={value}
+        disabled={disabled}
+        className="chat-panel__text-settings-number"
+        controls
+        formatter={(inputValue) => `${inputValue ?? ''}%`}
+        parser={(inputValue) => String(inputValue || '').replace('%', '')}
+        onChange={onChange}
+      />
+    </div>
+  ), [disabled]);
 
   const basicPanelContent = (
     <div className="chat-panel__text-settings-form">
@@ -350,27 +536,166 @@ const TextAddDetail = ({
       <div className="chat-panel__text-settings-row">
         <div className="chat-panel__text-settings-label">对齐方式</div>
         <div className="chat-panel__text-settings-control">
-            <div className="chat-panel__text-settings-align-group">
-              {ALIGN_OPTIONS.map((option, index) => (
-                <React.Fragment key={option.key}>
-                  {index === 3 ? <span className="chat-panel__text-settings-align-divider" aria-hidden="true" /> : null}
-                  <button
-                    type="button"
-                    className={`chat-panel__text-settings-align ${textAlign === option.key ? 'is-active' : ''}`}
-                    disabled={disabled}
-                    aria-label={option.label}
-                    onClick={() => setTextAlign(option.key)}
-                  >
-                    <option.icon
-                      className={`chat-panel__text-settings-align-icon ${option.iconClassName || ''}`.trim()}
-                      aria-hidden="true"
-                    />
-                  </button>
-                </React.Fragment>
-              ))}
-            </div>
+          <div className="chat-panel__text-settings-align-group">
+            {ALIGN_OPTIONS.map((option, index) => (
+              <React.Fragment key={option.key}>
+                {index === 3 ? <span className="chat-panel__text-settings-align-divider" aria-hidden="true" /> : null}
+                <button
+                  type="button"
+                  className={`chat-panel__text-settings-align ${textAlign === option.key ? 'is-active' : ''}`}
+                  disabled={disabled}
+                  aria-label={option.label}
+                  onClick={() => setTextAlign(option.key)}
+                >
+                  <option.icon
+                    className={`chat-panel__text-settings-align-icon ${option.iconClassName || ''}`.trim()}
+                    aria-hidden="true"
+                  />
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
       </div>
+
+      <div className="chat-panel__text-settings-divider" aria-hidden="true" />
+
+      <button
+        type="button"
+        className="chat-panel__text-settings-section-header"
+        aria-expanded={isTransformSectionExpanded}
+        onClick={() => setIsTransformSectionExpanded((prev) => !prev)}
+      >
+        <span className="chat-panel__text-settings-section-title">位置大小</span>
+        <ChevronDown
+          className={`chat-panel__text-settings-section-icon ${isTransformSectionExpanded ? 'is-expanded' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {isTransformSectionExpanded ? (
+        <>
+          <div className="chat-panel__text-settings-row">
+            <div className="chat-panel__text-settings-label">{uniformScale ? '缩放' : '缩放宽度'}</div>
+            {renderScaleControl(scaleXPercent, uniformScale ? handleScaleSliderChange : handleScaleXInputChange)}
+          </div>
+
+          {!uniformScale ? (
+            <div className="chat-panel__text-settings-row">
+              <div className="chat-panel__text-settings-label">缩放高度</div>
+              {renderScaleControl(scaleYPercent, handleScaleYInputChange)}
+            </div>
+          ) : null}
+
+          <div className="chat-panel__text-settings-row">
+            <div className="chat-panel__text-settings-label">等比缩放</div>
+            <div className="chat-panel__text-settings-control chat-panel__text-settings-control--switch">
+              <Switch
+                checked={uniformScale}
+                disabled={disabled}
+                className="chat-panel__text-settings-switch"
+                onChange={handleUniformScaleChange}
+              />
+            </div>
+          </div>
+
+          <div className="chat-panel__text-settings-row">
+            <div className="chat-panel__text-settings-label">位置</div>
+            <div className="chat-panel__text-settings-control">
+              <div className="chat-panel__text-settings-transform-row">
+                <span className="chat-panel__text-settings-transform-label x">X</span>
+                <InputNumber
+                  min={-10000}
+                  max={10000}
+                  value={positionX}
+                  disabled={disabled}
+                  className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
+                  controls
+                  onChange={(value) => setPositionX(normalizePositionValue(value, 0))}
+                />
+                <span className="chat-panel__text-settings-transform-label y">Y</span>
+                <InputNumber
+                  min={-10000}
+                  max={10000}
+                  value={positionY}
+                  disabled={disabled}
+                  className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
+                  controls
+                  onChange={(value) => setPositionY(normalizePositionValue(value, 0))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="chat-panel__text-settings-row">
+            <div className="chat-panel__text-settings-label">固定尺寸</div>
+            <div className="chat-panel__text-settings-control">
+              <div className="chat-panel__text-settings-transform-row">
+                <span className="chat-panel__text-settings-transform-label x">宽</span>
+                <InputNumber
+                  min={0}
+                  max={10000}
+                  step={1}
+                  precision={0}
+                  value={fixedWidth}
+                  placeholder="自适应"
+                  disabled={disabled}
+                  className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
+                  controls
+                  onChange={(value) => setFixedWidth(normalizeFixedLayoutValue(value, null))}
+                />
+                <span className="chat-panel__text-settings-transform-label y">高</span>
+                <InputNumber
+                  min={0}
+                  max={10000}
+                  step={1}
+                  precision={0}
+                  value={fixedHeight}
+                  placeholder="自适应"
+                  disabled={disabled}
+                  className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
+                  controls
+                  onChange={(value) => setFixedHeight(normalizeFixedLayoutValue(value, null))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="chat-panel__text-settings-row">
+            <div className="chat-panel__text-settings-label">平面旋转</div>
+            <div className="chat-panel__text-settings-control chat-panel__text-settings-control--rotation">
+              <InputNumber
+                min={-360}
+                max={360}
+                step={1}
+                precision={0}
+                value={rotation}
+                disabled={disabled}
+                className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
+                controls
+                formatter={(value) => `${value ?? ''}°`}
+                parser={(value) => String(value || '').replace('°', '')}
+                onChange={(value) => setRotation(normalizeRotationValue(value, 0))}
+              />
+              <span
+                ref={rotationPreviewRef}
+                className="chat-panel__text-settings-rotation-preview"
+                style={{ '--rotation-deg': `${rotation}deg` }}
+                aria-label="拖动调整平面旋转"
+                aria-valuemax={360}
+                aria-valuemin={-360}
+                aria-valuenow={rotation}
+                role="slider"
+                tabIndex={disabled ? -1 : 0}
+                onKeyDown={handleRotationPreviewKeyDown}
+                onPointerDown={handleRotationPointerDown}
+              >
+                <span className="chat-panel__text-settings-rotation-indicator" />
+              </span>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 

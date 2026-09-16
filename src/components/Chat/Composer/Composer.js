@@ -4146,6 +4146,17 @@ const Composer = ({
           fontColor: String(textAddSettings?.color || '#FFFFFF').trim().toUpperCase(),
           letterSpacing: Number(textAddSettings?.letterSpacing || 0) || 0,
           lineSpacing: Number(textAddSettings?.lineSpacing || 0) || 0,
+          scaleX: (Number(textAddSettings?.scaleXPercent ?? DEFAULT_TEXT_ADD_SETTINGS.scaleXPercent) || DEFAULT_TEXT_ADD_SETTINGS.scaleXPercent) / 100,
+          scaleY: (Number(textAddSettings?.scaleYPercent ?? DEFAULT_TEXT_ADD_SETTINGS.scaleYPercent) || DEFAULT_TEXT_ADD_SETTINGS.scaleYPercent) / 100,
+          transformXPx: Number(textAddSettings?.positionX ?? DEFAULT_TEXT_ADD_SETTINGS.positionX) || DEFAULT_TEXT_ADD_SETTINGS.positionX,
+          transformYPx: Number(textAddSettings?.positionY ?? DEFAULT_TEXT_ADD_SETTINGS.positionY) || DEFAULT_TEXT_ADD_SETTINGS.positionY,
+          ...(Number.isFinite(Number(textAddSettings?.fixedWidth))
+            ? { fixedWidthPx: Number(textAddSettings.fixedWidth) }
+            : {}),
+          ...(Number.isFinite(Number(textAddSettings?.fixedHeight))
+            ? { fixedHeightPx: Number(textAddSettings.fixedHeight) }
+            : {}),
+          rotation: Number(textAddSettings?.rotation ?? DEFAULT_TEXT_ADD_SETTINGS.rotation) || DEFAULT_TEXT_ADD_SETTINGS.rotation,
           bold: Boolean(textAddSettings?.styles?.bold),
           italic: Boolean(textAddSettings?.styles?.italic),
           underline: Boolean(textAddSettings?.styles?.underline),
