@@ -82,6 +82,11 @@ const TEXT_SETTINGS_TAB_CONTENT = {
   },
 };
 
+const NUMBER_INPUT_SHARED_PROPS = {
+  controls: true,
+  changeOnWheel: true,
+};
+
 const clampNumber = (value, min, max, fallback) => {
   const resolvedValue = Number(value);
   if (!Number.isFinite(resolvedValue)) return fallback;
@@ -377,7 +382,7 @@ const TextAddDetail = ({
         value={value}
         disabled={disabled}
         className="chat-panel__text-settings-number"
-        controls
+        {...NUMBER_INPUT_SHARED_PROPS}
         formatter={(inputValue) => `${inputValue ?? ''}%`}
         parser={(inputValue) => String(inputValue || '').replace('%', '')}
         onChange={onChange}
@@ -428,7 +433,7 @@ const TextAddDetail = ({
             value={fontSize}
             disabled={disabled}
             className="chat-panel__text-settings-number"
-            controls
+            {...NUMBER_INPUT_SHARED_PROPS}
             onChange={(value) => setFontSize(Number(value) || 5)}
           />
         </div>
@@ -517,7 +522,7 @@ const TextAddDetail = ({
             value={letterSpacing}
             disabled={disabled}
             className="chat-panel__text-settings-number chat-panel__text-settings-spacing-letter-input"
-            controls
+            {...NUMBER_INPUT_SHARED_PROPS}
             onChange={(value) => setLetterSpacing(Number(value) || 0)}
           />
           <span className="chat-panel__text-settings-spacing-line-label">行间距</span>
@@ -527,7 +532,7 @@ const TextAddDetail = ({
             value={lineSpacing}
             disabled={disabled}
             className="chat-panel__text-settings-number chat-panel__text-settings-spacing-line-input"
-            controls
+            {...NUMBER_INPUT_SHARED_PROPS}
             onChange={(value) => setLineSpacing(Number(value) || 0)}
           />
         </div>
@@ -610,7 +615,7 @@ const TextAddDetail = ({
                   value={positionX}
                   disabled={disabled}
                   className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
-                  controls
+                  {...NUMBER_INPUT_SHARED_PROPS}
                   onChange={(value) => setPositionX(normalizePositionValue(value, 0))}
                 />
                 <span className="chat-panel__text-settings-transform-label y">Y</span>
@@ -620,7 +625,7 @@ const TextAddDetail = ({
                   value={positionY}
                   disabled={disabled}
                   className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
-                  controls
+                  {...NUMBER_INPUT_SHARED_PROPS}
                   onChange={(value) => setPositionY(normalizePositionValue(value, 0))}
                 />
               </div>
@@ -641,7 +646,7 @@ const TextAddDetail = ({
                   placeholder="自适应"
                   disabled={disabled}
                   className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
-                  controls
+                  {...NUMBER_INPUT_SHARED_PROPS}
                   onChange={(value) => setFixedWidth(normalizeFixedLayoutValue(value, null))}
                 />
                 <span className="chat-panel__text-settings-transform-label y">高</span>
@@ -654,7 +659,7 @@ const TextAddDetail = ({
                   placeholder="自适应"
                   disabled={disabled}
                   className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
-                  controls
+                  {...NUMBER_INPUT_SHARED_PROPS}
                   onChange={(value) => setFixedHeight(normalizeFixedLayoutValue(value, null))}
                 />
               </div>
@@ -672,7 +677,7 @@ const TextAddDetail = ({
                 value={rotation}
                 disabled={disabled}
                 className="chat-panel__text-settings-number chat-panel__text-settings-transform-input"
-                controls
+                {...NUMBER_INPUT_SHARED_PROPS}
                 formatter={(value) => `${value ?? ''}°`}
                 parser={(value) => String(value || '').replace('°', '')}
                 onChange={(value) => setRotation(normalizeRotationValue(value, 0))}
