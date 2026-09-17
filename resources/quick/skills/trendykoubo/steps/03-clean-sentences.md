@@ -19,7 +19,7 @@ requestBody:
           remove_silence:
             type: boolean
             default: true
-            description: 去气口开关，决定是否调用清洗脚本。
+            description: 去气口开关，决定脚本模式：true 走去气口清洗（默认），false 加 `--keep-pauses` 仅去标点。
 ```
 
 ## 操作规则
@@ -34,8 +34,13 @@ python3 {skill_dir}/scripts/clean_asr.py --input {workspace}/asr_raw_result.json
 
 ### 3.2 不去气口模式（`remove_silence=false`）
 
-1. **跳过 `clean_asr.py` 脚本**——不去气口时不需要机械化清洗。
-2. 直接从 ASR 原始结果提取语句：仅去除标点，**保留原始时间戳和语句边界**，保存为 `{workspace}/asr_cleaned_sentences.json`（字段结构与去气口模式保持一致，供步骤 4 统一消费）。
+调用同一脚本的去气口关闭模式（**仅去标点，保留原始语句边界与时间戳，不删任何句**）：
+
+```bash
+python3 {skill_dir}/scripts/clean_asr.py --input {workspace}/asr_raw_result.json --output {workspace}/asr_cleaned_sentences.json --keep-pauses
+```
+
+脚本自动完成：仅去除标点、保留原句时间戳和边界，输出字段结构与去气口模式完全一致（`is_filler`/`is_duplicate` 全部为 false），供步骤 4 统一消费。**禁止 Agent 手工提取或改写语句。**
 
 ## 通用硬规则
 
@@ -56,7 +61,7 @@ responses:
           properties:
             cleaned_path:
               type: string
-              description: 清洗后分句文件 asr_cleaned_sentences.json（去气口模式为脚本产物，不去气口模式为仅去标点的原句提取）。
+              description: 清洗后分句文件 asr_cleaned_sentences.json（两种模式均由脚本生成，字段结构一致）。
             sentence_count:
               type: integer
               description: 清洗后句数。

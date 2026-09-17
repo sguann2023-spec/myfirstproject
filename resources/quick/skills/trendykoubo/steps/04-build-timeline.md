@@ -31,7 +31,7 @@ requestBody:
 
 ### 4.1 去气口模式（`remove_silence=true`）
 
-调用技能目录下的脚本自动计算时间轴：
+调用技能目录下的脚本自动计算时间轴（输出含 `mode: "remove_silence"` 字段）：
 
 ```bash
 python3 {skill_dir}/scripts/build_timeline.py --cleaned {workspace}/asr_cleaned_sentences.json --raw {workspace}/asr_raw_result.json --duration {视频时长} --output {workspace}/timeline.json
@@ -41,13 +41,13 @@ python3 {skill_dir}/scripts/build_timeline.py --cleaned {workspace}/asr_cleaned_
 
 ### 4.2 不去气口模式（`remove_silence=false`）
 
-**跳过 `build_timeline.py` 脚本调用——不去气口时不需要进行视频切分。**
+调用同一脚本的去气口关闭模式，自动构建简化时间轴（**target = source，保留原始停顿空档，段落硬切**）：
 
-直接用 ASR 原始语句边界构建简化时间轴：
+```bash
+python3 {skill_dir}/scripts/build_timeline.py --cleaned {workspace}/asr_cleaned_sentences.json --raw {workspace}/asr_raw_result.json --duration {视频时长} --output {workspace}/timeline.json --keep-pauses
+```
 
-- 每段 `target_timeline.start = source_video.start`、`target_timeline.end = source_video.end`（目标时间 = 源视频时间）。
-- 所有片段 `transition_to_next = null`（段落之间硬切）。
-- 保存为 `{workspace}/timeline.json`，字段结构与去气口模式保持一致，供后续步骤统一消费。
+脚本自动完成：每段 `target_timeline = source_video`（目标时间 = 源时间）、段间保留原始停顿、`transition_to_next` 全部为 null、词级时间直接使用原始时间，并写入 `mode: "original"` 字段。**禁止 Agent 手工构建时间轴。**
 
 ## 输出定义（OpenAPI 3.1）
 

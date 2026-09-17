@@ -1,8 +1,8 @@
 {
-  "updatedAt": "2026-09-06T15:22:35Z",
+  "updatedAt": "2026-09-17T14:08:43Z",
   "skills": {
     "网感口播": {
-      "version": "1.0.7",
+      "version": "1.1.0",
       "name": "网感口播",
       "folderName": "trendykoubo",
       "action": "bootstrap-trendy-koubo",
@@ -14,7 +14,7 @@
       "coverUrl": "",
       "previewVideoUrl": "https://player.install-ai-guider.top/example/skills/koubo_1f9c/f95ff31e-6a92-4fcd-9b1d-c7421a031f68.mp4",
       "packageSlug": "trendy-koubo",
-      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/trendy-koubo/1_0_7/trendy-koubo.zip",
+      "downloadUrl": "https://player.install-ai-guider.top/skills/quick/trendy-koubo/1_1_0/trendy-koubo.zip",
       "minAppVersion": "1.6.13"
     },
     "旅游攻略混剪": {

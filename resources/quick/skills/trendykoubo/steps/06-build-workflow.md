@@ -58,10 +58,11 @@ python3 {skill_dir}/scripts/build_workflow.py \
 - 字幕文字层（普通/分层 + 英文 + 关键词弹出）
 - 打字机动画随机分配（50% 概率）
 - 缩放关键帧（scale_x + scale_y 分步）
-- 语气预设（emphasis / result 提示音）
-- BGM 随机选择 + 循环铺满
+- 语气预设（emphasis / result 提示音）—— **安全边距保护**：`add_preset` 无 `end`/`duration` 参数，预设使用内部固定时长（实测 ~1-2s）。脚本用 `PRESET_SAFE_MARGIN=3.0s` 保守估计，若 `trigger_start + 3.0s > timeline_duration` 则自动跳过该预设，防止草稿时长超出视频时长
+- BGM 随机选择 + **循环铺满时间轴**（对齐参考实现：未传 `--bgm-duration` 时脚本自动用 ffprobe 探测选中 BGM 时长，按 `seg_len = min(bgm时长, 剩余时长)` 逐段铺满，最多 200 段；探测失败退化为单段裁剪）
+- **全局安全校验**：组装完成后自动检查所有元素（video/text/audio/keyframe）结束时间 ≤ `timeline_duration`，超出则自动裁剪并输出警告，确保草稿时长以口播视频为准
 
-**BGM 来源**：脚本内置 BGM 列表（`references/workflow.md` 官方列表），随机选一条。也可通过 `--bgm-url` 指定。
+**BGM 来源**：脚本内置 BGM 列表（`references/workflow.md` 官方列表），随机选一条并自动 ffprobe 探测时长。也可通过 `--bgm-url` 指定、`--bgm-duration` 显式传入时长（网络受限时）。
 
 ### 6b. 执行工作流
 
