@@ -197,7 +197,7 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           )}
         </button>
       </Popover>
-      <Popover
+      {/* <Popover
         trigger="hover"
         placement="topLeft"
         open={textMenuOpen}
@@ -227,7 +227,7 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
             <ChevronDown size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
           )}
         </button>
-      </Popover>
+      </Popover> */}
       {TOOL_ITEMS.map((tool) => (
         <button
           key={tool.id}
