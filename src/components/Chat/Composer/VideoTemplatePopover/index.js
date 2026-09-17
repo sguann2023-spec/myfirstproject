@@ -32,6 +32,9 @@ const VideoTemplatePopover = ({
   const [loadError, setLoadError] = React.useState('');
   const [hoveredTemplateId, setHoveredTemplateId] = React.useState('');
   const [unmutedTemplateId, setUnmutedTemplateId] = React.useState('');
+  const [loadedPreviewIds, setLoadedPreviewIds] = React.useState(() => new Set());
+  const [loadedCoverIds, setLoadedCoverIds] = React.useState(() => new Set());
+  const [readyPreviewIds, setReadyPreviewIds] = React.useState(() => new Set());
   const videoElementMapRef = React.useRef(new Map());
 
   const setVideoElementRef = React.useCallback((templateId, element) => {
@@ -43,11 +46,41 @@ const VideoTemplatePopover = ({
     videoElementMapRef.current.delete(templateId);
   }, []);
 
+  const markPreviewLoaded = React.useCallback((templateId) => {
+    if (!templateId) return;
+    setLoadedPreviewIds((prev) => {
+      if (prev.has(templateId)) return prev;
+      const next = new Set(prev);
+      next.add(templateId);
+      return next;
+    });
+  }, []);
+
+  const markCoverLoaded = React.useCallback((templateId) => {
+    if (!templateId) return;
+    setLoadedCoverIds((prev) => {
+      if (prev.has(templateId)) return prev;
+      const next = new Set(prev);
+      next.add(templateId);
+      return next;
+    });
+  }, []);
+
+  const markPreviewReady = React.useCallback((templateId) => {
+    if (!templateId) return;
+    setReadyPreviewIds((prev) => {
+      if (prev.has(templateId)) return prev;
+      const next = new Set(prev);
+      next.add(templateId);
+      return next;
+    });
+  }, []);
+
   React.useEffect(() => {
     videoElementMapRef.current.forEach((element, templateId) => {
       if (!element) return;
       element.muted = templateId !== unmutedTemplateId;
-      if (templateId === hoveredTemplateId) {
+      if (templateId === hoveredTemplateId && loadedPreviewIds.has(templateId)) {
         element.currentTime = 0;
         const playPromise = element.play();
         if (playPromise && typeof playPromise.catch === 'function') {
@@ -58,7 +91,7 @@ const VideoTemplatePopover = ({
       element.pause();
       element.currentTime = 0;
     });
-  }, [hoveredTemplateId, unmutedTemplateId]);
+  }, [hoveredTemplateId, loadedPreviewIds, unmutedTemplateId]);
 
   React.useEffect(() => {
     if (!unmutedTemplateId) return;
@@ -127,6 +160,10 @@ const VideoTemplatePopover = ({
             const previewVideoUrl = resolvePreviewVideoUrl(item);
             const isHovered = hoveredTemplateId === item.id;
             const isUnmuted = unmutedTemplateId === item.id;
+            const shouldLoadPreview = previewVideoUrl && loadedPreviewIds.has(item.id);
+            const isCoverLoaded = loadedCoverIds.has(item.id);
+            const isPreviewLoading =
+              Boolean(previewVideoUrl) && shouldLoadPreview && (isHovered || isUnmuted) && !readyPreviewIds.has(item.id);
 
             return (
               <button
@@ -134,29 +171,47 @@ const VideoTemplatePopover = ({
                 type="button"
                 className="chat-panel__video-template-card"
                 onClick={() => onApplyTemplate && onApplyTemplate(item)}
-                onMouseEnter={() => setHoveredTemplateId(item.id)}
+                onMouseEnter={() => {
+                  markPreviewLoaded(item.id);
+                  setHoveredTemplateId(item.id);
+                }}
                 onMouseLeave={() => setHoveredTemplateId((current) => (current === item.id ? '' : current))}
-                onFocus={() => setHoveredTemplateId(item.id)}
+                onFocus={() => {
+                  markPreviewLoaded(item.id);
+                  setHoveredTemplateId(item.id);
+                }}
                 onBlur={() => setHoveredTemplateId((current) => (current === item.id ? '' : current))}
               >
                 <div
                   className="chat-panel__video-template-card-cover"
                   aria-label={item.description || item.id}
                 >
-                  <img className="chat-panel__video-template-card-image" src={item.cover} alt="" aria-hidden="true" />
+                  {!isCoverLoaded ? <span className="chat-panel__video-template-card-loading" aria-hidden="true" /> : null}
+                  <img
+                    className={`chat-panel__video-template-card-image${isCoverLoaded ? ' is-loaded' : ''}`}
+                    src={item.cover}
+                    alt=""
+                    aria-hidden="true"
+                    onLoad={() => markCoverLoaded(item.id)}
+                    onError={() => markCoverLoaded(item.id)}
+                  />
                   {previewVideoUrl ? (
                     <video
                       ref={(element) => setVideoElementRef(item.id, element)}
                       className={`chat-panel__video-template-card-video${isHovered ? ' is-active' : ''}`}
-                      src={previewVideoUrl}
+                      src={shouldLoadPreview ? previewVideoUrl : undefined}
                       poster={item.cover}
                       muted
                       playsInline
                       loop
-                      preload="metadata"
+                      preload="none"
+                      onLoadedData={() => markPreviewReady(item.id)}
+                      onCanPlay={() => markPreviewReady(item.id)}
+                      onError={() => markPreviewReady(item.id)}
                       aria-hidden="true"
                     />
                   ) : null}
+                  {isPreviewLoading ? <span className="chat-panel__video-template-card-preview-loading" aria-hidden="true" /> : null}
                   {previewVideoUrl ? (
                     <span
                       className="chat-panel__video-template-card-audio"
@@ -167,6 +222,7 @@ const VideoTemplatePopover = ({
                         event.preventDefault();
                         event.stopPropagation();
                         const nextUnmuted = isUnmuted ? '' : item.id;
+                        markPreviewLoaded(item.id);
                         setHoveredTemplateId(item.id);
                         setUnmutedTemplateId(nextUnmuted);
                         const element = videoElementMapRef.current.get(item.id);

@@ -3,6 +3,7 @@ import { CloseOutlined, DownOutlined } from '@ant-design/icons';
 import { Select, Tooltip } from 'antd';
 import './index.css';
 import ImageResolutionSelect from '../ImageResolutionSelect/index';
+import { getImageGenerationCapabilities } from '../../../../api/chat';
 import ImageModelGptBlackIcon from '../../../../../public/image_model_gpt_black.svg';
 import ImageModelJimengBlackIcon from '../../../../../public/image_model_jimeng_black.svg';
 import ImageModelNanoBananaBlackIcon from '../../../../../public/image_model_nano_banana_black.svg';
@@ -136,10 +137,8 @@ const ImagePanToolDetail = ({
     let cancelled = false;
 
     const loadCapabilities = async () => {
-      const api = window?.electronAPI?.imageGeneration;
-      if (!api || typeof api.getCapabilities !== 'function') return;
       try {
-        const result = await api.getCapabilities({ includePrices: true });
+        const result = await getImageGenerationCapabilities({ includePrices: true });
         const models = Array.isArray(result?.models) ? result.models : [];
         if (!cancelled && models.length > 0) {
           setCapabilityModels(models);

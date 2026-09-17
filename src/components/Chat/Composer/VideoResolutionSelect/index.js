@@ -110,6 +110,11 @@ const normalizePriceNumber = (value) => {
   return Number.isFinite(numericValue) ? numericValue : null;
 };
 
+const normalizeBillableDurationSeconds = (value) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+};
+
 const findTierPriceEntry = (tierPrices, tier) => {
   const normalizedTier = String(tier || '').trim().toLowerCase();
   if (!normalizedTier || !tierPrices || typeof tierPrices !== 'object') return null;
@@ -216,14 +221,11 @@ const pickVideoPriceEntry = (
 
 const formatTotalPriceText = (pricePerUnit, duration) => {
   const normalizedPrice = normalizePriceNumber(pricePerUnit);
-  const normalizedDuration = normalizeDurationValue(duration);
+  const normalizedDuration = normalizeBillableDurationSeconds(duration);
   if (normalizedPrice === null || normalizedDuration === null) return '--积分';
 
-  const totalPrice = normalizedPrice * normalizedDuration;
-  const formattedTotal = Number.isInteger(totalPrice)
-    ? String(totalPrice)
-    : String(Number(totalPrice.toFixed(1)));
-  return `${formattedTotal}积分`;
+  const totalPrice = Math.ceil(normalizedPrice * normalizedDuration);
+  return `${totalPrice}积分`;
 };
 
 const RatioIcon = ({ ratio, active = false }) => {
@@ -247,6 +249,7 @@ const VideoResolutionSelect = ({
   generateAudio = true,
   seedanceOffline = false,
   superResolve = false,
+  referenceVideoDurationSeconds = 0,
   onChange = null,
   onDurationChange = null,
   onGenerateAudioChange = null,
@@ -313,6 +316,14 @@ const VideoResolutionSelect = ({
   const resolvedDuration = durationOptions.includes(normalizeDurationValue(duration))
     ? normalizeDurationValue(duration)
     : durationOptions[0];
+  const totalBillableDuration = React.useMemo(() => {
+    const generatedDuration = normalizeBillableDurationSeconds(resolvedDuration) || 0;
+    if (normalizeGenerationModeValue(generationMode) !== 'reference') {
+      return generatedDuration;
+    }
+    const referenceDuration = normalizeBillableDurationSeconds(referenceVideoDurationSeconds) || 0;
+    return generatedDuration + referenceDuration;
+  }, [generationMode, referenceVideoDurationSeconds, resolvedDuration]);
   const triggerPriceText = React.useMemo(() => {
     const priceEntry = pickVideoPriceEntry(modelCapability?.price, tier, {
       generationMode,
@@ -323,18 +334,18 @@ const VideoResolutionSelect = ({
       superResolveSupported,
       superResolve,
     });
-    return formatTotalPriceText(priceEntry?.resource_points_per_unit, resolvedDuration);
+    return formatTotalPriceText(priceEntry?.resource_points_per_unit, totalBillableDuration);
   }, [
     generateAudio,
     generateAudioSupported,
     generationMode,
     generationModeConfig,
     modelCapability,
-    resolvedDuration,
     seedanceOffline,
     superResolve,
     superResolveSupported,
     tier,
+    totalBillableDuration,
   ]);
 
   React.useEffect(() => {

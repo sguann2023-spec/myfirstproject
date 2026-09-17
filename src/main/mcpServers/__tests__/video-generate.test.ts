@@ -145,6 +145,7 @@ describe('VideoGenerateServer', () => {
             'seedance-2.0': {
               display_name: 'Seedance 2.0',
               description: '高质量视频生成',
+              badges: ['限时优惠'],
               icon: 'https://example.com/seedance.svg',
               reference_supported: true,
               first_frame_extend_supported: true,
@@ -218,7 +219,8 @@ describe('VideoGenerateServer', () => {
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
-          Authorization: 'Bearer access-token'
+          Authorization: 'Bearer access-token',
+          'X-Client-Type': 'pc'
         })
       })
     )
@@ -233,6 +235,7 @@ describe('VideoGenerateServer', () => {
           model: 'seedance-2.0',
           display_name: 'Seedance 2.0',
           description: '高质量视频生成',
+          badges: ['限时优惠'],
           icon: 'https://example.com/seedance.svg',
           reference_supported: true,
           first_frame_extend_supported: true,

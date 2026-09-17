@@ -4,6 +4,7 @@ import { Select, Tooltip } from 'antd';
 import { Clapperboard } from 'lucide-react';
 import './index.css';
 import VideoResolutionSelect from '../VideoResolutionSelect/index';
+import { getVideoGenerationCapabilities } from '../../../../api/chat';
 import ImageModelJimengBlackIcon from '../../../../../public/image_model_jimeng_black.svg';
 import AiVideoSelectedIcon from '../../../../../public/ai_video_selected.svg';
 import FirstFrameIcon from '../../../../../public/first_frame.svg';
@@ -81,13 +82,29 @@ const buildVideoTemplatePrompt = (template) => {
   return String(template?.prompt || '').trim();
 };
 
-const renderModelContent = (model, label, description = '', remoteIcon = '') => {
+const renderModelBadge = (badge) => (
+  <span
+    key={badge}
+    className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
+  >
+    {badge}
+  </span>
+);
+
+const renderModelContent = (model, label, description = '', remoteIcon = '', badges = []) => {
   const icon = getModelIcon(model, remoteIcon);
   return (
     <span className="chat-panel__video-option" title={description || label}>
       {icon ? <img className="chat-panel__video-option-icon" src={icon} alt="" aria-hidden="true" /> : null}
       <span className="chat-panel__video-option-main">
-        <span className="chat-panel__video-option-text">{label}</span>
+        <span className="chat-panel__video-option-header">
+          <span className="chat-panel__video-option-text">{label}</span>
+          {Array.isArray(badges) && badges.length > 0 ? (
+            <span className="chat-panel__video-option-tags">
+              {badges.map((badge) => renderModelBadge(badge))}
+            </span>
+          ) : null}
+        </span>
         {description ? <span className="chat-panel__video-option-description">{description}</span> : null}
       </span>
     </span>
@@ -145,6 +162,7 @@ const VideoToolDetail = ({
   selectedGenerateAudio = true,
   selectedSeedanceOffline = false,
   selectedSuperResolve = false,
+  referenceVideoDurationSeconds = 0,
   onModelChange = null,
   onGenerationModeChange = null,
   onResolutionChange = null,
@@ -163,11 +181,8 @@ const VideoToolDetail = ({
     let cancelled = false;
 
     const loadCapabilities = async () => {
-      const api = window?.electronAPI?.videoGeneration;
-      if (!api || typeof api.getCapabilities !== 'function') return;
-
       try {
-        const result = await api.getCapabilities({ includePrices: true });
+        const result = await getVideoGenerationCapabilities({ includePrices: true });
         const models = Array.isArray(result?.models) ? result.models : [];
         if (!cancelled && models.length > 0) {
           setCapabilityModels(models);
@@ -191,6 +206,7 @@ const VideoToolDetail = ({
       value: String(item?.model || '').trim(),
       label: String(item?.display_name || '').trim() || normalizeModelLabel(item?.model),
       description: String(item?.description || '').trim(),
+      badges: Array.isArray(item?.badges) ? item.badges.filter((badge) => typeof badge === 'string' && badge.trim()) : [],
       icon: String(item?.icon || '').trim(),
     })).filter((item) => item.value);
   }, [capabilityModels]);
@@ -285,7 +301,7 @@ const VideoToolDetail = ({
 
   const modelOptions = React.useMemo(() => resolvedModelOptions.map((item) => ({
     value: item.value,
-    label: renderModelContent(item.value, item.label, item.description, item.icon),
+    label: renderModelContent(item.value, item.label, item.description, item.icon, item.badges),
     selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value, item.icon)),
   })), [modelPickerOpen, resolvedModelOptions]);
 
@@ -414,6 +430,7 @@ const VideoToolDetail = ({
           generateAudio={selectedGenerateAudio}
           seedanceOffline={selectedSeedanceOffline}
           superResolve={selectedSuperResolve}
+          referenceVideoDurationSeconds={referenceVideoDurationSeconds}
           onChange={onResolutionChange}
           onDurationChange={onDurationChange}
           onGenerateAudioChange={onGenerateAudioChange}

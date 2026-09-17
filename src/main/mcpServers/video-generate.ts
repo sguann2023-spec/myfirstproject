@@ -187,6 +187,7 @@ type VideoModelPrice = Record<string, Record<string, VideoPriceEntry>>
 type VideoModelCapability = {
   display_name?: string
   description?: string
+  badges?: string[]
   icon?: string
   reference_supported?: boolean
   first_frame_extend_supported?: boolean
@@ -402,6 +403,7 @@ class VideoGenerateServer {
         method,
         headers: {
           Authorization: `Bearer ${accessToken}`,
+          'X-Client-Type': 'pc',
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
         ...(options.body ? { body: JSON.stringify(options.body) } : {})
@@ -1093,6 +1095,9 @@ class VideoGenerateServer {
       model,
       display_name: typeof capability?.display_name === 'string' ? capability.display_name : undefined,
       description: typeof capability?.description === 'string' ? capability.description : undefined,
+      badges: Array.isArray(capability?.badges)
+        ? capability.badges.filter((badge): badge is string => typeof badge === 'string' && badge.trim().length > 0)
+        : undefined,
       icon: typeof capability?.icon === 'string' ? capability.icon : undefined,
       reference_supported: Boolean(capability?.reference_supported),
       first_frame_extend_supported: Boolean(capability?.first_frame_extend_supported),
