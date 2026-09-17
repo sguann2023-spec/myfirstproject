@@ -34,7 +34,11 @@ export const trackEvent = (event, properties = {}) => {
         platform: navigator.platform,
       },
     }),
-  }).catch(() => {
+  }).catch((error) => {
     // Analytics must never affect the primary user flow.
+    console.warn('[Analytics] event tracking failed', {
+      event,
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 };
