@@ -113,6 +113,7 @@ export const trackEvent = (event, properties = {}) => {
 };
 
 const flushBeforeExit = () => {
+  logger.info('Analytics beforeunload received');
   if (readQueue().length > 0 && POSTHOG_API_KEY) void flushQueue({ force: true, keepalive: true });
 };
 
