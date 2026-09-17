@@ -916,6 +916,8 @@ const legacyElectronAPI = {
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftRequest, payload),
     createDraftModifyRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftModifyRequest, payload),
+    createTextAddRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_TextAddRequest, payload),
     createDraftExportRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftExportRequest, payload),
     createDraftDownloadRequest: (payload: any = {}) =>

@@ -91,10 +91,10 @@ const TOOLS: Tool[] = [
       font_size: { type: 'number', description: 'Optional font size.' },
       trackName: { type: 'string', description: 'Optional track name alias of track_name.' },
       track_name: { type: 'string', description: 'Optional track name.' },
-      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode. false means horizontal alignment, true means vertical alignment.' },
       font_alpha: { type: 'number', description: 'Optional font alpha.' },
-      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
-      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed layout width in pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
       border_width: { type: 'number', description: 'Optional border width.' },
@@ -133,7 +133,7 @@ const TOOLS: Tool[] = [
       scale_x: { type: 'number', description: 'Optional X scale.' },
       scale_y: { type: 'number', description: 'Optional Y scale.' },
       relative_index: { type: 'number', description: 'Optional relative track index.' },
-      align: { type: 'string', description: 'Optional text alignment.' },
+      align: { type: 'integer', description: 'Optional text alignment enum. When vertical=false use 0/1/2 for left/center/right; when vertical=true use 3/1/4 for top/center/bottom.' },
       rotation: { type: 'number', description: 'Optional rotation in degrees.' },
       transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
       transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
@@ -160,7 +160,7 @@ const TOOLS: Tool[] = [
       scale_x: { type: 'number', description: 'Optional X scale.' },
       scale_y: { type: 'number', description: 'Optional Y scale.' },
       font: { type: 'string', description: 'Optional font name.' },
-      align: { type: 'integer', description: 'Optional text alignment enum.' },
+      align: { type: 'integer', description: 'Optional text alignment enum. When vertical=false use 0/1/2 for left/center/right; when vertical=true use 3/1/4 for top/center/bottom.' },
       rotation: { type: 'number', description: 'Optional rotation in degrees.' },
       font_color: { type: 'string', description: 'Optional font color.' },
       font_size: { type: 'integer', description: 'Optional font size.' },
@@ -169,10 +169,10 @@ const TOOLS: Tool[] = [
       underline: { type: 'boolean', description: 'Optional underline flag.' },
       track_name: { type: 'string', description: 'Optional track name.' },
       relative_index: { type: 'integer', description: 'Optional relative track index.' },
-      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode. false means horizontal alignment, true means vertical alignment.' },
       font_alpha: { type: 'number', description: 'Optional font alpha.' },
-      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
-      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed layout width in pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
       border_width: { type: 'integer', description: 'Optional border width.' },
@@ -247,11 +247,11 @@ const TOOLS: Tool[] = [
       underline: { type: 'boolean', description: 'Optional underline flag.' },
       track_name: { type: 'string', description: 'Optional track name.' },
       relative_index: { type: 'number', description: 'Optional relative track index.' },
-      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode. false means horizontal alignment, true means vertical alignment.' },
       font_alpha: { type: 'number', description: 'Optional font alpha.' },
       letter_spacing: { type: 'number', description: 'Optional letter spacing.' },
       line_spacing: { type: 'number', description: 'Optional line spacing.' },
-      align: { type: 'string', description: 'Optional text alignment.' },
+      align: { type: 'integer', description: 'Optional text alignment enum. When vertical=false use 0/1/2 for left/center/right; when vertical=true use 3/1/4 for top/center/bottom.' },
       rotation: { type: 'number', description: 'Optional rotation in degrees.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
@@ -279,8 +279,8 @@ const TOOLS: Tool[] = [
       outro_duration: { type: 'number', description: 'Optional outro animation duration.' },
       loop_animation: { type: 'string', description: 'Optional loop animation name.' },
       loop_duration: { type: 'number', description: 'Optional loop animation duration.' },
-      fixed_width: { type: 'number', description: 'Optional fixed layout width.' },
-      fixed_height: { type: 'number', description: 'Optional fixed layout height.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed layout width in pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       text_styles: {
         type: 'array',
         items: { type: 'string' },
@@ -991,8 +991,10 @@ const ARG_ALIASES: Record<string, string> = {
   fontColor: 'font_color',
   fontSize: 'font_size',
   fontAlpha: 'font_alpha',
-  fixedWidth: 'fixed_width',
-  fixedHeight: 'fixed_height',
+  fixedWidth: 'fixed_width_px',
+  fixedHeight: 'fixed_height_px',
+  fixedWidthPx: 'fixed_width_px',
+  fixedHeightPx: 'fixed_height_px',
   borderAlpha: 'border_alpha',
   borderColor: 'border_color',
   borderWidth: 'border_width',
@@ -1115,6 +1117,7 @@ type PendingToken = {
 
 type VectCutResponse = {
   error?: string
+  error_code?: string
   output?: unknown
   purchase_link?: string
   success?: boolean
@@ -1333,6 +1336,10 @@ class DraftElementsServer {
       success: response.success,
       error: response.error,
       output
+    }
+
+    if (typeof response.error_code !== 'undefined') {
+      payload.error_code = response.error_code
     }
 
     if (typeof response.purchase_link !== 'undefined') {

@@ -17,13 +17,29 @@ const DOWNLOAD_DRAFT_TOOL: Tool = {
         type: 'string',
         description: 'Single draft ID to download.'
       },
+      draft_id: {
+        type: 'string',
+        description: 'Alias of draftId. The draft is downloaded by ID, not by name.'
+      },
       draftName: {
         type: 'string',
-        description: 'Optional draft name for a single draft.'
+        description: 'Optional display name for a single draft. Used only for UI display.'
+      },
+      draft_name: {
+        type: 'string',
+        description: 'Alias of draftName. Used only for UI display.'
       },
       cover: {
         type: 'string',
         description: 'Optional cover URL for a single draft.'
+      },
+      createdAt: {
+        type: 'number',
+        description: 'Optional enqueue timestamp in milliseconds.'
+      },
+      created_at: {
+        type: 'number',
+        description: 'Alias of createdAt.'
       },
       drafts: {
         type: 'array',
@@ -35,19 +51,38 @@ const DOWNLOAD_DRAFT_TOOL: Tool = {
               type: 'string',
               description: 'Draft ID.'
             },
+            draft_id: {
+              type: 'string',
+              description: 'Alias of draftId. The draft is downloaded by ID, not by name.'
+            },
             draftName: {
               type: 'string',
-              description: 'Optional draft name.'
+              description: 'Optional display name.'
+            },
+            draft_name: {
+              type: 'string',
+              description: 'Alias of draftName. Used only for UI display.'
             },
             cover: {
               type: 'string',
               description: 'Optional cover URL.'
+            },
+            createdAt: {
+              type: 'number',
+              description: 'Optional enqueue timestamp in milliseconds.'
+            },
+            created_at: {
+              type: 'number',
+              description: 'Alias of createdAt.'
             }
           },
-          required: ['draftId']
+          anyOf: [{ required: ['draftId'] }, { required: ['draft_id'] }],
+          additionalProperties: false
         }
       }
-    }
+    },
+    anyOf: [{ required: ['draftId'] }, { required: ['draft_id'] }, { required: ['drafts'] }],
+    additionalProperties: false
   }
 }
 
@@ -121,7 +156,7 @@ class DraftDownloadServer {
     const draft_id = typeof draftIdRaw === 'string' ? draftIdRaw.trim() : ''
     if (!draft_id) {
       const suffix = typeof index === 'number' ? ` at drafts[${index}]` : ''
-      throw new McpError(ErrorCode.InvalidParams, `'draftId' is required for ${toolName}${suffix}`)
+      throw new McpError(ErrorCode.InvalidParams, `'draftId' or 'draft_id' is required for ${toolName}${suffix}`)
     }
 
     const draft_name = typeof draftNameRaw === 'string' && draftNameRaw.trim() ? draftNameRaw.trim() : draft_id

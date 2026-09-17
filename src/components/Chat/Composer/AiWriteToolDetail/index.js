@@ -1,15 +1,44 @@
 import React from 'react';
-import { CheckOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons';
+import {
+  CheckOutlined,
+  CloseOutlined,
+  ControlOutlined,
+  DownOutlined,
+  FileSearchOutlined,
+  FileTextOutlined,
+  ScissorOutlined,
+  SnippetsOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import { Select, Tooltip } from 'antd';
+import { Undo2 } from 'lucide-react';
 import './index.css';
 import AiWriteIcon from '../../../../../public/ai_write.svg';
 import { AI_WRITE_PRESET_OPTIONS } from './presetOptions';
 
-const renderAiWriteSelectedLabel = (text, icon, open = false) => (
+const AI_WRITE_ICON_RENDERERS = {
+  control: (className) => <ControlOutlined className={className} aria-hidden="true" />,
+  'file-search': (className) => <FileSearchOutlined className={className} aria-hidden="true" />,
+  'file-text': (className) => <FileTextOutlined className={className} aria-hidden="true" />,
+  scissor: (className) => <ScissorOutlined className={className} aria-hidden="true" />,
+  snippets: (className) => <SnippetsOutlined className={className} aria-hidden="true" />,
+  upload: (className) => <UploadOutlined className={className} aria-hidden="true" />,
+  'undo-2': (className) => <Undo2 className={className} size={18} aria-hidden="true" />,
+};
+
+const renderAiWritePresetIcon = (item, className = 'chat-panel__ai-write-option-icon') => {
+  const iconRenderer = AI_WRITE_ICON_RENDERERS[item?.iconName];
+  if (typeof iconRenderer === 'function') {
+    return iconRenderer(className);
+  }
+  return <img className={className} src={item.icon} alt="" aria-hidden="true" />;
+};
+
+const renderAiWriteSelectedLabel = (item, open = false) => (
   <span className="chat-panel__ai-write-selected">
     <span className="chat-panel__model-option-main">
-      <img className="chat-panel__ai-write-option-icon" src={icon} alt="" aria-hidden="true" />
-      <span className="chat-panel__model-option-text">{text}</span>
+      {renderAiWritePresetIcon(item)}
+      <span className="chat-panel__model-option-text">{item.label}</span>
     </span>
     <DownOutlined
       className={`chat-panel__ai-write-selected-arrow ${open ? 'is-open' : ''}`}
@@ -30,11 +59,11 @@ const AiWriteToolDetail = ({
     value: item.id,
     label: (
       <span className="chat-panel__ai-write-option">
-        <img className="chat-panel__ai-write-option-icon" src={item.icon} alt="" aria-hidden="true" />
+        {renderAiWritePresetIcon(item)}
         <span className="chat-panel__model-option-text">{item.label}</span>
       </span>
     ),
-    selectedLabel: renderAiWriteSelectedLabel(item.label, item.icon, pickerOpen),
+    selectedLabel: renderAiWriteSelectedLabel(item, pickerOpen),
     description: item.description,
   })), [pickerOpen]);
 
@@ -45,14 +74,14 @@ const AiWriteToolDetail = ({
           <button
             type="button"
             className="chat-panel__tool-button chat-panel__tool-button--active"
-            aria-label="文案"
-            title="文案"
+            aria-label="文本"
+            title="文本"
             aria-pressed="true"
             disabled={disabled}
             onClick={onBack}
           >
-            <img className="chat-panel__tool-icon" src={AiWriteIcon} alt="" aria-hidden="true" />
-            <span className="chat-panel__tool-text chat-panel__tool-text--active">文案</span>
+            <img className="chat-panel__tool-icon chat-panel__tool-icon--text" src={AiWriteIcon} alt="" aria-hidden="true" />
+            <span className="chat-panel__tool-text chat-panel__tool-text--active">文本</span>
             <CloseOutlined className="chat-panel__tool-close-icon" aria-hidden="true" />
           </button>
         </span>

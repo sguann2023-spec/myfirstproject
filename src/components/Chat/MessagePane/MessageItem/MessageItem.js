@@ -9,7 +9,7 @@ import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
-import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData } from './cozeTransforms';
+import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -72,6 +72,33 @@ const buildDraftModifyRequestSignature = (draftModifyRequest = null) => {
     draftId: String(draftModifyRequest?.draftId || draftModifyRequest?.draft_id || ''),
     name: String(draftModifyRequest?.name || ''),
     cover: String(draftModifyRequest?.cover || '')
+  });
+};
+const buildTextAddRequestSignature = (textAddRequest = null) => {
+  if (!textAddRequest || typeof textAddRequest !== 'object') return '';
+  return JSON.stringify({
+    draftId: String(textAddRequest?.draftId || textAddRequest?.draft_id || ''),
+    text: String(textAddRequest?.text || ''),
+    start: Number(textAddRequest?.start || 0),
+    end: Number(textAddRequest?.end || 0),
+    font: String(textAddRequest?.font || ''),
+    fontColor: String(textAddRequest?.font_color || textAddRequest?.fontColor || ''),
+    fontSize: Number(textAddRequest?.font_size ?? textAddRequest?.fontSize ?? 0),
+    letterSpacing: Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing ?? 0),
+    lineSpacing: Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing ?? 0),
+    scaleX: Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX ?? 0),
+    scaleY: Number(textAddRequest?.scale_y ?? textAddRequest?.scaleY ?? 0),
+    transformXPx: Number(textAddRequest?.transform_x_px ?? textAddRequest?.transformXPx ?? 0),
+    transformYPx: Number(textAddRequest?.transform_y_px ?? textAddRequest?.transformYPx ?? 0),
+    fixedWidthPx: Number(textAddRequest?.fixed_width_px ?? textAddRequest?.fixedWidthPx ?? textAddRequest?.fixed_width ?? textAddRequest?.fixedWidth ?? 0),
+    fixedHeightPx: Number(textAddRequest?.fixed_height_px ?? textAddRequest?.fixedHeightPx ?? textAddRequest?.fixed_height ?? textAddRequest?.fixedHeight ?? 0),
+    rotation: Number(textAddRequest?.rotation ?? 0),
+    bold: Boolean(textAddRequest?.bold),
+    italic: Boolean(textAddRequest?.italic),
+    underline: Boolean(textAddRequest?.underline),
+    vertical: Boolean(textAddRequest?.vertical),
+    align: Number(textAddRequest?.align ?? 0),
+    trackName: String(textAddRequest?.track_name || textAddRequest?.trackName || '')
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -142,6 +169,56 @@ const buildDraftModifyRequestApiCurl = (draftModifyRequest = null, message = {})
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildTextAddRequestApiCurl = (textAddRequest = null) => {
+  const scaleX = Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX);
+  const scaleY = Number(textAddRequest?.scale_y ?? textAddRequest?.scaleY);
+  const transformXPx = Number(textAddRequest?.transform_x_px ?? textAddRequest?.transformXPx);
+  const transformYPx = Number(textAddRequest?.transform_y_px ?? textAddRequest?.transformYPx);
+  const fixedWidthPx = Number(textAddRequest?.fixed_width_px ?? textAddRequest?.fixedWidthPx ?? textAddRequest?.fixed_width ?? textAddRequest?.fixedWidth);
+  const fixedHeightPx = Number(textAddRequest?.fixed_height_px ?? textAddRequest?.fixedHeightPx ?? textAddRequest?.fixed_height ?? textAddRequest?.fixedHeight);
+  const rotation = Number(textAddRequest?.rotation);
+  const payload = {
+    draft_id: String(textAddRequest?.draft_id || textAddRequest?.draftId || '').trim(),
+    text: String(textAddRequest?.text || '').trim(),
+    start: Number(textAddRequest?.start || 0) || 0,
+    end: Number(textAddRequest?.end || 3) || 3,
+    ...(String(textAddRequest?.font || '').trim() ? { font: String(textAddRequest.font).trim() } : {}),
+    ...(Number.isFinite(Number(textAddRequest?.font_size ?? textAddRequest?.fontSize))
+      ? { font_size: Number(textAddRequest?.font_size ?? textAddRequest?.fontSize) }
+      : {}),
+    ...(String(textAddRequest?.font_color || textAddRequest?.fontColor || '').trim()
+      ? { font_color: String(textAddRequest?.font_color || textAddRequest?.fontColor || '').trim() }
+      : {}),
+    ...(Number.isFinite(Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing))
+      ? { letter_spacing: Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing) }
+      : {}),
+    ...(Number.isFinite(Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing))
+      ? { line_spacing: Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing) }
+      : {}),
+    ...(typeof textAddRequest?.bold === 'boolean' ? { bold: textAddRequest.bold } : {}),
+    ...(typeof textAddRequest?.italic === 'boolean' ? { italic: textAddRequest.italic } : {}),
+    ...(typeof textAddRequest?.underline === 'boolean' ? { underline: textAddRequest.underline } : {}),
+    ...(typeof textAddRequest?.vertical === 'boolean' ? { vertical: textAddRequest.vertical } : {}),
+    ...(Number.isInteger(Number(textAddRequest?.align)) ? { align: Number(textAddRequest.align) } : {}),
+    ...(Number.isFinite(scaleX) ? { scale_x: scaleX } : {}),
+    ...(Number.isFinite(scaleY) ? { scale_y: scaleY } : {}),
+    ...(Number.isFinite(transformXPx) ? { transform_x_px: transformXPx } : {}),
+    ...(Number.isFinite(transformYPx) ? { transform_y_px: transformYPx } : {}),
+    ...(Number.isFinite(fixedWidthPx) ? { fixed_width_px: fixedWidthPx } : {}),
+    ...(Number.isFinite(fixedHeightPx) ? { fixed_height_px: fixedHeightPx } : {}),
+    ...(Number.isFinite(rotation) ? { rotation } : {}),
+    ...(String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim()
+      ? { track_name: String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim() }
+      : {})
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/add_text' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
 const buildDraftAgentPrompt = (content = '') => {
   const normalizedContent = String(content || '').trim();
   return normalizedContent ? `使用vectcut工具，${normalizedContent}` : '使用vectcut工具';
@@ -194,15 +271,18 @@ const MessageItem = ({
   const draftModifyRequest = message?.draftModifyRequest && typeof message.draftModifyRequest === 'object'
     ? message.draftModifyRequest
     : null;
+  const textAddRequest = message?.textAddRequest && typeof message.textAddRequest === 'object'
+    ? message.textAddRequest
+    : null;
   const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
     ? message.draftInspectRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || draftInspectRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || draftInspectRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest));
-  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -220,16 +300,20 @@ const MessageItem = ({
     if (showDraftCozeFormat && canShowDraftCozeAction) {
       return {
         ...message,
-        content: draftModifyRequest
-          ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
-          : buildDraftRequestCozeClipboardData(draftRequest),
+        content: textAddRequest
+          ? buildTextAddRequestCozeClipboardData(textAddRequest)
+          : (draftModifyRequest
+            ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
+            : buildDraftRequestCozeClipboardData(draftRequest)),
         imageAttachments: []
       };
     }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
-    const apiContent = draftModifyRequest
-      ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-      : buildDraftRequestApiCurl(draftRequest, message);
+    const apiContent = textAddRequest
+      ? buildTextAddRequestApiCurl(textAddRequest)
+      : (draftModifyRequest
+        ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
+        : buildDraftRequestApiCurl(draftRequest, message));
     return {
       ...message,
       content: apiContent,
@@ -241,6 +325,7 @@ const MessageItem = ({
     canShowDraftCozeAction,
     draftModifyRequest,
     draftRequest,
+    textAddRequest,
     message,
     showDraftAgentFormat,
     showDraftApiFormat,
@@ -505,6 +590,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildDraftExportRequestSignature(prevMessage.draftExportRequest) === buildDraftExportRequestSignature(nextMessage.draftExportRequest)
     && buildDraftDownloadRequestSignature(prevMessage.draftDownloadRequest) === buildDraftDownloadRequestSignature(nextMessage.draftDownloadRequest)
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
+    && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && prevError === nextError
   );
