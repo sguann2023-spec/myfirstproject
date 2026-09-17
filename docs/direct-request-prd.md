@@ -250,6 +250,7 @@ curl --request POST \
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
 | `API` 是否可展示 | 否 |
 | 前端发送条件 | 至少选择一个草稿 |
+| 参数约束 | 必须传 `draftId` 或 `draft_id`；`draftName` / `draft_name` 仅用于展示，不参与定位下载目标 |
 
 典型 payload：
 
@@ -257,8 +258,7 @@ curl --request POST \
 {
   "drafts": [
     {
-      "draftId": "dfd_cat_xxx",
-      "draftName": "草稿A"
+      "draftId": "dfd_cat_xxx"
     }
   ]
 }
@@ -276,6 +276,7 @@ curl --request POST \
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
 | `API` 是否可展示 | 否 |
 | 前端发送条件 | 至少选择一个草稿 |
+| 参数约束 | 必须传 `draftId` 或 `draft_id`；`draftName` / `draft_name` 仅用于展示，不参与定位导出目标 |
 
 典型 payload：
 
@@ -283,8 +284,7 @@ curl --request POST \
 {
   "drafts": [
     {
-      "draftId": "dfd_cat_xxx",
-      "draftName": "草稿A"
+      "draftId": "dfd_cat_xxx"
     }
   ]
 }

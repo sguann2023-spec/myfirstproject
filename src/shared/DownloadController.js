@@ -1,6 +1,6 @@
 /* 下载队列控制器（单例） */
 import { electronStore } from './electronStore';
-import { queryScript } from '../api/capcut';
+import { queryScript, searchDraft } from '../api/capcut';
 import { mapDownloadErrorMessage } from './downloadErrorMessage';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('DownloadController');
@@ -341,6 +341,55 @@ function enqueueMany(items = []) {
   return accepted;
 }
 
+async function enrichIncomingDrafts(items = []) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  return Promise.all(items.map(async (item) => {
+    const draftId = String(item?.draft_id || '').trim();
+    if (!draftId) return null;
+
+    const draftName = String(item?.draft_name || '').trim();
+    const cover = typeof item?.cover === 'string' && item.cover.trim() ? item.cover.trim() : item?.cover;
+    const createdAt = typeof item?.createdAt === 'number' && Number.isFinite(item.createdAt) ? item.createdAt : undefined;
+    const shouldLookupMetadata = !draftName || draftName === draftId || !cover || !createdAt;
+
+    if (!shouldLookupMetadata) {
+      return {
+        draft_id: draftId,
+        draft_name: draftName,
+        cover,
+        createdAt,
+      };
+    }
+
+    try {
+      const res = await searchDraft({ draft_id: draftId });
+      const draft = res?.draft;
+      const resolvedDraftName = String(draft?.draft_name || '').trim() || draftName || draftId;
+      const resolvedCover = cover || draft?.cover || undefined;
+      const resolvedCreatedAt = createdAt || draft?.created_at || Date.now();
+
+      return {
+        draft_id: draftId,
+        draft_name: resolvedDraftName,
+        cover: resolvedCover,
+        createdAt: resolvedCreatedAt,
+      };
+    } catch (error) {
+      logger.warn('[DLTRACE] failed to resolve draft metadata before enqueue', {
+        draftId,
+        error: error?.message || String(error || '')
+      });
+      return {
+        draft_id: draftId,
+        draft_name: draftName || draftId,
+        cover,
+        createdAt: createdAt || Date.now(),
+      };
+    }
+  }));
+}
+
 async function startNextIfIdle() {
   logger.debug('startNextIfIdle', state.current, state.queue);
   if (state.current || !ipc) {
@@ -507,13 +556,14 @@ function attachIpcListenersOnce() {
     setTimeout(startNextIfIdle, 100);
   });
 
-  ipc.on('mcp-download-draft-enqueue', (_event, payload = {}) => {
+  ipc.on('mcp-download-draft-enqueue', async (_event, payload = {}) => {
     const drafts = Array.isArray(payload?.drafts)
       ? payload.drafts
       : payload?.draft_id
         ? [payload]
         : [];
-    const accepted = enqueueMany(drafts);
+    const enrichedDrafts = await enrichIncomingDrafts(drafts);
+    const accepted = enqueueMany(enrichedDrafts);
     logger.info('[DLTRACE] mcp-download-draft-enqueue', { accepted });
   });
 }
