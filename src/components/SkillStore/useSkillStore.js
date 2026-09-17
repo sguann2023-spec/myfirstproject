@@ -234,8 +234,9 @@ export const useSkillStore = () => {
 
   const uninstall = useCallback(async (skill) => {
     const installed = getInstalledSkill(skill);
-    if (installed?.id && window.api?.skill?.uninstall) {
-      const result = await window.api.skill.uninstall(installed.id);
+    const uninstallId = installed?.folderName || installed?.id || skill?.folderName || skill?.id;
+    if (uninstallId && window.api?.skill?.uninstall) {
+      const result = await window.api.skill.uninstall(uninstallId);
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '卸载技能失败');
       await refreshInstalled();
       notifySkillStoreUpdated();

@@ -44,6 +44,9 @@ const SkillCardSkeleton = () => (
 const toLocalCard = (skill) => ({
   id: skill?.id || skill?.folderName || skill?.name,
   name: skill?.name || skill?.folderName || '未命名技能',
+  // Keep the filesystem identity after the display name in SKILL.md changes.
+  folderName: skill?.folderName,
+  remoteId: skill?.remoteId,
   description: skill?.description || '',
   icon_url: skill?.icon_url || skill?.iconUrl || '',
   previewVideoUrl: skill?.previewVideoUrl || skill?.preview_video_url || '',

@@ -163,6 +163,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           disabled={disabled}
           onClick={() => {
             setTextMenuOpen(false);
+            trackEvent(`二级_${item.label}_点击`, {
+              source: 'composer_text_menu',
+              menu_item: item.id,
+            });
             onSelect && onSelect(item.id);
           }}
         >
