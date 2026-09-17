@@ -1,44 +1,120 @@
+import { loggerService } from '@logger';
 import { electronStore } from './electronStore';
 
+const logger = loggerService.withContext('Analytics');
 const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY || '';
 const POSTHOG_HOST = (import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com').replace(/\/$/, '');
+const QUEUE_KEY = 'analytics.posthog.queue';
+const BATCH_SIZE = 10;
+const FLUSH_INTERVAL_MS = 60 * 1000;
+const RETRY_DELAYS_MS = [1000, 5000, 15000];
+
+let flushTimer = null;
+let flushInProgress = false;
 
 const getCurrentUserId = () => {
   try {
     const user = electronStore.get('user') || {};
-    const userId = user?.id;
-    return userId ? String(userId) : '';
+    return user?.id ? String(user.id) : '';
   } catch {
     return '';
   }
 };
 
-export const trackEvent = (event, properties = {}) => {
-  if (!POSTHOG_API_KEY) return;
+const readQueue = () => {
+  try {
+    const queue = electronStore.get(QUEUE_KEY);
+    return Array.isArray(queue) ? queue : [];
+  } catch (error) {
+    logger.error('Analytics queue read failed', { error: String(error) });
+    return [];
+  }
+};
 
-  const userId = getCurrentUserId();
-  if (!userId) return;
+const writeQueue = (queue) => {
+  try {
+    electronStore.set(QUEUE_KEY, queue);
+  } catch (error) {
+    logger.error('Analytics queue write failed', { error: String(error) });
+  }
+};
 
-  void fetch(`${POSTHOG_HOST}/capture/`, {
+const scheduleFlush = () => {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushQueue({ force: true });
+  }, FLUSH_INTERVAL_MS);
+};
+
+const postBatch = async (batch, keepalive = false) => {
+  const response = await fetch(`${POSTHOG_HOST}/batch/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    keepalive: true,
-    body: JSON.stringify({
-      api_key: POSTHOG_API_KEY,
-      event,
-      distinct_id: userId,
-      properties: {
-        ...properties,
-        user_id: userId,
-        app_version: import.meta.env.VITE_APP_VERSION || undefined,
-        platform: navigator.platform,
-      },
-    }),
-  }).catch((error) => {
-    // Analytics must never affect the primary user flow.
-    console.warn('[Analytics] event tracking failed', {
-      event,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    keepalive,
+    body: JSON.stringify({ api_key: POSTHOG_API_KEY, batch }),
   });
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
 };
+
+const flushQueue = async ({ force = false, keepalive = false } = {}) => {
+  if (flushInProgress || !POSTHOG_API_KEY) return;
+  const queue = readQueue();
+  if (queue.length === 0 || (!force && queue.length < BATCH_SIZE)) return;
+
+  flushInProgress = true;
+  const batch = queue.slice(0, BATCH_SIZE);
+  try {
+    let lastError = null;
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        await postBatch(batch, keepalive);
+        writeQueue(readQueue().slice(batch.length));
+        logger.debug('Analytics batch sent', { count: batch.length });
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < RETRY_DELAYS_MS.length && !keepalive) {
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+        }
+      }
+    }
+    logger.error('Analytics batch sending failed', {
+      count: batch.length,
+      error: lastError instanceof Error ? lastError.message : String(lastError),
+      host: POSTHOG_HOST,
+    });
+  } finally {
+    flushInProgress = false;
+  }
+};
+
+export const trackEvent = (event, properties = {}) => {
+  if (!POSTHOG_API_KEY) {
+    logger.warn('Analytics disabled: missing PostHog API key', { event });
+    return;
+  }
+  const userId = getCurrentUserId();
+  if (!userId) {
+    logger.warn('Analytics skipped: missing user id', { event });
+    return;
+  }
+
+  const queue = readQueue();
+  queue.push({
+    event,
+    distinct_id: userId,
+    properties: { ...properties, user_id: userId, app_version: import.meta.env.VITE_APP_VERSION || undefined, platform: navigator.platform },
+    timestamp: new Date().toISOString(),
+  });
+  writeQueue(queue);
+  if (queue.length >= BATCH_SIZE) void flushQueue({ force: true });
+  else scheduleFlush();
+};
+
+const flushBeforeExit = () => {
+  if (readQueue().length > 0 && POSTHOG_API_KEY) void flushQueue({ force: true, keepalive: true });
+};
+
+if (typeof window !== 'undefined') window.addEventListener('beforeunload', flushBeforeExit);
+if (POSTHOG_API_KEY && readQueue().length > 0) void flushQueue({ force: true });
