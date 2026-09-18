@@ -215,6 +215,22 @@
   gap: 0px;
 }
 
+.chat-panel__video-option-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chat-panel__video-option-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .chat-panel__video-option-icon {
   width: 16px;
   height: 16px;

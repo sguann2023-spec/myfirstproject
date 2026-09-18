@@ -9,6 +9,7 @@ import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from
 import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
 import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
+import { getVideoGenerationCapabilities } from '../../../api/chat';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import {
@@ -591,6 +592,7 @@ const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   localThumbUrl: overrides.localThumbUrl ?? file.localThumbUrl ?? '',
   localPreviewUrl: overrides.localPreviewUrl ?? file.localPreviewUrl ?? file.localThumbUrl ?? '',
   durationLabel: overrides.durationLabel ?? file.durationLabel ?? '',
+  durationSeconds: overrides.durationSeconds ?? file.durationSeconds ?? 0,
   templateSlot: Boolean(overrides.templateSlot ?? file.templateSlot),
   slotId: overrides.slotId ?? file.slotId ?? '',
   slotLabel: overrides.slotLabel ?? file.slotLabel ?? '',
@@ -1085,6 +1087,10 @@ const formatMediaDuration = (durationInSeconds) => {
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
+const normalizeMediaDurationSeconds = (value) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
+};
 const createLocalObjectUrl = (file) => {
   if (!isFileLike(file) || typeof URL?.createObjectURL !== 'function') return '';
   try {
@@ -1101,9 +1107,9 @@ const revokeLocalObjectUrl = (value) => {
     // noop
   }
 };
-const readMediaDuration = (mediaUrl, tagName = 'video') => new Promise((resolve) => {
+const readMediaMetadata = (mediaUrl, tagName = 'video') => new Promise((resolve) => {
   if (!mediaUrl || typeof document === 'undefined') {
-    resolve('');
+    resolve({ durationLabel: '', durationSeconds: 0 });
     return;
   }
 
@@ -1112,17 +1118,24 @@ const readMediaDuration = (mediaUrl, tagName = 'video') => new Promise((resolve)
     element.removeAttribute('src');
     element.load?.();
   };
-  const finish = (value = '') => {
+  const finish = (value = {}) => {
     cleanup();
-    resolve(value);
+    resolve({
+      durationLabel: String(value?.durationLabel || '').trim(),
+      durationSeconds: normalizeMediaDurationSeconds(value?.durationSeconds),
+    });
   };
 
   element.preload = 'metadata';
   element.onloadedmetadata = () => {
-    finish(formatMediaDuration(element.duration));
+    const durationSeconds = normalizeMediaDurationSeconds(element.duration);
+    finish({
+      durationLabel: formatMediaDuration(durationSeconds),
+      durationSeconds,
+    });
   };
   element.onerror = () => {
-    finish('');
+    finish({ durationLabel: '', durationSeconds: 0 });
   };
   element.src = mediaUrl;
 });
@@ -1160,9 +1173,9 @@ const createLocalAttachmentEntry = async (rawFile = {}) => {
   ).trim();
   const fileType = targetFile?.type || rawFile?.type || '';
   const kind = getFileKindFromType(fileType);
-  const durationLabel = localObjectUrl && kind === 'video'
-    ? await readMediaDuration(localObjectUrl, 'video')
-    : '';
+  const mediaMetadata = localObjectUrl && kind === 'video'
+    ? await readMediaMetadata(localObjectUrl, 'video')
+    : { durationLabel: '', durationSeconds: 0 };
 
   return {
     uploadItem: {
@@ -1182,7 +1195,8 @@ const createLocalAttachmentEntry = async (rawFile = {}) => {
       previewUrl: localObjectUrl,
       localThumbUrl: localObjectUrl,
       localPreviewUrl: localObjectUrl,
-      durationLabel,
+      durationLabel: mediaMetadata.durationLabel,
+      durationSeconds: mediaMetadata.durationSeconds,
       sourcePath,
       sourceType: 'local',
     },
@@ -1225,11 +1239,11 @@ const createRemoteAttachmentEntry = async ({ uid, name, url, fileType, sourceTyp
   const resolvedName = String(name || '').trim() || getRemoteMediaUrlFileName(normalizedUrl) || '附件';
   const resolvedFileType = String(fileType || '').trim() || guessFileTypeFromName(resolvedName);
   const kind = getFileKindFromType(resolvedFileType);
-  const durationLabel = kind === 'video'
-    ? await readMediaDuration(normalizedUrl, 'video')
+  const mediaMetadata = kind === 'video'
+    ? await readMediaMetadata(normalizedUrl, 'video')
     : kind === 'audio'
-      ? await readMediaDuration(normalizedUrl, 'audio')
-      : '';
+      ? await readMediaMetadata(normalizedUrl, 'audio')
+      : { durationLabel: '', durationSeconds: 0 };
 
   return {
     uid: String(uid || '').trim() || `remote:${normalizedUrl}`,
@@ -1240,7 +1254,8 @@ const createRemoteAttachmentEntry = async ({ uid, name, url, fileType, sourceTyp
     previewUrl: normalizedUrl,
     localThumbUrl: '',
     localPreviewUrl: '',
-    durationLabel,
+    durationLabel: mediaMetadata.durationLabel,
+    durationSeconds: mediaMetadata.durationSeconds,
     sourcePath: normalizedUrl,
     sourceType,
     sourceLabel,
@@ -1922,6 +1937,7 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
         localThumbUrl: { default: '' },
         localPreviewUrl: { default: '' },
         durationLabel: { default: '' },
+        durationSeconds: { default: 0 },
         templateSlot: { default: false },
         slotId: { default: '' },
         slotLabel: { default: '' },
@@ -2447,11 +2463,8 @@ const Composer = ({
     let cancelled = false;
 
     const loadVideoCapabilities = async () => {
-      const api = window?.electronAPI?.videoGeneration;
-      if (!api || typeof api.getCapabilities !== 'function') return;
-
       try {
-        const result = await api.getCapabilities({ includePrices: true });
+        const result = await getVideoGenerationCapabilities({ includePrices: true });
         const models = Array.isArray(result?.models) ? result.models : [];
         if (!cancelled) {
           setVideoCapabilityModels(models);
@@ -3705,6 +3718,15 @@ const Composer = ({
     if (activeTool !== 'ai-video') return [];
     return (VIDEO_GENERATION_PLACEHOLDER_CONFIG[normalizedSelectedVideoGenerationMode] || []).map((item) => item.key);
   }, [activeTool, normalizedSelectedVideoGenerationMode]);
+  const referenceVideoDurationSeconds = React.useMemo(() => {
+    if (activeTool !== 'ai-video' || normalizedSelectedVideoGenerationMode !== 'reference') return 0;
+    return uploadedFileMeta.reduce((total, item) => {
+      const fileType = String(item?.fileType || '').trim().toLowerCase();
+      if (!fileType.startsWith('video/')) return total;
+      const durationSeconds = normalizeMediaDurationSeconds(item?.durationSeconds);
+      return total + durationSeconds;
+    }, 0);
+  }, [activeTool, normalizedSelectedVideoGenerationMode, uploadedFileMeta]);
   const activeUploadPlaceholders = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoUploadPlaceholders;
     if (activeTool === 'image-pan') return imagePanUploadPlaceholders;
@@ -4550,6 +4572,7 @@ const Composer = ({
                       selectedGenerateAudio={selectedVideoGenerateAudio}
                       selectedSeedanceOffline={selectedVideoSeedanceOffline}
                       selectedSuperResolve={selectedVideoSuperResolve}
+                      referenceVideoDurationSeconds={referenceVideoDurationSeconds}
                       onModelChange={setSelectedVideoModel}
                       onGenerationModeChange={setSelectedVideoGenerationMode}
                       onResolutionChange={setSelectedVideoResolution}
