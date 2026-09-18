@@ -6,10 +6,8 @@ const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY || '';
 const POSTHOG_HOST = (import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com').replace(/\/$/, '');
 const QUEUE_KEY = 'analytics.posthog.queue';
 const BATCH_SIZE = 10;
-const FLUSH_INTERVAL_MS = 60 * 1000;
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
 
-let flushTimer = null;
 let flushInProgress = false;
 
 const getCurrentUserId = () => {
@@ -39,14 +37,6 @@ const writeQueue = (queue) => {
   }
 };
 
-const scheduleFlush = () => {
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    void flushQueue({ force: true });
-  }, FLUSH_INTERVAL_MS);
-};
-
 const postBatch = async (batch, keepalive = false) => {
   const response = await fetch(`${POSTHOG_HOST}/batch/`, {
     method: 'POST',
@@ -71,6 +61,7 @@ const flushQueue = async ({ force = false, keepalive = false } = {}) => {
         await postBatch(batch, keepalive);
         writeQueue(readQueue().slice(batch.length));
         logger.debug('Analytics batch sent', { count: batch.length });
+        if (readQueue().length >= BATCH_SIZE) void flushQueue({ force: true });
         return;
       } catch (error) {
         lastError = error;
@@ -109,13 +100,4 @@ export const trackEvent = (event, properties = {}) => {
   });
   writeQueue(queue);
   if (queue.length >= BATCH_SIZE) void flushQueue({ force: true });
-  else scheduleFlush();
 };
-
-const flushBeforeExit = () => {
-  logger.info('Analytics beforeunload received');
-  if (readQueue().length > 0 && POSTHOG_API_KEY) void flushQueue({ force: true, keepalive: true });
-};
-
-if (typeof window !== 'undefined') window.addEventListener('beforeunload', flushBeforeExit);
-if (POSTHOG_API_KEY && readQueue().length > 0) void flushQueue({ force: true });
