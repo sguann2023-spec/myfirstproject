@@ -6,6 +6,8 @@ const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY || '';
 const POSTHOG_HOST = (import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com').replace(/\/$/, '');
 const QUEUE_KEY = 'analytics.posthog.queue';
 const BATCH_SIZE = 10;
+const MAX_QUEUE_SIZE = 1000;
+const MAX_EVENT_BYTES = 32 * 1024;
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
 
 let flushInProgress = false;
@@ -91,13 +93,42 @@ export const trackEvent = (event, properties = {}) => {
     return;
   }
 
-  const queue = readQueue();
-  queue.push({
+  const eventPayload = {
     event,
     distinct_id: userId,
     properties: { ...properties, user_id: userId, app_version: import.meta.env.VITE_APP_VERSION || undefined, platform: navigator.platform },
     timestamp: new Date().toISOString(),
-  });
+  };
+
+  let eventBytes;
+  try {
+    eventBytes = new Blob([JSON.stringify(eventPayload)]).size;
+  } catch (error) {
+    logger.warn('Analytics event serialization failed', { event, error: String(error) });
+    return;
+  }
+
+  if (eventBytes > MAX_EVENT_BYTES) {
+    logger.warn('Analytics event dropped: payload too large', {
+      event,
+      bytes: eventBytes,
+      maxBytes: MAX_EVENT_BYTES,
+    });
+    return;
+  }
+
+  const queue = readQueue();
+  queue.push(eventPayload);
+
+  if (queue.length > MAX_QUEUE_SIZE) {
+    const droppedCount = queue.length - MAX_QUEUE_SIZE;
+    queue.splice(0, droppedCount);
+    logger.warn('Analytics queue exceeded max size; oldest events dropped', {
+      droppedCount,
+      maxQueueSize: MAX_QUEUE_SIZE,
+    });
+  }
+
   writeQueue(queue);
   if (queue.length >= BATCH_SIZE) void flushQueue({ force: true });
 };
