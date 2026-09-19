@@ -14,6 +14,7 @@ import { pathToFileURL } from 'node:url'
 
 import { configManager } from './ConfigManager'
 import { contextMenu } from './ContextMenu'
+import { crashReportService } from './CrashReportService'
 import { isSafeExternalUrl } from './security'
 import { initSessionUserAgent } from './WebviewService'
 
@@ -151,9 +152,11 @@ export class WindowService {
       const lastCrashTime = this.lastRendererProcessCrashTime
       this.lastRendererProcessCrashTime = currentTime
       if (currentTime - lastCrashTime > 60 * 1000) {
+        crashReportService.record('renderer-recovery-action', { action: 'reload', windowId: mainWindow.id })
         // 如果大于1分钟，则重启渲染进程
         mainWindow.webContents.reload()
       } else {
+        crashReportService.record('renderer-recovery-action', { action: 'exit', exitCode: 1, windowId: mainWindow.id }, true)
         // 如果小于1分钟，则退出应用, 可能是连续crash，需要退出应用
         app.exit(1)
       }
@@ -390,6 +393,7 @@ export class WindowService {
 
   private setupWindowLifecycleEvents(mainWindow: BrowserWindow) {
     mainWindow.on('close', (_event) => {
+      crashReportService.record('main-window-close', { windowId: mainWindow.id, isQuitting: Boolean(app.isQuitting) })
       // save data before when close window
       try {
         mainWindow.webContents.send(IpcChannel.App_SaveData)

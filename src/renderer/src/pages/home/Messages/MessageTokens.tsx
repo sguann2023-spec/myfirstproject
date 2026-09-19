@@ -8,6 +8,7 @@ import { Popover } from 'antd'
 import { t } from 'i18next'
 import React from 'react'
 import styled from 'styled-components'
+import { getReversePromptAccounting, isReversePromptToolName } from '../../../../../shared/reversePrompt'
 
 interface MessageTokensProps {
   message: Message
@@ -220,6 +221,33 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   const toolBillingPoints = toolBillingDetails.reduce((total: number, detail: ToolBillingDetail) => total + detail.points, 0)
 
+  const internalToolUsage = useAppSelector((state: any) => {
+    const total = {
+      prompt_tokens: 0, completion_tokens: 0, total_tokens: 0,
+      missing: false, missingBilling: false, hasKnownBilling: false
+    }
+    for (const blockRef of currentMessage.blocks || []) {
+      const block = resolveMessageBlock(state, blockRef)
+      const response = block?.metadata?.rawMcpToolResponse
+      if (block?.type !== 'tool' || !isReversePromptToolName(block.toolName || response?.tool?.name || response?.toolName || '')) continue
+      const accounting = getReversePromptAccounting(response)
+      const usage = accounting?.usage
+      const points = extractBillingPointsFromPayload(accounting)
+      if (points !== null) total.hasKnownBilling = true
+      if (points === null || accounting?.billing?.complete === false) total.missingBilling = true
+      const prompt = asFiniteNumber(usage?.prompt_tokens ?? usage?.input_tokens)
+      const completion = asFiniteNumber(usage?.completion_tokens ?? usage?.output_tokens)
+      const tokens = asFiniteNumber(usage?.total_tokens) ?? (
+        prompt !== null && completion !== null ? prompt + completion : null
+      )
+      if (tokens === null) total.missing = true
+      total.prompt_tokens += prompt || 0
+      total.completion_tokens += completion || 0
+      total.total_tokens += tokens || 0
+    }
+    return total
+  })
+
   const getUsageSteps = () =>
     Array.isArray(currentMessage.usageSteps) && currentMessage.usageSteps.length > 0
       ? (currentMessage.usageSteps as MessageUsageWithCacheDetails[])
@@ -385,9 +413,10 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
 
     return {
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      total_tokens: totalTokens
+      // Tool-internal tokens are display-only; their cost is already included in toolBillingPoints.
+      prompt_tokens: promptTokens + internalToolUsage.prompt_tokens,
+      completion_tokens: completionTokens + internalToolUsage.completion_tokens,
+      total_tokens: totalTokens + internalToolUsage.total_tokens
     }
   }
 
@@ -430,6 +459,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   const getPriceString = () => {
     const price = getPrice()
+    if (internalToolUsage.missingBilling && price === 0 && !internalToolUsage.hasKnownBilling) return '未返回'
     return price.toFixed(2)
   }
 
@@ -465,7 +495,9 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     const tokensInfo = (
       <span className="tokens">
         Tokens:
-        <span>{formatTokenCount(aggregatedUsage.total_tokens)}</span>
+        <span>{internalToolUsage.missing && aggregatedUsage.total_tokens === 0
+          ? '未返回'
+          : formatTokenCount(aggregatedUsage.total_tokens)}</span>
         <span>↑{formatTokenCount(aggregatedUsage.prompt_tokens)}</span>
         <span>↓{formatTokenCount(aggregatedUsage.completion_tokens)}</span>
         {cacheReadSummaryText ? <span>{cacheReadSummaryText}</span> : null}

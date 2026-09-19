@@ -2,9 +2,13 @@ import { modelsService } from '@main/apiServer/services/models'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
+import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import { loggerService } from '@logger'
 import { getDataPath } from '@main/utils'
 import { IpcChannel } from '@shared/IpcChannel'
+import { validateTextStyleRanges } from '../../../../../shared/textTypography'
+import { normalizeTextEffectParams } from '../../../../../shared/textEffects'
+import { buildReversePromptBlocks, normalizeReversePromptRequest, parseReversePromptResult } from '../../../../../shared/reversePrompt'
 import { sql } from 'drizzle-orm'
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
@@ -46,6 +50,7 @@ type DirectDraftRequestPayload = {
   assistantMessageId?: string
   userContent?: string
   model?: string
+  reversePromptRequest?: { shareText?: string }
   draftRequest?: {
     action?: 'create'
     width?: number
@@ -90,6 +95,33 @@ type DirectDraftRequestPayload = {
     fontColor?: string
     font_size?: number
     fontSize?: number
+    textStyles?: Array<Record<string, unknown>>
+    text_styles?: Array<Record<string, unknown>>
+    font_alpha?: number
+    border_alpha?: number
+    border_color?: string
+    border_width?: number
+    background_color?: string
+    background_style?: number
+    background_alpha?: number
+    background_round_radius?: number
+    background_height?: number
+    background_width?: number
+    background_vertical_offset?: number
+    background_horizontal_offset?: number
+    shadow_enabled?: boolean
+    shadow_alpha?: number
+    shadow_angle?: number
+    shadow_color?: string
+    shadow_distance?: number
+    shadow_smoothing?: number
+    effect_effect_id?: string
+    intro_animation?: string
+    intro_duration?: number
+    outro_animation?: string
+    outro_duration?: number
+    loop_animation?: string
+    loop_duration?: number
     letter_spacing?: number
     letterSpacing?: number
     line_spacing?: number
@@ -114,6 +146,8 @@ type DirectDraftRequestPayload = {
     rotation?: number
     track_name?: string
     trackName?: string
+    relative_index?: number
+    relativeIndex?: number
   }
   draftInspectRequest?: {
     requestId?: string
@@ -348,10 +382,11 @@ function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fall
   }
 
   const textRaw = typeof input?.text === 'string' ? input.text : fallbackText
-  const text = String(textRaw || '').trim()
-  if (!text) {
+  const text = String(textRaw || '')
+  if (!text.trim()) {
     throw new Error('text is required for text add request')
   }
+  const textStyles = validateTextStyleRanges(text, input?.text_styles ?? input?.textStyles)
 
   const startValue = typeof input?.start === 'number' ? input.start : Number(input?.start)
   const normalizedStart = Number.isFinite(startValue) ? Number(startValue) : 0
@@ -394,6 +429,7 @@ function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fall
     ? input.track_name
     : (typeof input?.trackName === 'string' ? input.trackName : '')
   const trackName = typeof trackNameRaw === 'string' && trackNameRaw.trim() ? trackNameRaw.trim() : undefined
+  const relativeIndex = Number(input?.relative_index ?? input?.relativeIndex)
 
   return {
     draft_id: draftId,
@@ -403,6 +439,8 @@ function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fall
     ...(font ? { font } : {}),
     ...(fontColor ? { font_color: fontColor } : {}),
     ...(fontSize ? { font_size: fontSize } : {}),
+    ...(textStyles.length ? { text_styles: textStyles } : {}),
+    ...normalizeTextEffectParams(input),
     ...(typeof letterSpacing === 'number' ? { letter_spacing: letterSpacing } : {}),
     ...(typeof lineSpacing === 'number' ? { line_spacing: lineSpacing } : {}),
     ...(typeof bold === 'boolean' ? { bold } : {}),
@@ -418,6 +456,7 @@ function normalizeDirectTextAddRequest(input: Record<string, unknown> = {}, fall
     ...(typeof fixedHeightPx === 'number' ? { fixed_height_px: fixedHeightPx } : {}),
     ...(typeof rotation === 'number' ? { rotation } : {}),
     ...(trackName ? { track_name: trackName } : {}),
+    ...(Number.isInteger(relativeIndex) ? { relative_index: relativeIndex } : {}),
   }
 }
 
@@ -2211,6 +2250,101 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleReversePromptRequest = async (_event: unknown, payload: DirectDraftRequestPayload) => {
+    const sessionId = String(payload?.sessionId || '').trim()
+    const requestId = String(payload?.requestId || '').trim() || randomUUID()
+    const controller = new AbortController()
+    try {
+      const request = normalizeReversePromptRequest(payload?.reversePromptRequest)
+      const session = await resolveSessionById(sessionId, payload?.agent_id)
+      if (!session) throw new Error('session not found')
+      if (activeAbortControllers.has(sessionId)) throw new Error('当前会话已有任务正在执行')
+      activeAbortControllers.set(sessionId, { controller, requestId })
+      const assistantMessageId = payload.assistantMessageId || randomUUID()
+      const userMessageId = payload.userMessageId || randomUUID()
+      const createdAt = new Date(payload.createdAt || Date.now()).toISOString()
+      const modelId = String(payload.model || session.model || '')
+      const server = new SocialCopywritingServer()
+      let parsed
+      let failure: string | undefined
+      try {
+        const callTool = (server.mcpServer.server as any)?._requestHandlers?.get('tools/call')
+        if (typeof callTool !== 'function') throw new Error('反推提示词工具未注册')
+        const result = await callTool({
+          method: 'tools/call',
+          params: { name: 'derive_copy_prompt', arguments: request }
+        }, {
+          signal: controller.signal,
+          requestId,
+          toolCallId: `reverse_prompt_request_${requestId}`,
+          sendNotification: async () => {}
+        })
+        if (controller.signal.aborted) return { ok: false, aborted: true }
+        try {
+          parsed = parseReversePromptResult(result)
+        } catch (error) {
+          const toolResponse = (error as Error & { toolResponse?: Record<string, unknown> }).toolResponse
+          if (!toolResponse) throw error
+          failure = error instanceof Error ? error.message : String(error)
+          parsed = { response: toolResponse, assistantText: '' }
+        }
+      } finally {
+        await server.mcpServer.close()
+      }
+      const { response, assistantText } = parsed
+      const assistantBlocks = buildReversePromptBlocks({
+        assistantMessageId, requestId, request, modelId, createdAt,
+        status: failure ? 'error' : 'success', response, assistantText
+      })
+      const activeSegment = await ensureDirectRequestSegment(session)
+      if (controller.signal.aborted) return { ok: false, aborted: true }
+      const completedAt = new Date().toISOString()
+      await agentTurnRepository.save({
+        id: `turn_${randomUUID()}`, topicId: session.id, segmentId: activeSegment.id,
+        userMessageId, assistantMessageId, userText: String(payload.userContent || ''),
+        assistantText, startedAt: createdAt, completedAt, status: failure ? 'failed' : 'completed'
+      })
+      const topicId = `agent-session:${session.id}`
+      await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt,
+          payload: {
+            message: {
+              id: userMessageId, role: 'user', assistantId: session.agent_id, topicId,
+              createdAt, status: 'success', reversePromptRequest: { ...request, requestId }, blocks: [`${userMessageId}-main`]
+            },
+            blocks: [{
+              id: `${userMessageId}-main`, messageId: userMessageId, type: 'main_text',
+              createdAt, status: 'success', content: String(payload.userContent || '')
+            }]
+          } as any
+        },
+        assistant: {
+          createdAt,
+          payload: {
+            message: {
+              id: assistantMessageId, role: 'assistant', assistantId: session.agent_id, topicId,
+              createdAt, updatedAt: completedAt, status: failure ? 'error' : 'success', modelId,
+              ...(failure ? { error: { message: failure } } : {}),
+              blocks: assistantBlocks.map((block) => block.id)
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+      broadcastSessionChanged(session.agent_id, session.id, true)
+      return { ok: !failure, ...(failure ? { error: failure } : {}), assistantText, assistantBlocks }
+    } catch (error) {
+      return { ok: false, aborted: controller.signal.aborted, error: error instanceof Error ? error.message : String(error) }
+    } finally {
+      if (activeAbortControllers.get(sessionId)?.controller === controller) {
+        activeAbortControllers.delete(sessionId)
+      }
+    }
+  }
+
   const handleSessionCreate = async (_event: unknown, payload: any = {}) => {
     try {
       const agentId = String(payload?.agent_id || DEFAULT_RUNTIME_AGENT_ID).trim() || DEFAULT_RUNTIME_AGENT_ID
@@ -2258,6 +2392,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, handleDraftRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, handleTextAddRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, handleDraftDownloadRequest)
 

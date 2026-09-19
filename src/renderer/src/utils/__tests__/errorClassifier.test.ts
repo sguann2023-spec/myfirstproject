@@ -84,6 +84,14 @@ describe('classifyError', () => {
   })
 
   // Network
+  it.each(['Connection error.', 'Connection failed.', 'connection error'])('classifies %s as network', (message) => {
+    expect(classifyError(makeError({ message })).category).toBe('network')
+  })
+
+  it('keeps MCP connection errors distinct from network errors', () => {
+    expect(classifyError(makeError({ message: 'MCP connection error.' })).category).toBe('mcp')
+  })
+
   it('classifies econnrefused as network', () => {
     const result = classifyError(makeError({ message: 'connect ECONNREFUSED 127.0.0.1:443' }))
     expect(result.category).toBe('network')
@@ -93,6 +101,34 @@ describe('classifyError', () => {
   it('classifies timeout as network', () => {
     const result = classifyError(makeError({ message: 'Request timeout after 30000ms' }))
     expect(result.category).toBe('network')
+    expect(result.i18nKey).toBe('error.diagnosis.timeout')
+  })
+
+  it.each([
+    { message: 'Request timed out.' },
+    { name: 'APIConnectionTimeoutError', message: '' },
+    { i18nKey: 'request_timeout', message: '' },
+    { code: 'ETIMEDOUT', message: '' },
+    { statusCode: 504, message: '' }
+  ])('explains timeout errors from structured fields: %j', (error) => {
+    expect(classifyError(makeError(error)).i18nKey).toBe('error.diagnosis.timeout')
+  })
+
+  it.each([
+    { message: 'No response' },
+    { message: 'Empty response from provider' },
+    { i18nKey: 'no_response', message: '' }
+  ])('explains empty responses: %j', (error) => {
+    expect(classifyError(makeError(error)).i18nKey).toBe('error.diagnosis.empty_response')
+  })
+
+  it('recognizes structured connection errors without a message', () => {
+    expect(classifyError(makeError({ name: 'APIConnectionError', message: '' })).category).toBe('network')
+    expect(classifyError(makeError({ code: 'ECONNREFUSED', message: '' })).category).toBe('network')
+  })
+
+  it('recognizes explicitly paused requests', () => {
+    expect(classifyError(makeError({ i18nKey: 'stream_paused', message: '' })).category).toBe('aborted')
   })
 
   it('classifies fetch failed as network', () => {

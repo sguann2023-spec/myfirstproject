@@ -1,3 +1,5 @@
+import { normalizeTextEffectParams } from '../../../../shared/textEffects';
+
 const COZE_WORKFLOW_SOURCE = {
   workflowId: '7668682150007488554',
   flowMode: 0,
@@ -166,7 +168,8 @@ const COZE_ADD_TEXT_EXTERNAL_DATA = {
     { description: '固定宽度像素值', input: {}, name: 'fixed_width_px', required: false, type: 'integer' },
     { description: '固定高度像素值', input: {}, name: 'fixed_height_px', required: false, type: 'integer' },
     { description: '旋转角度', input: {}, name: 'rotation', required: false, type: 'float' },
-    { description: '轨道名', input: {}, name: 'track_name', required: false, type: 'string' }
+    { description: '轨道名', input: {}, name: 'track_name', required: false, type: 'string' },
+    { description: '轨道层级', input: {}, name: 'relative_index', required: false, type: 'integer' }
   ],
   outputs: [
     { input: {}, name: 'success', required: false, type: 'boolean' },
@@ -319,7 +322,7 @@ const createDraftModifyRequestInputParameters = (draftModifyRequest = {}) => {
 
 const createTextAddRequestInputParameters = (textAddRequest = {}) => {
   const draftId = String(textAddRequest?.draft_id || textAddRequest?.draftId || '').trim();
-  const text = String(textAddRequest?.text || '').trim();
+  const text = String(textAddRequest?.text || '');
   const start = Number(textAddRequest?.start || 0) || 0;
   const end = Number(textAddRequest?.end || 3) || 3;
   const font = String(textAddRequest?.font || '').trim();
@@ -335,6 +338,7 @@ const createTextAddRequestInputParameters = (textAddRequest = {}) => {
   const fixedHeightPx = Number(textAddRequest?.fixed_height_px ?? textAddRequest?.fixedHeightPx ?? textAddRequest?.fixed_height ?? textAddRequest?.fixedHeight);
   const rotation = Number(textAddRequest?.rotation);
   const trackName = String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim();
+  const relativeIndex = Number(textAddRequest?.relative_index ?? textAddRequest?.relativeIndex);
   const parameters = [
     createInputParameter('draft_id', 'string', draftId),
     createInputParameter('text', 'string', text),
@@ -344,6 +348,12 @@ const createTextAddRequestInputParameters = (textAddRequest = {}) => {
   if (font) parameters.push(createInputParameter('font', 'string', font));
   if (Number.isFinite(fontSize) && fontSize > 0) parameters.push(createInputParameter('font_size', 'float', fontSize));
   if (fontColor) parameters.push(createInputParameter('font_color', 'string', fontColor));
+  const textStyles = textAddRequest?.text_styles ?? textAddRequest?.textStyles;
+  if (Array.isArray(textStyles) && textStyles.length) parameters.push(createInputParameter('text_styles', 'list', textStyles));
+  for (const [key, value] of Object.entries(normalizeTextEffectParams(textAddRequest))) {
+    parameters.push(createInputParameter(key, typeof value === 'boolean' ? 'boolean'
+      : typeof value === 'string' ? 'string' : key === 'background_style' ? 'integer' : 'float', value));
+  }
   if (Number.isFinite(letterSpacing)) parameters.push(createInputParameter('letter_spacing', 'float', letterSpacing));
   if (Number.isFinite(lineSpacing)) parameters.push(createInputParameter('line_spacing', 'float', lineSpacing));
   if (typeof textAddRequest?.bold === 'boolean') parameters.push(createInputParameter('bold', 'boolean', textAddRequest.bold));
@@ -359,6 +369,7 @@ const createTextAddRequestInputParameters = (textAddRequest = {}) => {
   if (Number.isFinite(fixedHeightPx)) parameters.push(createInputParameter('fixed_height_px', 'integer', fixedHeightPx));
   if (Number.isFinite(rotation)) parameters.push(createInputParameter('rotation', 'float', rotation));
   if (trackName) parameters.push(createInputParameter('track_name', 'string', trackName));
+  if (Number.isInteger(relativeIndex)) parameters.push(createInputParameter('relative_index', 'integer', relativeIndex));
   return parameters;
 };
 

@@ -8,6 +8,7 @@ import {
   FileTextOutlined,
   ScissorOutlined,
   SnippetsOutlined,
+  StarOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { Select, Tooltip } from 'antd';
@@ -22,6 +23,7 @@ const AI_WRITE_ICON_RENDERERS = {
   'file-text': (className) => <FileTextOutlined className={className} aria-hidden="true" />,
   scissor: (className) => <ScissorOutlined className={className} aria-hidden="true" />,
   snippets: (className) => <SnippetsOutlined className={className} aria-hidden="true" />,
+  star: (className) => <StarOutlined className={className} aria-hidden="true" />,
   upload: (className) => <UploadOutlined className={className} aria-hidden="true" />,
   'undo-2': (className) => <Undo2 className={className} size={18} aria-hidden="true" />,
 };

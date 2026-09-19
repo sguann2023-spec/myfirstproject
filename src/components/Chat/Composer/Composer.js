@@ -1,5 +1,8 @@
 import { useAgent } from '@renderer/hooks/agents/useAgent';
 import React from 'react';
+import { buildTextStyleRanges } from '../../../shared/textTypography';
+import { buildTextEffectParams } from '../../../shared/textEffects';
+import { buildTextPlacementParams } from '../../../shared/textPlacement';
 import { mergeAttributes, Node } from '@tiptap/core';
 import Mention from '@tiptap/extension-mention';
 import { Fragment } from '@tiptap/pm/model';
@@ -18,6 +21,7 @@ import {
   getAiWritePresetById,
 } from './AiWriteToolDetail/presetOptions';
 import AiWriteToolDetail from './AiWriteToolDetail/index';
+import RevertPrompt, { REVERT_PROMPT_HINT, getRevertPromptSendState } from '../../RevertPrompt/index';
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
@@ -2355,6 +2359,7 @@ const Composer = ({
   const [selectedDraftInspectIds, setSelectedDraftInspectIds] = React.useState([]);
   const [selectedTextAddDraftIds, setSelectedTextAddDraftIds] = React.useState([]);
   const [textAddSettings, setTextAddSettings] = React.useState(DEFAULT_TEXT_ADD_SETTINGS);
+  const [textAddInput, setTextAddInput] = React.useState('');
   const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
   const [selectedVideoGenerationMode, setSelectedVideoGenerationMode] = React.useState(() => readPersistedVideoGenerationMode());
   const [selectedVideoResolution, setSelectedVideoResolution] = React.useState(() => readPersistedVideoResolution());
@@ -2442,8 +2447,10 @@ const Composer = ({
         ? '输入草稿名'
         : activeTool === 'draft-modify'
           ? '输入新草稿名'
+        : activeTool === 'reverse-prompt'
+          ? REVERT_PROMPT_HINT
         : activeTool === 'text-add'
-          ? '输入你想添加的文本'
+          ? ''
         : activeTool === 'draft-inspect'
           ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看图片是否是画中画'
         : activeTool === 'draft-export'
@@ -3798,7 +3805,7 @@ const Composer = ({
   }), [input, hasSelectedLocalFile]);
   const toolSendState = React.useMemo(() => {
     const context = {
-      input,
+      input: activeTool === 'text-add' ? textAddInput : input,
       hasSelectedLocalFile,
       selectedDraftIds: activeTool === 'draft-export'
         ? selectedDraftDownloadIds
@@ -3819,6 +3826,8 @@ const Composer = ({
         return getDraftInspectToolSendState(context);
       case 'draft-modify':
         return getDraftModifyToolSendState(context);
+      case 'reverse-prompt':
+        return getRevertPromptSendState(context);
       default:
         return defaultSendState;
     }
@@ -3827,6 +3836,7 @@ const Composer = ({
     defaultSendState,
     hasSelectedLocalFile,
     input,
+    textAddInput,
     selectedDraftDownloadIds,
     selectedTextAddDraftIds,
     selectedDraftInspectIds,
@@ -4031,7 +4041,10 @@ const Composer = ({
     } catch (error) {
       console.warn('[Composer] failed to collect image payloads', error);
     }
-    const serializedMessage = serializeEditorMessage(editor, buildMarkdownFileLink);
+    // The hidden chat editor is not the source of text-add content or references.
+    const serializedMessage = activeTool === 'text-add'
+      ? { text: textAddInput, referencedFileUids: new Set() }
+      : serializeEditorMessage(editor, buildMarkdownFileLink);
     const hasMultimodalImages = selectedModelSupportsReadImage && imagePayloads.length > 0;
     const imagePayloadByUid = new Map(imagePayloads.map((item) => [item.uid, item]));
     const imageAttachmentPreviews = hasMultimodalImages
@@ -4074,7 +4087,9 @@ const Composer = ({
     const voiceSquareComposeParts = activeTool === 'voice-square'
       ? getVoiceSquareComposeParts(editor)
       : null;
-    const text = activeTool === 'voice-square'
+    const text = activeTool === 'text-add'
+      ? textAddInput
+      : activeTool === 'voice-square'
       ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
@@ -4127,6 +4142,8 @@ const Composer = ({
           ].join('\n')
         : activeTool === 'image-pan'
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
+        : activeTool === 'reverse-prompt'
+          ? `请反推以下视频的文案提示词：\n${text}`
           : activeTool === 'ai-video'
             ? [
               `请使用模型 ${selectedVideoModel}`,
@@ -4138,6 +4155,9 @@ const Composer = ({
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
+      reversePromptRequest: activeTool === 'reverse-prompt'
+        ? { shareText: text.trim() }
+        : null,
       draftRequest: activeTool === 'draft'
         ? {
           action: 'create',
@@ -4161,10 +4181,11 @@ const Composer = ({
         ? {
           draftId: String(selectedTextAddDraftIds?.[0] || '').trim(),
           text,
-          start: 0,
-          end: 3,
+          ...buildTextPlacementParams(textAddSettings),
           font: String(textAddSettings?.font || '').trim(),
           fontSize: Number(textAddSettings?.fontSize || 24) || 24,
+          textStyles: buildTextStyleRanges(text, textAddSettings),
+          ...buildTextEffectParams(textAddSettings),
           fontColor: String(textAddSettings?.color || '#FFFFFF').trim().toUpperCase(),
           letterSpacing: Number(textAddSettings?.letterSpacing || 0) || 0,
           lineSpacing: Number(textAddSettings?.lineSpacing || 0) || 0,
@@ -4172,10 +4193,10 @@ const Composer = ({
           scaleY: (Number(textAddSettings?.scaleYPercent ?? DEFAULT_TEXT_ADD_SETTINGS.scaleYPercent) || DEFAULT_TEXT_ADD_SETTINGS.scaleYPercent) / 100,
           transformXPx: Number(textAddSettings?.positionX ?? DEFAULT_TEXT_ADD_SETTINGS.positionX) || DEFAULT_TEXT_ADD_SETTINGS.positionX,
           transformYPx: Number(textAddSettings?.positionY ?? DEFAULT_TEXT_ADD_SETTINGS.positionY) || DEFAULT_TEXT_ADD_SETTINGS.positionY,
-          ...(Number.isFinite(Number(textAddSettings?.fixedWidth))
+          ...(typeof textAddSettings?.fixedWidth === 'number' && Number.isFinite(textAddSettings.fixedWidth)
             ? { fixedWidthPx: Number(textAddSettings.fixedWidth) }
             : {}),
-          ...(Number.isFinite(Number(textAddSettings?.fixedHeight))
+          ...(typeof textAddSettings?.fixedHeight === 'number' && Number.isFinite(textAddSettings.fixedHeight)
             ? { fixedHeightPx: Number(textAddSettings.fixedHeight) }
             : {}),
           rotation: Number(textAddSettings?.rotation ?? DEFAULT_TEXT_ADD_SETTINGS.rotation) || DEFAULT_TEXT_ADD_SETTINGS.rotation,
@@ -4210,6 +4231,9 @@ const Composer = ({
       imageAttachmentPreviews,
       pendingLocalAttachments
     });
+    if (activeTool === 'text-add') {
+      exitTextAddMode();
+    }
     if (activeTool) {
       setActiveTool(null);
     }
@@ -4261,12 +4285,16 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const shouldDisableInput = activeTool === 'draft-export';
+    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add';
     editor.setEditable(!shouldDisableInput);
     if (shouldDisableInput) {
-      latestInputRef.current = '';
-      setInput('');
-      editor.commands.clearContent();
+      if (activeTool === 'draft-export') {
+        latestInputRef.current = '';
+        setInput('');
+        editor.commands.clearContent();
+      } else {
+        editor.commands.blur();
+      }
     }
     return () => {
       if (!editor || editor.isDestroyed) return;
@@ -4354,6 +4382,15 @@ const Composer = ({
     }
   }, [selectedVideoSuperResolve]);
 
+  const enterTextAddMode = React.useCallback(() => {
+    setTextAddInput('');
+    setActiveTool('text-add');
+  }, []);
+
+  const exitTextAddMode = React.useCallback(() => {
+    setTextAddInput('');
+  }, []);
+
   const applyAiWriteTemplate = React.useCallback((presetId) => {
     if (!editor || editor.isDestroyed) return;
     editor.commands.setContent(buildAiWriteEditorDocument(presetId), false);
@@ -4364,12 +4401,22 @@ const Composer = ({
     const resolvedPresetId = getAiWritePresetById(presetId)?.id || getDefaultAiWritePresetId();
     setSelectedAiWritePresetId(resolvedPresetId);
     if (resolvedPresetId === 'add-text') {
-      setActiveTool('text-add');
+      enterTextAddMode();
+      return;
+    }
+    if (resolvedPresetId === 'reverse-prompt') {
+      setActiveTool('reverse-prompt');
+      latestInputRef.current = '';
+      setInput('');
+      if (editor && !editor.isDestroyed) {
+        editor.commands.clearContent();
+        editor.commands.focus('end');
+      }
       return;
     }
     setActiveTool('ai-write');
     applyAiWriteTemplate(resolvedPresetId);
-  }, [applyAiWriteTemplate]);
+  }, [applyAiWriteTemplate, enterTextAddMode, editor, setInput]);
 
   const handleImageTemplateApply = React.useCallback((prompt) => {
     setInput(String(prompt || ''));
@@ -4409,6 +4456,13 @@ const Composer = ({
     }
 
     const nextTool = activeTool === toolId ? null : toolId;
+    if (activeTool === 'text-add' && nextTool !== 'text-add') {
+      exitTextAddMode();
+    }
+    if (nextTool === 'text-add') {
+      enterTextAddMode();
+      return;
+    }
     setActiveTool(nextTool);
     if (!editor || editor.isDestroyed) return;
     if (nextTool === 'voice-square') {
@@ -4436,14 +4490,17 @@ const Composer = ({
       setInput('');
       editor.commands.clearContent();
     }
-  }, [activeTool, editor, handleAiWritePresetSelect, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem, setInput]);
+  }, [activeTool, editor, enterTextAddMode, exitTextAddMode, handleAiWritePresetSelect, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem, setInput]);
 
   const handleToolDetailBack = React.useCallback(() => {
+    if (activeTool === 'text-add') {
+      exitTextAddMode();
+    }
     setActiveTool(null);
     setSelectedDraftDownloadIds([]);
     setSelectedDraftInspectIds([]);
     setSelectedTextAddDraftIds([]);
-  }, []);
+  }, [activeTool, exitTextAddMode]);
 
   return (
     <div className="chat-panel__composer">
@@ -4497,10 +4554,14 @@ const Composer = ({
                     <TextAddDetail
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}
+                      inputText={textAddInput}
+                      onInputTextChange={setTextAddInput}
                       selectedDraftIds={selectedTextAddDraftIds}
                       onSelectedDraftIdsChange={setSelectedTextAddDraftIds}
                       onSettingsChange={setTextAddSettings}
                     />
+                  ) : activeTool === 'reverse-prompt' ? (
+                    <RevertPrompt disabled={sessionSending} onBack={handleToolDetailBack} />
                   ) : activeTool === 'ai-write' ? (
                     <AiWriteToolDetail
                       disabled={sessionSending}
@@ -4831,7 +4892,7 @@ const Composer = ({
               </div>
             </div>
           ) : null}
-          <div className="chat-panel__input-editor">
+          <div className={`chat-panel__input-editor${activeTool === 'text-add' ? ' chat-panel__input-editor--hidden' : ''}`}>
             {isDragActive ? (
               <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
                 <div className="chat-panel__drag-upload-card">

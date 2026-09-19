@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
+import { validateTextStyleRanges } from '../../shared/textTypography';
+import { normalizeTextEffectParams } from '../../shared/textEffects';
+import { buildReversePromptBlocks, normalizeReversePromptRequest } from '../../shared/reversePrompt';
 import LogoIcon from '../../../public/logo-circle.png';
 import VipIcon from '../../../public/vip_icon.png';
 import { countTodayDrafts } from '../../api/capcut';
@@ -446,8 +449,9 @@ const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') 
   if (!textAddRequest || typeof textAddRequest !== 'object') return null;
   const draftId = String(textAddRequest?.draftId || textAddRequest?.draft_id || '').trim();
   if (!draftId) return null;
-  const text = String(textAddRequest?.text || fallbackText || '').trim();
-  if (!text) return null;
+  const text = String(textAddRequest?.text || fallbackText || '');
+  if (!text.trim()) return null;
+  const textStyles = validateTextStyleRanges(text, textAddRequest?.text_styles ?? textAddRequest?.textStyles);
   const startValue = Number(textAddRequest?.start);
   const start = Number.isFinite(startValue) ? startValue : 0;
   const endValue = Number(textAddRequest?.end);
@@ -466,6 +470,7 @@ const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') 
   const rotation = Number(textAddRequest?.rotation);
   const align = Number(textAddRequest?.align);
   const trackName = String(textAddRequest?.track_name || textAddRequest?.trackName || '').trim();
+  const relativeIndex = Number(textAddRequest?.relative_index ?? textAddRequest?.relativeIndex);
   return {
     draft_id: draftId,
     text,
@@ -474,6 +479,8 @@ const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') 
     ...(font ? { font } : {}),
     ...(fontColor ? { font_color: fontColor } : {}),
     ...(Number.isFinite(fontSize) && fontSize > 0 ? { font_size: fontSize } : {}),
+    ...(textStyles.length ? { text_styles: textStyles } : {}),
+    ...normalizeTextEffectParams(textAddRequest),
     ...(Number.isFinite(letterSpacing) ? { letter_spacing: letterSpacing } : {}),
     ...(Number.isFinite(lineSpacing) ? { line_spacing: lineSpacing } : {}),
     ...(Number.isFinite(scaleX) ? { scale_x: scaleX } : {}),
@@ -488,7 +495,8 @@ const normalizeTextAddRequestPayload = (textAddRequest = {}, fallbackText = '') 
     ...(typeof textAddRequest?.underline === 'boolean' ? { underline: textAddRequest.underline } : {}),
     ...(typeof textAddRequest?.vertical === 'boolean' ? { vertical: textAddRequest.vertical } : {}),
     ...(Number.isInteger(align) ? { align } : {}),
-    ...(trackName ? { track_name: trackName } : {})
+    ...(trackName ? { track_name: trackName } : {}),
+    ...(Number.isInteger(relativeIndex) ? { relative_index: relativeIndex } : {})
   };
 };
 const normalizeDraftInspectRequestPayload = (draftInspectRequest = {}, requestId = '') => {
@@ -1936,6 +1944,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
     ? { ...sourceMessage.draftInspectRequest }
     : undefined;
+  const reversePromptRequest = role === 'user' && sourceMessage?.reversePromptRequest
+    ? { ...sourceMessage.reversePromptRequest }
+    : undefined;
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
@@ -1949,6 +1960,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
+    ...(reversePromptRequest ? { reversePromptRequest } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -4973,8 +4985,55 @@ const HomePage = () => {
     });
   }, []);
 
+  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request }) => {
+    const normalizedRequest = normalizeReversePromptRequest(request);
+    const blocks = buildReversePromptBlocks({
+      assistantMessageId, requestId, request: normalizedRequest, modelId: chatModel,
+    });
+    updateChatAssistantMessage(chatId, assistantMessageId, { blocks, content: '', error: null, aborted: false });
+    chatPendingByRequestIdRef.current.set(requestId, { chatId, agentSessionId, assistantMessageId });
+    try {
+      const result = await window.electronAPI.cherryChatStream.createReversePromptRequest({
+        sessionId: agentSessionId, requestId, createdAt: userMessage.createdAt,
+        userMessageId: userMessage.id, assistantMessageId, userContent: userMessage.content,
+        model: chatModel, reversePromptRequest: normalizedRequest,
+      });
+      // Cancellation removes this entry. A late tool response must not overwrite a stopped message.
+      if (!chatPendingByRequestIdRef.current.has(requestId)) return;
+      if (result?.aborted) {
+        finalizeChatAssistantMessageLocally({ chatId, assistantMessageId }, { aborted: true });
+        return;
+      }
+      if (result?.assistantBlocks) {
+        updateChatAssistantMessage(chatId, assistantMessageId, { blocks: result.assistantBlocks });
+      }
+      if (!result?.ok) throw new Error(result?.error || '反推提示词失败');
+      updateChatAssistantMessage(chatId, assistantMessageId, {
+        content: result.assistantText, blocks: result.assistantBlocks,
+        model: chatModelMeta, modelId: chatModel, storeAssistantMessageId: null, error: null,
+      });
+      chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
+      void hydratePersistedChatSessionFromHistory({ chatId, sessionId: agentSessionId, reason: 'reverse-prompt.complete' });
+      setChatSessionFulfilled(chatId, true, 'reverse-prompt.complete');
+    } catch (error) {
+      if (chatPendingByRequestIdRef.current.has(requestId)) {
+        finalizeChatAssistantMessageLocally({ chatId, assistantMessageId }, { error: normalizeChatError(error) });
+      }
+    } finally {
+      if (chatPendingByRequestIdRef.current.has(requestId)) {
+        chatPendingByRequestIdRef.current.delete(requestId);
+        setChatSessionSending(chatId, false, 'reverse-prompt.complete');
+        setChatSessionInFlight(chatId, false, 'reverse-prompt.complete');
+        setChatSending(false);
+      }
+    }
+  };
+
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const reversePromptRequest = options?.reversePromptRequest
+      ? { ...options.reversePromptRequest }
+      : null;
     const draftRequest = options?.draftRequest && typeof options.draftRequest === 'object'
       ? { ...options.draftRequest }
       : null;
@@ -5064,6 +5123,7 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5117,6 +5177,7 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5156,6 +5217,13 @@ const HomePage = () => {
       }
 
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
+      if (reversePromptRequest) {
+        await executeReversePromptRequest({
+          chatId: targetSessionId, agentSessionId, requestId, userMessage, assistantMessageId,
+          request: reversePromptRequest,
+        });
+        return;
+      }
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
       let runtimeSession = ensuredSession?.session || null;
       if (!getSessionWorkspacePath(runtimeSession)) {
@@ -5726,6 +5794,13 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
+      if (prevUser.reversePromptRequest) {
+        await executeReversePromptRequest({
+          chatId: activeChatId, agentSessionId, requestId, userMessage: prevUser,
+          assistantMessageId: messageId, request: prevUser.reversePromptRequest,
+        });
+        return;
+      }
       syncLegacyUserMessageToRendererStore({
         topicId: `home-chat-${activeChatId}`,
         assistantId: DEFAULT_RUNTIME_AGENT_ID,

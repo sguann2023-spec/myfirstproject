@@ -23,6 +23,8 @@ import { channelManager } from './services/agents/services/channels'
 import { apiServerService } from './services/ApiServerService'
 import { appMenuService } from './services/AppMenuService'
 import { configManager } from './services/ConfigManager'
+import { crashReportService } from './services/CrashReportService'
+import { loggerService as mainLoggerService } from './services/LoggerService'
 import { lanTransferClientService } from './services/lanTransfer'
 import mcpService from './services/MCPService'
 import { localTransferService } from './services/LocalTransferService'
@@ -115,6 +117,15 @@ app.commandLine.appendSwitch(
   'DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
 )
 app.on('web-contents-created', (_, webContents) => {
+  // Register before window-specific handlers, which may immediately call app.exit().
+  webContents.on('render-process-gone', (_, details) => {
+    crashReportService.record('render-process-gone', {
+      ...details,
+      webContentsId: webContents.id,
+      isQuitting: Boolean(app.isQuitting)
+    }, details.reason !== 'clean-exit')
+  })
+
   webContents.session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -127,8 +138,18 @@ app.on('web-contents-created', (_, webContents) => {
   webContents.on('unresponsive', async () => {
     // Interrupt execution and collect call stack from unresponsive renderer
     logger.error('Renderer unresponsive start')
-    const callStack = await webContents.mainFrame.collectJavaScriptCallStack()
-    logger.error(`Renderer unresponsive js call stack\n ${callStack}`)
+    crashReportService.record('renderer-unresponsive', { webContentsId: webContents.id })
+    try {
+      const callStack = await webContents.mainFrame.collectJavaScriptCallStack()
+      logger.error(`Renderer unresponsive js call stack\n ${callStack}`)
+      crashReportService.record('renderer-unresponsive-stack', { webContentsId: webContents.id, callStack })
+    } catch (error) {
+      logger.warn('Failed to collect unresponsive renderer stack', error as Error)
+      crashReportService.record('renderer-stack-unavailable', {
+        webContentsId: webContents.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
   })
 })
 
@@ -136,11 +157,16 @@ app.on('web-contents-created', (_, webContents) => {
 if (!isDev) {
   // handle uncaught exception
   process.on('uncaughtException', (error) => {
+    crashReportService.record('uncaught-exception', { message: error.message, stack: error.stack }, true)
     logger.error('Uncaught Exception:', error)
   })
 
   // handle unhandled rejection
   process.on('unhandledRejection', (reason, promise) => {
+    crashReportService.record('unhandled-rejection', {
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined
+    }, true)
     logger.error(`Unhandled Rejection at: ${promise} reason: ${reason}`)
   })
 }
@@ -150,6 +176,27 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
 } else {
+  if (app.isPackaged) {
+    crashReportService.start({
+      userDataPath: app.getPath('userData'),
+      logsPath: mainLoggerService.getLogsDir(),
+      dumpsPath: app.getPath('crashDumps'),
+      version: app.getVersion(),
+      hardwareAccelerationDisabled: disableHardwareAcceleration
+    })
+  }
+  app.on('child-process-gone', (_, details) => {
+    crashReportService.record('child-process-gone', { ...details }, details.reason !== 'clean-exit')
+  })
+  app.on('quit', (_, exitCode) => crashReportService.finish(exitCode))
+  process.on('exit', (exitCode) => crashReportService.finish(exitCode))
+
+  // Independent of optional startup services, and never awaited by the UI startup.
+  void app.whenReady().then(() => {
+    const timer = setTimeout(() => void crashReportService.sendPendingReports(), 15_000)
+    timer.unref()
+  })
+
   // This method will be called when Electron has finished
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
@@ -299,6 +346,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('before-quit', () => {
+    crashReportService.record('before-quit', { isQuitting: Boolean(app.isQuitting) })
     app.isQuitting = true
 
     // quit selection service
@@ -311,6 +359,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('will-quit', async () => {
+    crashReportService.record('will-quit')
     // 简单的资源清理，不阻塞退出流程
     if (isOvmsSupported) {
       const { ovmsManager } = await import('./services/OvmsManager')

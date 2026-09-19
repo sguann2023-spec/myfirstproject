@@ -35,7 +35,7 @@ class TokenStore {
 
     if (refreshToken) {
       this.refreshToken = refreshToken;
-      logger.debug('set refreshToken', refreshToken);
+      logger.debug('refreshToken updated');
       setStorage('auth.refresh_token', refreshToken);
     }
   }
@@ -101,7 +101,7 @@ class TokenStore {
   }
   async refreshAccessToken() {
       logger.debug('refreshAccessToken');
-      logger.debug('refreshToken', getStorage('auth.refresh_token'));
+      logger.debug('refreshToken available', Boolean(getStorage('auth.refresh_token')));
 
       // 兜底：刷新前确保 refreshToken 可用
       const rt = this.refreshToken || getStorage('auth.refresh_token');

@@ -22,6 +22,7 @@ declare global {
       onFileFound: (callback: (value: any) => void) => () => void
       removeFileFoundListener: (listener: (...args: any[]) => void) => void
       checkFileExistence: (fileInfo: any) => Promise<any>
+      networkCheck: (payload?: { modelId?: string; accessToken?: string }) => Promise<import('../main/services/NetworkCheckService').NetworkCheckReport>
       path: {
         join: (...args: string[]) => string
       }
@@ -35,6 +36,7 @@ declare global {
         createDraftRequest: (payload: any) => Promise<any>
         createDraftModifyRequest: (payload: any) => Promise<any>
         createTextAddRequest: (payload: any) => Promise<any>
+        createReversePromptRequest: (payload: any) => Promise<any>
         createDraftExportRequest: (payload: any) => Promise<any>
         createDraftDownloadRequest: (payload: any) => Promise<any>
         subscribe: (sessionId: string) => Promise<any>

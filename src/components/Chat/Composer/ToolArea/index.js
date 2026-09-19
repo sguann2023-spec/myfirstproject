@@ -5,6 +5,7 @@ import {
   FileTextOutlined,
   ScissorOutlined,
   SnippetsOutlined,
+  StarOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { Popover } from 'antd';
@@ -71,51 +72,56 @@ const TEXT_MENU_ITEMS = [
     label: '添加文本',
     icon: <img className="chat-panel__tool-menu-icon chat-panel__tool-menu-icon--text" src={AiWriteIcon} alt="" aria-hidden="true" />,
   },
-  {
-    id: 'ai-write:add-keyframe',
-    label: '添加关键帧',
-    icon: <ControlOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  },
-  {
-    id: 'ai-write:batch-add',
-    label: '批量添加',
-    icon: <SnippetsOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  },
-  {
-    id: 'ai-write:text-template',
-    label: '文字模版',
-    icon: <FileTextOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  },
-  {
-    id: 'ai-write:import-srt-subtitle',
-    label: '导入SRT字幕',
-    icon: <UploadOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  },
-  {
-    id: 'ai-write:recognize-subtitle',
-    label: '识别字幕',
-    icon: <FileSearchOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  },
-  {
-    id: 'ai-write:remove-filler',
-    label: '去气口',
-    icon: <ScissorOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  },
+  // {
+  //   id: 'ai-write:add-keyframe',
+  //   label: '添加关键帧',
+  //   icon: <ControlOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:batch-add',
+  //   label: '批量添加',
+  //   icon: <SnippetsOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:text-template',
+  //   label: '文字模版',
+  //   icon: <FileTextOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:import-srt-subtitle',
+  //   label: '导入SRT字幕',
+  //   icon: <UploadOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:recognize-subtitle',
+  //   label: '识别字幕',
+  //   icon: <FileSearchOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:remove-filler',
+  //   label: '去气口',
+  //   icon: <ScissorOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:extract-highlights',
+  //   label: '截取高光片段',
+  //   icon: <StarOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
   {
     id: 'ai-write:reverse-prompt',
     label: '反推提示词',
     icon: <Undo2 size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
-  {
-    id: 'ai-write:summarize-title',
-    label: '总结标题',
-    icon: <img className="chat-panel__tool-menu-icon" src={TitleIcon} alt="" aria-hidden="true" />,
-  },
-  {
-    id: 'ai-write:summarize-tag',
-    label: '总结标签',
-    icon: <img className="chat-panel__tool-menu-icon" src={TagIcon} alt="" aria-hidden="true" />,
-  },
+  // {
+  //   id: 'ai-write:summarize-title',
+  //   label: '总结标题',
+  //   icon: <img className="chat-panel__tool-menu-icon" src={TitleIcon} alt="" aria-hidden="true" />,
+  // },
+  // {
+  //   id: 'ai-write:summarize-tag',
+  //   label: '总结标签',
+  //   icon: <img className="chat-panel__tool-menu-icon" src={TagIcon} alt="" aria-hidden="true" />,
+  // },
 ];
 
 const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {

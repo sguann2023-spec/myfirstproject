@@ -61,6 +61,7 @@ import {
 } from './MessageAgentTools/SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './MessageAgentTools/SubtitleTemplateTool'
 import './MessageAgentTools/ImageUnderstandeTool.css'
+import { isReversePromptToolName } from '../../../../../../shared/reversePrompt'
 
 interface Props {
   block: ToolMessageBlock
@@ -276,7 +277,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       if (isVideoUnderstandeToolName(toolName)) {
         return extractVideoUnderstandeBillingSummary(toolResponse.response)
       }
-      if (isMediaGenerationToolName(toolName)) {
+      if (isMediaGenerationToolName(toolName) || isReversePromptToolName(toolName)) {
         return extractMediaGenerationBillingSummary({
           response: toolResponse.response,
           responseRaw: toolResponse.responseRaw
@@ -415,12 +416,12 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
             {progressMessage && <ToolStepMessage>{progressMessage}</ToolStepMessage>}
           </TitleContent>
           <ActionButtonsContainer>
-            {progress > 0 ? (
+            {progress > 0 && !isDone && !isError ? (
               <Progress type="circle" size={14} percent={Number((progress * 100)?.toFixed(0))} />
             ) : (
               <ToolStatusIndicator status={getEffectiveStatus(status, approval.isWaiting)} hasError={hasError} />
             )}
-            {billingSummary && !isPending && progress <= 0 && (
+            {billingSummary && (isDone || isError) && (
               <span
                 className="image-understand-tool-billing-badge"
                 style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingBadgeStyle : undefined}

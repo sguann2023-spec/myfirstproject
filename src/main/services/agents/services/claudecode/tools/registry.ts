@@ -411,7 +411,9 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('copylab', {
       type: 'sdk',
       name: 'copylab',
-      instance: socialCopywritingServer.mcpServer
+      instance: socialCopywritingServer.mcpServer,
+      longRunning: true,
+      timeout: 10 * 60
     })
     autoAllowTools.add(vt('copylab', 'derive_copy_prompt'))
     allowMcpPattern(vp('copylab'))

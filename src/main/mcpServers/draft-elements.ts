@@ -1,4 +1,7 @@
+import { randomUUID } from 'node:crypto'
+
 import { loggerService } from '@logger'
+import { windowService } from '@main/services/WindowService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -84,6 +87,10 @@ const TOOLS: Tool[] = [
       end: { type: 'number', description: 'Required end time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Optional draft ID.' },
+      clientRequestId: {
+        type: 'string',
+        description: 'Optional client request ID used to correlate pending and completed UI updates.'
+      },
       transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
       transform_x: { type: 'number', description: 'Optional X transform ratio.' },
       font: { type: 'string', description: 'Optional font name.' },
@@ -99,7 +106,7 @@ const TOOLS: Tool[] = [
       border_color: { type: 'string', description: 'Optional border color.' },
       border_width: { type: 'number', description: 'Optional border width.' },
       background_color: { type: 'string', description: 'Optional background color.' },
-      background_style: { type: 'string', description: 'Optional background style.' },
+      background_style: { type: 'integer', enum: [1, 2], description: 'Optional background style: 1 for a whole text block, 2 for individual lines.' },
       background_alpha: { type: 'number', description: 'Optional background alpha.' },
       background_round_radius: { type: 'number', description: 'Optional background round radius.' },
       background_height: { type: 'number', description: 'Optional background height.' },
@@ -1432,11 +1439,48 @@ class DraftElementsServer {
     const body = this.normalizeArgs(toolName, args)
     this.ensureRequiredFields(toolName, body)
 
+    const preview = toolName === 'add_text'
+      ? {
+          clientRequestId: typeof args.clientRequestId === 'string' && args.clientRequestId.trim()
+            ? args.clientRequestId.trim()
+            : randomUUID(),
+          draftId: typeof body.draft_id === 'string' ? body.draft_id.trim() : '',
+          width: typeof body.width === 'number' ? body.width : undefined,
+          height: typeof body.height === 'number' ? body.height : undefined
+        }
+      : undefined
+
+    if (preview) {
+      // This ID correlates UI updates only; it is not a VectCut API parameter.
+      delete body.clientRequestId
+      this.emitDraftPreview({
+        ...preview,
+        action: preview.draftId ? 'modify' : 'create',
+        draftId: preview.draftId || `pending:${preview.clientRequestId}`,
+        status: 'in_progress'
+      })
+    }
+
     const response = await this.requestWithAuth(ENDPOINTS[toolName as keyof typeof ENDPOINTS], {
       method: 'POST',
       body
     })
     const data = (await response.json()) as VectCutResponse
+
+    if (preview && response.ok && data.success !== false && !data.error) {
+      const output = data.output && typeof data.output === 'object' && !Array.isArray(data.output)
+        ? data.output as Record<string, unknown>
+        : undefined
+      const draftId = (typeof output?.draft_id === 'string' ? output.draft_id.trim() : '') || preview.draftId
+      if (draftId) {
+        this.emitDraftPreview({
+          ...preview,
+          action: preview.draftId ? 'modify' : 'create',
+          draftId,
+          status: 'completed'
+        })
+      }
+    }
 
     return {
       content: [
@@ -1446,6 +1490,26 @@ class DraftElementsServer {
         }
       ]
     }
+  }
+
+  private emitDraftPreview(payload: {
+    action: 'create' | 'modify'
+    clientRequestId: string
+    draftId: string
+    width?: number
+    height?: number
+    status: 'in_progress' | 'completed'
+  }) {
+    const mainWindow = windowService.getMainWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      logger.warn('Skip draft preview event because main window is unavailable', { draftId: payload.draftId })
+      return
+    }
+
+    mainWindow.webContents.send('app:draft-created', {
+      ...payload,
+      createdAt: Date.now()
+    })
   }
 }
 

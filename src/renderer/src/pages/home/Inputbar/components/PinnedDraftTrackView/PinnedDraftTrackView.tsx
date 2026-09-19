@@ -4,6 +4,7 @@ import { Film, ImageIcon, Music2, Type } from 'lucide-react'
 
 import { Timeline } from '../../../../../components/PreviewTimeline/ReactTimelineEditor'
 import { toMediaSrc } from '../../../../../../../shared/mediaSrc'
+import { resolveTextPlacement } from '../../../../../../../shared/textPlacement'
 import './index.css'
 
 const ROW_HEIGHT_BY_TYPE = {
@@ -53,9 +54,21 @@ const TRACK_TYPE_ICON = {
 
 export type DraftTrackScriptData = Record<string, any>
 
+interface PlannedText {
+  trackName: string
+  trackMode?: 'existing' | 'new'
+  relativeIndex: number
+  start: number
+  end: number
+  text?: string
+}
+
 interface PinnedDraftTrackViewProps {
   draftTitle?: string
   preview?: DraftTrackScriptData
+  plannedText?: PlannedText
+  zoom?: number
+  textTracksOnly?: boolean
 }
 
 const normalizeTrackType = (type: unknown) => {
@@ -138,7 +151,7 @@ const buildMaterialMaps = (script: DraftTrackScriptData) => {
   }
 }
 
-const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId: string | null) => {
+export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId: string | null, plannedText?: PlannedText) => {
   const sourceTracks = Array.isArray(script?.tracks)
     ? script.tracks
     : (script?.tracks && typeof script.tracks === 'object' ? Object.values(script.tracks) : [])
@@ -156,25 +169,8 @@ const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId: strin
     audio: 6
   }
 
-  return tracks
-    .sort((a: any, b: any) => {
-      const renderIndexA = Number(a?.segments?.[0]?.render_index || 0)
-      const renderIndexB = Number(b?.segments?.[0]?.render_index || 0)
-      if (renderIndexA !== renderIndexB) {
-        return renderIndexB - renderIndexA
-      }
-
-      const typePriorityA = trackTypePriority[String(a?.type || '').trim().toLowerCase()] ?? 999
-      const typePriorityB = trackTypePriority[String(b?.type || '').trim().toLowerCase()] ?? 999
-      if (typePriorityA !== typePriorityB) {
-        return typePriorityA - typePriorityB
-      }
-
-      const originalIndexA = sourceTracks.findIndex((track: any) => track?.id === a?.id)
-      const originalIndexB = sourceTracks.findIndex((track: any) => track?.id === b?.id)
-      return originalIndexB - originalIndexA
-    })
-    .map((track: any) => {
+  const rows = tracks
+    .map((track: any, index: number) => {
       const rawTrackType = String(track?.type || '').trim().toLowerCase()
       const trackType = normalizeTrackType(rawTrackType)
       const materialMap =
@@ -279,17 +275,53 @@ const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId: strin
         }
       })
 
-      if (normalizedActions.length === 0) {
-        return null
-      }
-
       return {
         id: String(track?.id || `${trackType}-${actions[0]?.id || 'row'}`),
+        name: String(track?.name || track?.track_name || `${trackType} ${index + 1}`).trim(),
+        type: rawTrackType,
+        layer: Number(track?.segments?.[0]?.render_index ?? track?.render_index ?? 0),
+        index,
         actions: normalizedActions,
         rowHeight: ROW_HEIGHT_BY_TYPE[trackType] ?? 50
       }
     })
-    .filter(Boolean)
+
+  if (plannedText) {
+    const placement = resolveTextPlacement(plannedText)
+    const layer = 15000 + placement.relativeIndex
+    const matching = plannedText.trackMode === 'new' ? undefined : rows.find((row) =>
+      row.type === 'text' && row.name === placement.trackName &&
+      (plannedText.trackMode === 'existing' || row.layer === layer)
+    )
+    const ghost = {
+      id: '__planned-text',
+      start: placement.start,
+      end: placement.end,
+      effectId: 'text',
+      meterial_name: String(plannedText.text || '').trim() || '文字',
+      flexible: false,
+      movable: false,
+      planned: true,
+      // Check only the destination row, using microseconds so touching edges stay distinct.
+      overlap: Boolean(matching?.actions.some((action) =>
+        Math.round(action.start * 1e6) < Math.round(placement.end * 1e6) &&
+        Math.round(action.end * 1e6) > Math.round(placement.start * 1e6)
+      )),
+      keyframes: []
+    }
+    // Only the derived rows change; existing clips stay at their original layer.
+    if (matching) matching.actions.push(ghost)
+    else rows.push({
+      id: '__planned-track', name: placement.trackName, type: 'text', layer,
+      index: tracks.length, actions: [ghost], rowHeight: ROW_HEIGHT_BY_TYPE.text
+    })
+  }
+
+  return rows.filter((row) => row.actions.length > 0).sort((a, b) =>
+    b.layer - a.layer ||
+    (trackTypePriority[a.type] ?? 999) - (trackTypePriority[b.type] ?? 999) ||
+    b.index - a.index
+  )
 }
 
 const firstFrameCache = new Map<string, string>()
@@ -569,6 +601,13 @@ const LabelSegment = ({ action, type }: { action: any; type: string }) => (
 const TrackActionRender = ({ action }: { action: any }) => {
   const effectId = normalizeTrackType(action?.effectId)
 
+  if (action?.planned) return (
+    <div className="pinned-draft-track-view__segment is-planned"
+      data-planned="true"
+      aria-label={`计划添加：${action.meterial_name}，${action.start} 至 ${action.end} 秒`}>
+      <Label icon={TRACK_TYPE_ICON.text} text={action.meterial_name} />
+    </div>
+  )
   if (effectId === 'audio') return <AudioSegment action={action} />
   if (effectId === 'photo') return <PhotoSegment action={action} />
   if (effectId === 'video') return <VideoSegment action={action} />
@@ -579,12 +618,16 @@ const TrackActionRender = ({ action }: { action: any }) => {
   return <LabelSegment action={action} type="effect" />
 }
 
-export default function PinnedDraftTrackView({ draftTitle, preview }: PinnedDraftTrackViewProps) {
+export default function PinnedDraftTrackView({ draftTitle, preview, plannedText, zoom = 1, textTracksOnly = false }: PinnedDraftTrackViewProps) {
   const [selectedActionId, setSelectedActionId] = React.useState<string | null>(null)
   const scale = 5
-  const [scaleWidth] = React.useState(160)
+  const scaleWidth = 160 * zoom
 
-  const timelineRows = React.useMemo(() => buildTimelineRows(preview || {}, selectedActionId), [preview, selectedActionId])
+  const timelineRows = React.useMemo(() => {
+    const rows = buildTimelineRows(preview || {}, selectedActionId, plannedText)
+    return textTracksOnly ? rows.filter((row) => row.type === 'text') : rows
+  }, [preview, selectedActionId, plannedText, textTracksOnly])
+  const plannedAction = plannedText ? timelineRows.flatMap((row) => row.actions).find((action) => action.planned) : null
   const maxTrackEndSec = React.useMemo(() => {
     return timelineRows.reduce((maxEnd, row) => {
       const rowMax = (Array.isArray(row?.actions) ? row.actions : []).reduce((actionMax, action) => {
@@ -601,6 +644,7 @@ export default function PinnedDraftTrackView({ draftTitle, preview }: PinnedDraf
 
   return (
     <div className="pinned-draft-track-view">
+      {plannedAction?.overlap && <div role="status" className="pinned-draft-track-view__warning">该轨道已有文字与计划时间重叠，请调整时间或使用其他轨道名。</div>}
       {timelineRows.length > 0 ? (
         <div className="pinned-draft-track-view__surface">
           <Timeline
@@ -617,7 +661,13 @@ export default function PinnedDraftTrackView({ draftTitle, preview }: PinnedDraf
             minScaleCount={1}
             maxTimeSec={maxTimeSec}
             getScaleRender={(tick) => <span className="pinned-draft-track-view__scale-label">{formatTimelineTick(Number(tick || 0))}</span>}
-            getActionRender={(action) => <TrackActionRender action={action} />}
+            getActionRender={(action, row) => (
+              <div className={`pinned-draft-track-view__action${action.planned ? ' is-planned' : ''}`}
+                data-track-name={row.name} data-layer={row.layer} data-start={action.start} data-end={action.end}
+                title={`${row.name} · 层级 ${row.layer}\n${action.meterial_name}\n${formatTimelineTick(action.start)} - ${formatTimelineTick(action.end)}`}>
+                <TrackActionRender action={action} />
+              </div>
+            )}
             onClickAction={(_event, param) => {
               setSelectedActionId(String(param?.action?.id || ''))
             }}

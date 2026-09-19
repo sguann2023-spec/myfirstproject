@@ -13,6 +13,7 @@ import path from 'path'
 import semver from 'semver'
 
 import { configManager } from './ConfigManager'
+import { crashReportService } from './CrashReportService'
 import MacArchUpdateProvider from './MacArchUpdateProvider'
 import { windowService } from './WindowService'
 
@@ -606,6 +607,7 @@ export default class AppUpdater {
     app.isQuitting = true
     const isSilent = process.platform !== 'win32'
     logger.info('Triggering quitAndInstall', { isSilent, isForceRunAfter: true, platform: process.platform })
+    crashReportService.record('quit-and-install-requested', { isSilent })
     setImmediate(() => {
       try {
         autoUpdater.quitAndInstall(isSilent, true)

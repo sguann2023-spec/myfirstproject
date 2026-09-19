@@ -161,7 +161,12 @@ def extract_candidate_prefixes(source_url: str) -> list[str]:
     try:
         content = fetch_text(source_url)
     except (HTTPError, URLError) as error:
-        raise RuntimeError(f"Failed to fetch proxy source page {source_url}: {error}") from error
+        print(
+            f"Warning: failed to fetch proxy source page {source_url}: {error}; "
+            "continuing with built-in fallback proxies.",
+            file=sys.stderr,
+        )
+        return []
 
     domains = re.findall(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b", content.lower())
     prefixes: list[str] = []

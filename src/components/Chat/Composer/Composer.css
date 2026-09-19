@@ -444,6 +444,11 @@
   height: 100%;
 }
 
+.chat-panel__input-editor--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .chat-panel__input--tiptap {
   height: 100%;
   min-height: 0;

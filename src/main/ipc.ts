@@ -61,6 +61,7 @@ import { ExportService } from './services/ExportService'
 import { externalAppsService } from './services/ExternalAppsService'
 import { localMcpAgentService } from './services/LocalMcpAgentService'
 import { feedbackMailService } from './services/FeedbackMailService'
+import { crashReportService } from './services/CrashReportService'
 import { fileStorage as fileManager } from './services/FileStorage'
 import FileService from './services/FileSystemService'
 import { lanTransferClientService } from './services/lanTransfer'
@@ -76,6 +77,9 @@ import { openClawService } from './services/OpenClawService'
 import { isOvmsSupported } from './services/OvmsManager'
 import powerMonitorService from './services/PowerMonitorService'
 import { proxyManager } from './services/ProxyManager'
+import { runNetworkCheck, withNetworkCheckDeadline } from './services/NetworkCheckService'
+import { getNodeProxyConfigFromEnvironment, normalizeProxyBypassRules, ProxyBypassRuleMatcher } from './services/proxy/nodeProxy'
+import { validateModelId } from './apiServer/utils'
 import { pythonService } from './services/PythonService'
 import { FileServiceManager } from './services/remotefile/FileServiceManager'
 import { searchService } from './services/SearchService'
@@ -380,6 +384,48 @@ let internalWebsiteWindow: BrowserWindow | null = null
 export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   const appUpdater = new AppUpdater()
   const notificationService = new NotificationService()
+  let networkCheckPending: ReturnType<typeof runNetworkCheck> | null = null
+  let networkCheckModel = ''
+  ipcMain.handle('chat:network-check', async (event, payload?: { modelId?: string; accessToken?: string }) => {
+    if (event.sender !== mainWindow.webContents) throw new Error('Network check is only available in the main window')
+    const modelId = typeof payload?.modelId === 'string' ? payload.modelId : ''
+    if (networkCheckPending) {
+      if (networkCheckModel !== modelId) throw new Error('Another network check is running')
+      return networkCheckPending
+    }
+    networkCheckModel = modelId
+    networkCheckPending = (async () => {
+      // This is the gateway configured by HomePage for embedded chat sessions.
+      let endpoint = 'https://open.vectcut.com/llm/chat'
+      let source: 'gateway' | 'model' = 'gateway'
+      if (typeof payload?.modelId === 'string' && payload.modelId.length < 512 && payload.modelId.includes(':')) {
+        const model = await withNetworkCheckDeadline(validateModelId(payload.modelId), 4000)
+        const provider = model.valid ? model.provider : undefined
+        const host = provider?.type === 'anthropic'
+          ? provider.anthropicApiHost || provider.apiHost
+          : provider?.apiHost
+        if (host) {
+          endpoint = host
+          source = 'model'
+        }
+      }
+      const proxy = getNodeProxyConfigFromEnvironment()
+      const matcher = new ProxyBypassRuleMatcher()
+      matcher.updateByPassRules(normalizeProxyBypassRules(proxy?.proxyBypassRules))
+      return runNetworkCheck({
+        endpoint,
+        source,
+        accessToken: payload?.accessToken,
+        proxyUrl: proxy?.proxyRules,
+        bypassed: !!proxy && matcher.isByPass(endpoint)
+      })
+    })()
+    try {
+      return await networkCheckPending
+    } finally {
+      networkCheckPending = null
+    }
+  })
 
   // Register shutdown handlers
   powerMonitorService.registerShutdownHandler(() => {
@@ -450,7 +496,10 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   })
 
   ipcMain.handle(IpcChannel.App_Reload, () => mainWindow.reload())
-  ipcMain.handle(IpcChannel.App_Quit, () => app.quit())
+  ipcMain.handle(IpcChannel.App_Quit, () => {
+    crashReportService.record('quit-requested', { source: 'ipc' })
+    app.quit()
+  })
   ipcMain.handle(IpcChannel.Open_Website, (_, url: string) => {
     if (!isSafeExternalUrl(url)) {
       logger.warn(`Blocked shell.openExternal for untrusted URL scheme: ${url}`)
@@ -898,6 +947,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
       options.args = options.args || []
     }
 
+    crashReportService.record('relaunch-requested', { source: 'ipc' })
     app.relaunch(options)
     app.exit(0)
   })

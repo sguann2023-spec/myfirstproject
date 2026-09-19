@@ -120,6 +120,32 @@
   border: 2px solid #ee5eee;
 }
 
+.pinned-draft-track-view__action {
+  height: 100%;
+}
+
+.pinned-draft-track-view__action.is-planned {
+  position: relative;
+  z-index: 1;
+}
+
+.pinned-draft-track-view__segment.is-planned,
+.pinned-draft-track-view__segment.is-planned:hover {
+  min-width: 0;
+  border: 2px dashed #1677ff;
+  border-radius: 4px;
+  color: #0958d9;
+  background: #e6f4ffcc;
+  box-shadow: none;
+}
+
+.pinned-draft-track-view__warning {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #ff4d4f;
+}
+
 .pinned-draft-track-view__segment.is-flat-left {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;

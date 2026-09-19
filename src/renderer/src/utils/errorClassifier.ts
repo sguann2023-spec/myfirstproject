@@ -32,6 +32,8 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
   const numStatus = typeof status === 'number' ? status : typeof status === 'string' ? parseInt(status, 10) : undefined
   const msg = ((error.message as string) || '').toLowerCase()
   const code = String((error as Record<string, unknown>).code ?? '').toLowerCase()
+  const name = String(error.name ?? '').toLowerCase()
+  const i18nKey = String(error.i18nKey ?? '')
   const providerSuffix = providerId ? `?id=${providerId}` : ''
 
   // User/system aborted requests
@@ -40,6 +42,8 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     code === 'aborterror' ||
     code === 'err_canceled' ||
     code === 'cancelled' ||
+    name === 'aborterror' ||
+    i18nKey === 'stream_paused' ||
     msg.includes('request was aborted') ||
     msg.includes('request aborted') ||
     msg.includes('aborted by user') ||
@@ -99,11 +103,34 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     return { category: 'payload', i18nKey: 'error.diagnosis.payload', navTarget: null }
   }
 
-  // Network errors
+  // Timeouts and empty responses have actionable messages even without a raw message.
   if (
-    msg.includes('econnrefused') ||
+    i18nKey === 'request_timeout' ||
+    numStatus === 408 ||
+    numStatus === 504 ||
+    name.includes('timeout') ||
+    code === 'etimedout' ||
     msg.includes('etimedout') ||
     msg.includes('timeout') ||
+    msg.includes('timed out')
+  ) {
+    return { category: 'network', i18nKey: 'error.diagnosis.timeout', navTarget: null }
+  }
+
+  if (
+    i18nKey === 'no_response' ||
+    msg === 'no_response' ||
+    /\b(no response|empty response|no output generated)\b/.test(msg)
+  ) {
+    return { category: 'unknown', i18nKey: 'error.diagnosis.empty_response', navTarget: null }
+  }
+
+  // Network errors
+  if (
+    /^connection (error|failed)\.?$/i.test(msg.trim()) ||
+    name === 'apiconnectionerror' ||
+    ['econnrefused', 'enotfound', 'enetunreach', 'err_network'].includes(code) ||
+    msg.includes('econnrefused') ||
     msg.includes('network') ||
     msg.includes('fetch failed') ||
     msg.includes('enotfound')

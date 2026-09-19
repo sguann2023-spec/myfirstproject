@@ -9,17 +9,33 @@ import {
   ChevronDown,
   Clock3,
   Italic,
-  PanelsTopLeft,
   SlidersHorizontal,
-  Sparkles,
   Underline
 } from 'lucide-react';
+import { Layer, Shape, Stage, Transformer } from 'react-konva';
 import DraftSelect from '../DraftSelect/index';
 import AiWriteIcon from '../../../public/ai_write.svg';
+import { queryScript } from '../../api/capcut';
 import { TEXT_FONT_OPTIONS } from './fontOptions';
+import RichTextPreview from './RichTextPreview';
+import TextEffectsPanel from './TextEffectsPanel';
+import TextTimelinePanel from './TextTimelinePanel';
+import { DEFAULT_TEXT_PLACEMENT, buildTextPlacementParams, resolveTextTrackPlacement } from '../../shared/textPlacement';
+import { buildTextEffectParams, DEFAULT_TEXT_EFFECTS, getShadowPreview, getTextShadowCss, resolveTextEffects } from '../../shared/textEffects';
+import { applyTypography, selectedTypography } from '../../shared/textTypography';
+import {
+  drawVerticalPreviewText, getPreviewEditorStyle, getPreviewEditorContentStyle, measurePreviewText, measureVerticalPreviewText,
+  PREVIEW_FONT_FAMILY, PREVIEW_TEXT_PADDING, PREVIEW_BASE_LINE_HEIGHT, PreviewTextNode as HorizontalPreviewText,
+} from './previewLayout';
 import './index.css';
 
 const DEFAULT_FONT_OPTIONS = TEXT_FONT_OPTIONS;
+// Visual calibration: size 95 should match the previous size-120 preview.
+const PREVIEW_FONT_SIZE_CALIBRATION = 120 / 95;
+// Visual calibration: spacing 55 should match the previous spacing-75 preview.
+const PREVIEW_LETTER_SPACING_CALIBRATION = 75 / 55;
+// Reference: size 24 / spacing 100 places row centers ~47% of a portrait canvas apart.
+const PREVIEW_LINE_SPACING_CALIBRATION = 1.9;
 const ALIGN_OPTIONS = [
   { key: 'left', label: '左对齐', icon: AlignLeft },
   { key: 'horizontal-center', label: '水平居中对齐', icon: AlignCenter },
@@ -58,34 +74,15 @@ const TEXT_COLOR_PRESETS = [
 
 const TEXT_SETTINGS_TABS = [
   { key: 'basic', label: '基础', icon: SlidersHorizontal },
-  { key: 'preset', label: '预设', icon: PanelsTopLeft },
   { key: 'timeline', label: '时间线', icon: Clock3 },
-  { key: 'animation', label: '动画', icon: Sparkles },
 ];
-
-const TEXT_SETTINGS_TAB_CONTENT = {
-  basic: {
-    title: '基础',
-    description: '这里可以放字体、字号、字重、字间距，以及位置、混合、描边、背景、阴影、花字等文本参数。'
-  },
-  preset: {
-    title: '预设',
-    description: '这里可以放常用文本样式预设，方便一键切换。'
-  },
-  timeline: {
-    title: '时间线',
-    description: '这里可以放开始时间、结束时间、持续时长等时间线配置。'
-  },
-  animation: {
-    title: '动画',
-    description: '这里可以放入场、强调、退场等动画配置。'
-  },
-};
 
 const NUMBER_INPUT_SHARED_PROPS = {
   controls: true,
   changeOnWheel: true,
 };
+const PREVIEW_CANVAS_MAX_WIDTH = 168;
+const PREVIEW_CANVAS_MAX_HEIGHT = 280;
 
 const clampNumber = (value, min, max, fallback) => {
   const resolvedValue = Number(value);
@@ -104,6 +101,30 @@ const normalizeFixedLayoutValue = (value, fallback = null) => {
 const normalizeRotationValue = (value, fallback = 0) => {
   const clampedValue = clampNumber(value, -360, 360, fallback);
   return Math.round(clampedValue);
+};
+
+const resolvePreviewCanvasSize = (script = null) => {
+  const candidates = [
+    script?.canvas_config,
+    script?.canvas,
+    script?.config?.canvas_config,
+    script?.config?.canvas,
+    script?.draft?.canvas_config,
+    script?.draft?.canvas,
+    script?.draft_info?.canvas_config,
+    script?.draft_info?.canvas,
+    script?.script_summary?.canvas,
+  ];
+
+  for (const candidate of candidates) {
+    const width = Number(candidate?.width || 0);
+    const height = Number(candidate?.height || 0);
+    if (width > 0 && height > 0) {
+      return { width, height };
+    }
+  }
+
+  return null;
 };
 
 export const DEFAULT_TEXT_ADD_SETTINGS = {
@@ -126,6 +147,8 @@ export const DEFAULT_TEXT_ADD_SETTINGS = {
   fixedWidth: null,
   fixedHeight: null,
   rotation: 0,
+  ...DEFAULT_TEXT_PLACEMENT,
+  ...DEFAULT_TEXT_EFFECTS,
 };
 
 export const buildTextAddSettingsPrompt = (settings = DEFAULT_TEXT_ADD_SETTINGS) => {
@@ -158,6 +181,9 @@ export const buildTextAddSettingsPrompt = (settings = DEFAULT_TEXT_ADD_SETTINGS)
     '文本设置：',
     `字体：${String(settings?.font || DEFAULT_TEXT_ADD_SETTINGS.font)}`,
     `字号：${Number(settings?.fontSize) || DEFAULT_TEXT_ADD_SETTINGS.fontSize}`,
+    settings?.typographyRuns?.length
+      ? `分段文本样式（UTF-16 索引，含起点不含终点）：${JSON.stringify(settings.typographyRuns)}`
+      : '',
     enabledStyleLabels.length > 0 ? `样式：${enabledStyleLabels.join('、')}` : '',
     `颜色：${String(settings?.color || DEFAULT_TEXT_ADD_SETTINGS.color).toUpperCase()}`,
     `字间距：${Number(settings?.letterSpacing) || 0}`,
@@ -169,6 +195,8 @@ export const buildTextAddSettingsPrompt = (settings = DEFAULT_TEXT_ADD_SETTINGS)
     Number.isFinite(fixedWidth) ? `固定宽度：${fixedWidth}` : '',
     Number.isFinite(fixedHeight) ? `固定高度：${fixedHeight}` : '',
     `平面旋转：${rotation}°`,
+    `时间线：${JSON.stringify(buildTextPlacementParams(settings))}`,
+    `混合、描边、背景：${JSON.stringify(buildTextEffectParams(settings))}`,
   ].filter(Boolean).join('\n');
 };
 
@@ -195,22 +223,77 @@ const getColorPickerPopupContainer = (triggerNode) => {
 const TextAddDetail = ({
   disabled = false,
   onBack,
+  inputText = '',
+  onInputTextChange = null,
   selectedDraftIds,
   onSelectedDraftIdsChange = null,
   onSettingsChange = null,
 }) => {
   const rotationPreviewRef = React.useRef(null);
+  const previewCanvasCacheRef = React.useRef(new Map());
+  const previewTextareaRef = React.useRef(null);
+  const previewTextRef = React.useRef(null);
+  const previewTransformerRef = React.useRef(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [textPlacement, setTextPlacement] = React.useState({ ...DEFAULT_TEXT_PLACEMENT });
+  const [previewScript, setPreviewScript] = React.useState(null);
+  const [previewReload, setPreviewReload] = React.useState(0);
   const [activeSettingsTab, setActiveSettingsTab] = React.useState(TEXT_SETTINGS_TABS[0].key);
   const [fontOptions] = React.useState(DEFAULT_FONT_OPTIONS);
   const [selectedFont, setSelectedFont] = React.useState(DEFAULT_FONT_OPTIONS[0]);
   const [fontSize, setFontSize] = React.useState(24);
+  const [textTypographyRuns, setTextTypographyRuns] = React.useState([]);
+  const [textSelection, setTextSelection] = React.useState(null);
+  const [richMeasuredBox, setRichMeasuredBox] = React.useState(null);
+  const [liveRichTransform, setLiveRichTransform] = React.useState(null);
+  const [textEffects, setTextEffects] = React.useState(() => resolveTextEffects());
+  const [effectsPanelSession, setEffectsPanelSession] = React.useState(0);
+  const effectParams = React.useMemo(() => buildTextEffectParams(textEffects), [textEffects]);
+  const [textColor, setTextColor] = React.useState('#FFFFFF');
   const [textStyles, setTextStyles] = React.useState({
     bold: false,
     italic: false,
     underline: false,
   });
-  const [textColor, setTextColor] = React.useState('#FFFFFF');
+  const typographyDefaults = React.useMemo(() => ({
+    font: selectedFont, fontSize, ...textStyles, color: textColor,
+    border: textEffects.border, shadow: textEffects.shadow,
+  }), [selectedFont, fontSize, textStyles, textColor, textEffects.border, textEffects.shadow]);
+  const hasRichText = textTypographyRuns.length > 0;
+  const usesRichPreview = hasRichText || textEffects.background.enabled;
+  const activeTypography = selectedTypography(String(inputText), textTypographyRuns, typographyDefaults, textSelection);
+  const updateTypography = (patch) => {
+    const range = textSelection?.end > textSelection?.start ? textSelection : null;
+    if (range || hasRichText) {
+      setTextTypographyRuns(applyTypography(String(inputText), textTypographyRuns, typographyDefaults, range, patch));
+    }
+    if (!range) {
+      if (patch.font !== undefined) setSelectedFont(patch.font);
+      if (patch.fontSize !== undefined) setFontSize(patch.fontSize);
+      if (patch.color !== undefined) setTextColor(patch.color);
+      if (patch.border || patch.shadow) setTextEffects((previous) => ({
+        ...previous,
+        ...Object.fromEntries(['border', 'shadow'].filter((key) => patch[key]).map((key) => [
+          key, { ...previous[key], ...patch[key] },
+        ])),
+      }));
+      setTextStyles((previous) => ({
+        ...previous,
+        ...Object.fromEntries(['bold', 'italic', 'underline']
+          .filter((key) => patch[key] !== undefined).map((key) => [key, patch[key]])),
+      }));
+    }
+  };
+  const updateTextEffect = (group, patch) => {
+    if (group === 'border' || group === 'shadow') updateTypography({ [group]: patch });
+    else setTextEffects((previous) => ({ ...previous, [group]: { ...previous[group], ...patch } }));
+  };
+  const updateRichMeasure = React.useCallback((next) => {
+    setRichMeasuredBox((previous) => previous
+      && Math.abs(previous.width - next.width) < 0.01
+      && Math.abs(previous.height - next.height) < 0.01
+      && Math.abs(previous.contentHeight - next.contentHeight) < 0.01 ? previous : next);
+  }, []);
   const [textColorFormat, setTextColorFormat] = React.useState('hex');
   const [colorPickerOpen, setColorPickerOpen] = React.useState(false);
   const [letterSpacing, setLetterSpacing] = React.useState(0);
@@ -226,13 +309,349 @@ const TextAddDetail = ({
   const [rotation, setRotation] = React.useState(0);
   const [isRotationDragging, setIsRotationDragging] = React.useState(false);
   const [isTransformSectionExpanded, setIsTransformSectionExpanded] = React.useState(true);
+  const [previewCanvasSize, setPreviewCanvasSize] = React.useState(null);
+  const [previewCanvasLoading, setPreviewCanvasLoading] = React.useState(false);
+  const [previewCanvasError, setPreviewCanvasError] = React.useState('');
+  const [isPreviewEditing, setIsPreviewEditing] = React.useState(false);
+  const [isPreviewSelected, setIsPreviewSelected] = React.useState(true);
 
-  const activeTabContent = TEXT_SETTINGS_TAB_CONTENT[activeSettingsTab] || TEXT_SETTINGS_TAB_CONTENT.basic;
+  const selectedDraftId = String(Array.isArray(selectedDraftIds) ? selectedDraftIds[0] || '' : '').trim();
+  const hasSelectedDraft = selectedDraftId.length > 0;
+  const hasInputText = String(inputText || '').length > 0;
+  const isPreviewVertical = ['top', 'vertical-center', 'bottom'].includes(textAlign);
+  const PreviewTextNode = isPreviewVertical || usesRichPreview ? Shape : HorizontalPreviewText;
+  const previewTextAlign = ['left', 'top'].includes(textAlign)
+    ? 'left'
+    : ['right', 'bottom'].includes(textAlign)
+      ? 'right'
+      : 'center';
+  const previewNoteText = '样式示意预览，暂不支持字体、花字';
+  const previewEmptyText = hasSelectedDraft ? previewCanvasError : '';
+  const previewCanvasWidth = Number(previewCanvasSize?.width || 0);
+  const previewCanvasHeight = Number(previewCanvasSize?.height || 0);
+  const previewCanvasDisplaySize = React.useMemo(() => {
+    if (!previewCanvasSize?.width || !previewCanvasSize?.height) return null;
+    const scale = Math.min(
+      PREVIEW_CANVAS_MAX_WIDTH / previewCanvasSize.width,
+      PREVIEW_CANVAS_MAX_HEIGHT / previewCanvasSize.height,
+    );
+
+    return {
+      width: Math.max(1, Math.round(previewCanvasSize.width * scale)),
+      height: Math.max(1, Math.round(previewCanvasSize.height * scale)),
+    };
+  }, [previewCanvasSize]);
+  const previewCanvasScale = React.useMemo(() => ({
+    x: previewCanvasDisplaySize?.width && previewCanvasWidth
+      ? previewCanvasDisplaySize.width / previewCanvasWidth
+      : 1,
+    y: previewCanvasDisplaySize?.height && previewCanvasHeight
+      ? previewCanvasDisplaySize.height / previewCanvasHeight
+      : 1,
+  }), [previewCanvasDisplaySize, previewCanvasHeight, previewCanvasWidth]);
+  // Center-origin position coordinates span -canvasSize to +canvasSize.
+  // Moving by one canvas width/height reaches an edge, not a full canvas away.
+  const previewPositionScale = React.useMemo(() => ({
+    x: previewCanvasScale.x / 2,
+    y: previewCanvasScale.y / 2,
+  }), [previewCanvasScale]);
+  const previewPadding = 12;
+  const previewDisplayWidth = Number(previewCanvasDisplaySize?.width || 0);
+  const previewDisplayHeight = Number(previewCanvasDisplaySize?.height || 0);
+  const previewVerticalPosition = textAlign === 'top'
+    ? 'top'
+    : textAlign === 'bottom'
+      ? 'bottom'
+      : 'middle';
+  // Keep the readability baseline proportional, including for small font sizes.
+  const previewTypographyScale = Math.max(previewCanvasScale.y, 14 / DEFAULT_TEXT_ADD_SETTINGS.fontSize);
+  const previewRenderFontSize = React.useMemo(() => (
+    fontSize * previewTypographyScale * PREVIEW_FONT_SIZE_CALIBRATION
+  ), [fontSize, previewTypographyScale]);
+  const previewShadow = getShadowPreview(textEffects.shadow, fontSize, previewTypographyScale * PREVIEW_FONT_SIZE_CALIBRATION);
+  const previewRenderLineHeight = React.useMemo(() => (
+    Math.max(1, previewRenderFontSize * PREVIEW_BASE_LINE_HEIGHT + lineSpacing * previewTypographyScale * PREVIEW_LINE_SPACING_CALIBRATION)
+  ), [lineSpacing, previewTypographyScale, previewRenderFontSize]);
+  const previewFontStyle = [
+    textStyles.bold ? 'bold' : '',
+    textStyles.italic ? 'italic' : '',
+  ].filter(Boolean).join(' ') || 'normal';
+  const previewRenderLetterSpacing = letterSpacing * previewTypographyScale * PREVIEW_LETTER_SPACING_CALIBRATION;
+  const previewMeasuredBox = React.useMemo(() => {
+    if (!previewDisplayWidth || !previewDisplayHeight) return null;
+    if (usesRichPreview && richMeasuredBox) return richMeasuredBox;
+    const measureText = isPreviewVertical ? measureVerticalPreviewText : measurePreviewText;
+    return measureText({
+      text: hasInputText ? String(inputText) : '点击输入文本',
+      fontSize: previewRenderFontSize,
+      fontStyle: previewFontStyle,
+      letterSpacing: previewRenderLetterSpacing,
+      lineHeight: previewRenderLineHeight / previewRenderFontSize,
+      availableWidth: previewDisplayWidth - previewPadding * 2,
+      availableHeight: previewDisplayHeight - previewPadding * 2,
+      verticalAlign: previewVerticalPosition,
+      fixedWidth: typeof fixedWidth === 'number' ? fixedWidth * previewCanvasScale.x : null,
+      fixedHeight: typeof fixedHeight === 'number' ? fixedHeight * previewCanvasScale.y : null,
+    });
+  }, [
+    usesRichPreview,
+    richMeasuredBox,
+    fixedHeight,
+    fixedWidth,
+    hasInputText,
+    inputText,
+    isPreviewVertical,
+    previewVerticalPosition,
+    previewFontStyle,
+    previewRenderLetterSpacing,
+    previewCanvasScale.x,
+    previewCanvasScale.y,
+    previewDisplayHeight,
+    previewDisplayWidth,
+    previewRenderFontSize,
+    previewRenderLineHeight,
+  ]);
+  const previewTextBox = React.useMemo(() => {
+    if (!previewDisplayWidth || !previewDisplayHeight || !previewMeasuredBox?.width || !previewMeasuredBox?.height) {
+      return null;
+    }
+
+    return {
+      x: previewDisplayWidth / 2 + (positionX * previewPositionScale.x),
+      y: previewDisplayHeight / 2 - (positionY * previewPositionScale.y),
+      width: previewMeasuredBox.width,
+      height: previewMeasuredBox.height,
+    };
+  }, [
+    positionX,
+    positionY,
+    previewPositionScale.x,
+    previewPositionScale.y,
+    previewDisplayHeight,
+    previewDisplayWidth,
+    previewMeasuredBox,
+  ]);
+  const previewTextStyle = React.useMemo(() => ({
+    fill: textColor,
+    fontFamily: PREVIEW_FONT_FAMILY,
+    fontSize: previewRenderFontSize,
+    fontStyle: [
+      textStyles.bold ? 'bold' : '',
+      textStyles.italic ? 'italic' : '',
+    ].filter(Boolean).join(' ') || 'normal',
+    textDecoration: textStyles.underline ? 'underline' : '',
+    align: previewTextAlign,
+    verticalAlign: previewVerticalPosition,
+    letterSpacing: previewRenderLetterSpacing,
+    lineHeight: previewRenderLineHeight / Math.max(previewRenderFontSize, 1),
+    rotation,
+    scaleX: scaleXPercent / 100,
+    scaleY: scaleYPercent / 100,
+  }), [
+    previewRenderLetterSpacing,
+    previewRenderFontSize,
+    previewRenderLineHeight,
+    previewTextAlign,
+    previewVerticalPosition,
+    rotation,
+    scaleXPercent,
+    scaleYPercent,
+    textColor,
+    textStyles.bold,
+    textStyles.italic,
+    textStyles.underline,
+  ]);
+  const previewTextareaStyle = React.useMemo(() => {
+    if (!previewTextBox) return null;
+    return {
+      ...getPreviewEditorStyle({
+        box: liveRichTransform ? { ...previewTextBox, x: liveRichTransform.x, y: liveRichTransform.y } : previewTextBox,
+        rotation: liveRichTransform?.rotation ?? rotation,
+        scaleX: liveRichTransform?.scaleX ?? scaleXPercent / 100,
+        scaleY: liveRichTransform?.scaleY ?? scaleYPercent / 100,
+        contentHeight: previewMeasuredBox.contentHeight,
+        verticalAlign: previewVerticalPosition,
+        vertical: isPreviewVertical,
+      }),
+      color: textColor,
+      opacity: effectParams.font_alpha,
+      WebkitTextStroke: `${textEffects.border.enabled ? textEffects.border.width / 100 * 0.2 * previewRenderFontSize : 0}px ${textEffects.border.color}`,
+      textShadow: getTextShadowCss(textEffects.shadow, fontSize, previewTypographyScale * PREVIEW_FONT_SIZE_CALIBRATION),
+      paintOrder: 'stroke fill',
+      fontFamily: PREVIEW_FONT_FAMILY,
+      fontSize: `${previewRenderFontSize}px`,
+      fontWeight: textStyles.bold ? 700 : 400,
+      fontStyle: textStyles.italic ? 'italic' : 'normal',
+      textDecoration: textStyles.underline ? 'underline' : 'none',
+      textAlign: previewTextAlign,
+      letterSpacing: `${previewRenderLetterSpacing}px`,
+      lineHeight: `${previewRenderLineHeight}px`,
+    };
+  }, [
+    liveRichTransform,
+    effectParams,
+    textEffects.border,
+    textEffects.shadow,
+    fontSize,
+    previewTypographyScale,
+    previewRenderLetterSpacing,
+    previewMeasuredBox,
+    isPreviewVertical,
+    previewVerticalPosition,
+    previewRenderFontSize,
+    previewRenderLineHeight,
+    previewTextAlign,
+    previewTextBox,
+    rotation,
+    scaleXPercent,
+    scaleYPercent,
+    textColor,
+    textStyles.bold,
+    textStyles.italic,
+    textStyles.underline,
+  ]);
+  const enterPreviewEditing = React.useCallback((event) => {
+    if (event) {
+      if (event.evt) event.cancelBubble = true;
+      else {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    if (disabled || previewCanvasLoading || previewCanvasError || !hasSelectedDraft) return;
+    setIsPreviewSelected(true);
+    setIsPreviewEditing(true);
+  }, [disabled, hasSelectedDraft, previewCanvasError, previewCanvasLoading]);
+
+  React.useLayoutEffect(() => {
+    const transformer = previewTransformerRef.current;
+    const node = previewTextRef.current;
+    if (!transformer || !node) return;
+    transformer.nodes(isPreviewSelected && !isPreviewEditing && !disabled ? [node] : []);
+    transformer.getLayer()?.batchDraw();
+  }, [disabled, isPreviewSelected, isPreviewEditing, isPreviewVertical, usesRichPreview, previewTextBox, settingsOpen]);
+
+  const commitPreviewTransform = React.useCallback((event) => {
+    setLiveRichTransform(null);
+    const node = event.target;
+    const nextX = normalizePositionValue(Math.round((node.x() - previewDisplayWidth / 2) / previewPositionScale.x));
+    const nextY = normalizePositionValue(Math.round((previewDisplayHeight / 2 - node.y()) / previewPositionScale.y));
+    const nextScaleX = normalizeScalePercent(node.scaleX() * 100);
+    const nextScaleY = uniformScale ? nextScaleX : normalizeScalePercent(node.scaleY() * 100);
+    const angle = ((node.rotation() + 180) % 360 + 360) % 360 - 180;
+    const nextRotation = normalizeRotationValue(angle);
+    // React-Konva is non-strict by default; also normalize the live node at limits.
+    node.setAttrs({
+      x: previewDisplayWidth / 2 + nextX * previewPositionScale.x,
+      y: previewDisplayHeight / 2 - nextY * previewPositionScale.y,
+      scaleX: nextScaleX / 100,
+      scaleY: nextScaleY / 100,
+      rotation: nextRotation,
+    });
+    setPositionX(nextX);
+    setPositionY(nextY);
+    setScaleXPercent(nextScaleX);
+    setScaleYPercent(nextScaleY);
+    setRotation(nextRotation);
+  }, [previewPositionScale, previewDisplayHeight, previewDisplayWidth, uniformScale]);
+
+  React.useEffect(() => {
+    if (!hasSelectedDraft) {
+      setPreviewScript(null);
+      setPreviewCanvasSize(null);
+      setPreviewCanvasLoading(false);
+      setPreviewCanvasError('');
+      setIsPreviewEditing(false);
+      return undefined;
+    }
+
+    const cachedPreview = previewCanvasCacheRef.current.get(selectedDraftId);
+    if (cachedPreview) {
+      setPreviewScript({ draftId: selectedDraftId, script: cachedPreview.script });
+      setPreviewCanvasSize(cachedPreview.canvasSize);
+      setPreviewCanvasLoading(false);
+      setPreviewCanvasError(cachedPreview.canvasSize ? '' : '草稿尺寸加载失败');
+      return undefined;
+    }
+
+    let cancelled = false;
+    setPreviewScript(null);
+    setPreviewCanvasSize(null);
+    setPreviewCanvasLoading(true);
+    setPreviewCanvasError('');
+
+    queryScript({ draft_id: selectedDraftId, force_update: previewReload > 0 })
+      .then((response) => {
+        if (cancelled) return;
+        const ok = response?.success === true || response?.code === 200;
+        if (!ok) {
+          throw new Error(response?.error || '草稿尺寸加载失败');
+        }
+
+        const output = response?.output || response?.data?.output || response?.result?.output;
+        const script = typeof output === 'string' ? JSON.parse(output) : output;
+        if (!script || typeof script !== 'object') throw new Error('草稿轨道加载失败');
+        const canvasSize = resolvePreviewCanvasSize(script);
+        setPreviewScript({ draftId: selectedDraftId, script });
+        previewCanvasCacheRef.current.set(selectedDraftId, { canvasSize, script });
+        setPreviewCanvasSize(canvasSize);
+        setPreviewCanvasError(canvasSize ? '' : '草稿尺寸加载失败');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setPreviewScript({ draftId: selectedDraftId, error: error?.message || '草稿轨道加载失败' });
+        setPreviewCanvasSize(null);
+        setPreviewCanvasError(error?.message || '草稿尺寸加载失败');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewCanvasLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSelectedDraft, selectedDraftId, previewReload]);
+
+  React.useEffect(() => {
+    if (previewCanvasLoading || previewCanvasError || !hasSelectedDraft || !settingsOpen || disabled) {
+      setIsPreviewEditing(false);
+    }
+  }, [disabled, hasSelectedDraft, previewCanvasError, previewCanvasLoading, settingsOpen]);
+
+  React.useEffect(() => {
+    setIsPreviewEditing(false);
+    setIsPreviewSelected(true);
+    setTextSelection(null);
+  }, [selectedDraftId]);
+
+  React.useLayoutEffect(() => {
+    if (!isPreviewEditing || disabled) return undefined;
+
+    const focusTimer = window.requestAnimationFrame(() => {
+      const textareaNode = previewTextareaRef.current;
+      // Do not overwrite a selection the user made before this frame ran.
+      if (!textareaNode || document.activeElement === textareaNode) return;
+      textareaNode.focus();
+      const nextLength = textareaNode.value.length;
+      textareaNode.setSelectionRange(nextLength, nextLength);
+    });
+
+    return () => window.cancelAnimationFrame(focusTimer);
+  }, [disabled, isPreviewEditing]);
+  const effectiveTextPlacement = React.useMemo(() => (
+    previewScript?.draftId === selectedDraftId && previewScript.script
+      ? resolveTextTrackPlacement(textPlacement, previewScript.script)
+      : textPlacement
+  ), [textPlacement, previewScript, selectedDraftId]);
+
   React.useEffect(() => {
     if (typeof onSettingsChange !== 'function') return;
     onSettingsChange({
       font: selectedFont,
       fontSize,
+      typographyRuns: textTypographyRuns,
       styles: textStyles,
       color: textColor,
       letterSpacing,
@@ -246,11 +665,16 @@ const TextAddDetail = ({
       fixedWidth,
       fixedHeight,
       rotation,
+      ...textEffects,
+      ...effectiveTextPlacement,
     });
   }, [
+    textEffects,
+    effectiveTextPlacement,
     fixedHeight,
     fixedWidth,
     fontSize,
+    textTypographyRuns,
     letterSpacing,
     lineSpacing,
     onSettingsChange,
@@ -266,16 +690,13 @@ const TextAddDetail = ({
     uniformScale,
   ]);
 
-  const handleStyleToggle = React.useCallback((styleKey) => {
-    setTextStyles((prev) => ({
-      ...prev,
-      [styleKey]: !prev[styleKey]
-    }));
-  }, []);
+  const handleStyleToggle = (styleKey) => {
+    updateTypography({ [styleKey]: activeTypography[styleKey] !== true });
+  };
 
-  const handlePresetColorSelect = React.useCallback((colorValue) => {
-    setTextColor(colorValue.toUpperCase());
-  }, []);
+  const handleTextColorChange = (colorValue) => {
+    updateTypography({ color: colorValue.toUpperCase() });
+  };
 
   const handleUniformScaleChange = React.useCallback((checked) => {
     setUniformScale(checked);
@@ -397,16 +818,16 @@ const TextAddDetail = ({
         <div className="chat-panel__text-settings-control">
           <Select
             showSearch
-            value={selectedFont}
+            value={activeTypography.font}
             disabled={disabled}
             className="chat-panel__text-settings-select"
-            placeholder="选择字体"
+            placeholder={activeTypography.font === null ? '多个值' : '选择字体'}
             optionFilterProp="label"
             options={fontOptions.map((fontName) => ({
               label: fontName,
               value: fontName,
             }))}
-            onChange={setSelectedFont}
+            onChange={(font) => updateTypography({ font })}
           />
         </div>
       </div>
@@ -417,7 +838,7 @@ const TextAddDetail = ({
           <Slider
             min={5}
             max={300}
-            value={fontSize}
+            value={activeTypography.fontSize ?? fontSize}
             disabled={disabled}
             className="chat-panel__text-settings-slider"
             tooltip={{ open: false }}
@@ -425,16 +846,17 @@ const TextAddDetail = ({
               rail: { backgroundColor: '#f5f5f5' },
               track: { backgroundColor: '#888888' }
             }}
-            onChange={setFontSize}
+            onChange={(value) => updateTypography({ fontSize: value })}
           />
           <InputNumber
             min={5}
             max={300}
-            value={fontSize}
+            value={activeTypography.fontSize}
+            placeholder="多个值"
             disabled={disabled}
             className="chat-panel__text-settings-number"
             {...NUMBER_INPUT_SHARED_PROPS}
-            onChange={(value) => setFontSize(Number(value) || 5)}
+            onChange={(value) => { if (value != null) updateTypography({ fontSize: clampNumber(value, 5, 300, 24) }); }}
           />
         </div>
       </div>
@@ -447,9 +869,11 @@ const TextAddDetail = ({
               <button
                 key={option.key}
                 type="button"
-                className={`chat-panel__text-settings-toggle ${textStyles[option.key] ? 'is-active' : ''}`}
+                className={`chat-panel__text-settings-toggle ${activeTypography[option.key] === true ? 'is-active' : ''}`}
                 disabled={disabled}
-                aria-pressed={textStyles[option.key]}
+                aria-label={option.label}
+                aria-pressed={activeTypography[option.key] === null ? 'mixed' : Boolean(activeTypography[option.key])}
+                title={activeTypography[option.key] === null ? '多个值' : option.label}
                 onClick={() => handleStyleToggle(option.key)}
               >
                 <option.icon className="chat-panel__text-settings-toggle-icon" aria-hidden="true" />
@@ -463,7 +887,7 @@ const TextAddDetail = ({
         <div className="chat-panel__text-settings-label">颜色</div>
         <div className="chat-panel__text-settings-control">
           <ColorPicker
-            value={textColor}
+            value={activeTypography.color ?? textColor}
             disabled={disabled}
             disabledAlpha
             format={textColorFormat}
@@ -471,7 +895,7 @@ const TextAddDetail = ({
             open={disabled ? false : colorPickerOpen}
             onOpenChange={setColorPickerOpen}
             onFormatChange={(format) => setTextColorFormat(format || 'hex')}
-            onChange={(color) => setTextColor(color.toHexString().toUpperCase())}
+            onChange={(color) => handleTextColorChange(color.toHexString())}
             destroyOnHidden
             getPopupContainer={getColorPickerPopupContainer}
             styles={{ popup: { zIndex: 1600 } }}
@@ -486,9 +910,10 @@ const TextAddDetail = ({
                     <button
                       key={presetColor}
                       type="button"
-                      className={`chat-panel__text-settings-preset-color ${textColor === presetColor ? 'is-active' : ''}`}
+                      className={`chat-panel__text-settings-preset-color ${activeTypography.color === presetColor ? 'is-active' : ''}`}
                       style={{ backgroundColor: presetColor }}
-                      onClick={() => handlePresetColorSelect(presetColor)}
+                      aria-label={`文字颜色 ${presetColor}`}
+                      onClick={() => handleTextColorChange(presetColor)}
                     />
                   ))}
                 </div>
@@ -499,12 +924,13 @@ const TextAddDetail = ({
               type="button"
               className={`chat-panel__text-settings-color-field ${colorPickerOpen ? 'is-open' : ''}`}
               disabled={disabled}
+              aria-label={activeTypography.color === null ? '文字颜色：多个值' : `文字颜色：${activeTypography.color}`}
             >
               <span
                 className="chat-panel__text-settings-color-preview"
-                style={{ backgroundColor: textColor }}
+                style={{ backgroundColor: activeTypography.color ?? 'transparent' }}
                 aria-hidden="true"
-              />
+              >{activeTypography.color === null ? '多个值' : null}</span>
               <span className="chat-panel__text-settings-color-arrow-wrap" aria-hidden="true">
                 <DownOutlined className="chat-panel__text-settings-color-arrow" />
               </span>
@@ -550,6 +976,8 @@ const TextAddDetail = ({
                   className={`chat-panel__text-settings-align ${textAlign === option.key ? 'is-active' : ''}`}
                   disabled={disabled}
                   aria-label={option.label}
+                  aria-pressed={textAlign === option.key}
+                  title={`${index < 3 ? '横排' : '竖排'}：${option.label}`}
                   onClick={() => setTextAlign(option.key)}
                 >
                   <option.icon
@@ -701,33 +1129,291 @@ const TextAddDetail = ({
           </div>
         </>
       ) : null}
+      <TextEffectsPanel key={effectsPanelSession} effects={{ ...textEffects, border: activeTypography.border, shadow: activeTypography.shadow }}
+        disabled={disabled} onChange={updateTextEffect} typography={activeTypography} onPresetSelect={updateTypography} />
     </div>
   );
 
   const settingsPopupContent = (
-    <div className="chat-panel__text-settings-popup">
-      <div className="chat-panel__text-settings-content">
-        <div className="chat-panel__text-settings-panel">
-          {activeSettingsTab === 'basic' ? basicPanelContent : (
-            <div className="chat-panel__text-settings-panel-description">{activeTabContent.description}</div>
-          )}
+    <div className={`chat-panel__text-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
+      <div className="chat-panel__text-settings-layout">
+        <div className="chat-panel__text-settings-preview">
+          <div className="chat-panel__text-settings-preview-stage">
+            {hasSelectedDraft ? (
+              <div className="chat-panel__text-settings-preview-selector chat-panel__text-settings-preview-selector--top">
+                <DraftSelect
+                  disabled={disabled}
+                  mode="single"
+                  selectedDraftIds={selectedDraftIds}
+                  onSelectedDraftIdsChange={onSelectedDraftIdsChange}
+                  placeholder="选择草稿"
+                  searchPlaceholder="搜索草稿id"
+                  triggerClassName="chat-panel__text-settings-draft-select"
+                  popoverClassName="chat-panel__text-settings-draft-select-popover"
+                />
+              </div>
+            ) : null}
+            <div className="chat-panel__text-settings-preview-canvas-shell">
+              {!hasSelectedDraft ? (
+                <div className="chat-panel__text-settings-preview-selector chat-panel__text-settings-preview-selector--empty">
+                  <DraftSelect
+                    disabled={disabled}
+                    mode="single"
+                    selectedDraftIds={selectedDraftIds}
+                    onSelectedDraftIdsChange={onSelectedDraftIdsChange}
+                    placeholder="选择草稿"
+                    searchPlaceholder="搜索草稿id"
+                    triggerClassName="chat-panel__text-settings-draft-select"
+                    popoverClassName="chat-panel__text-settings-draft-select-popover"
+                  />
+                </div>
+              ) : null}
+              {previewEmptyText ? (
+                <div className="chat-panel__text-settings-preview-empty">
+                  {previewEmptyText}
+                </div>
+              ) : null}
+              {hasSelectedDraft && !previewEmptyText ? (
+                <div
+                  className="chat-panel__text-settings-preview-canvas"
+                  role="group"
+                  aria-label="文本预览，点击编辑或拖动移动"
+                  tabIndex={disabled ? -1 : 0}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget || disabled) return;
+                    if (event.key === 'Enter') enterPreviewEditing(event);
+                    if (event.key === 'Escape') setIsPreviewSelected(false);
+                  }}
+                  style={previewCanvasDisplaySize ? {
+                    width: `${previewCanvasDisplaySize.width}px`,
+                    height: `${previewCanvasDisplaySize.height}px`,
+                  } : undefined}
+                >
+                  {previewCanvasDisplaySize && previewCanvasWidth && previewCanvasHeight ? (
+                    <Stage
+                      width={previewCanvasDisplaySize.width}
+                      height={previewCanvasDisplaySize.height}
+                      className="chat-panel__text-settings-preview-stage-host"
+                      onMouseDown={(event) => {
+                        if (event.target === event.target.getStage()) {
+                          setIsPreviewSelected(false);
+                          setTextSelection(null);
+                        }
+                      }}
+                      onTouchStart={(event) => {
+                        if (event.target === event.target.getStage()) setIsPreviewSelected(false);
+                      }}
+                    >
+                      <Layer>
+                        <PreviewTextNode
+                          ref={previewTextRef}
+                          name="preview-text"
+                          sceneFunc={usesRichPreview ? () => {} : isPreviewVertical ? (context, shape) => {
+                            drawVerticalPreviewText(context, shape, previewMeasuredBox);
+                          } : undefined}
+                          hitFunc={isPreviewVertical || usesRichPreview ? (context, shape) => {
+                            context.beginPath();
+                            context.rect(0, 0, shape.width(), shape.height());
+                            context.closePath();
+                            context.fillStrokeShape(shape);
+                          } : undefined}
+                          x={previewTextBox?.x ?? previewPadding}
+                          y={previewTextBox?.y ?? previewPadding}
+                          offsetX={(previewTextBox?.width || 0) / 2}
+                          offsetY={(previewTextBox?.height || 0) / 2}
+                          width={previewTextBox?.width || Math.max(1, previewDisplayWidth - (previewPadding * 2))}
+                          height={previewTextBox?.height || Math.max(1, previewDisplayHeight - (previewPadding * 2))}
+                          padding={PREVIEW_TEXT_PADDING}
+                          wrap="char"
+                          text={hasInputText ? String(inputText || '') : '点击输入文本'}
+                          fill={hasInputText ? previewTextStyle.fill : 'rgba(255,255,255,0.42)'}
+                          opacity={hasInputText ? effectParams.font_alpha : 1}
+                          stroke={textEffects.border.color}
+                          strokeWidth={textEffects.border.enabled ? textEffects.border.width / 100 * 0.2 * previewRenderFontSize : 0}
+                          fillAfterStrokeEnabled
+                          shadowEnabled={previewShadow.enabled}
+                          shadowColor={previewShadow.color}
+                          shadowOpacity={previewShadow.opacity}
+                          shadowBlur={previewShadow.blur}
+                          shadowOffsetX={previewShadow.x}
+                          shadowOffsetY={previewShadow.y}
+                          fontFamily={previewTextStyle.fontFamily}
+                          fontSize={previewTextStyle.fontSize}
+                          fontStyle={previewTextStyle.fontStyle}
+                          textDecoration={previewTextStyle.textDecoration}
+                          align={previewTextStyle.align}
+                          verticalAlign={previewTextStyle.verticalAlign}
+                          letterSpacing={previewTextStyle.letterSpacing}
+                          lineHeight={previewTextStyle.lineHeight}
+                          rotation={previewTextStyle.rotation}
+                          scaleX={previewTextStyle.scaleX}
+                          scaleY={previewTextStyle.scaleY}
+                          visible={!isPreviewEditing}
+                          listening={!disabled && !isPreviewEditing}
+                          draggable={!disabled && !isPreviewEditing}
+                          onMouseDown={() => setIsPreviewSelected(true)}
+                          onTouchStart={() => setIsPreviewSelected(true)}
+                          onClick={enterPreviewEditing}
+                          onTap={enterPreviewEditing}
+                          onDragEnd={commitPreviewTransform}
+                          onTransformEnd={commitPreviewTransform}
+                          onDragMove={usesRichPreview ? (event) => setLiveRichTransform({
+                            ...event.target.position(),
+                            rotation: event.target.rotation(),
+                            scaleX: event.target.scaleX(),
+                            scaleY: event.target.scaleY(),
+                          }) : undefined}
+                          onTransform={usesRichPreview ? (event) => setLiveRichTransform({
+                            ...event.target.position(),
+                            rotation: event.target.rotation(),
+                            scaleX: event.target.scaleX(),
+                            scaleY: event.target.scaleY(),
+                          }) : undefined}
+                        />
+                        <Transformer
+                          ref={previewTransformerRef}
+                          visible={isPreviewSelected && !isPreviewEditing && !disabled}
+                          rotateAnchorOffset={18}
+                          anchorSize={6}
+                          anchorStroke="#4c9ffe"
+                          borderStroke="#4c9ffe"
+                          borderDash={[4, 3]}
+                          flipEnabled={false}
+                          keepRatio={uniformScale}
+                          shiftBehavior="none"
+                          centeredScaling
+                          enabledAnchors={uniformScale
+                            ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+                            : ['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right']}
+                          boundBoxFunc={(oldBox, newBox) => (
+                            Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8 ? oldBox : newBox
+                          )}
+                        />
+                      </Layer>
+                    </Stage>
+                  ) : null}
+                  {previewCanvasLoading ? (
+                    <span className="chat-panel__text-settings-preview-loading">Loading</span>
+                  ) : null}
+                  {hasSelectedDraft && !previewCanvasLoading && !previewCanvasError ? (
+                    <>
+                      {usesRichPreview && previewTextareaStyle ? (
+                        <RichTextPreview
+                          text={String(inputText)}
+                          runs={textTypographyRuns}
+                          defaults={typographyDefaults}
+                          effects={textEffects}
+                          editing={isPreviewEditing}
+                          disabled={disabled}
+                          selection={textSelection}
+                          style={getPreviewEditorContentStyle(previewTextareaStyle, previewRenderLetterSpacing, isPreviewVertical)}
+                          typographyScale={previewTypographyScale * PREVIEW_FONT_SIZE_CALIBRATION}
+                          lineGap={lineSpacing * previewTypographyScale * PREVIEW_LINE_SPACING_CALIBRATION}
+                          letterSpacing={previewRenderLetterSpacing}
+                          vertical={isPreviewVertical}
+                          availableWidth={previewDisplayWidth - previewPadding * 2}
+                          availableHeight={previewDisplayHeight - previewPadding * 2}
+                          fixedWidth={fixedWidth ? fixedWidth * previewCanvasScale.x : null}
+                          fixedHeight={fixedHeight ? fixedHeight * previewCanvasScale.y : null}
+                          onMeasure={updateRichMeasure}
+                          onSelection={setTextSelection}
+                          onChange={({ text, runs }) => {
+                            setTextTypographyRuns(runs.length ? runs : [{ start: 0, end: 0, ...typographyDefaults }]);
+                            onInputTextChange?.(text);
+                          }}
+                          onExit={(clearSelection = true) => {
+                            setIsPreviewEditing(false);
+                            if (clearSelection) setTextSelection(null);
+                          }}
+                        />
+                      ) : null}
+                      {isPreviewEditing && previewTextareaStyle ? (
+                        <>
+                          <div
+                            className="chat-panel__text-settings-preview-editor-frame"
+                            style={previewTextareaStyle}
+                            aria-hidden="true"
+                          />
+                          {!usesRichPreview ? <textarea
+                            ref={previewTextareaRef}
+                            value={String(inputText || '')}
+                            disabled={disabled}
+                            rows={1}
+                            className="chat-panel__text-settings-preview-textarea"
+                            placeholder="点击输入文本"
+                            aria-label="预览文本内容"
+                            spellCheck={false}
+                            autoCapitalize="off"
+                            style={getPreviewEditorContentStyle(previewTextareaStyle, previewRenderLetterSpacing, isPreviewVertical)}
+                            onBlur={() => setIsPreviewEditing(false)}
+                            onSelect={(event) => setTextSelection({
+                              start: event.currentTarget.selectionStart,
+                              end: event.currentTarget.selectionEnd,
+                            })}
+                            onKeyDown={(event) => {
+                              event.stopPropagation();
+                              if (!event.nativeEvent.isComposing && (
+                                event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey))
+                              )) {
+                                event.preventDefault();
+                                setIsPreviewEditing(false);
+                                setTextSelection(null);
+                              }
+                            }}
+                            onChange={(event) => {
+                              if (typeof onInputTextChange === 'function') {
+                                onInputTextChange(event.target.value);
+                              }
+                            }}
+                          /> : null}
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            {hasSelectedDraft ? (
+              <div className="chat-panel__text-settings-preview-note">
+                {previewNoteText}
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
-      <div className="chat-panel__text-settings-tabs" role="tablist" aria-label="文本设置标签">
-        {TEXT_SETTINGS_TABS.map((tab) => (
-          <Tooltip key={tab.key} title={tab.label}>
-            <button
-              type="button"
-              role="tab"
-              className={`chat-panel__text-settings-tab ${activeSettingsTab === tab.key ? 'active' : ''}`}
-              aria-label={tab.label}
-              aria-selected={activeSettingsTab === tab.key}
-              onClick={() => setActiveSettingsTab(tab.key)}
-            >
-              <tab.icon className="chat-panel__text-settings-tab-icon" aria-hidden="true" />
-            </button>
-          </Tooltip>
-        ))}
+        {hasSelectedDraft ? (
+          <div className="chat-panel__text-settings-main">
+            <div className="chat-panel__text-settings-content">
+              <div className="chat-panel__text-settings-panel">
+                {activeSettingsTab === 'basic' ? basicPanelContent : <TextTimelinePanel
+                  script={previewScript?.draftId === selectedDraftId ? previewScript.script : null}
+                  loading={previewCanvasLoading || previewScript?.draftId !== selectedDraftId}
+                  error={previewScript?.draftId === selectedDraftId ? previewScript.error : ''}
+                  value={effectiveTextPlacement} onChange={setTextPlacement} text={inputText} disabled={disabled}
+                  onRefresh={() => {
+                    previewCanvasCacheRef.current.delete(selectedDraftId);
+                    setPreviewReload((previous) => previous + 1);
+                  }}
+                />}
+              </div>
+            </div>
+            <div className="chat-panel__text-settings-tabs" role="tablist" aria-label="文本设置标签">
+              {TEXT_SETTINGS_TABS.map((tab) => (
+                <Tooltip key={tab.key} title={tab.label}>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`chat-panel__text-settings-tab ${activeSettingsTab === tab.key ? 'active' : ''}`}
+                    aria-label={tab.label}
+                    aria-selected={activeSettingsTab === tab.key}
+                    onClick={() => setActiveSettingsTab(tab.key)}
+                  >
+                    <tab.icon className="chat-panel__text-settings-tab-icon" aria-hidden="true" />
+                  </button>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -751,27 +1437,19 @@ const TextAddDetail = ({
           </button>
         </span>
       </Tooltip>
-      <DraftSelect
-        disabled={disabled}
-        mode="single"
-        selectedDraftIds={selectedDraftIds}
-        onSelectedDraftIdsChange={onSelectedDraftIdsChange}
-        placeholder="选择草稿"
-        searchPlaceholder="搜索草稿id"
-        triggerClassName="chat-panel__text-add-trigger"
-        popoverClassName="chat-panel__text-add-popover"
-      />
       <Dropdown
         disabled={disabled}
         trigger={['click']}
         open={settingsOpen}
+        autoAdjustOverflow={false}
         onOpenChange={(open) => {
           setSettingsOpen(open);
+          if (open) setEffectsPanelSession((previous) => previous + 1);
           if (!open) {
             setColorPickerOpen(false);
           }
         }}
-        placement="bottomLeft"
+        placement="topLeft"
         overlayClassName="chat-panel__text-settings-dropdown"
         menu={{ items: [] }}
         popupRender={() => settingsPopupContent}
