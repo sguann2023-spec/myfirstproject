@@ -4,10 +4,10 @@ export const MAX_TEXT_TIME = 86400;
 const getTracks = (script) => Array.isArray(script?.tracks) ? script.tracks : Object.values(script?.tracks || {});
 const getTrackName = (track) => String(track?.name || track?.track_name || '').trim();
 
-export function getNextTextTrackRelativeIndex(script) {
+function getTextTrackRelativeIndices(script) {
   const finiteIndex = (value) => value == null || value === '' || !Number.isFinite(Number(value))
     ? null : Number(value);
-  const indices = getTracks(script).flatMap((track) => {
+  return getTracks(script).flatMap((track) => {
     const relativeIndex = finiteIndex(track?.relative_index ?? track?.relativeIndex);
     if (relativeIndex !== null) return [relativeIndex];
     // Draft JSON may expose only absolute render indices for text tracks.
@@ -16,7 +16,16 @@ export function getNextTextTrackRelativeIndex(script) {
       .map(finiteIndex).filter((index) => index !== null);
     return renderIndices.map((index) => index - 15000);
   });
+}
+
+export function getNextTextTrackRelativeIndex(script) {
+  const indices = getTextTrackRelativeIndices(script);
   return indices.length ? Math.max(...indices) + 1 : 0;
+}
+
+export function getLowestTextTrackRelativeIndex(script) {
+  const indices = getTextTrackRelativeIndices(script);
+  return indices.length ? Math.min(...indices) - 1 : 0;
 }
 
 export function getTextTrackNames(script) {
@@ -29,7 +38,17 @@ export function resolveTextTrackPlacement(value = {}, script) {
   const placement = { ...value, ...resolveTextPlacement(value) };
   const names = getTextTrackNames(script);
   const existingName = names.includes(placement.trackName) ? placement.trackName : names[0];
-  if (value.trackMode !== 'new' && existingName) {
+  const occupied = !value.trackMode && getTracks(script).some((track) =>
+    String(track?.type || '').trim().toLowerCase() === 'text' && getTrackName(track) === existingName &&
+    (track.segments || []).some((segment) => {
+      const range = segment?.target_timerange || {};
+      const start = Number(range.start || 0);
+      const duration = Number(range.duration) > 0 ? Number(range.duration) : Number(range.end || 0) - start;
+      return duration > 0 && start < Math.round(placement.end * 1e6) &&
+        start + duration > Math.round(placement.start * 1e6);
+    })
+  );
+  if (value.trackMode !== 'new' && existingName && !occupied) {
     return { ...placement, trackMode: 'existing', trackName: existingName, newTrackName: value.newTrackName };
   }
 
@@ -42,7 +61,7 @@ export function resolveTextTrackPlacement(value = {}, script) {
     name = `${base.slice(0, 100 - suffix.length)}${suffix}`;
   }
   const requestedIndex = value.relative_index ?? value.relativeIndex;
-  const relativeIndex = requestedIndex == null || requestedIndex === '' || !Number.isFinite(Number(requestedIndex))
+  const relativeIndex = occupied || requestedIndex == null || requestedIndex === '' || !Number.isFinite(Number(requestedIndex))
     ? getNextTextTrackRelativeIndex(script) : placement.relativeIndex;
   return { ...placement, relativeIndex, trackMode: 'new', trackName: name, newTrackName: value.newTrackName ?? name };
 }

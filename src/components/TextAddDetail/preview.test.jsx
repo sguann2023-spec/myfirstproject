@@ -808,9 +808,15 @@ describe('text timeline controls', () => {
     expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('aria-label'))).toEqual(['基础', '时间线']);
     await click('时间线');
     const fetchCount = queryScript.mock.calls.length;
+    expect(host.querySelector('[data-planned="true"]').closest('[data-track-name]').dataset.trackName).toBe('text_main_2');
+    expect(host.querySelector('.pinned-draft-track-view__warning')).toBeNull();
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({
+      track_name: 'text_main_2', relative_index: 1, start: 0, end: 3,
+    });
+    await selectTrack('existing:text_main');
     expect(host.querySelector('[data-planned="true"]').closest('[data-track-name]').dataset.trackName).toBe('text_main');
     expect(host.querySelector('.pinned-draft-track-view__warning')).toBeTruthy();
-    expect(get('上移一层')).toBeNull();
+    expect(get('置顶')).toBeNull();
     expect(get('新轨道名')).toBeNull();
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: 'text_main', start: 0, end: 3 });
     await selectTrack('__new__');
@@ -819,8 +825,8 @@ describe('text timeline controls', () => {
     expect(host.querySelectorAll('.chat-panel__text-settings-form > .chat-panel__text-settings-row')).toHaveLength(1);
     expect(host.querySelector('.pinned-draft-track-view__warning')).toBeNull();
     await editInput(get('选择轨道'), '新标题');
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶').disabled).toBe(true);
+    expect(get('置低').disabled).toBe(false);
     await editInput(get('开始时间'), '5');
     await editInput(get('结束时间'), '10');
     const ghost = host.querySelector('[data-planned="true"]');
@@ -839,8 +845,8 @@ describe('text timeline controls', () => {
     await click('时间线');
     expect(get('结束时间').value).toBe('10');
     await selectTrack('existing:text_main');
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶')).toBeNull();
+    expect(get('置低')).toBeNull();
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15000');
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: 'text_main', start: 5, end: 10 });
     await selectTrack('__new__');
@@ -861,14 +867,15 @@ describe('text timeline controls', () => {
     queryScript.mockResolvedValueOnce(source);
     const { onSettingsChange } = await mount('计划文字');
     await click('时间线');
+    await selectTrack('existing:text_main');
     for (const label of ['开始时间', '结束时间']) {
       expect(get(label).step).toBe('0.01');
       expect(get(label).classList.contains('chat-panel__text-settings-number')).toBe(true);
     }
     expect(get('开始时间滑块')).toBeNull();
     expect(get('结束时间滑块')).toBeNull();
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶')).toBeNull();
+    expect(get('置低')).toBeNull();
     await editInput(get('开始时间'), '1.23');
     await editInput(get('结束时间'), '4.56');
     expect(get('开始时间').value).toBe('1.23');
@@ -895,12 +902,13 @@ describe('text timeline controls', () => {
     queryScript.mockResolvedValueOnce(source);
     const { onSettingsChange } = await mount('文字');
     // The default is resolved even before opening the timeline tab.
-    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: '旧文字', start: 0, end: 3 });
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: 'text_main', relative_index: 7, start: 0, end: 3 });
     await click('时间线');
     expect([...get('轨道选项').options].map((option) => option.textContent)).toEqual(['', '旧文字', '空文字轨道', '新建轨道']);
     for (const type of ['video', 'image', 'audio']) {
       expect(host.querySelector(`[data-track-name="${type}"]`)).toBeNull();
     }
+    await selectTrack('existing:旧文字');
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('0');
     await selectTrack('existing:空文字轨道');
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15006');
@@ -910,10 +918,10 @@ describe('text timeline controls', () => {
     await editInput(get('选择轨道'), '旧文字');
     expect(onSettingsChange.mock.lastCall[0].trackName).toBe('旧文字_2');
     expect(host.querySelector('[data-planned]').closest('[data-track-name]').dataset.trackName).toBe('旧文字_2');
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶').querySelector('svg')).toBeTruthy();
+    expect(get('置低').querySelector('svg')).toBeTruthy();
   });
-  it('preserves the automatic new track layer when editing its name and time', async () => {
+  it('preserves the adjusted new track layer when editing its name and time', async () => {
     const source = response('旧文字');
     source.output.tracks[0].relative_index = 6;
     source.output.tracks[0].segments[0].render_index = 15006;
@@ -924,13 +932,14 @@ describe('text timeline controls', () => {
     await editInput(get('选择轨道'), '新轨道');
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(13);
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15013');
+    await click('置低');
     await editInput(get('选择轨道'), '新名称');
     await editInput(get('结束时间'), '5');
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toMatchObject({
-      track_name: '新名称', relative_index: 13, end: 5,
+      track_name: '新名称', relative_index: 5, end: 5,
     });
   });
-  it.each([[2, 1, 0], [20, 7, -3], [5, 5, 0]])('creates above existing layers without movement controls: %j', async (...indices) => {
+  it.each([[2, 1, 0], [20, 7, -3], [5, 5, 0]])('moves directly above or below all existing layers: %j', async (...indices) => {
     const source = response('轨道0');
     source.output.tracks = indices.map((index, i) => ({
       id: `track-${i}`, name: `轨道${i}`, type: 'text', relative_index: index,
@@ -945,11 +954,23 @@ describe('text timeline controls', () => {
     const name = onSettingsChange.mock.lastCall[0].trackName;
     expect(order()[0]).toBe(name);
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.max(...indices) + 1);
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶').disabled).toBe(true);
+    await click('置低');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.min(...indices) - 1);
+    expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe(String(15000 + Math.min(...indices) - 1));
+    expect(order().at(-1)).toBe(name);
+    expect(host.querySelectorAll('[data-track-name]')).toHaveLength(indices.length + 1);
+    expect(get('置低').disabled).toBe(true);
+    await click('置低');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.min(...indices) - 1);
+    await click('置顶');
+    expect(order()[0]).toBe(name);
+    expect(get('置顶').disabled).toBe(true);
+    await click('置顶');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.max(...indices) + 1);
     expect(JSON.stringify(source)).toBe(original);
   });
-  it('omits layer buttons and disables placement controls when locked', async () => {
+  it('disables layer buttons at numeric bounds and placement controls when locked', async () => {
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -958,13 +979,13 @@ describe('text timeline controls', () => {
         value={{ trackMode: 'new', trackName: '标题', relativeIndex, start: 0, end: 3 }} onChange={vi.fn()} disabled={disabled} />
     ));
     await render(10000);
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶').disabled).toBe(true);
+    expect(get('置低').disabled).toBe(false);
     await render(-10000);
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶').disabled).toBe(false);
+    expect(get('置低').disabled).toBe(true);
     await render(0, true);
-    for (const label of ['选择轨道', '轨道选项', '开始时间', '结束时间']) {
+    for (const label of ['选择轨道', '轨道选项', '置顶', '置低', '开始时间', '结束时间']) {
       expect(get(label).disabled).toBe(true);
     }
   });

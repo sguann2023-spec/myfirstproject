@@ -1,12 +1,14 @@
 import React from 'react';
 import { AutoComplete, InputNumber } from 'antd';
-import { ChevronDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
 import PinnedDraftTrackView from '../../renderer/src/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
-import { DEFAULT_TEXT_PLACEMENT, getTextTrackNames, MAX_TEXT_TIME, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
+import { DEFAULT_TEXT_PLACEMENT, getLowestTextTrackRelativeIndex, getNextTextTrackRelativeIndex, getTextTrackNames, MAX_TEXT_TIME, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
 
 export default function TextTimelinePanel({ script, loading, error, value, onChange, text, disabled }) {
   const placement = React.useMemo(() => resolveTextTrackPlacement(value, script), [value, script]);
   const trackNames = React.useMemo(() => getTextTrackNames(script), [script]);
+  const topIndex = React.useMemo(() => getNextTextTrackRelativeIndex(script), [script]);
+  const bottomIndex = React.useMemo(() => getLowestTextTrackRelativeIndex(script), [script]);
   const plannedText = React.useMemo(() => ({ ...placement, text }), [placement, text]);
   const trackDisabled = disabled || loading || Boolean(error);
   const updatePlacement = (patch) => onChange(resolveTextTrackPlacement({ ...placement, ...patch }, script));
@@ -52,6 +54,20 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
             onBlur={() => {
               if (placement.trackMode === 'new') updatePlacement({ newTrackName: placement.trackName });
             }} />
+          {placement.trackMode === 'new' && <div className="chat-panel__text-track-layer" role="group" aria-label={`轨道层级：${placement.relativeIndex}`}>
+            <button type="button" aria-label="置顶"
+              title={`置于现有轨道最高层级之上（层级 ${topIndex}）`}
+              disabled={trackDisabled || placement.relativeIndex >= topIndex || Math.abs(topIndex) > 10000}
+              onClick={() => updatePlacement({ relative_index: null, relativeIndex: topIndex })}>
+              <ArrowUp size={14} aria-hidden="true" />置顶
+            </button>
+            <button type="button" aria-label="置低"
+              title={`置于现有轨道最低层级之下（层级 ${bottomIndex}）`}
+              disabled={trackDisabled || placement.relativeIndex <= bottomIndex || Math.abs(bottomIndex) > 10000}
+              onClick={() => updatePlacement({ relative_index: null, relativeIndex: bottomIndex })}>
+              <ArrowDown size={14} aria-hidden="true" />置低
+            </button>
+          </div>}
         </div>
       </div>
       <div className="chat-panel__text-timeline-times">
