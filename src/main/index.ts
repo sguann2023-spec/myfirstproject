@@ -23,7 +23,7 @@ import { channelManager } from './services/agents/services/channels'
 import { apiServerService } from './services/ApiServerService'
 import { appMenuService } from './services/AppMenuService'
 import { configManager } from './services/ConfigManager'
-import { crashReportService } from './services/CrashReportService'
+import { crashReportService, describeDiagnosticError } from './services/CrashReportService'
 import { loggerService as mainLoggerService } from './services/LoggerService'
 import { lanTransferClientService } from './services/lanTransfer'
 import mcpService from './services/MCPService'
@@ -157,17 +157,15 @@ app.on('web-contents-created', (_, webContents) => {
 if (!isDev) {
   // handle uncaught exception
   process.on('uncaughtException', (error) => {
-    crashReportService.record('uncaught-exception', { message: error.message, stack: error.stack }, true)
+    crashReportService.record('uncaught-exception', describeDiagnosticError(error), true)
     logger.error('Uncaught Exception:', error)
   })
 
   // handle unhandled rejection
-  process.on('unhandledRejection', (reason, promise) => {
-    crashReportService.record('unhandled-rejection', {
-      message: reason instanceof Error ? reason.message : String(reason),
-      stack: reason instanceof Error ? reason.stack : undefined
-    }, true)
-    logger.error(`Unhandled Rejection at: ${promise} reason: ${reason}`)
+  process.on('unhandledRejection', (reason) => {
+    const details = describeDiagnosticError(reason)
+    crashReportService.record('unhandled-rejection', details, true)
+    logger.error(`Unhandled Rejection: ${details.message}`, details)
   })
 }
 

@@ -14,7 +14,7 @@ vi.mock('../FeedbackMailService', () => ({
   feedbackMailService: { isConfigured: mocks.configured, sendCrashReport: mocks.send }
 }))
 
-import { CrashReportService, redactDiagnosticText } from '../CrashReportService'
+import { CrashReportService, describeDiagnosticError, redactDiagnosticText } from '../CrashReportService'
 
 describe('CrashReportService', () => {
   let directory: string
@@ -113,7 +113,7 @@ describe('CrashReportService', () => {
   })
 
   it('keeps reports pending while SMTP is unconfigured', async () => {
-    nextSession()
+    nextSession().record('render-process-gone', { reason: 'crashed' }, true)
     const current = nextSession()
     mocks.configured.mockReturnValue(false)
     await current.sendPendingReports()
@@ -124,12 +124,75 @@ describe('CrashReportService', () => {
     expect(mocks.send).toHaveBeenCalledTimes(1)
   })
 
-  it('distinguishes unclean sessions from proven process incidents', async () => {
+  it('does not report unclean sessions without crash evidence', async () => {
     nextSession()
     await nextSession().sendPendingReports()
-    const report = JSON.parse(archive().readAsText('report.json'))
-    expect(report.classification).toBe('unclean-session')
-    expect(report.dumpStatus).toBe('no-dump-found')
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(markers()).toHaveLength(0)
+  })
+
+  it.each([0, 1])('does not report ordinary JS errors with exit code %i', async (exitCode) => {
+    const previous = nextSession()
+    previous.record('unhandled-rejection', { message: 'bonjour-service did not export a Bonjour constructor' }, true)
+    previous.record('uncaught-exception', { message: 'Recoverable error' }, true)
+    previous.finish(exitCode)
+    await nextSession().sendPendingReports()
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(markers()).toHaveLength(0)
+  })
+
+  it.each([1, 6])('ignores legacy reports containing %i ordinary rejections', async (count) => {
+    const previous = nextSession()
+    for (let i = 0; i < count; i++) {
+      previous.record('unhandled-rejection', { message: i ? '[object Object]' : 'Bonjour error' }, true)
+    }
+    previous.finish(0)
+    const legacy = reports()[0]
+    delete legacy.hasCrash
+    fs.writeFileSync(path.join(queue(), `${legacy.reportId}.json`), JSON.stringify(legacy))
+    await nextSession().sendPendingReports()
+    expect(mocks.send).not.toHaveBeenCalled()
+  })
+
+  it('still reports legacy renderer crashes even after a clean exit', async () => {
+    const previous = nextSession()
+    previous.record('render-process-gone', { reason: 'crashed' }, true)
+    previous.finish(0)
+    const legacy = reports()[0]
+    delete legacy.hasCrash
+    fs.writeFileSync(path.join(queue(), `${legacy.reportId}.json`), JSON.stringify(legacy))
+    await nextSession().sendPendingReports()
+    expect(JSON.parse(archive().readAsText('report.json')).classification).toBe('process-crash')
+    expect(JSON.parse(mocks.send.mock.calls[0][0].summary).classification).toBe('process-crash')
+  })
+
+  it.each(['clean-exit', 'killed', 'launch-failed'])('does not report a process %s without crash evidence', async (reason) => {
+    const previous = nextSession()
+    previous.record('render-process-gone', { reason }, true)
+    previous.record('child-process-gone', { reason }, true)
+    previous.record('renderer-recovery-action', { action: 'exit', exitCode: 1 }, true)
+    previous.finish(1)
+    await nextSession().sendPendingReports()
+    expect(mocks.send).not.toHaveBeenCalled()
+  })
+
+  it.each(['crashed', 'oom', 'abnormal-exit', 'integrity-failure'])('reports a process %s without a dump', async (reason) => {
+    const previous = nextSession()
+    previous.record('child-process-gone', { reason }, true)
+    previous.finish(0)
+    await nextSession().sendPendingReports()
+    expect(mocks.send).toHaveBeenCalledOnce()
+    expect(JSON.parse(archive().readAsText('report.json')).dumpStatus).toBe('no-dump-found')
+  })
+
+  it('retains crash evidence after the event history rolls over', async () => {
+    const previous = nextSession()
+    previous.record('render-process-gone', { reason: 'oom' }, true)
+    for (let i = 0; i < 90; i++) previous.record('event')
+    previous.finish(0)
+    expect(reports()[0].events.some((event: { kind: string }) => event.kind === 'render-process-gone')).toBe(false)
+    await nextSession().sendPendingReports()
+    expect(mocks.send).toHaveBeenCalledOnce()
   })
 
   it('does not report ordinary clean exits', async () => {
@@ -139,7 +202,7 @@ describe('CrashReportService', () => {
   })
 
   it('keeps preparation failures pending without consuming the send attempt', async () => {
-    nextSession()
+    nextSession().record('render-process-gone', { reason: 'crashed' }, true)
     const current = nextSession()
     const prepare = vi.spyOn(current as unknown as { buildArchive(): Promise<Buffer> }, 'buildArchive')
       .mockRejectedValueOnce(new Error('temporary IO failure'))
@@ -152,14 +215,14 @@ describe('CrashReportService', () => {
   })
 
   it('skips malformed session records without blocking a valid report', async () => {
-    nextSession()
+    nextSession().record('render-process-gone', { reason: 'crashed' }, true)
     fs.writeFileSync(path.join(queue(), '00000000-0000-0000-0000-000000000000.json'), '{')
     await nextSession().sendPendingReports()
     expect(mocks.send).toHaveBeenCalledOnce()
   })
 
   it('selects diagnostic logs from the previous session even after a long restart delay', async () => {
-    nextSession()
+    nextSession().record('render-process-gone', { reason: 'crashed' }, true)
     const timestamp = new Date(Date.now() + 30_000).toISOString()
     fs.writeFileSync(path.join(options.logsPath, 'app.2026-09-19.log'), [
       JSON.stringify({ timestamp, module: 'MainEntry', level: 'error', message: 'Failure Bearer test-token' }),
@@ -179,6 +242,7 @@ describe('CrashReportService', () => {
     await nextSession().sendPendingReports()
     expect(mocks.send).toHaveBeenCalledTimes(1)
     expect(JSON.parse(archive().readAsText('report.json')).attachments).toHaveLength(1)
+    expect(JSON.parse(archive().readAsText('report.json')).classification).toBe('crash-dump')
   })
 
   it('excludes old dumps and marks oversized dumps explicitly', async () => {
@@ -194,7 +258,7 @@ describe('CrashReportService', () => {
   })
 
   it('does not follow dump symlinks outside Crashpad', async () => {
-    nextSession()
+    nextSession().record('render-process-gone', { reason: 'crashed' }, true)
     const outside = path.join(directory, 'private.dmp')
     fs.writeFileSync(outside, 'private')
     fs.symlinkSync(outside, path.join(options.dumpsPath, 'pending', 'linked.dmp'))
@@ -210,7 +274,7 @@ describe('CrashReportService', () => {
   })
 
   it('never sends if the durable attempt marker cannot be written', async () => {
-    nextSession()
+    nextSession().record('render-process-gone', { reason: 'crashed' }, true)
     const current = nextSession()
     vi.spyOn(fs, 'openSync').mockImplementation(() => { throw new Error('disk unavailable') })
     await current.sendPendingReports()
@@ -228,5 +292,42 @@ describe('CrashReportService', () => {
     expect(reports()[0].events[0].details.token).toBe('Bearer [redacted]')
     expect(redactDiagnosticText('api_key=secret a@b.com https://example.com/?token=secret'))
       .not.toMatch(/secret|a@b.com|example.com/)
+  })
+})
+
+describe('describeDiagnosticError', () => {
+  it('preserves object rejection details and redacts sensitive text', () => {
+    const details = describeDiagnosticError({ code: 400, message: 'Request failed', password: 'secret-value' })
+    expect(details.message).toContain('400')
+    expect(details.message).toContain('Request failed')
+    expect(details.message).not.toContain('secret-value')
+    expect(details.message).not.toBe('[object Object]')
+  })
+
+  it('handles circular references and bigint without throwing', () => {
+    const reason: Record<string, unknown> = { code: 123n }
+    reason.self = reason
+    expect(describeDiagnosticError(reason).message).toContain('123n')
+    expect(describeDiagnosticError(reason).message).toContain('Circular')
+  })
+
+  it('preserves Error messages and stacks', () => {
+    const reason = new Error('Failure')
+    expect(describeDiagnosticError(reason)).toEqual({ message: 'Failure', stack: redactDiagnosticText(reason.stack!) })
+  })
+
+  it('does not invoke custom inspection hooks or getters', () => {
+    const getter = vi.fn(() => { throw new Error('getter called') })
+    const reason = Object.defineProperty({}, 'message', { get: getter, enumerable: true })
+    expect(() => describeDiagnosticError(reason)).not.toThrow()
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it.each([null, undefined, 'string rejection', 123])('handles primitive rejection %s', (reason) => {
+    expect(describeDiagnosticError(reason).message).toBe(String(reason))
+  })
+
+  it('bounds the recorded message length', () => {
+    expect(describeDiagnosticError('x'.repeat(20_000)).message.length).toBe(8192)
   })
 })

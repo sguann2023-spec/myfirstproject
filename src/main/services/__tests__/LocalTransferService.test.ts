@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events'
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
 
+const exportState = vi.hoisted(() => ({ shape: 'default', failConstructor: false }))
+
 // Create mock objects before vi.mock calls
 const mockLogger = {
   info: vi.fn(),
@@ -43,19 +45,30 @@ vi.mock('../WindowService', () => ({
   }
 }))
 
-vi.mock('bonjour-service', () => ({
-  default: vi.fn(function MockBonjour() {
-    return mockBonjour
-  }),
-  Bonjour: vi.fn(function MockBonjourNamed() {
+vi.mock('bonjour-service', () => {
+  const constructor = vi.fn(function MockBonjour() {
+    if (exportState.failConstructor) throw new Error('Constructor failed')
     return mockBonjour
   })
-}))
+  return {
+    get default() {
+      if (exportState.shape === 'bundled') return { Bonjour: constructor, default: constructor }
+      if (exportState.shape === 'nested') return { Bonjour: constructor }
+      if (exportState.shape === 'invalid') return {}
+      return constructor
+    },
+    get Bonjour() {
+      return exportState.shape === 'bundled' ? constructor : undefined
+    }
+  }
+})
 
 describe('LocalTransferService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    exportState.shape = 'default'
+    exportState.failConstructor = false
 
     // Reset mock objects
     mockMainWindow = {
@@ -130,7 +143,41 @@ describe('LocalTransferService', () => {
       const state = localTransferService.startDiscovery()
 
       expect(state.lastError).toBe('Failed to start mDNS')
+      expect(state.isScanning).toBe(false)
+      expect(mockBrowser.stop).toHaveBeenCalled()
+      expect(mockBonjour.destroy).toHaveBeenCalled()
       expect(mockLogger.error).toHaveBeenCalled()
+    })
+
+    it.each(['default', 'bundled', 'nested'])('supports the %s Bonjour export shape', async (shape) => {
+      exportState.shape = shape
+      const { localTransferService } = await import('../LocalTransferService')
+      expect(localTransferService.startDiscovery()).toMatchObject({ isScanning: true, lastError: undefined })
+      expect(mockBonjour.find).toHaveBeenCalled()
+    })
+
+    it('contains invalid Bonjour exports instead of rejecting application startup', async () => {
+      exportState.shape = 'invalid'
+      const { localTransferService } = await import('../LocalTransferService')
+      expect(localTransferService.startDiscovery()).toMatchObject({
+        isScanning: false,
+        lastError: 'bonjour-service did not export a Bonjour constructor'
+      })
+      expect(mockMainWindow?.webContents.send).toHaveBeenCalled()
+    })
+
+    it('contains constructor failures', async () => {
+      exportState.failConstructor = true
+      const { localTransferService } = await import('../LocalTransferService')
+      expect(localTransferService.startDiscovery()).toMatchObject({ isScanning: false, lastError: 'Constructor failed' })
+    })
+
+    it('cleans up a failed find and allows retry', async () => {
+      mockBonjour.find.mockImplementationOnce(() => { throw new Error('Find failed') })
+      const { localTransferService } = await import('../LocalTransferService')
+      expect(localTransferService.startDiscovery()).toMatchObject({ isScanning: false, lastError: 'Find failed' })
+      expect(mockBonjour.destroy).toHaveBeenCalledOnce()
+      expect(localTransferService.startDiscovery()).toMatchObject({ isScanning: true, lastError: undefined })
     })
   })
 

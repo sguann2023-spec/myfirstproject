@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { inspect } from 'node:util'
 
 import { feedbackMailService } from './FeedbackMailService'
 
@@ -34,12 +35,28 @@ type SessionReport = {
   endedAt?: string
   exitCode?: number
   hasIncident: boolean
+  hasCrash?: boolean
   droppedEvents: number
   environment: Record<string, unknown> & { version: string; platform: string }
   events: DiagnosticEvent[]
 }
 
 type DumpFile = { absolutePath: string; name: string; size: number; mtimeMs: number }
+
+const CRASH_REASONS = new Set(['crashed', 'oom', 'abnormal-exit', 'integrity-failure'])
+
+function isCrashEvent(kind: string, details: Record<string, unknown>): boolean {
+  return (kind === 'render-process-gone' || kind === 'child-process-gone') &&
+    typeof details.reason === 'string' && CRASH_REASONS.has(details.reason)
+}
+
+function crashClassification(report: SessionReport, dumps: DumpFile[]): string | undefined {
+  // Older reports used hasIncident for ordinary JS errors too; do not use it for delivery.
+  if (report.hasCrash === true || report.events.some((event) =>
+    event && event.details && isCrashEvent(event.kind, event.details))) return 'process-crash'
+  if (dumps.length) return 'crash-dump'
+  return undefined
+}
 
 // Text redaction is best effort. Binary dumps are intentionally attached unchanged.
 export function redactDiagnosticText(text: string): string {
@@ -50,6 +67,20 @@ export function redactDiagnosticText(text: string): string {
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
     .replace(/[A-Z]:\\Users\\[^\\\s]+/gi, 'C:\\Users\\[user]')
     .replace(/\/(?:Users|home)\/[^/\s]+/g, '/home/[user]')
+}
+
+export function describeDiagnosticError(reason: unknown): { message: string; stack?: string } {
+  try {
+    const message = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : inspect(reason, {
+      depth: 4, maxArrayLength: 20, maxStringLength: 2048, customInspect: false, getters: false
+    })
+    return {
+      message: redactDiagnosticText(message).slice(0, 8192),
+      stack: reason instanceof Error && reason.stack ? redactDiagnosticText(reason.stack).slice(0, 8192) : undefined
+    }
+  } catch {
+    return { message: '[Unable to serialize error]' }
+  }
 }
 
 export class CrashReportService {
@@ -69,6 +100,7 @@ export class CrashReportService {
         reportId: randomUUID(),
         startedAt: new Date().toISOString(),
         hasIncident: false,
+        hasCrash: false,
         droppedEvents: 0,
         environment: {
           version: options.version,
@@ -99,6 +131,8 @@ export class CrashReportService {
     if (!this.current) return
     try {
       this.current.hasIncident ||= incident
+      // Keep crash evidence even when the bounded event history rolls over.
+      this.current.hasCrash ||= isCrashEvent(kind, details)
       const timestamp = new Date().toISOString()
       const memory = process.memoryUsage()
       const safeDetails = JSON.parse(JSON.stringify(details, (_key, value) =>
@@ -164,7 +198,8 @@ export class CrashReportService {
         const start = Date.parse(report.startedAt)
         const end = boundaries.find((time) => time > start) ?? Date.parse(this.current.startedAt)
         const matchingDumps = dumps.filter((dump) => dump.mtimeMs >= start && dump.mtimeMs < end)
-        if (!report.hasIncident && report.endedAt && report.exitCode === 0 && !matchingDumps.length) continue
+        const classification = crashClassification(report, matchingDumps)
+        if (!classification) continue
         if (attempts >= 3) break
         try {
           const archive = await this.buildArchive(report, matchingDumps, end)
@@ -178,7 +213,7 @@ export class CrashReportService {
               platform: report.environment.platform,
               summary: JSON.stringify({
                 reportId: report.reportId,
-                classification: report.hasIncident || matchingDumps.length ? 'process-incident' : 'unclean-session',
+                classification,
                 startedAt: report.startedAt,
                 endedAt: report.endedAt ?? null,
                 environment: report.environment,
@@ -293,7 +328,7 @@ export class CrashReportService {
     zip.addFile('diagnostic.log', Buffer.from(logs.text))
     zip.addFile('report.json', Buffer.from(JSON.stringify({
       ...report,
-      classification: report.hasIncident || dumps.length ? 'process-incident' : 'unclean-session',
+      classification: crashClassification(report, dumps),
       attachments,
       dumpStatus: dumps.length ? 'see-attachments' : 'no-dump-found',
       logs: logs.notes,
