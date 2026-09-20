@@ -1,0 +1,19 @@
+.chat-panel__revert-prompt {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.chat-panel__revert-prompt .chat-panel__tool-button--active,
+.chat-panel__revert-prompt .chat-panel__tool-button--active:not(:disabled):hover {
+  background: #e2e6ff !important;
+}
+
+.chat-panel__revert-prompt .chat-panel__tool-text--active,
+.chat-panel__revert-prompt .chat-panel__tool-close-icon {
+  color: #3167ff !important;
+}
+
+.chat-panel__revert-prompt-icon {
+  color: #3167ff;
+}

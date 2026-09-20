@@ -25,6 +25,7 @@
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 | 否 |
+| `reverse_prompt_request` | 反推视频文案提示词 | `copylab` | `derive_copy_prompt` | 是 | 是（整理工具结果） | 是 | 是（默认） | 是 | 否 | 否 |
 
 ---
 
@@ -318,12 +319,67 @@ curl --request POST \
 
 ---
 
+### 4.7 `reverse_prompt_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 根据视频分享链接或分享文案，反推可复用的文案提示词 |
+| 目标 MCP | `copylab.derive_copy_prompt` |
+| 是否 direct request | 是，跳过普通 Agent 推理，工具内部仍调用 ASR 和文案分析模型 |
+| 是否 direct 回复 | 是，由主进程整理工具返回的提示词，不额外调用聊天模型 |
+| 前端消息标记对象 | `reversePromptRequest` |
+| requestId | IPC 顶层 `requestId`，同时保存到 `reversePromptRequest.requestId`；重试生成新的执行 requestId |
+| 工具调用 ID | `reverse_prompt_request_${requestId}`，用于匹配进度事件 |
+| 支持展示类型 | 默认 `文字`，仅提供 `Agent` 转换选项；可切回文字 |
+| `Agent` 是否可展示 | 外部链接已连接时可展示，与其他请求保持一致 |
+| `API` / `Coze` 是否可展示 | 否 |
+| 前端发送条件 | 输入包含 HTTP(S) 视频链接的分享文案 |
+| MCP 参数 | 将完整分享文案传入 `shareText`；不把内部 requestId 传给 MCP |
+| token / 点数 | 直连不等于零消耗；内部模型仍可能消耗 token，点数以服务端计费返回为准 |
+| 点数汇总 | 链接解析 + 字幕识别 + 文案分析，按阶段汇总；提交与轮询属于同一任务，不重复累加 |
+| 缺失计费字段 | 不当作 0；“预估消耗”即已返回阶段的合计，不追加“已知”或计费不完整的额外说明，悬浮面板仅保留消耗明细；所有阶段均未返回时不显示点数 |
+| 长时任务超时 | 与图片生成一致：MCP 注册设置 `longRunning: true`、`timeout: 600`（秒），桥接调用总上限 10 分钟；内部 ASR 和文案分析的单阶段轮询上限各为 10 分钟，经 MCP 桥接调用时仍受外层总上限约束 |
+| 失败处理 | 已返回的点数随错误工具卡片保留，不能把已发生的消耗清零；取消后服务端仍可能继续计费，以账单为准 |
+| 历史保留 | 工具结果保留 `billing` 分阶段明细及服务端 `usage`；不按当前聊天模型价格推算内部模型点数 |
+| 消耗展示 | 新旧工具卡片均展示汇总点数；消息底部累加已返回的内部 token 用量但不重复计费，未返回的用量或点数不显示为零 |
+
+典型前端标记：
+
+```json
+{
+  "reversePromptRequest": {
+    "requestId": "req_xxx",
+    "shareText": "视频分享文案 https://v.douyin.com/xxx/"
+  }
+}
+```
+
+工具返回计费结构（示例数字不代表固定价格）：
+
+```json
+{
+  "billing": {
+    "total_consumed_points": 1.8,
+    "complete": true,
+    "missing_stages": [],
+    "stages": [
+      { "stage": "parse_share_link", "points_consumed": 0.1 },
+      { "stage": "asr", "task_id": "asr_xxx", "points_consumed": 0.5 },
+      { "stage": "analyze_prompt", "task_id": "chat_xxx", "points_consumed": 1.2 }
+    ]
+  }
+}
+```
+
+---
+
 ## 5. 固定约束
 
 | 约束项 | 规则 |
 | --- | --- |
 | direct request 执行链路 | 不走普通 Agent 推理 |
-| token 消耗 | 不消耗 token |
+| token 消耗 | 仅跳过普通 Agent 推理；工具内部的模型调用仍可能消耗 token 和点数，不可统一标记为 0 |
+| 工具计费 | 使用后端实际返回值；组合工具去重汇总各阶段，缺失字段不视为零，不与聊天 token 费用重复计算 |
 | assistant 回复来源 | 由主进程统一拼接固定回复 |
 | tool 卡片 | 继续按标准 MCP tool 卡片渲染 |
 | 历史落库 | 必须写入 user / assistant / tool block / main_text block |
@@ -341,6 +397,7 @@ curl --request POST \
 | `text_add_request` | `mcp__vectcut__draft-elements__add_text` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
+| `reverse_prompt_request` | `mcp__vectcut__copylab__derive_copy_prompt` |
 
 ---
 

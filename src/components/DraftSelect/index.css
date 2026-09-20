@@ -65,6 +65,10 @@
   transform: rotate(180deg);
 }
 
+.chat-panel__draft-select-popover {
+  z-index: 1700 !important;
+}
+
 .chat-panel__draft-select-popover .ant-popover-inner {
   padding: 0 !important;
   border-radius: 16px !important;

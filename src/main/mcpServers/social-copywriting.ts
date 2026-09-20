@@ -17,6 +17,7 @@ import type { MCPProgressEvent } from '@shared/config/types'
 import { IpcChannel } from '@shared/IpcChannel'
 import Store from 'electron-store'
 import { net } from 'electron'
+import { SocialCopywritingBilling } from './social-copywriting-billing'
 
 const logger = loggerService.withContext('MCPServer:SocialCopywriting')
 
@@ -32,9 +33,9 @@ const ASR_STATUS_ENDPOINT = '/llm/asr/asr_llm/submit_task/task_status'
 const CHAT_SUBMIT_ENDPOINT = '/llm/chat/submit_task/submit_chat_task'
 const CHAT_STATUS_ENDPOINT = '/llm/chat/submit_task/task_status'
 const ASR_POLL_INTERVAL_MS = 3_000
-const ASR_POLL_TIMEOUT_MS = 3 * 60 * 1000
+const ASR_POLL_TIMEOUT_MS = 10 * 60 * 1000
 const CHAT_POLL_INTERVAL_MS = 3_000
-const CHAT_POLL_TIMEOUT_MS = 3 * 60 * 1000
+const CHAT_POLL_TIMEOUT_MS = 10 * 60 * 1000
 const INTERNAL_TOOL_CALL_ID_KEY = '__toolCallId'
 const SOCIAL_COPYWRITING_TOOL_NAME = 'derive_copy_prompt'
 const SOCIAL_COPYWRITING_SERVER_NAME = 'copylab'
@@ -186,6 +187,7 @@ type StepLogContext = {
 }
 
 type ToolExecutionExtra = {
+  billing?: SocialCopywritingBilling
   signal: AbortSignal
   requestId: string | number
   _meta?: {
@@ -416,7 +418,7 @@ class SocialCopywritingServer {
     }
   }
 
-  private async parseSocialLink(platform: PlatformName, shareText: string) {
+  private async parseSocialLink(platform: PlatformName, shareText: string, extra?: ToolExecutionExtra) {
     const endpoint = PLATFORM_ENDPOINTS[platform]
     const response = await this.requestJson(endpoint, {
       method: 'POST',
@@ -431,6 +433,7 @@ class SocialCopywritingServer {
     }
 
     const payload = (await response.json()) as SocialParseResponse
+    extra?.billing?.record('parse_share_link', payload)
     const videoUrl = String(payload?.data?.video?.url || '').trim()
     if (!payload?.success) {
       throw new Error(`Failed to parse ${platform} link: ${JSON.stringify(payload)}`)
@@ -641,7 +644,7 @@ class SocialCopywritingServer {
     }
   }
 
-  private async submitAsrTask(audioUrl: string) {
+  private async submitAsrTask(audioUrl: string, extra?: ToolExecutionExtra) {
     const response = await this.requestJson(ASR_SUBMIT_ENDPOINT, {
       method: 'POST',
       body: {
@@ -656,6 +659,7 @@ class SocialCopywritingServer {
     }
 
     const payload = (await response.json()) as AsrSubmitResponse
+    extra?.billing?.record('asr', payload)
     const taskId = String(payload.task_id || '').trim()
     if (!payload.success || !taskId) {
       throw new Error(`ASR submit failed: ${JSON.stringify(payload)}`)
@@ -686,6 +690,7 @@ class SocialCopywritingServer {
       }
 
       latestPayload = (await response.json()) as AsrTaskStatusResponse
+      extra?.billing?.record('asr', latestPayload)
       const status = String(latestPayload.status || '').toLowerCase()
       if (extra) {
         const normalizedTaskProgress =
@@ -869,6 +874,7 @@ class SocialCopywritingServer {
     }
 
     const payload = (await response.json()) as ChatSubmitResponse
+    extra?.billing?.record('analyze_prompt', payload)
     const taskId = String(payload.task_id || '').trim()
     if (!payload.success || !taskId) {
       throw new Error(`Chat submit failed: ${JSON.stringify(payload)}`)
@@ -902,6 +908,7 @@ class SocialCopywritingServer {
       }
 
       latestPayload = (await response.json()) as ChatTaskStatusResponse
+      extra?.billing?.record('analyze_prompt', latestPayload)
       const status = String(latestPayload.status || '').toLowerCase()
       const normalizedTaskProgress =
         typeof latestPayload.progress === 'number' && Number.isFinite(latestPayload.progress)
@@ -958,6 +965,7 @@ class SocialCopywritingServer {
   }
 
   private async extractSocialCopywritingPrompt(args: Record<string, unknown>, extra: ToolExecutionExtra) {
+    extra = { ...extra, billing: new SocialCopywritingBilling() }
     const toolCallId = typeof args[INTERNAL_TOOL_CALL_ID_KEY] === 'string' ? String(args[INTERNAL_TOOL_CALL_ID_KEY]) : ''
     if (toolCallId) {
       extra.toolCallId = toolCallId
@@ -986,7 +994,7 @@ class SocialCopywritingServer {
       this.ensureNotAborted(extra)
       await this.reportProgress(extra, 5, 'AI正在解析...')
       const parseTimer = this.createStepTimer('parse_share_link', flowLogContext)
-      const parsed = await this.parseSocialLink(platform, shareText)
+      const parsed = await this.parseSocialLink(platform, shareText, extra)
       const videoUrl = String(parsed.data?.video?.url || '').trim()
       parseTimer.success({
         resolvedPlatform: parsed.data?.platform || platform,
@@ -1037,7 +1045,7 @@ class SocialCopywritingServer {
         ...flowLogContext,
         audioOssUrl: uploadedAudio.publicUrl
       })
-      const asrSubmit = await this.submitAsrTask(uploadedAudio.signedPublicUrl || uploadedAudio.publicUrl)
+      const asrSubmit = await this.submitAsrTask(uploadedAudio.signedPublicUrl || uploadedAudio.publicUrl, extra)
       asrSubmitTimer.success({
         taskId: asrSubmit.task_id,
         effectMode: asrSubmit.effect_mode || 'basic'
@@ -1081,6 +1089,7 @@ class SocialCopywritingServer {
       const resultPayload = {
         provider: 'vectcut',
         action: SOCIAL_COPYWRITING_TOOL_NAME,
+        ...extra.billing!.snapshot(),
         request: {
           platform,
           shareText,
@@ -1116,7 +1125,8 @@ class SocialCopywritingServer {
       logger.info('Extracted social copywriting prompt', {
         platform,
         taskId: asrSubmit.task_id,
-        model: analysis.model
+        model: analysis.model,
+        ...extra.billing!.snapshot()
       })
 
       await this.reportProgress(extra, 100, '提示词提取完成')
@@ -1135,7 +1145,20 @@ class SocialCopywritingServer {
       }
     } catch (error) {
       overallTimer.fail(error)
-      throw error
+      const billing = extra.billing!.snapshot()
+      logger.info('[social-copywriting] billing:partial', billing)
+      return {
+        isError: true,
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            provider: 'vectcut',
+            action: SOCIAL_COPYWRITING_TOOL_NAME,
+            error: error instanceof Error ? error.message : String(error),
+            ...billing
+          })
+        }]
+      }
     } finally {
       if (!keepTempFiles && artifacts) {
         logger.info('[social-copywriting] cleanup_temp:start', {

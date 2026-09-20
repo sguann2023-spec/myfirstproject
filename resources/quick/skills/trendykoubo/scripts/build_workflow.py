@@ -8,11 +8,30 @@ build_workflow.py — 根据 semantic_plan.json + timeline.json 自动生成 wor
     --plan semantic_plan.json \
     --timeline timeline.json \
     --video-url "VIDEO_URL" \
-    --bgm-url "BGM_URL" \
+    [--bgm-url "BGM_URL"] \
+    [--bgm-duration BGM_SECONDS] \
     [--output workflow.json] \
     [--seed 42]
+
+BGM 循环：未传 --bgm-duration 时自动用 ffprobe 探测选中 BGM 时长，
+按参考实现循环铺满时间轴（每段从头裁 seg_len，首尾相接，最多 200 段）；
+探测失败退化为单段裁剪。
 """
-import json, sys, argparse, random
+import json, sys, argparse, random, subprocess
+
+
+def probe_media_duration(url: str, timeout: float = 10.0):
+    """用 ffprobe 探测媒体时长（秒）；失败返回 0.0。用于 BGM 循环铺满计算。"""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error",
+             "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", url],
+            capture_output=True, text=True, timeout=timeout
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return 0.0
 
 # ─── BGM 候选列表（workflow.md 官方列表）───
 BGM_LIST = [
@@ -44,6 +63,8 @@ def main():
     ap.add_argument("--timeline", required=True)
     ap.add_argument("--video-url", required=True)
     ap.add_argument("--bgm-url", default=None)
+    ap.add_argument("--bgm-duration", type=float, default=None,
+                    help="BGM 时长（秒）；未传时自动用 ffprobe 探测，探测失败则退化为单段裁剪")
     ap.add_argument("--output", default="workflow.json")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
@@ -345,6 +366,11 @@ def main():
     # ════════════════════════════════════════
     # 5. 语气预设（提示音）
     # ════════════════════════════════════════
+    # add_preset 没有 end/duration 参数，预设使用内部固定时长（实测 ~1-2s）。
+    # 如果触发点靠近时间轴末尾，预设内部时长会超出视频/时间轴时长。
+    # 修复：用 PRESET_SAFE_MARGIN 保守估计预设最大时长，
+    # 确保 target_start + margin <= duration；超出则跳过该预设。
+    PRESET_SAFE_MARGIN = 3.0  # 保守估计预设最大内部时长
     used_presets = set()
     for tp in plan.get("tone_presets", []):
         pid = TONE_PRESETS.get(tp["tone_type"])
@@ -353,20 +379,90 @@ def main():
         used_presets.add(pid)
         ti = tp.get("trigger_sub_index", 0)
         if 0 <= ti < len(items):
+            trigger_start = items[ti]["start"]
+            if trigger_start + PRESET_SAFE_MARGIN > duration:
+                print(f"[WARN] 跳过预设 {tp['tone_type']}: "
+                      f"trigger_start={trigger_start:.2f}s + "
+                      f"margin={PRESET_SAFE_MARGIN}s > "
+                      f"timeline_duration={duration:.2f}s，"
+                      f"防止预设超出视频时长",
+                      file=sys.stderr)
+                continue
             add("add_preset", {
                 "preset_id": pid,
-                "target_start": items[ti]["start"],
+                "target_start": trigger_start,
                 "track_name": f"preset_tone_{tp['tone_type']}",
             })
 
     # ════════════════════════════════════════
-    # 6. BGM（循环铺满时间轴）
+    # 6. BGM（循环铺满时间轴，对齐参考实现：pos += seg_len，最多 200 段）
     # ════════════════════════════════════════
-    add("add_audio", {
-        "audio_url": bgm_url,
-        "start": 0.0, "end": duration, "target_start": 0.0,
-        "track_name": "audio_bgm", "volume": 3,
-    })
+    bgm_duration = args.bgm_duration
+    if bgm_duration is None or bgm_duration <= 0:
+        bgm_duration = probe_media_duration(bgm_url)
+    if bgm_duration > 0:
+        # 循环铺满：多段 add_audio，每段从 BGM 头部裁 seg_len 秒，首尾相接
+        pos = 0.0
+        seg_idx = 0
+        while pos < duration - 0.05 and seg_idx < 200:
+            seg_len = round(min(bgm_duration, duration - pos), 3)
+            add("add_audio", {
+                "audio_url": bgm_url,
+                "start": 0.0, "end": seg_len,
+                "target_start": round(pos, 3),
+                "track_name": "audio_bgm", "volume": 3,
+            })
+            pos += seg_len
+            seg_idx += 1
+    else:
+        # 探测失败退化：单段裁剪到时间轴时长（BGM 足够长时行为等同循环）
+        print("[WARN] BGM 时长探测失败，退化为单段裁剪", file=sys.stderr)
+        add("add_audio", {
+            "audio_url": bgm_url,
+            "start": 0.0, "end": duration, "target_start": 0.0,
+            "track_name": "audio_bgm", "volume": 3,
+        })
+
+    # ════════════════════════════════════════
+    # 安全校验：确保所有元素不超出时间轴时长（草稿时长以口播视频为准）
+    # ════════════════════════════════════════
+    for s in script:
+        p = s["params"]
+        action = s["action_type"]
+        elem_end = None
+        if action == "add_video":
+            src_dur = p.get("end", 0) - p.get("start", 0)
+            elem_end = p.get("target_start", 0) + src_dur
+        elif action == "add_text":
+            elem_end = p.get("end", 0)
+        elif action == "add_audio":
+            src_dur = p.get("end", 0) - p.get("start", 0)
+            elem_end = p.get("target_start", 0) + src_dur
+        elif action == "add_video_keyframe":
+            times = p.get("times", [])
+            elem_end = max(times) if times else None
+        # add_preset 无 end/target_end 参数，已由 PRESET_SAFE_MARGIN 拦截
+
+        if elem_end is not None and elem_end > duration + 0.05:
+            print(f"[WARN] 元素 {s['id']} ({action}) 结束时间 "
+                  f"{elem_end:.2f}s > timeline_duration {duration:.2f}s，"
+                  f"已自动裁剪",
+                  file=sys.stderr)
+            # 自动裁剪
+            if action == "add_text":
+                p["end"] = min(p["end"], duration)
+            elif action == "add_video":
+                src_dur = p["end"] - p["start"]
+                max_dur = duration - p.get("target_start", 0)
+                if max_dur < src_dur:
+                    p["end"] = p["start"] + max(0, max_dur)
+            elif action == "add_audio":
+                src_dur = p["end"] - p["start"]
+                max_dur = duration - p.get("target_start", 0)
+                if max_dur < src_dur:
+                    p["end"] = p["start"] + max(0, max_dur)
+            elif action == "add_preset":
+                pass  # add_preset 不支持 target_end，已由 PRESET_SAFE_MARGIN 提前拦截
 
     # ════════════════════════════════════════
     # 输出 workflow JSON

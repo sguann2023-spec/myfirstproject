@@ -71,58 +71,25 @@ requestBody:
 
 ## 输出定义
 
-技能输出按 OpenAPI 3.1 响应格式定义。最终回复使用自然语言，把以下 schema 字段作为信息点组织成友好的回复，不输出原始 JSON/YAML。
+最终回复只包含以下三项信息，不输出其他内容：
 
-```yaml
-responses:
-  "200":
-    description: 口播草稿生成成功。
-    content:
-      application/json:
-        schema:
-          type: object
-          required: [drafts]
-          properties:
-            drafts:
-              type: array
-              description: 与输入视频一一对应的草稿结果列表。
-              items:
-                type: object
-                required: [draft_id, draft_name, status]
-                properties:
-                  video_source:
-                    type: string
-                    description: 处理的视频来源（URL 或路径）。
-                  status:
-                    type: string
-                    enum: [success, failed]
-                    description: 处理状态。
-                  draft_id:
-                    type: string
-                    description: 草稿 ID，失败时为空字符串。
-                    examples:
-                      - "dfd_cat_1787905247_55627657"
-                  draft_name:
-                    type: string
-                    description: 草稿名称。
-                  draft_url:
-                    type: string
-                    description: 草稿打开链接。
-                    examples:
-                      - "https://www.vectcut.com/draft/downloader?draft_id=dfd_xxx&is_capcut=0"
-                  timeline_duration:
-                    type: number
-                    description: 时间轴总时长（秒）。
-                  asr_sentence_count:
-                    type: integer
-                    description: ASR 有效句数。
-                  subtitle_count:
-                    type: integer
-                    description: 生成的字幕条数。
-                  error_message:
-                    type: string
-                    description: 失败原因，成功时为空。
-```
+| 字段 | 说明 |
+|---|---|
+| 草稿名称 | 自动按视频主题生成 |
+| 草稿ID | 草稿唯一标识 |
+| 下载链接 | 草稿打开链接 |
+
+## 架构原则
+
+**LLM 调用通过内部模型与内部 MCP 工具实现，其余步骤全部代码化**：
+
+| 角色 | 职责 |
+|---|---|
+| **内部 MCP 工具** | 提取音频（`extract_audio_from_video`）、查时长（`get_media_duration`）、ASR 识别（`submit_subtitle_recognition_task`，basic 模式）、批量写入（`execute_workflow`）、下载草稿（`download_draft`）。工具合约见 `references/api-contracts.md` |
+| **Agent 大模型（唯一的 LLM 决策点）** | 步骤 5 单次语义规划：分句+关键词+翻译+标题+转场/缩放/提示音（按 `references/plan-prompt-template.md` 生成 `llm_output.json`，不调用任何远程 LLM Chat 接口） |
+| **脚本代码（其余全部）** | 分句清洗（clean_asr.py）、时间轴（build_timeline.py）、LLM 输入/回填（plan_llm_io.py）、规划校验（validate_plan.py）、词级对齐（align_subtitles.py）、workflow 组装含 BGM 循环（build_workflow.py） |
+
+硬规则：**禁止 Agent 手工处理中间数据文件**（提取句、构建时间轴、组装 workflow 等一律跑脚本）；LLM 生成内容只允许出现在 `llm_output.json` 及其衍生的 `semantic_plan.json` 语义字段里。
 
 ## 执行步骤
 
@@ -130,13 +97,13 @@ responses:
 
 | 步骤 | 文件 | 说明 |
 |---|---|---|
-| 1. 提取音频 | `steps/01-extract-audio.md` | **并行执行**：查询视频时长 + 提取音频到工作空间（输出 audio_path 供 ASR 使用） |
-| 2. 提交 ASR | `steps/02-submit-asr.md` | basic 基础识别，保存原始识别结果 |
-| 3. 分句清洗 | `steps/03-clean-sentences.md` | 机械化清洗（clean_asr.py 去气口/去标点，不调用 LLM；不去气口时仅去标点保留原句边界） |
-| 4. 整理时间轴 | `steps/04-build-timeline.md` | 计算去气口时间轴（不去气口时直接用源时间构建简化时间轴） |
-| 5. 语义规划 | `steps/05-semantic-plan.md` | **打包单次 LLM 调用**（分句+关键词+翻译+标题+转场缩放提示音，见 `references/plan-prompt-template.md`）+ `plan_llm_io.py` 机械回填 |
-| 6. 组装执行 | `steps/06-build-workflow.md` | 创建草稿、组装 workflow、执行、并返回结果 |
-| 7. 下载草稿 | `steps/07-download-draft.md` | 调用 `download_draft` 将草稿推送到剪映桌面端 |
+| 1. 提取音频 | `steps/01-extract-audio.md` | **并行执行**：查询视频时长 + 提取音频到工作空间（内部 MCP 工具，输出 audio_path 供 ASR 使用） |
+| 2. 提交 ASR | `steps/02-submit-asr.md` | 内部 MCP 工具 basic 基础识别，保存原始识别结果 |
+| 3. 分句清洗 | `steps/03-clean-sentences.md` | 代码化清洗：clean_asr.py（去气口模式 / `--keep-pauses` 仅去标点，不调用 LLM） |
+| 4. 整理时间轴 | `steps/04-build-timeline.md` | 代码化时间轴：build_timeline.py（去气口模式 / `--keep-pauses` 保留原始停顿 target=source） |
+| 5. 语义规划 | `steps/05-semantic-plan.md` | **唯一 LLM 决策点**：Agent 单次语义规划（分句+关键词+翻译+标题+转场缩放提示音，见 `references/plan-prompt-template.md`）+ `plan_llm_io.py` 机械回填 |
+| 6. 组装执行 | `steps/06-build-workflow.md` | 代码化组装 workflow（含 BGM 循环铺满），内部 MCP 工具 `execute_workflow` 一次批量执行 |
+| 7. 下载草稿 | `steps/07-download-draft.md` | 内部 MCP 工具 `download_draft` 将草稿推送到剪映桌面端 |
 
 **加载规则（强制）**：上方表格只是步骤索引，禁止据此一次性批量读取所有步骤文件。开始执行第 N 步时，只读取对应的 `steps/0N-xxx.md`，读后立即按文件内规则执行；第 N 步完成并确认输出之前，不得读取第 N+1 步的步骤文件。`references/` 下的文件同理，只在当前步骤文件明确要求时读取（如第 4 步要求 `references/workflow.md`、第 5 步要求 `references/plan-prompt-template.md` 和 `references/style_config.md`）。
 
@@ -144,18 +111,10 @@ responses:
 
 ## 最终回复格式
 
-整个技能执行过程和最终回复都使用自然语言，把输出 schema 的字段作为信息点组织成友好回复；不要在最终回复里输出临时脚本名、代码 diff、已编辑文件、调试文件、接口请求体或完整接口响应。
+整个技能执行过程和最终回复都使用自然语言；不要在最终回复里输出临时脚本名、代码 diff、已编辑文件、调试文件、接口请求体或完整接口响应。最终回复只包含草稿名称、草稿 ID 和下载链接三项信息。
 
 ```text
-已完成高级红口播草稿，草稿已生成并下载，可点击链接打开。
-
-> **新草稿：**
-> - **网感口播_高级红_马伟明** — draft_id：dfd_xxx，✅ 已生成，✅ 已下载（[点击打开草稿](https://www.vectcut.com/draft/downloader?draft_id=dfd_xxx&is_capcut=0)）
-> - 标题样式：高级红双行标题
-> - 字幕样式：思源粗宋 + Poppins_Bold 双语字幕
-> - 去气口：开启（去除 x.xx s 静音，目标时间轴 xxx.xx s）
-> - 校验结果：video_main N 段、文字层 N 个、关键词弹出 N 个、缩放关键帧 N 组、提示音 N 个、BGM 1 段
-> - 时间轴时长：xxx.xx 秒
->
-> 这版字幕拆分为：N 条短字幕。
+- 草稿名称：网感口播_xxx
+- 草稿ID：dfd_xxx
+- 下载链接：https://www.vectcut.com/draft/downloader?draft_id=dfd_xxx&is_capcut=0
 ```

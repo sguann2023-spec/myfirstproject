@@ -900,6 +900,7 @@ const legacyElectronAPI = {
   agentSessionStream: api.agentSessionStream,
   agentSessionStreamV1: api.agentSessionStream,
   agentSessionStreamV2: api.agentSessionStream,
+  networkCheck: (payload?: { modelId?: string; accessToken?: string }) => ipcRenderer.invoke('chat:network-check', payload),
   cherryChatStream: {
     createSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionCreate, payload),
     getSession: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionGet, { sessionId }),
@@ -918,6 +919,8 @@ const legacyElectronAPI = {
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftModifyRequest, payload),
     createTextAddRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_TextAddRequest, payload),
+    createReversePromptRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_ReversePromptRequest, payload),
     createDraftExportRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftExportRequest, payload),
     createDraftDownloadRequest: (payload: any = {}) =>

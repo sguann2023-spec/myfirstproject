@@ -38,6 +38,72 @@ import os
 from asr_compat import extract_utterances
 
 
+def build_original_timeline(
+    cleaned_path: str,
+    raw_path: str,
+    video_duration: float,
+    output_path: str
+) -> dict:
+    """不去气口模式：保留原始语句边界、停顿与节奏。
+
+    每段 target_timeline = source_video（目标时间 = 源时间），
+    段间保留原始停顿空档，transition_to_next 全部为 null（硬切），
+    word_timings 直接使用词的原始时间。字段结构与去气口模式保持一致。
+    """
+    with open(cleaned_path, 'r', encoding='utf-8') as f:
+        cleaned = json.load(f)
+    with open(raw_path, 'r', encoding='utf-8') as f:
+        raw_data = extract_utterances(json.load(f))
+
+    # 不去气口模式不删句，仅跳过清洗后文本为空的句（纯标点句）
+    valid_sentences = [s for s in cleaned if str(s.get('cleaned', '')).strip()]
+    if not valid_sentences:
+        print("错误：没有有效语句，无法构建时间轴", file=sys.stderr)
+        sys.exit(1)
+
+    timeline_segments = []
+    for s in valid_sentences:
+        src_idx = s['source_index']
+        start = s['start_time'] / 1000.0
+        end = min(s['end_time'] / 1000.0, video_duration)
+        # 词级时间直接使用原始时间（target = source）
+        word_timings = []
+        if src_idx < len(raw_data):
+            for w in raw_data[src_idx].get("words", []):
+                w_s = w["start_time"] / 1000.0
+                w_e = w["end_time"] / 1000.0
+                if str(w.get("text", "")).strip() and w_e > 0:
+                    word_timings.append({
+                        "text": w["text"],
+                        "target_start": round(w_s, 3),
+                        "target_end": round(w_e, 3)
+                    })
+        timeline_segments.append({
+            "source_index": src_idx,
+            "source_video": {"start": round(start, 3), "end": round(end, 3)},
+            "target_timeline": {"start": round(start, 3), "end": round(end, 3)},
+            "text_timeline": {"start": round(start, 3), "end": round(end, 3)},
+            "duration": round(end - start, 3),
+            "transition_to_next": None,
+            "word_timings": word_timings
+        })
+
+    output = {
+        "video_duration": video_duration,
+        "total_target_duration": round(video_duration, 3),
+        "removed_silence": 0.0,
+        "segment_count": len(timeline_segments),
+        "overlap_count": 0,
+        "midpoint_cut_count": 0,
+        "continuity_verified": True,
+        "mode": "original",
+        "segments": timeline_segments
+    }
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+    return output
+
+
 def build_timeline(
     cleaned_path: str,
     raw_path: str,
@@ -209,6 +275,7 @@ def build_timeline(
         "overlap_count": sum(1 for s in timeline_segments if (s.get("transition_to_next") or {}).get("type") == "overlap"),
         "midpoint_cut_count": sum(1 for s in timeline_segments if (s.get("transition_to_next") or {}).get("type") == "midpoint_cut"),
         "continuity_verified": continuity_ok,
+        "mode": "remove_silence",
         "segments": timeline_segments
     }
     
@@ -235,6 +302,8 @@ def main():
                         help='重叠转场间距阈值（秒）')
     parser.add_argument('--transition-duration', type=float, default=0.6,
                         help='转场时长（秒）')
+    parser.add_argument('--keep-pauses', action='store_true',
+                        help='不去气口模式：保留原始语句边界与停顿，target=source，段落硬切，不切视频、不加转场')
     args = parser.parse_args()
     
     for path in [args.cleaned, args.raw]:
@@ -242,15 +311,23 @@ def main():
             print(f"错误：文件不存在: {path}", file=sys.stderr)
             sys.exit(1)
     
-    result = build_timeline(
-        cleaned_path=args.cleaned,
-        raw_path=args.raw,
-        video_duration=args.duration,
-        output_path=args.output,
-        video_pad=args.video_pad,
-        overlap_threshold=args.overlap_threshold,
-        transition_duration=args.transition_duration
-    )
+    if args.keep_pauses:
+        result = build_original_timeline(
+            cleaned_path=args.cleaned,
+            raw_path=args.raw,
+            video_duration=args.duration,
+            output_path=args.output
+        )
+    else:
+        result = build_timeline(
+            cleaned_path=args.cleaned,
+            raw_path=args.raw,
+            video_duration=args.duration,
+            output_path=args.output,
+            video_pad=args.video_pad,
+            overlap_threshold=args.overlap_threshold,
+            transition_duration=args.transition_duration
+        )
     
     print(f"✅ 时间轴构建完成")
     print(f"   视频时长: {result['video_duration']:.3f}s")

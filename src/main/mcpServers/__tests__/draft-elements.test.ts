@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockWebContentsSend, mockGetMainWindow } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockWebContentsSend: vi.fn(),
+  mockGetMainWindow: vi.fn()
+}))
+
+vi.mock('@main/services/WindowService', () => ({
+  windowService: { getMainWindow: mockGetMainWindow }
 }))
 
 vi.mock('electron', () => ({
@@ -80,6 +86,10 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 describe('DraftElementsServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetMainWindow.mockReturnValue({
+      isDestroyed: () => false,
+      webContents: { send: mockWebContentsSend }
+    })
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
   })
 
@@ -143,7 +153,8 @@ describe('DraftElementsServer', () => {
         'shadow_enabled',
         'loop_animation',
         'transform_x_px',
-        'bold'
+        'bold',
+        'clientRequestId'
       ])
     )
     expect(Object.keys(toolsByName.get('modify_text').inputSchema.properties)).toEqual(
@@ -305,6 +316,92 @@ describe('DraftElementsServer', () => {
     })
   })
 
+  it.each(['draftId', 'draft_id'])('should emit correlated add_text previews using %s', async (idKey) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockImplementationOnce(async () => {
+        expect(mockWebContentsSend).toHaveBeenCalledExactlyOnceWith(
+          'app:draft-created',
+          expect.objectContaining({
+            action: 'modify', draftId: 'draft-1', clientRequestId: 'request-1', status: 'in_progress'
+          })
+        )
+        return mockJsonResponse({ success: true, output: { material_id: 'text-1' } })
+      })
+
+    await callTool(createServer(), 'add_text', {
+      text: 'Hello', start: 0, end: 5, [idKey]: 'draft-1', clientRequestId: ' request-1 '
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body)).not.toHaveProperty('clientRequestId')
+    expect(mockWebContentsSend).toHaveBeenCalledTimes(2)
+    expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
+      action: 'modify', draftId: 'draft-1', clientRequestId: 'request-1', status: 'completed'
+    }))
+  })
+
+  it('should replace the pending preview with the draft returned by add_text', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, output: { draft_id: 'new-draft' } }))
+
+    await callTool(createServer(), 'add_text', { text: 'Hello', start: 0, end: 5, width: 1920, height: 1080 })
+
+    const pending = mockWebContentsSend.mock.calls[0][1]
+    expect(pending).toEqual(expect.objectContaining({
+      action: 'create', draftId: `pending:${pending.clientRequestId}`, status: 'in_progress',
+      width: 1920, height: 1080, createdAt: expect.any(Number)
+    }))
+    expect(pending.clientRequestId).toEqual(expect.any(String))
+    expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
+      action: 'create', draftId: 'new-draft', clientRequestId: pending.clientRequestId, status: 'completed'
+    }))
+  })
+
+  it.each([
+    { success: false, error: 'Rejected' },
+    { success: true, error: 'Rejected' }
+  ])('should not emit a completed preview for business errors: %j', async (data) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockResolvedValueOnce(mockJsonResponse(data))
+
+    await callTool(createServer(), 'add_text', { text: 'Hello', start: 0, end: 5, draft_id: 'draft-1' })
+
+    expect(mockWebContentsSend).toHaveBeenCalledTimes(1)
+    expect(mockWebContentsSend.mock.calls[0][1].status).toBe('in_progress')
+  })
+
+  it('should not emit completed previews for HTTP failures', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true }, false, 500))
+
+    await callTool(createServer(), 'add_text', { text: 'Hello', start: 0, end: 5, draft_id: 'draft-1' })
+
+    expect(mockWebContentsSend).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([null, { isDestroyed: () => true }])('should still add text without a live window: %j', async (window) => {
+    mockGetMainWindow.mockReturnValue(window)
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, output: { draft_id: 'draft-1' } }))
+
+    const result = await callTool(createServer(), 'add_text', { text: 'Hello', start: 0, end: 5 })
+
+    expect(JSON.parse(result.content[0].text).success).toBe(true)
+    expect(mockWebContentsSend).not.toHaveBeenCalled()
+  })
+
+  it('should validate add_text before emitting a preview', async () => {
+    const result = await callTool(createServer(), 'add_text', { text: 'Hello', start: 0 })
+
+    expect(result.isError).toBe(true)
+    expect(mockWebContentsSend).not.toHaveBeenCalled()
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
   it('should list fonts through the readonly GET endpoint', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -401,6 +498,7 @@ describe('DraftElementsServer', () => {
         material_id: 'image_mat_1'
       }
     })
+    expect(mockWebContentsSend).not.toHaveBeenCalled()
   })
 
   it('should add preset with camelCase aliases normalized to snake_case', async () => {

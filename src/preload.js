@@ -129,8 +129,12 @@ const electronBridge = {
     },
     // 默认入口统一走现有 agents IPC。
     agentSessionStream: createAgentSessionStreamApi(AGENT_CHANNELS, { hasSubscription: true }),
+    networkCheck: (payload) => ipcRenderer.invoke('chat:network-check', payload),
     // Cherry Studio chat bridge for HomePage (still powered by main-process session service)
-    cherryChatStream: createAgentSessionBridge(CHERRY_CHAT_CHANNELS, { hasSubscription: true }),
+    cherryChatStream: {
+        ...createAgentSessionBridge(CHERRY_CHAT_CHANNELS, { hasSubscription: true }),
+        createReversePromptRequest: (payload) => ipcRenderer.invoke('cherry-chat-stream:reverse-prompt-request', payload),
+    },
     // 兼容旧调用名，避免 chat.js 无感切换失败。
     agentSessionStreamV1: createAgentSessionStreamApi(AGENT_CHANNELS, { hasSubscription: true }),
     agentSessionStreamV2: createAgentSessionStreamApi(AGENT_CHANNELS, { hasSubscription: true }),

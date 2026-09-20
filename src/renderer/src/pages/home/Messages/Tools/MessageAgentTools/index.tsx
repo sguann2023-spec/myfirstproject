@@ -45,6 +45,7 @@ import { WebFetchTool } from './WebFetchTool'
 import { WebSearchTool } from './WebSearchTool'
 import { WriteTool } from './WriteTool'
 import { getDisplayToolHasError, getDisplayToolStatus } from '../shared/toolDisplayState'
+import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
 
 type ToolRenderer = (props: {
   input?: any
@@ -267,7 +268,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
     // Some MCP tools need both sanitized `response` and original `responseRaw`
     // to recover complete metadata such as billing when one side is truncated.
     if (
-      (isVideoUnderstandeToolName(toolName) || isMediaGenerationToolName(toolName)) &&
+      (isVideoUnderstandeToolName(toolName) || isMediaGenerationToolName(toolName) || isReversePromptToolName(toolName)) &&
       response !== undefined &&
       responseRaw !== undefined
     ) {

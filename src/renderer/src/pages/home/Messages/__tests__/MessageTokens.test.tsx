@@ -587,4 +587,64 @@ describe('MessageTokens', () => {
 
     expect(html).toContain('4.50')
   })
+
+  it('反推内部 token 展示但不按外层模型重新计费', () => {
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'reverse-prompt-accounting', role: 'assistant',
+      model: { pricing: { precise_uncached_input_resource_points_per_unit: 1000000, precise_output_resource_points_per_unit: 1000000 } },
+      blocks: [{
+        id: 'reverse-tool', type: 'tool', toolName: 'mcp__vectcut__copylab__derive_copy_prompt',
+        metadata: { rawMcpToolResponse: { response: {
+          billing: { total_consumed_points: 1.8, complete: true },
+          usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 }
+        } } }
+      }]
+    } as any} />)
+    expect(html).toContain('>150</span>')
+    expect(html).toContain('>1.80</span>')
+    expect(html).not.toContain('151.80')
+  })
+
+  it('反推未返回内部 token 时不显示为零消耗', () => {
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'reverse-prompt-missing-usage', role: 'assistant',
+      blocks: [{
+        id: 'reverse-tool', type: 'tool', toolName: 'mcp__vectcut__copylab__derive_copy_prompt',
+        metadata: { rawMcpToolResponse: { response: { billing: { total_consumed_points: 1.8 } } } }
+      }]
+    } as any} />)
+    expect(html).toContain('未返回')
+    expect(html).toContain('1.80')
+  })
+
+  it('反推计费完全缺失时总消耗也不能显示为 0.00', () => {
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'reverse-prompt-missing-billing', role: 'assistant',
+      blocks: [{
+        id: 'reverse-tool', type: 'tool', toolName: 'mcp__vectcut__copylab__derive_copy_prompt',
+        metadata: { rawMcpToolResponse: { response: { billing: { complete: false } } } }
+      }]
+    } as any} />)
+    expect(html.match(/未返回/g)).toHaveLength(2)
+    expect(html).not.toContain('>0.00</span>')
+  })
+
+  it('部分阶段未返回计费时数字后不追加已知', () => {
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'reverse-prompt-partial-billing', role: 'assistant',
+      blocks: [{
+        id: 'reverse-tool', type: 'tool', toolName: 'mcp__vectcut__copylab__derive_copy_prompt',
+        metadata: { rawMcpToolResponse: { response: {
+          billing: { total_consumed_points: 19.71, complete: false },
+          usage: { prompt_tokens: 2460, completion_tokens: 2580, total_tokens: 5040 }
+        } } }
+      }]
+    } as any} />)
+    expect(html).toContain('>19.71</span>')
+    expect(html).not.toContain('（已知）')
+  })
 })

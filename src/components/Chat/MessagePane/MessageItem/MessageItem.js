@@ -5,10 +5,12 @@ import { Provider, useSelector } from 'react-redux';
 import CozeIcon from '../../../../../public/coze.svg';
 import './MessageItem.css';
 import MessageContent from '../MessageContent/MessageContent';
+import { MessageRetryContext } from '@renderer/pages/home/Messages/Blocks/MessageRetryContext';
 import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
+import { normalizeTextEffectParams } from '../../../../shared/textEffects';
 import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
@@ -84,6 +86,8 @@ const buildTextAddRequestSignature = (textAddRequest = null) => {
     font: String(textAddRequest?.font || ''),
     fontColor: String(textAddRequest?.font_color || textAddRequest?.fontColor || ''),
     fontSize: Number(textAddRequest?.font_size ?? textAddRequest?.fontSize ?? 0),
+    textStyles: textAddRequest?.text_styles ?? textAddRequest?.textStyles ?? [],
+    ...normalizeTextEffectParams(textAddRequest),
     letterSpacing: Number(textAddRequest?.letter_spacing ?? textAddRequest?.letterSpacing ?? 0),
     lineSpacing: Number(textAddRequest?.line_spacing ?? textAddRequest?.lineSpacing ?? 0),
     scaleX: Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX ?? 0),
@@ -98,7 +102,8 @@ const buildTextAddRequestSignature = (textAddRequest = null) => {
     underline: Boolean(textAddRequest?.underline),
     vertical: Boolean(textAddRequest?.vertical),
     align: Number(textAddRequest?.align ?? 0),
-    trackName: String(textAddRequest?.track_name || textAddRequest?.trackName || '')
+    trackName: String(textAddRequest?.track_name || textAddRequest?.trackName || ''),
+    relativeIndex: Number(textAddRequest?.relative_index ?? textAddRequest?.relativeIndex ?? 0)
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -170,6 +175,7 @@ const buildDraftModifyRequestApiCurl = (draftModifyRequest = null, message = {})
   ].join('\n');
 };
 const buildTextAddRequestApiCurl = (textAddRequest = null) => {
+  const relativeIndex = Number(textAddRequest?.relative_index ?? textAddRequest?.relativeIndex);
   const scaleX = Number(textAddRequest?.scale_x ?? textAddRequest?.scaleX);
   const scaleY = Number(textAddRequest?.scale_y ?? textAddRequest?.scaleY);
   const transformXPx = Number(textAddRequest?.transform_x_px ?? textAddRequest?.transformXPx);
@@ -179,9 +185,13 @@ const buildTextAddRequestApiCurl = (textAddRequest = null) => {
   const rotation = Number(textAddRequest?.rotation);
   const payload = {
     draft_id: String(textAddRequest?.draft_id || textAddRequest?.draftId || '').trim(),
-    text: String(textAddRequest?.text || '').trim(),
+    text: String(textAddRequest?.text || ''),
     start: Number(textAddRequest?.start || 0) || 0,
     end: Number(textAddRequest?.end || 3) || 3,
+    ...((textAddRequest?.text_styles ?? textAddRequest?.textStyles)?.length
+      ? { text_styles: textAddRequest.text_styles ?? textAddRequest.textStyles } : {}),
+    ...normalizeTextEffectParams(textAddRequest || {}),
+    ...(Number.isInteger(relativeIndex) ? { relative_index: relativeIndex } : {}),
     ...(String(textAddRequest?.font || '').trim() ? { font: String(textAddRequest.font).trim() } : {}),
     ...(Number.isFinite(Number(textAddRequest?.font_size ?? textAddRequest?.fontSize))
       ? { font_size: Number(textAddRequest?.font_size ?? textAddRequest?.fontSize) }
@@ -259,6 +269,11 @@ const MessageItem = ({
 }) => {
   const isAssistant = role === 'assistant';
   const isUser = role === 'user';
+  const retryAction = React.useMemo(() => ({
+    onRetry: () => onRetryAssistantMessage?.(message),
+    disabled: actionsDisabled || isLoading || !onRetryAssistantMessage,
+    modelId: String(message?.modelId || message?.model?.id || '')
+  }), [actionsDisabled, isLoading, message, onRetryAssistantMessage]);
   const draftRequest = message?.draftRequest && typeof message.draftRequest === 'object'
     ? message.draftRequest
     : null;
@@ -277,8 +292,11 @@ const MessageItem = ({
   const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
     ? message.draftInspectRequest
     : null;
+  const reversePromptRequest = message?.reversePromptRequest && typeof message.reversePromptRequest === 'object'
+    ? message.reversePromptRequest
+    : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || draftInspectRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || draftInspectRequest || reversePromptRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
   const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest));
@@ -404,7 +422,9 @@ const MessageItem = ({
         userAvatar={userAvatar}
       />
       <div className={`chat-panel__message-body ${isAssistant ? 'assistant' : 'user'}`}>
-        <MessageContent message={displayedMessage} isLoading={isLoading} />
+        <MessageRetryContext.Provider value={retryAction}>
+          <MessageContent message={displayedMessage} isLoading={isLoading} />
+        </MessageRetryContext.Provider>
         {!isLoading && isAssistant && (
           <div className="chat-panel__message-actions">
             <Tooltip title="复制" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
@@ -592,6 +612,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
     && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
+    && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)
     && prevError === nextError
   );
 });

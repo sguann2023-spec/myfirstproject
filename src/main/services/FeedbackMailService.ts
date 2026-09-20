@@ -32,17 +32,58 @@ export type FeedbackMailPayload = {
   attachments?: FeedbackMailAttachment[]
 }
 
+export type CrashMailPayload = {
+  reportId: string
+  version: string
+  platform: string
+  summary: string
+  archive: Buffer
+}
+
 class FeedbackMailService {
+  public isConfigured(): boolean {
+    return Boolean(SMTP_USER && SMTP_PASS && FEEDBACK_TO)
+  }
+
   private createTransporter() {
     return nodemailer.createTransport({
       host: SMTP_HOST,
       port: SMTP_PORT,
       secure: SMTP_PORT === 465,
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 30_000,
       auth: {
         user: SMTP_USER,
         pass: SMTP_PASS
       }
     })
+  }
+
+  public async sendCrashReport(payload: CrashMailPayload): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new Error('Crash report email is not configured')
+    }
+    const transport = this.createTransporter()
+    try {
+      const result = await transport.sendMail({
+        from: `"VectCut Diagnostics" <${SMTP_USER}>`,
+        to: FEEDBACK_TO,
+        messageId: `<crash-${payload.reportId}@vectcut.local>`,
+        subject: `[Crash Report][${payload.version}][${payload.platform}][${payload.reportId}]`,
+        text: payload.summary,
+        attachments: [{
+          filename: `crash-${payload.reportId}.zip`,
+          contentType: 'application/zip',
+          content: payload.archive
+        }]
+      })
+      if (!result.accepted?.length || result.rejected?.length) {
+        throw new Error('Crash report recipient was not fully accepted by SMTP')
+      }
+    } finally {
+      transport.close()
+    }
   }
 
   public async sendFeedbackMail(payload: FeedbackMailPayload): Promise<void> {

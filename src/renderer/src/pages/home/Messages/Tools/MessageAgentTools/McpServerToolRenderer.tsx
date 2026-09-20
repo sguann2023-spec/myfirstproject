@@ -14,6 +14,7 @@ import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './Su
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
 import { isImageUnderstandeToolName } from './imageUnderstandeTool'
 import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
+import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
 
 interface McpServerToolProps {
   toolName: string
@@ -72,7 +73,9 @@ export function McpServerToolRenderer({
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
-  const mediaGenerationBillingSummary = isMediaGeneration ? extractMediaGenerationBillingSummary(output) : null
+  const mediaGenerationBillingSummary = isMediaGeneration || isReversePromptToolName(toolName)
+    ? extractMediaGenerationBillingSummary(output)
+    : null
 
   if (isMediaGeneration) {
     // #region debug-point B:mcp-server-tool-renderer-billing

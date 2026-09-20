@@ -138,8 +138,12 @@ def detect_duplicates(sentences: list) -> list:
 # 识别句列表提取（信封/纯列表双格式兼容）统一走共享模块 asr_compat.extract_utterances
 
 
-def clean_asr(input_path: str, output_path: str) -> dict:
-    """主清洗流程"""
+def clean_asr(input_path: str, output_path: str, keep_pauses: bool = False) -> dict:
+    """主清洗流程
+
+    keep_pauses=True（不去气口模式）：仅去标点，保留原始语句边界与时间戳，
+    不标记/不删除气口句和重复句（is_filler / is_duplicate 全部置 False）。
+    """
     
     # 读取 ASR 原始结果（兼容纯列表与完整响应信封两种格式）
     with open(input_path, 'r', encoding='utf-8') as f:
@@ -158,19 +162,24 @@ def clean_asr(input_path: str, output_path: str) -> dict:
         start_time = utterance['start_time']  # 毫秒
         end_time = utterance['end_time']      # 毫秒
         
-        # 1. 判断是否为纯气口
-        filler = is_filler_sentence(original.strip())
-        
-        # 2. 去标点
-        no_punct = remove_punctuation(original)
-        
-        # 3. 去句末语气词
-        cleaned = remove_trailing_fillers(no_punct)
-        
-        # 如果去完语气词后为空，标记为 filler
-        if not cleaned.strip():
-            filler = True
-            cleaned = no_punct  # 保留去标点后的结果
+        if keep_pauses:
+            # 不去气口模式：仅去标点，保留原句边界与时间戳
+            cleaned = remove_punctuation(original)
+            filler = False
+        else:
+            # 1. 判断是否为纯气口
+            filler = is_filler_sentence(original.strip())
+            
+            # 2. 去标点
+            no_punct = remove_punctuation(original)
+            
+            # 3. 去句末语气词
+            cleaned = remove_trailing_fillers(no_punct)
+            
+            # 如果去完语气词后为空，标记为 filler
+            if not cleaned.strip():
+                filler = True
+                cleaned = no_punct  # 保留去标点后的结果
         
         results.append({
             'source_index': idx,
@@ -182,8 +191,9 @@ def clean_asr(input_path: str, output_path: str) -> dict:
             'is_duplicate': False  # 稍后检测
         })
     
-    # 4. 检测重复
-    results = detect_duplicates(results)
+    # 4. 检测重复（不去气口模式不检测，全部保留）
+    if not keep_pauses:
+        results = detect_duplicates(results)
     
     # 保存结果
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -213,15 +223,18 @@ def main():
                         help='输入文件路径 (默认: asr_raw_result.json)')
     parser.add_argument('--output', '-o', default='asr_cleaned_sentences.json',
                         help='输出文件路径 (默认: asr_cleaned_sentences.json)')
+    parser.add_argument('--keep-pauses', action='store_true',
+                        help='不去气口模式：仅去标点，保留原始语句边界与时间戳，不删任何句')
     args = parser.parse_args()
     
     if not os.path.exists(args.input):
         print(f"错误：输入文件不存在: {args.input}", file=sys.stderr)
         sys.exit(1)
     
-    stats = clean_asr(args.input, args.output)
+    stats = clean_asr(args.input, args.output, keep_pauses=args.keep_pauses)
     
-    print(f"✅ ASR 清洗完成")
+    mode_label = '不去气口（仅去标点）' if args.keep_pauses else '去气口'
+    print(f"✅ ASR 清洗完成（模式: {mode_label}）")
     print(f"   总语句数: {stats['total']}")
     print(f"   气口移除: {stats['fillers_removed']}")
     print(f"   重复标记: {stats['duplicates_marked']}")

@@ -1,9 +1,11 @@
 import React from 'react';
 import { PlusOutlined } from '@ant-design/icons';
 import { Input, Upload, message } from 'antd';
+import { useTranslation } from 'react-i18next';
 import './AboutUs.css';
 import { electronStore } from '../../shared/electronStore';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
+import { getFeedbackErrorKey } from './feedbackError';
 
 const CURRENT_CHANNEL_BRAND_CONFIG = getCurrentChannelBrandConfig();
 const ABOUT_APP_LOGO = CURRENT_CHANNEL_BRAND_CONFIG.runtimeAssets.aboutLogo;
@@ -26,6 +28,8 @@ const fileToBase64 = (file) =>
   });
 
 const AboutUs = () => {
+  const { t } = useTranslation();
+  const feedbackInFlight = React.useRef(false);
   const getArgValue = (name) => {
     try {
       const argv = window.process?.argv || [];
@@ -172,9 +176,10 @@ const AboutUs = () => {
   };
 
   const handleSendFeedback = async () => {
+    if (feedbackInFlight.current) return;
     const normalizedFeedback = feedbackText.trim();
     if (!normalizedFeedback) {
-      setFeedbackError('请描述具体问题');
+      setFeedbackError('settings.about.feedback.description');
       return;
     }
 
@@ -182,9 +187,13 @@ const AboutUs = () => {
     const platform = window.process?.platform || navigator.userAgentData?.platform || 'unknown';
     const logsPath = appInfo?.logsPath || '未获取到日志目录';
     const currentUser = electronStore.get('user') || {};
+    feedbackInFlight.current = true;
     setFeedbackSubmitting(true);
 
     try {
+      if (typeof appBridge?.sendFeedbackEmail !== 'function') {
+        throw new Error('FEEDBACK_UNAVAILABLE');
+      }
       const attachments = (
         await Promise.all(
           fileList.map(async (item) => {
@@ -200,7 +209,7 @@ const AboutUs = () => {
         )
       ).filter(Boolean);
 
-      await appBridge?.sendFeedbackEmail?.({
+      await appBridge.sendFeedbackEmail({
         message: normalizedFeedback,
         version: versionDisplay,
         platform,
@@ -215,10 +224,12 @@ const AboutUs = () => {
 
       setFeedbackText('');
       setFileList([]);
-      message.success('提交成功');
+      message.success({ key: 'about-feedback', content: t('settings.about.feedback.success') });
     } catch (error) {
-      message.error(error?.message || '提交失败，请检查 SMTP 配置');
+      console.error('[AboutUs] Failed to send feedback', error);
+      message.error({ key: 'about-feedback', content: t(getFeedbackErrorKey(error)) });
     } finally {
+      feedbackInFlight.current = false;
       setFeedbackSubmitting(false);
     }
   };
@@ -242,12 +253,12 @@ const AboutUs = () => {
         </div>
       </div>
       <div className="about-section">
-        <div className="about-section-title">意见反馈</div>
+        <div className="about-section-title">{t('settings.about.feedback.title')}</div>
         <div className="about-feedback-card">
           <div className="about-feedback-field">
             <Input.TextArea
               className="about-feedback-textarea"
-              placeholder="请描述具体问题"
+              placeholder={t('settings.about.feedback.description')}
               value={feedbackText}
               onChange={(event) => {
                 setFeedbackText(event.target.value);
@@ -257,10 +268,10 @@ const AboutUs = () => {
               }}
               rows={2}
             />
-            {feedbackError ? <div className="about-feedback-error">{feedbackError}</div> : null}
+            {feedbackError ? <div className="about-feedback-error">{t(feedbackError)}</div> : null}
           </div>
           <div className="about-feedback-field">
-            <div className="about-feedback-label">图片（选填，提供问题截图）</div>
+            <div className="about-feedback-label">{t('settings.about.feedback.images')}</div>
             <Upload
               className="about-feedback-upload"
               listType="picture-card"
@@ -282,7 +293,7 @@ const AboutUs = () => {
               type="button"
               onClick={handleSendFeedback}
               disabled={isSubmitDisabled}>
-              {feedbackSubmitting ? '提交中...' : '提交'}
+              {t(feedbackSubmitting ? 'settings.about.feedback.submitting' : 'settings.about.feedback.submit')}
             </button>
           </div>
         </div>
