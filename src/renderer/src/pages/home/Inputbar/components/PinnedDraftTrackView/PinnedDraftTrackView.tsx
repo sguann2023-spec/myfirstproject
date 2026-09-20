@@ -279,7 +279,9 @@ export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId
         id: String(track?.id || `${trackType}-${actions[0]?.id || 'row'}`),
         name: String(track?.name || track?.track_name || `${trackType} ${index + 1}`).trim(),
         type: rawTrackType,
-        layer: Number(track?.segments?.[0]?.render_index ?? track?.render_index ?? 0),
+        layer: Number(track?.segments?.[0]?.render_index ?? track?.render_index ??
+          (rawTrackType === 'text' && (track?.relative_index ?? track?.relativeIndex) != null
+            ? 15000 + Number(track.relative_index ?? track.relativeIndex) : 0)),
         index,
         actions: normalizedActions,
         rowHeight: ROW_HEIGHT_BY_TYPE[trackType] ?? 50

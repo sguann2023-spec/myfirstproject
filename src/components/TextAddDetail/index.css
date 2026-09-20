@@ -322,10 +322,16 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  padding-inline: 8px;
+  box-sizing: border-box;
 }
 
 .chat-panel__text-timeline .pinned-draft-track-view {
   height: 190px;
+}
+
+.chat-panel__text-timeline .pinned-draft-track-view__surface {
+  padding-inline: 0;
 }
 
 .chat-panel__text-track-control {
@@ -336,37 +342,11 @@
   min-width: 0;
 }
 
-.chat-panel__text-settings-select.chat-panel__text-track-select {
-  flex: 1;
+.chat-panel__text-settings-select.chat-panel__text-track-select.ant-select {
+  flex: 1 1 0;
   width: 0;
   min-width: 0;
 }
-
-.chat-panel__text-track-layer {
-  display: flex;
-  flex-shrink: 0;
-  gap: 6px;
-  height: 32px;
-}
-
-.chat-panel__text-track-layer button {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 6px;
-  background: #f5f5f5;
-  color: #111;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.chat-panel__text-track-layer button:hover:not(:disabled) { background: #eeeeee; }
-.chat-panel__text-track-layer button:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .chat-panel__text-timeline-times {
   display: grid;
@@ -377,6 +357,14 @@
 .chat-panel__text-timeline-times > .chat-panel__text-settings-row {
   min-width: 0;
   gap: 4px;
+}
+
+.chat-panel__text-timeline-times .chat-panel__text-settings-number.ant-input-number {
+  min-width: 0;
+}
+
+.chat-panel__text-timeline-times .chat-panel__text-settings-number.ant-input-number .ant-input-number-input-wrap {
+  margin-left: 0;
 }
 
 .chat-panel__text-preset-entry {

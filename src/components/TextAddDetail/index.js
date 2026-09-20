@@ -20,6 +20,7 @@ import { TEXT_FONT_OPTIONS } from './fontOptions';
 import RichTextPreview from './RichTextPreview';
 import TextEffectsPanel from './TextEffectsPanel';
 import TextTimelinePanel from './TextTimelinePanel';
+import { PRESET_EFFECT_KEYS, snapshotPresetSettings } from './textPresets';
 import { DEFAULT_TEXT_PLACEMENT, buildTextPlacementParams, resolveTextTrackPlacement } from '../../shared/textPlacement';
 import { buildTextEffectParams, DEFAULT_TEXT_EFFECTS, getShadowPreview, getTextShadowCss, resolveTextEffects } from '../../shared/textEffects';
 import { applyTypography, selectedTypography } from '../../shared/textTypography';
@@ -314,6 +315,31 @@ const TextAddDetail = ({
   const [previewCanvasError, setPreviewCanvasError] = React.useState('');
   const [isPreviewEditing, setIsPreviewEditing] = React.useState(false);
   const [isPreviewSelected, setIsPreviewSelected] = React.useState(true);
+
+  const presetSettings = snapshotPresetSettings({
+    ...textEffects,
+    letterSpacing, lineSpacing, align: textAlign, scaleXPercent, scaleYPercent, uniformScale,
+    positionX, positionY, fixedWidth, fixedHeight, rotation,
+  });
+  const applyTextPreset = (typography, savedSettings) => {
+    updateTypography(typography);
+    const settings = snapshotPresetSettings(savedSettings);
+    setTextEffects((previous) => ({
+      ...previous,
+      ...Object.fromEntries(PRESET_EFFECT_KEYS.filter((key) => settings[key] !== undefined)
+        .map((key) => [key, settings[key]])),
+    }));
+    const setters = {
+      letterSpacing: setLetterSpacing, lineSpacing: setLineSpacing, align: setTextAlign,
+      scaleXPercent: setScaleXPercent, scaleYPercent: setScaleYPercent, uniformScale: setUniformScale,
+      positionX: setPositionX, positionY: setPositionY,
+      fixedWidth: setFixedWidth, fixedHeight: setFixedHeight, rotation: setRotation,
+    };
+    for (const [key, setter] of Object.entries(setters)) {
+      if (settings[key] !== undefined) setter(settings[key]);
+    }
+    setLiveRichTransform(null);
+  };
 
   const selectedDraftId = String(Array.isArray(selectedDraftIds) ? selectedDraftIds[0] || '' : '').trim();
   const hasSelectedDraft = selectedDraftId.length > 0;
@@ -1130,7 +1156,8 @@ const TextAddDetail = ({
         </>
       ) : null}
       <TextEffectsPanel key={effectsPanelSession} effects={{ ...textEffects, border: activeTypography.border, shadow: activeTypography.shadow }}
-        disabled={disabled} onChange={updateTextEffect} typography={activeTypography} onPresetSelect={updateTypography} />
+        disabled={disabled} onChange={updateTextEffect} typography={activeTypography}
+        presetSettings={presetSettings} onPresetSelect={applyTextPreset} />
     </div>
   );
 

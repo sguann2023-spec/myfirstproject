@@ -1,10 +1,10 @@
 import React from 'react';
 import { Plus } from 'lucide-react';
 import { getTextShadowCss } from '../../shared/textEffects';
-import { matchesTextPreset, snapshotPresetTypography, TEXT_STYLE_PRESETS } from './textPresets';
+import { matchesTextPreset, snapshotPresetSettings, snapshotPresetTypography, TEXT_STYLE_PRESETS } from './textPresets';
 import { deleteCustomTextPreset, listCustomTextPresets, renameCustomTextPreset, saveCustomTextPreset } from './textPresetStore';
 
-export default function TextPresetPanel({ disabled, typography, onPresetSelect }) {
+export default function TextPresetPanel({ disabled, typography, settings, onPresetSelect }) {
   const [customPresets, setCustomPresets] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [loadFailed, setLoadFailed] = React.useState(false);
@@ -56,8 +56,10 @@ export default function TextPresetPanel({ disabled, typography, onPresetSelect }
   const startAdding = async () => {
     if (disabled || loading || loadFailed || writing.current) return;
     let snapshot;
+    let settingsSnapshot;
     try {
       snapshot = snapshotPresetTypography(typography);
+      settingsSnapshot = snapshotPresetSettings(settings);
     } catch (failure) {
       setError(failure.message);
       return;
@@ -68,7 +70,7 @@ export default function TextPresetPanel({ disabled, typography, onPresetSelect }
     setMenu(null);
     setRenaming(null);
     try {
-      const row = await saveCustomTextPreset(undefined, snapshot);
+      const row = await saveCustomTextPreset(undefined, snapshot, settingsSnapshot);
       setCustomPresets((previous) => [row, ...previous]);
     } catch {
       setError('保存失败，预设尚未保存，请点击加号重试。');
@@ -138,7 +140,7 @@ export default function TextPresetPanel({ disabled, typography, onPresetSelect }
     </div> : null}
     <div className="chat-panel__text-preset-grid">
       <button type="button" className="chat-panel__text-preset-card chat-panel__text-preset-add"
-        aria-label="添加自定义预设" title="将当前文字样式保存为预设"
+        aria-label="添加自定义预设" title="保存当前文字样式、动画、排版和变换，不包含时间线设置"
         disabled={disabled || loading || loadFailed || busy}
         onMouseDown={(event) => event.preventDefault()} onClick={startAdding}>
         <span className="chat-panel__text-preset-sample"><Plus size={28} aria-hidden="true" /></span>
@@ -148,7 +150,7 @@ export default function TextPresetPanel({ disabled, typography, onPresetSelect }
         const { color, bold, italic, underline, border, shadow } = preset.typography;
         return <div className="chat-panel__text-preset-entry" key={preset.id}>
           <button type="button" className="chat-panel__text-preset-card"
-            aria-label={`应用预设：${preset.name}`} aria-pressed={matchesTextPreset(typography, preset)}
+            aria-label={`应用预设：${preset.name}`} aria-pressed={matchesTextPreset(typography, preset, settings)}
             title={preset.id.startsWith('custom-') ? `${preset.name}（右键重命名或删除）` : preset.name} disabled={disabled}
             aria-haspopup={preset.id.startsWith('custom-') ? 'menu' : undefined}
             onContextMenu={(event) => {
@@ -166,7 +168,7 @@ export default function TextPresetPanel({ disabled, typography, onPresetSelect }
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onPresetSelect?.({
               ...preset.typography, border: { ...border }, shadow: { ...shadow },
-            })}>
+            }, snapshotPresetSettings(preset.settings))}>
             <span className="chat-panel__text-preset-sample" aria-hidden="true" style={{
               color, fontWeight: bold ? 700 : 400, fontStyle: italic ? 'italic' : 'normal',
               textDecoration: underline ? 'underline' : 'none',

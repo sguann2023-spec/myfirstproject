@@ -1,6 +1,6 @@
 import React from 'react';
 import { AutoComplete, InputNumber } from 'antd';
-import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import PinnedDraftTrackView from '../../renderer/src/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
 import { DEFAULT_TEXT_PLACEMENT, getTextTrackNames, MAX_TEXT_TIME, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
 
@@ -33,12 +33,16 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
             ]}
             onChange={(next, option) => {
               if (option?.trackName || option?.create) return;
-              updatePlacement({ trackMode: 'new', newTrackName: next.slice(0, 100) });
+              updatePlacement({
+                trackMode: 'new', newTrackName: next.slice(0, 100),
+                ...(placement.trackMode === 'existing' ? { relativeIndex: null, relative_index: null } : {}),
+              });
             }}
             onSelect={(next) => {
               if (next === '__new__') {
                 const created = resolveTextTrackPlacement({
-                  ...placement, trackMode: 'new', newTrackName: placement.newTrackName ?? DEFAULT_TEXT_PLACEMENT.trackName,
+                  ...placement, trackMode: 'new', relativeIndex: null, relative_index: null,
+                  newTrackName: placement.newTrackName ?? DEFAULT_TEXT_PLACEMENT.trackName,
                 }, script);
                 onChange({ ...created, newTrackName: created.trackName });
               } else {
@@ -48,18 +52,6 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
             onBlur={() => {
               if (placement.trackMode === 'new') updatePlacement({ newTrackName: placement.trackName });
             }} />
-          {placement.trackMode === 'new' && <div className="chat-panel__text-track-layer" role="group" aria-label={`轨道层级：${placement.relativeIndex}`}>
-            <button type="button" aria-label="上移一层" title={`上移一层（当前层级 ${placement.relativeIndex}）`}
-              disabled={trackDisabled || placement.relativeIndex >= 10000}
-              onClick={() => updatePlacement({ relativeIndex: placement.relativeIndex + 1 })}>
-              <ArrowUp size={14} aria-hidden="true" />上移一层
-            </button>
-            <button type="button" aria-label="下移一层" title={`下移一层（当前层级 ${placement.relativeIndex}）`}
-              disabled={trackDisabled || placement.relativeIndex <= -10000}
-              onClick={() => updatePlacement({ relativeIndex: placement.relativeIndex - 1 })}>
-              <ArrowDown size={14} aria-hidden="true" />下移一层
-            </button>
-          </div>}
         </div>
       </div>
       <div className="chat-panel__text-timeline-times">

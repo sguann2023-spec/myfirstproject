@@ -1,8 +1,23 @@
-export const DEFAULT_TEXT_PLACEMENT = { trackName: 'text_main', relativeIndex: 0, start: 0, end: 3 };
+export const DEFAULT_TEXT_PLACEMENT = { trackName: 'text_main', relativeIndex: null, start: 0, end: 3 };
 export const MAX_TEXT_TIME = 86400;
 
 const getTracks = (script) => Array.isArray(script?.tracks) ? script.tracks : Object.values(script?.tracks || {});
 const getTrackName = (track) => String(track?.name || track?.track_name || '').trim();
+
+export function getNextTextTrackRelativeIndex(script) {
+  const finiteIndex = (value) => value == null || value === '' || !Number.isFinite(Number(value))
+    ? null : Number(value);
+  const indices = getTracks(script).flatMap((track) => {
+    const relativeIndex = finiteIndex(track?.relative_index ?? track?.relativeIndex);
+    if (relativeIndex !== null) return [relativeIndex];
+    // Draft JSON may expose only absolute render indices for text tracks.
+    if (String(track?.type || '').trim().toLowerCase() !== 'text') return [];
+    const renderIndices = [track?.render_index, ...(track?.segments || []).map((segment) => segment?.render_index)]
+      .map(finiteIndex).filter((index) => index !== null);
+    return renderIndices.map((index) => index - 15000);
+  });
+  return indices.length ? Math.max(...indices) + 1 : 0;
+}
 
 export function getTextTrackNames(script) {
   return [...new Set(getTracks(script)
@@ -26,7 +41,10 @@ export function resolveTextTrackPlacement(value = {}, script) {
     const suffix = `_${sequence++}`;
     name = `${base.slice(0, 100 - suffix.length)}${suffix}`;
   }
-  return { ...placement, trackMode: 'new', trackName: name, newTrackName: value.newTrackName ?? name };
+  const requestedIndex = value.relative_index ?? value.relativeIndex;
+  const relativeIndex = requestedIndex == null || requestedIndex === '' || !Number.isFinite(Number(requestedIndex))
+    ? getNextTextTrackRelativeIndex(script) : placement.relativeIndex;
+  return { ...placement, relativeIndex, trackMode: 'new', trackName: name, newTrackName: value.newTrackName ?? name };
 }
 
 export function resolveTextPlacement(value = {}) {

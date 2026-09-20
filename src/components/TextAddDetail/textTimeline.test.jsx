@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import PinnedDraftTrackView, { buildTimelineRows } from '../../renderer/src/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
-import { buildTextPlacementParams, getTextTrackNames, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
+import { buildTextPlacementParams, DEFAULT_TEXT_PLACEMENT, getNextTextTrackRelativeIndex, getTextTrackNames, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
 
 vi.mock('../../renderer/src/components/PreviewTimeline/ReactTimelineEditor', () => ({
   Timeline: ({ editorData, getActionRender, disableDrag, hideCursor, scaleWidth }) => (
@@ -25,6 +25,39 @@ const script = {
 };
 
 describe('read-only text timeline', () => {
+  it('defaults new tracks to the maximum relative index plus one across track types', () => {
+    const source = { tracks: {
+      text: { id: 'text', name: '文字', type: 'text', relative_index: 8, segments: [
+        { id: 'clip', target_timerange: { start: 0, duration: 1e6 } },
+      ] },
+      video: { name: '视频', type: 'video', relative_index: 12 },
+      audio: { name: '音频', type: 'audio', relativeIndex: '3' },
+    } };
+    const before = JSON.stringify(source);
+    const placement = resolveTextTrackPlacement({ ...DEFAULT_TEXT_PLACEMENT, trackMode: 'new' }, source);
+    expect(placement.relativeIndex).toBe(13);
+    expect(buildTextPlacementParams(placement).relative_index).toBe(13);
+    expect(buildTimelineRows(source, null, placement).slice(0, 2).map((row) => row.layer)).toEqual([15013, 15008]);
+    expect(resolveTextTrackPlacement(placement, source).relativeIndex).toBe(13);
+    expect(resolveTextTrackPlacement({ ...placement, relativeIndex: 5 }, source).relativeIndex).toBe(5);
+    expect(JSON.stringify(source)).toBe(before);
+  });
+  it('derives missing text indices from render layers and ignores malformed indices', () => {
+    expect(getNextTextTrackRelativeIndex({ tracks: [
+      { type: 'video', render_index: 90000 },
+      { type: 'text', render_index: 15004, segments: [] },
+      { type: 'text', segments: [{ render_index: 15007 }, { render_index: 15009 }] },
+      { type: 'text', relative_index: 'invalid', segments: [] },
+    ] })).toBe(10);
+    expect(getNextTextTrackRelativeIndex({ tracks: [
+      { type: 'text', relative_index: 2, render_index: 15090 },
+    ] })).toBe(3);
+    expect(getNextTextTrackRelativeIndex({ tracks: [{ relative_index: -3 }, { relative_index: -1 }] })).toBe(0);
+    expect(getNextTextTrackRelativeIndex({})).toBe(0);
+    expect(resolveTextTrackPlacement(DEFAULT_TEXT_PLACEMENT, {
+      tracks: [{ type: 'video', name: '视频', relative_index: 7 }],
+    })).toMatchObject({ trackMode: 'new', relativeIndex: 8 });
+  });
   it('converts microseconds and overlays one planned clip without mutating the source', () => {
     const before = JSON.stringify(script);
     const rows = buildTimelineRows(script, null, { start: 2, end: 4, text: '新文字' });
