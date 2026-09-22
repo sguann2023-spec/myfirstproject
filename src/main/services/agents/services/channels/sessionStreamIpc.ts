@@ -3,12 +3,14 @@ import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
+import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import { loggerService } from '@logger'
 import { getDataPath } from '@main/utils'
 import { IpcChannel } from '@shared/IpcChannel'
 import { validateTextStyleRanges } from '../../../../../shared/textTypography'
 import { normalizeTextEffectParams } from '../../../../../shared/textEffects'
 import { buildReversePromptBlocks, normalizeReversePromptRequest, parseReversePromptResult } from '../../../../../shared/reversePrompt'
+import { buildSubtitleRecognitionBlocks, normalizeSubtitleRecognitionRequest, parseSubtitleRecognitionResult } from '../../../../../shared/subtitleRecognition'
 import { sql } from 'drizzle-orm'
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
@@ -51,6 +53,7 @@ type DirectDraftRequestPayload = {
   userContent?: string
   model?: string
   reversePromptRequest?: { shareText?: string }
+  subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string }
   draftRequest?: {
     action?: 'create'
     width?: number
@@ -2255,7 +2258,10 @@ export function registerSessionStreamIpc(): void {
     const requestId = String(payload?.requestId || '').trim() || randomUUID()
     const controller = new AbortController()
     try {
-      const request = normalizeReversePromptRequest(payload?.reversePromptRequest)
+      const isSubtitle = Boolean(payload?.subtitleRecognitionRequest)
+      const request = isSubtitle
+        ? normalizeSubtitleRecognitionRequest(payload.subtitleRecognitionRequest)
+        : normalizeReversePromptRequest(payload?.reversePromptRequest)
       const session = await resolveSessionById(sessionId, payload?.agent_id)
       if (!session) throw new Error('session not found')
       if (activeAbortControllers.has(sessionId)) throw new Error('当前会话已有任务正在执行')
@@ -2264,13 +2270,35 @@ export function registerSessionStreamIpc(): void {
       const userMessageId = payload.userMessageId || randomUUID()
       const createdAt = new Date(payload.createdAt || Date.now()).toISOString()
       const modelId = String(payload.model || session.model || '')
-      const server = new SocialCopywritingServer()
+      let workspacePath: string | undefined
+      if (isSubtitle) {
+        workspacePath = (session.configuration as any)?.selected_workspace_path || session.accessible_paths?.[0]
+        if (!workspacePath) {
+          workspacePath = path.join(getDefaultAgentWorkspacePath(session.agent_id), session.id)
+          fs.mkdirSync(workspacePath, { recursive: true })
+          await sessionService.updateSession(session.agent_id, session.id, {
+            accessible_paths: [workspacePath],
+            configuration: { ...session.configuration, selected_workspace_path: workspacePath } as any
+          })
+        }
+      }
+      const server = isSubtitle ? new SubtitleRecognitionServer(workspacePath) : new SocialCopywritingServer()
       let parsed
       let failure: string | undefined
       try {
         const callTool = (server.mcpServer.server as any)?._requestHandlers?.get('tools/call')
-        if (typeof callTool !== 'function') throw new Error('反推提示词工具未注册')
-        const result = await callTool({
+        if (typeof callTool !== 'function') throw new Error(isSubtitle ? '字幕识别工具未注册' : '反推提示词工具未注册')
+        const result = isSubtitle ? await (server as SubtitleRecognitionServer).executeDirectRequest(request, {
+          signal: controller.signal, requestId,
+          _meta: { progressToken: `subtitle_recognition_request_${requestId}` },
+          sendNotification: async (notification) => {
+            windowService.getMainWindow()?.webContents.send(IpcChannel.Mcp_Progress, {
+              callId: `subtitle_recognition_request_${requestId}`,
+              progress: notification.params.progress / (notification.params.total || 100),
+              message: notification.params.message
+            })
+          }
+        }) : await callTool({
           method: 'tools/call',
           params: { name: 'derive_copy_prompt', arguments: request }
         }, {
@@ -2281,18 +2309,18 @@ export function registerSessionStreamIpc(): void {
         })
         if (controller.signal.aborted) return { ok: false, aborted: true }
         try {
-          parsed = parseReversePromptResult(result)
+          parsed = isSubtitle ? parseSubtitleRecognitionResult(result, request) : parseReversePromptResult(result)
         } catch (error) {
           const toolResponse = (error as Error & { toolResponse?: Record<string, unknown> }).toolResponse
           if (!toolResponse) throw error
           failure = error instanceof Error ? error.message : String(error)
-          parsed = { response: toolResponse, assistantText: '' }
+          parsed = { response: toolResponse, assistantText: isSubtitle ? `字幕识别失败：${failure}` : '' }
         }
       } finally {
         await server.mcpServer.close()
       }
       const { response, assistantText } = parsed
-      const assistantBlocks = buildReversePromptBlocks({
+      const assistantBlocks = (isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
         assistantMessageId, requestId, request, modelId, createdAt,
         status: failure ? 'error' : 'success', response, assistantText
       })
@@ -2313,7 +2341,9 @@ export function registerSessionStreamIpc(): void {
           payload: {
             message: {
               id: userMessageId, role: 'user', assistantId: session.agent_id, topicId,
-              createdAt, status: 'success', reversePromptRequest: { ...request, requestId }, blocks: [`${userMessageId}-main`]
+              createdAt, status: 'success',
+              [isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: { ...request, requestId },
+              blocks: [`${userMessageId}-main`]
             },
             blocks: [{
               id: `${userMessageId}-main`, messageId: userMessageId, type: 'main_text',
@@ -2393,6 +2423,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, handleTextAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, handleReversePromptRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, handleDraftDownloadRequest)
 

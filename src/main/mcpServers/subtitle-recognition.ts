@@ -49,7 +49,15 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
         type: 'string',
         enum: [...SUBTITLE_RECOGNITION_EFFECT_MODES],
         description:
-          'Optional recognition strength. Use basic for fast baseline ASR, nlp for fast short-video sentence splitting with a 12-character limit per line, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to llm.'
+          'Optional recognition strength. Use basic without character-based sentence splitting, nlp for sentence splitting using maxSentenceLength, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to basic.'
+      },
+      maxSentenceLength: {
+        type: 'integer',
+        minimum: 3,
+        maximum: 80,
+        default: 12,
+        description:
+          'Maximum characters per subtitle segment in nlp mode, for both ASR and STA. Defaults to 12 when omitted. Ignored in other modes; for no sentence splitting use effectMode basic and omit this parameter.'
       },
       content: {
         type: 'string',
@@ -67,6 +75,7 @@ type PendingToken = {
 }
 
 type ToolExecutionExtra = {
+  signal?: AbortSignal
   requestId: string | number
   _meta?: {
     progressToken?: ProgressToken
@@ -93,11 +102,13 @@ type SubtitleRecognitionSubmitResponse = {
 }
 
 type SubtitleRecognitionTaskStatusResponse = {
+  billing?: Record<string, unknown>
   error?: string
   message?: string
   mode?: string
   progress?: number
   result?: {
+    billing?: Record<string, unknown>
     content?: string
     error?: string
     mode?: string
@@ -269,8 +280,9 @@ class SubtitleRecognitionServer {
     return response
   }
 
-  private formatJsonResult(payload: Record<string, unknown>) {
+  private formatJsonResult(payload: Record<string, unknown>, isError = false) {
     return {
+      ...(isError ? { isError: true } : {}),
       content: [
         {
           type: 'text' as const,
@@ -362,11 +374,27 @@ class SubtitleRecognitionServer {
       throw new McpError(ErrorCode.InvalidParams, "'url' is required for submit_subtitle_recognition_task")
     }
 
+    const effectMode = this.resolveEffectMode(args.effectMode)
+    const maxSentenceLength = args.maxSentenceLength === undefined ? 12 : args.maxSentenceLength
+    if (
+      effectMode === 'nlp' &&
+      (typeof maxSentenceLength !== 'number' ||
+        !Number.isInteger(maxSentenceLength) ||
+        maxSentenceLength < 3 ||
+        maxSentenceLength > 80)
+    ) {
+      throw new McpError(ErrorCode.InvalidParams, "'maxSentenceLength' must be an integer between 3 and 80 in nlp mode")
+    }
+
     const preparedSource = await this.prepareSource(url)
 
     const payload: Record<string, unknown> = {
       url: preparedSource.submittedUrl,
-      effect_mode: this.resolveEffectMode(args.effectMode)
+      effect_mode: effectMode
+    }
+
+    if (effectMode === 'nlp') {
+      payload.max_sentence_length = maxSentenceLength
     }
 
     if (typeof args.content === 'string' && args.content.trim()) {
@@ -457,8 +485,10 @@ class SubtitleRecognitionServer {
     let attempt = 0
 
     while (Date.now() < deadline) {
+      extra?.signal?.throwIfAborted()
       attempt += 1
       const result = await this.querySubtitleRecognitionTaskStatus(taskId)
+      extra?.signal?.throwIfAborted()
       const status = this.normalizeTaskStatus(result.status)
 
       logger.info('Subtitle recognition task poll', {
@@ -476,9 +506,8 @@ class SubtitleRecognitionServer {
       }
 
       if (this.isTaskFailed(result)) {
-        throw new Error(
-          `Subtitle recognition task failed: ${result.error || result.result?.error || result.message || 'unknown error'}`
-        )
+        // Failed tasks may already have been billed; retain the backend result for accounting.
+        return result
       }
 
       await this.reportProgress(extra, this.mapProgress(result, attempt), result.message || '正在识别字幕')
@@ -490,9 +519,19 @@ class SubtitleRecognitionServer {
     )
   }
 
-  private async submitSubtitleRecognitionTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+  public async executeDirectRequest(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    try {
+      return await this.submitSubtitleRecognitionTask(args, extra, true)
+    } catch (error) {
+      return this.formatJsonResult({ error: error instanceof Error ? error.message : String(error) }, true)
+    }
+  }
+
+  private async submitSubtitleRecognitionTask(args: Record<string, unknown>, extra?: ToolExecutionExtra, includeResult = false) {
+    extra?.signal?.throwIfAborted()
     await this.reportProgress(extra, 5, '正在提交字幕识别任务')
     const { payload, sourceSummary } = await this.buildSubmitPayload(args)
+    extra?.signal?.throwIfAborted()
     const response = await this.requestWithAuth(SUBTITLE_RECOGNITION_SUBMIT_ENDPOINT, {
       method: 'POST',
       body: payload
@@ -517,8 +556,11 @@ class SubtitleRecognitionServer {
 
     await this.reportProgress(extra, 12, '字幕识别任务已提交，正在处理中')
     const finalResult = await this.waitForSubtitleRecognitionTaskResult(taskId, extra)
+    const isError = this.isTaskFailed(finalResult)
+    const billing = finalResult.result?.billing ?? finalResult.billing
 
     const summaryPayload = {
+      ...(billing ? { billing } : {}),
       provider: 'vectcut',
       action: 'submit_and_wait',
       mode: 'subtitle_recognition',
@@ -527,10 +569,10 @@ class SubtitleRecognitionServer {
       url: payload.url,
       effect_mode: payload.effect_mode,
       source_summary: sourceSummary,
-      error: finalResult.error || '',
+      error: finalResult.error || finalResult.result?.error || (isError ? finalResult.message || 'Subtitle recognition task failed' : ''),
       message: finalResult.message || '',
       progress: finalResult.progress,
-      success: finalResult.success,
+      success: isError ? false : finalResult.success,
       status: finalResult.status,
       content: typeof finalResult.result?.content === 'string' ? finalResult.result.content : '',
       recognition_mode: finalResult.mode,
@@ -546,7 +588,7 @@ class SubtitleRecognitionServer {
 
       const artifact = await persistWorkspaceJsonArtifact({
         toolName: 'subtitle-recognition',
-        taskId,
+        taskId: `sre_${taskId}`,
         payload: artifactPayload,
         workspaceRoot: this.workspacePath,
         relativeDirSegments: []
@@ -555,20 +597,22 @@ class SubtitleRecognitionServer {
       if (artifact) {
         return this.formatJsonResult({
           ...summaryPayload,
+          ...(includeResult ? { result: finalResult.result } : {}),
           artifact: {
             storage: 'workspace_file',
             file_path: artifact.filePath,
             relative_path: artifact.relativePath
           },
           result_summary: this.summarizeTaskStatusResult(finalResult)
-        })
+        }, isError)
       }
     }
 
     return this.formatJsonResult({
       ...summaryPayload,
+      ...(includeResult ? { result: finalResult.result } : {}),
       result_summary: this.summarizeTaskStatusResult(finalResult)
-    })
+    }, isError)
   }
 }
 

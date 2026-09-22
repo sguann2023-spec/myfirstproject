@@ -5,6 +5,7 @@ import { electronStore } from '../../shared/electronStore';
 import { validateTextStyleRanges } from '../../shared/textTypography';
 import { normalizeTextEffectParams } from '../../shared/textEffects';
 import { buildReversePromptBlocks, normalizeReversePromptRequest } from '../../shared/reversePrompt';
+import { buildSubtitleRecognitionBlocks, normalizeSubtitleRecognitionRequest } from '../../shared/subtitleRecognition';
 import LogoIcon from '../../../public/logo-circle.png';
 import VipIcon from '../../../public/vip_icon.png';
 import { countTodayDrafts } from '../../api/capcut';
@@ -1963,6 +1964,8 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
+    ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
+      ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -4960,18 +4963,21 @@ const HomePage = () => {
     });
   }, []);
 
-  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request }) => {
-    const normalizedRequest = normalizeReversePromptRequest(request);
-    const blocks = buildReversePromptBlocks({
+  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request, isSubtitle = false }) => {
+    const normalizedRequest = (isSubtitle ? normalizeSubtitleRecognitionRequest : normalizeReversePromptRequest)(request);
+    const blocks = (isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
       assistantMessageId, requestId, request: normalizedRequest, modelId: chatModel,
     });
     updateChatAssistantMessage(chatId, assistantMessageId, { blocks, content: '', error: null, aborted: false });
     chatPendingByRequestIdRef.current.set(requestId, { chatId, agentSessionId, assistantMessageId });
     try {
-      const result = await window.electronAPI.cherryChatStream.createReversePromptRequest({
+      const invoke = isSubtitle
+        ? window.electronAPI.cherryChatStream.createSubtitleRecognitionRequest
+        : window.electronAPI.cherryChatStream.createReversePromptRequest;
+      const result = await invoke({
         sessionId: agentSessionId, requestId, createdAt: userMessage.createdAt,
         userMessageId: userMessage.id, assistantMessageId, userContent: userMessage.content,
-        model: chatModel, reversePromptRequest: normalizedRequest,
+        model: chatModel, [isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: normalizedRequest,
       });
       // Cancellation removes this entry. A late tool response must not overwrite a stopped message.
       if (!chatPendingByRequestIdRef.current.has(requestId)) return;
@@ -4982,7 +4988,7 @@ const HomePage = () => {
       if (result?.assistantBlocks) {
         updateChatAssistantMessage(chatId, assistantMessageId, { blocks: result.assistantBlocks });
       }
-      if (!result?.ok) throw new Error(result?.error || '反推提示词失败');
+      if (!result?.ok) throw new Error(result?.error || (isSubtitle ? '字幕识别失败' : '反推提示词失败'));
       updateChatAssistantMessage(chatId, assistantMessageId, {
         content: result.assistantText, blocks: result.assistantBlocks,
         model: chatModelMeta, modelId: chatModel, storeAssistantMessageId: null, error: null,
@@ -5006,6 +5012,8 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const subtitleRecognitionRequest = options?.subtitleRecognitionRequest
+      ? normalizeSubtitleRecognitionRequest(options.subtitleRecognitionRequest) : null;
     const reversePromptRequest = options?.reversePromptRequest
       ? { ...options.reversePromptRequest }
       : null;
@@ -5099,6 +5107,7 @@ const HomePage = () => {
         content: text,
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
+        ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5153,6 +5162,7 @@ const HomePage = () => {
         content: text,
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
+        ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5192,10 +5202,10 @@ const HomePage = () => {
       }
 
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
-      if (reversePromptRequest) {
+      if (reversePromptRequest || subtitleRecognitionRequest) {
         await executeReversePromptRequest({
           chatId: targetSessionId, agentSessionId, requestId, userMessage, assistantMessageId,
-          request: reversePromptRequest,
+          request: subtitleRecognitionRequest || reversePromptRequest, isSubtitle: Boolean(subtitleRecognitionRequest),
         });
         return;
       }
@@ -5769,10 +5779,11 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
-      if (prevUser.reversePromptRequest) {
+      if (prevUser.reversePromptRequest || prevUser.subtitleRecognitionRequest) {
         await executeReversePromptRequest({
           chatId: activeChatId, agentSessionId, requestId, userMessage: prevUser,
-          assistantMessageId: messageId, request: prevUser.reversePromptRequest,
+          assistantMessageId: messageId, request: prevUser.subtitleRecognitionRequest || prevUser.reversePromptRequest,
+          isSubtitle: Boolean(prevUser.subtitleRecognitionRequest),
         });
         return;
       }

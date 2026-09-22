@@ -47,6 +47,36 @@ vi.mock('i18next', () => ({
 }))
 
 describe('MessageTokens', () => {
+  it('将字幕摘要的实际扣费计入合计，不重复累计文件内的 billing', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {
+      subtitle: {
+        id: 'subtitle', type: 'tool',
+        toolName: 'mcp__subtitle-recognition__submit_subtitle_recognition_task',
+        metadata: {
+          rawMcpToolResponse: {
+            response: {
+              content: [{ type: 'text', text: JSON.stringify({
+                billing: { consume: 3 },
+                artifact: { storage: 'workspace_file', file_path: '/workspace/task.json' },
+                result_summary: { segment_count: 10 }
+              }) }]
+            }
+          }
+        }
+      }
+    }
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'subtitle-billing', role: 'assistant', blocks: ['subtitle'], status: 'success',
+      model: { pricing: {
+        precise_uncached_input_resource_points_per_unit: 1000000,
+        precise_output_resource_points_per_unit: 1000000
+      } },
+      usageSteps: [{ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }]
+    } as any} />)
+    expect(html).toContain('6.00')
+  })
+
   it('在存在 usageSteps 时优先按 step 聚合展示', () => {
     mockState.messageBlocks.entities = {}
 

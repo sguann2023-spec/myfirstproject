@@ -169,6 +169,7 @@ describe('编辑器入口集成', () => {
       setSelectedAiWritePresetId: vi.fn(),
       setActiveTool: vi.fn(), setInput: vi.fn(), latestInputRef: { current: '旧内容' },
       applyAiWriteTemplate: vi.fn(), enterTextAddMode: vi.fn(),
+      closeMentionPanel: vi.fn(),
       editor: { commands: { clearContent: vi.fn(), focus: vi.fn() } },
     };
     runInNewContext(`${code}\nhandleAiWritePresetSelect('reverse-prompt');`, context);

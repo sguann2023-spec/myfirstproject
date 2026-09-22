@@ -26,6 +26,7 @@
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 | 否 |
 | `reverse_prompt_request` | 反推视频文案提示词 | `copylab` | `derive_copy_prompt` | 是 | 是（整理工具结果） | 是 | 是（默认） | 是 | 否 | 否 |
+| `subtitle_recognition_request` | 识别音视频字幕 | `subtitle-recognition` | `submit_subtitle_recognition_task` | 是 | 是（表格及全文） | 是 | 是（默认） | 是 | 否 | 否 |
 
 ---
 
@@ -373,6 +374,65 @@ curl --request POST \
 
 ---
 
+### 4.8 `subtitle_recognition_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 识别音频或视频字幕，不自动添加到草稿 |
+| 目标 MCP | `subtitle-recognition.submit_subtitle_recognition_task` |
+| 是否 direct request | 是，跳过普通 Agent 推理，直接执行同一 MCP 提交与轮询流程 |
+| 是否 direct 回复 | 是，主进程基于实际结果生成 Markdown 表格、完整文本及工作区文件名，不调用聊天模型整理 |
+| 前端消息标记对象 | `subtitleRecognitionRequest` |
+| requestId | IPC 顶层及前端标记中保存；重试使用新的执行 requestId |
+| 工具调用 ID | `subtitle_recognition_request_${requestId}` |
+| 支持展示类型 | 默认 `文字`，外部 Agent 已连接时可切换 `Agent`，可切回文字；不支持 API / Coze |
+| 前端发送条件 | 已选择音视频；浏览器文件需上传完成，本地文件由 MCP 内部上传 |
+| 固定分句 | `effectMode: nlp`，`maxSentenceLength` 为 3～80 的整数，默认 12；映射后台 `max_sentence_length` |
+| 不分句 | `effectMode: basic`，不传 `maxSentenceLength` |
+| 校对文案 | 仅已启用且非空时传入 `content`，此时后台使用 STA，否则为 ASR |
+| 回复条数及时间轴 | 使用返回 `result.segments`，毫秒转为 `HH:mm:ss,SSS`；不按字数再次切分 |
+| 回复模板 | `字幕识别完成！以下是识别结果，共 N 条字幕，使用 X 字分句：`；basic 改为 `共 N 条字幕，不分句：` |
+| 表格 | 三列：`#`、`时间轴`、`字幕文本`；序号从 1 开始，文本进行 Markdown 转义 |
+| 完整文本 | 使用服务端完整文本，置于代码块；末尾展示实际工作区文件名，禁止使用示例固定值 |
+| 工作区与历史 | 在当前会话工作区保存详细 JSON，缺失工作区时自动创建；保存 user / assistant / tool / main_text，进入相同 session 上下文 |
+| 点数 | 保留后台实际 `billing.consume`，工具卡片及消息合计展示；不使用预估价格替代实际扣费 |
+| 错误与取消 | 失败保留已返回计费并显示失败卡片；取消后忽略迟到结果，服务端可能继续执行和扣费 |
+| 超时 | 沿用字幕 MCP 的 35 分钟轮询上限，5 秒间隔；直连不经过普通 Agent 的工具桥接超时 |
+
+典型前端标记：
+
+```json
+{
+  "subtitleRecognitionRequest": {
+    "requestId": "req_xxx",
+    "url": "/absolute/path/video.mp4",
+    "effectMode": "nlp",
+    "maxSentenceLength": 20,
+    "content": "可选的完整校对文案"
+  }
+}
+```
+
+固定回复示例（条数、内容、字数及文件名均由真实结果替换）：
+
+````markdown
+字幕识别完成！以下是识别结果，共 2 条字幕，使用 20 字分句：
+
+| # | 时间轴 | 字幕文本 |
+| --- | --- | --- |
+| 1 | 00:00:00,370 → 00:00:01,850 | 最近在做一个新的功能 |
+| 2 | 00:00:02,170 → 00:00:06,010 | 打算把画布的功能和剪辑做一个结合 |
+
+完整文本：
+```text
+最近在做一个新的功能，打算把画布的功能和剪辑做一个结合。
+```
+
+详细结果已保存至工作区文件：task-id.json
+````
+
+---
+
 ## 5. 固定约束
 
 | 约束项 | 规则 |
@@ -398,6 +458,7 @@ curl --request POST \
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
 | `reverse_prompt_request` | `mcp__vectcut__copylab__derive_copy_prompt` |
+| `subtitle_recognition_request` | `mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task` |
 
 ---
 

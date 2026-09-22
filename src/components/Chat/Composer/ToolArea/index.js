@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ControlOutlined,
-  FileSearchOutlined,
   FileTextOutlined,
   ScissorOutlined,
   SnippetsOutlined,
@@ -9,7 +8,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import { Popover } from 'antd';
-import { BookSearch, ChevronDown, ChevronUp, SquareArrowOutUpRight, SquarePen, Undo2 } from 'lucide-react';
+import { BookSearch, ChevronDown, ChevronUp, FileSearch, SquareArrowOutUpRight, SquarePen, Undo2 } from 'lucide-react';
 import './index.css';
 import DraftIcon from '../../../../../public/draft_icon.svg';
 import DigitalHumanIcon from '../../../../../public/digital_human.svg';
@@ -92,11 +91,11 @@ const TEXT_MENU_ITEMS = [
   //   label: '导入SRT字幕',
   //   icon: <UploadOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   // },
-  // {
-  //   id: 'ai-write:recognize-subtitle',
-  //   label: '识别字幕',
-  //   icon: <FileSearchOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  // },
+  {
+    id: 'ai-write:recognize-subtitle',
+    label: '识别字幕',
+    icon: <FileSearch size={18} strokeWidth={1.9} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
   // {
   //   id: 'ai-write:remove-filler',
   //   label: '去气口',

@@ -921,6 +921,8 @@ const legacyElectronAPI = {
       ipcRenderer.invoke(IpcChannel.CherryChatStream_TextAddRequest, payload),
     createReversePromptRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_ReversePromptRequest, payload),
+    createSubtitleRecognitionRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, payload),
     createDraftExportRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftExportRequest, payload),
     createDraftDownloadRequest: (payload: any = {}) =>

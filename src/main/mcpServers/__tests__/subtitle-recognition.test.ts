@@ -46,6 +46,7 @@ vi.mock('@main/services/OssUploadService', () => ({
 }))
 
 import SubtitleRecognitionServer from '../subtitle-recognition'
+import { extractMediaGenerationBillingSummary } from '../../../renderer/src/pages/home/Messages/Tools/MessageAgentTools/mediaGenerationBilling'
 
 type SubtitleRecognitionServerInstance = InstanceType<typeof SubtitleRecognitionServer>
 
@@ -95,6 +96,7 @@ describe('SubtitleRecognitionServer', () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined)
   })
 
@@ -103,6 +105,136 @@ describe('SubtitleRecognitionServer', () => {
     const result = await listTools(server)
 
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['submit_subtitle_recognition_task'])
+    expect(result.tools[0].inputSchema.properties.maxSentenceLength).toMatchObject({
+      type: 'integer', minimum: 3, maximum: 80, default: 12
+    })
+  })
+
+  it('returns full segments only for the direct executor, with a workspace artifact', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-direct' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success', result: {
+        content: '字幕', segments: [{ start: 370, end: 1850, text: '字幕' }], billing: { consume: 3 }
+      } }))
+    const result = await createServer(workspaceRoot).executeDirectRequest({
+      url: 'https://example.com/video.mp4', effectMode: 'nlp', maxSentenceLength: 20
+    })
+    const response = JSON.parse(result.content[0].text)
+    expect(response.result.segments).toEqual([{ start: 370, end: 1850, text: '字幕' }])
+    expect(response.billing.consume).toBe(3)
+    expect(response.artifact.file_path).toBe(path.join(workspaceRoot, 'sre_task-direct.json'))
+  })
+
+  it('does not submit a direct request that has already been cancelled', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const result = await createServer(workspaceRoot).executeDirectRequest({
+      url: 'https://example.com/video.mp4'
+    }, { requestId: 'cancelled', signal: controller.signal, sendNotification: async () => {} })
+    expect(result.isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+    expect(mockUploadLocalFile).not.toHaveBeenCalled()
+  })
+
+  it.each([3, 1.25, 0])('preserves backend billing %s in the MCP summary and saved artifact', async (consume) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({}))
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-billed' }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        success: true, status: 'success',
+        result: { content: '字幕', segments: [], billing: { consume } }
+      }))
+    const response = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/audio.mp3'
+    })
+    const summary = JSON.parse(response.content[0].text)
+    expect(summary.billing).toEqual({ consume })
+    expect(summary.result).toBeUndefined()
+    const artifact = JSON.parse(await fs.readFile(summary.artifact.file_path, 'utf8'))
+    expect(artifact.billing).toEqual({ consume })
+    expect(artifact.result.billing).toEqual({ consume })
+    expect(extractMediaGenerationBillingSummary({ response, responseRaw: response })).toEqual({
+      totalConsumedPoints: consume, displayText: consume.toFixed(2)
+    })
+  })
+
+  it('retains already-consumed points on terminal failure and keeps the tool in error state', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-failed-billed' }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        success: true, status: 'failed', error: '识别失败', result: { billing: { consume: 3 } }
+      }))
+    const response = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/audio.mp3'
+    })
+    expect(response.isError).toBe(true)
+    expect(JSON.parse(response.content[0].text)).toMatchObject({
+      success: false, status: 'failed', error: '识别失败', billing: { consume: 3 }
+    })
+  })
+
+  it.each([undefined, { consume: 2 }])('preserves top-level billing without fabricating missing prices', async (billing) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-no-result' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success', billing }))
+    const response = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/audio.mp3'
+    })
+    const summary = JSON.parse(response.content[0].text)
+    expect(summary.billing).toEqual(billing)
+    expect(Object.prototype.hasOwnProperty.call(summary, 'billing')).toBe(billing !== undefined)
+  })
+
+  it.each([
+    [undefined, '', 12],
+    [3, '', 3],
+    [22, ' 校对文案 ', 22],
+    [80, '校对文案', 80]
+  ])('passes nlp sentence limit %s to the backend with content=%s', async (limit, content, expected) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-nlp' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success' }))
+    const result = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/audio.mp3', effectMode: 'nlp', maxSentenceLength: limit, content
+    })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      url: 'https://example.com/audio.mp3',
+      effect_mode: 'nlp',
+      max_sentence_length: expected,
+      ...(content ? { content: content.trim() } : {})
+    })
+  })
+
+  it.each([2, 81, 12.5, '22', null, true, NaN, Infinity])(
+    'rejects invalid nlp limit %s before upload or network requests',
+    async (maxSentenceLength) => {
+      const result = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+        url: path.join(workspaceRoot, 'not-uploaded.mp3'), effectMode: 'nlp', maxSentenceLength
+      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain("'maxSentenceLength' must be an integer between 3 and 80")
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['basic', 'llm', 'llm_vad'])('omits sentence limits in %s mode', async (effectMode) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-other' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success' }))
+    await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/audio.mp3', effectMode, maxSentenceLength: 22
+    })
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      url: 'https://example.com/audio.mp3', effect_mode: effectMode
+    })
   })
 
   it('should submit subtitle recognition task, wait for completion, and return only summary plus artifact path', async () => {
@@ -203,8 +335,8 @@ describe('SubtitleRecognitionServer', () => {
       recognition_url: 'https://example.com/source.mp4',
       artifact: {
         storage: 'workspace_file',
-        file_path: path.join(workspaceRoot, 'task-asr-123.json'),
-        relative_path: 'task-asr-123.json'
+        file_path: path.join(workspaceRoot, 'sre_task-asr-123.json'),
+        relative_path: 'sre_task-asr-123.json'
       },
       result_summary: {
         has_result: true,

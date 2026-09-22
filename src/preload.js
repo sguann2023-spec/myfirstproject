@@ -134,6 +134,7 @@ const electronBridge = {
     cherryChatStream: {
         ...createAgentSessionBridge(CHERRY_CHAT_CHANNELS, { hasSubscription: true }),
         createReversePromptRequest: (payload) => ipcRenderer.invoke('cherry-chat-stream:reverse-prompt-request', payload),
+        createSubtitleRecognitionRequest: (payload) => ipcRenderer.invoke('cherry-chat-stream:subtitle-recognition-request', payload),
     },
     // 兼容旧调用名，避免 chat.js 无感切换失败。
     agentSessionStreamV1: createAgentSessionStreamApi(AGENT_CHANNELS, { hasSubscription: true }),

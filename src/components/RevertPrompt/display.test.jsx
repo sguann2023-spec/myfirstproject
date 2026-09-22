@@ -70,6 +70,20 @@ const render = (element) => act(() => root.render(element));
 const button = (title) => container.querySelector(`[data-tooltip="${title}"] button`);
 
 describe('反推消息仅支持 Agent 转换', () => {
+  it('字幕请求支持文字与 Agent 切换，不开放 API 或 Coze', () => {
+    const subtitleMessage = { id: 'subtitle', content: '识别字幕', subtitleRecognitionRequest: { url: '/video.mp4', effectMode: 'nlp', maxSentenceLength: 20 } };
+    render(<MessageItem message={subtitleMessage} role="user" hasConnectedExternalAgent />);
+    expect(button('Agent')).not.toBeNull();
+    expect(button('API')).toBeNull();
+    expect(button('Coze')).toBeNull();
+    act(() => button('Agent').click());
+    expect(container.querySelector('[data-testid="content"]').textContent).toContain('使用vectcut工具');
+    act(() => button('文字').click());
+    expect(container.querySelector('[data-testid="content"]').textContent).toBe('识别字幕');
+    render(<MessageItem message={subtitleMessage} role="user" hasConnectedExternalAgent={false} />);
+    expect(button('Agent')).toBeNull();
+  });
+
   const message = { id: 'u', content: '反推视频 https://v.douyin.com/example/', reversePromptRequest: { shareText: 'https://v.douyin.com/example/', requestId: 'r' } };
   it('文字与 Agent 可切换，复制使用展示内容且不修改原始消息', async () => {
     const copy = vi.fn();
