@@ -7,6 +7,7 @@ import { captionCues, subtitleUnits } from './subtitles';
 import { buildTimeline, clockTime, nextPlayableClip, playbackTime, rulerTicks, timelinePoint } from './timeline';
 import { canMergeParts, partOffset } from './model';
 import { viewportRect } from './geometry';
+import { resizePart, trimBounds } from './trim';
 
 const EMPTY_SEGMENTS = [];
 
@@ -42,9 +43,13 @@ const SplitIcon = () => <svg width="18" height="18" viewBox="0 0 20 20" fill="no
 const StoryboardEditor = ({
   parts, selectedId, source, fallbackSource = '', segments = EMPTY_SEGMENTS, disabled = false,
   onSelect, onSplit, onDelete, onInsert, onMerge, onEditCaption, onDeleteSubtitles,
-  onAiAssist, aiDisabled = false,
+  onAiAssist, aiDisabled = false, onResize,
 }) => {
-  const clips = React.useMemo(() => buildTimeline(parts), [parts]);
+  const [trimState, setTrimPreview] = React.useState(null);
+  const trimPreview = trimState?.originalParts === parts && !disabled ? trimState : null;
+  const trimRef = React.useRef(null);
+  const visibleParts = trimPreview?.originalParts === parts ? trimPreview.parts : parts;
+  const clips = React.useMemo(() => buildTimeline(visibleParts), [visibleParts]);
   const total = clips[clips.length - 1]?.timelineEnd || 0;
   const [mediaSource, setMediaSource] = React.useState(source);
   const [error, setError] = React.useState('');
@@ -56,6 +61,7 @@ const StoryboardEditor = ({
   const [scrollLeft, setScrollLeft] = React.useState(0);
   const [zoom, setZoom] = React.useState(100);
   const [previewError, setPreviewError] = React.useState(false);
+  const [mediaDuration, setMediaDuration] = React.useState(0);
   const [selection, setSelection] = React.useState([selectedId]);
   const [pendingKeys, setPendingKeys] = React.useState([]);
   const units = React.useMemo(() => subtitleUnits(clips, segments), [clips, segments]);
@@ -79,12 +85,15 @@ const StoryboardEditor = ({
   const Media = audioOnly ? 'audio' : 'video';
   const seekMedia = useMediaSeeker(mediaRef, mediaSource);
   const seekHover = useMediaSeeker(hoverMediaRef, mediaSource);
-  const scale = Math.min(240, Math.max(40, (viewport - 88) / Math.max(1, total / 1000))) * zoom / 100;
+  const scale = trimPreview?.scale ?? Math.min(240, Math.max(40, (viewport - 88) / Math.max(1, total / 1000))) * zoom / 100;
+  const sourceEnd = mediaDuration || Math.max(0, ...parts.map((part) => part.blank ? 0 : part.end), ...segments.map((cue) => cue.end));
   const previousScaleRef = React.useRef(scale);
   const totalWidth = total / 1000 * scale;
   const currentPoint = timelinePoint(clips, position);
   const hoverPoint = hoverTime === null || playing ? null : timelinePoint(clips, hoverTime);
-  const displayedPoint = hoverPoint || currentPoint;
+  const displayedPoint = trimPreview
+    ? { clip: clips.find((clip) => clip.id === trimPreview.id) || currentPoint?.clip, sourceTime: trimPreview.sourceTime }
+    : hoverPoint || currentPoint;
   const selectedClip = clips.find((clip) => clip.id === selectedId);
   const selectedIds = selection.filter((id) => clips.some((clip) => clip.id === id));
   const deletableIds = selectedIds;
@@ -116,7 +125,7 @@ const StoryboardEditor = ({
     const wheel = (event) => {
       // Chromium trackpad pinch arrives as ctrl+wheel. Vertical two-finger
       // scrolling also zooms; horizontal gestures retain native track scrolling.
-      if (disabled || marqueeRef.current || !total || !event.deltaY || event.altKey || event.metaKey
+      if (disabled || trimRef.current || marqueeRef.current || !total || !event.deltaY || event.altKey || event.metaKey
         || (!event.ctrlKey && (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)))) return;
       event.preventDefault();
       event.stopPropagation();
@@ -137,6 +146,66 @@ const StoryboardEditor = ({
     mediaRef.current?.pause();
     setPlaying(false);
   }, []);
+
+  const cancelTrim = React.useCallback(() => {
+    trimRef.current = null;
+    setTrimPreview(null);
+  }, []);
+  React.useEffect(() => { cancelTrim(); }, [parts, disabled, source, cancelTrim]);
+  React.useEffect(() => {
+    if (!trimPreview) return undefined;
+    const cancel = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelTrim();
+    };
+    document.addEventListener('keydown', cancel, true);
+    return () => document.removeEventListener('keydown', cancel, true);
+  }, [Boolean(trimPreview), cancelTrim]);
+
+  const beginTrim = (event, clip, edge) => {
+    if (disabled || !onResize || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stop();
+    setHoverTime(null);
+    setPendingKeys([]);
+    const surface = surfaceRef.current;
+    const rect = viewportRect(surface);
+    const ratio = surface.offsetWidth && rect.width ? rect.width / surface.offsetWidth : 1;
+    trimRef.current = {
+      id: clip.id, edge, originalParts: parts, clientX: event.clientX, ratio, scale, sourceEnd,
+      scrollLeft: scrollerRef.current.scrollLeft, value: clip[edge], pointerId: event.pointerId,
+    };
+    setTrimPreview({ ...trimRef.current, parts, sourceTime: edge === 'start' ? clip.start : clip.end - 1 });
+    editorRef.current?.focus({ preventScroll: true });
+    try { surface.setPointerCapture?.(event.pointerId); } catch { /* Pointer capture may be unavailable in embedded webviews. */ }
+  };
+  const moveTrim = (event) => {
+    const gesture = trimRef.current;
+    if (!gesture || disabled || gesture.originalParts !== parts || event.pointerId !== gesture.pointerId) return null;
+    const scroller = scrollerRef.current;
+    const rect = viewportRect(scroller);
+    if (rect.width > 0 && event.type === 'pointermove') {
+      if (event.clientX < rect.left + 20) scroller.scrollLeft = Math.max(0, scroller.scrollLeft - 16);
+      else if (event.clientX > rect.left + rect.width - 20) scroller.scrollLeft += 16;
+    }
+    const delta = ((event.clientX - gesture.clientX) / gesture.ratio
+      + scroller.scrollLeft - gesture.scrollLeft) / gesture.scale * 1000;
+    const nextParts = resizePart(parts, segments, gesture.id, gesture.edge, gesture.value + delta, gesture.sourceEnd);
+    const next = nextParts.find((part) => part.id === gesture.id);
+    const sourceTime = gesture.edge === 'start' ? next.start : next.end - 1;
+    setTrimPreview({ ...gesture, parts: nextParts, sourceTime });
+    seekMedia(sourceTime);
+    return next;
+  };
+  const finishTrim = (event) => {
+    const gesture = trimRef.current;
+    const next = moveTrim(event);
+    cancelTrim();
+    if (next && next[gesture.edge] !== gesture.value) onResize(gesture.id, gesture.edge, next[gesture.edge], gesture.sourceEnd);
+  };
 
   const commit = (time, preservePlayback = false, preservePending = false, syncMedia = true) => {
     if (!preservePending && !preservePlayback) setPendingKeys([]);
@@ -165,10 +234,12 @@ const StoryboardEditor = ({
     setMediaSource(source);
     setError('');
     setPreviewError(false);
+    setMediaDuration(0);
   }, [source, stop]);
 
   React.useEffect(() => {
     stop();
+    if (trimRef.current) return;
     marqueeRef.current = null;
     setMarquee(null);
     dragRef.current = false;
@@ -356,11 +427,12 @@ const StoryboardEditor = ({
   };
   const handlePointerMove = (event) => {
     if (disabled || !total) return;
+    if (trimRef.current) { moveTrim(event); return; }
     if (marqueeRef.current) {
       updateMarquee(event);
       return;
     }
-    if (event.target.closest('[data-insert]')) { setHoverTime(null); return; }
+    if (event.target.closest('[data-insert], [data-trim]')) { setHoverTime(null); return; }
     const time = eventTime(event);
     if (dragRef.current) commit(time);
     else setHoverTime(time);
@@ -393,7 +465,7 @@ const StoryboardEditor = ({
 
   return <div ref={editorRef} tabIndex={-1} className={`storyboard-editor${fullscreen ? ' is-fullscreen' : ''}`}
     onKeyDown={(event) => {
-      if (disabled || !deletableIds.length || event.defaultPrevented || event.repeat || event.nativeEvent.isComposing
+      if (disabled || trimRef.current || !deletableIds.length || event.defaultPrevented || event.repeat || event.nativeEvent.isComposing
         || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
         || !['Delete', 'Backspace'].includes(event.key)
         || !event.currentTarget.contains(event.target)
@@ -410,8 +482,10 @@ const StoryboardEditor = ({
       {mediaSource ? <Media key={mediaSource} ref={mediaRef} src={mediaSource} preload="auto" playsInline
         className={`storyboard-preview__media${!displayedPoint || displayedPoint.clip.blank ? ' is-concealed' : ''}`}
         aria-label={audioOnly ? '音频预览' : '视频预览'}
-        onLoadedMetadata={() => {
+        onLoadedMetadata={(event) => {
           setError('');
+          const duration = event.currentTarget.duration;
+          if (Number.isFinite(duration) && duration > 0) setMediaDuration(Math.floor(duration * 1000));
           const point = timelinePoint(clips, positionRef.current);
           if (point && !point.clip.blank) seekMedia(point.sourceTime);
         }}
@@ -494,9 +568,9 @@ const StoryboardEditor = ({
           setHoverTime(null);
         }}>
           <div ref={surfaceRef} className="storyboard-lane__surface" style={{ width: Math.max(viewport, totalWidth + 88) }}
-            onPointerMove={handlePointerMove} onPointerLeave={() => { if (!dragRef.current && !marqueeRef.current) setHoverTime(null); }}
+            onPointerMove={handlePointerMove} onPointerLeave={() => { if (!dragRef.current && !marqueeRef.current && !trimRef.current) setHoverTime(null); }}
             onPointerDown={(event) => {
-              if (disabled || event.button !== 0 || event.target.closest('[data-insert]') || !total) return;
+              if (disabled || event.button !== 0 || event.target.closest('[data-insert], [data-trim]') || !total) return;
               setPendingKeys([]);
               event.preventDefault();
               editorRef.current?.focus({ preventScroll: true });
@@ -514,6 +588,11 @@ const StoryboardEditor = ({
               commit(eventTime(event));
             }}
             onPointerUp={(event) => {
+              if (trimRef.current) {
+                finishTrim(event);
+                if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                return;
+              }
               dragRef.current = false;
               if (marqueeRef.current) {
                 updateMarquee(event);
@@ -532,6 +611,7 @@ const StoryboardEditor = ({
               if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
             }}
             onPointerCancel={() => {
+              cancelTrim();
               if (marqueeRef.current) setSelection(marqueeRef.current.previous);
               marqueeRef.current = null;
               setMarquee(null);
@@ -539,6 +619,7 @@ const StoryboardEditor = ({
               setHoverTime(null);
             }}
             onLostPointerCapture={() => {
+              cancelTrim();
               if (marqueeRef.current) setSelection(marqueeRef.current.previous);
               marqueeRef.current = null;
               setMarquee(null);
@@ -561,13 +642,33 @@ const StoryboardEditor = ({
             <div className="storyboard-clips">
               <Filmstrip source={mediaSource} audioOnly={audioOnly} clips={clips} scale={scale}
                 scrollLeft={scrollLeft} viewportWidth={viewport} />
-              {clips.map((clip) => <button type="button" key={clip.id}
+              {clips.map((clip) => <React.Fragment key={clip.id}><button type="button"
                 className={`storyboard-clip${selectedIds.includes(clip.id) ? ' is-selected' : ''}${clip.blank ? ' is-blank' : ''}${hoverPoint?.clip.id === clip.id ? ' is-hovered' : ''}`}
                 style={{ left: clip.timelineStart / 1000 * scale, width: Math.max(1, clip.duration / 1000 * scale - 3) }}
                 aria-label={`选择 ${clip.label}`} aria-pressed={selectedIds.includes(clip.id)} disabled={disabled}
-                onClick={(event) => { if (event.detail === 0) commit(clip.timelineStart); }}>
-                {selectedIds.length === 1 && selectedIds.includes(clip.id) ? <><i className="storyboard-clip__handle is-left" /><i className="storyboard-clip__handle is-right" /></> : null}
-              </button>)}
+                onClick={(event) => { if (event.detail === 0) commit(clip.timelineStart); }} />
+                {onResize && !clip.blank && selectedIds.length === 1 && selectedIds.includes(clip.id) ? ['start', 'end'].map((edge) => {
+                  const width = Math.max(1, clip.duration / 1000 * scale - 3);
+                  const handleWidth = Math.min(10, width / 2);
+                  const bounds = trimBounds(parts, clip.id, edge, sourceEnd);
+                  return <button type="button" key={edge} data-trim={edge}
+                    className={`storyboard-clip__handle is-${edge === 'start' ? 'left' : 'right'}`}
+                    style={{ left: clip.timelineStart / 1000 * scale + (edge === 'start' ? 0 : width - handleWidth), width: handleWidth }}
+                    aria-label={`调整${clip.label}的${edge === 'start' ? '起点' : '终点'}`}
+                    title="拖动调整边界；方向键微调 10ms，Shift 微调 100ms"
+                    role="slider" aria-valuemin={bounds.min} aria-valuemax={bounds.max} aria-valuenow={clip[edge]}
+                    aria-valuetext={clockTime(clip[edge], true)} disabled={disabled}
+                    onPointerDown={(event) => beginTrim(event, clip, edge)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (disabled || trimRef.current || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      stop();
+                      onResize(clip.id, edge, clip[edge] + (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 100 : 10), sourceEnd);
+                    }}><i /></button>;
+                }) : null}
+              </React.Fragment>)}
               {pendingUnits.map((unit) => <div key={unit.key} className="storyboard-pending-range"
                 data-start={unit.time} data-end={unit.time + unit.end - unit.start}
                 style={{ left: unit.time / 1000 * scale, width: (unit.end - unit.start) / 1000 * scale }}
@@ -589,6 +690,9 @@ const StoryboardEditor = ({
               <span>{clockTime(hoverPoint.position, true)}</span>
             </div> : null}
             {marquee ? <div className="storyboard-marquee" style={marquee} aria-hidden="true" /> : null}
+            {trimPreview ? <div className="storyboard-trim-time" role="status">
+              {trimPreview.edge === 'start' ? '起点' : '终点'} {clockTime(trimPreview.parts.find((part) => part.id === trimPreview.id)[trimPreview.edge], true)}
+            </div> : null}
           </div>
         </div>
       </div>

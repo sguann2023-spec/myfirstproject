@@ -12,6 +12,7 @@ import { ChatTaskContext } from '../Chat/ChatShell/ChatTaskContext';
 import { AI_ASSIST_DEFAULT_INSTRUCTION } from './aiAssist';
 import { useAiAssist } from './useAiAssist';
 import AiLoadingOverlay from './AiLoadingOverlay';
+import { resizePart } from './trim';
 import './index.css';
 
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
@@ -180,6 +181,10 @@ const PartSplitToolDetail = ({ open = false, workspacePath = '', initialFilePath
           onAiAssist={() => { setAiOpen(true); setAiInstruction(AI_ASSIST_DEFAULT_INSTRUCTION); }}
           fallbackSource={recognition.fallbackSource} segments={recognition.segments} disabled={editorDisabled}
           onSelect={setSelectedId} onInsert={addEmptyPart}
+          onResize={(id, edge, value, sourceEnd) => {
+            const next = resizePart(parts, recognition.segments, id, edge, value, sourceEnd);
+            if (next !== parts) updateParts(next, id);
+          }}
           onDeleteSubtitles={(units) => {
             const next = deleteSubtitleUnits(parts, recognition.segments, units);
             updateParts(next, next.some((part) => part.id === selectedId) ? selectedId : next[0]?.id || '');

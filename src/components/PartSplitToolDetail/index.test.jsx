@@ -58,6 +58,29 @@ const render = async (props = {}) => {
 const click = async (selector) => act(async () => document.querySelector(selector).click());
 
 describe('字幕分镜弹窗', () => {
+  it('边缘调整自动保存，重开后可补回时间且保持原始识别文件不变', async () => {
+    disk.set(file.path, JSON.stringify(recognitionData));
+    window.api.file.listDirectory.mockResolvedValue([file.path]);
+    await render({ open: true });
+    const originalSource = disk.get(file.path);
+    await act(async () => document.querySelector('[data-trim="end"]').dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowLeft', shiftKey: true, bubbles: true,
+    })));
+    await click('.ant-modal-close');
+    expect(JSON.parse(disk.get(file.draftPath)).parts[0].end).toBe(2200);
+    await act(async () => root.unmount());
+    container.remove();
+    await render({ open: true });
+    expect(document.querySelector('[data-trim="end"]').getAttribute('aria-valuenow')).toBe('2200');
+    await act(async () => document.querySelector('[data-trim="end"]').dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowRight', shiftKey: true, bubbles: true,
+    })));
+    await click('.ant-modal-close');
+    const saved = JSON.parse(disk.get(file.draftPath));
+    expect(saved.parts[0].end).toBe(2300);
+    expect(saved.parts[1].start).toBe(2300);
+    expect(disk.get(file.path)).toBe(originalSource);
+  });
   it.each(['/workspace/sre_two.json', 'sre_two.json'])('链接指定 %s 时多文件直接打开目标，不展示选择列表', async (initialFilePath) => {
     window.api.file.listDirectory.mockResolvedValue([file.path, '/workspace/sre_two.json']);
     await render({ open: true, initialFilePath });

@@ -285,16 +285,26 @@
   pointer-events: none;
   z-index: 2;
 }
-.storyboard-clip__handle { position: absolute; top: 24px; width: 3px; height: 22px; border-radius: 2px; background: #fff; pointer-events: none; }
-.storyboard-clip__handle.is-left { left: -6px; }
-.storyboard-clip__handle.is-right { right: -6px; }
+.storyboard-editor .storyboard-clip__handle {
+  position: absolute;
+  top: 0;
+  height: 70px;
+  z-index: 3;
+  border-radius: 4px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.storyboard-clip__handle i { width: 3px; max-width: 100%; height: 22px; border-radius: 2px; background: #fff; pointer-events: none; }
+.storyboard-clip__handle:not(:disabled):hover,
+.storyboard-clip__handle:focus-visible { background: #ffffff24; }
+.storyboard-trim-time { position: sticky; left: 8px; top: 0; width: max-content; padding: 3px 6px; border-radius: 4px; color: #eee; background: #111e; font-size: 11px; z-index: 7; pointer-events: none; }
 .storyboard-playhead,
 .storyboard-hoverline { position: absolute; top: 7px; bottom: 1px; width: 1.5px; background: #f6f6f6; pointer-events: none; z-index: 4; }
 .storyboard-playhead > span { position: absolute; left: -3px; top: -1px; width: 7px; height: 17px; border-radius: 5px; background: #fff; box-shadow: 0 0 3px #0005; }
 .storyboard-hoverline { top: 5px; background: #d8d8d899; width: 1px; z-index: 3; }
 .storyboard-hoverline > span { position: absolute; top: 17px; left: 5px; padding: 2px 4px; border-radius: 3px; color: #eee; background: #111d; font-size: 10px; white-space: nowrap; }
-.storyboard-insert { position: absolute; top: 31px; width: 16px; height: 70px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; justify-content: center; }
-.storyboard-insert button { width: 18px; height: 26px; border-radius: 4px; border: 1px solid #999; background: #333; opacity: 0; transform: scale(0.8); transition: opacity 100ms, transform 100ms; }
+.storyboard-insert { position: absolute; top: 10px; width: 18px; height: 18px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; justify-content: center; }
+.storyboard-insert button { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #999; background: #333; opacity: 0; transform: scale(0.8); transition: opacity 100ms, transform 100ms; }
 .storyboard-insert:hover button,
 .storyboard-insert:focus-within button,
 .storyboard-insert button:focus-visible { opacity: 1; transform: scale(1); }
