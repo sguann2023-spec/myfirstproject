@@ -344,6 +344,7 @@ const ChatShell = ({
   onSubmitFileComment,
   sessionSending = false,
   webPreview = null,
+  previewWindowReady = true,
   onCloseWebPreview,
   onOpenWebPreview,
   onInlinePreviewVisibilityChange,
@@ -401,7 +402,8 @@ const ChatShell = ({
   const currentWorkspacePath = React.useMemo(() => getSelectedWorkspacePath(runtimeSession), [runtimeSession]);
   const hasLockedWorkspace = Boolean(currentWorkspacePath);
   const showLeadingFilePreview = false;
-  const showTrailingWebPreview = Boolean(panePreview);
+  const previewRequested = Boolean(panePreview);
+  const showTrailingWebPreview = previewRequested && previewWindowReady;
   const showMembersPanel = !membersPanelCollapsed;
   const isResizingAnyPanel = isResizingMembersPanel || isResizingWebPreview;
   const shouldAutoStartBeginnerGuide = Boolean(
@@ -411,13 +413,13 @@ const ChatShell = ({
   );
   const shouldForceReopenBeginnerGuide = Boolean(beginnerGuideReopenPending);
   const shouldStartBeginnerGuide = shouldAutoStartBeginnerGuide || shouldForceReopenBeginnerGuide;
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (typeof onInlinePreviewVisibilityChange !== 'function') return undefined;
-    onInlinePreviewVisibilityChange(showTrailingWebPreview);
+    onInlinePreviewVisibilityChange(previewRequested, webPreviewWidth);
     return () => {
       onInlinePreviewVisibilityChange(false);
     };
-  }, [onInlinePreviewVisibilityChange, showTrailingWebPreview]);
+  }, [onInlinePreviewVisibilityChange, previewRequested, webPreviewWidth]);
 
   const dismissBeginnerGuide = React.useCallback(() => {
     setBeginnerGuideOpen(false);
@@ -604,6 +606,7 @@ const ChatShell = ({
   }, [showLeadingFilePreview, showTrailingWebPreview, webPreviewWidth]);
 
   React.useEffect(() => {
+    if (!showTrailingWebPreview) return undefined;
     const syncWebPreviewWidth = () => {
       const containerWidth = contentRef.current?.clientWidth || 0;
       setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, showLeadingFilePreview, membersPanelWidth, showMembersPanel));
@@ -612,7 +615,7 @@ const ChatShell = ({
     syncWebPreviewWidth();
     window.addEventListener('resize', syncWebPreviewWidth);
     return () => window.removeEventListener('resize', syncWebPreviewWidth);
-  }, [showLeadingFilePreview, membersPanelWidth, showMembersPanel]);
+  }, [showLeadingFilePreview, showTrailingWebPreview, membersPanelWidth, showMembersPanel]);
 
   React.useEffect(() => {
     if (!membersPanelCollapsed) return;
@@ -1125,16 +1128,8 @@ const ChatShell = ({
   const openInlinePreviewPane = React.useCallback((nextPreview) => {
     if (!nextPreview) return;
 
-    const containerWidth = contentRef.current?.clientWidth || 0;
-    setWebPreviewWidth((prev) => clampWebPreviewWidth(
-      prev || DEFAULT_PREVIEW_PANE_WIDTH,
-      containerWidth,
-      showLeadingFilePreview,
-      membersPanelWidth,
-      showMembersPanel
-    ));
     setPanePreview(nextPreview);
-  }, [membersPanelWidth, showLeadingFilePreview, showMembersPanel]);
+  }, []);
 
   const handleMembersPanelResizeStart = React.useCallback((event) => {
     event.preventDefault();
@@ -1543,7 +1538,11 @@ const ChatShell = ({
   }, [expandedNodeKeys, filePreview?.path, openFilePreview, toggleNodeExpanded]);
 
   return (
-    <div className="chat-panel">
+    <div
+      className={`chat-panel ${isResizingAnyPanel ? 'is-resizing-web-preview' : ''}`.trim()}
+      ref={contentRef}
+      style={{ '--chat-preview-width': showTrailingWebPreview ? `${webPreviewWidth}px` : '0px' }}>
+      {isResizingAnyPanel && <div className="chat-panel__resize-shield" aria-hidden="true" />}
       <div className="chat-panel__navbar">
         <Tooltip
           title={historyVisible ? '隐藏会话列表' : '展示会话列表'}
@@ -1606,8 +1605,7 @@ const ChatShell = ({
         <MCPSettings />
       </div>
 
-      <div className={`chat-panel__content ${isResizingAnyPanel ? 'is-resizing-web-preview' : ''}`.trim()} ref={contentRef}>
-        {isResizingAnyPanel && <div className="chat-panel__resize-shield" aria-hidden="true" />}
+      <div className="chat-panel__content">
         <div className="chat-panel__main">
           {children}
         </div>
@@ -1676,35 +1674,35 @@ const ChatShell = ({
             </div>
           </div>
         </div>
-        {showTrailingWebPreview && (
-          <div
-            className={`chat-panel__panel-resizer ${isResizingWebPreview ? 'is-active' : ''}`.trim()}
-            role="separator"
-            tabIndex={0}
-            aria-label="调整内嵌浏览器宽度"
-            aria-orientation="vertical"
-            onMouseDown={handleWebPreviewResizeStart}
-            onDoubleClick={resetWebPreviewWidth}
-            onKeyDown={handleWebPreviewResizeKeyDown}
+      </div>
+      {showTrailingWebPreview && (
+        <div
+          className={`chat-panel__panel-resizer chat-panel__panel-resizer--preview ${isResizingWebPreview ? 'is-active' : ''}`.trim()}
+          role="separator"
+          tabIndex={0}
+          aria-label="调整内嵌浏览器宽度"
+          aria-orientation="vertical"
+          onMouseDown={handleWebPreviewResizeStart}
+          onDoubleClick={resetWebPreviewWidth}
+          onKeyDown={handleWebPreviewResizeKeyDown}
+        />
+      )}
+      <div
+        ref={beginnerGuideWebPreviewPaneRef}
+        className={`chat-panel__preview-pane chat-panel__preview-pane--trailing ${showTrailingWebPreview ? 'is-open' : ''}`.trim()}
+        style={trailingWebPreviewStyle}>
+        {panePreview && (
+          <WebPagePreview
+            preview={panePreview}
+            currentModelMeta={currentModelMeta}
+            onClose={closeInlinePreviewPane}
+            onRefreshFilePreview={handleRefreshFilePreview}
+            onSaveFileEdit={handleSaveFilePreview}
+            onSubmitFileComment={onSubmitFileComment}
+            onTabClose={handlePreviewTabClose}
+            submittingComment={sessionSending}
           />
         )}
-        <div
-          ref={beginnerGuideWebPreviewPaneRef}
-          className={`chat-panel__preview-pane chat-panel__preview-pane--trailing ${showTrailingWebPreview ? 'is-open' : ''}`.trim()}
-          style={trailingWebPreviewStyle}>
-          {panePreview && (
-            <WebPagePreview
-              preview={panePreview}
-              currentModelMeta={currentModelMeta}
-              onClose={closeInlinePreviewPane}
-              onRefreshFilePreview={handleRefreshFilePreview}
-              onSaveFileEdit={handleSaveFilePreview}
-              onSubmitFileComment={onSubmitFileComment}
-              onTabClose={handlePreviewTabClose}
-              submittingComment={sessionSending}
-            />
-          )}
-        </div>
       </div>
       <Tour
         open={beginnerGuideOpen}

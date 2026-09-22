@@ -41,7 +41,9 @@ import { createImageBlock, createMainTextBlock, createMessage } from '../../rend
 import { IpcChannel } from '../../packages/shared/IpcChannel';
 import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
+import { usePreviewWindowReady } from './usePreviewWindowReady';
 const logger = loggerService.withContext('HomePage');
+const logPreviewWindowResizeError = (error) => logger.warn('Failed to resize window for preview.', error);
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
@@ -2124,8 +2126,13 @@ const HomePage = () => {
   const [manualChatWebPreview, setManualChatWebPreview] = useState(null);
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
   const [chatInlinePreviewVisible, setChatInlinePreviewVisible] = useState(false);
+  const [chatPreviewWidth, setChatPreviewWidth] = useState(CHAT_BROWSER_PREVIEW_WIDTH);
+  const homeContentRef = useRef(null);
+  const handleInlinePreviewVisibilityChange = useCallback((visible, width) => {
+    setChatInlinePreviewVisible(visible);
+    if (Number.isFinite(width) && width > 0) setChatPreviewWidth(width);
+  }, []);
   const activeChatWebPreviewKeyRef = useRef('');
-  const chatExpandedWindowBaseWidthRef = useRef(null);
   const refreshHeaderMembership = useCallback(async () => {
     try {
       const payload = await getMembershipSummary();
@@ -2911,45 +2918,13 @@ const HomePage = () => {
   }, [latestChatBrowserPreview, chatWebPreviewDismissedKey]);
   const activeChatWebPreview = manualChatWebPreview || chatWebPreview;
 
-  useEffect(() => {
-    let cancelled = false;
-    const previewVisible = selectedPane === 'chat' && (Boolean(activeChatWebPreview?.url) || chatInlinePreviewVisible);
-
-    const syncWindowWidth = async () => {
-      if (!window?.api?.window?.getSize || !window?.api?.window?.setSize) return;
-
-      if (previewVisible) {
-        if (isFullscreen || chatExpandedWindowBaseWidthRef.current != null) return;
-        try {
-          const [width, height] = await window.api.window.getSize();
-          if (cancelled) return;
-          chatExpandedWindowBaseWidthRef.current = width;
-          await window.api.window.setSize(width + CHAT_BROWSER_PREVIEW_WIDTH, height, true);
-        } catch (error) {
-          chatExpandedWindowBaseWidthRef.current = null;
-          logger.warn('Failed to expand window for browser preview.', error);
-        }
-        return;
-      }
-
-      if (isFullscreen || chatExpandedWindowBaseWidthRef.current == null) return;
-      try {
-        const [, height] = await window.api.window.getSize();
-        const targetWidth = chatExpandedWindowBaseWidthRef.current;
-        chatExpandedWindowBaseWidthRef.current = null;
-        if (cancelled) return;
-        await window.api.window.setSize(targetWidth, height, true);
-      } catch (error) {
-        chatExpandedWindowBaseWidthRef.current = null;
-        logger.warn('Failed to restore window width after browser preview.', error);
-      }
-    };
-
-    void syncWindowWidth();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChatWebPreview?.url, chatInlinePreviewVisible, isFullscreen, selectedPane]);
+  const { ready: previewWindowReady, layoutWidth: previewLayoutWidth } = usePreviewWindowReady({
+    previewRequested: selectedPane === 'chat' && (Boolean(activeChatWebPreview?.url) || chatInlinePreviewVisible),
+    isFullscreen,
+    extraWidth: chatPreviewWidth,
+    layoutRef: homeContentRef,
+    onError: logPreviewWindowResizeError,
+  });
 
   useEffect(() => {
     const api = window?.electronAPI?.agentSessionStream;
@@ -6025,7 +6000,10 @@ const HomePage = () => {
             </span>
         </div>
       {/* 主体三栏 */}
-      <div className="home-content">
+      <div
+        className="home-content"
+        ref={homeContentRef}
+        style={previewLayoutWidth == null ? undefined : { width: previewLayoutWidth, right: 'auto' }}>
           <div className="left-pane column">
               <DPane
                 selected={selectedPane}
@@ -6156,9 +6134,10 @@ const HomePage = () => {
                 userName={userName}
                 userAvatar={avatarSrc}
                 webPreview={activeChatWebPreview}
+                previewWindowReady={previewWindowReady}
                 onCloseWebPreview={handleCloseChatWebPreview}
                 onOpenWebPreview={handleOpenChatWebPreview}
-                onInlinePreviewVisibilityChange={setChatInlinePreviewVisible}
+                onInlinePreviewVisibilityChange={handleInlinePreviewVisibilityChange}
                 onQuickPromptAction={(action) => {
                   if (action === 'bootstrap-childrens-picture-book') {
                     return handleBootstrapChildrensPictureBook();

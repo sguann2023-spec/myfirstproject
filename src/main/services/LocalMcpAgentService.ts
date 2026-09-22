@@ -652,10 +652,20 @@ function findMatchedDesktopApp(
 
 async function getInstalledDesktopApps(): Promise<DesktopInstalledApp[]> {
   if (isMac) {
-    const [systemApps, userApps] = await Promise.all([
-      getMacInstalledApps('/Applications') as Promise<MacInstalledApp[]>,
-      getMacInstalledApps(path.join(os.homedir(), 'Applications')) as Promise<MacInstalledApp[]>
-    ])
+    const [systemApps, userApps] = await Promise.all(
+      ['/Applications', path.join(os.homedir(), 'Applications')].map(async (directory) => {
+        try {
+          return await getMacInstalledApps(directory) as MacInstalledApp[]
+        } catch (error) {
+          // macOS does not create a per-user Applications directory by default.
+          if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+            return []
+          }
+          logger.error(`Failed to scan installed applications in ${directory}`, error as Error)
+          throw error
+        }
+      })
+    )
 
     return dedupeDesktopApps([
       ...(Array.isArray(systemApps) ? systemApps : []),
