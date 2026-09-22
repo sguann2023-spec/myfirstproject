@@ -1,5 +1,6 @@
 import React from 'react';
 import { Maximize, Minimize, Music2, Pause, Play, Volume2, VolumeX, X } from 'lucide-react';
+import AudioPreview from './AudioPreview';
 
 export const formatMediaTime = (seconds) => {
   const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
@@ -302,4 +303,8 @@ const MediaPreview = ({ source, name, kind = 'video', onRemove, removeDisabled =
   );
 };
 
-export default MediaPreview;
+const MediaPreviewByKind = (props) => props.kind === 'audio'
+  ? <AudioPreview {...props} />
+  : <MediaPreview {...props} />;
+
+export default MediaPreviewByKind;

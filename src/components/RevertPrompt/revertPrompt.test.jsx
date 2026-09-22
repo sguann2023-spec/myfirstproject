@@ -114,6 +114,51 @@ const createHandler = (callTool = vi.fn(async () => result)) => {
   return { handler: context.handler, save, persistExchange, close, activeAbortControllers, callTool };
 };
 const payload = { sessionId: 's', requestId: 'r', assistantMessageId: 'a', userMessageId: 'u', userContent: '反推视频提示词', reversePromptRequest: request };
+describe('普通分镜请求元数据', () => {
+  it('普通 Agent 持久化保留分镜标记，使用当前执行 ID 且不排斥已有标记', () => {
+    const source = readFileSync('src/main/services/agents/services/channels/sessionStreamIpc.ts', 'utf8');
+    const handler = source.slice(source.indexOf('  const handleSessionMessageCreate ='));
+    const declarations = handler.slice(handler.indexOf('      const draftInspectRequest ='), handler.indexOf('      if (!sessionId)'));
+    const optionsStart = handler.indexOf('{\n                persist: true,');
+    const optionsEnd = handler.indexOf('\n              }\n            ),', optionsStart) + '\n              }'.length;
+    expect(optionsStart).toBeGreaterThan(0);
+    const options = handler.slice(optionsStart, optionsEnd);
+    const marker = { requestId: 'old', sourceFile: '/sre.json', storyboardFile: '/part.json', instruction: '分镜' };
+    const context = {
+      payload: { subtitleStoryboardRequest: marker, draftInspectRequest: { draftId: 'draft' } },
+      requestId: 'retry-id', content: '完整提示词', images: [],
+    };
+    runInNewContext(transpileModule(`${declarations}\nglobalThis.options = ${options};`, {
+      compilerOptions: { target: 9 },
+    }).outputText, context);
+    expect(context.options).toMatchObject({
+      persist: true, displayContent: '完整提示词',
+      userMessageExtras: {
+        subtitleStoryboardRequest: { ...marker, requestId: 'retry-id' },
+        draftInspectRequest: { draftId: 'draft' },
+      },
+    });
+    expect(marker.requestId).toBe('old');
+  });
+  it('普通重试透传分镜标记及新执行 ID，不改变原提示词', () => {
+    const source = readFileSync('src/page/HomePage/HomePage.jsx', 'utf8');
+    const start = source.lastIndexOf('window.electronAPI.cherryChatStream.createMessage({');
+    const code = source.slice(start, source.indexOf('\n      });', start) + '\n      });'.length);
+    const createMessage = vi.fn();
+    const marker = { requestId: 'old', sourceFile: '/sre.json', storyboardFile: '/part.json' };
+    runInNewContext(code, {
+      window: { electronAPI: { cherryChatStream: { createMessage } } },
+      agentSessionId: 'session', requestId: 'new', chatModel: 'model',
+      prevUser: { content: '完整格式约束', createdAt: 123, subtitleStoryboardRequest: marker },
+    });
+    expect(createMessage).toHaveBeenCalledWith({
+      sessionId: 'session', content: '完整格式约束', createdAt: 123,
+      requestId: 'new', model: 'model',
+      subtitleStoryboardRequest: { ...marker, requestId: 'new' },
+    });
+    expect(marker.requestId).toBe('old');
+  });
+});
 describe('主进程直连 MCP', () => {
   it('传递 shareText、进度 ID，并保存结果与重试元数据', async () => {
     const h = createHandler();

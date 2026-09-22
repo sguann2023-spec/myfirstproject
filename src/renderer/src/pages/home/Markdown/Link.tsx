@@ -3,6 +3,8 @@ import { findCitationInChildren } from '@renderer/utils/markdown'
 import { isEmpty, omit } from 'lodash'
 import React, { useMemo } from 'react'
 import type { Node } from 'unist'
+import { ChatTaskContext } from '../../../../../components/Chat/ChatShell/ChatTaskContext'
+import { parseSubtitleStoryboardLink } from '../../../../../shared/subtitleRecognition'
 
 import CitationTooltip, { CitationSchema } from './CitationTooltip'
 import Hyperlink from './Hyperlink'
@@ -12,11 +14,26 @@ interface LinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 
 const Link: React.FC<LinkProps> = (props) => {
+  const { openSubtitleStoryboard } = React.useContext(ChatTaskContext)
   const citationData = useMemo(() => {
     const raw = parseJSON(findCitationInChildren(props.children))
     const parsed = CitationSchema.safeParse(raw)
     return parsed.success ? parsed.data : null
   }, [props.children])
+
+  const storyboardPath = parseSubtitleStoryboardLink(props.href)
+  if (storyboardPath) {
+    return <a
+      {...omit(props, ['node', 'citationData'])}
+      target={undefined}
+      aria-disabled={!openSubtitleStoryboard}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        openSubtitleStoryboard?.(storyboardPath)
+      }}
+    />
+  }
 
   // 处理内部链接
   if (props.href?.startsWith('#')) {

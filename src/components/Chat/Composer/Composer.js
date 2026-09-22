@@ -22,6 +22,8 @@ import {
 } from './AiWriteToolDetail/presetOptions';
 import AiWriteToolDetail from './AiWriteToolDetail/index';
 import RevertPrompt, { REVERT_PROMPT_HINT, getRevertPromptSendState } from '../../RevertPrompt/index';
+import PartSplitToolDetail from '../../PartSplitToolDetail/index';
+import { ChatTaskContext } from '../ChatShell/ChatTaskContext';
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
@@ -2367,6 +2369,13 @@ const Composer = ({
   const [textAddSettings, setTextAddSettings] = React.useState(DEFAULT_TEXT_ADD_SETTINGS);
   const [textAddInput, setTextAddInput] = React.useState('');
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
+  const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
+  const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
+  React.useEffect(() => {
+    if (!partSplitDialogOpen || !openSubtitleStoryboard) return;
+    openSubtitleStoryboard('');
+    setPartSplitDialogOpen(false);
+  }, [partSplitDialogOpen, openSubtitleStoryboard]);
   const subtitleSendingRef = React.useRef(false);
   const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
   const [selectedVideoGenerationMode, setSelectedVideoGenerationMode] = React.useState(() => readPersistedVideoGenerationMode());
@@ -4430,6 +4439,11 @@ const Composer = ({
 
   const handleAiWritePresetSelect = React.useCallback((presetId) => {
     const resolvedPresetId = getAiWritePresetById(presetId)?.id || getDefaultAiWritePresetId();
+    if (resolvedPresetId === 'subtitle-storyboard') {
+      setPartSplitDialogOpen(true);
+      closeMentionPanel();
+      return;
+    }
     if (resolvedPresetId === 'recognize-subtitle') {
       setSubtitleSettings(DEFAULT_SUBTITLE_SETTINGS);
       setActiveTool('recognize-subtitle');
@@ -4542,6 +4556,12 @@ const Composer = ({
 
   return (
     <div className="chat-panel__composer">
+      {!openSubtitleStoryboard ? <PartSplitToolDetail
+        key={primarySkillWorkdir}
+        open={partSplitDialogOpen}
+        workspacePath={primarySkillWorkdir}
+        onClose={() => setPartSplitDialogOpen(false)}
+      /> : null}
       <div className="chat-panel__editor">
         <LocalFilePreviewList
           files={uploadedFileMeta}

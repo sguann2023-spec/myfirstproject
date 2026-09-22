@@ -1,5 +1,25 @@
 export const SUBTITLE_RECOGNITION_TOOL = 'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task';
 
+const STORYBOARD_LINK_PREFIX = '#subtitle-storyboard?file=';
+const normalizeStoryboardSourcePath = (value) => {
+  const path = String(value || '').replace(/\\/g, '/');
+  if (!path || /[\u0000-\u001f]/.test(path) || path.split('/').some((part) => part === '..' || part === '.')
+    || !/^sre_.+\.json$/i.test(path.split('/').pop())) return '';
+  return path;
+};
+
+export const buildSubtitleStoryboardLink = (filePath) => {
+  const path = normalizeStoryboardSourcePath(filePath);
+  return path ? `${STORYBOARD_LINK_PREFIX}${encodeURIComponent(path).replace(/[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}` : '';
+};
+
+export const parseSubtitleStoryboardLink = (href) => {
+  if (typeof href !== 'string' || !href.startsWith(STORYBOARD_LINK_PREFIX)) return '';
+  try { return normalizeStoryboardSourcePath(decodeURIComponent(href.slice(STORYBOARD_LINK_PREFIX.length))); }
+  catch { return ''; }
+};
+
 export const normalizeSubtitleRecognitionRequest = (request) => {
   const url = String(request?.url || '').trim();
   if (!/^(https?:\/\/|file:\/\/|\/|[a-z]:[\\/])/i.test(url)) throw new Error('请添加有效的音频或视频');
@@ -63,6 +83,7 @@ export const parseSubtitleRecognitionResult = (result, request) => {
   const text = String(details.content || response.content || segments.map((segment) => segment.text || '').join(''));
   const fence = '`'.repeat(Math.max(3, ...([...text.matchAll(/`+/g)].map((match) => match[0].length + 1))));
   const split = request.effectMode === 'basic' ? '不分句' : `使用 ${request.maxSentenceLength} 字分句`;
+  const storyboardLink = buildSubtitleStoryboardLink(response.artifact?.file_path || response.artifact?.relative_path);
   const assistantText = [
     `字幕识别完成！以下是识别结果，共 ${segments.length} 条字幕，${split}：`,
     ['| # | 时间轴 | 字幕文本 |', '| --- | --- | --- |',
@@ -71,6 +92,7 @@ export const parseSubtitleRecognitionResult = (result, request) => {
     `完整文本：\n${fence}text\n${text}\n${fence}`,
     response.artifact?.relative_path
       ? `详细结果已保存至工作区文件：${tableText(response.artifact.relative_path)}` : '',
+    storyboardLink ? `[打开字幕分镜](${storyboardLink})` : '',
   ].filter(Boolean).join('\n\n');
   // Keep the standard tool summary compact; the full result remains in the workspace artifact.
   const { result: _details, ...summary } = response;

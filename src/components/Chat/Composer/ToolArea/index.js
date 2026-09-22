@@ -96,6 +96,11 @@ const TEXT_MENU_ITEMS = [
     label: '识别字幕',
     icon: <FileSearch size={18} strokeWidth={1.9} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
+  {
+    id: 'ai-write:subtitle-storyboard',
+    label: '字幕分镜',
+    icon: <SnippetsOutlined className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
   // {
   //   id: 'ai-write:remove-filler',
   //   label: '去气口',

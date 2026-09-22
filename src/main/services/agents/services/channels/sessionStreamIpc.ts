@@ -1325,6 +1325,10 @@ export function registerSessionStreamIpc(): void {
         payload?.draftInspectRequest && typeof payload.draftInspectRequest === 'object'
           ? payload.draftInspectRequest as Record<string, unknown>
           : undefined
+      const subtitleStoryboardRequest =
+        payload?.subtitleStoryboardRequest && typeof payload.subtitleStoryboardRequest === 'object'
+          ? { ...payload.subtitleStoryboardRequest, requestId }
+          : undefined
       if (!sessionId) return { ok: false, error: 'sessionId is required' }
       if (!content) return { ok: false, error: 'content is required' }
 
@@ -1393,7 +1397,10 @@ export function registerSessionStreamIpc(): void {
                 persist: true,
                 displayContent: content,
                 images,
-                userMessageExtras: draftInspectRequest ? { draftInspectRequest } : undefined
+                userMessageExtras: {
+                  ...(draftInspectRequest ? { draftInspectRequest } : {}),
+                  ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest } : {})
+                }
               }
             ),
             SESSION_MESSAGE_START_TIMEOUT_MS,

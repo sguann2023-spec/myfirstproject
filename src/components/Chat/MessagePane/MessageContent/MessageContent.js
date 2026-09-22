@@ -220,7 +220,7 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
 
   return (
     <div className="chat-message-content tw-scope chat-tool-layout-fix">
-      <MessageBlockRenderer blocks={blocks} message={resolvedMessage} />
+      <MessageBlockRenderer blocks={blocks} message={resolvedMessage} fallbackBlockEntities={fallbackAssistantState.entities} />
     </div>
   );
 };
@@ -336,7 +336,7 @@ const MessageContent = ({ message, isLoading = false }) => {
   return (
     <Provider store={appStore}>
       <div className="chat-message-content tw-scope chat-tool-layout-fix">
-        <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} />
+        <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} fallbackBlockEntities={assistantState.entities} />
       </div>
     </Provider>
   );

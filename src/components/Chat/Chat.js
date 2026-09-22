@@ -585,6 +585,7 @@ const Chat = ({
       onModifySkill={insertSkillModifyPrompt}
       onCreateSkill={insertCreateSkillPrompt}
       onSubmitFileComment={handleSubmitFileComment}
+      onSubmitToolTask={handleSend}
       sessionSending={sessionSending}
       webPreview={webPreview}
       previewWindowReady={previewWindowReady}

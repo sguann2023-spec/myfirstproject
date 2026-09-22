@@ -62,6 +62,7 @@ const AnimatedBlockWrapper: React.FC<AnimatedBlockWrapperProps> = ({ children, e
 
 interface Props {
   blocks: string[] // 可以接收块ID数组或MessageBlock数组
+  fallbackBlockEntities?: Record<string, MessageBlock>
   messageStatus?: Message['status']
   message: Message
 }
@@ -205,11 +206,12 @@ function getLatestTimestamp(...values: number[]): number {
   return Math.max(...validValues)
 }
 
-const MessageBlockRenderer: React.FC<Props> = ({ blocks, message }) => {
+const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockEntities }) => {
   // 始终调用useSelector，避免条件调用Hook
   const blockEntities = useSelector((state: RootState) => messageBlocksSelectors.selectEntities(state))
   // 根据blocks类型处理渲染数据
-  const renderedBlocks = blocks.map((blockId) => blockEntities[blockId]).filter(Boolean)
+  // History snapshots can render before their blocks have been added to Redux.
+  const renderedBlocks = blocks.map((blockId) => blockEntities[blockId] ?? fallbackBlockEntities?.[blockId]).filter(Boolean)
   const groupedBlocks = useMemo(() => groupSimilarBlocks(renderedBlocks), [renderedBlocks])
 
   // Check if message is still processing

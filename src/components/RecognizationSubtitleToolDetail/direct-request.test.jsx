@@ -5,6 +5,7 @@ import { transpileModule } from 'typescript';
 import path from 'node:path';
 import {
   normalizeSubtitleRecognitionRequest, buildSubtitleRecognitionBlocks, parseSubtitleRecognitionResult,
+  buildSubtitleStoryboardLink, parseSubtitleStoryboardLink,
 } from '../../shared/subtitleRecognition';
 
 const request = { url: '/video.mp4', effectMode: 'nlp', maxSentenceLength: 20 };
@@ -16,6 +17,26 @@ const response = {
 const result = { content: [{ type: 'text', text: JSON.stringify(response) }] };
 
 describe('字幕直连请求与固定回复', () => {
+  it('固定回复链接使用实际识别文件路径，并安全编码空格、括号和中文', () => {
+    const filePath = '/workspace/测试 (一)/sre_任务.json';
+    const withArtifact = { ...response, artifact: { file_path: filePath, relative_path: '测试 (一)/sre_任务.json' } };
+    const parsed = parseSubtitleRecognitionResult({
+      content: [{ type: 'text', text: JSON.stringify(withArtifact) }],
+    }, request);
+    const link = buildSubtitleStoryboardLink(filePath);
+    expect(parsed.assistantText).toContain(`[打开字幕分镜](${link})`);
+    expect(link).not.toContain('(');
+    expect(parseSubtitleStoryboardLink(link)).toBe(filePath);
+    expect(parseSubtitleStoryboardLink(buildSubtitleStoryboardLink('C:\\工作区\\sre_one.json'))).toBe('C:/工作区/sre_one.json');
+  });
+  it('缺失文件不制造链接，异常链接或目录穿越不被接受', () => {
+    const noFile = { ...response, artifact: undefined };
+    expect(parseSubtitleRecognitionResult({ content: [{ type: 'text', text: JSON.stringify(noFile) }] }, request)
+      .assistantText).not.toContain('打开字幕分镜');
+    expect(buildSubtitleStoryboardLink('../sre_one.json')).toBe('');
+    expect(parseSubtitleStoryboardLink('#subtitle-storyboard?file=%E0%A4')).toBe('');
+    expect(parseSubtitleStoryboardLink('https://example.com/sre_one.json')).toBe('');
+  });
   it('规范化参数并移除内部 requestId，不分句不传字数', () => {
     expect(normalizeSubtitleRecognitionRequest({ ...request, requestId: 'r', content: '  ' })).toEqual(request);
     expect(normalizeSubtitleRecognitionRequest({ ...request, effectMode: 'basic', content: ' 文案 ' }))

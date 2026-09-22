@@ -26,7 +26,8 @@
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 | 否 |
 | `reverse_prompt_request` | 反推视频文案提示词 | `copylab` | `derive_copy_prompt` | 是 | 是（整理工具结果） | 是 | 是（默认） | 是 | 否 | 否 |
-| `subtitle_recognition_request` | 识别音视频字幕 | `subtitle-recognition` | `submit_subtitle_recognition_task` | 是 | 是（表格及全文） | 是 | 是（默认） | 是 | 否 | 否 |
+| `subtitle_recognition_request` | 识别音视频字幕 | `subtitle-recognition` | `submit_subtitle_recognition_task` | 是 | 是（表格、全文及分镜入口） | 是 | 是（默认） | 是 | 否 | 否 |
+| `subtitle_storyboard_request` | 字幕分镜 AI 辅助 | 无 | 无 | 否 | 否 | 是 | 是（默认） | 是 | 否 | 否 |
 
 ---
 
@@ -37,7 +38,7 @@
 | 展示类型 | 含义 | 是否影响真实发送 | 是否影响持久化历史 |
 | --- | --- | --- | --- |
 | `文字` | 默认用户文案展示 | 否 | 否 |
-| `Agent` | 在原文前增加前缀：`使用vectcut工具，xxx` | 否 | 否 |
+| `Agent` | 通常在原文前增加前缀：`使用vectcut工具，xxx`；`subtitle_storyboard_request` 改为本地文件读写指令，不要求调用 MCP | 否 | 否 |
 | `API` | 将用户消息前端展示为 API / curl 形式 | 否 | 否 |
 | `Coze` | 将用户消息前端展示为 Coze 工作流剪贴板 JSON | 否 | 否 |
 
@@ -394,6 +395,9 @@ curl --request POST \
 | 回复模板 | `字幕识别完成！以下是识别结果，共 N 条字幕，使用 X 字分句：`；basic 改为 `共 N 条字幕，不分句：` |
 | 表格 | 三列：`#`、`时间轴`、`字幕文本`；序号从 1 开始，文本进行 Markdown 转义 |
 | 完整文本 | 使用服务端完整文本，置于代码块；末尾展示实际工作区文件名，禁止使用示例固定值 |
+| 分镜入口 | 有已保存的 `sre_*.json` 时在回复末尾增加“打开字幕分镜”超链接；以 `artifact.file_path`（缺失时用 `relative_path`）编码为 `#subtitle-storyboard?file=...` |
+| 链接行为 | 在应用内打开字幕分镜弹窗并直接选中该识别结果，多文件时也不再要求选择；不打开浏览器或重新发起识别 |
+| 文件校验 | 仅加载当前工作区文件列表中的目标；文件已删除或不属于当前工作区时提示错误，不回退打开其他文件；无结果文件时不展示入口 |
 | 工作区与历史 | 在当前会话工作区保存详细 JSON，缺失工作区时自动创建；保存 user / assistant / tool / main_text，进入相同 session 上下文 |
 | 点数 | 保留后台实际 `billing.consume`，工具卡片及消息合计展示；不使用预估价格替代实际扣费 |
 | 错误与取消 | 失败保留已返回计费并显示失败卡片；取消后忽略迟到结果，服务端可能继续执行和扣费 |
@@ -428,12 +432,51 @@ curl --request POST \
 最近在做一个新的功能，打算把画布的功能和剪辑做一个结合。
 ```
 
-详细结果已保存至工作区文件：task-id.json
+详细结果已保存至工作区文件：sre_task-id.json
+
+[打开字幕分镜](#subtitle-storyboard?file=%2Fworkspace%2Fsre_task-id.json)
 ````
 
 ---
 
+### 4.9 `subtitle_storyboard_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 按用户要求编辑当前绑定的字幕分镜 JSON，例如去气口、重新分镜、缩短停顿 |
+| 目标 MCP / 工具调用 ID | 无，不注册专用 MCP tool，不生成虚构工具卡片 |
+| 是否 direct request | 否，走普通 Agent 对话与文件读写流程 |
+| 是否 direct 回复 | 否，由实际 Agent 回答，不拼接固定回复 |
+| 前端消息标记对象 | `subtitleStoryboardRequest` |
+| requestId | 首次发送时使用 IPC 顶层 `requestId`，同时写入标记对象；普通对话重试使用新的执行 requestId 并透传标记 |
+| 支持展示类型 | 默认 `文字`；外部 Agent 已连接时可切换 `Agent` 并切回；不支持 API / Coze |
+| Agent 展示及复制 | 保留完整任务提示词、文件路径和 JSON 格式约束，增加本地文件读写说明，不添加“使用vectcut工具”前缀 |
+| 外部 Agent 条件 | 必须能访问指定识别文件和分镜文件；无法访问时应说明原因，不得虚构修改结果 |
+| 前端发送条件 | 当前分镜已绑定文件并成功保存，当前会话空闲；用户要求可留空，正文使用默认处理规则 |
+| 执行与展示边界 | 切换卡片只改变展示和复制内容，不自动向外部 Agent 再次发送，不改变当前 AI 任务 |
+| 历史与上下文 | 标记随 user message 进入普通会话历史，重新加载后仍可切换；不因该标记额外创建 tool block |
+| 执行期间 UI | 缩为预览弹窗，编辑保持禁用，但允许通过关闭按钮、Esc 或遮罩关闭；关闭不取消 AI，后台继续完成文件校验或自动回滚 |
+| 关闭与重开 | 关闭后任务完成不自动弹出；下次打开读取最新文件；任务未结束时菜单和结果链接共用当前任务预览，不读取半写入文件 |
+| 校验失败 | 用任务前完整快照覆盖错误文件，message 提示校验遇到问题、建议重试；回滚失败如实提示 |
+
+典型前端标记（完整 AI 提示词仍保存在消息 `content`）：
+
+```json
+{
+  "subtitleStoryboardRequest": {
+    "requestId": "req_xxx",
+    "sourceFile": "/workspace/sre_xxx.json",
+    "storyboardFile": "/workspace/part_xxx.json",
+    "instruction": "按完整语义重新分镜，保留自然换气"
+  }
+}
+```
+
+---
+
 ## 5. 固定约束
+
+以下直连执行、固定回复及工具卡片约束仅适用于总表中“是否 direct request = 是”的请求；非直连标记沿用普通 Agent 流程，展示切换和会话上下文约束仍适用。
 
 | 约束项 | 规则 |
 | --- | --- |
@@ -459,6 +502,7 @@ curl --request POST \
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
 | `reverse_prompt_request` | `mcp__vectcut__copylab__derive_copy_prompt` |
 | `subtitle_recognition_request` | `mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task` |
+| `subtitle_storyboard_request` | 无，仅提供用户消息的文字 / Agent 展示切换 |
 
 ---
 

@@ -1,4 +1,6 @@
 import React from 'react';
+import { ChatTaskContext } from './ChatTaskContext';
+import PartSplitToolDetail from '../../PartSplitToolDetail';
 import { Tooltip, Tour, message } from 'antd';
 import {
   ChevronRight,
@@ -342,6 +344,7 @@ const ChatShell = ({
   onOpenSkillStore,
   onModifySkill,
   onSubmitFileComment,
+  onSubmitToolTask,
   sessionSending = false,
   webPreview = null,
   previewWindowReady = true,
@@ -373,6 +376,8 @@ const ChatShell = ({
   const [skillTrees, setSkillTrees] = React.useState({});
   const [skillTreeLoading, setSkillTreeLoading] = React.useState({});
   const [filePreview, setFilePreview] = React.useState(null);
+  const [storyboardTarget, setStoryboardTarget] = React.useState(null);
+  const [storyboardBusy, setStoryboardBusy] = React.useState(false);
   const [panePreview, setPanePreview] = React.useState(() => (
     webPreview?.key && webPreview?.url
       ? { ...webPreview, previewType: 'web', activate: true }
@@ -400,6 +405,7 @@ const ChatShell = ({
   const beginnerGuideChildrensBookEditButtonRef = React.useRef(null);
   const beginnerGuideRewardClaimingRef = React.useRef(false);
   const currentWorkspacePath = React.useMemo(() => getSelectedWorkspacePath(runtimeSession), [runtimeSession]);
+  React.useEffect(() => { setStoryboardTarget(null); }, [chatSessionId, currentWorkspacePath]);
   const hasLockedWorkspace = Boolean(currentWorkspacePath);
   const showLeadingFilePreview = false;
   const previewRequested = Boolean(panePreview);
@@ -1607,7 +1613,26 @@ const ChatShell = ({
 
       <div className="chat-panel__content">
         <div className="chat-panel__main">
-          {children}
+          <ChatTaskContext.Provider value={{
+            send: onSubmitToolTask,
+            running: sessionSending,
+            openSubtitleStoryboard: (filePath) => setStoryboardTarget((previous) => (
+              storyboardBusy && previous
+                ? { ...previous, open: true }
+                : { filePath, chatSessionId, workspacePath: currentWorkspacePath, open: true }
+            )),
+          }}>
+            {children}
+            {storyboardTarget && storyboardTarget.chatSessionId === chatSessionId
+              && storyboardTarget.workspacePath === currentWorkspacePath ? <PartSplitToolDetail
+                key={`${chatSessionId}:${currentWorkspacePath}:${storyboardTarget.filePath}`}
+                open={storyboardTarget.open}
+                workspacePath={currentWorkspacePath}
+                initialFilePath={storyboardTarget.filePath}
+                onBusyChange={setStoryboardBusy}
+                onClose={() => setStoryboardTarget((previous) => previous ? { ...previous, open: false } : null)}
+              /> : null}
+          </ChatTaskContext.Provider>
         </div>
         {showMembersPanel && (
           <div

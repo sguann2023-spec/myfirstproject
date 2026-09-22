@@ -1966,6 +1966,8 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
     ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
       ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
+    ...(role === 'user' && sourceMessage?.subtitleStoryboardRequest
+      ? { subtitleStoryboardRequest: { ...sourceMessage.subtitleStoryboardRequest } } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -5012,6 +5014,8 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const subtitleStoryboardRequest = options?.subtitleStoryboardRequest && typeof options.subtitleStoryboardRequest === 'object'
+      ? { ...options.subtitleStoryboardRequest } : null;
     const subtitleRecognitionRequest = options?.subtitleRecognitionRequest
       ? normalizeSubtitleRecognitionRequest(options.subtitleRecognitionRequest) : null;
     const reversePromptRequest = options?.reversePromptRequest
@@ -5108,6 +5112,7 @@ const HomePage = () => {
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
         ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
+        ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5163,6 +5168,7 @@ const HomePage = () => {
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
         ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
+        ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5592,6 +5598,7 @@ const HomePage = () => {
         requestId,
         model: chatModel,
         images,
+        ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {})
       });
       logger.info('[HomePage] cherryChatStream createMessage result', {
@@ -5838,7 +5845,9 @@ const HomePage = () => {
         content: String(prevUser.content || ''),
         createdAt: Number(prevUser.createdAt) || undefined,
         requestId,
-        model: chatModel
+        model: chatModel,
+        ...(prevUser.subtitleStoryboardRequest
+          ? { subtitleStoryboardRequest: { ...prevUser.subtitleStoryboardRequest, requestId } } : {})
       });
       if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
     } catch (error) {

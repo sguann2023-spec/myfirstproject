@@ -5,6 +5,17 @@ import MessageItem from '../Chat/MessagePane/MessageItem/MessageItem';
 import MessageMcpTool from '../../renderer/src/pages/home/Messages/Tools/MessageMcpTool';
 import { McpServerToolRenderer } from '../../renderer/src/pages/home/Messages/Tools/MessageAgentTools/McpServerToolRenderer';
 import { buildReversePromptBlocks, REVERSE_PROMPT_TOOL } from '../../shared/reversePrompt';
+import ReactMarkdown from 'react-markdown';
+import Link from '../../renderer/src/pages/home/Markdown/Link';
+import { ChatTaskContext } from '../Chat/ChatShell/ChatTaskContext';
+import { buildSubtitleStoryboardLink } from '../../shared/subtitleRecognition';
+
+vi.mock('@renderer/utils/json', () => ({ parseJSON: () => null }));
+vi.mock('@renderer/utils/markdown', () => ({ findCitationInChildren: () => '' }));
+vi.mock('@renderer/pages/home/Markdown/CitationTooltip', () => ({
+  default: ({ children }) => children, CitationSchema: { safeParse: () => ({ success: false }) },
+}));
+vi.mock('@renderer/pages/home/Markdown/Hyperlink', () => ({ default: ({ children }) => children }));
 
 vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ error: vi.fn() }) } }));
 vi.mock('@renderer/store', () => ({ default: {}, useAppSelector: () => [] }));
@@ -69,7 +80,72 @@ afterEach(() => {
 const render = (element) => act(() => root.render(element));
 const button = (title) => container.querySelector(`[data-tooltip="${title}"] button`);
 
+describe('字幕结果中的分镜链接', () => {
+  it('Markdown 保留内部链接，点击仅打开对应文件的弹窗', () => {
+    const openSubtitleStoryboard = vi.fn();
+    const filePath = '/workspace/测试 (一)/sre_one.json';
+    render(<ChatTaskContext.Provider value={{ send: null, running: false, openSubtitleStoryboard }}>
+      <ReactMarkdown components={{ a: Link }}>{`[打开字幕分镜](${buildSubtitleStoryboardLink(filePath)})`}</ReactMarkdown>
+    </ChatTaskContext.Provider>);
+    const link = container.querySelector('a');
+    expect(link.textContent).toBe('打开字幕分镜');
+    expect(link.getAttribute('target')).toBeNull();
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => link.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(openSubtitleStoryboard).toHaveBeenCalledExactlyOnceWith(filePath);
+  });
+  it('没有聊天弹窗入口时不导航，普通网页链接保持原行为', () => {
+    render(<Link href={buildSubtitleStoryboardLink('/workspace/sre_one.json')}>打开字幕分镜</Link>);
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    expect(container.querySelector('a').getAttribute('aria-disabled')).toBe('true');
+    act(() => container.querySelector('a').dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    render(<Link href="https://example.com">网页</Link>);
+    expect(container.querySelector('a').getAttribute('target')).toBe('_blank');
+    expect(container.querySelector('a').getAttribute('href')).toBe('https://example.com');
+  });
+});
+
 describe('反推消息仅支持 Agent 转换', () => {
+  it('字幕分镜可切换和复制本地文件任务，不要求调用 vectcut 工具', async () => {
+    const message = {
+      id: 'storyboard', content: '编辑 /workspace/part_one.json，保留逐字时间戳和已删除范围。',
+      subtitleStoryboardRequest: {
+        requestId: 'r', sourceFile: '/workspace/sre_one.json',
+        storyboardFile: '/workspace/part_one.json', instruction: '重新分镜',
+      },
+    };
+    const copy = vi.fn();
+    render(<MessageItem message={message} role="user" hasConnectedExternalAgent onCopyAssistantMessage={copy} />);
+    expect(button('Agent')).not.toBeNull();
+    expect(button('API')).toBeNull();
+    expect(button('Coze')).toBeNull();
+    act(() => button('Agent').click());
+    const text = container.querySelector('[data-testid="content"]').textContent;
+    expect(text).toContain('本地文件读写');
+    expect(text).toContain(message.content);
+    expect(text).not.toContain('使用vectcut工具');
+    await act(async () => button('复制').click());
+    expect(copy.mock.calls[0][0].content).toBe(text);
+    expect(message.content).toBe('编辑 /workspace/part_one.json，保留逐字时间戳和已删除范围。');
+    act(() => button('文字').click());
+    expect(container.querySelector('[data-testid="content"]').textContent).toBe(message.content);
+    render(<MessageItem message={message} role="user" hasConnectedExternalAgent={false} />);
+    expect(button('Agent')).toBeNull();
+  });
+  it('字幕分镜历史补回请求标记后可切换，断开连接时恢复文字', () => {
+    const message = { id: 'storyboard', content: '编辑分镜' };
+    render(<MessageItem message={message} role="user" hasConnectedExternalAgent />);
+    expect(button('Agent')).toBeNull();
+    const restored = { ...message, subtitleStoryboardRequest: { requestId: 'r' } };
+    render(<MessageItem message={restored} role="user" hasConnectedExternalAgent />);
+    act(() => button('Agent').click());
+    expect(button('文字')).not.toBeNull();
+    render(<MessageItem message={restored} role="user" hasConnectedExternalAgent={false} />);
+    expect(container.querySelector('[data-testid="content"]').textContent).toBe(message.content);
+    expect(button('Agent')).toBeNull();
+  });
   it('字幕请求支持文字与 Agent 切换，不开放 API 或 Coze', () => {
     const subtitleMessage = { id: 'subtitle', content: '识别字幕', subtitleRecognitionRequest: { url: '/video.mp4', effectMode: 'nlp', maxSentenceLength: 20 } };
     render(<MessageItem message={subtitleMessage} role="user" hasConnectedExternalAgent />);
