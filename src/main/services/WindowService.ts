@@ -130,6 +130,7 @@ export class WindowService {
     this.setupWebContentsHandlers(mainWindow)
     this.setupWindowLifecycleEvents(mainWindow)
     this.setupMainWindowMonitor(mainWindow)
+    this.startProcessMemoryMonitoring(mainWindow)
     this.loadMainWindowContent(mainWindow)
   }
 
@@ -145,16 +146,67 @@ export class WindowService {
     }
   }
 
+  private startProcessMemoryMonitoring(mainWindow: BrowserWindow) {
+    if (!app.isPackaged) return
+
+    const sampleProcessMemory = () => {
+      if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
+      try {
+        const rendererPid = mainWindow.webContents.getOSProcessId()
+        const processes = app.getAppMetrics()
+          .filter((metric) =>
+            metric.pid === process.pid || metric.pid === rendererPid ||
+            metric.type === 'GPU' || metric.type === 'Utility'
+          )
+          .map((metric) => ({
+            pid: metric.pid,
+            type: metric.type,
+            name: metric.name,
+            serviceName: metric.serviceName,
+            memory: {
+              workingSetSize: metric.memory.workingSetSize,
+              peakWorkingSetSize: metric.memory.peakWorkingSetSize,
+              privateBytes: metric.memory.privateBytes
+            }
+          }))
+        crashReportService.recordProcessMemorySample(processes)
+      } catch (error) {
+        logger.warn('Failed to sample Electron process memory', error as Error)
+      }
+    }
+
+    sampleProcessMemory()
+    const timer = setInterval(sampleProcessMemory, 30_000)
+    timer.unref()
+    mainWindow.once('closed', () => clearInterval(timer))
+  }
+
   private setupMainWindowMonitor(mainWindow: BrowserWindow) {
     mainWindow.webContents.on('render-process-gone', (_, details) => {
-      logger.error(`Renderer process crashed with: ${JSON.stringify(details)}`)
+      logger.error(`Renderer process gone with: ${JSON.stringify(details)}`)
+      if (app.isQuitting || mainWindow.isDestroyed()) {
+        crashReportService.record('renderer-recovery-action', {
+          action: 'skip',
+          reason: app.isQuitting ? 'app-quitting' : 'window-destroyed',
+          windowId: mainWindow.id,
+          rendererReason: details.reason,
+          rendererExitCode: details.exitCode
+        })
+        return
+      }
+
       const currentTime = Date.now()
       const lastCrashTime = this.lastRendererProcessCrashTime
       this.lastRendererProcessCrashTime = currentTime
       if (currentTime - lastCrashTime > 60 * 1000) {
         crashReportService.record('renderer-recovery-action', { action: 'reload', windowId: mainWindow.id })
-        // 如果大于1分钟，则重启渲染进程
-        mainWindow.webContents.reload()
+        // Wait until Chromium has finished tearing down the failed renderer before
+        // asking it to create a replacement. Reloading from inside
+        // `render-process-gone` can race renderer teardown on Windows.
+        setTimeout(() => {
+          if (app.isQuitting || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
+          mainWindow.webContents.reload()
+        }, 100)
       } else {
         crashReportService.record('renderer-recovery-action', { action: 'exit', exitCode: 1, windowId: mainWindow.id }, true)
         // 如果小于1分钟，则退出应用, 可能是连续crash，需要退出应用
@@ -392,6 +444,17 @@ export class WindowService {
   }
 
   private setupWindowLifecycleEvents(mainWindow: BrowserWindow) {
+    // Windows sends this before logging off, shutting down, or restarting. Chromium
+    // child processes may then be killed by the OS; do not try to resurrect them.
+    mainWindow.on('query-session-end', () => {
+      app.isQuitting = true
+      crashReportService.record('windows-session-ending', { phase: 'query-session-end' })
+    })
+    mainWindow.on('session-end', () => {
+      app.isQuitting = true
+      crashReportService.record('windows-session-ending', { phase: 'session-end' })
+    })
+
     mainWindow.on('close', (_event) => {
       crashReportService.record('main-window-close', { windowId: mainWindow.id, isQuitting: Boolean(app.isQuitting) })
       // save data before when close window

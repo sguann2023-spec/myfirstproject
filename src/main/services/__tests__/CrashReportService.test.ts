@@ -62,6 +62,25 @@ describe('CrashReportService', () => {
     fs.rmSync(directory, { recursive: true, force: true })
   })
 
+  it('keeps a bounded process-memory history in the crash report', async () => {
+    const previous = nextSession()
+    for (let index = 0; index < 125; index++) {
+      previous.recordProcessMemorySample([{
+        pid: 123,
+        type: 'Tab',
+        memory: { workingSetSize: index * 1024, peakWorkingSetSize: index * 1024 }
+      }])
+    }
+    previous.record('render-process-gone', { reason: 'oom' }, true)
+    const current = nextSession()
+    await current.sendPendingReports()
+
+    const report = JSON.parse(archive().readAsText('report.json'))
+    expect(report.processMemorySamples).toHaveLength(120)
+    expect(report.processMemorySamples[0].processes[0].memory.workingSetSize).toBe(5 * 1024)
+    expect(report.processMemorySamples.at(-1).processes[0].memory.workingSetSize).toBe(124 * 1024)
+  })
+
   it('persists crash details synchronously and defers the current session', async () => {
     const service = nextSession()
     service.record('render-process-gone', { reason: 'crashed', exitCode: -1 }, true)
@@ -193,6 +212,19 @@ describe('CrashReportService', () => {
     expect(reports()[0].events.some((event: { kind: string }) => event.kind === 'render-process-gone')).toBe(false)
     await nextSession().sendPendingReports()
     expect(mocks.send).toHaveBeenCalledOnce()
+  })
+
+  it('does not classify renderer or child-process failures during Windows session shutdown as app crashes', async () => {
+    const previous = nextSession()
+    previous.record('windows-session-ending', { phase: 'query-session-end' })
+    previous.record('render-process-gone', { reason: 'crashed', exitCode: -1, isQuitting: true }, false)
+    previous.record('child-process-gone', { type: 'GPU', reason: 'killed', exitCode: 1073807364, isQuitting: true }, false)
+    previous.finish(0)
+
+    await nextSession().sendPendingReports()
+
+    expect(reports()[0].hasCrash).toBe(false)
+    expect(mocks.send).not.toHaveBeenCalled()
   })
 
   it('does not report ordinary clean exits', async () => {

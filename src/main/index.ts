@@ -123,7 +123,7 @@ app.on('web-contents-created', (_, webContents) => {
       ...details,
       webContentsId: webContents.id,
       isQuitting: Boolean(app.isQuitting)
-    }, details.reason !== 'clean-exit')
+    }, details.reason !== 'clean-exit' && !app.isQuitting)
   })
 
   webContents.session.webRequest.onHeadersReceived((details, callback) => {
@@ -184,7 +184,12 @@ if (!app.requestSingleInstanceLock()) {
     })
   }
   app.on('child-process-gone', (_, details) => {
-    crashReportService.record('child-process-gone', { ...details }, details.reason !== 'clean-exit')
+    const isQuitting = Boolean(app.isQuitting)
+    crashReportService.record(
+      'child-process-gone',
+      { ...details, isQuitting },
+      !isQuitting && details.reason !== 'clean-exit'
+    )
   })
   app.on('quit', (_, exitCode) => crashReportService.finish(exitCode))
   process.on('exit', (exitCode) => crashReportService.finish(exitCode))

@@ -12,6 +12,7 @@ const logger = loggerService.withContext('CrashReportService')
 const MAX_EVENTS = 80
 const MAX_DUMP_BYTES = 12 * 1024 * 1024
 const MAX_LOG_BYTES = 256 * 1024
+const MAX_PROCESS_MEMORY_SAMPLES = 120
 const REPORT_FILE = /^[0-9a-f-]{36}\.json$/
 
 type StartOptions = {
@@ -28,6 +29,21 @@ type DiagnosticEvent = {
   details: Record<string, unknown>
 }
 
+type ProcessMemorySample = {
+  timestamp: string
+  processes: Array<{
+    pid: number
+    type: string
+    name?: string
+    serviceName?: string
+    memory: {
+      workingSetSize: number
+      peakWorkingSetSize: number
+      privateBytes?: number
+    }
+  }>
+}
+
 type SessionReport = {
   schemaVersion: 1
   reportId: string
@@ -39,6 +55,7 @@ type SessionReport = {
   droppedEvents: number
   environment: Record<string, unknown> & { version: string; platform: string }
   events: DiagnosticEvent[]
+  processMemorySamples?: ProcessMemorySample[]
 }
 
 type DumpFile = { absolutePath: string; name: string; size: number; mtimeMs: number }
@@ -46,6 +63,7 @@ type DumpFile = { absolutePath: string; name: string; size: number; mtimeMs: num
 const CRASH_REASONS = new Set(['crashed', 'oom', 'abnormal-exit', 'integrity-failure'])
 
 function isCrashEvent(kind: string, details: Record<string, unknown>): boolean {
+  if (details.isQuitting === true) return false
   return (kind === 'render-process-gone' || kind === 'child-process-gone') &&
     typeof details.reason === 'string' && CRASH_REASONS.has(details.reason)
 }
@@ -154,6 +172,27 @@ export class CrashReportService {
     } catch (error) {
       // Diagnostics must never interfere with the original crash/quit handler.
       logger.warn('Failed to persist crash diagnostic event', error as Error)
+    }
+  }
+
+  public recordProcessMemorySample(
+    processes: ProcessMemorySample['processes']
+  ): void {
+    if (!this.current || processes.length === 0) return
+    try {
+      const sample: ProcessMemorySample = {
+        timestamp: new Date().toISOString(),
+        processes
+      }
+      const samples = this.current.processMemorySamples ??= []
+      samples.push(sample)
+      if (samples.length > MAX_PROCESS_MEMORY_SAMPLES) {
+        samples.splice(0, samples.length - MAX_PROCESS_MEMORY_SAMPLES)
+      }
+      this.persistCurrent()
+    } catch (error) {
+      // Memory sampling is best-effort and must never affect app stability.
+      logger.warn('Failed to persist process memory sample', error as Error)
     }
   }
 
