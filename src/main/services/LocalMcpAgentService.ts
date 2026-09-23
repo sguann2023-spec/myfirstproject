@@ -49,7 +49,8 @@ const LOCAL_MCP_AGENT_SPECS: AgentDetectionSpec[] = [
     id: 'workbuddy',
     label: 'WorkBuddy',
     desktopAppNames: ['WorkBuddy'],
-    desktopAppIdentifiers: ['com.tencent.workbuddy.mac']
+    desktopAppIdentifiers: ['com.tencent.workbuddy.mac'],
+    protocolAppId: isMac ? 'workbuddy' : undefined
   },
   {
     id: 'claude_code',
@@ -628,6 +629,15 @@ function getDesktopAppMatchPath(appInfo: DesktopInstalledApp): string | null {
   return null
 }
 
+function isMacAppBundle(appPath: string): boolean {
+  if (!path.isAbsolute(appPath) || !appPath.toLowerCase().endsWith('.app')) return false
+  try {
+    return fs.statSync(path.join(appPath, 'Contents', 'Info.plist')).isFile()
+  } catch {
+    return false
+  }
+}
+
 function findMatchedDesktopApp(
   desktopApps: DesktopInstalledApp[],
   spec: Pick<AgentDetectionSpec, 'desktopAppIdentifiers' | 'desktopAppNames'>
@@ -655,10 +665,16 @@ async function getInstalledDesktopApps(): Promise<DesktopInstalledApp[]> {
     const [systemApps, userApps] = await Promise.all(
       ['/Applications', path.join(os.homedir(), 'Applications')].map(async (directory) => {
         try {
-          return await getMacInstalledApps(directory) as MacInstalledApp[]
+          const apps = await getMacInstalledApps(directory) as MacInstalledApp[]
+          logger.info('Scanned local MCP application directory', {
+            directory,
+            count: Array.isArray(apps) ? apps.length : 0
+          })
+          return apps
         } catch (error) {
           // macOS does not create a per-user Applications directory by default.
           if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+            logger.info('Skipped missing local MCP application directory', { directory })
             return []
           }
           logger.error(`Failed to scan installed applications in ${directory}`, error as Error)
@@ -717,9 +733,17 @@ class LocalMcpAgentService {
       })
     )
 
-    // logger.info('Detected local MCP agents', {
-    //   detected: agents.map((agent) => ({ id: agent.id, installed: agent.installed, path: agent.path }))
-    // })
+    logger.info('Detected local MCP agents', {
+      platform: process.platform,
+      desktopAppCount: desktopApps.length,
+      detected: agents.map((agent) => ({
+        id: agent.id,
+        installed: agent.installed,
+        installType: agent.installType,
+        path: agent.path,
+        detectionHint: agent.detectionHint
+      }))
+    })
 
     return agents
   }
@@ -955,15 +979,33 @@ class LocalMcpAgentService {
       }
     }
 
+    // Metadata scans may omit bundles that Spotlight has not indexed yet.
+    if (isMac) {
+      for (const directory of ['/Applications', path.join(os.homedir(), 'Applications')]) {
+        for (const appName of spec.desktopAppNames || []) {
+          const appPath = path.join(directory, `${appName}.app`)
+          if (isMacAppBundle(appPath)) {
+            return {
+              installed: true,
+              path: appPath,
+              installType: 'app',
+              detectionHint: '已直接检测到应用包'
+            }
+          }
+        }
+      }
+    }
+
     if (spec.protocolAppId) {
       try {
         const protocolApp = await app.getApplicationInfoForProtocol(`${spec.protocolAppId}://`)
-        if (protocolApp?.path) {
+        // Launch Services can retain a protocol entry after its app is removed.
+        if (protocolApp?.path && (!isMac || isMacAppBundle(protocolApp.path))) {
           return {
             installed: true,
             path: protocolApp.path,
             installType: 'protocol',
-            detectionHint: '已检测到桌面应用'
+            detectionHint: '已通过系统协议检测到桌面应用'
           }
         }
       } catch {

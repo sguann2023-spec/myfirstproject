@@ -7,7 +7,7 @@ import { Modal } from 'antd';
 import PartSplitToolDetail from './index';
 import { createParts, listRecognitionFiles, loadRecognition, mediaPreviewUrl, parseRecognition, saveParts, splitPart } from './model';
 
-vi.mock('./Filmstrip', () => ({ default: () => null }));
+vi.mock('./Filmstrip', () => ({ default: () => <canvas data-testid="filmstrip-canvas" /> }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root;
 let container;
@@ -154,6 +154,33 @@ describe('字幕分镜弹窗', () => {
     await render({ open: true, onClose });
     await click(selector);
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('反复关闭时卸载视频与缩略图，重开仍读取保存后的编辑', async () => {
+    window.api.file.listDirectory.mockResolvedValue([file.path]);
+    const onClose = vi.fn();
+    await render({ open: true, onClose });
+    await click('[aria-label="拆分分镜"]');
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const media = [...document.querySelectorAll('.storyboard-editor video')];
+      const canvas = document.querySelector('[data-testid="filmstrip-canvas"]');
+      expect(media).toHaveLength(2);
+      expect(canvas).not.toBeNull();
+      await click('.part-split-dialog .ant-modal-close');
+      await act(async () => root.render(
+        <PartSplitToolDetail open={false} workspacePath={workspacePath} onClose={onClose} />,
+      ));
+      expect(document.querySelector('.storyboard-editor')).toBeNull();
+      expect(document.querySelector('[data-testid="filmstrip-canvas"]')).toBeNull();
+      expect(media.every((element) => !element.isConnected)).toBe(true);
+      expect(canvas.isConnected).toBe(false);
+      expect(JSON.parse(disk.get(file.draftPath)).parts).toHaveLength(3);
+      await act(async () => root.render(
+        <PartSplitToolDetail open workspacePath={workspacePath} onClose={onClose} />,
+      ));
+      expect(document.querySelectorAll('.storyboard-clip')).toHaveLength(3);
+      expect(document.querySelector('.storyboard-preview__media')).not.toBe(media[0]);
+    }
   });
 
   it('单个结果直接展示媒体预览和真实字幕分镜', async () => {

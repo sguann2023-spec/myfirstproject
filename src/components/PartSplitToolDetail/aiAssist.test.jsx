@@ -174,6 +174,8 @@ describe('AI辅助对话和执行锁定', () => {
     });
     expect(close).toHaveBeenCalledOnce();
     expect(reportBusy).toHaveBeenLastCalledWith(true);
+    expect(q('.storyboard-editor')).toBeNull();
+    expect(q('.storyboard-preview__media')).toBeNull();
     const reads = window.api.fs.read.mock.calls.length;
     disk.set(file.draftPath, '{"parts":');
     await act(async () => setOpen(true));
@@ -186,7 +188,7 @@ describe('AI辅助对话和执行锁定', () => {
     await act(async () => setRunning(false));
     expect(JSON.parse(disk.get(file.draftPath))).toEqual(next);
     expect(reportBusy).toHaveBeenLastCalledWith(false);
-    expect(q('.part-split-dialog').closest('.ant-modal-wrap').style.display).toBe('none');
+    expect(q('.part-split-dialog')).toBeNull();
     await act(async () => setOpen(true));
     expect(document.querySelectorAll('.storyboard-clip')).toHaveLength(1);
     expect(q('.part-split-ai-loading')).toBeNull();
@@ -202,7 +204,7 @@ describe('AI辅助对话和执行锁定', () => {
     await act(async () => setRunning(false));
     expect(JSON.parse(disk.get(file.draftPath))).toEqual(saved);
     expect(message.warning).toHaveBeenCalledOnce();
-    expect(q('.part-split-dialog').closest('.ant-modal-wrap').style.display).toBe('none');
+    expect(q('.part-split-dialog')).toBeNull();
     await act(async () => setOpen(true));
     expect(document.querySelectorAll('.storyboard-clip')).toHaveLength(2);
     expect(q('.part-split-dialog__editor').disabled).toBe(false);

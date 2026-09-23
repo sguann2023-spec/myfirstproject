@@ -140,7 +140,7 @@ const PartSplitToolDetail = ({ open = false, workspacePath = '', initialFilePath
 
   return (
     <>
-    <Modal open={open} title={aiBusy ? null : '字幕分镜'} centered width={aiBusy ? 440 : editing ? 864 : 520} zIndex={1300}
+    <Modal open={open} destroyOnHidden title={aiBusy ? null : '字幕分镜'} centered width={aiBusy ? 440 : editing ? 864 : 520} zIndex={1300}
       className={`part-split-dialog${isWindows ? ' part-split-dialog--win' : ''}${editing ? ' part-split-dialog--editing' : ''}${aiBusy ? ' part-split-dialog--ai-preview' : ''}`}
       closeIcon={<span className="part-split-dialog__close-icon" aria-hidden="true" />}
       closable keyboard maskClosable
