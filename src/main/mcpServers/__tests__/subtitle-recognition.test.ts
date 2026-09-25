@@ -3,11 +3,13 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile, mockPrepareSubtitleAudio, mockCleanupPreparedAudio } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn(),
-  mockUploadLocalFile: vi.fn()
+  mockUploadLocalFile: vi.fn(),
+  mockPrepareSubtitleAudio: vi.fn(),
+  mockCleanupPreparedAudio: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -43,6 +45,10 @@ vi.mock('@main/services/OssUploadService', () => ({
   ossUploadService: {
     uploadLocalFile: mockUploadLocalFile
   }
+}))
+
+vi.mock('@main/utils/prepare-subtitle-audio', () => ({
+  prepareSubtitleAudio: mockPrepareSubtitleAudio
 }))
 
 import SubtitleRecognitionServer from '../subtitle-recognition'
@@ -86,6 +92,11 @@ describe('SubtitleRecognitionServer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockPrepareSubtitleAudio.mockImplementation(async (sourcePath: string) => ({
+      audioPath: `${sourcePath}.extracted.mp3`,
+      durationSeconds: 120,
+      cleanup: mockCleanupPreparedAudio
+    }))
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
   })
 
@@ -517,9 +528,9 @@ describe('SubtitleRecognitionServer', () => {
     })
   })
 
-  it('should upload local subtitle media internally before submitting', async () => {
-    const localAudioPath = path.join(workspaceRoot, 'local-source.mp3')
-    await fs.writeFile(localAudioPath, 'demo-audio', 'utf8')
+  it('extracts local video audio before uploading it for subtitle recognition', async () => {
+    const localVideoPath = path.join(workspaceRoot, 'local-source.mp4')
+    await fs.writeFile(localVideoPath, 'demo-video', 'utf8')
 
     mockUploadLocalFile.mockResolvedValue({
       signedPublicUrl: 'https://oss.example.com/local-source.mp3?token=1'
@@ -562,11 +573,12 @@ describe('SubtitleRecognitionServer', () => {
 
     const server = createServer(workspaceRoot)
     const result = await callTool(server, 'submit_subtitle_recognition_task', {
-      url: `file://${localAudioPath}`
+      url: `file://${localVideoPath}`
     })
 
+    expect(mockPrepareSubtitleAudio).toHaveBeenCalledWith(localVideoPath)
     expect(mockUploadLocalFile).toHaveBeenCalledWith(
-      localAudioPath,
+      `${localVideoPath}.extracted.mp3`,
       expect.objectContaining({
         bucket: 'oss-hangzhou-mp4',
         region: 'oss-cn-hangzhou',
@@ -575,6 +587,7 @@ describe('SubtitleRecognitionServer', () => {
         signExpiresSeconds: 3600
       })
     )
+    expect(mockCleanupPreparedAudio).toHaveBeenCalledOnce()
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       url: 'https://oss.example.com/local-source.mp3?token=1',
       effect_mode: 'basic'
@@ -583,11 +596,26 @@ describe('SubtitleRecognitionServer', () => {
     const payload = JSON.parse(result.content[0].text)
     expect(payload.source_summary).toEqual([
       {
-        original_input: `file://${localAudioPath}`,
+        original_input: `file://${localVideoPath}`,
         submitted_url: 'https://oss.example.com/local-source.mp3?token=1',
         source_kind: 'local_media'
       }
     ])
     expect(payload.url).toBe('https://oss.example.com/local-source.mp3?token=1')
+  })
+
+  it('rejects local media over two hours before upload', async () => {
+    const localVideoPath = path.join(workspaceRoot, 'long-video.mp4')
+    await fs.writeFile(localVideoPath, 'demo-video', 'utf8')
+    mockPrepareSubtitleAudio.mockRejectedValueOnce(new Error('音视频时长不能超过 2 小时'))
+
+    const result = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: localVideoPath
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('音视频时长不能超过 2 小时')
+    expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    expect(mockNetFetch).not.toHaveBeenCalled()
   })
 })

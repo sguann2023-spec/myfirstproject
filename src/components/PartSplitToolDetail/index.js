@@ -7,7 +7,7 @@ import {
 import StoryboardEditor from './StoryboardEditor';
 import { insertEmptyPart } from './timeline';
 import { createFileBinding } from './fileBinding';
-import { captionCues, deleteSubtitleUnits, editCaption } from './subtitles';
+import { captionCues, deleteSubtitleTextUnits, deleteSubtitleUnits, editCaption } from './subtitles';
 import { ChatTaskContext } from '../Chat/ChatShell/ChatTaskContext';
 import { AI_ASSIST_DEFAULT_INSTRUCTION } from './aiAssist';
 import { useAiAssist } from './useAiAssist';
@@ -188,6 +188,10 @@ const PartSplitToolDetail = ({ open = false, workspacePath = '', initialFilePath
           onDeleteSubtitles={(units) => {
             const next = deleteSubtitleUnits(parts, recognition.segments, units);
             updateParts(next, next.some((part) => part.id === selectedId) ? selectedId : next[0]?.id || '');
+          }}
+          onDeleteSubtitleText={(units) => {
+            const next = deleteSubtitleTextUnits(parts, recognition.segments, units);
+            if (next.some((part, index) => part !== parts[index])) updateParts(next);
           }}
           onEditCaption={(id, edit) => {
             const next = parts.map((part) => part.id === id ? editCaption(part, recognition.segments, edit) : part);

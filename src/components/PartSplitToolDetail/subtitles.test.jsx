@@ -135,12 +135,12 @@ describe('字幕和轨道联动', () => {
     await click('[aria-label="选择 part3_1"]');
     expect(query('.storyboard-subtitles__row.is-selected').dataset.partId).toBe('subtitle-2');
   });
-  it('悬浮字幕关联轨道和独立预览，离开不改变正式播放位置', async () => {
+  it('悬浮字幕不触发轨道联动或视频预览', async () => {
     await render();
     await act(async () => query('[aria-label="字幕 你"]').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-    expect(query('.storyboard-preview__hover').currentTime).toBe(2);
+    expect(query('.storyboard-preview__hover')).toBeNull();
     expect(query('.storyboard-preview__media').currentTime).toBe(0);
-    expect(query('.storyboard-clip.is-hovered').getAttribute('aria-label')).toBe('选择 part2_1');
+    expect(query('.storyboard-clip.is-hovered')).toBeNull();
     await act(async () => query('.storyboard-subtitles').dispatchEvent(
       new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }),
     ));
@@ -229,7 +229,7 @@ describe('字幕和轨道联动', () => {
       select('subtitle-0');
     });
     expect(query('.storyboard-subtitles__empty-chip').textContent).toBe('空分镜');
-    expect(query('.storyboard-preview__subtitle')).toBeNull();
+    expect(query('.storyboard-preview__subtitle').hidden).toBe(true);
   });
   it('禁用时不能编辑字幕或删除', async () => {
     await render({ disabled: true });

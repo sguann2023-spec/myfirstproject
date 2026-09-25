@@ -382,10 +382,28 @@ export const AskUserQuestionItemSchema = z.object({
 
 export const AskUserQuestionAnswerSchema = z.record(z.string(), z.string())
 
+const normalizeAskUserQuestionAnswers = (value: unknown): unknown => {
+  let parsedValue = value
+
+  if (typeof parsedValue === 'string') {
+    try {
+      parsedValue = JSON.parse(parsedValue)
+    } catch {
+      return undefined
+    }
+  }
+
+  if (parsedValue && typeof parsedValue === 'object' && !Array.isArray(parsedValue)) {
+    return parsedValue
+  }
+
+  return undefined
+}
+
 export const AskUserQuestionToolInputSchema = z.object({
   /** Questions to ask the user (1-4 questions) */
   questions: z.array(AskUserQuestionItemSchema),
-  answers: AskUserQuestionAnswerSchema.optional()
+  answers: z.preprocess(normalizeAskUserQuestionAnswers, AskUserQuestionAnswerSchema.optional())
 })
 
 // 从 Zod schema 推断类型

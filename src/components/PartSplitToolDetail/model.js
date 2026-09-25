@@ -78,6 +78,30 @@ export const activeParts = (parts) => parts.filter((part) => !part.deleted);
 export const partRanges = (part) => part.ranges || [{ start: part.start, end: part.end }];
 export const partDuration = (part) => partRanges(part).reduce((sum, range) => sum + range.end - range.start, 0);
 
+// Attach explicit source_timerange / target_timerange snapshots to every part so
+// the on-disk JSON records both timelines. This is a derived view — the source
+// of truth is still `part.start / part.end / part.ranges` (source-side) plus
+// the ordering of the parts array (which drives the target timeline). See
+// aiAssist.js and storyboard-editor.ts descriptions for the data model.
+export const withTimeranges = (parts) => {
+  let cursor = 0;
+  return parts.map((part) => {
+    // Strip any previously-persisted derived fields so they cannot drift out of
+    // sync with part.start/end/ranges and the parts array ordering.
+    // eslint-disable-next-line no-unused-vars
+    const { source_timerange: _stale_source, target_timerange: _stale_target, ...rest } = part;
+    const duration = partDuration(rest);
+    const source_timerange = {
+      start: rest.start,
+      end: rest.end,
+      ...(rest.ranges ? { ranges: rest.ranges.map((range) => ({ start: range.start, end: range.end })) } : {}),
+    };
+    const target_timerange = { start: cursor, duration };
+    cursor += duration;
+    return { ...rest, source_timerange, target_timerange };
+  });
+};
+
 // A merged shot can contain disjoint source ranges after a deletion.
 export const partPoint = (part, offset) => {
   const ranges = partRanges(part);
@@ -256,7 +280,7 @@ export const buildPartsDocument = (file, recognition, parts) => {
     type: 'subtitle_storyboard', version: DRAFT_VERSION, time_unit: 'ms',
     source_file: file.path, media_source: recognition.mediaSource,
     updated_at: new Date().toISOString(), segments: recognition.segments,
-    parts: labelParts(activeParts(parts)),
+    parts: withTimeranges(labelParts(activeParts(parts))),
   };
 };
 

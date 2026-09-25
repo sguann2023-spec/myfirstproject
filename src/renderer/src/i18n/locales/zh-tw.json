@@ -1825,6 +1825,9 @@
       "ai_result": "AI 診斷結果",
       "aborted": "本次請求已中止",
       "auth": "API Key 無效，請檢查並重新配置",
+      "session_expired": "登入狀態已失效，請重新登入後繼續使用",
+      "session_expired_reply": "登入已過期或失效，請前往模型提供商設定重新登入；完成後即可繼續使用。",
+      "relogin": "重新登入",
       "content": "訊息內容被安全系統攔截，請修改後重試",
       "context_length": "對話內容過長，請清除歷史記錄或開啟新對話",
       "deprecated": "此模型已停用，請切換至其他模型",
@@ -2597,6 +2600,7 @@
           "search": "聯網搜尋",
           "seed_audio": "豆包音訊",
           "speech": "語音",
+          "storyboard_editor": "字幕分鏡",
           "subtitle_recognition": "字幕識別",
           "system": "系統",
           "subtitle_template": "字幕模板",
@@ -2742,6 +2746,20 @@
           },
           "speech": {
             "generate_speech": "生成語音"
+          },
+          "storyboard_editor": {
+            "inspect_storyboard": "查看分鏡",
+            "update_part_text": "改寫分鏡文本",
+            "split_part": "拆分分鏡",
+            "merge_parts": "合併分鏡",
+            "delete_parts": "刪除分鏡",
+            "delete_range": "刪除分鏡片段",
+            "duplicate_part": "複製分鏡",
+            "move_part": "移動分鏡",
+            "clear_part_text": "清空分鏡字幕",
+            "insert_blank_part": "插入空分鏡",
+            "adjust_part_bounds": "調整分鏡邊界",
+            "apply_operations": "批次編輯分鏡"
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "查詢字幕識別任務狀態",

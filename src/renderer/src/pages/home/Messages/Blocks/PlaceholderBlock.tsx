@@ -61,7 +61,7 @@ const MessageContentLoading = styled.div`
 `
 
 const MessageContentLoadingLabel = styled.span`
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.4;
   color: var(--color-text-3);
 `

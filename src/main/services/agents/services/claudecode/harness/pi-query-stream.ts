@@ -24,8 +24,9 @@ import { buildInlineToolResultPayload } from './tool-result-payload'
 const logger = loggerService.withContext('ClaudeCodePiQuery')
 
 const DEFAULT_PI_TERMINAL_TIMEOUT_MS = 600_000
+const DEFAULT_PI_IDLE_TIMEOUT_MS = 60_000
 const PI_NETWORK_RETRY_LIMIT = 5
-const PI_NETWORK_RETRY_BASE_DELAY_MS = 800
+const PI_NETWORK_RETRY_BASE_DELAY_MS = 3000
 
 type PendingToolCall = {
   emittedId: string
@@ -54,6 +55,18 @@ function resolvePiTerminalTimeoutMs(): number {
   return DEFAULT_PI_TERMINAL_TIMEOUT_MS
 }
 
+function resolvePiIdleTimeoutMs(): number {
+  const raw = Number(process.env.PI_IDLE_TIMEOUT_MS ?? '')
+  if (Number.isFinite(raw) && raw >= 1_000) return raw
+  return DEFAULT_PI_IDLE_TIMEOUT_MS
+}
+
+function createPiIdleTimeoutError(timeoutMs: number): Error {
+  const error = new Error(`PI assistant stream stalled without any chunk for ${timeoutMs}ms`)
+  error.name = 'PiStreamIdleTimeoutError'
+  return error
+}
+
 function createPiTerminalTimeoutError(timeoutMs: number): Error {
   const error = new Error(`PI assistant stream did not reach a terminal state within ${timeoutMs}ms`)
   error.name = 'PiStreamTerminalTimeoutError'
@@ -65,21 +78,30 @@ function isRetriablePiError(error: Error): boolean {
   const message = String(error.message || '').trim()
   const normalized = `${name} ${message}`.toLowerCase()
 
-  return (
-    name === 'PiStreamTerminalTimeoutError'
-    || /\b502\b|\b503\b|\b504\b/.test(message)
-    || normalized.includes('connection error')
-    || normalized.includes('socket hang up')
-    || normalized.includes('ecconnreset')
-    || normalized.includes('econnreset')
-    || normalized.includes('connection reset')
-    || normalized.includes('network error')
-    || normalized.includes('fetch failed')
-    || normalized.includes('upstream request failed')
-    || normalized.includes('上游请求失败')
-    || normalized.includes('timed out')
-    || normalized.includes('timeout')
-  )
+  // 非可重试错误：以下三类严格不重试（重试不会改变结果，反而浪费资源）：
+  //   1) 鉴权 / 权限类：401 Unauthorized、403 Forbidden、invalid api key、authentication failed 等
+  //   2) 请求本身有误：400 Bad Request、422 Unprocessable Entity、404 Not Found、
+  //      context length / token limit exceeded、content policy / safety 触发等
+  //   3) 客户端主动中止：AbortError
+  // 除此之外的所有网络类、超时类、5xx、限流、上游未知错误等，一律重试。
+  const nonRetriableStatusCodePattern = /\b(400|401|403|404|422)\b/
+  const isNonRetriable =
+    name === 'AbortError'
+    || nonRetriableStatusCodePattern.test(message)
+    || normalized.includes('unauthorized')
+    || normalized.includes('forbidden')
+    || normalized.includes('invalid api key')
+    || normalized.includes('invalid_api_key')
+    || normalized.includes('authentication failed')
+    || normalized.includes('permission denied')
+    || normalized.includes('context length')
+    || normalized.includes('maximum context')
+    || normalized.includes('token limit')
+    || normalized.includes('content policy')
+    || normalized.includes('content_filter')
+    || normalized.includes('safety')
+
+  return !isNonRetriable
 }
 
 function buildPiRetryStatusText(attempt: number, maxRetries: number): string {
@@ -340,16 +362,25 @@ export async function processPiHarnessQuery(input: {
   let reasoningDeltaCount = 0
   let toolCallCount = 0
   let toolResultCount = 0
-  let currentAttempt = 1
+  let currentAttempt = 0
   const terminalTimeoutMs = resolvePiTerminalTimeoutMs()
+  const idleTimeoutMs = resolvePiIdleTimeoutMs()
   let terminalTimeoutHandle: NodeJS.Timeout | undefined
+  let idleTimeoutHandle: NodeJS.Timeout | undefined
   let terminalTimeoutTriggered = false
+  let idleTimeoutTriggered = false
   let externalAbortRequested = abortSignal?.aborted === true
 
   const clearTerminalTimeout = () => {
     if (!terminalTimeoutHandle) return
     clearTimeout(terminalTimeoutHandle)
     terminalTimeoutHandle = undefined
+  }
+
+  const clearIdleTimeout = () => {
+    if (!idleTimeoutHandle) return
+    clearTimeout(idleTimeoutHandle)
+    idleTimeoutHandle = undefined
   }
 
   const armTerminalTimeout = () => {
@@ -362,9 +393,26 @@ export async function processPiHarnessQuery(input: {
     }, terminalTimeoutMs)
   }
 
+  const armIdleTimeout = () => {
+    clearIdleTimeout()
+    idleTimeoutHandle = setTimeout(() => {
+      idleTimeoutTriggered = true
+      logger.warn('[PiQuery] idle timeout reached without any chunk, aborting for retry', {
+        sessionId,
+        traceId: architectureContext.traceId,
+        idleTimeoutMs,
+        currentAttempt
+      })
+      void runtimeBridge.harness.abort().catch((abortError) => {
+        void abortError
+      })
+    }, idleTimeoutMs)
+  }
+
   const onAbort = () => {
     externalAbortRequested = true
     clearTerminalTimeout()
+    clearIdleTimeout()
     void runtimeBridge.harness.abort().catch((abortError) => {
       void abortError
     })
@@ -467,6 +515,9 @@ export async function processPiHarnessQuery(input: {
   }
 
   const unsubscribe = runtimeBridge.harness.subscribe(async (event) => {
+    // 每收到任何 harness 事件都视为有活性，重置并重新武装空闲超时，
+    // 确保流中途断网后 idleTimeoutMs 内无新事件即可触发重试。
+    armIdleTimeout()
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       armTerminalTimeout()
       currentAssistantMessageId = `pi_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -779,12 +830,38 @@ export async function processPiHarnessQuery(input: {
 
   try {
     let result: unknown
-    for (let attemptIndex = 0; attemptIndex <= PI_NETWORK_RETRY_LIMIT; attemptIndex += 1) {
-      currentAttempt = attemptIndex + 1
+    // 连续重试计数：一旦本次 attempt 期间收到过新的 chunk（视为「已恢复」），
+    // 就在下次失败时把计数清零，避免整次任务把重试次数一路累加到上限。
+    // 循环退出条件也用它 —— 只有「连续失败」达到上限才真正放弃。
+    let consecutiveRetryCount = 0
+    let progressSnapshot = { textDeltaCount, reasoningDeltaCount, toolCallCount, toolResultCount }
+    const hasMadeProgressSinceSnapshot = (): boolean =>
+      textDeltaCount > progressSnapshot.textDeltaCount
+      || reasoningDeltaCount > progressSnapshot.reasoningDeltaCount
+      || toolCallCount > progressSnapshot.toolCallCount
+      || toolResultCount > progressSnapshot.toolResultCount
+    // 计算「若本轮失败，将会成为的连续失败次数」；本轮有进展则从 1 重新开始计。
+    const computeNextRetryCount = (): number =>
+      hasMadeProgressSinceSnapshot() ? 1 : consecutiveRetryCount + 1
+    // 提交一次失败：更新连续失败计数与进度快照，供下一轮判断。
+    const commitFailedAttempt = (): void => {
+      if (hasMadeProgressSinceSnapshot()) {
+        consecutiveRetryCount = 0
+      }
+      consecutiveRetryCount += 1
+      progressSnapshot = { textDeltaCount, reasoningDeltaCount, toolCallCount, toolResultCount }
+    }
+
+    while (true) {
+      currentAttempt += 1
       terminalTimeoutTriggered = false
+      idleTimeoutTriggered = false
       result = undefined
 
       try {
+        // 不在 attempt 起始时武装 idle timeout：首个 chunk 前的等待完全交给
+        // SessionStreamIpc 的启动/连接超时兜底，避免慢首字节被误判为断流。
+        // 首个 harness event 到达后（见 subscribe 回调）才开始检测空闲。
         result = await runtimeBridge.harness.prompt(prompt, {
           images: images?.map((image) => ({
             type: 'image',
@@ -794,65 +871,94 @@ export async function processPiHarnessQuery(input: {
         })
       } catch (error) {
         clearTerminalTimeout()
-        const errorObj = error instanceof Error ? error : new Error(String(error))
-        const hasVisibleOrSideEffects = textDeltaCount > 0 || toolCallCount > 0 || toolResultCount > 0
+        clearIdleTimeout()
+        const errorObj = idleTimeoutTriggered
+          ? createPiIdleTimeoutError(idleTimeoutMs)
+          : (error instanceof Error ? error : new Error(String(error)))
+        // 中途已经产出内容也允许重试，只要错误可重试且未被外部 abort。
+        const madeProgress = hasMadeProgressSinceSnapshot()
+        const nextRetryCount = computeNextRetryCount()
         const shouldRetry =
           !externalAbortRequested
           && abortSignal?.aborted !== true
-          && !hasVisibleOrSideEffects
-          && attemptIndex < PI_NETWORK_RETRY_LIMIT
+          && nextRetryCount <= PI_NETWORK_RETRY_LIMIT
           && isRetriablePiError(errorObj)
 
         if (!shouldRetry) {
           throw errorObj
         }
 
-        const retryAttempt = attemptIndex + 1
-        logger.warn('[PiQuery] prompt attempt failed before any visible output, scheduling retry', {
+        commitFailedAttempt()
+        logger.warn('[PiQuery] prompt attempt failed, scheduling retry', {
           sessionId,
           traceId: architectureContext.traceId,
-          attempt: retryAttempt,
+          attempt: consecutiveRetryCount,
           maxRetries: PI_NETWORK_RETRY_LIMIT,
           error: errorObj.message,
           currentAttempt,
+          madeProgressSinceLastFailure: madeProgress,
           textDeltaCount,
           toolCallCount,
           toolResultCount
         })
-        emitRetryStatusChunk(retryAttempt)
-        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryAttempt, abortSignal)
+        emitRetryStatusChunk(consecutiveRetryCount)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
         continue
       }
 
       clearTerminalTimeout()
+      clearIdleTimeout()
 
       const resultStopReason = String((result as any).stopReason || '').trim()
       if (terminalTimeoutTriggered) {
         const timeoutError = createPiTerminalTimeoutError(terminalTimeoutMs)
-        const hasVisibleOrSideEffects = textDeltaCount > 0 || toolCallCount > 0 || toolResultCount > 0
+        const madeProgress = hasMadeProgressSinceSnapshot()
+        const nextRetryCount = computeNextRetryCount()
         const shouldRetry =
           !externalAbortRequested
           && abortSignal?.aborted !== true
-          && !hasVisibleOrSideEffects
-          && attemptIndex < PI_NETWORK_RETRY_LIMIT
+          && nextRetryCount <= PI_NETWORK_RETRY_LIMIT
 
         if (!shouldRetry) {
           throw timeoutError
         }
 
-        const retryAttempt = attemptIndex + 1
-        logger.warn('[PiQuery] prompt attempt timed out before any visible output, scheduling retry', {
+        commitFailedAttempt()
+        logger.warn('[PiQuery] prompt attempt timed out, scheduling retry', {
           sessionId,
           traceId: architectureContext.traceId,
-          attempt: retryAttempt,
+          attempt: consecutiveRetryCount,
           maxRetries: PI_NETWORK_RETRY_LIMIT,
-          timeoutMs: terminalTimeoutMs
+          timeoutMs: terminalTimeoutMs,
+          madeProgressSinceLastFailure: madeProgress
         })
-        emitRetryStatusChunk(retryAttempt)
-        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryAttempt, abortSignal)
+        emitRetryStatusChunk(consecutiveRetryCount)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
         continue
       }
       if (externalAbortRequested || abortSignal?.aborted || resultStopReason === 'aborted') {
+        // 若是 idle timeout 主动 abort（而非用户/外部取消），应走重试而非结束流。
+        if (idleTimeoutTriggered && !externalAbortRequested && abortSignal?.aborted !== true) {
+          const idleError = createPiIdleTimeoutError(idleTimeoutMs)
+          const madeProgress = hasMadeProgressSinceSnapshot()
+          const nextRetryCount = computeNextRetryCount()
+          const shouldRetry = nextRetryCount <= PI_NETWORK_RETRY_LIMIT && isRetriablePiError(idleError)
+          if (!shouldRetry) {
+            throw idleError
+          }
+          commitFailedAttempt()
+          logger.warn('[PiQuery] prompt attempt aborted by idle timeout, scheduling retry', {
+            sessionId,
+            traceId: architectureContext.traceId,
+            attempt: consecutiveRetryCount,
+            maxRetries: PI_NETWORK_RETRY_LIMIT,
+            idleTimeoutMs,
+            madeProgressSinceLastFailure: madeProgress
+          })
+          emitRetryStatusChunk(consecutiveRetryCount)
+          await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
+          continue
+        }
         await agentTurnRepository.update(currentTurn.id, {
           assistantText: streamedAssistantText || undefined,
           completedAt: new Date().toISOString(),
@@ -864,28 +970,29 @@ export async function processPiHarnessQuery(input: {
       }
       if (resultStopReason === 'error') {
         const resultError = new Error(String((result as any).errorMessage || 'PI harness returned an error stop reason'))
-        const hasVisibleOrSideEffects = textDeltaCount > 0 || toolCallCount > 0 || toolResultCount > 0
+        const madeProgress = hasMadeProgressSinceSnapshot()
+        const nextRetryCount = computeNextRetryCount()
         const shouldRetry =
           !externalAbortRequested
           && abortSignal?.aborted !== true
-          && !hasVisibleOrSideEffects
-          && attemptIndex < PI_NETWORK_RETRY_LIMIT
+          && nextRetryCount <= PI_NETWORK_RETRY_LIMIT
           && isRetriablePiError(resultError)
 
         if (!shouldRetry) {
           throw resultError
         }
 
-        const retryAttempt = attemptIndex + 1
-        logger.warn('[PiQuery] prompt attempt ended with retriable stopReason=error before any visible output, scheduling retry', {
+        commitFailedAttempt()
+        logger.warn('[PiQuery] prompt attempt ended with retriable stopReason=error, scheduling retry', {
           sessionId,
           traceId: architectureContext.traceId,
-          attempt: retryAttempt,
+          attempt: consecutiveRetryCount,
           maxRetries: PI_NETWORK_RETRY_LIMIT,
-          error: resultError.message
+          error: resultError.message,
+          madeProgressSinceLastFailure: madeProgress
         })
-        emitRetryStatusChunk(retryAttempt)
-        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryAttempt, abortSignal)
+        emitRetryStatusChunk(consecutiveRetryCount)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
         continue
       }
 
@@ -937,6 +1044,7 @@ export async function processPiHarnessQuery(input: {
     emitLifecycleEvent(stream, 'complete', harness)
   } catch (error) {
     clearTerminalTimeout()
+    clearIdleTimeout()
     const errorObj = error instanceof Error ? error : new Error(String(error))
     const isTimedOut = terminalTimeoutTriggered || errorObj.name === 'PiStreamTerminalTimeoutError'
     const isAborted =
@@ -966,6 +1074,7 @@ export async function processPiHarnessQuery(input: {
     emitError(stream, errorObj, harness)
   } finally {
     clearTerminalTimeout()
+    clearIdleTimeout()
     if (abortSignal) {
       abortSignal.removeEventListener('abort', onAbort)
     }

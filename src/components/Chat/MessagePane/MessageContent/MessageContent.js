@@ -185,9 +185,12 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
       appStore.dispatch(upsertManyBlocks(fallbackBlocks));
       return;
     }
-    const placeholderBlocks = fallbackBlocks.filter((block) => block?.type === MessageBlockType.UNKNOWN);
-    if (placeholderBlocks.length > 0) {
-      appStore.dispatch(upsertManyBlocks(placeholderBlocks));
+    // 有 storeMessage 时，仍需把 UNKNOWN 占位块与 ERROR 兜底块塞进 Redux，避免流失败后 UI 空白
+    const extraBlocks = fallbackBlocks.filter(
+      (block) => block?.type === MessageBlockType.UNKNOWN || block?.type === MessageBlockType.ERROR
+    );
+    if (extraBlocks.length > 0) {
+      appStore.dispatch(upsertManyBlocks(extraBlocks));
     }
   }, [storeMessage, fallbackAssistantState]);
 
@@ -195,7 +198,8 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
     ? {
       ...storeMessage,
       status: isLoading ? fallbackAssistantStatus : (storeMessage?.status || fallbackAssistantStatus),
-      error: fallbackMessage?.error || storeMessage?.error || null
+      error: fallbackMessage?.error || storeMessage?.error || null,
+      retryStatusText: fallbackMessage?.retryStatusText || storeMessage?.retryStatusText || ''
     }
     : {
       id: String(fallbackMessage?.id || storeAssistantMessageId || ''),
@@ -205,17 +209,26 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
       createdAt: fallbackAssistantCreatedAt,
       status: fallbackAssistantStatus,
       blocks: fallbackAssistantState.blockIds,
-      error: fallbackMessage?.error || null
+      error: fallbackMessage?.error || null,
+      retryStatusText: fallbackMessage?.retryStatusText || ''
     };
   const blocks = React.useMemo(() => {
     const resolvedBlockIds = Array.isArray(resolvedMessage?.blocks) ? resolvedMessage.blocks : [];
-    const placeholderBlockIds = fallbackAssistantState.blockIds.filter((id) => {
+    const extraFallbackIds = fallbackAssistantState.blockIds.filter((id) => {
       const block = fallbackAssistantState.entities[id];
-      return block?.type === MessageBlockType.UNKNOWN;
+      if (!block) return false;
+      // 补充 UNKNOWN 占位（loading）与 ERROR 兜底块，避免最终失败时 UI 空白
+      return block.type === MessageBlockType.UNKNOWN || block.type === MessageBlockType.ERROR;
     });
+    const merged = [...resolvedBlockIds, ...extraFallbackIds.filter((id) => !resolvedBlockIds.includes(id))];
+    // 无论是否 loading，都需要合并 ERROR；UNKNOWN 只在 loading 时保留
     return isLoading
-      ? [...resolvedBlockIds, ...placeholderBlockIds.filter((id) => !resolvedBlockIds.includes(id))]
-      : resolvedBlockIds;
+      ? merged
+      : merged.filter((id) => {
+          const block = fallbackAssistantState.entities[id];
+          if (block?.type === MessageBlockType.UNKNOWN) return false;
+          return true;
+        });
   }, [resolvedMessage?.blocks, fallbackAssistantState, isLoading]);
 
   return (
@@ -267,8 +280,9 @@ const MessageContent = ({ message, isLoading = false }) => {
     topicId: '',
     createdAt: assistantCreatedAt,
     status: assistantStatus,
-    blocks: assistantState.blockIds
-  }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds]);
+    blocks: assistantState.blockIds,
+    retryStatusText: message?.retryStatusText || ''
+  }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds, message?.retryStatusText]);
 
   React.useEffect(() => {
     if (!isAssistant) return;

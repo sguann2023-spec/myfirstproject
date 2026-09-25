@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StoryboardEditor from './StoryboardEditor';
 import { createParts, labelParts, parseRecognition, mergeParts, splitPart, validateParts, buildPartsDocument } from './model';
 import { buildTimeline, timelinePoint } from './timeline';
-import { captionCues, deleteSubtitleUnits, editCaption, subtitleUnits, timedTokens } from './subtitles';
+import { captionCues, deleteSubtitleTextUnits, deleteSubtitleUnits, editCaption, subtitleUnits, timedTokens } from './subtitles';
 
 vi.mock('./Filmstrip', () => ({ default: () => null }));
 vi.mock('antd', () => ({ Tooltip: ({ children }) => children }));
@@ -93,6 +93,12 @@ const render = async (data = raw, legacy = false) => {
         saved(next);
         setParts(next);
       }}
+      onDeleteSubtitleText={(units) => {
+        const next = labelParts(deleteSubtitleTextUnits(parts, segments, units));
+        validateParts(next);
+        saved(next);
+        setParts(next);
+      }}
       onEditCaption={(id, edit) => setParts((parts) => parts.map((part) => part.id === id ? editCaption(part, segments, edit) : part))}
       onInsert={() => {}} onMerge={() => {}} onSplit={() => {}} />;
   };
@@ -105,6 +111,8 @@ const q = (selector) => container.querySelector(selector);
 const qa = (selector) => [...container.querySelectorAll(selector)];
 const click = async (label, options = {}) => act(async () => q(`[aria-label="${label}"]`)
   .dispatchEvent(new MouseEvent('click', { bubbles: true, ...options })));
+const contextMenu = async (label) => act(async () => q(`[aria-label="${label}"]`)
+  .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 12, clientY: 34 })));
 const press = async (key) => act(async () => q('.storyboard-subtitles')
   .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key })));
 const frame = async () => {
@@ -274,6 +282,45 @@ describe('待删除视觉与轨道关联', () => {
     await click('字幕 满', { shiftKey: true });
     expect(qa('.storyboard-subtitles__word.is-pending').map((node) => node.textContent)).toEqual(['卖', '满']);
   });
+  it('连续 Shift 连选会按当前锚点范围更新高亮，不残留旧范围', async () => {
+    await render();
+    await click('字幕 卖');
+    await click('字幕 减', { shiftKey: true });
+    expect(qa('.storyboard-subtitles__word.is-pending').map((node) => node.textContent)).toEqual(['卖', '满', '30，', '减']);
+    await click('字幕 满', { shiftKey: true });
+    expect(qa('.storyboard-subtitles__word.is-pending').map((node) => node.textContent)).toEqual(['卖', '满']);
+  });
+  it('普通取消一个已选中字后，Shift 连选按同一锚点范围反选', async () => {
+    await render();
+    await click('字幕 卖');
+    await click('字幕 减', { shiftKey: true });
+    expect(qa('.storyboard-subtitles__word.is-pending')).toHaveLength(4);
+    await click('字幕 卖');
+    await click('字幕 30，', { shiftKey: true });
+    expect(qa('.storyboard-subtitles__word.is-pending').map((node) => node.textContent)).toEqual(['减']);
+  });
+  it('右键仅删除文字不删除分镜或时间范围，停顿会被忽略', async () => {
+    await render();
+    await click('停顿 0.40 秒');
+    await click('字幕 卖');
+    await contextMenu('字幕 卖');
+    expect(q('.storyboard-subtitles__menu').textContent).toBe('仅删除文字');
+    await act(async () => q('.storyboard-subtitles__menu button').click());
+    expect(saved).toHaveBeenCalledOnce();
+    expect(latest).toHaveLength(2);
+    expect(latest[0]).toMatchObject({ start: 100, end: 2000, text: '外满30，' });
+    expect(latest[1]).toMatchObject({ start: 2000, end: 2800, text: '减15。' });
+    expect(q('[aria-label="停顿 0.40 秒"]')).not.toBeNull();
+    expect(q('[role="slider"]').getAttribute('aria-valuemax')).toBe('2700');
+  });
+  it('右键未选中的字会先选中该字，再仅删除文字', async () => {
+    await render();
+    await contextMenu('字幕 满');
+    await act(async () => q('.storyboard-subtitles__menu button').click());
+    expect(saved).toHaveBeenCalledOnce();
+    expect(latest[0]).toMatchObject({ start: 100, end: 2000, text: '外卖30，' });
+    expect(latest).toHaveLength(2);
+  });
   it('确认删除后区间才移除，后续播放跳过已删画面', async () => {
     await render();
     await click('字幕 卖');
@@ -292,15 +339,29 @@ describe('待删除视觉与轨道关联', () => {
     await frame();
     expect(q('.storyboard-preview__media').currentTime).toBe(0.5);
   });
-  it('轨道定位和外部修改均清除过期待删除选区', async () => {
+  it('轨道定位保留待删除选区，外部修改才清除', async () => {
     await render();
     await click('字幕 卖');
     await click('选择 part2_1');
-    expect(qa('.storyboard-pending-range')).toHaveLength(0);
+    expect(qa('.storyboard-pending-range')).toHaveLength(1);
+    expect(q('[aria-label="字幕 卖"]').classList.contains('is-pending')).toBe(true);
     await click('字幕 满');
     await act(async () => updateExternal((parts) => parts.map((part) => ({ ...part }))));
     expect(qa('.storyboard-pending-range')).toHaveLength(0);
     expect(saved).not.toHaveBeenCalled();
+  });
+  it('点预览轨道其他位置只定位，不取消已标记待删除', async () => {
+    await render();
+    await click('字幕 卖');
+    const surface = q('.storyboard-lane__surface');
+    surface.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000 });
+    Object.defineProperty(surface, 'offsetWidth', { value: 1000, configurable: true });
+    await act(async () => {
+      surface.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+      surface.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+    });
+    expect(q('[aria-label="字幕 卖"]').classList.contains('is-pending')).toBe(true);
+    expect(qa('.storyboard-pending-range')).toHaveLength(1);
   });
   it('双击编辑不保留删除预览，字幕 Delete 只处理已选时间片段', async () => {
     await render();

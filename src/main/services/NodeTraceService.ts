@@ -1,4 +1,3 @@
-import { loggerService } from '@logger'
 import { isDev } from '@main/constant'
 import { CacheBatchSpanProcessor, FunctionSpanExporter } from '@mcp-trace/trace-core'
 import { NodeTracer as MCPNodeTracer } from '@mcp-trace/trace-node/nodeTracer'
@@ -12,13 +11,9 @@ import { spanCacheService } from './SpanCacheService'
 
 export const TRACER_NAME = 'CherryStudio'
 
-const logger = loggerService.withContext('NodeTraceService')
-
 export class NodeTraceService {
   init() {
-    const exporter = new FunctionSpanExporter(async (spans) => {
-      logger.info(`Spans length: ${spans.length}`)
-    })
+    const exporter = new FunctionSpanExporter(async () => {})
 
     MCPNodeTracer.init(
       {

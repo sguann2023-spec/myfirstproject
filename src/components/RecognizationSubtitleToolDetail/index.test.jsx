@@ -61,10 +61,15 @@ const change = async (selector, value) => {
   Object.getOwnPropertyDescriptor(prototype, 'value').set.call(node, value);
   await act(async () => node.dispatchEvent(new Event('input', { bubbles: true })));
 };
-const chooseFile = async (file = new File(['media'], 'video.mp4')) => {
+const chooseFile = async (file = new File(['media'], 'video.mp4'), duration = 120) => {
   const node = container.querySelector('input[type="file"]');
   Object.defineProperty(node, 'files', { configurable: true, value: [file] });
   await act(async () => node.dispatchEvent(new Event('change', { bubbles: true })));
+  const media = container.querySelector('audio, video');
+  if (media) {
+    Object.defineProperty(media, 'duration', { configurable: true, value: duration });
+    await act(async () => media.dispatchEvent(new Event('loadedmetadata')));
+  }
 };
 const dropFiles = async (files) => {
   const event = new Event('drop', { bubbles: true, cancelable: true });
@@ -139,6 +144,30 @@ describe('subtitle toolbar and popover', () => {
     expect(button('开始识别')).toBeUndefined();
     expect(button('展开或折叠正确文案').getAttribute('aria-expanded')).toBe('false');
     expect(container.querySelector('.chat-panel__subtitle-dialog-layout').classList.contains('is-split')).toBe(true);
+  });
+
+  it('accepts large local media when duration is within two hours', async () => {
+    const file = new File(['media'], 'large.mp4');
+    Object.defineProperty(file, 'size', { configurable: true, value: 600 * 1024 * 1024 });
+    await render();
+    await chooseFile(file);
+    expect(validateSubtitleMedia(file)).toBe('');
+    const video = container.querySelector('video');
+    Object.defineProperty(video, 'duration', { configurable: true, value: 2 * 60 * 60 });
+    await act(async () => video.dispatchEvent(new Event('loadedmetadata')));
+    expect(latestSettings().mediaSource).toBe('/video.mp4');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('rejects media longer than two hours after reading its metadata', async () => {
+    await render();
+    await chooseFile();
+    const video = container.querySelector('video');
+    Object.defineProperty(video, 'duration', { configurable: true, value: 2 * 60 * 60 + 0.01 });
+    await act(async () => video.dispatchEvent(new Event('durationchange')));
+    expect(latestSettings().mediaSource).toBe('');
+    expect(container.querySelector('video')).toBeNull();
+    expect(container.querySelector('[role="alert"]').textContent).toContain('时长不能超过 2 小时');
   });
 
   it('preserves media and settings when hiding and reopening the popover', async () => {
@@ -229,6 +258,9 @@ describe('subtitle toolbar and popover', () => {
     expect(container.querySelector('[role="alert"]').textContent).toContain('一次只能选择一个');
     await dropFiles([new File(['a'], 'a.wav')]);
     expect(container.querySelector('audio')).not.toBeNull();
+    const audio = container.querySelector('audio');
+    Object.defineProperty(audio, 'duration', { configurable: true, value: 120 });
+    await act(async () => audio.dispatchEvent(new Event('loadedmetadata')));
     expect(sendState().canSend).toBe(true);
   });
 
@@ -296,12 +328,15 @@ describe('subtitle toolbar and popover', () => {
 
   it('validates defaults, no-split boundaries, file paths and removed settings', () => {
     expect(getRecognizationSubtitleToolSendState().canSend).toBe(false);
-    expect(getRecognizationSubtitleToolSendState({ mediaSource: 'blob:preview' }).canSend).toBe(false);
+    expect(getRecognizationSubtitleToolSendState({ mediaSource: 'blob:preview', mediaDuration: 60 }).canSend).toBe(false);
+    expect(getRecognizationSubtitleToolSendState({ mediaSource: '/video.mp4' }).canSend).toBe(false);
+    expect(getRecognizationSubtitleToolSendState({ mediaSource: '/video.mp4', mediaDuration: 7200 }).canSend).toBe(true);
+    expect(getRecognizationSubtitleToolSendState({ mediaSource: '/video.mp4', mediaDuration: 7200.01 }).canSend).toBe(false);
     expect(getSubtitlePreviewSource('/tmp/a #1.mp4')).toBe('file:///tmp/a%20%231.mp4');
     expect(getSubtitlePreviewSource('C:\\video\\a.mp4')).toBe('file:///C:/video/a.mp4');
     expect(getSubtitlePreviewSource('invalid')).toBe('');
     expect(validateSubtitleMedia(new File([], 'a.mp3'))).toContain('空文件');
-    expect(validateSubtitleMedia({ name: 'a.mp4', size: 501 * 1024 * 1024 })).toContain('500MB');
+    expect(validateSubtitleMedia({ name: 'a.mp4', size: 501 * 1024 * 1024 })).toBe('');
     for (const value of [80.1, 81, 100]) expect(normalizeSentenceLength(value)).toBe(81);
     for (const value of [null, undefined, '', NaN]) expect(normalizeSentenceLength(value)).toBe(12);
     const prompt = buildRecognizationSubtitlePrompt({
@@ -387,7 +422,7 @@ describe('subtitle pricing', () => {
     expect(text()).toBe('10积分');
     await click('字幕设置');
     expect(text()).toBe('10积分');
-    await chooseFile(new File(['audio'], 'audio.mp3'));
+    await chooseFile(new File(['audio'], 'audio.mp3'), 0);
     expect(text()).toBe('--积分');
     const audio = container.querySelector('audio');
     Object.defineProperty(audio, 'duration', { configurable: true, value: 20 });

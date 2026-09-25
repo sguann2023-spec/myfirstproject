@@ -295,7 +295,9 @@ function getLoginShellEnvironment(): Promise<Record<string, string>> {
   })
 }
 
-let cachedEnv: Record<string, string> | null = null
+// 缓存 Promise 而不是结果，避免并发调用时重复 spawn zsh。
+// 首次调用发起 fetch，后续所有调用共享同一个 Promise。
+let cachedEnvPromise: Promise<Record<string, string>> | null = null
 
 async function fetchShellEnv(): Promise<Record<string, string>> {
   try {
@@ -315,15 +317,31 @@ async function fetchShellEnv(): Promise<Record<string, string>> {
 /**
  * Get the cached shell environment. If no cache exists yet, fetches it once.
  * This is a pure query -- it never invalidates the cache.
+ *
+ * 并发调用安全：多个调用会共享同一个 inflight Promise，只会 spawn 一次 shell。
  */
 async function getShellEnv(): Promise<Record<string, string>> {
-  if (!cachedEnv) {
-    cachedEnv = await fetchShellEnv()
+  if (!cachedEnvPromise) {
+    cachedEnvPromise = fetchShellEnv().catch((error) => {
+      // 失败时清除缓存，允许下次重试
+      cachedEnvPromise = null
+      throw error
+    })
   }
-  return cachedEnv
+  return cachedEnvPromise
 }
 
 export default getShellEnv
+
+/**
+ * 预热 shell 环境缓存。fire-and-forget，不阻塞调用方。
+ * 在登录期调用可以让首次业务调用直接命中缓存，避免 2-3s 的 zsh spawn 卡在关键路径上。
+ */
+export function preheatShellEnv(): void {
+  void getShellEnv().catch((error) => {
+    logger.warn('preheatShellEnv failed', { error })
+  })
+}
 
 /**
  * Invalidate the shell env cache and immediately re-fetch a fresh environment.
@@ -334,6 +352,6 @@ export default getShellEnv
  * separate getShellEnv() call, avoiding stale-read race conditions.
  */
 export async function refreshShellEnv(): Promise<Record<string, string>> {
-  cachedEnv = await fetchShellEnv()
-  return cachedEnv
+  cachedEnvPromise = fetchShellEnv()
+  return cachedEnvPromise
 }

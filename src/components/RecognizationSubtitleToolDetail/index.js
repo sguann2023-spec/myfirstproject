@@ -78,7 +78,7 @@ export const estimateSubtitlePoints = (pricing, settings, duration) => {
 
 const MEDIA_EXTENSIONS = ['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma', 'avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm'];
 const MEDIA_ACCEPT = MEDIA_EXTENSIONS.map((extension) => `.${extension}`).join(',');
-const MAX_MEDIA_SIZE = 500 * 1024 * 1024;
+export const MAX_MEDIA_DURATION_SECONDS = 2 * 60 * 60;
 const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
 
 export const getSubtitlePreviewSource = (value = '') => {
@@ -104,16 +104,18 @@ export const validateSubtitleMedia = (file) => {
     return '请选择支持的音频或视频文件';
   }
   if (!file.size) return '不能上传空文件';
-  if (file.size > MAX_MEDIA_SIZE) return '文件大小不能超过 500MB';
   return '';
 };
 
 export const getRecognizationSubtitleToolSendState = (settings = DEFAULT_SUBTITLE_SETTINGS) => {
   const source = String(settings?.mediaSource || '').trim();
-  const canSend = !settings?.uploading && Boolean(source) && !/^blob:/i.test(source);
+  const durationReady = Number.isFinite(settings?.mediaDuration)
+    && settings.mediaDuration > 0 && settings.mediaDuration <= MAX_MEDIA_DURATION_SECONDS;
+  const canSend = !settings?.uploading && Boolean(source) && !/^blob:/i.test(source) && durationReady;
   return {
     canSend,
-    disabledReason: canSend ? '' : settings?.uploading ? '音视频上传中，请稍候' : '请添加音频或视频',
+    disabledReason: canSend ? '' : settings?.uploading ? '音视频上传中，请稍候'
+      : source && !durationReady ? '正在读取音视频时长或时长超出限制' : '请添加音频或视频',
   };
 };
 
@@ -176,8 +178,8 @@ const RecognizationSubtitleToolDetail = ({
   }, []);
 
   React.useEffect(() => {
-    onSettingsChange?.({ ...draft, uploading });
-  }, [draft, uploading, onSettingsChange]);
+    onSettingsChange?.({ ...draft, uploading, mediaDuration });
+  }, [draft, uploading, mediaDuration, onSettingsChange]);
 
   // Exit/removal/replacement invalidates uploads, but merely hiding the popover does not.
   React.useEffect(() => () => { uploadVersionRef.current += 1; }, []);
@@ -229,6 +231,18 @@ const RecognizationSubtitleToolDetail = ({
     }
   };
 
+  const handleMediaDurationChange = (duration) => {
+    setMediaDuration(duration);
+    if (duration > MAX_MEDIA_DURATION_SECONDS) {
+      uploadVersionRef.current += 1;
+      setLocalMedia(null);
+      setMediaDuration(0);
+      setUploading(false);
+      setDraft((previous) => ({ ...previous, mediaSource: '', mediaName: '' }));
+      setError('音视频时长不能超过 2 小时');
+    }
+  };
+
   const removeMedia = () => {
     uploadVersionRef.current += 1;
     setLocalMedia(null);
@@ -272,7 +286,7 @@ const RecognizationSubtitleToolDetail = ({
             {previewSource ? (
               <MediaPreview key={`${previewSource}-${settingsOpen}`} source={previewSource}
                 name={draft.mediaName} kind={localMedia?.kind || getMediaKind(draft.mediaSource)}
-                onDurationChange={setMediaDuration}
+                onDurationChange={handleMediaDurationChange}
                 removeDisabled={disabled} onRemove={removeMedia} />
             ) : (
               <button type="button" className="chat-panel__subtitle-upload"

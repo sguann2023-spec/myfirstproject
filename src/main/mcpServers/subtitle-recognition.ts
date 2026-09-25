@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { loggerService } from '@logger'
 import { ossUploadService } from '@main/services/OssUploadService'
+import { prepareSubtitleAudio } from '@main/utils/prepare-subtitle-audio'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -37,7 +38,7 @@ type SubtitleRecognitionEffectMode = (typeof SUBTITLE_RECOGNITION_EFFECT_MODES)[
 const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   name: 'submit_subtitle_recognition_task',
   description:
-    'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. Remote URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
+    'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. Remote URLs are accepted directly. Local media is duration-checked (maximum 2 hours), converted to a compact MP3 audio track, then uploaded internally.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -360,11 +361,16 @@ class SubtitleRecognitionServer {
       throw new McpError(ErrorCode.InvalidParams, "'url' must point to a local file")
     }
 
-    const uploaded = await this.uploadLocalFile(normalizedSource)
-    return {
-      originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
-      submittedUrl: uploaded.signedPublicUrl,
-      sourceKind: 'local_media'
+    const preparedAudio = await prepareSubtitleAudio(normalizedSource)
+    try {
+      const uploaded = await this.uploadLocalFile(preparedAudio.audioPath)
+      return {
+        originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
+        submittedUrl: uploaded.signedPublicUrl,
+        sourceKind: 'local_media'
+      }
+    } finally {
+      await preparedAudio.cleanup()
     }
   }
 

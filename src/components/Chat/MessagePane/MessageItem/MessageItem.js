@@ -608,6 +608,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevMessage.role === nextMessage.role
     && prevMessage.createdAt === nextMessage.createdAt
     && prevMessage.updatedAt === nextMessage.updatedAt
+    && prevMessage.retryStatusText === nextMessage.retryStatusText
     && prevUsage === nextUsage
     && prevUsageSteps === nextUsageSteps
     && prevMetrics === nextMetrics

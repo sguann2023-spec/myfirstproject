@@ -19,6 +19,7 @@ import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
+import StoryboardEditorServer from '@main/mcpServers/storyboard-editor'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
 import SystemServer from '@main/mcpServers/system'
@@ -108,6 +109,7 @@ export async function mountRuntimeMcpServers(input: {
   const hasWebDomain = hasActiveDomain('web')
   const hasAiMediaDomain = hasActiveDomain('ai_media')
   const hasCutDomain = hasActiveDomain('cut')
+  const hasStoryDomain = hasActiveDomain('story')
   const hasSkillsDomain = hasActiveDomain('skills')
   const hasAuxiliaryDomain = hasActiveDomain('auxiliary')
   const hasScraptDomain = hasActiveDomain('scrapt')
@@ -404,6 +406,27 @@ export async function mountRuntimeMcpServers(input: {
     })
     autoAllowTools.add(vt('cut-workflow', 'execute_workflow'))
     allowMcpPattern(vp('cut-workflow'))
+  }
+
+  if (hasStoryDomain) {
+    const storyboardEditorServer = new StoryboardEditorServer()
+    mountMcpServer('storyboard-editor', {
+      type: 'sdk',
+      name: 'storyboard-editor',
+      instance: storyboardEditorServer.mcpServer
+    })
+    if (shouldMountCapability('storyboardInspect')) autoAllowTools.add(vt('storyboard-editor', 'inspect_storyboard'))
+    if (shouldMountCapability('storyboardUpdateText')) autoAllowTools.add(vt('storyboard-editor', 'update_part_text'))
+    if (shouldMountCapability('storyboardSplitPart')) autoAllowTools.add(vt('storyboard-editor', 'split_part'))
+    if (shouldMountCapability('storyboardMergeParts')) autoAllowTools.add(vt('storyboard-editor', 'merge_parts'))
+    if (shouldMountCapability('storyboardDeleteParts')) autoAllowTools.add(vt('storyboard-editor', 'delete_parts'))
+    if (shouldMountCapability('storyboardDeleteRange')) autoAllowTools.add(vt('storyboard-editor', 'delete_range'))
+    if (shouldMountCapability('storyboardDuplicatePart')) autoAllowTools.add(vt('storyboard-editor', 'duplicate_part'))
+    if (shouldMountCapability('storyboardMovePart')) autoAllowTools.add(vt('storyboard-editor', 'move_part'))
+    if (shouldMountCapability('storyboardClearPartText')) autoAllowTools.add(vt('storyboard-editor', 'clear_part_text'))
+    if (shouldMountCapability('storyboardInsertBlankPart')) autoAllowTools.add(vt('storyboard-editor', 'insert_blank_part'))
+    if (shouldMountCapability('storyboardAdjustPartBounds')) autoAllowTools.add(vt('storyboard-editor', 'adjust_part_bounds'))
+    allowMcpPattern(vp('storyboard-editor'))
   }
 
   if (hasScraptDomain) {

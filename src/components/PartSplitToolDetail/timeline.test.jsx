@@ -222,14 +222,14 @@ describe('轨道交互', () => {
     expect(container.querySelector('[aria-label="删除分镜"]').disabled).toBe(true);
     expect(container.querySelector('.storyboard-clock').textContent).toBe('00:00 / 00:00');
   });
-  it('合并后的单镜播放和悬停仍跳过删除区间', async () => {
+  it('合并后的单镜播放仍跳过删除区间，悬停不触发预览', async () => {
     await render({ parts: mergeParts(parts, ['a', 'b']) });
     const main = container.querySelector('.storyboard-preview__media');
     const surface = container.querySelector('.storyboard-lane__surface');
     surface.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000 });
     const width = parseFloat(container.querySelector('.storyboard-clip').style.width) + 3;
     await pointer('pointermove', width / 2);
-    expect(container.querySelector('.storyboard-preview__hover').currentTime).toBeCloseTo(6);
+    expect(container.querySelector('.storyboard-preview__hover')).toBeNull();
     await click('[aria-label="播放分镜序列"]');
     main.currentTime = 3.01;
     await frame();
@@ -269,6 +269,7 @@ describe('轨道交互', () => {
     expect(container.querySelectorAll('.storyboard-clip.is-selected')).toHaveLength(1);
     await dragBox();
     await pointer('pointerdown', 20);
+    await pointer('pointerup', 20);
     expect(container.querySelectorAll('.storyboard-clip.is-selected')).toHaveLength(1);
   });
   it('框选后删除键删除整个选择集', async () => {
@@ -286,22 +287,19 @@ describe('轨道交互', () => {
     await click('[aria-label="在末尾新增空分镜"]');
     expect(callbacks.onInsert).toHaveBeenCalledWith(2);
   });
-  it('悬停使用独立视频，移开后播放头与主视频保持原位', async () => {
+  it('悬停轨道不预览、不显示跟随刻度线，也不改变正式播放位置', async () => {
     await render();
     const main = container.querySelector('.storyboard-preview__media');
-    const hover = container.querySelector('.storyboard-preview__hover');
     const headBefore = container.querySelector('.storyboard-playhead').style.left;
     await pointer('pointermove', 100);
     expect(main.currentTime).toBe(1);
-    expect(hover.currentTime).toBeGreaterThan(1);
-    expect(container.querySelector('.storyboard-hoverline')).not.toBeNull();
-    expect(container.querySelector('.storyboard-playhead').style.left).toBe(headBefore);
-    expect(hover.classList.contains('is-visible')).toBe(true);
-    await pointer('pointerout', 100);
+    expect(container.querySelector('.storyboard-preview__hover')).toBeNull();
     expect(container.querySelector('.storyboard-hoverline')).toBeNull();
+    expect(container.querySelector('.storyboard-playhead').style.left).toBe(headBefore);
+    await pointer('pointerout', 100);
     expect(main.currentTime).toBe(1);
   });
-  it('拖动播放头提交时间，取消后可以继续悬停预览', async () => {
+  it('拖动播放头提交时间，取消后普通移动不改变位置', async () => {
     await render();
     await pointer('pointerdown', 50);
     await pointer('pointermove', 100);
@@ -343,11 +341,96 @@ describe('轨道交互', () => {
     expect(container.querySelector('.storyboard-preview__subtitle').textContent).toBe('第二段');
     expect(container.querySelector('[role="slider"]').getAttribute('aria-valuenow')).toBe('2017');
     expect(container.querySelector('[aria-label="选择 part2_1"]').getAttribute('aria-pressed')).toBe('true');
+    const playheadPosition = container.querySelector('.storyboard-playhead').style.transform;
     main.currentTime = 3.04;
     seek.mockClear();
     await frame();
     expect(seek).not.toHaveBeenCalled();
-    expect(container.querySelector('[role="slider"]').getAttribute('aria-valuenow')).toBe('2040');
+    expect(container.querySelector('.storyboard-playhead').style.transform).not.toBe(playheadPosition);
+  });
+  it('连续短分镜切换时忽略 ended 抖动，不会中途跳过或停止', async () => {
+    let ended = false;
+    vi.spyOn(HTMLMediaElement.prototype, 'ended', 'get').mockImplementation(() => ended);
+    const shortParts = [
+      { id: 'a', label: 'part1_1', sourceIndex: 0, start: 1000, end: 1100, text: 'A', blank: false },
+      { id: 'b', label: 'part2_1', sourceIndex: 1, start: 1105, end: 1205, text: 'B', blank: false },
+      { id: 'c', label: 'part3_1', sourceIndex: 2, start: 1210, end: 1310, text: 'C', blank: false },
+    ];
+    await render({ parts: shortParts, selectedId: 'a' });
+    const main = container.querySelector('.storyboard-preview__media');
+    await click('[aria-label="播放分镜序列"]');
+    ended = true;
+    main.currentTime = 1.1;
+    await frame();
+    expect(callbacks.onSelect).toHaveBeenCalledWith('b');
+    expect(container.querySelector('[role="slider"]').getAttribute('aria-valuenow')).toBe('100');
+    callbacks.onSelect.mockClear();
+    main.currentTime = 1.105;
+    await frame();
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="slider"]').getAttribute('aria-valuenow')).toBe('100');
+    ended = false;
+    main.currentTime = 1.205;
+    await frame();
+    expect(callbacks.onSelect).toHaveBeenCalledWith('c');
+    expect(container.querySelector('[role="slider"]').getAttribute('aria-valuenow')).toBe('200');
+  });
+  it('媒体时间未推进时播放头不会独立走时，恢复播放后直接跟随媒体', async () => {
+    await render();
+    const main = container.querySelector('.storyboard-preview__media');
+    await click('[aria-label="播放分镜序列"]');
+    main.currentTime = 1;
+    const now = performance.now();
+    await frame(now + 16);
+    const first = container.querySelector('.storyboard-playhead').style.transform;
+    await frame(now + 32);
+    expect(container.querySelector('.storyboard-playhead').style.transform).toBe(first);
+    main.currentTime = 1.4;
+    await frame(now + 48);
+    const scale = (parseFloat(container.querySelector('.storyboard-clip').style.width) + 3) / 2;
+    expect(container.querySelector('.storyboard-playhead').style.transform).toBe(`translate3d(${0.4 * scale}px, 0, 0)`);
+  });
+  it('暂停使用最新媒体时间，连续边界之后也不退回上一帧', async () => {
+    await render({ parts: [parts[0], { ...parts[1], start: 3000 }] });
+    const main = container.querySelector('.storyboard-preview__media');
+    await click('[aria-label="播放分镜序列"]');
+    main.currentTime = 2.98;
+    await frame();
+    main.currentTime = 3.02;
+    await click('[aria-label="暂停预览"]');
+    expect(container.querySelector('[role="slider"]').getAttribute('aria-valuenow')).toBe('2020');
+    const stopped = container.querySelector('.storyboard-playhead').style.transform;
+    await frame(performance.now() + 500);
+    expect(container.querySelector('.storyboard-playhead').style.transform).toBe(stopped);
+  });
+  it('同一字幕和秒数内的播放帧不重复替换文本节点', async () => {
+    await render();
+    const main = container.querySelector('.storyboard-preview__media');
+    await click('[aria-label="播放分镜序列"]');
+    const clock = container.querySelector('.storyboard-clock span').firstChild;
+    const subtitle = container.querySelector('.storyboard-preview__subtitle').firstChild;
+    main.currentTime = 1.1;
+    await frame();
+    main.currentTime = 1.2;
+    await frame();
+    expect(container.querySelector('.storyboard-clock span').firstChild).toBe(clock);
+    expect(container.querySelector('.storyboard-preview__subtitle').firstChild).toBe(subtitle);
+  });
+  it('长时间轴只挂载可见分镜，横向滚动后补上对应片段和正确插入索引', async () => {
+    const many = Array.from({ length: 650 }, (_,i) => ({
+      id: `p${i}`, label: `part${i}`, start: i * 3000, end: (i + 1) * 3000, text: '字幕',
+    }));
+    await render({ parts: many, selectedId: 'p0' });
+    expect(container.querySelectorAll('.storyboard-clip').length).toBeLessThan(12);
+    const scroll = container.querySelector('.storyboard-lane__scroll');
+    await act(async () => {
+      scroll.scrollLeft = 12000;
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    expect(container.querySelector('[aria-label="选择 part100"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="选择 part0"]')).toBeNull();
+    await click('[aria-label="在第 101 个分镜前插入空分镜"]');
+    expect(callbacks.onInsert).toHaveBeenCalledWith(100);
   });
   it('精确到达连续边界才更新下一镜，不提前一毫秒', async () => {
     await render({ parts: [parts[0], { ...parts[1], start: 3000 }] });
@@ -465,13 +548,13 @@ describe('轨道交互', () => {
     expect(container.querySelector('.storyboard-preview__media').currentTime).toBe(2);
     expect(callbacks.onSelect).toHaveBeenCalledWith('a-right');
   });
-  it('卸载时暂停主播放器和悬停播放器', async () => {
+  it('卸载时暂停主播放器', async () => {
     await render();
     await click('[aria-label="播放分镜序列"]');
     HTMLMediaElement.prototype.pause.mockClear();
     await act(async () => root.unmount());
     root = null;
-    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(2);
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledOnce();
   });
   it('禁用时不允许拖动、分割或插入', async () => {
     await render({ disabled: true });
@@ -490,7 +573,8 @@ describe('轨道交互', () => {
     expect(container.querySelector('.storyboard-clip__name')).toBeNull();
     expect(container.querySelector('.storyboard-clip[title]')).toBeNull();
     expect(container.querySelector('.storyboard-preview__badge')).toBeNull();
-    expect(container.querySelector('.storyboard-preview__hover.is-visible')).not.toBeNull();
+    expect(container.querySelector('.storyboard-preview__hover')).toBeNull();
+    expect(container.querySelector('.storyboard-hoverline')).toBeNull();
     expect(container.querySelector('.storyboard-zoom')).toBeNull();
     expect(container.querySelector('[aria-label="静音"]')).toBeNull();
   });

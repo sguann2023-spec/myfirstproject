@@ -160,6 +160,9 @@ function isResultAnchorBlock(group: GroupedBlock): boolean {
   const block = Array.isArray(group) ? group[0] : group
   if (!block) return false
 
+  // 注意：ERROR 不作为结果锚，否则一旦发生错误就会把此前的工具产出全部折叠，
+  // 用户看不到已产生的最后一次有效结果。ERROR 会作为「锚点之后」的块继续展示。
+  // TOOL 也视为有效结果锚：当执行到一半失败时，最后一次工具产出应当保留可见。
   switch (block.type) {
     case MessageBlockType.MAIN_TEXT:
     case MessageBlockType.CODE:
@@ -168,7 +171,7 @@ function isResultAnchorBlock(group: GroupedBlock): boolean {
     case MessageBlockType.VIDEO:
     case MessageBlockType.TRANSLATION:
     case MessageBlockType.COMPACT:
-    case MessageBlockType.ERROR:
+    case MessageBlockType.TOOL:
       return true
     default:
       return false
@@ -220,6 +223,18 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
   // even after main text or tool blocks have already rendered.
   const shouldShowProcessingPlaceholder = isProcessing
 
+  // 从 UNKNOWN 占位块的 metadata.loadingLabel 中提取网络重试提示文案
+  const processingLoadingLabel = useMemo(() => {
+    for (const block of renderedBlocks) {
+      if (block?.type !== MessageBlockType.UNKNOWN) continue
+      const label = String((block as any)?.metadata?.loadingLabel || '').trim()
+      if (label) return label
+    }
+    // 兜底：直接从 message 上读取 retryStatusText（例如 fallback message 或未落 store 时）
+    const rawRetryText = String((message as any)?.retryStatusText || '').trim()
+    return rawRetryText
+  }, [renderedBlocks, message])
+
   const resultAnchorIndex = useMemo(() => {
     for (let index = groupedBlocks.length - 1; index >= 0; index--) {
       if (isResultAnchorBlock(groupedBlocks[index])) {
@@ -233,8 +248,14 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
     if (message.role !== 'assistant' || isProcessing || resultAnchorIndex <= 0) {
       return [] as GroupedBlock[]
     }
+    // 异常终止（存在 ERROR 块，即"回答了一半"）时不折叠，
+    // 让用户看到完整的思考/工具产出上下文，而不是仅剩最后一个块 + 错误 banner。
+    const hasErrorBlock = renderedBlocks.some((b) => b?.type === MessageBlockType.ERROR)
+    if (hasErrorBlock) {
+      return [] as GroupedBlock[]
+    }
     return groupedBlocks.slice(0, resultAnchorIndex)
-  }, [groupedBlocks, isProcessing, message.role, resultAnchorIndex])
+  }, [groupedBlocks, isProcessing, message.role, renderedBlocks, resultAnchorIndex])
 
   const visibleGroupedBlocks = useMemo(() => {
     if (hiddenGroupedBlocks.length === 0) {
@@ -388,7 +409,8 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
               messageId: message.id,
               type: MessageBlockType.UNKNOWN,
               status: MessageBlockStatus.PROCESSING,
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              metadata: processingLoadingLabel ? { loadingLabel: processingLoadingLabel } : undefined
             }}
           />
         </AnimatedBlockWrapper>

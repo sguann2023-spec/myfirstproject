@@ -145,22 +145,13 @@
   overflow: hidden;
   background: #080808;
 }
-.storyboard-preview__media,
-.storyboard-preview__hover {
+.storyboard-preview__media {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 .storyboard-preview__media.is-concealed { visibility: hidden; }
-.storyboard-preview__hover {
-  position: absolute;
-  inset: 0;
-  background: #080808;
-  opacity: 0;
-  pointer-events: none;
-}
-.storyboard-preview__hover.is-visible { opacity: 1; }
 .storyboard-preview__empty {
   position: absolute;
   inset: 0;
@@ -276,7 +267,6 @@
   background: linear-gradient(transparent 55%, #0005);
 }
 .storyboard-clips .storyboard-clip.is-selected { border: 1.5px solid #fff; box-shadow: 0 0 0 1px #0003; }
-.storyboard-clips .storyboard-clip.is-hovered:not(.is-selected) { border-color: #999; background: #ffffff0d; }
 .storyboard-pending-range {
   position: absolute;
   top: 1px;
@@ -298,11 +288,8 @@
 .storyboard-clip__handle:not(:disabled):hover,
 .storyboard-clip__handle:focus-visible { background: #ffffff24; }
 .storyboard-trim-time { position: sticky; left: 8px; top: 0; width: max-content; padding: 3px 6px; border-radius: 4px; color: #eee; background: #111e; font-size: 11px; z-index: 7; pointer-events: none; }
-.storyboard-playhead,
-.storyboard-hoverline { position: absolute; top: 7px; bottom: 1px; width: 1.5px; background: #f6f6f6; pointer-events: none; z-index: 4; }
+.storyboard-playhead { position: absolute; left: 0; top: 7px; bottom: 1px; width: 1.5px; background: #f6f6f6; pointer-events: none; z-index: 4; will-change: transform; }
 .storyboard-playhead > span { position: absolute; left: -3px; top: -1px; width: 7px; height: 17px; border-radius: 5px; background: #fff; box-shadow: 0 0 3px #0005; }
-.storyboard-hoverline { top: 5px; background: #d8d8d899; width: 1px; z-index: 3; }
-.storyboard-hoverline > span { position: absolute; top: 17px; left: 5px; padding: 2px 4px; border-radius: 3px; color: #eee; background: #111d; font-size: 10px; white-space: nowrap; }
 .storyboard-insert { position: absolute; top: 10px; width: 18px; height: 18px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; justify-content: center; }
 .storyboard-insert button { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #999; background: #333; opacity: 0; transform: scale(0.8); transition: opacity 100ms, transform 100ms; }
 .storyboard-insert:hover button,
@@ -398,7 +385,6 @@
   border-bottom: 1px solid #393939;
   cursor: pointer;
 }
-.storyboard-subtitles__row.is-hovered,
 .storyboard-subtitles__row:hover { background: #ffffff03; }
 .storyboard-subtitles button.storyboard-subtitles__number {
   justify-content: flex-start;
@@ -407,8 +393,7 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.storyboard-subtitles__row.is-selected .storyboard-subtitles__number,
-.storyboard-subtitles__row.is-hovered .storyboard-subtitles__number { color: #00c2ce; }
+.storyboard-subtitles__row.is-selected .storyboard-subtitles__number { color: #00c2ce; }
 .storyboard-subtitles__words { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
 .storyboard-subtitles button.storyboard-subtitles__word,
 .storyboard-subtitles__input,
@@ -428,6 +413,7 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   text-align: left;
+  user-select: none;
   transition: background 100ms, color 100ms;
 }
 .storyboard-subtitles button.storyboard-subtitles__word:hover,
@@ -449,7 +435,7 @@
   box-shadow: 0 0 0 1px #00bbc726;
 }
 .storyboard-subtitles__input::selection { color: #e6feff; background: #007d86; }
-.storyboard-subtitles button.storyboard-subtitles__pause { gap: 4px; color: #b4b4b4; font-size: 13px; }
+.storyboard-subtitles button.storyboard-subtitles__pause { gap: 4px; color: #b4b4b4; font-size: 13px; user-select: none; }
 .storyboard-subtitles__pause span { padding: 3px 5px; border-radius: 3px; background: #333; }
 .storyboard-subtitles__pause span:first-child { font-size: 11px; font-weight: 600; }
 .storyboard-subtitles__pause:hover span { background: #414141; }
@@ -472,6 +458,26 @@
   padding: 0 13px;
   background: #303030;
 }
+.storyboard-subtitles__menu {
+  position: fixed;
+  z-index: 1600;
+  min-width: 110px;
+  padding: 4px;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  background: #242424;
+  box-shadow: 0 8px 24px #0008;
+}
+.storyboard-subtitles__menu button {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 7px 10px;
+  border-radius: 4px;
+  color: #e8e8e8;
+  font-size: 13px;
+}
+.storyboard-subtitles__menu button:hover,
+.storyboard-subtitles__menu button:focus-visible { background: #333; color: #00c2ce; }
 .storyboard-subtitles button.storyboard-subtitles__delete {
   min-width: 88px;
   height: 27px;

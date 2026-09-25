@@ -27,8 +27,13 @@ const Filmstrip = ({ source, audioOnly, clips, scale, scrollLeft, viewportWidth 
   const canvasRefs = React.useRef(new Map());
   const [failed, setFailed] = React.useState(false);
   const [settledScroll, setSettledScroll] = React.useState(scrollLeft);
+  const [ready, setReady] = React.useState(false);
   React.useEffect(() => {
-    const timer = setTimeout(() => setSettledScroll(scrollLeft), 100);
+    const timer = setTimeout(() => setReady(true), 450);
+    return () => clearTimeout(timer);
+  }, []);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setSettledScroll(scrollLeft), 160);
     return () => clearTimeout(timer);
   }, [scrollLeft]);
   const tiles = React.useMemo(() => {
@@ -57,10 +62,10 @@ const Filmstrip = ({ source, audioOnly, clips, scale, scrollLeft, viewportWidth 
 
   React.useEffect(() => {
     setFailed(false);
-    if (!source || audioOnly || !tiles.length) return undefined;
+    if (!source || audioOnly || !tiles.length || !ready) return undefined;
     const controller = new AbortController();
     const video = document.createElement('video');
-    video.preload = 'auto';
+    video.preload = 'metadata';
     video.muted = true;
     video.playsInline = true;
     const renderFrames = async () => {
@@ -96,10 +101,13 @@ const Filmstrip = ({ source, audioOnly, clips, scale, scrollLeft, viewportWidth 
       video.removeAttribute('src');
       video.load();
     };
-  }, [source, audioOnly, tiles]);
+  }, [source, audioOnly, tiles, ready]);
+
+  const visibleClips = clips.filter((clip) => clip.timelineEnd / 1000 * scale >= scrollLeft - 180
+    && clip.timelineStart / 1000 * scale <= scrollLeft + viewportWidth + 180);
 
   return <div className="storyboard-filmstrip" aria-hidden="true">
-    {clips.map((clip) => <div key={clip.id} className={`storyboard-filmstrip__base${clip.blank ? ' is-blank' : ''}`}
+    {visibleClips.map((clip) => <div key={clip.id} className={`storyboard-filmstrip__base${clip.blank ? ' is-blank' : ''}`}
       style={{ left: clip.timelineStart / 1000 * scale, width: Math.max(0, clip.duration / 1000 * scale - 3) }}>
       {clip.blank ? <span>空分镜</span> : audioOnly ? <Music2 size={20} /> : <Film size={18} />}
       {failed && !clip.blank ? <span>预览帧不可用</span> : null}
@@ -116,4 +124,4 @@ const Filmstrip = ({ source, audioOnly, clips, scale, scrollLeft, viewportWidth 
   </div>;
 };
 
-export default Filmstrip;
+export default React.memo(Filmstrip);

@@ -3,6 +3,7 @@ import type { SerializedError } from '@renderer/types/error'
 export interface ErrorClassification {
   category:
     | 'auth'
+    | 'auth_session'
     | 'aborted'
     | 'model'
     | 'quota'
@@ -51,6 +52,20 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     msg.includes('operation was aborted')
   ) {
     return { category: 'aborted', i18nKey: 'error.diagnosis.aborted', navTarget: null }
+  }
+
+  // OAuth refresh-token rejection means the user must authorize the provider again.
+  // Refresh endpoints commonly report this as HTTP 400 + invalid_grant.
+  if (
+    msg.includes('invalid_grant') ||
+    ((msg.includes('refresh token') || msg.includes('refresh_token')) &&
+      (msg.includes('invalid') || msg.includes('expired') || msg.includes('revoked')))
+  ) {
+    return {
+      category: 'auth_session',
+      i18nKey: 'error.diagnosis.session_expired',
+      navTarget: `/settings/provider${providerSuffix}`
+    }
   }
 
   // Auth errors (401/403)

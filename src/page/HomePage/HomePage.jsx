@@ -2284,14 +2284,61 @@ const HomePage = () => {
           const hydratedMessageIds = new Set(
             hydratedMessages.map((message) => String(message?.id || '').trim()).filter(Boolean)
           );
+          // 收集内存里 role=assistant 且带 error（网络失败等）的消息 id
+          // 以及紧邻其前的 user 消息 id —— 这些消息因后端未落库，
+          // hydrate 后会被 DB 结果覆盖丢失。此处显式保留它们。
+          const failedTurnMessageIds = new Set();
+          currentMessages.forEach((message, index) => {
+            const messageId = String(message?.id || '').trim();
+            if (!messageId) return;
+            const hasError = Boolean(message?.error);
+            if (!hasError) return;
+            if (hydratedMessageIds.has(messageId)) return;
+            failedTurnMessageIds.add(messageId);
+            // 向前查找与该失败 assistant 最近的一条 user 消息
+            for (let i = index - 1; i >= 0; i -= 1) {
+              const prevMessage = currentMessages[i];
+              const prevId = String(prevMessage?.id || '').trim();
+              if (!prevId) continue;
+              if (String(prevMessage?.role || '') === 'user') {
+                if (!hydratedMessageIds.has(prevId)) failedTurnMessageIds.add(prevId);
+                break;
+              }
+            }
+          });
           // Preserve optimistic messages created after persisted hydrate started so
           // late session syncs do not wipe a freshly resent user turn.
           const locallyAddedMessages = currentMessages.filter((message) => {
             const messageId = String(message?.id || '').trim();
             if (!messageId) return false;
             if (hydratedMessageIds.has(messageId)) return false;
+            if (failedTurnMessageIds.has(messageId)) return true;
             return !beforeMessageIds.has(messageId);
           });
+          // 按内存中的原始顺序回填 message —— 失败的那一轮插入到 DB 消息之间正确位置
+          if (failedTurnMessageIds.size > 0) {
+            const orderedById = new Map(currentMessages.map((m, idx) => [String(m?.id || ''), idx]));
+            const mergedMap = new Map();
+            hydratedMessages.forEach((m) => {
+              const id = String(m?.id || '');
+              if (id) mergedMap.set(id, m);
+            });
+            locallyAddedMessages.forEach((m) => {
+              const id = String(m?.id || '');
+              if (id) mergedMap.set(id, m);
+            });
+            const merged = Array.from(mergedMap.values()).sort((a, b) => {
+              const idxA = orderedById.has(String(a?.id || '')) ? orderedById.get(String(a?.id || '')) : Number.MAX_SAFE_INTEGER;
+              const idxB = orderedById.has(String(b?.id || '')) ? orderedById.get(String(b?.id || '')) : Number.MAX_SAFE_INTEGER;
+              return idxA - idxB;
+            });
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              historyLoaded: true,
+              messages: merged
+            };
+          }
           return {
             ...item,
             updatedAt: Date.now(),
@@ -4014,14 +4061,9 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
-        if (agentSessionId) {
-          chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
-          void hydratePersistedChatSessionFromHistory({
-            chatId,
-            sessionId: agentSessionId,
-            reason: 'chunk.error'
-          });
-        }
+        // 发生流失败时，不再触发 hydratePersistedChatSessionFromHistory，
+        // 避免异步拉取到未包含 error 字段的历史消息覆盖本地已展示的错误状态，
+        // 导致错误信息在 UI 上一闪而过。
         return;
       }
 

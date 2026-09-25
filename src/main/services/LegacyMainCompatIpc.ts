@@ -885,7 +885,26 @@ function resolveWorkerScriptPath() {
 
 function registerLegacyLoginInitChannels() {
   safeHandle('app:register-extended-ipc', async () => ({ success: true }))
-  safeHandle('app:initialize-login-services', async () => ({ success: true }))
+  safeHandle('app:initialize-login-services', async () => {
+    // 登录期并行预热：让首消息关键路径上的 shell env 探测与模型列表拉取
+    // 提前发生在登录/初始化阶段，首次业务调用直接命中缓存。
+    // 全部 fire-and-forget，不阻塞登录流程。
+    try {
+      const { preheatShellEnv } = await import('@main/utils/shell-env')
+      preheatShellEnv()
+    } catch (error) {
+      logger.warn('preheat shell env failed to schedule', error as Error)
+    }
+    try {
+      const { modelsService } = await import('../apiServer/services/models')
+      void modelsService.getModels({}).catch((error) => {
+        logger.warn('preheat models list failed', error as Error)
+      })
+    } catch (error) {
+      logger.warn('preheat models list failed to schedule', error as Error)
+    }
+    return { success: true }
+  })
   safeHandle('app:initialize-agent-services', async () => {
     registerSessionStreamIpc()
     await initializeLocalAggregateMcpService()

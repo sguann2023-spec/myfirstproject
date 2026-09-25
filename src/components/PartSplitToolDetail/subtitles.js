@@ -110,12 +110,62 @@ export const editCaption = (part, segments, edit) => {
   return { ...part, captions: next, text: next.map((item) => item.text).join('\n') };
 };
 
+const mergeTextCuts = (cuts) => cuts
+  .filter((cut) => Number.isFinite(cut.start) && Number.isFinite(cut.end) && cut.end > cut.start)
+  .sort((a, b) => a.start - b.start || a.end - b.end)
+  .reduce((merged, cut) => {
+    const previous = merged.at(-1);
+    if (previous && cut.start <= previous.end) previous.end = Math.max(previous.end, cut.end);
+    else merged.push({ start: cut.start, end: cut.end });
+    return merged;
+  }, []);
+
+const removeTextRanges = (cue, cuts) => {
+  cuts = mergeTextCuts(cuts).map((cut) => ({
+    start: Math.max(0, Math.min(cue.text.length, cut.start)),
+    end: Math.max(0, Math.min(cue.text.length, cut.end)),
+  })).filter((cut) => cut.end > cut.start);
+  if (!cuts.length) return cue;
+  let cursor = 0;
+  let text = '';
+  for (const cut of cuts) {
+    text += cue.text.slice(cursor, cut.start);
+    cursor = cut.end;
+  }
+  text += cue.text.slice(cursor);
+  const shiftAt = (index) => cuts.reduce((shift, cut) => shift + (cut.end <= index ? cut.end - cut.start : 0), 0);
+  const words = cue.words?.flatMap((word) => {
+    if (cuts.some((cut) => word.from < cut.end && word.to > cut.start)) return [];
+    const shift = shiftAt(word.from);
+    return [{ ...word, from: word.from - shift, to: word.to - shift }];
+  });
+  return { ...cue, text, ...(words ? { words } : {}) };
+};
+
+export const deleteSubtitleTextUnits = (parts, segments, units) => parts.map((part) => {
+  const textUnits = units.filter((unit) => unit.kind === 'word' && unit.id === part.id);
+  if (!textUnits.length) return part;
+  const cutsByCue = new Map();
+  for (const unit of textUnits) {
+    if (!Number.isInteger(unit.cueIndex)) continue;
+    const cuts = cutsByCue.get(unit.cueIndex) || [];
+    cuts.push({ start: unit.textStart, end: unit.textEnd });
+    cutsByCue.set(unit.cueIndex, cuts);
+  }
+  if (!cutsByCue.size) return part;
+  const captions = captionCues(part, segments)
+    .map((cue, index) => removeTextRanges(cue, cutsByCue.get(index) || []))
+    .filter((cue) => cue.text.trim());
+  return { ...part, captions, text: captions.map((cue) => cue.text).join('\n') };
+});
+
 export const subtitleUnits = (clips, segments) => subtitleRows(clips, segments).flatMap(({ clip, items }) =>
   items.flatMap((item, index) => item.kind === 'pause' ? [{
     id: clip.id, key: `${clip.id}-pause-${index}`, kind: 'pause',
     start: item.start, end: item.end, time: item.time,
   }] : item.tokens.filter((token) => Number.isFinite(token.sourceStart)).map((token) => ({
-    id: clip.id, key: `${clip.id}-${item.cueIndex}-${token.start}`, kind: 'word',
+    id: clip.id, key: `${clip.id}-${item.cueIndex}-${token.start}`, kind: 'word', cueIndex: item.cueIndex,
+    textStart: token.start, textEnd: token.end,
     start: token.sourceStart, end: token.sourceEnd,
     time: clip.timelineStart + partOffset(clip, token.sourceStart),
   }))));

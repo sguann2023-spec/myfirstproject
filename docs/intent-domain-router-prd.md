@@ -468,6 +468,203 @@ type IntentRoute = {
 - 当任务涉及复杂草稿修改、修改了多个元素，或用户明确要求确认结果时，应补充 `draft_inspect`，用于查看草稿内容并校验是否添加正确
 - 当句子中出现草稿标识（如 `草稿` / `draft` / `dfd_`），同时包含“检查 / 看一下 / 确认 / 校验 / 核对”等动词，且后续跟随视觉属性词（如动画、弹入、转场、位置、样式、特效等）时，应直接命中 `draft_inspect`
 
+
+### 10. `story`
+
+适用于字幕分镜编辑任务，专门服务于 `PartSplitToolDetail`（字幕分镜工具）的 AI 辅助能力。
+
+设计动机：
+
+- 当前 AI 辅助完全依赖一段冗长的自然语言提示词让模型直接 `Read` / `Write` 分镜 JSON 文件；自然语言难以准确表达“合并的 ranges 拼接规则”“逐字 words 的 UTF-16 偏移与 text 一致性”“删除区间后剩余源时间的分裂”等复杂结构约束
+- 模型经常在时间、`ranges`、`captions.words.from/to` 之类的细节上出错，导致 `validateAiStoryboard` / `validateParts` 校验失败并回滚
+- 引入一组“固定的分镜操作 MCP 工具”，把这些结构约束封装在工具内部实现（复用 `model.js` 已有的纯函数 `mergeParts / splitPart / activeParts / labelParts / validateParts` 等），模型只负责选择合适的工具与最少必要参数，不再手写整段 JSON
+
+建议子能力：
+
+- `storyboard_inspect`
+- `storyboard_update_text`
+- `storyboard_split_part`
+- `storyboard_merge_parts`
+- `storyboard_delete_parts`
+- `storyboard_delete_range`
+- `storyboard_duplicate_part`
+- `storyboard_move_part`
+- `storyboard_clear_part_text`
+- `storyboard_insert_blank_part`
+- `storyboard_adjust_part_bounds`
+- `storyboard_apply_operations`
+
+计划接入工具（尚未实现，落地在 `src/main/mcpServers/storyboard-editor.ts`）：
+
+- `storyboard_inspect` -> `mcp__vectcut__storyboard-editor__inspect_storyboard`
+- `storyboard_update_text` -> `mcp__vectcut__storyboard-editor__update_part_text`
+- `storyboard_split_part` -> `mcp__vectcut__storyboard-editor__split_part`
+- `storyboard_merge_parts` -> `mcp__vectcut__storyboard-editor__merge_parts`
+- `storyboard_delete_parts` -> `mcp__vectcut__storyboard-editor__delete_parts`
+- `storyboard_delete_range` -> `mcp__vectcut__storyboard-editor__delete_range`
+- `storyboard_duplicate_part` -> `mcp__vectcut__storyboard-editor__duplicate_part`
+- `storyboard_move_part` -> `mcp__vectcut__storyboard-editor__move_part`
+- `storyboard_clear_part_text` -> `mcp__vectcut__storyboard-editor__clear_part_text`
+- `storyboard_insert_blank_part` -> `mcp__vectcut__storyboard-editor__insert_blank_part`
+- `storyboard_adjust_part_bounds` -> `mcp__vectcut__storyboard-editor__adjust_part_bounds`
+- `storyboard_apply_operations` -> `mcp__vectcut__storyboard-editor__apply_operations`
+
+公共约束：
+
+- 所有工具都必须接收 `storyboard_path`（分镜 JSON 绝对路径，通常是 `<workspace>/part_*.json`），并直接读写该文件；禁止操作源 `sre_*.json` 或其他媒体文件
+- 分镜 JSON 顶层必须保持 `type="subtitle_storyboard"` / `version=1` / `time_unit="ms"` / `source_file` 不变；工具只更新 `parts` 与 `updated_at`；`media_source` 始终只读；`segments` **主要只读**，唯一例外是 `adjust_part_bounds` 在把 `source_timerange` 撑到所有已有 segments 覆盖之外时会自动向 `segments[]` **追加** placeholder segment（`text=''` / `words` 缺省 / 新 `sourceIndex`），以保证 `parts[]` 的源覆盖始终能在 `segments[]` 找到落点；已有 segments 永不被改写或删除
+- **数据模型（双时间线，非线性剪辑）**：`segments[]` 是 ASR 识别到的说话区间，视作**源素材库**、不可变；`parts[]` 是**目标轨道**上的分镜列表，其数组顺序即最终视频播放顺序。每个 part 表达"从原视频截取一段素材放到目标轨道"，落盘时每个 part 除了 legacy 扁平字段 `start / end / ranges` 之外，还会附带两个显式派生字段：
+  - `source_timerange = { start, end, ranges? }`：这个 part **从原始视频截取哪一段**（毫秒源时间，等价于原 `start / end / ranges`）。工具的所有时间参数（`split_at.value` 的 `source_time_ms`、`delete_range` 的 `start_ms/end_ms`、`adjust_part_bounds` 的 `delta / absolute` 等）**只用源时间**表达
+  - `target_timerange = { start, duration }`：这个 part **在最终视频轨道上占据的位置**（毫秒轨道时间）。它是纯派生字段，由 `parts[]` 数组顺序累加 `partDuration` 得到（含 blank 占位），**任何工具都不接收 target 时间作为输入**
+- **target 自动补位是所有工具都遵守的默认行为**（因为 `target_timerange` 是每次落盘时按 `parts[]` 顺序重新累加算出来的，不是持久化的真值）：
+  - 举例：ABC 三个 part 的 target 是 `[1-2][2-3][3-4]`，删掉 B 后 A/C 会自动补位成 `[1-2][2-3]`（此时 `[2-3]` 是原来的 C）
+  - 举例：延长 B 的 source_timerange 让它多播 500ms，target 上 A 不动，C 自动往后顺延 500ms
+  - 举例：`move_part` 把 C 挪到最前，target 自动变成 `C[1-2] A[2-3] B[3-4]`
+  - 结论：**改变 `parts[]` 数组的顺序 / 长度 / 每个 part 的 duration 时，工具不需要显式调整任何 part 的 target 时间，也不会产生空隙或重叠**
+- 时间单位统一为毫秒；`source_timerange` 是源媒体绝对时间，`target_timerange` 是轨道时间；工具输入永远是源时间
+- 每次工具调用完成后应内部执行 `validateParts`；校验失败必须整体回滚，不产生半写入状态。**不做以下校验**（避免误伤合法用例）：
+  - 不以 `document.segments` 为源时间硬边界（ASR 只识别到说话区间，源媒体可能更长）
+  - 不检查多个 part 之间的源时间重叠（多 part 引用同一段源是合法，如 `duplicate_part`）
+- 工具应支持"原子写入"：写临时文件校验成功后 rename 到目标文件
+
+说明：
+
+以下每个工具都注明它对 **source_timerange**（源素材引用）和 **target_timerange**（目标轨道位置）的作用；未特别说明的字段（如 `sourceIndex`、`label`）保持不变或按 `labelParts` 规则重新生成。
+
+- `storyboard_inspect`：**只读**。参数：`storyboard_path`；可选 `part_ids`（只返回指定分镜）；可选 `around_part_id` + `neighbor_radius`（默认 5，以中心 part 为锚只返回前后 N 个邻居，避免拉整份 10+ MB 全量 JSON）；可选 `include_words`（默认 `false`，节省 token）。返回：`meta`（source_file / media_source / updated_at；若用了窗口还带 `window` 字段说明 `around_part_id / neighbor_radius / window_start_index / window_end_index / truncated`）+ `parts[]`（每个 part 同时返回 `source_timerange` 与 `target_timerange`，另外附上 `id / label / blank / text / captions.summary` 以及在原始 `segments` 命中的 sourceIndex 范围）+ 全局统计（总分镜数、空镜数、总时长、最长/最短分镜、可能超长的分镜 id 列表）。**source/target 均不变**（只读）
+
+- `storyboard_update_text`：仅修改指定分镜的显示文本。参数：`storyboard_path`、`part_id`、`text`（或 `captions[]`）。**允许新旧字符数不同**——工具支持 4 种改写场景：(1) 等长替换 `ABC → DEF`；(2) 增长 `ABC → ABCD`；(3) 缩短 `ABC → AB`；(4) 清空 `ABC → 空`（画面照播，字幕整段消失）。工具内部按新文本字符数**均分该 caption 的 duration** 重建 `words[*].start/end` 与 UTF-16 `from/to`（一字一 word）；若 `newText` 为空，则 caption.text 置空、`words = []`，但 caption.start/end 保留（部件源时间、target 时间都不变）。**source_timerange 不变，target_timerange 不变**。若需要同时改变时间，请用 `delete_range` 或 `split_part`
+
+- `storyboard_split_part`：把一个非空分镜按"源时间毫秒"或"字符索引"拆成**两个 part**。参数：`storyboard_path`、`part_id`、`split_at`（`{ type: 'source_time_ms', value: number }` 或 `{ type: 'char_index', value: number }`）、可选 `next_id`（新分镜 id，默认自动生成）。工具内部复用 `splitPart(parts, id, position, nextId)`，一次调用完成：
+  - **ranges 分裂**：原 part 的 `ranges` 按切点切成两段，两段源区间首尾相接（左段 end = 右段 start = 切点）。切点如果落在某个 range 中间，该 range 被劈开一个进左、一个进右
+  - **captions 分裂**：所有 caption 按切点重新分配。跨越切点的 caption 在两侧各留一半（例：原 caption "ABC" 切点在 A/B 之间 → 左 caption "A"、右 caption "BC"）；`caption.start/end` 被 clip 到新 part 的边界内；文字按字符索引精确切分
+  - **words 分裂**（如果原 part 有逐字时间戳）：word 也按切点重分。切点若落在某个 word 内部，该 word 会同时出现在左右两段的 caption 里（左段的 word.end / 右段的 word.start = 切点），保证不丢字；`from/to` UTF-16 偏移在两侧各自重排
+  - **text 分裂**：`part.text` 按字符索引精确切成两段，分别写到两个新 part 上
+  
+  举例（Case）：原 part = ABC → 切 A → 得到 A1 A2 B C 顺序两个 part —— **A1**（含 A 的前一半文本 + A 的前半段 word/caption 时间 + 前半段 ranges），**A2**（含 A 的后一半文本 + A 的后半段 word/caption 时间 + 后半段 ranges，随后串接原 B C 的 caption 与文本）。切点必须严格落在 part 内部（`0 < split < duration`），否则报错。
+  
+  **source_timerange**：原 part 的 `[source_start, source_end]` 被切点切成 `[source_start, split_source_time]` 与 `[split_source_time, source_end]`；总源覆盖不变。**target_timerange**：原 part 占据的 target 区间被两个新 part 精确瓜分（左段 duration = 切点前的源覆盖累计，右段 duration = 剩余），后续 part 全部不变
+
+- `storyboard_merge_parts`：把 2 个及以上**在 `parts[]` 数组里连续、按源时间递增、非空**的分镜合并成 1 个 part。参数：`storyboard_path`、`part_ids[]`（必须是 parts 数组里的连续片段；如果不满足相邻/顺序/非空要求会报错）。工具内部复用 `canMergeParts` / `mergeParts`：
+  - **结果 part 的 id**：**沿用组里第一个 part 的 id**（不是新分配的 id）；其它被合并的 part 从 `parts[]` 里移除
+  - **captions**：合并组每个 part 的 `captions[]` 按顺序平铺拼接（不会主动去重、不会重排、不会重写文本），`part.text = merged.captions.map(c => c.text).join('\n')`
+  - **source_timerange**：`start = min(源 start)`、`end = max(源 end)`。若被合并 part 之间源时间完全首尾相接（前 part.end === 后 part.start）则只保留一条 `[start, end]`；若源时间上有空档（前 part.end < 后 part.start）则写入 `ranges: [...]`，每段就是原 part 的源区间，模型不需要理解 `ranges` 结构
+  - **合并同时不改写文字**：如果需要"合并后把文案压成一句更简洁的话"，请先合并再调 `update_part_text`
+  
+  举例（Case）：原 ABC 三个 part，`part_ids=[A.id, B.id]` → 合并后得到 D（占据原 A 的位置）+ C。**D.id = A.id**；**D.source_timerange** = `[A.start, B.end]`（源相接时）或 `[A.start, B.end] + ranges=[A_range, B_range]`（源有空档时）；**D.captions** = `A.captions + B.captions`；**D.text** = 前者文本用换行拼接；**C** 完全不变
+  
+  **source_timerange**：合并后 D 引用的源覆盖 = A ∪ B 的源覆盖（相邻则合成一段，否则用 ranges 记录多段）；其它 part（例中 C）不变。**target_timerange**：D 占据原 A、B 加起来的 target 区间（duration = A.duration + B.duration）；C 的 target 完全不变（因为它前面的 A + B 总长度没变，只是合并成了一个）
+
+- `storyboard_delete_parts`：从 `parts[]` 中彻底移除若干分镜（非软删）。参数：`storyboard_path`、`part_ids[]`。**source_timerange**：所有**保留下来**的 part 的 `source_timerange` 完全不变（源截取范围不动）。**target_timerange**：被删 part 后面的所有 part **在 target 上自动前移**填补空缺（因为 target 是按 `parts[]` 顺序累加 duration 每次落盘重算的派生量），target 上不留空隙；**整份分镜的总时长会变短**（缩短量 = 被删 part 的 duration 之和）。同时重新执行 `labelParts`
+  
+  举例（Case）：原 ABC 三个 part，target 为 `[0-1000][1000-2000][2000-3000]`：
+  - **删 A**：剩 BC；B 的 source 不变，target 自动前移到 `[0-1000]`；C 前移到 `[1000-2000]`；总时长 3000 → 2000
+  - **删 B**：剩 AC；A 完全不变；C 的 source 不变，target 自动前移到 `[1000-2000]`（顶到原 B 的开始位置）；总时长 3000 → 2000
+  - **删 C（末尾）**：剩 AB；A、B 都完全不变；不存在需要"补位"的后续 part；总时长 3000 → 2000
+
+- `storyboard_delete_range`：删除**目标轨道（target 时间线）**上一段区间，**可以横跨多个 part**。用于"去掉嗯/啊等气口"、"缩短过长停顿"、"一刀切掉视频里第 5-8 秒这段"。参数：`storyboard_path`、`range = { start_target_ms, end_target_ms }`（目标时间线毫秒，必须 `0 <= start < end`；`end` 超过总时长会被 clamp）。工具内部把 target 区间映射到每个相交 part 的 source 时间上做裁剪。
+  
+  **同一 part 的裁剪结果**：
+  - **两侧都留下（中间挖洞）**：该 part 被**拆成 2 个独立 part**（左 part 保留原 id，右 part 分配一个新 id `<原 id>-cut-N`），左右各自有独立的 `source_timerange` 和 `captions`，target 上首尾相接
+  - **只有左侧留下**：只保留左半段（`source_timerange.end` 收到裁剪点）
+  - **只有右侧留下**：只保留右半段（`source_timerange.start` 推到裁剪点后）
+  - **整段被吃掉**：该 part 从 `parts[]` 中移除
+  
+  **跨 part**：一次调用可以横跨多个 part。裁剪区间开头/结尾所落 part 按上面 4 种情况各自处理；中间被完全覆盖的 part 直接删除。captions/words 沿新边界用 `clipCaption` 精确裁剪。
+  
+  **source_timerange**：其他未被裁剪 part 的源不变；被裁 part 的源按上述规则更新；**不再产生"一个 part 多段 ranges"的合并镜**（中间挖洞会拆成 2 个 part）。**target_timerange**：**所有后续 part 在 target 上自动前移补位**（因为 target 是派生量），整份分镜总时长减少 = 被删的 target 区间长度。
+  
+  举例（单 part，target `[0-3]`）：
+  - **中间挖 [1-2]** → 拆成 2 个独立 part：source 分别是原 part 的 `[0-1]` 和 `[2-3]`，target 分别是 `[0-1]` 和 `[1-2]`（首尾相接），字幕各自分开；后续 part 全部前移 1 秒
+  - **前端挖 [0-1]** → 只剩 1 个 part：source 是原 part 的 `[1-3]`，target 顶到 `[0-2]`；后续 part 前移 1 秒
+  - **末端挖 [2-3]** → 只剩 1 个 part：source 是原 part 的 `[0-2]`，target 是 `[0-2]`，本 part 无需前移；后续 part 前移 1 秒
+  
+  举例（跨 part）：
+  - **原分镜 ABC，删除区间横跨 A 尾和 B 首** → 形成 `A1 B1 C`（A1 是 A 去尾、B1 是 B 去头，C 的 source 完全不动；C 在 target 上前移补位）
+  - **原分镜 ABC，删除区间横跨 A 尾 + 完整 B + C 首** → 形成 `A1 C1`（A1 是 A 去尾、B 整体消失、C1 是 C 去头；A1 后面直接接 C1）
+
+- `storyboard_duplicate_part`：复制一个已存在的非空分镜（含 `source_timerange` / `captions` / `words` / `text`），在 `parts[]` 数组任意位置再插入一份。参数：`storyboard_path`、`part_id`（源分镜 id）、`insert_at`（`{ type: 'index', value: number }` / `{ type: 'before', part_id }` / `{ type: 'after', part_id }` / `{ type: 'start' }` / `{ type: 'end' }`）、可选 `new_id`（默认自动生成 `<原 id>-copy-N`）、可选 `text`（复制后立即改写显示文案，行为同 `update_text`）。
+  
+  **source_timerange**：新 part 的 `source_timerange`（`start / end / ranges` / `sourceIndex`）**与原 part 完全一致**——多个 part 引用同一段源素材是合法的，也不检查源时间重叠。原 part 完全不动。**target_timerange**：新 part 按 `insert_at` 插入到 `parts[]` 相应下标；由于 target 是按 `parts[]` 顺序累加 duration 派生的，**插入点之后的所有 part（含原 part 如果它在插入点之后）target 自动后移一个 `new_part.duration` 的量**，插入点之前的 part 完全不变；整份分镜总时长增加 = 新 part 的 duration。
+  
+  举例（ABC，每个 part duration=1000）：
+  - `dup(B, insert_at=start)` → `B' A B C`：B'.target=`[0-1000]`；A/B/C 全部后移 → target 分别 `[1000-2000][2000-3000][3000-4000]`
+  - `dup(B, insert_at=end)` → `A B C B'`：A/B/C 不动；B'.target=`[3000-4000]`
+  - `dup(B, insert_at={index:2})` → `A B B' C`：A/B 不动；B'.target=`[2000-3000]`；C 后移到 `[3000-4000]`
+  - `dup(B, insert_at={before, part_id:'A'})` → `B' A B C`
+  - `dup(B, insert_at={after, part_id:'C'})` → `A B C B'`
+
+- `storyboard_move_part`：把一个已存在的分镜在 `parts[]` 内换个位置（纯粹调整播放顺序，例如把结尾高光句拉到最前面做钩子）。参数：`storyboard_path`、`part_id`、`insert_at`（结构同 `duplicate_part.insert_at`；`insert_at` 的目标下标基于**移除源 part 之后**的数组计算，即"最终位置就是给的这个下标"）。
+  
+  **source_timerange**：**该 part 及所有其它 part 的 `source_timerange` 完全不变**（不改源截取范围，只改 `parts[]` 顺序）。**target_timerange**：只有 `parts[]` 顺序变了 → 从"原位置和新位置之间的所有 part"的 target 自动重排（前移或后移各自的 duration 差值），源 part 之外的 part 若不落在原位置与新位置之间的区段则 target 也不变；无需模型显式给出新 target 时间；分镜总时长保持不变。
+  
+  举例（ABC，每个 part duration=1000）：
+  - `move(C, insert_at=start)` → `C A B`：C.target 从 `[2000-3000]` → `[0-1000]`；A/B 各自后移 1000 → `[1000-2000][2000-3000]`
+  - `move(A, insert_at=end)` → `B C A`：B/C 各自前移 1000 → `[0-1000][1000-2000]`；A.target → `[2000-3000]`
+  - `move(A, insert_at={after, part_id:'C'})` → `B C A`：同上
+  - 边界：不允许把 part 移到它当前位置（`Move had no effect`）；不允许 `insert_at` 锚定 part 自身
+
+- `storyboard_clear_part_text`：只保留画面/时间，不显示字幕。参数：`storyboard_path`、`part_id`。工具内部把 `part.text` 置空、`part.captions = []`，但 `part.blank` 仍为 `false`。**source_timerange 不变**（`start / end / ranges / sourceIndex` 全保留）—— 这段画面继续在轨道上播放。**target_timerange 不变**。与 `insert_blank_part`（无画面占位）的区别：`clear_part_text` 保留原始画面，仅剥离字幕；`insert_blank_part` 是新建一段没有画面的黑场空镜
+
+- `storyboard_insert_blank_part`：在轨道上插入一段没有画面的空分镜（`blank=true`，无任何 ranges / captions / words）。参数：`storyboard_path`、`duration_ms`（**该空镜在 target 轨道上占据的时长**，必须为正整数毫秒）、`insert_at`（结构同 `duplicate_part.insert_at`，决定插入到 `parts[]` 的哪个位置）、可选 `new_id`。工具内部：新 part 的 `blank=true`、`text=''`、`captions=[]`、`sourceIndex` 沿用相邻 part（若无相邻取 0）。**source_timerange**：blank part 不引用任何源素材，落盘时以占位形式写入 `start=0 / end=duration_ms`（仅为满足 `end>start>=0` 结构约束，语义上无意义，不参与源边界校验）；其它 part 的 source 完全不变。**target_timerange**：新 part 按 `duration_ms` 占据 target 一段区间，插入点之后所有 part 的 target 自动后移 `duration_ms`
+
+- `storyboard_adjust_part_bounds`：微调分镜的**源时间**边界，用于修正字幕切割过突或把气口切了一半的情况，也用于"放大 / 缩小"某个 part 的源覆盖。参数：`storyboard_path`、`part_id`、以及**二选一**：
+  - `delta`：`{ start_delta_ms?: number, end_delta_ms?: number }` —— 相对偏移，正值向后、负值向前。典型用法："前后各延长 200ms" -> `{ start_delta_ms: -200, end_delta_ms: 200 }`；"结尾收进来 100ms" -> `{ end_delta_ms: -100 }`
+  - `absolute`：`{ start_ms?: number, end_ms?: number }` —— 绝对源时间（毫秒）
+  
+  工具内部约束：调整后必须满足 `new_end > new_start >= 0`；**故意不用 `document.segments` 卡边界**（ASR 只识别到说话区间，源媒体真实时长可能更长，例如 ASR 只识别到 10s-13s 但用户想延到 9.5s-13.5s 吃回呼吸/字头字尾时必须允许）；**也故意不检查与其他 part 的源时间重叠**（多个 part 引用同一段源时间是合法，见 `duplicate_part`）。工具会自动把该 part 的 `ranges` 首尾裁剪到新边界（若 part 无自定义 `ranges` 则直接更新 `start/end`）、把落在新边界外的 `captions` / `words` 裁掉（复用 `clipCaption`）。若调整会把该 part 完全消耗则报错，要求改用 `delete_parts`。
+  
+  **自动补 segments 语义**（唯一会写 `document.segments` 的工具）：如果新的 `source_timerange` 落在**所有现有 segments 联合覆盖之外**（比如把 B 放到比 ASR 更大，或吃回 ASR 前后的呼吸），工具会自动向 `document.segments` **追加**一条或多条 placeholder segment 精确覆盖那些 gap（`text=''`、无 `words`、分配一个新的 `sourceIndex`）；已有 segments **不会被修改或删除**。这保证了"parts 源覆盖必须能在 segments 找到落点"这一不变式，同时不需要模型显式操作 segments。
+  
+  举例（ABC，每个 part duration=1000，source 相接）：
+  - **缩小 B**：B1 拿到收紧后的 source/target，B1 target 相对原 B 前移或保持，C 及其后所有 part 的 target 自动前移（缩短量 = B 缩小的 duration）；总时长变短；source 完全不撑出 segments 时不追加 placeholder
+  - **放大 B**：若新 source 仍在 segments 覆盖内则不动 segments；若新 source **越过 ASR segments**，工具按"源能放的最大范围"允许延伸并对超出部分自动向 `document.segments` 追加 placeholder segment；C 及其后所有 part target 自动后移（伸长量 = B 放大的 duration）
+  - **首/末 part A/C 调整**：与中间 part 语义一致；若把首 part start 往负方向拉需保证 `new_start >= 0`；若把尾 part end 往后拉越出 segments 同样触发 placeholder 补写
+  - **允许放大 B 后与 A/C 的源时间区间重叠**：多个 part 引用同一段源素材是合法（`duplicate_part` 就是这样工作）；工具**不检查跨 part 的源时间重叠**；但由于 target 是按 `parts[]` 顺序派生的，任何操作后 target 依然首尾相接、绝不重叠
+  
+  **source_timerange**：只改被调整的 part（其它 part 完全不动）。**target_timerange**：该 part 的 `duration` 变化多少，target 就伸缩多少；后续所有 part 在 target 上自动补位（前移或后移），模型无需管后续 part。**segments**：仅当新 source 越出已有覆盖时追加 placeholder，其它 part 的 source 不变，所以不会引发额外的 segments 变更
+
+- `storyboard_apply_operations`：**批处理入口**。把 `update_part_text` / `split_part` / `merge_parts` / `delete_parts` / `delete_range` / `adjust_part_bounds` **在一次调用里按顺序原子执行**——一次响应完成"删嗯字 + 拆长句 + 收气口 + 删废镜"这种成组编辑，避免"做一步 inspect 一次"的高延迟串行链路。参数：`storyboard_path`、`operations[]`（≥1 项，按数组顺序依次应用）。每个 op 形如 `{ type, ... }`，`type` 取值与对应参数：
+  - `type='update_part_text'`：`part_id`、`text` 或 `captions[]`
+  - `type='split_part'`：`part_id`、`split_at`、可选 `next_id`
+  - `type='merge_parts'`：`part_ids[]`（≥2，当前状态里相邻）
+  - `type='delete_parts'`：`part_ids[]`（≥1）
+  - `type='delete_range'`：`range = { start_target_ms, end_target_ms }`（作用于**当前批处理状态**的 target 时间线，不是原始状态）
+  - `type='adjust_part_bounds'`：`part_id` + `delta` 或 `absolute`
+  
+  语义要点：
+  
+  1. **顺序执行 + 每步基于上一步的结果**：内部状态就是 `parts[]` / `segments[]`；op[i] 看到的是 op[i-1] 应用完的 parts 状态。所以 `split_part` 产生的 `next_id` 可以在后续 op 里立即引用；`delete_parts` 里的 `part_id` 必须在当前状态里还存在；`delete_range` 的 target 时间是"这一步开始时"的 target（不是最初 target）。
+  2. **全或全无原子性**：**任何一步**（参数错误、id 不存在、`validateParts` 校验失败、边界越界等）失败都整体回滚——文件保持调用前状态，不会出现"改了前 3 个 op、第 4 个报错、写出半成品"。写盘只发生一次（成功走完所有 op 之后）。
+  3. **不允许在 batch 里嵌套 batch**：`type='apply_operations'` 会被拒绝。
+  4. **顺序建议**：为了让 id 稳定，AI 应尽量**从后往前**操作（先动尾部 part 再动头部），或**先 delete 再 split**，避免同一个 batch 里出现"先动的 op 让后一步引用的 part 消失"。这不是硬约束，但是**违反了就会在那一步 op 报错并整批回滚**。
+  5. **segments 追加语义沿用 `adjust_part_bounds`**：如果 batch 里包含 adjust_part_bounds 且新 source 越出 segments 覆盖，同样追加 placeholder segment；其它 op 不写 segments。
+  
+  **source / target 语义**：由每个 op 各自的语义组合决定；batch 结束时 `target_timerange` 按最终 parts[] 顺序重新累加。
+  
+  举例：
+  - `[{type:'delete_parts', part_ids:['p3']}, {type:'delete_range', range:{start_target_ms:1500,end_target_ms:2000}}, {type:'update_part_text', part_id:'p1', text:'新文案'}]` —— 先删 p3、再在新 target 时间线上删 [1500,2000)、最后改 p1 文本；一次落盘
+  - `[{type:'split_part', part_id:'p1', split_at:{type:'char_index', value:5}, next_id:'p1-2'}, {type:'update_part_text', part_id:'p1-2', text:'后半改写'}]` —— 拆分后立即引用新产生的 `next_id` 改文本
+  - 任一步失败（例如第二个 op 引用了不存在的 part_id）→ 整批回滚，文件不变
+
+不进入分镜域工具的能力（继续沿用其它域）：
+
+- 读取源 `sre_*.json`：属于 `workspace.read`，`storyboard_inspect` 只暴露分镜文件本身
+- 播放 / 预览媒体：不属于 AI 辅助工具面
+- 生成新的字幕识别：属于 `cut.subtitle_recognition`
+
+路由信号：
+
+- 用户在 `PartSplitToolDetail` 的 AI 辅助入口发起请求时，宿主应显式带上 `storyboard` 域信号，让路由直接命中 `story` 主域，无需依赖关键词识别
+- 当模型正在 `story` 域中工作时，`workspace.write` 不应默认伴随挂载，避免模型退回“直接 Write 整份 JSON”的老路径；`workspace.read` 可以作为伴随域，用于按需读取 `sre_*.json` 原始识别文本
+- 若用户请求同时涉及“先识别字幕再分镜”，`story` 与 `cut.subtitle_recognition` 可作为组合命中，先字幕识别再进入分镜编辑
+
+后续实现步骤：
+
+1. 在 `src/main/mcpServers/storyboard-editor.ts` 落地上述 6 个工具，内部复用 `src/components/PartSplitToolDetail/model.js` 的纯函数（必要时抽到 `shared` 目录避免主进程依赖 React 侧代码）
+2. 在 `capability-router.ts` / `tool-surface.ts` 注册 `story` 域及其工具映射
+3. 改造 [aiAssist.js](file:///Users/sunguannan/CapCutHelper/src/components/PartSplitToolDetail/aiAssist.js) 中的提示词，把冗长的结构约束替换为“工具选择指南”，明确指令模型必须使用 `mcp__vectcut__storyboard-editor__*` 系列工具完成修改，禁止直接 `Write` 整份分镜文件
+
 ## 多域组合原则
 
 一个任务不强制只能落在一个域。

@@ -283,13 +283,13 @@ describe('processPiHarnessQuery', () => {
     await vi.advanceTimersByTimeAsync(20_000)
     await runPromise
 
-    expect(harnessStub.abort).toHaveBeenCalledTimes(6)
+    expect(harnessStub.abort).toHaveBeenCalledTimes(4)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
-    expect(retryStatusChunks).toHaveLength(5)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
-    expect(String(retryStatusChunks[4]?.chunk?.text || '')).toBe('第5/5次重试')
+    expect(retryStatusChunks).toHaveLength(3)
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+    expect(String(retryStatusChunks[2]?.chunk?.text || '')).toBe('第3/3次重试')
     expect(agentTurnRepository.update).toHaveBeenCalledWith(
       'turn-1',
       expect.objectContaining({
@@ -526,7 +526,7 @@ describe('processPiHarnessQuery', () => {
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
   })
 
@@ -723,7 +723,231 @@ describe('processPiHarnessQuery', () => {
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
+  })
+
+  it('retries temporarily unavailable model service errors', async () => {
+    vi.useFakeTimers()
+    let promptAttempt = 0
+    const temporaryUnavailableError =
+      'The model service is temporarily unavailable. Please try again later. (request id: test-request-id)'
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        promptAttempt += 1
+        if (promptAttempt === 1) {
+          await harnessStub.emitAgentEvent({
+            type: 'message_start',
+            message: {
+              role: 'assistant',
+              content: [],
+              usage: {},
+              stopReason: 'pending'
+            }
+          })
+          await harnessStub.emitAgentEvent({
+            type: 'message_end',
+            message: {
+              role: 'assistant',
+              model: 'model-1',
+              usage: {},
+              stopReason: 'error',
+              errorMessage: temporaryUnavailableError,
+              content: []
+            }
+          })
+          return {
+            role: 'assistant',
+            content: [],
+            stopReason: 'error',
+            errorMessage: temporaryUnavailableError,
+            usage: {}
+          }
+        }
+
+        await harnessStub.emitAgentEvent({
+          type: 'message_start',
+          message: {
+            role: 'assistant',
+            content: [],
+            usage: {},
+            stopReason: 'pending'
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'text_start',
+            contentIndex: 0
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'text_delta',
+            contentIndex: 0,
+            delta: 'retry ok'
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'text_end',
+            contentIndex: 0
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            model: 'model-1',
+            usage: {},
+            stopReason: 'stop',
+            content: [{ type: 'text', text: 'retry ok' }]
+          }
+        })
+        return {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'retry ok' }],
+          stopReason: 'stop',
+          usage: {}
+        }
+      }
+    })
+    const stream = createStreamRecorder()
+
+    const runPromise = processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1',
+        topicId: 'topic-1',
+        currentPrompt: 'hello',
+        activeSegment,
+        currentTurn,
+        promptEnvelope: {
+          systemPromptVersion: 'v1',
+          systemPromptHash: 'hash-1',
+          systemPrompt: 'system'
+        },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+    await vi.advanceTimersByTimeAsync(800)
+    await runPromise
+
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
+    const retryStatusChunks = stream.events
+      .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
+      .filter((event) => String(event.chunk.type || '') === 'retry-status')
+    expect(retryStatusChunks).toHaveLength(1)
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+    expect(stream.events.map((event) => event.type)).toContain('complete')
+  })
+
+  it('retries broader transient provider errors before streaming starts', async () => {
+    vi.useFakeTimers()
+
+    const transientErrors = [
+      'HTTP 429 Too Many Requests',
+      '500 Internal Server Error',
+      'model overloaded, please try again later',
+      '服务繁忙，请稍后重试'
+    ]
+
+    for (const transientError of transientErrors) {
+      let promptAttempt = 0
+      const harnessStub = createHarnessStub({
+        prompt: async () => {
+          promptAttempt += 1
+          if (promptAttempt === 1) {
+            throw new Error(transientError)
+          }
+
+          await harnessStub.emitAgentEvent({
+            type: 'message_start',
+            message: {
+              role: 'assistant',
+              content: [],
+              usage: {},
+              stopReason: 'pending'
+            }
+          })
+          await harnessStub.emitAgentEvent({
+            type: 'message_update',
+            assistantMessageEvent: {
+              type: 'text_start',
+              contentIndex: 0
+            }
+          })
+          await harnessStub.emitAgentEvent({
+            type: 'message_update',
+            assistantMessageEvent: {
+              type: 'text_delta',
+              contentIndex: 0,
+              delta: 'retry ok'
+            }
+          })
+          await harnessStub.emitAgentEvent({
+            type: 'message_update',
+            assistantMessageEvent: {
+              type: 'text_end',
+              contentIndex: 0
+            }
+          })
+          await harnessStub.emitAgentEvent({
+            type: 'message_end',
+            message: {
+              role: 'assistant',
+              model: 'model-1',
+              usage: {},
+              stopReason: 'stop',
+              content: [{ type: 'text', text: 'retry ok' }]
+            }
+          })
+          return {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'retry ok' }],
+            stopReason: 'stop',
+            usage: {}
+          }
+        }
+      })
+      const stream = createStreamRecorder()
+
+      const runPromise = processPiHarnessQuery({
+        stream,
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        architectureContext: {
+          traceId: 'trace-1',
+          topicId: 'topic-1',
+          currentPrompt: 'hello',
+          activeSegment,
+          currentTurn,
+          promptEnvelope: {
+            systemPromptVersion: 'v1',
+            systemPromptHash: 'hash-1',
+            systemPrompt: 'system'
+          },
+          pendingFileChanges: new Map()
+        } as any,
+        harness: harnessStub.harness,
+        prompt: 'hello'
+      })
+      await vi.advanceTimersByTimeAsync(800)
+      await runPromise
+
+      expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
+      const retryStatusChunks = stream.events
+        .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
+        .filter((event) => String(event.chunk.type || '') === 'retry-status')
+      expect(retryStatusChunks).toHaveLength(1)
+      expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+      expect(stream.events.map((event) => event.type)).toContain('complete')
+    }
   })
 })

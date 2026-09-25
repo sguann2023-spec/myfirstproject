@@ -164,7 +164,7 @@ describe('字幕分镜弹窗', () => {
     for (let cycle = 0; cycle < 3; cycle += 1) {
       const media = [...document.querySelectorAll('.storyboard-editor video')];
       const canvas = document.querySelector('[data-testid="filmstrip-canvas"]');
-      expect(media).toHaveLength(2);
+        expect(media).toHaveLength(1);
       expect(canvas).not.toBeNull();
       await click('.part-split-dialog .ant-modal-close');
       await act(async () => root.render(
@@ -188,6 +188,8 @@ describe('字幕分镜弹窗', () => {
     await render({ open: true });
     expect(window.api.fs.read).toHaveBeenCalledWith(file.path, 'utf8');
     expect(document.querySelector('video').getAttribute('src')).toBe(recognitionData.url);
+    expect(document.querySelector('.storyboard-preview__media').getAttribute('preload')).toBe('metadata');
+      expect(document.querySelector('.storyboard-preview__hover')).toBeNull();
     expect(document.querySelectorAll('.storyboard-clip')).toHaveLength(2);
     expect(document.querySelector('.storyboard-clip').hasAttribute('title')).toBe(false);
     expect(document.querySelector('.part-split-dialog__file-picker')).toBeNull();

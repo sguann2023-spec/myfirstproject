@@ -81,7 +81,7 @@ const pickResolutionByTemplate = (capabilityMap, model, ratio) => {
 const renderModelBadge = (badge) => (
   <span
     key={badge}
-    className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
+    className="chat-panel__model-option-tag chat-panel__model-option-tag--promo"
   >
     {badge}
   </span>
