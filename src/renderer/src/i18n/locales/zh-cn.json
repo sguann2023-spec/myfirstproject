@@ -1825,6 +1825,9 @@
       "ai_result": "AI 诊断结果",
       "aborted": "已中断本次请求",
       "auth": "API Key 无效，请检查并重新配置",
+      "session_expired": "登录状态已失效，请重新登录后继续使用",
+      "session_expired_reply": "登录已过期或失效，请前往模型提供商设置重新登录；完成后即可继续使用。",
+      "relogin": "重新登录",
       "content": "消息内容被安全系统拦截，请修改后重试",
       "context_length": "当前对话上下文过长。为了节约您的 token 消耗，请开启新对话后继续执行任务",
       "deprecated": "该模型已下线或弃用，请更换其他模型",
@@ -2598,6 +2601,7 @@
           "search": "联网搜索",
           "seed_audio": "豆包音频",
           "speech": "语音",
+          "storyboard_editor": "字幕分镜",
           "subtitle_recognition": "字幕识别",
           "system": "系统",
           "subtitle_template": "字幕模板",
@@ -2747,6 +2751,20 @@
           },
           "speech": {
             "generate_speech": "生成语音"
+          },
+          "storyboard_editor": {
+            "inspect_storyboard": "查看分镜",
+            "update_part_text": "改写分镜文本",
+            "split_part": "拆分分镜",
+            "merge_parts": "合并分镜",
+            "delete_parts": "删除分镜",
+            "delete_range": "删除分镜片段",
+            "duplicate_part": "复制分镜",
+            "move_part": "移动分镜",
+            "clear_part_text": "清空分镜字幕",
+            "insert_blank_part": "插入空分镜",
+            "adjust_part_bounds": "调整分镜边界",
+            "apply_operations": "批量编辑分镜"
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "查询字幕识别任务状态",

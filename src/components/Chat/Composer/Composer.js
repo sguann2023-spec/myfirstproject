@@ -22,6 +22,8 @@ import {
 } from './AiWriteToolDetail/presetOptions';
 import AiWriteToolDetail from './AiWriteToolDetail/index';
 import RevertPrompt, { REVERT_PROMPT_HINT, getRevertPromptSendState } from '../../RevertPrompt/index';
+import PartSplitToolDetail from '../../PartSplitToolDetail/index';
+import { ChatTaskContext } from '../ChatShell/ChatTaskContext';
 import ToolArea from './ToolArea/index';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
@@ -32,6 +34,12 @@ import DraftToolDetail, { getDraftToolSendState } from '../../DraftToolDetail/in
 import DraftDownloadToolDetail, { getDraftDownloadToolSendState } from '../../DraftDownloadToolDetail/index';
 import DraftInspectToolDetail, { getDraftInspectToolSendState } from '../../DraftInspectToolDetail/index';
 import DraftModifyToolDetail, { getDraftModifyToolSendState } from '../../DraftModifyToolDetail/index';
+import RecognizationSubtitleToolDetail, {
+  buildRecognizationSubtitlePrompt,
+  buildSubtitleRecognitionRequest,
+  DEFAULT_SUBTITLE_SETTINGS,
+  getRecognizationSubtitleToolSendState,
+} from '../../RecognizationSubtitleToolDetail/index';
 import TextAddDetail, {
   buildTextAddSettingsPrompt,
   DEFAULT_TEXT_ADD_SETTINGS,
@@ -2360,6 +2368,15 @@ const Composer = ({
   const [selectedTextAddDraftIds, setSelectedTextAddDraftIds] = React.useState([]);
   const [textAddSettings, setTextAddSettings] = React.useState(DEFAULT_TEXT_ADD_SETTINGS);
   const [textAddInput, setTextAddInput] = React.useState('');
+  const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
+  const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
+  const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
+  React.useEffect(() => {
+    if (!partSplitDialogOpen || !openSubtitleStoryboard) return;
+    openSubtitleStoryboard('');
+    setPartSplitDialogOpen(false);
+  }, [partSplitDialogOpen, openSubtitleStoryboard]);
+  const subtitleSendingRef = React.useRef(false);
   const [selectedVideoModel, setSelectedVideoModel] = React.useState(() => readPersistedVideoModel());
   const [selectedVideoGenerationMode, setSelectedVideoGenerationMode] = React.useState(() => readPersistedVideoGenerationMode());
   const [selectedVideoResolution, setSelectedVideoResolution] = React.useState(() => readPersistedVideoResolution());
@@ -3512,7 +3529,7 @@ const Composer = ({
           {Array.isArray(badges) ? badges.map((badge) => (
             <span
               key={badge}
-              className={`chat-panel__model-option-tag ${badge === '限时优惠' ? 'chat-panel__model-option-tag--promo' : ''}`}
+              className="chat-panel__model-option-tag chat-panel__model-option-tag--promo"
             >
               {badge}
             </span>
@@ -3816,6 +3833,8 @@ const Composer = ({
           : selectedDraftModifyIds
     };
     switch (activeTool) {
+      case 'recognize-subtitle':
+        return getRecognizationSubtitleToolSendState(subtitleSettings);
       case 'draft':
         return getDraftToolSendState(context);
       case 'draft-export':
@@ -3837,6 +3856,7 @@ const Composer = ({
     hasSelectedLocalFile,
     input,
     textAddInput,
+    subtitleSettings,
     selectedDraftDownloadIds,
     selectedTextAddDraftIds,
     selectedDraftInspectIds,
@@ -4035,6 +4055,26 @@ const Composer = ({
 
   const handleSendWithAttachments = async () => {
     if (isSendDisabled) return;
+    if (activeTool === 'recognize-subtitle') {
+      if (sessionSending || subtitleSendingRef.current || !handleSend) return;
+      subtitleSendingRef.current = true;
+      try {
+        // Subtitle media/settings are independent of the chat editor and its attachments.
+        await handleSend(buildRecognizationSubtitlePrompt(subtitleSettings), {
+          subtitleRecognitionRequest: buildSubtitleRecognitionRequest(subtitleSettings),
+          images: [],
+          imageAttachmentPreviews: [],
+          pendingLocalAttachments: [],
+        });
+        setActiveTool(null);
+        setSubtitleSettings(DEFAULT_SUBTITLE_SETTINGS);
+      } catch {
+        message.error('发送失败，请重试');
+      } finally {
+        subtitleSendingRef.current = false;
+      }
+      return;
+    }
     let imagePayloads = [];
     try {
       imagePayloads = await collectImagePayloads();
@@ -4285,7 +4325,7 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add';
+    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle';
     editor.setEditable(!shouldDisableInput);
     if (shouldDisableInput) {
       if (activeTool === 'draft-export') {
@@ -4399,6 +4439,17 @@ const Composer = ({
 
   const handleAiWritePresetSelect = React.useCallback((presetId) => {
     const resolvedPresetId = getAiWritePresetById(presetId)?.id || getDefaultAiWritePresetId();
+    if (resolvedPresetId === 'subtitle-storyboard') {
+      setPartSplitDialogOpen(true);
+      closeMentionPanel();
+      return;
+    }
+    if (resolvedPresetId === 'recognize-subtitle') {
+      setSubtitleSettings(DEFAULT_SUBTITLE_SETTINGS);
+      setActiveTool('recognize-subtitle');
+      closeMentionPanel();
+      return;
+    }
     setSelectedAiWritePresetId(resolvedPresetId);
     if (resolvedPresetId === 'add-text') {
       enterTextAddMode();
@@ -4416,7 +4467,7 @@ const Composer = ({
     }
     setActiveTool('ai-write');
     applyAiWriteTemplate(resolvedPresetId);
-  }, [applyAiWriteTemplate, enterTextAddMode, editor, setInput]);
+  }, [applyAiWriteTemplate, closeMentionPanel, enterTextAddMode, editor, setInput]);
 
   const handleImageTemplateApply = React.useCallback((prompt) => {
     setInput(String(prompt || ''));
@@ -4497,6 +4548,7 @@ const Composer = ({
       exitTextAddMode();
     }
     setActiveTool(null);
+    setSubtitleSettings(DEFAULT_SUBTITLE_SETTINGS);
     setSelectedDraftDownloadIds([]);
     setSelectedDraftInspectIds([]);
     setSelectedTextAddDraftIds([]);
@@ -4504,6 +4556,12 @@ const Composer = ({
 
   return (
     <div className="chat-panel__composer">
+      {!openSubtitleStoryboard ? <PartSplitToolDetail
+        key={primarySkillWorkdir}
+        open={partSplitDialogOpen}
+        workspacePath={primarySkillWorkdir}
+        onClose={() => setPartSplitDialogOpen(false)}
+      /> : null}
       <div className="chat-panel__editor">
         <LocalFilePreviewList
           files={uploadedFileMeta}
@@ -4550,7 +4608,13 @@ const Composer = ({
                 ].filter(Boolean).join(' ')}
               >
                 <div ref={toolContentScrollRef} className="chat-panel__tool-content-scroll">
-                  {activeTool === 'text-add' ? (
+                  {activeTool === 'recognize-subtitle' ? (
+                    <RecognizationSubtitleToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      onSettingsChange={setSubtitleSettings}
+                    />
+                  ) : activeTool === 'text-add' ? (
                     <TextAddDetail
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}
@@ -4892,7 +4956,7 @@ const Composer = ({
               </div>
             </div>
           ) : null}
-          <div className={`chat-panel__input-editor${activeTool === 'text-add' ? ' chat-panel__input-editor--hidden' : ''}`}>
+          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' ? ' chat-panel__input-editor--hidden' : ''}`}>
             {isDragActive ? (
               <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
                 <div className="chat-panel__drag-upload-card">

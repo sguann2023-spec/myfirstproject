@@ -34,7 +34,7 @@ interface Props {
 
 const ErrorBlock: React.FC<Props> = ({ block, message }) => {
   const classification = classifyError(block.error, message.model?.provider)
-  if (['network', 'stream', 'server', 'unknown'].includes(classification.category)) {
+  if (['network', 'stream', 'server', 'unknown', 'auth_session'].includes(classification.category)) {
     return <ErrorRecoveryBlock key={block.id} block={block} message={message} classification={classification} />
   }
   return <MessageErrorInfo block={block} message={message} />

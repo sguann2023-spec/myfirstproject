@@ -64,6 +64,16 @@ export const AI_WRITE_PRESET_OPTIONS = [
     instruction: '你是一名字幕识别助手，请根据我的需求整理字幕识别任务，明确输入媒体、识别档位和期望输出。',
   },
   {
+    id: 'subtitle-storyboard',
+    label: '字幕分镜',
+    iconName: 'snippets',
+    placeholder: '字幕内容：[请输入] 分镜要求：[请输入]',
+    template: '字幕内容：[请输入]\n分镜要求：[请输入]\n补充要求：[请输入]',
+    fields: ['字幕内容', '分镜要求', '补充要求'],
+    description: '适合根据字幕内容生成对应的分镜方案',
+    instruction: '你是一名视频分镜策划，请根据我提供的字幕内容和分镜要求，按字幕顺序生成分镜方案，明确每个镜头对应的字幕、画面描述和镜头设计；字幕含时间轴时保留对应时间信息。',
+  },
+  {
     id: 'remove-filler',
     label: '去气口',
     iconName: 'scissor',

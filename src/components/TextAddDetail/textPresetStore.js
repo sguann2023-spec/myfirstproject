@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { snapshotPresetTypography } from './textPresets';
+import { snapshotPresetSettings, snapshotPresetTypography } from './textPresets';
 
 // Separate from chat history: clearing conversations must not remove saved styles.
 const db = new Dexie('VectCutTextPresets', { chromeTransactionDurability: 'strict' });
@@ -14,7 +14,11 @@ function validatePreset(row) {
     || typeof row.createdAt !== 'number' || !Number.isFinite(row.createdAt)) {
     throw new Error('Invalid custom text preset');
   }
-  return { id: row.id, name: row.name.trim(), createdAt: row.createdAt, typography: snapshotPresetTypography(row.typography) };
+  return {
+    id: row.id, name: row.name.trim(), createdAt: row.createdAt,
+    typography: snapshotPresetTypography(row.typography),
+    ...(row.settings ? { settings: snapshotPresetSettings(row.settings) } : {}),
+  };
 }
 
 export async function listCustomTextPresets() {
@@ -22,7 +26,7 @@ export async function listCustomTextPresets() {
   return rows.map(validatePreset);
 }
 
-export async function saveCustomTextPreset(name, typography) {
+export async function saveCustomTextPreset(name, typography, settings) {
   return db.transaction('rw', presets, metadata, async () => {
     if (name == null) {
       const counter = await metadata.get('sequence');
@@ -38,7 +42,7 @@ export async function saveCustomTextPreset(name, typography) {
       await metadata.put({ id: 'sequence', value: next });
     }
     const row = validatePreset({
-      id: `custom-${crypto.randomUUID()}`, name, typography, createdAt: Date.now(),
+      id: `custom-${crypto.randomUUID()}`, name, typography, settings, createdAt: Date.now(),
     });
     await presets.add(row);
     return row;

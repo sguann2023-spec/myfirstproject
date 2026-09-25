@@ -32,6 +32,16 @@ describe('classifyError', () => {
     expect(result.navTarget).toBe('/settings/provider?id=openai')
   })
 
+  it('classifies rejected refresh tokens as a re-login requirement', () => {
+    const result = classifyError(makeError({
+      statusCode: 400,
+      message: 'Token refresh failed (400): {"error":"invalid_grant","error_description":"Refresh Token 无效或已过期"}'
+    }), 'qwen')
+    expect(result.category).toBe('auth_session')
+    expect(result.i18nKey).toBe('error.diagnosis.session_expired')
+    expect(result.navTarget).toBe('/settings/provider?id=qwen')
+  })
+
   it('classifies 403 as auth', () => {
     const result = classifyError(makeError({ statusCode: 403 }))
     expect(result.category).toBe('auth')

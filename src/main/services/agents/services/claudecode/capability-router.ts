@@ -76,10 +76,21 @@ export type RuntimeCapability =
   | 'agentMemory'
   | 'claw'
   | 'assistant'
+  | 'storyboardInspect'
+  | 'storyboardUpdateText'
+  | 'storyboardSplitPart'
+  | 'storyboardMergeParts'
+  | 'storyboardDeleteParts'
+  | 'storyboardDeleteRange'
+  | 'storyboardDuplicatePart'
+  | 'storyboardMovePart'
+  | 'storyboardClearPartText'
+  | 'storyboardInsertBlankPart'
+  | 'storyboardAdjustPartBounds'
 
 export type RuntimeToolLayer = 'chat' | 'web' | 'workspace-read' | 'workspace-write' | 'agentic'
 
-export type IntentDomain = 'chat' | 'workspace' | 'materials' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut'
+export type IntentDomain = 'chat' | 'workspace' | 'materials' | 'web' | 'ai_media' | 'skills' | 'auxiliary' | 'scrapt' | 'cut' | 'story'
 
 export type ActiveIntentDomain = {
   domain: IntentDomain
@@ -406,6 +417,42 @@ const syncSelectedCapabilitiesFromActiveDomains = (
         addCapabilityReason(selected, reasons, 'claw', 'intent:auxiliary.automation')
       }
     }
+
+    if (activeDomain.domain === 'story') {
+      if (activeDomain.subdomains.includes('storyboard_inspect') && !selected.has('storyboardInspect')) {
+        addCapabilityReason(selected, reasons, 'storyboardInspect', 'intent:story.storyboard_inspect')
+      }
+      if (activeDomain.subdomains.includes('storyboard_update_text') && !selected.has('storyboardUpdateText')) {
+        addCapabilityReason(selected, reasons, 'storyboardUpdateText', 'intent:story.storyboard_update_text')
+      }
+      if (activeDomain.subdomains.includes('storyboard_split_part') && !selected.has('storyboardSplitPart')) {
+        addCapabilityReason(selected, reasons, 'storyboardSplitPart', 'intent:story.storyboard_split_part')
+      }
+      if (activeDomain.subdomains.includes('storyboard_merge_parts') && !selected.has('storyboardMergeParts')) {
+        addCapabilityReason(selected, reasons, 'storyboardMergeParts', 'intent:story.storyboard_merge_parts')
+      }
+      if (activeDomain.subdomains.includes('storyboard_delete_parts') && !selected.has('storyboardDeleteParts')) {
+        addCapabilityReason(selected, reasons, 'storyboardDeleteParts', 'intent:story.storyboard_delete_parts')
+      }
+      if (activeDomain.subdomains.includes('storyboard_delete_range') && !selected.has('storyboardDeleteRange')) {
+        addCapabilityReason(selected, reasons, 'storyboardDeleteRange', 'intent:story.storyboard_delete_range')
+      }
+      if (activeDomain.subdomains.includes('storyboard_duplicate_part') && !selected.has('storyboardDuplicatePart')) {
+        addCapabilityReason(selected, reasons, 'storyboardDuplicatePart', 'intent:story.storyboard_duplicate_part')
+      }
+      if (activeDomain.subdomains.includes('storyboard_move_part') && !selected.has('storyboardMovePart')) {
+        addCapabilityReason(selected, reasons, 'storyboardMovePart', 'intent:story.storyboard_move_part')
+      }
+      if (activeDomain.subdomains.includes('storyboard_clear_part_text') && !selected.has('storyboardClearPartText')) {
+        addCapabilityReason(selected, reasons, 'storyboardClearPartText', 'intent:story.storyboard_clear_part_text')
+      }
+      if (activeDomain.subdomains.includes('storyboard_insert_blank_part') && !selected.has('storyboardInsertBlankPart')) {
+        addCapabilityReason(selected, reasons, 'storyboardInsertBlankPart', 'intent:story.storyboard_insert_blank_part')
+      }
+      if (activeDomain.subdomains.includes('storyboard_adjust_part_bounds') && !selected.has('storyboardAdjustPartBounds')) {
+        addCapabilityReason(selected, reasons, 'storyboardAdjustPartBounds', 'intent:story.storyboard_adjust_part_bounds')
+      }
+    }
   }
 }
 
@@ -484,7 +531,18 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'skills',
   'agentMemory',
   'claw',
-  'assistant'
+  'assistant',
+  'storyboardInspect',
+  'storyboardUpdateText',
+  'storyboardSplitPart',
+  'storyboardMergeParts',
+  'storyboardDeleteParts',
+  'storyboardDeleteRange',
+  'storyboardDuplicatePart',
+  'storyboardMovePart',
+  'storyboardClearPartText',
+  'storyboardInsertBlankPart',
+  'storyboardAdjustPartBounds'
 ]
 
 const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
@@ -557,7 +615,18 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'draftExport',
   'digitalHuman',
   'kouboTemplate',
-  'copylab'
+  'copylab',
+  'storyboardInspect',
+  'storyboardUpdateText',
+  'storyboardSplitPart',
+  'storyboardMergeParts',
+  'storyboardDeleteParts',
+  'storyboardDeleteRange',
+  'storyboardDuplicatePart',
+  'storyboardMovePart',
+  'storyboardClearPartText',
+  'storyboardInsertBlankPart',
+  'storyboardAdjustPartBounds'
 ])
 
 const CAPABILITY_STICKY_TURNS = 3
@@ -1883,6 +1952,23 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'kouboTemplate', 'prompt:koubo-template')
       }
 
+      if (
+        /storyboard-editor|storyboard_editor|storyboard_inspect|storyboard_update_text|storyboard_split_part|storyboard_merge_parts|storyboard_delete_parts|storyboard_delete_range|storyboard_duplicate_part|storyboard_move_part|storyboard_clear_part_text|storyboard_insert_blank_part|storyboard_adjust_part_bounds/i.test(text) ||
+        /字幕分镜|分镜编辑|重新分镜|拆分.{0,4}分镜|合并.{0,4}分镜|复制.{0,4}分镜|移动.{0,4}分镜|调整分镜顺序|高光片段|清空.{0,4}(字幕|文字)|只保留画面|空分镜|留白|微调.{0,4}(时间|时长|时间戳|首尾|起止)|前后.{0,4}(延长|收缩|加长|缩短)|气口/.test(text)
+      ) {
+        addCapabilityReason(selected, reasons, 'storyboardInspect', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardUpdateText', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardSplitPart', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardMergeParts', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardDeleteParts', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardDeleteRange', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardDuplicatePart', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardMovePart', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardClearPartText', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardInsertBlankPart', 'prompt:storyboard-editor')
+        addCapabilityReason(selected, reasons, 'storyboardAdjustPartBounds', 'prompt:storyboard-editor')
+      }
+
       if (hasAnyKeyword(text, COPYLAB_EXPLICIT_KEYWORDS)) {
         addCapabilityReason(selected, reasons, 'copylab', 'prompt:copywriting')
       }
@@ -2326,6 +2412,18 @@ function classifyIntent(args: {
   if (args.selected.has('subtitleTemplate')) addDomainSubdomain('cut', 'subtitle_template', 'capability:subtitle-template')
   if (args.selected.has('kouboTemplate')) addDomainSubdomain('cut', 'template', 'capability:koubo-template')
 
+  if (args.selected.has('storyboardInspect')) addDomainSubdomain('story', 'storyboard_inspect', 'capability:storyboard-inspect')
+  if (args.selected.has('storyboardUpdateText')) addDomainSubdomain('story', 'storyboard_update_text', 'capability:storyboard-update-text')
+  if (args.selected.has('storyboardSplitPart')) addDomainSubdomain('story', 'storyboard_split_part', 'capability:storyboard-split-part')
+  if (args.selected.has('storyboardMergeParts')) addDomainSubdomain('story', 'storyboard_merge_parts', 'capability:storyboard-merge-parts')
+  if (args.selected.has('storyboardDeleteParts')) addDomainSubdomain('story', 'storyboard_delete_parts', 'capability:storyboard-delete-parts')
+  if (args.selected.has('storyboardDeleteRange')) addDomainSubdomain('story', 'storyboard_delete_range', 'capability:storyboard-delete-range')
+  if (args.selected.has('storyboardDuplicatePart')) addDomainSubdomain('story', 'storyboard_duplicate_part', 'capability:storyboard-duplicate-part')
+  if (args.selected.has('storyboardMovePart')) addDomainSubdomain('story', 'storyboard_move_part', 'capability:storyboard-move-part')
+  if (args.selected.has('storyboardClearPartText')) addDomainSubdomain('story', 'storyboard_clear_part_text', 'capability:storyboard-clear-part-text')
+  if (args.selected.has('storyboardInsertBlankPart')) addDomainSubdomain('story', 'storyboard_insert_blank_part', 'capability:storyboard-insert-blank-part')
+  if (args.selected.has('storyboardAdjustPartBounds')) addDomainSubdomain('story', 'storyboard_adjust_part_bounds', 'capability:storyboard-adjust-part-bounds')
+
   const getRawSubdomains = (domain: IntentDomain) => Array.from(domainSubdomains.get(domain) ?? []).sort()
   const getSubdomains = (domain: IntentDomain) => {
     const rawSubdomains = getRawSubdomains(domain)
@@ -2342,16 +2440,18 @@ function classifyIntent(args: {
   const auxiliarySubdomains = getSubdomains('auxiliary')
   const scraptSubdomains = getSubdomains('scrapt')
   const cutSubdomains = getSubdomains('cut')
+  const storySubdomains = getSubdomains('story')
   const domainPriority: Record<IntentDomain, number> = {
-    cut: 0,
-    ai_media: 1,
-    scrapt: 2,
-    skills: 3,
-    workspace: 4,
-    materials: 5,
-    web: 6,
-    auxiliary: 7,
-    chat: 8
+    story: 0,
+    cut: 1,
+    ai_media: 2,
+    scrapt: 3,
+    skills: 4,
+    workspace: 5,
+    materials: 6,
+    web: 7,
+    auxiliary: 8,
+    chat: 9
   }
 
   const workspaceScore =
@@ -2377,11 +2477,13 @@ function classifyIntent(args: {
     skills: skillsSubdomains.length > 0 ? 5 + skillsSubdomains.length : 0,
     auxiliary: auxiliarySubdomains.length > 0 ? 2 + auxiliarySubdomains.length : 0,
     scrapt: scraptSubdomains.length > 0 ? 6 + scraptSubdomains.length : 0,
-    cut: cutSubdomains.length > 0 ? 7 + cutSubdomains.length : 0
+    cut: cutSubdomains.length > 0 ? 7 + cutSubdomains.length : 0,
+    story: storySubdomains.length > 0 ? 8 + storySubdomains.length : 0
   }
 
   let primaryDomain: IntentDomain = 'chat'
-  if (skillsSubdomains.length > 0) primaryDomain = 'skills'
+  if (storySubdomains.length > 0) primaryDomain = 'story'
+  else if (skillsSubdomains.length > 0) primaryDomain = 'skills'
   else if (cutSubdomains.length > 0) primaryDomain = 'cut'
   else if (aiMediaSubdomains.length > 0) primaryDomain = 'ai_media'
   else if (scraptSubdomains.length > 0) primaryDomain = 'scrapt'
@@ -2389,7 +2491,7 @@ function classifyIntent(args: {
   else if (workspaceScore > 0 || webScore > 0) primaryDomain = workspaceScore >= webScore ? 'workspace' : 'web'
   else if (auxiliarySubdomains.length > 0) primaryDomain = 'auxiliary'
 
-  const allDomains: IntentDomain[] = ['chat', 'workspace', 'materials', 'web', 'ai_media', 'skills', 'auxiliary', 'scrapt', 'cut']
+  const allDomains: IntentDomain[] = ['chat', 'workspace', 'materials', 'web', 'ai_media', 'skills', 'auxiliary', 'scrapt', 'cut', 'story']
   const companionDomains = allDomains.filter((domain) => {
     if (domain === 'chat' || domain === primaryDomain) return false
     return getRawSubdomains(domain).length > 0

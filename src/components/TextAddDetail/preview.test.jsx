@@ -13,7 +13,7 @@ import { buildTextAddRequestCozeClipboardData } from '../Chat/MessagePane/Messag
 import { buildTextEffectParams, normalizeTextEffectParams, resolveTextEffects } from '../../shared/textEffects';
 import { buildBackgroundRects } from './backgroundLayout';
 import { ANIMATION_META, TEXT_ANIMATION_OPTIONS } from '../../shared/textAnimations';
-import { matchesTextPreset, snapshotPresetTypography, TEXT_STYLE_PRESETS } from './textPresets';
+import { matchesTextPreset, snapshotPresetSettings, snapshotPresetTypography, TEXT_STYLE_PRESETS } from './textPresets';
 import { listCustomTextPresets, saveCustomTextPreset, renameCustomTextPreset, deleteCustomTextPreset } from './textPresetStore';
 import TextEffectsPanel from './TextEffectsPanel';
 import TextTimelinePanel from './TextTimelinePanel';
@@ -28,11 +28,13 @@ vi.mock('./textPresetStore', () => ({
 }));
 beforeEach(() => {
   listCustomTextPresets.mockReset().mockResolvedValue([]);
-  saveCustomTextPreset.mockReset().mockImplementation(async (name, typography) => ({
-    id: 'custom-test', name: name ?? '预设1', typography: snapshotPresetTypography(typography), createdAt: 1,
+  saveCustomTextPreset.mockReset().mockImplementation(async (name, typography, settings) => ({
+    id: 'custom-test', name: name ?? '预设1', typography: snapshotPresetTypography(typography),
+    settings: snapshotPresetSettings(settings), createdAt: 1,
   }));
   renameCustomTextPreset.mockReset().mockImplementation(async (id, name) => ({
     id, name, typography: snapshotPresetTypography(saveCustomTextPreset.mock.calls[0][1]), createdAt: 1,
+    settings: snapshotPresetSettings(saveCustomTextPreset.mock.calls[0][2]),
   }));
   deleteCustomTextPreset.mockReset().mockResolvedValue(undefined);
 });
@@ -318,6 +320,31 @@ describe('mixed typography', () => {
     await editInput(host.querySelector('.chat-panel__text-settings-number'), '40');
     return { ...mounted, editor: host.querySelector('.tiptap')?.editor };
   };
+  it('applies custom typography to the selection and animations and layout to the whole text', async () => {
+    const preset = {
+      id: 'custom-selection', name: '选区动画', createdAt: 1,
+      typography: snapshotPresetTypography({
+        ...TEXT_STYLE_PRESETS[0].typography, font: DEFAULT_TEXT_ADD_SETTINGS.font, fontSize: 48,
+      }),
+      settings: snapshotPresetSettings({
+        intro: { enabled: true, animation: '向下飞入', duration: 0.8 },
+        blend: { enabled: true, opacity: 70 }, positionX: 200, align: 'right',
+      }),
+    };
+    listCustomTextPresets.mockResolvedValue([preset]);
+    const { editor, onSettingsChange, onInputTextChange } = await makeRich();
+    const original = onSettingsChange.mock.lastCall[0];
+    await act(async () => editor.commands.setTextSelection({ from: 2, to: 3 }));
+    await act(async () => host.querySelector('[aria-label="应用预设：选区动画"]').click());
+    const settings = onSettingsChange.mock.lastCall[0];
+    expect(settings).toMatchObject(preset.settings);
+    expect(settings.typographyRuns[0]).toEqual(original.typographyRuns[0]);
+    expect(settings.typographyRuns[1]).toMatchObject({ ...preset.typography, start: 1, end: 2 });
+    expect(settings.typographyRuns[2]).toMatchObject({ start: 2, end: 3, fontSize: 24 });
+    expect(settings.fontSize).toBe(original.fontSize);
+    expect(buildTextEffectParams(settings)).toMatchObject({ intro_animation: '向下飞入', intro_duration: 0.8 });
+    expect(onInputTextChange).not.toHaveBeenCalled();
+  });
   it('applies presets only to selected characters and keeps sizes, content and other effects', async () => {
     const { editor, onSettingsChange, onInputTextChange } = await makeRich();
     const preset = TEXT_STYLE_PRESETS.find((item) => item.id === 'comic-yellow');
@@ -781,46 +808,50 @@ describe('text timeline controls', () => {
     expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('aria-label'))).toEqual(['基础', '时间线']);
     await click('时间线');
     const fetchCount = queryScript.mock.calls.length;
+    expect(host.querySelector('[data-planned="true"]').closest('[data-track-name]').dataset.trackName).toBe('text_main_2');
+    expect(host.querySelector('.pinned-draft-track-view__warning')).toBeNull();
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({
+      track_name: 'text_main_2', relative_index: 1, start: 0, end: 3,
+    });
+    await selectTrack('existing:text_main');
     expect(host.querySelector('[data-planned="true"]').closest('[data-track-name]').dataset.trackName).toBe('text_main');
     expect(host.querySelector('.pinned-draft-track-view__warning')).toBeTruthy();
-    expect(get('上移一层')).toBeNull();
+    expect(get('置顶')).toBeNull();
     expect(get('新轨道名')).toBeNull();
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: 'text_main', start: 0, end: 3 });
     await selectTrack('__new__');
     expect(get('选择轨道').value).toBe('text_main_2');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(1);
     expect(host.querySelectorAll('.chat-panel__text-settings-form > .chat-panel__text-settings-row')).toHaveLength(1);
     expect(host.querySelector('.pinned-draft-track-view__warning')).toBeNull();
     await editInput(get('选择轨道'), '新标题');
-    await click('上移一层');
-    await click('上移一层');
-    await click('上移一层');
-    await click('上移一层');
-    await click('下移一层');
+    expect(get('置顶').disabled).toBe(true);
+    expect(get('置低').disabled).toBe(false);
     await editInput(get('开始时间'), '5');
     await editInput(get('结束时间'), '10');
     const ghost = host.querySelector('[data-planned="true"]');
     expect(ghost.closest('[data-start]').dataset.start).toBe('5');
     expect(ghost.closest('[data-end]').dataset.end).toBe('10');
-    expect(ghost.closest('[data-layer]').dataset.layer).toBe('15003');
+    expect(ghost.closest('[data-layer]').dataset.layer).toBe('15001');
     expect(ghost.closest('[data-track-name]').dataset.trackName).toBe('新标题');
     expect(host.querySelectorAll('[data-track-name="text_main"] .pinned-draft-track-view__segment')).toHaveLength(1);
     expect(host.querySelector('.pinned-draft-track-view [data-readonly="true"]')).toBeTruthy();
     expect(JSON.stringify(source)).toBe(original);
     expect(queryScript.mock.calls.length).toBe(fetchCount);
-    expect(onSettingsChange.mock.lastCall[0]).toMatchObject({ trackName: '新标题', relativeIndex: 3, start: 5, end: 10 });
+    expect(onSettingsChange.mock.lastCall[0]).toMatchObject({ trackName: '新标题', relativeIndex: 1, start: 5, end: 10 });
     await click('基础');
     expect(host.querySelector('[aria-label="预设设置"]')).toBeTruthy();
     expect(host.querySelector('[aria-label="动画设置"]')).toBeTruthy();
     await click('时间线');
     expect(get('结束时间').value).toBe('10');
     await selectTrack('existing:text_main');
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶')).toBeNull();
+    expect(get('置低')).toBeNull();
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15000');
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: 'text_main', start: 5, end: 10 });
     await selectTrack('__new__');
     expect(get('选择轨道').value).toBe('新标题');
-    expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15003');
+    expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15001');
   });
   it('shows failed track reads without restoring the removed toolbar', async () => {
     queryScript.mockRejectedValueOnce(new Error('网络断开'));
@@ -836,14 +867,15 @@ describe('text timeline controls', () => {
     queryScript.mockResolvedValueOnce(source);
     const { onSettingsChange } = await mount('计划文字');
     await click('时间线');
+    await selectTrack('existing:text_main');
     for (const label of ['开始时间', '结束时间']) {
       expect(get(label).step).toBe('0.01');
       expect(get(label).classList.contains('chat-panel__text-settings-number')).toBe(true);
     }
     expect(get('开始时间滑块')).toBeNull();
     expect(get('结束时间滑块')).toBeNull();
-    expect(get('上移一层')).toBeNull();
-    expect(get('下移一层')).toBeNull();
+    expect(get('置顶')).toBeNull();
+    expect(get('置低')).toBeNull();
     await editInput(get('开始时间'), '1.23');
     await editInput(get('结束时间'), '4.56');
     expect(get('开始时间').value).toBe('1.23');
@@ -870,37 +902,90 @@ describe('text timeline controls', () => {
     queryScript.mockResolvedValueOnce(source);
     const { onSettingsChange } = await mount('文字');
     // The default is resolved even before opening the timeline tab.
-    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: '旧文字', start: 0, end: 3 });
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: 'text_main', relative_index: 7, start: 0, end: 3 });
     await click('时间线');
     expect([...get('轨道选项').options].map((option) => option.textContent)).toEqual(['', '旧文字', '空文字轨道', '新建轨道']);
     for (const type of ['video', 'image', 'audio']) {
       expect(host.querySelector(`[data-track-name="${type}"]`)).toBeNull();
     }
+    await selectTrack('existing:旧文字');
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('0');
     await selectTrack('existing:空文字轨道');
     expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15006');
     expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual({ track_name: '空文字轨道', start: 0, end: 3 });
     await selectTrack('__new__');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(7);
     await editInput(get('选择轨道'), '旧文字');
     expect(onSettingsChange.mock.lastCall[0].trackName).toBe('旧文字_2');
     expect(host.querySelector('[data-planned]').closest('[data-track-name]').dataset.trackName).toBe('旧文字_2');
-    expect(get('上移一层').querySelector('svg')).toBeTruthy();
+    expect(get('置顶').querySelector('svg')).toBeTruthy();
+    expect(get('置低').querySelector('svg')).toBeTruthy();
   });
-  it('disables layer buttons at bounds and disables all placement controls when locked', async () => {
+  it('preserves the adjusted new track layer when editing its name and time', async () => {
+    const source = response('旧文字');
+    source.output.tracks[0].relative_index = 6;
+    source.output.tracks[0].segments[0].render_index = 15006;
+    source.output.tracks.push({ id: 'video', type: 'video', name: '视频', relative_index: 12, segments: [] });
+    queryScript.mockResolvedValueOnce(source);
+    const { onSettingsChange } = await mount('文字');
+    await click('时间线');
+    await editInput(get('选择轨道'), '新轨道');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(13);
+    expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe('15013');
+    await click('置低');
+    await editInput(get('选择轨道'), '新名称');
+    await editInput(get('结束时间'), '5');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toMatchObject({
+      track_name: '新名称', relative_index: 5, end: 5,
+    });
+  });
+  it.each([[2, 1, 0], [20, 7, -3], [5, 5, 0]])('moves directly above or below all existing layers: %j', async (...indices) => {
+    const source = response('轨道0');
+    source.output.tracks = indices.map((index, i) => ({
+      id: `track-${i}`, name: `轨道${i}`, type: 'text', relative_index: index,
+      segments: [{ id: `clip-${i}`, render_index: 15000 + index, target_timerange: { start: 0, duration: 3e6 } }],
+    }));
+    const original = JSON.stringify(source);
+    queryScript.mockResolvedValueOnce(source);
+    const { onSettingsChange } = await mount('新文字');
+    await click('时间线');
+    await selectTrack('__new__');
+    const order = () => [...host.querySelectorAll('[data-track-name]')].map((row) => row.dataset.trackName);
+    const name = onSettingsChange.mock.lastCall[0].trackName;
+    expect(order()[0]).toBe(name);
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.max(...indices) + 1);
+    expect(get('置顶').disabled).toBe(true);
+    await click('置低');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.min(...indices) - 1);
+    expect(host.querySelector('[data-planned]').closest('[data-layer]').dataset.layer).toBe(String(15000 + Math.min(...indices) - 1));
+    expect(order().at(-1)).toBe(name);
+    expect(host.querySelectorAll('[data-track-name]')).toHaveLength(indices.length + 1);
+    expect(get('置低').disabled).toBe(true);
+    await click('置低');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.min(...indices) - 1);
+    await click('置顶');
+    expect(order()[0]).toBe(name);
+    expect(get('置顶').disabled).toBe(true);
+    await click('置顶');
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0]).relative_index).toBe(Math.max(...indices) + 1);
+    expect(JSON.stringify(source)).toBe(original);
+  });
+  it('disables layer buttons at numeric bounds and placement controls when locked', async () => {
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
     const render = async (relativeIndex, disabled = false) => act(async () => root.render(
-      <TextTimelinePanel value={{ trackName: '标题', relativeIndex, start: 0, end: 3 }} onChange={vi.fn()} disabled={disabled} />
+      <TextTimelinePanel script={response('旧文字').output}
+        value={{ trackMode: 'new', trackName: '标题', relativeIndex, start: 0, end: 3 }} onChange={vi.fn()} disabled={disabled} />
     ));
     await render(10000);
-    expect(get('上移一层').disabled).toBe(true);
-    expect(get('下移一层').disabled).toBe(false);
+    expect(get('置顶').disabled).toBe(true);
+    expect(get('置低').disabled).toBe(false);
     await render(-10000);
-    expect(get('上移一层').disabled).toBe(false);
-    expect(get('下移一层').disabled).toBe(true);
+    expect(get('置顶').disabled).toBe(false);
+    expect(get('置低').disabled).toBe(true);
     await render(0, true);
-    for (const label of ['选择轨道', '轨道选项', '上移一层', '下移一层', '开始时间', '结束时间']) {
+    for (const label of ['选择轨道', '轨道选项', '置顶', '置低', '开始时间', '结束时间']) {
       expect(get(label).disabled).toBe(true);
     }
   });
@@ -932,6 +1017,158 @@ describe('text effects', () => {
   };
   const openPresetMenu = async (name) => act(async () => number(`应用预设：${name}`)
     .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  it('renders preset effects in the rich preview with a vertical background', async () => {
+    const typography = snapshotPresetTypography({
+      ...TEXT_STYLE_PRESETS[0].typography, font: DEFAULT_TEXT_ADD_SETTINGS.font, fontSize: 36,
+      border: { enabled: true, color: '#FF0000', width: 70 },
+      shadow: { enabled: true, color: '#00FF00', opacity: 100, smoothing: 0, distance: 12, angle: 0 },
+    });
+    listCustomTextPresets.mockResolvedValue([{
+      id: 'custom-rich-effects', name: '背景效果', typography,
+      settings: snapshotPresetSettings({ align: 'bottom', background: { enabled: true } }), createdAt: 1,
+    }]);
+    await mount('A');
+    await click('应用预设：背景效果');
+    const span = host.querySelector('.tiptap span[data-size]');
+    expect(span.style.webkitTextStroke).toContain('#FF0000');
+    expect(span.style.textShadow).toContain('rgba(0,255,0,1)');
+  });
+  it.each(['horizontal-center', 'bottom'])('paints preset border and shadow pixels for %s', async (align) => {
+    const typography = snapshotPresetTypography({
+      ...TEXT_STYLE_PRESETS[0].typography, font: DEFAULT_TEXT_ADD_SETTINGS.font, fontSize: 36,
+      border: { enabled: true, color: '#FF0000', width: 70 },
+      shadow: { enabled: true, color: '#00FF00', opacity: 100, smoothing: 0, distance: 12, angle: 0 },
+    });
+    listCustomTextPresets.mockResolvedValue([{
+      id: 'custom-pixels', name: '效果像素', typography, settings: { align }, createdAt: 1,
+    }]);
+    const { stage, onSettingsChange } = await mount('A');
+    await click('应用预设：效果像素');
+    expect(onSettingsChange.mock.lastCall[0].border).toEqual(typography.border);
+    expect(onSettingsChange.mock.lastCall[0].shadow).toEqual(typography.shadow);
+    const node = stage.findOne('.preview-text');
+    const canvas = node.toCanvas({ x: 0, y: 0, width: stage.width(), height: stage.height(), pixelRatio: 1 });
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let red = 0;
+    let green = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 30 && data[i] > 150 && data[i + 1] < 100) red++;
+      if (data[i + 3] > 30 && data[i + 1] > 150 && data[i] < 100) green++;
+    }
+    expect(red).toBeGreaterThan(5);
+    expect(green).toBeGreaterThan(5);
+  });
+  it('saves and restores every non-timeline setting after reloading, including animations', async () => {
+    const typography = snapshotPresetTypography({
+      ...TEXT_STYLE_PRESETS[0].typography, font: DEFAULT_TEXT_ADD_SETTINGS.font, fontSize: 36,
+    });
+    const settings = snapshotPresetSettings({
+      ...DEFAULT_TEXT_ADD_SETTINGS,
+      blend: { enabled: true, opacity: 65 },
+      background: { ...resolveTextEffects().background, enabled: true, style: 2, color: '#123456',
+        opacity: 80, roundRadius: 12, height: 25, width: 30, verticalOffset: 40, horizontalOffset: 60 },
+      flower: { enabled: true, id: 'flower-123' },
+      intro: { enabled: true, animation: '向下飞入', duration: 0.7 },
+      outro: { enabled: true, animation: '向下滑动', duration: 1.2 },
+      loop: { enabled: true, animation: '吹泡泡_II', duration: 2.3 },
+      letterSpacing: 15, lineSpacing: 20, align: 'bottom',
+      scaleXPercent: 125, scaleYPercent: 150, uniformScale: false,
+      positionX: 320, positionY: -180, rotation: 35, fixedWidth: 600, fixedHeight: 400,
+    });
+    const configured = { id: 'custom-configured', name: '完整设置', typography, settings, createdAt: 1 };
+    const defaults = { id: 'custom-defaults', name: '默认设置', typography,
+      settings: snapshotPresetSettings(DEFAULT_TEXT_ADD_SETTINGS), createdAt: 2 };
+    listCustomTextPresets.mockResolvedValue([configured, defaults]);
+    const { onSettingsChange, onInputTextChange } = await mount('保留文字');
+    await click('时间线');
+    await editInput(number('开始时间'), '2');
+    await editInput(number('结束时间'), '8');
+    const placement = buildTextPlacementParams(onSettingsChange.mock.lastCall[0]);
+    await click('基础');
+    await click('应用预设：完整设置');
+    expect(onSettingsChange.mock.lastCall[0]).toMatchObject(settings);
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual(placement);
+    expect(number('应用预设：完整设置').getAttribute('aria-pressed')).toBe('true');
+    expect(number('应用预设：默认设置').getAttribute('aria-pressed')).toBe('false');
+    await click('添加自定义预设');
+    expect(saveCustomTextPreset.mock.lastCall[2]).toEqual(settings);
+    expect(saveCustomTextPreset.mock.lastCall[1]).toEqual(typography);
+    const saved = await saveCustomTextPreset.mock.results.at(-1).value;
+    listCustomTextPresets.mockResolvedValue([saved, defaults]);
+    await click('设置');
+    await click('设置');
+    await click('应用预设：默认设置');
+    expect(onSettingsChange.mock.lastCall[0].fixedWidth).toBeNull();
+    expect(onSettingsChange.mock.lastCall[0].intro.enabled).toBe(false);
+    await click('应用预设：预设1');
+    expect(onSettingsChange.mock.lastCall[0]).toMatchObject(settings);
+    expect(buildTextPlacementParams(onSettingsChange.mock.lastCall[0])).toEqual(placement);
+    expect(buildTextEffectParams(onSettingsChange.mock.lastCall[0])).toMatchObject({
+      intro_animation: '向下飞入', intro_duration: 0.7,
+      outro_animation: '向下滑动', outro_duration: 1.2,
+      loop_animation: '吹泡泡_II', loop_duration: 2.3,
+      effect_effect_id: 'flower-123', font_alpha: 0.65,
+    });
+    expect(onInputTextChange).not.toHaveBeenCalled();
+  });
+  it('captures manually selected animations and distinguishes animation-only differences', async () => {
+    const { onSettingsChange } = await mount('动画文字');
+    await expandEffect('动画');
+    for (const [group, label] of [['intro', '入场动画'], ['outro', '出场动画'], ['loop', '循环动画']]) {
+      await click(`启用${label}`);
+      const select = number(`选择${label}`);
+      await act(async () => {
+        select.value = TEXT_ANIMATION_OPTIONS[group][0].value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await editInput(number(`${label}持续时间`), '1.5');
+    }
+    await click('添加自定义预设');
+    const saved = await saveCustomTextPreset.mock.results.at(-1).value;
+    expect(saved.settings).toMatchObject({
+      intro: onSettingsChange.mock.lastCall[0].intro,
+      outro: onSettingsChange.mock.lastCall[0].outro,
+      loop: onSettingsChange.mock.lastCall[0].loop,
+    });
+    await editInput(number('入场动画持续时间'), '2');
+    expect(number('应用预设：预设1').getAttribute('aria-pressed')).toBe('false');
+    await click('应用预设：预设1');
+    expect(number('入场动画持续时间').value).toBe('1.5');
+    expect(number('应用预设：预设1').getAttribute('aria-pressed')).toBe('true');
+  });
+  it('keeps current layout and effects when applying legacy and builtin presets', async () => {
+    const legacy = { id: 'custom-legacy', name: '旧预设',
+      typography: snapshotPresetTypography({
+        ...TEXT_STYLE_PRESETS[0].typography, font: DEFAULT_TEXT_ADD_SETTINGS.font, fontSize: 24,
+      }), createdAt: 1 };
+    listCustomTextPresets.mockResolvedValue([legacy]);
+    const { onSettingsChange } = await mount('旧版兼容');
+    await expandEffect('动画');
+    await click('启用入场动画');
+    await editInput(number('入场动画持续时间'), '2');
+    await editInput(host.querySelector('.chat-panel__text-settings-transform-label.x + input'), '300');
+    const before = snapshotPresetSettings(onSettingsChange.mock.lastCall[0]);
+    for (const label of ['应用预设：旧预设', '应用预设：漫画黄']) {
+      await click(label);
+      expect(snapshotPresetSettings(onSettingsChange.mock.lastCall[0])).toEqual(before);
+    }
+  });
+  it('excludes text and timeline fields from settings snapshots and clones nested effects', () => {
+    const source = { ...DEFAULT_TEXT_ADD_SETTINGS, text: '不保存', typographyRuns: [{ start: 0, end: 1 }] };
+    const saved = snapshotPresetSettings(source);
+    expect(Object.keys(saved).sort()).toEqual([
+      'blend', 'background', 'flower', 'intro', 'outro', 'loop',
+      'letterSpacing', 'lineSpacing', 'align', 'scaleXPercent', 'scaleYPercent', 'uniformScale',
+      'positionX', 'positionY', 'fixedWidth', 'fixedHeight', 'rotation',
+    ].sort());
+    saved.intro.duration = 3;
+    saved.background.color = '#123456';
+    expect(source.intro.duration).toBe(0.5);
+    expect(source.background.color).toBe('#000000');
+    expect(snapshotPresetSettings()).toEqual({});
+    expect(() => snapshotPresetSettings({ positionX: NaN })).toThrow();
+    expect(() => snapshotPresetSettings({ align: 'invalid' })).toThrow();
+  });
   it('names, saves and reloads custom styles without changing the current text', async () => {
     const { onSettingsChange } = await mount('保存的文字');
     await click('应用预设：漫画黄');
@@ -1135,7 +1372,7 @@ describe('text effects', () => {
     const { onSettingsChange } = await mount('ABC');
     await expandEffect('花字');
     const link = host.querySelector('.chat-panel__text-flower-link');
-    expect(link.href).toBe('https://coze.cn/store/project/7580292052165443618?entity_id=1');
+    expect(link.href).toBe('https://www.coze.cn/store/project/7686785367328702514?entity_id=1');
     expect(link.target).toBe('_blank');
     expect(link.rel).toContain('noopener');
     await click('启用花字');

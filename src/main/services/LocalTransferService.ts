@@ -23,11 +23,11 @@ type BonjourLike = {
 type BonjourConstructor = new () => BonjourLike
 
 const resolveBonjourConstructor = (): BonjourConstructor => {
-  const candidate = (
-    (BonjourModule as unknown as { default?: unknown; Bonjour?: unknown }).default ||
-    (BonjourModule as unknown as { default?: unknown; Bonjour?: unknown }).Bonjour ||
-    BonjourModule
-  ) as unknown
+  const module = BonjourModule as unknown as { default?: unknown; Bonjour?: unknown }
+  const nested = module.default as { default?: unknown; Bonjour?: unknown } | undefined
+  // Bundlers may wrap CommonJS exports in a default object, not a constructor.
+  const candidate = [module.Bonjour, module.default, nested?.Bonjour, nested?.default, BonjourModule]
+    .find((value) => typeof value === 'function')
 
   if (typeof candidate !== 'function') {
     throw new Error('bonjour-service did not export a Bonjour constructor')
@@ -64,7 +64,15 @@ class LocalTransferService {
     this.lastScanStartedAt = Date.now()
     this.lastUpdatedAt = Date.now()
     this.lastError = undefined
-    this.restartBrowser()
+    try {
+      this.restartBrowser()
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      this.isScanning = false
+      this.lastError = err.message
+      this.releaseBrowser()
+      logger.error('Failed to start local transfer discovery', err)
+    }
     this.broadcastState()
     return this.getState()
   }
@@ -121,7 +129,7 @@ class LocalTransferService {
     return this.bonjour
   }
 
-  private restartBrowser(): void {
+  private releaseBrowser(): void {
     // Clean up existing browser
     if (this.browser) {
       this.browser.removeAllListeners()
@@ -142,19 +150,15 @@ class LocalTransferService {
       }
       this.bonjour = null
     }
+  }
 
+  private restartBrowser(): void {
+    this.releaseBrowser()
     const browser = this.getBonjour().find({ type: SERVICE_TYPE, protocol: SERVICE_PROTOCOL })
     this.browser = browser
     this.bindBrowserEvents(browser)
-
-    try {
-      browser.start()
-      logger.info('Local transfer discovery started')
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error))
-      this.lastError = err.message
-      logger.error('Failed to start local transfer discovery', err)
-    }
+    browser.start()
+    logger.info('Local transfer discovery started')
   }
 
   private bindBrowserEvents(browser: Browser) {

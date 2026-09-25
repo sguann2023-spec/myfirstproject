@@ -1,8 +1,10 @@
 import { classifyErrorByAI } from '@renderer/services/ErrorDiagnosisService'
 import { restartTrace } from '@renderer/services/SpanManagerService'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
+import { messageBlocksSelectors } from '@renderer/store/messageBlock'
 import { regenerateAssistantResponseThunk } from '@renderer/store/thunk/messageThunk'
 import type { ErrorMessageBlock, Message } from '@renderer/types/newMessage'
+import { MessageBlockType } from '@renderer/types/newMessage'
 import type { ErrorClassification } from '@renderer/utils/errorClassifier'
 import { CircleAlert, LoaderCircle, X } from 'lucide-react'
 import React, { useContext, useEffect, useRef, useState } from 'react'
@@ -29,6 +31,26 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
   )
   const defaultModel = useAppSelector((state) => state.llm.defaultModel)
   const topicLoading = useAppSelector((state) => !!state.messages.loadingByTopic[message.topicId])
+  // 判断消息此前是否已经产出过有效内容（文本 / 思考 / 工具调用 / 图片 / 引用 / 代码 等）；
+  // 若已经产出过内容，则错误发生时不再展示占位的"抱歉，发生未知错误..."文案，
+  // 只保留错误 banner 提示重试，其他已生成的内容照常显示，交由折叠 UI 处理。
+  const messageHasPriorContent = useAppSelector((state: any) => {
+    const blockIds = Array.isArray(message?.blocks) ? message.blocks : []
+    if (blockIds.length === 0) return false
+    for (const blockId of blockIds) {
+      const b = messageBlocksSelectors.selectById(state, blockId)
+      if (!b) continue
+      if (b.type === MessageBlockType.ERROR || b.type === MessageBlockType.UNKNOWN) continue
+      if (b.type === MessageBlockType.MAIN_TEXT || b.type === MessageBlockType.THINKING) {
+        const text = String((b as any)?.content || '').trim()
+        if (text) return true
+        continue
+      }
+      // 其他任意非 error / 非占位类型（tool、image、code、citation、file、video 等）都视为已有内容
+      return true
+    }
+    return false
+  })
   const [dismissed, setDismissed] = useState(false)
   const [networkCheckOpen, setNetworkCheckOpen] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -38,6 +60,7 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
     hostRetry ? hostRetry.disabled : topicLoading || !assistant || !message.askId
   )
   const needsExplanation = classification.i18nKey === 'error.diagnosis.unknown'
+  const requiresRelogin = classification.category === 'auth_session'
   const errorMessage = block.error?.message?.trim() || ''
   const summaryKey = JSON.stringify([block.error?.name, errorMessage, i18n.language])
   const aiSummary = needsExplanation && summary.key === summaryKey ? summary.text : ''
@@ -99,9 +122,11 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
 
   return (
     <div className="error-recovery">
-      <p className="error-recovery__reply">
-        {t('error.diagnosis.recovery_reply')}
-      </p>
+      {!messageHasPriorContent && (
+        <p className="error-recovery__reply">
+          {t(requiresRelogin ? 'error.diagnosis.session_expired_reply' : 'error.diagnosis.recovery_reply')}
+        </p>
+      )}
       {!dismissed && (
         <div
           role="alert"
@@ -130,6 +155,18 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
             </div>
           </div>
           <div className="error-recovery__actions">
+            {requiresRelogin && classification.navTarget && (
+              <button
+                type="button"
+                className="error-recovery__retry"
+                onClick={() => {
+                  const navigate = (window as Window & { navigate?: (path: string) => void }).navigate
+                  if (navigate) navigate(classification.navTarget!)
+                  else window.location.hash = classification.navTarget!
+                }}>
+                {t('error.diagnosis.relogin')}
+              </button>
+            )}
             <button
               type="button"
               className="error-recovery__retry"

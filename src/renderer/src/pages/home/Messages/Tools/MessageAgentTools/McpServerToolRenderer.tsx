@@ -73,7 +73,7 @@ export function McpServerToolRenderer({
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
-  const mediaGenerationBillingSummary = isMediaGeneration || isReversePromptToolName(toolName)
+  const mediaGenerationBillingSummary = isMediaGeneration || isSubtitleRecognition || isReversePromptToolName(toolName)
     ? extractMediaGenerationBillingSummary(output)
     : null
 

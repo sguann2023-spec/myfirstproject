@@ -30,6 +30,7 @@ const MCPSettings = () => {
     syncing: false
   });
   const [localMcpDetectedAgents, setLocalMcpDetectedAgents] = React.useState([]);
+  const [localMcpDetectionFailed, setLocalMcpDetectionFailed] = React.useState(false);
   const [localMcpRegistrationSyncingAgentId, setLocalMcpRegistrationSyncingAgentId] = React.useState('');
 
   const localMcpDetectedAgentMap = React.useMemo(() => (
@@ -58,6 +59,7 @@ const MCPSettings = () => {
     try {
       const detectedAgents = await window.api.localMcp.detectAgents();
       const normalizedDetectedAgents = Array.isArray(detectedAgents) ? detectedAgents : [];
+      setLocalMcpDetectionFailed(false);
       setLocalMcpDetectedAgents(normalizedDetectedAgents);
       window.dispatchEvent(new window.CustomEvent(LOCAL_MCP_AGENTS_UPDATED_EVENT, {
         detail: {
@@ -65,6 +67,8 @@ const MCPSettings = () => {
         }
       }));
     } catch (error) {
+      console.error('[MCPSettings] Failed to detect local agents', error);
+      setLocalMcpDetectionFailed(true);
       setLocalMcpDetectedAgents([]);
       window.dispatchEvent(new window.CustomEvent(LOCAL_MCP_AGENTS_UPDATED_EVENT, {
         detail: {
@@ -72,7 +76,10 @@ const MCPSettings = () => {
         }
       }));
       if (!silent) {
-        message.error(`检测本地 Agent 失败：${error?.message || error}`);
+        const permissionDenied = /\b(EACCES|EPERM)\b/.test(String(error?.message || error));
+        message.error(permissionDenied
+          ? '无法读取本机应用列表，请检查应用文件夹的访问权限后重试。'
+          : '暂时无法检测已安装的 AI 软件，请关闭此窗口后重新打开；若仍失败，请重启 VectCut。');
       }
     }
   }, []);
@@ -177,7 +184,9 @@ const MCPSettings = () => {
                       <div className="chat-panel__local-mcp-detection-main">
                         <div className="chat-panel__local-mcp-detection-name">{detectedAgent?.label || agent.label}</div>
                       </div>
-                      {!installed ? (
+                      {localMcpDetectionFailed ? (
+                        <span className="chat-panel__local-mcp-detection-status is-missing">检测失败</span>
+                      ) : !installed ? (
                         <span className="chat-panel__local-mcp-detection-status is-missing">未安装</span>
                       ) : !registrationSupported ? (
                         <span className="chat-panel__local-mcp-detection-status is-unsupported">暂不支持</span>

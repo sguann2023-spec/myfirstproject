@@ -80,6 +80,7 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
       || prev.content !== next.content
       || prev.createdAt !== next.createdAt
       || prev.updatedAt !== next.updatedAt
+      || prev.retryStatusText !== next.retryStatusText
       || buildImageAttachmentSignature(prev.imageAttachments) !== buildImageAttachmentSignature(next.imageAttachments)
       || buildErrorSignature(prev.error) !== buildErrorSignature(next.error)
     ) {

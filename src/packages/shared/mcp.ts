@@ -139,6 +139,7 @@ export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
   'seed-audio',
   'skills',
   'speech',
+  'storyboard-editor',
   'subtitle-recognition',
   'subtitle-template',
   'system',

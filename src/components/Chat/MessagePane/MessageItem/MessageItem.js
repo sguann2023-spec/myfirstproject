@@ -295,8 +295,11 @@ const MessageItem = ({
   const reversePromptRequest = message?.reversePromptRequest && typeof message.reversePromptRequest === 'object'
     ? message.reversePromptRequest
     : null;
+  const subtitleStoryboardRequest = message?.subtitleStoryboardRequest && typeof message.subtitleStoryboardRequest === 'object'
+    ? message.subtitleStoryboardRequest
+    : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || draftInspectRequest || reversePromptRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
   const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest));
@@ -312,7 +315,9 @@ const MessageItem = ({
     if (showDraftAgentFormat && canShowDraftAgentAction) {
       return {
         ...message,
-        content: buildDraftAgentPrompt(message?.content)
+        content: subtitleStoryboardRequest
+          ? `请使用本地文件读写能力完成以下字幕分镜任务，无需调用 vectcut MCP 工具。请先确认能访问指定文件，无法访问时说明原因，不要虚构修改结果。\n\n${String(message?.content || '')}`
+          : buildDraftAgentPrompt(message?.content)
       };
     }
     if (showDraftCozeFormat && canShowDraftCozeAction) {
@@ -344,6 +349,7 @@ const MessageItem = ({
     draftModifyRequest,
     draftRequest,
     textAddRequest,
+    subtitleStoryboardRequest,
     message,
     showDraftAgentFormat,
     showDraftApiFormat,
@@ -602,6 +608,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && prevMessage.role === nextMessage.role
     && prevMessage.createdAt === nextMessage.createdAt
     && prevMessage.updatedAt === nextMessage.updatedAt
+    && prevMessage.retryStatusText === nextMessage.retryStatusText
     && prevUsage === nextUsage
     && prevUsageSteps === nextUsageSteps
     && prevMetrics === nextMetrics
@@ -613,6 +620,8 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)
+    && JSON.stringify(prevMessage.subtitleRecognitionRequest) === JSON.stringify(nextMessage.subtitleRecognitionRequest)
+    && JSON.stringify(prevMessage.subtitleStoryboardRequest) === JSON.stringify(nextMessage.subtitleStoryboardRequest)
     && prevError === nextError
   );
 });

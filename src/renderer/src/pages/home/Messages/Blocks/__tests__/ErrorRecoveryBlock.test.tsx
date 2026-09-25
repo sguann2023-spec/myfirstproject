@@ -117,6 +117,26 @@ describe('ErrorRecoveryBlock', () => {
     expect(mocks.classifyByAI).not.toHaveBeenCalled()
   })
 
+  it('explains expired sessions and offers a direct re-login route', async () => {
+    const expiredToken = {
+      ...block,
+      error: {
+        name: 'Error',
+        message: 'Token refresh failed (400): {"error":"invalid_grant"}',
+        statusCode: 400
+      }
+    } as ErrorMessageBlock
+    const navigate = vi.fn()
+    ;(window as any).navigate = navigate
+    await render(expiredToken)
+
+    expect(container.querySelector('p')?.textContent).toBe(zhCN.error.diagnosis.session_expired_reply)
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(zhCN.error.diagnosis.session_expired)
+    expect(button(zhCN.error.diagnosis.relogin)).toBeTruthy()
+    await act(async () => button(zhCN.error.diagnosis.relogin).click())
+    expect(navigate).toHaveBeenCalledWith('/settings/provider')
+  })
+
   it('retries the failed message once even on repeated clicks', async () => {
     await render()
     await act(async () => {

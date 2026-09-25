@@ -10,8 +10,14 @@
   flex: 1;
   overflow: auto;
   padding: 12px 14px;
+  /* Chromium places the scrollbar on the left for RTL scrollers. */
+  direction: rtl;
   scrollbar-color: #d4d4d4 transparent;
   scrollbar-width: thin;
+}
+
+.chat-panel__messages > * {
+  direction: ltr;
 }
 
 .chat-panel__messages:has(.chat-panel__welcome-stage--preview) {

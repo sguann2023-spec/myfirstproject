@@ -11,6 +11,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/main/services/__tests__/{CrashReportService,FeedbackMailService}.test.ts']
+    include: ['src/main/services/__tests__/{CrashReportService,FeedbackMailService,LocalTransferService}.test.ts']
   }
 })

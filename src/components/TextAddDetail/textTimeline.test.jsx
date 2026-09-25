@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import PinnedDraftTrackView, { buildTimelineRows } from '../../renderer/src/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
-import { buildTextPlacementParams, getTextTrackNames, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
+import { buildTextPlacementParams, DEFAULT_TEXT_PLACEMENT, getLowestTextTrackRelativeIndex, getNextTextTrackRelativeIndex, getTextTrackNames, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
 
 vi.mock('../../renderer/src/components/PreviewTimeline/ReactTimelineEditor', () => ({
   Timeline: ({ editorData, getActionRender, disableDrag, hideCursor, scaleWidth }) => (
@@ -25,6 +25,51 @@ const script = {
 };
 
 describe('read-only text timeline', () => {
+  it('places the lowest new track below the minimum valid index', () => {
+    expect(getLowestTextTrackRelativeIndex({ tracks: {
+      a: { type: 'text', relative_index: 3 },
+      b: { type: 'text', segments: [{ render_index: 14997 }] },
+      c: { type: 'audio', relativeIndex: -7 },
+      d: { type: 'text', relative_index: 'invalid' },
+    } })).toBe(-8);
+    expect(getLowestTextTrackRelativeIndex({ tracks: [
+      { type: 'text', relative_index: 0 }, { type: 'text', relative_index: 0 },
+    ] })).toBe(-1);
+    expect(getLowestTextTrackRelativeIndex({})).toBe(0);
+  });
+  it('defaults new tracks to the maximum relative index plus one across track types', () => {
+    const source = { tracks: {
+      text: { id: 'text', name: '文字', type: 'text', relative_index: 8, segments: [
+        { id: 'clip', target_timerange: { start: 0, duration: 1e6 } },
+      ] },
+      video: { name: '视频', type: 'video', relative_index: 12 },
+      audio: { name: '音频', type: 'audio', relativeIndex: '3' },
+    } };
+    const before = JSON.stringify(source);
+    const placement = resolveTextTrackPlacement({ ...DEFAULT_TEXT_PLACEMENT, trackMode: 'new' }, source);
+    expect(placement.relativeIndex).toBe(13);
+    expect(buildTextPlacementParams(placement).relative_index).toBe(13);
+    expect(buildTimelineRows(source, null, placement).slice(0, 2).map((row) => row.layer)).toEqual([15013, 15008]);
+    expect(resolveTextTrackPlacement(placement, source).relativeIndex).toBe(13);
+    expect(resolveTextTrackPlacement({ ...placement, relativeIndex: 5 }, source).relativeIndex).toBe(5);
+    expect(JSON.stringify(source)).toBe(before);
+  });
+  it('derives missing text indices from render layers and ignores malformed indices', () => {
+    expect(getNextTextTrackRelativeIndex({ tracks: [
+      { type: 'video', render_index: 90000 },
+      { type: 'text', render_index: 15004, segments: [] },
+      { type: 'text', segments: [{ render_index: 15007 }, { render_index: 15009 }] },
+      { type: 'text', relative_index: 'invalid', segments: [] },
+    ] })).toBe(10);
+    expect(getNextTextTrackRelativeIndex({ tracks: [
+      { type: 'text', relative_index: 2, render_index: 15090 },
+    ] })).toBe(3);
+    expect(getNextTextTrackRelativeIndex({ tracks: [{ relative_index: -3 }, { relative_index: -1 }] })).toBe(0);
+    expect(getNextTextTrackRelativeIndex({})).toBe(0);
+    expect(resolveTextTrackPlacement(DEFAULT_TEXT_PLACEMENT, {
+      tracks: [{ type: 'video', name: '视频', relative_index: 7 }],
+    })).toMatchObject({ trackMode: 'new', relativeIndex: 8 });
+  });
   it('converts microseconds and overlays one planned clip without mutating the source', () => {
     const before = JSON.stringify(script);
     const rows = buildTimelineRows(script, null, { start: 2, end: 4, text: '新文字' });
@@ -122,7 +167,7 @@ describe('read-only text timeline', () => {
         id: 'clip', render_index: 0, target_timerange: { start: 0, duration: 3e6 },
       }],
     }] };
-    const placement = resolveTextTrackPlacement({ relativeIndex: 5 }, source);
+    const placement = resolveTextTrackPlacement({ trackMode: 'existing', relativeIndex: 5 }, source);
     expect(placement).toMatchObject({ trackMode: 'existing', trackName: '旧轨道' });
     expect(buildTextPlacementParams(placement)).toEqual({ track_name: '旧轨道', start: 0, end: 3 });
     const rows = buildTimelineRows(source, null, placement);
@@ -143,6 +188,41 @@ describe('read-only text timeline', () => {
     const rows = buildTimelineRows(source, null, placement);
     expect(rows[0]).toMatchObject({ name: 'text_main_3', layer: 15003 });
     expect(rows[0].actions[0]).toMatchObject({ planned: true, overlap: false });
+  });
+  it('defaults an occupied track to a unique top track without changing existing tracks', () => {
+    const source = { tracks: [
+      ...script.tracks,
+      { name: 'text_main_2', type: 'text', relative_index: 4, segments: [] },
+    ] };
+    const before = JSON.stringify(source);
+    const placement = resolveTextTrackPlacement({ ...DEFAULT_TEXT_PLACEMENT, relativeIndex: -4 }, source);
+    expect(placement).toMatchObject({ trackMode: 'new', trackName: 'text_main_3', relativeIndex: 5 });
+    expect(buildTextPlacementParams(placement)).toEqual({
+      track_name: 'text_main_3', relative_index: 5, start: 0, end: 3,
+    });
+    expect(buildTimelineRows(source, null, placement)[0]).toMatchObject({ id: '__planned-track', layer: 15005 });
+    expect(resolveTextTrackPlacement(placement, source)).toEqual(placement);
+    expect(JSON.stringify(source)).toBe(before);
+  });
+  it('reuses a free default track and allows an explicit occupied track selection', () => {
+    expect(resolveTextTrackPlacement({ start: 3, end: 4 }, script))
+      .toMatchObject({ trackMode: 'existing', trackName: 'text_main' });
+    expect(resolveTextTrackPlacement({ start: 0, end: 1 }, script))
+      .toMatchObject({ trackMode: 'existing', trackName: 'text_main' });
+    expect(resolveTextTrackPlacement({ trackMode: 'existing', trackName: 'text_main' }, script))
+      .toMatchObject({ trackMode: 'existing', trackName: 'text_main' });
+    expect(resolveTextTrackPlacement({}, { tracks: [{ name: 'text_main', type: 'text', segments: [] }] }))
+      .toMatchObject({ trackMode: 'existing', trackName: 'text_main' });
+  });
+  it('checks object tracks, end-based ranges and touching microsecond boundaries', () => {
+    const source = { tracks: { text: {
+      name: 'text_main', type: 'text', relative_index: 8,
+      segments: [{ target_timerange: { start: 0, end: 1100000 } }],
+    } } };
+    expect(resolveTextTrackPlacement({ start: 1, end: 2 }, source))
+      .toMatchObject({ trackMode: 'new', relativeIndex: 9 });
+    expect(resolveTextTrackPlacement({ start: 1.1, end: 2 }, source))
+      .toMatchObject({ trackMode: 'existing', trackName: 'text_main' });
   });
   it('falls back when switching drafts and supports empty or object-shaped tracks', () => {
     expect(resolveTextTrackPlacement({}, {})).toMatchObject({ trackMode: 'new', trackName: 'text_main' });

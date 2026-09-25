@@ -140,6 +140,7 @@ const MessagePane = ({
     signature: ''
   });
   const visibleMessages = messages;
+  const hasMessages = visibleMessages.length > 0;
 
   const getScrollElement = React.useCallback(() => virtualListRef.current?.scrollElement?.() || null, []);
 
@@ -149,7 +150,7 @@ const MessagePane = ({
     return distanceToBottom <= 48;
   }, []);
 
-  const scrollToBottom = React.useCallback((behavior = 'auto') => {
+  const scrollToBottom = React.useCallback(() => {
     const element = getScrollElement();
     if (!element) return;
 
@@ -158,11 +159,12 @@ const MessagePane = ({
     }
 
     autoScrollFrameRef.current = window.requestAnimationFrame(() => {
-      const totalSize = virtualListRef.current?.getTotalSize?.() ?? element.scrollHeight;
-      const top = Math.max(totalSize - element.clientHeight, 0);
+      autoScrollFrameRef.current = null;
+      if (!autoScrollEnabledRef.current || element !== getScrollElement()) return;
+      // Use the rendered height, including the scroller's padding.
       element.scrollTo({
-        top,
-        behavior
+        top: Math.max(element.scrollHeight - element.clientHeight, 0),
+        behavior: 'auto'
       });
     });
   }, [getScrollElement]);
@@ -203,11 +205,25 @@ const MessagePane = ({
   }, [visibleMessages]);
 
   React.useEffect(() => {
+    autoScrollEnabledRef.current = true;
+    if (hasMessages) scrollToBottom();
+  }, [hasMessages, runtimeSessionId, scrollToBottom]);
+
+  React.useEffect(() => {
     const element = getScrollElement();
     if (!element) return undefined;
+    let previousScrollTop = element.scrollTop;
 
     const handleScroll = (event) => {
-      autoScrollEnabledRef.current = isNearBottom(event.currentTarget);
+      const target = event.currentTarget;
+      // Content growth and programmatic downward scrolling are not an opt-out.
+      if (target.scrollTop < previousScrollTop) {
+        // Removing the loading indicator clamps scrollTop to the new bottom.
+        if (!isNearBottom(target)) autoScrollEnabledRef.current = false;
+      } else if (isNearBottom(target)) {
+        autoScrollEnabledRef.current = true;
+      }
+      previousScrollTop = target.scrollTop;
     };
 
     const handleWheelCapture = (event) => {
@@ -218,13 +234,17 @@ const MessagePane = ({
 
     element.addEventListener('scroll', handleScroll, { passive: true });
     element.addEventListener('wheel', handleWheelCapture, { capture: true, passive: true });
-    autoScrollEnabledRef.current = isNearBottom(element);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+      if (autoScrollEnabledRef.current) scrollToBottom();
+    });
+    observer?.observe(element);
 
     return () => {
       element.removeEventListener('scroll', handleScroll);
       element.removeEventListener('wheel', handleWheelCapture, true);
+      observer?.disconnect();
     };
-  }, [getScrollElement, groupedMessages.length, isNearBottom]);
+  }, [getScrollElement, hasMessages, isNearBottom, scrollToBottom]);
 
   React.useEffect(() => {
     const nextCount = Array.isArray(visibleMessages) ? visibleMessages.length : 0;
@@ -232,13 +252,12 @@ const MessagePane = ({
     const previousState = previousScrollStateRef.current;
     const hasNewMessage = nextCount > previousState.count;
     const hasLastMessageChanged = nextSignature !== previousState.signature;
+    const hasNewUserMessage = hasNewMessage
+      && visibleMessages.slice(previousState.count).some((message) => message.role === 'user');
 
-    if (autoScrollEnabledRef.current) {
-      if (hasNewMessage) {
-        scrollToBottom('smooth');
-      } else if (hasLastMessageChanged) {
-        scrollToBottom('auto');
-      }
+    if (hasNewUserMessage) autoScrollEnabledRef.current = true;
+    if (autoScrollEnabledRef.current && (hasNewMessage || hasLastMessageChanged)) {
+      scrollToBottom();
     }
 
     previousScrollStateRef.current = {
@@ -265,7 +284,7 @@ const MessagePane = ({
     virtualListRef.current?.resizeItem?.(index, size);
 
     if (autoScrollEnabledRef.current) {
-      scrollToBottom('auto');
+      scrollToBottom();
     }
   }, [scrollToBottom]);
 

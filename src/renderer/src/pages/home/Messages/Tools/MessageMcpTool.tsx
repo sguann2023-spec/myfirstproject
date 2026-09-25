@@ -277,7 +277,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       if (isVideoUnderstandeToolName(toolName)) {
         return extractVideoUnderstandeBillingSummary(toolResponse.response)
       }
-      if (isMediaGenerationToolName(toolName) || isReversePromptToolName(toolName)) {
+      if (isMediaGenerationToolName(toolName) || isSubtitleRecognitionToolName(toolName) || isReversePromptToolName(toolName)) {
         return extractMediaGenerationBillingSummary({
           response: toolResponse.response,
           responseRaw: toolResponse.responseRaw

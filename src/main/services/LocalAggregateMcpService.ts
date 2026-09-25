@@ -40,6 +40,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: SocialCopywritingServer },
       { default: SkillsServer },
       { default: SpeechGenerateServer },
+      { default: StoryboardEditorServer },
       { default: SubtitleRecognitionServer },
       { default: SubtitleTemplateServer },
       { default: SystemServer },
@@ -68,6 +69,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/social-copywriting'),
       import('@main/mcpServers/skills'),
       import('@main/mcpServers/speech-generate'),
+      import('@main/mcpServers/storyboard-editor'),
       import('@main/mcpServers/subtitle-recognition'),
       import('@main/mcpServers/subtitle-template'),
       import('@main/mcpServers/system'),
@@ -162,6 +164,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'subtitle-recognition',
         serverName: 'subtitle-recognition',
         createInstance: () => new SubtitleRecognitionServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'storyboard-editor',
+        serverName: 'storyboard-editor',
+        createInstance: () => new StoryboardEditorServer().mcpServer
       },
       {
         serverId: 'video-understand',

@@ -334,6 +334,7 @@ const Chat = ({
   userName = '',
   userAvatar = '',
   webPreview = null,
+  previewWindowReady = true,
   onCloseWebPreview,
   onOpenWebPreview,
   onInlinePreviewVisibilityChange,
@@ -584,8 +585,10 @@ const Chat = ({
       onModifySkill={insertSkillModifyPrompt}
       onCreateSkill={insertCreateSkillPrompt}
       onSubmitFileComment={handleSubmitFileComment}
+      onSubmitToolTask={handleSend}
       sessionSending={sessionSending}
       webPreview={webPreview}
+      previewWindowReady={previewWindowReady}
       onCloseWebPreview={onCloseWebPreview}
       onOpenWebPreview={onOpenWebPreview}
       onInlinePreviewVisibilityChange={onInlinePreviewVisibilityChange}

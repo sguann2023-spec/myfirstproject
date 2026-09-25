@@ -1,11 +1,11 @@
 {
-  "lastUpdated": "2026-09-19T16:54:08Z",
+  "lastUpdated": "2026-09-24T17:08:15Z",
   "githubProxyPrefixes": [
-    "https://gh.monlor.com/",
     "https://githubdog.com/",
-    "https://gitproxy.mrhjx.cn/",
+    "https://ghproxy.felicity.land/",
+    "https://ghproxy.imciel.com/",
     "https://gh.meali.top/",
-    "https://ghproxy.imciel.com/"
+    "https://gh.acmsz.top/"
   ],
   "versions": {}
 }

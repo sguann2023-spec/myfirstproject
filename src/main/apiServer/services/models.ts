@@ -76,14 +76,41 @@ const resolveProviderMeta = (modelId: string): {
 export type ModelsFilter = ApiModelsFilter
 
 export class ModelsService {
+  // in-memory 缓存 model_list 拉取结果，避免同一进程内每次都走网络。
+  // TTL 短一点，保证运营侧上新模型时能自动刷新。
+  private static readonly BACKEND_LIST_CACHE_TTL_MS = 5 * 60 * 1000
+  private backendListCache: { data: ParsedModelItem[]; expiresAt: number } | null = null
+  private backendListInflight: Promise<ParsedModelItem[]> | null = null
+
   private async fetchBackendModelList(): Promise<ParsedModelItem[]> {
-    const res = await fetch(CHAT_MODELS_URL, {
-      method: 'GET',
-      headers: { Accept: '*/*' }
-    })
-    if (!res.ok) throw new Error(`model_list request failed: ${res.status}`)
-    const payload = await res.json()
-    return parseModelList(payload)
+    const now = Date.now()
+    if (this.backendListCache && this.backendListCache.expiresAt > now) {
+      return this.backendListCache.data
+    }
+    if (this.backendListInflight) {
+      return this.backendListInflight
+    }
+
+    this.backendListInflight = (async () => {
+      const res = await fetch(CHAT_MODELS_URL, {
+        method: 'GET',
+        headers: { Accept: '*/*' }
+      })
+      if (!res.ok) throw new Error(`model_list request failed: ${res.status}`)
+      const payload = await res.json()
+      const parsed = parseModelList(payload)
+      this.backendListCache = {
+        data: parsed,
+        expiresAt: Date.now() + ModelsService.BACKEND_LIST_CACHE_TTL_MS
+      }
+      return parsed
+    })()
+
+    try {
+      return await this.backendListInflight
+    } finally {
+      this.backendListInflight = null
+    }
   }
 
   async getModels(filter: ModelsFilter): Promise<ApiModelsResponse> {

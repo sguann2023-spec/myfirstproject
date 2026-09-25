@@ -1,4 +1,10 @@
-import { DEFAULT_TEXT_EFFECTS } from '../../shared/textEffects';
+import { DEFAULT_TEXT_EFFECTS, resolveTextEffects } from '../../shared/textEffects';
+
+export const PRESET_EFFECT_KEYS = ['blend', 'background', 'flower', 'intro', 'outro', 'loop'];
+export const PRESET_LAYOUT_KEYS = [
+  'letterSpacing', 'lineSpacing', 'align', 'scaleXPercent', 'scaleYPercent', 'uniformScale',
+  'positionX', 'positionY', 'fixedWidth', 'fixedHeight', 'rotation',
+];
 
 const preset = (id, name, color, options = {}) => ({
   id,
@@ -63,11 +69,38 @@ export function snapshotPresetTypography(value) {
   };
 }
 
-export function matchesTextPreset(typography, presetValue) {
-  return Object.entries(presetValue.typography).every(([key, value]) => {
-    const current = typography?.[key];
+// An explicit allowlist keeps text content and timeline placement out of presets.
+// Missing fields stay absent so legacy presets never reset unrelated settings.
+export function snapshotPresetSettings(value = {}) {
+  const result = {};
+  const effects = resolveTextEffects(value);
+  for (const key of PRESET_EFFECT_KEYS) {
+    if (value[key] !== undefined) result[key] = effects[key];
+  }
+  for (const key of PRESET_LAYOUT_KEYS) {
+    const field = value[key];
+    if (field === undefined) continue;
+    const valid = key === 'align'
+      ? ['left', 'horizontal-center', 'right', 'top', 'vertical-center', 'bottom'].includes(field)
+      : key === 'uniformScale' ? typeof field === 'boolean'
+        : (['fixedWidth', 'fixedHeight'].includes(key) && field === null)
+          || (typeof field === 'number' && Number.isFinite(field));
+    if (!valid) throw new Error('文字设置无效，请检查后再保存预设');
+    result[key] = field;
+  }
+  return result;
+}
+
+const matchesFields = (currentValue, savedValue) => (
+  Object.entries(savedValue).every(([key, value]) => {
+    const current = currentValue?.[key];
     return value && typeof value === 'object'
       ? Object.entries(value).every(([field, fieldValue]) => current?.[field] === fieldValue)
       : current === value;
-  });
+  })
+);
+
+export function matchesTextPreset(typography, presetValue, settings) {
+  return matchesFields(typography, presetValue.typography)
+    && matchesFields(settings, presetValue.settings || {});
 }

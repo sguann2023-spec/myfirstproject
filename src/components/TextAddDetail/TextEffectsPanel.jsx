@@ -69,7 +69,7 @@ function ColorControl({ label, color, disabled, onChange }) {
   </div>;
 }
 
-export default function TextEffectsPanel({ effects, disabled, onChange, typography, onPresetSelect }) {
+export default function TextEffectsPanel({ effects, disabled, onChange, typography, presetSettings, onPresetSelect }) {
   const update = onChange;
   return <>
     <EffectSection name="blend" label="混合" value={effects.blend} disabled={disabled} onChange={(value) => update('blend', value)}>
@@ -164,7 +164,7 @@ export default function TextEffectsPanel({ effects, disabled, onChange, typograp
     </div>)}
     </EffectSection>
     <EffectSection label="预设" disabled={disabled} resettable={false} defaultExpanded>
-      <TextPresetPanel disabled={disabled} typography={typography} onPresetSelect={onPresetSelect} />
+      <TextPresetPanel disabled={disabled} typography={typography} settings={presetSettings} onPresetSelect={onPresetSelect} />
     </EffectSection>
   </>;
 }

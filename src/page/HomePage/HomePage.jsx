@@ -5,6 +5,7 @@ import { electronStore } from '../../shared/electronStore';
 import { validateTextStyleRanges } from '../../shared/textTypography';
 import { normalizeTextEffectParams } from '../../shared/textEffects';
 import { buildReversePromptBlocks, normalizeReversePromptRequest } from '../../shared/reversePrompt';
+import { buildSubtitleRecognitionBlocks, normalizeSubtitleRecognitionRequest } from '../../shared/subtitleRecognition';
 import LogoIcon from '../../../public/logo-circle.png';
 import VipIcon from '../../../public/vip_icon.png';
 import { countTodayDrafts } from '../../api/capcut';
@@ -41,7 +42,9 @@ import { createImageBlock, createMainTextBlock, createMessage } from '../../rend
 import { IpcChannel } from '../../packages/shared/IpcChannel';
 import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
+import { usePreviewWindowReady } from './usePreviewWindowReady';
 const logger = loggerService.withContext('HomePage');
+const logPreviewWindowResizeError = (error) => logger.warn('Failed to resize window for preview.', error);
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
@@ -1961,6 +1964,10 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
+    ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
+      ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
+    ...(role === 'user' && sourceMessage?.subtitleStoryboardRequest
+      ? { subtitleStoryboardRequest: { ...sourceMessage.subtitleStoryboardRequest } } : {}),
     createdAt,
     updatedAt,
     model: modelMeta,
@@ -2124,8 +2131,13 @@ const HomePage = () => {
   const [manualChatWebPreview, setManualChatWebPreview] = useState(null);
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
   const [chatInlinePreviewVisible, setChatInlinePreviewVisible] = useState(false);
+  const [chatPreviewWidth, setChatPreviewWidth] = useState(CHAT_BROWSER_PREVIEW_WIDTH);
+  const homeContentRef = useRef(null);
+  const handleInlinePreviewVisibilityChange = useCallback((visible, width) => {
+    setChatInlinePreviewVisible(visible);
+    if (Number.isFinite(width) && width > 0) setChatPreviewWidth(width);
+  }, []);
   const activeChatWebPreviewKeyRef = useRef('');
-  const chatExpandedWindowBaseWidthRef = useRef(null);
   const refreshHeaderMembership = useCallback(async () => {
     try {
       const payload = await getMembershipSummary();
@@ -2272,14 +2284,61 @@ const HomePage = () => {
           const hydratedMessageIds = new Set(
             hydratedMessages.map((message) => String(message?.id || '').trim()).filter(Boolean)
           );
+          // 收集内存里 role=assistant 且带 error（网络失败等）的消息 id
+          // 以及紧邻其前的 user 消息 id —— 这些消息因后端未落库，
+          // hydrate 后会被 DB 结果覆盖丢失。此处显式保留它们。
+          const failedTurnMessageIds = new Set();
+          currentMessages.forEach((message, index) => {
+            const messageId = String(message?.id || '').trim();
+            if (!messageId) return;
+            const hasError = Boolean(message?.error);
+            if (!hasError) return;
+            if (hydratedMessageIds.has(messageId)) return;
+            failedTurnMessageIds.add(messageId);
+            // 向前查找与该失败 assistant 最近的一条 user 消息
+            for (let i = index - 1; i >= 0; i -= 1) {
+              const prevMessage = currentMessages[i];
+              const prevId = String(prevMessage?.id || '').trim();
+              if (!prevId) continue;
+              if (String(prevMessage?.role || '') === 'user') {
+                if (!hydratedMessageIds.has(prevId)) failedTurnMessageIds.add(prevId);
+                break;
+              }
+            }
+          });
           // Preserve optimistic messages created after persisted hydrate started so
           // late session syncs do not wipe a freshly resent user turn.
           const locallyAddedMessages = currentMessages.filter((message) => {
             const messageId = String(message?.id || '').trim();
             if (!messageId) return false;
             if (hydratedMessageIds.has(messageId)) return false;
+            if (failedTurnMessageIds.has(messageId)) return true;
             return !beforeMessageIds.has(messageId);
           });
+          // 按内存中的原始顺序回填 message —— 失败的那一轮插入到 DB 消息之间正确位置
+          if (failedTurnMessageIds.size > 0) {
+            const orderedById = new Map(currentMessages.map((m, idx) => [String(m?.id || ''), idx]));
+            const mergedMap = new Map();
+            hydratedMessages.forEach((m) => {
+              const id = String(m?.id || '');
+              if (id) mergedMap.set(id, m);
+            });
+            locallyAddedMessages.forEach((m) => {
+              const id = String(m?.id || '');
+              if (id) mergedMap.set(id, m);
+            });
+            const merged = Array.from(mergedMap.values()).sort((a, b) => {
+              const idxA = orderedById.has(String(a?.id || '')) ? orderedById.get(String(a?.id || '')) : Number.MAX_SAFE_INTEGER;
+              const idxB = orderedById.has(String(b?.id || '')) ? orderedById.get(String(b?.id || '')) : Number.MAX_SAFE_INTEGER;
+              return idxA - idxB;
+            });
+            return {
+              ...item,
+              updatedAt: Date.now(),
+              historyLoaded: true,
+              messages: merged
+            };
+          }
           return {
             ...item,
             updatedAt: Date.now(),
@@ -2911,45 +2970,13 @@ const HomePage = () => {
   }, [latestChatBrowserPreview, chatWebPreviewDismissedKey]);
   const activeChatWebPreview = manualChatWebPreview || chatWebPreview;
 
-  useEffect(() => {
-    let cancelled = false;
-    const previewVisible = selectedPane === 'chat' && (Boolean(activeChatWebPreview?.url) || chatInlinePreviewVisible);
-
-    const syncWindowWidth = async () => {
-      if (!window?.api?.window?.getSize || !window?.api?.window?.setSize) return;
-
-      if (previewVisible) {
-        if (isFullscreen || chatExpandedWindowBaseWidthRef.current != null) return;
-        try {
-          const [width, height] = await window.api.window.getSize();
-          if (cancelled) return;
-          chatExpandedWindowBaseWidthRef.current = width;
-          await window.api.window.setSize(width + CHAT_BROWSER_PREVIEW_WIDTH, height, true);
-        } catch (error) {
-          chatExpandedWindowBaseWidthRef.current = null;
-          logger.warn('Failed to expand window for browser preview.', error);
-        }
-        return;
-      }
-
-      if (isFullscreen || chatExpandedWindowBaseWidthRef.current == null) return;
-      try {
-        const [, height] = await window.api.window.getSize();
-        const targetWidth = chatExpandedWindowBaseWidthRef.current;
-        chatExpandedWindowBaseWidthRef.current = null;
-        if (cancelled) return;
-        await window.api.window.setSize(targetWidth, height, true);
-      } catch (error) {
-        chatExpandedWindowBaseWidthRef.current = null;
-        logger.warn('Failed to restore window width after browser preview.', error);
-      }
-    };
-
-    void syncWindowWidth();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChatWebPreview?.url, chatInlinePreviewVisible, isFullscreen, selectedPane]);
+  const { ready: previewWindowReady, layoutWidth: previewLayoutWidth } = usePreviewWindowReady({
+    previewRequested: selectedPane === 'chat' && (Boolean(activeChatWebPreview?.url) || chatInlinePreviewVisible),
+    isFullscreen,
+    extraWidth: chatPreviewWidth,
+    layoutRef: homeContentRef,
+    onError: logPreviewWindowResizeError,
+  });
 
   useEffect(() => {
     const api = window?.electronAPI?.agentSessionStream;
@@ -4034,14 +4061,9 @@ const HomePage = () => {
             chatPerfByRequestIdRef.current.delete(requestId);
           }
         }
-        if (agentSessionId) {
-          chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
-          void hydratePersistedChatSessionFromHistory({
-            chatId,
-            sessionId: agentSessionId,
-            reason: 'chunk.error'
-          });
-        }
+        // 发生流失败时，不再触发 hydratePersistedChatSessionFromHistory，
+        // 避免异步拉取到未包含 error 字段的历史消息覆盖本地已展示的错误状态，
+        // 导致错误信息在 UI 上一闪而过。
         return;
       }
 
@@ -4985,18 +5007,21 @@ const HomePage = () => {
     });
   }, []);
 
-  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request }) => {
-    const normalizedRequest = normalizeReversePromptRequest(request);
-    const blocks = buildReversePromptBlocks({
+  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request, isSubtitle = false }) => {
+    const normalizedRequest = (isSubtitle ? normalizeSubtitleRecognitionRequest : normalizeReversePromptRequest)(request);
+    const blocks = (isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
       assistantMessageId, requestId, request: normalizedRequest, modelId: chatModel,
     });
     updateChatAssistantMessage(chatId, assistantMessageId, { blocks, content: '', error: null, aborted: false });
     chatPendingByRequestIdRef.current.set(requestId, { chatId, agentSessionId, assistantMessageId });
     try {
-      const result = await window.electronAPI.cherryChatStream.createReversePromptRequest({
+      const invoke = isSubtitle
+        ? window.electronAPI.cherryChatStream.createSubtitleRecognitionRequest
+        : window.electronAPI.cherryChatStream.createReversePromptRequest;
+      const result = await invoke({
         sessionId: agentSessionId, requestId, createdAt: userMessage.createdAt,
         userMessageId: userMessage.id, assistantMessageId, userContent: userMessage.content,
-        model: chatModel, reversePromptRequest: normalizedRequest,
+        model: chatModel, [isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: normalizedRequest,
       });
       // Cancellation removes this entry. A late tool response must not overwrite a stopped message.
       if (!chatPendingByRequestIdRef.current.has(requestId)) return;
@@ -5007,7 +5032,7 @@ const HomePage = () => {
       if (result?.assistantBlocks) {
         updateChatAssistantMessage(chatId, assistantMessageId, { blocks: result.assistantBlocks });
       }
-      if (!result?.ok) throw new Error(result?.error || '反推提示词失败');
+      if (!result?.ok) throw new Error(result?.error || (isSubtitle ? '字幕识别失败' : '反推提示词失败'));
       updateChatAssistantMessage(chatId, assistantMessageId, {
         content: result.assistantText, blocks: result.assistantBlocks,
         model: chatModelMeta, modelId: chatModel, storeAssistantMessageId: null, error: null,
@@ -5031,6 +5056,10 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const subtitleStoryboardRequest = options?.subtitleStoryboardRequest && typeof options.subtitleStoryboardRequest === 'object'
+      ? { ...options.subtitleStoryboardRequest } : null;
+    const subtitleRecognitionRequest = options?.subtitleRecognitionRequest
+      ? normalizeSubtitleRecognitionRequest(options.subtitleRecognitionRequest) : null;
     const reversePromptRequest = options?.reversePromptRequest
       ? { ...options.reversePromptRequest }
       : null;
@@ -5124,6 +5153,8 @@ const HomePage = () => {
         content: text,
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
+        ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
+        ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5178,6 +5209,8 @@ const HomePage = () => {
         content: text,
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
+        ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
+        ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
@@ -5217,10 +5250,10 @@ const HomePage = () => {
       }
 
       const agentSessionId = await ensureAgentSessionForChat(targetSessionId);
-      if (reversePromptRequest) {
+      if (reversePromptRequest || subtitleRecognitionRequest) {
         await executeReversePromptRequest({
           chatId: targetSessionId, agentSessionId, requestId, userMessage, assistantMessageId,
-          request: reversePromptRequest,
+          request: subtitleRecognitionRequest || reversePromptRequest, isSubtitle: Boolean(subtitleRecognitionRequest),
         });
         return;
       }
@@ -5607,6 +5640,7 @@ const HomePage = () => {
         requestId,
         model: chatModel,
         images,
+        ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {})
       });
       logger.info('[HomePage] cherryChatStream createMessage result', {
@@ -5794,10 +5828,11 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
-      if (prevUser.reversePromptRequest) {
+      if (prevUser.reversePromptRequest || prevUser.subtitleRecognitionRequest) {
         await executeReversePromptRequest({
           chatId: activeChatId, agentSessionId, requestId, userMessage: prevUser,
-          assistantMessageId: messageId, request: prevUser.reversePromptRequest,
+          assistantMessageId: messageId, request: prevUser.subtitleRecognitionRequest || prevUser.reversePromptRequest,
+          isSubtitle: Boolean(prevUser.subtitleRecognitionRequest),
         });
         return;
       }
@@ -5852,7 +5887,9 @@ const HomePage = () => {
         content: String(prevUser.content || ''),
         createdAt: Number(prevUser.createdAt) || undefined,
         requestId,
-        model: chatModel
+        model: chatModel,
+        ...(prevUser.subtitleStoryboardRequest
+          ? { subtitleStoryboardRequest: { ...prevUser.subtitleStoryboardRequest, requestId } } : {})
       });
       if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
     } catch (error) {
@@ -6025,7 +6062,10 @@ const HomePage = () => {
             </span>
         </div>
       {/* 主体三栏 */}
-      <div className="home-content">
+      <div
+        className="home-content"
+        ref={homeContentRef}
+        style={previewLayoutWidth == null ? undefined : { width: previewLayoutWidth, right: 'auto' }}>
           <div className="left-pane column">
               <DPane
                 selected={selectedPane}
@@ -6156,9 +6196,10 @@ const HomePage = () => {
                 userName={userName}
                 userAvatar={avatarSrc}
                 webPreview={activeChatWebPreview}
+                previewWindowReady={previewWindowReady}
                 onCloseWebPreview={handleCloseChatWebPreview}
                 onOpenWebPreview={handleOpenChatWebPreview}
-                onInlinePreviewVisibilityChange={setChatInlinePreviewVisible}
+                onInlinePreviewVisibilityChange={handleInlinePreviewVisibilityChange}
                 onQuickPromptAction={(action) => {
                   if (action === 'bootstrap-childrens-picture-book') {
                     return handleBootstrapChildrensPictureBook();
