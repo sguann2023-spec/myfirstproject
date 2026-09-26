@@ -61,11 +61,11 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
               onClick={() => updatePlacement({ relative_index: null, relativeIndex: topIndex })}>
               <ArrowUp size={14} aria-hidden="true" />置顶
             </button>
-            <button type="button" aria-label="置低"
+            <button type="button" aria-label="置底"
               title={`置于现有轨道最低层级之下（层级 ${bottomIndex}）`}
               disabled={trackDisabled || placement.relativeIndex <= bottomIndex || Math.abs(bottomIndex) > 10000}
               onClick={() => updatePlacement({ relative_index: null, relativeIndex: bottomIndex })}>
-              <ArrowDown size={14} aria-hidden="true" />置低
+              <ArrowDown size={14} aria-hidden="true" />置底
             </button>
           </div>}
         </div>

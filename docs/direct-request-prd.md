@@ -22,6 +22,7 @@
 | `draft_request` | 创建草稿 | `draft-management` | `create_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_modify_request` | 修改草稿 | `draft-management` | `modify_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `text_add_request` | 向草稿添加文本 | `draft-elements` | `add_text` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `preset_add_request` | 向草稿添加预设片段 | `draft-elements` | `add_preset` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 | 否 |
@@ -57,7 +58,7 @@
 | 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
 | `API` 是否可展示 | 是 |
-| `Coze` 是否可展示 | 是，当前支持 `draft_request` / `draft_modify_request` / `text_add_request` |
+| `Coze` 是否可展示 | 是，当前支持 `draft_request` / `draft_modify_request` / `text_add_request` / `preset_add_request` |
 | 前端发送条件 | 默认允许发送 |
 
 典型 payload：
@@ -241,7 +242,156 @@ curl --request POST \
 | 垂直居中对齐 | `true` | `1` |
 | 下对齐 | `true` | `4` |
 
-### 4.4 `draft_download_request`
+### 4.4 `preset_add_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 向指定草稿添加一个预设片段，并按预设占位符替换文字、图片、视频或音频元素 |
+| 目标 MCP | `draft-elements.add_preset` |
+| 是否 direct request | 是 |
+| 是否 direct 回复 | 是 |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/372375099e0` |
+| `Coze` 是否可展示 | 是，使用 `workflowId=7582120367239004166`、`apiName=add_preset` |
+| 前端发送条件 | 必须先选择一个草稿，且必须选择一个带 `preset_id` 的预设 |
+| 触发工具 | `mcp__vectcut__draft-elements__add_preset` |
+| 动画与转场 | 选中并启用入场/出场动画时发送 `intro_animation` / `intro_animation_duration`、`outro_animation` / `outro_animation_duration`；选中并启用转场时发送 `transition` / `transition_duration`。未启用或未选择时不发送 |
+| 组合动画 | 当前 `add_preset` 接口无组合动画入参，前端不提供该设置；不可发送 `group_animation` / `group_duration` 等未定义字段 |
+
+典型 payload：
+
+```json
+{
+  "preset_id": "b795a680-a581-4965-84b1-9e9ad313b522",
+  "replacements": [
+    {
+      "text1": "流光剪辑"
+    },
+    {
+      "image1": "https://player.install-ai-guider.top/example/mao.webp"
+    },
+    {
+      "video1": "https://cdn.wanx.aliyuncs.com/wanx/1719234057367822001/text_to_video/092faf3c94244973ab752ee1280ba76f.mp4"
+    }
+  ],
+  "target_start": 2,
+  "draft_id": "draft_456",
+  "transform_x": 0.5,
+  "transform_y": 0.5,
+  "rotation": 0,
+  "scale_x": 1,
+  "scale_y": 1,
+  "track_name": "my_preset_track",
+  "intro_animation": "渐显",
+  "intro_animation_duration": 0.7,
+  "outro_animation": "渐隐",
+  "outro_animation_duration": 0.8,
+  "transition": "叠化",
+  "transition_duration": 0.5,
+  "width": 1080,
+  "height": 1920
+}
+```
+
+典型 API 展示：
+
+```bash
+curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "preset_id": "b795a680-a581-4965-84b1-9e9ad313b522",
+    "replacements": [
+      {
+        "text1": "流光剪辑"
+      },
+      {
+        "image1": "https://player.install-ai-guider.top/example/mao.webp"
+      },
+      {
+        "video1": "https://cdn.wanx.aliyuncs.com/wanx/1719234057367822001/text_to_video/092faf3c94244973ab752ee1280ba76f.mp4"
+      }
+    ],
+    "target_start": 2,
+    "draft_id": "draft_456",
+    "transform_x": 0.5,
+    "transform_y": 0.5,
+    "rotation": 0,
+    "scale_x": 1,
+    "scale_y": 1,
+    "track_name": "my_preset_track",
+    "intro_animation": "渐显",
+    "intro_animation_duration": 0.7,
+    "outro_animation": "渐隐",
+    "outro_animation_duration": 0.8,
+    "transition": "叠化",
+    "transition_duration": 0.5,
+    "width": 1080,
+    "height": 1920
+  }'
+```
+
+典型 Coze 展示：
+
+```json
+{
+  "type": "coze-workflow-clipboard-data",
+  "source": {
+    "workflowId": "7582120367239004166",
+    "flowMode": 0,
+    "spaceId": "7472683780642258985",
+    "isDouyin": false,
+    "host": "www.coze.cn"
+  },
+  "json": {
+    "nodes": [
+      {
+        "id": "168109",
+        "type": "4",
+        "data": {
+          "nodeMeta": {
+            "title": "add_preset",
+            "subtitle": "流光剪辑_剪映草稿助手(会员版):add_preset",
+            "description": "添加剪映的模版/预设片段。需要提前在剪映里编辑好，然后上传到后台，并获取到preset_id"
+          },
+          "inputs": {
+            "apiParam": [
+              { "name": "apiID", "input": { "type": "string", "value": { "type": "literal", "content": "7579582015465422848" } } },
+              { "name": "apiName", "input": { "type": "string", "value": { "type": "literal", "content": "add_preset" } } },
+              { "name": "pluginID", "input": { "type": "string", "value": { "type": "literal", "content": "7579582015465340928" } } },
+              { "name": "pluginName", "input": { "type": "string", "value": { "type": "literal", "content": "流光剪辑_剪映草稿助手(会员版)" } } },
+              { "name": "pluginVersion", "input": { "type": "string", "value": { "type": "literal", "content": "" } } },
+              { "name": "tips", "input": { "type": "string", "value": { "type": "literal", "content": "" } } },
+              { "name": "outDocLink", "input": { "type": "string", "value": { "type": "literal", "content": "" } } },
+              { "name": "pluginAuthMode", "input": { "type": "integer", "value": { "type": "literal", "content": 0 } } }
+            ],
+            "inputParameters": [
+              { "name": "preset_id", "input": { "type": "string", "value": { "type": "literal", "content": "b795a680-a581-4965-84b1-9e9ad313b522" } } },
+              { "name": "draft_id", "input": { "type": "string", "value": { "type": "literal", "content": "dfd_cat_xxx" } } },
+              {
+                "name": "replacements",
+                "input": {
+                  "type": "list",
+                  "value": {
+                    "type": "literal",
+                    "content": "[\n  \"{\\\"text1\\\":\\\"流光剪辑\\\"}\",\n  \"{\\\"image1\\\":\\\"https://player.install-ai-guider.top/example/mao.webp\\\"}\"\n]",
+                    "rawMeta": { "type": 99 }
+                  },
+                  "schema": { "type": "string" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "edges": []
+  }
+}
+```
+
+### 4.5 `draft_download_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -267,7 +417,7 @@ curl --request POST \
 }
 ```
 
-### 4.5 `draft_export_request`
+### 4.6 `draft_export_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -293,7 +443,7 @@ curl --request POST \
 }
 ```
 
-### 4.6 `draft_inspect`
+### 4.7 `draft_inspect`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -321,7 +471,7 @@ curl --request POST \
 
 ---
 
-### 4.7 `reverse_prompt_request`
+### 4.8 `reverse_prompt_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -375,7 +525,7 @@ curl --request POST \
 
 ---
 
-### 4.8 `subtitle_recognition_request`
+### 4.9 `subtitle_recognition_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -439,7 +589,7 @@ curl --request POST \
 
 ---
 
-### 4.9 `subtitle_storyboard_request`
+### 4.10 `subtitle_storyboard_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -498,6 +648,7 @@ curl --request POST \
 | `draft_request` | `mcp__vectcut__draft-management__create_draft` |
 | `draft_modify_request` | `mcp__vectcut__draft-management__modify_draft` |
 | `text_add_request` | `mcp__vectcut__draft-elements__add_text` |
+| `preset_add_request` | `mcp__vectcut__draft-elements__add_preset` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
 | `reverse_prompt_request` | `mcp__vectcut__copylab__derive_copy_prompt` |

@@ -555,6 +555,62 @@ describe('DraftElementsServer', () => {
     })
   })
 
+  it('should expose and forward every documented add_preset body field', async () => {
+    const documentedBody = {
+      preset_id: 'preset_123',
+      replacements: [{ text1: 'Title' }, { image1: 'https://example.com/image.png' }, { video1: 'https://example.com/video.mp4' }, { audio1: 'https://example.com/audio.mp3' }],
+      target_start: 2,
+      start: 1,
+      end: 4,
+      draft_id: 'draft_456',
+      transform_x: 0.5,
+      transform_y: -0.25,
+      transform_x_px: 10,
+      transform_y_px: -20,
+      rotation: 15,
+      scale_x: 1.2,
+      scale_y: 0.8,
+      track_name: 'preset_track_2',
+      width: 1080,
+      height: 1920,
+      relative_index: 2,
+      mask_type: 'rectangle',
+      mask_center_x: 0.1,
+      mask_center_y: -0.1,
+      mask_size: 0.5,
+      mask_rotation: 30,
+      mask_feather: 10,
+      mask_invert: false,
+      mask_rect_width: 0.75,
+      mask_round_corner: 20,
+      intro_animation: 'Fade In',
+      intro_animation_duration: 0.5,
+      outro_animation: 'Fade Out',
+      outro_animation_duration: 0.5,
+      transition: 'Dissolve',
+      transition_duration: 0.25,
+      volume: 0.8
+    }
+
+    const { tools } = await listTools(createServer())
+    const presetTool = tools.find((tool: { name: string }) => tool.name === 'add_preset')
+    expect(presetTool.inputSchema.required).toEqual(['preset_id'])
+    expect(Object.keys(presetTool.inputSchema.properties)).toEqual(
+      expect.arrayContaining(Object.keys(documentedBody))
+    )
+
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ error: '', output: { draft_id: 'draft_456' }, success: true }))
+
+    await callTool(createServer(), 'add_preset', documentedBody)
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/cut_jianying/add_preset',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify(documentedBody) })
+    )
+  })
+
   it('should add batch preset with camelCase aliases normalized to snake_case', async () => {
     mockNetFetch
       .mockResolvedValueOnce(

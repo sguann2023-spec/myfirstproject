@@ -61,6 +61,7 @@ interface PlannedText {
   start: number
   end: number
   text?: string
+  type?: 'text' | 'video'
 }
 
 interface PinnedDraftTrackViewProps {
@@ -69,6 +70,8 @@ interface PinnedDraftTrackViewProps {
   plannedText?: PlannedText
   zoom?: number
   textTracksOnly?: boolean
+  videoTracksOnly?: boolean
+  rowHeightScale?: number
 }
 
 const normalizeTrackType = (type: unknown) => {
@@ -280,8 +283,8 @@ export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId
         name: String(track?.name || track?.track_name || `${trackType} ${index + 1}`).trim(),
         type: rawTrackType,
         layer: Number(track?.segments?.[0]?.render_index ?? track?.render_index ??
-          (rawTrackType === 'text' && (track?.relative_index ?? track?.relativeIndex) != null
-            ? 15000 + Number(track.relative_index ?? track.relativeIndex) : 0)),
+          ((track?.relative_index ?? track?.relativeIndex) != null
+            ? (rawTrackType === 'text' ? 15000 : 0) + Number(track.relative_index ?? track.relativeIndex) : 0)),
         index,
         actions: normalizedActions,
         rowHeight: ROW_HEIGHT_BY_TYPE[trackType] ?? 50
@@ -289,18 +292,19 @@ export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId
     })
 
   if (plannedText) {
+    const plannedType = plannedText.type === 'video' ? 'video' : 'text'
     const placement = resolveTextPlacement(plannedText)
-    const layer = 15000 + placement.relativeIndex
+    const layer = (plannedType === 'text' ? 15000 : 0) + placement.relativeIndex
     const matching = plannedText.trackMode === 'new' ? undefined : rows.find((row) =>
-      row.type === 'text' && row.name === placement.trackName &&
+      row.type === plannedType && row.name === placement.trackName &&
       (plannedText.trackMode === 'existing' || row.layer === layer)
     )
     const ghost = {
       id: '__planned-text',
       start: placement.start,
       end: placement.end,
-      effectId: 'text',
-      meterial_name: String(plannedText.text || '').trim() || '文字',
+      effectId: plannedType,
+      meterial_name: String(plannedText.text || '').trim() || (plannedType === 'text' ? '文字' : '预设'),
       flexible: false,
       movable: false,
       planned: true,
@@ -314,8 +318,8 @@ export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId
     // Only the derived rows change; existing clips stay at their original layer.
     if (matching) matching.actions.push(ghost)
     else rows.push({
-      id: '__planned-track', name: placement.trackName, type: 'text', layer,
-      index: tracks.length, actions: [ghost], rowHeight: ROW_HEIGHT_BY_TYPE.text
+      id: '__planned-track', name: placement.trackName, type: plannedType, layer,
+      index: tracks.length, actions: [ghost], rowHeight: ROW_HEIGHT_BY_TYPE[plannedType]
     })
   }
 
@@ -620,15 +624,19 @@ const TrackActionRender = ({ action }: { action: any }) => {
   return <LabelSegment action={action} type="effect" />
 }
 
-export default function PinnedDraftTrackView({ draftTitle, preview, plannedText, zoom = 1, textTracksOnly = false }: PinnedDraftTrackViewProps) {
+export default function PinnedDraftTrackView({ draftTitle, preview, plannedText, zoom = 1, textTracksOnly = false, videoTracksOnly = false, rowHeightScale = 1 }: PinnedDraftTrackViewProps) {
   const [selectedActionId, setSelectedActionId] = React.useState<string | null>(null)
   const scale = 5
   const scaleWidth = 160 * zoom
 
   const timelineRows = React.useMemo(() => {
     const rows = buildTimelineRows(preview || {}, selectedActionId, plannedText)
-    return textTracksOnly ? rows.filter((row) => row.type === 'text') : rows
-  }, [preview, selectedActionId, plannedText, textTracksOnly])
+    const filtered = textTracksOnly ? rows.filter((row) => row.type === 'text') :
+      videoTracksOnly ? rows.filter((row) => row.type === 'video') : rows
+    return rowHeightScale !== 1
+      ? filtered.map((row) => ({ ...row, rowHeight: Math.max(1, Math.round(row.rowHeight * rowHeightScale)) }))
+      : filtered
+  }, [preview, selectedActionId, plannedText, textTracksOnly, videoTracksOnly, rowHeightScale])
   const plannedAction = plannedText ? timelineRows.flatMap((row) => row.actions).find((action) => action.planned) : null
   const maxTrackEndSec = React.useMemo(() => {
     return timelineRows.reduce((maxEnd, row) => {
@@ -646,7 +654,7 @@ export default function PinnedDraftTrackView({ draftTitle, preview, plannedText,
 
   return (
     <div className="pinned-draft-track-view">
-      {plannedAction?.overlap && <div role="status" className="pinned-draft-track-view__warning">该轨道已有文字与计划时间重叠，请调整时间或使用其他轨道名。</div>}
+      {plannedAction?.overlap && <div role="status" className="pinned-draft-track-view__warning">该轨道已有{plannedText?.type === 'video' ? '视频' : '文字'}与计划时间重叠，请调整时间或使用其他轨道名。</div>}
       {timelineRows.length > 0 ? (
         <div className="pinned-draft-track-view__surface">
           <Timeline

@@ -402,7 +402,7 @@ const Preset = ({ preset }) => {
         const res = await updatePreset(patchPayload);
         if (cancelled) return;
         if (!res?.success) {
-          showToast('error', res?.message || '云端预设更新失败');
+          showToast('error', res?.message || '预设更新失败');
           return;
         }
         cloudUpdateSnapshotRef.current = nextSnapshot;
@@ -413,7 +413,7 @@ const Preset = ({ preset }) => {
       } catch (e) {
         if (cancelled) return;
         cloudUpdateSnapshotRef.current = prevSnapshot;
-        showToast('error', e?.message || '云端预设更新失败');
+        showToast('error', e?.message || '预设更新失败');
       }
     };
     syncCloudPreset();
@@ -884,7 +884,7 @@ const Preset = ({ preset }) => {
       const prevState = parseCloudSnapshot(cloudUpdateSnapshotRef.current);
       const patchPayload = buildCloudPatchPayload(prevState, nextState) || { preset_id: String(nextState.preset_id), image_url: nextState.image_url };
       const res = await updatePreset(patchPayload);
-      if (!res?.success) throw new Error(res?.message || '云端预设更新失败');
+      if (!res?.success) throw new Error(res?.message || '预设更新失败');
       cloudUpdateSnapshotRef.current = JSON.stringify(nextState);
       setEditableCover(ossUrl);
       setCoverFileList([{ ...current, status: 'done', url: ossUrl }]);

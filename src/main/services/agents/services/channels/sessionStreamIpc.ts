@@ -1,4 +1,5 @@
 import { modelsService } from '@main/apiServer/services/models'
+import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
@@ -151,6 +152,42 @@ type DirectDraftRequestPayload = {
     trackName?: string
     relative_index?: number
     relativeIndex?: number
+  }
+  presetAddRequest?: {
+    draftId?: string
+    draft_id?: string
+    presetId?: string
+    preset_id?: string
+    replacements?: Array<Record<string, unknown>>
+    targetStart?: number
+    target_start?: number
+    start?: number
+    end?: number
+    transform_x?: number
+    transformX?: number
+    transform_y?: number
+    transformY?: number
+    transform_x_px?: number
+    transformXPx?: number
+    transform_y_px?: number
+    transformYPx?: number
+    rotation?: number
+    scale_x?: number
+    scaleX?: number
+    scale_y?: number
+    scaleY?: number
+    width?: number
+    height?: number
+    trackName?: string
+    track_name?: string
+    relativeIndex?: number
+    relative_index?: number
+    intro_animation?: string
+    intro_animation_duration?: number
+    outro_animation?: string
+    outro_animation_duration?: number
+    transition?: string
+    transition_duration?: number
   }
   draftInspectRequest?: {
     requestId?: string
@@ -484,6 +521,59 @@ function buildDirectDraftDownloadAssistantText(input: {
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
+function buildDirectPresetAddAssistantText(input: { draftId?: string; presetId?: string }): string {
+  const draftId = String(input?.draftId || '').trim()
+  const presetId = String(input?.presetId || '').trim()
+  return [
+    '预设添加任务已提交成功！',
+    '',
+    draftId ? `- 草稿ID：${draftId}` : '',
+    presetId ? `- 预设ID：${presetId}` : '',
+    '',
+    '请稍候，预设会添加到目标草稿中。'
+  ].filter(Boolean).join(EOL)
+}
+
+function buildDirectPresetAddErrorAssistantText(input: {
+  draftId?: string
+  presetId?: string
+  errorCode?: string
+}): string {
+  const draftId = String(input?.draftId || '').trim()
+  const presetId = String(input?.presetId || '').trim()
+  const errorCode = String(input?.errorCode || '').trim()
+  const errorHint = (() => {
+    switch (errorCode) {
+      case 'SEGMENT_OVERLAP':
+        return '当前预设片段和草稿里已有片段发生了轨道冲突，不能添加。可以调整目标开始时间 target_start，或者换一个不同的轨道 track_name 再试。'
+      case 'MISSING_REQUIRED_PARAM':
+        return '请求缺少必要参数。请确认预设 ID、草稿 ID 和替换参数都已正确传入。'
+      case 'DRAFT_NOT_FOUND':
+        return '目标草稿不存在，或者当前环境拿不到这个草稿。请重新选择草稿后再试。'
+      case 'PRESET_NOT_FOUND':
+        return '目标预设不存在，或者当前账号没有权限使用这个预设。请重新选择预设后再试。'
+      case 'INVALID_PARAMETER':
+        return '请求参数不合法。请检查替换素材、目标时间、轨道名、位置、缩放等参数是否超出允许范围。'
+      case 'MATERIAL_NOT_FOUND':
+        return '预设依赖的素材没有找到。请确认预设素材完整，或重新选择预设后再试。'
+      case 'UNKNOWN_ERROR':
+        return '后端返回了未知错误。建议先保留当前参数，再换一个 target_start 或 track_name 后重试。'
+      default:
+        return '当前请求执行失败。请检查草稿、预设 ID 和替换参数后重试。'
+    }
+  })()
+
+  return [
+    '预设添加失败。',
+    '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    presetId ? `- 预设 ID：${presetId}` : '',
+    errorCode ? `- 错误码：${errorCode}` : '',
+    '',
+    errorHint
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
 function buildDirectDraftExportAssistantText(input: {
   drafts: Array<{
     draftId: string
@@ -801,6 +891,70 @@ function buildDirectTextAddAssistantBlocks(input: {
           tool: {
             id: 'mcp__vectcut__draft-elements__add_text',
             name: 'mcp__vectcut__draft-elements__add_text',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectPresetAddAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+  status?: 'success' | 'error'
+}) {
+  const {
+    assistantMessageId,
+    modelId,
+    toolCallId,
+    toolArgs,
+    toolResponse,
+    assistantText,
+    createdAtIso,
+    status = 'success'
+  } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__vectcut__draft-elements__add_preset',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__vectcut__draft-elements__add_preset',
+            name: 'mcp__vectcut__draft-elements__add_preset',
             serverName: 'vectcut',
             serverId: 'vectcut',
             type: 'mcp'
@@ -2260,6 +2414,134 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handlePresetAddRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedPresetAddRequest = normalizeDirectPresetAddRequest(
+        payload?.presetAddRequest && typeof payload.presetAddRequest === 'object'
+          ? payload.presetAddRequest as Record<string, unknown>
+          : {}
+      )
+      const draftId = String(normalizedPresetAddRequest?.draft_id || '').trim()
+      const presetId = String(normalizedPresetAddRequest?.preset_id || '').trim()
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `preset_add_request_${requestId}`
+      const toolArgs: Record<string, unknown> = { ...normalizedPresetAddRequest }
+
+      const toolResult = await callDraftElementsTool('add_preset', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const errorCode = String(toolResponse?.error_code || '').trim()
+      const responseSuccess = toolResponse?.success !== false && !errorCode
+      const assistantText = responseSuccess
+        ? buildDirectPresetAddAssistantText({ draftId, presetId })
+        : buildDirectPresetAddErrorAssistantText({
+          draftId,
+          presetId,
+          errorCode
+        })
+      const assistantBlocks = buildDirectPresetAddAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso,
+        status: responseSuccess ? 'success' : 'error'
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: responseSuccess ? 'completed' : 'failed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              presetAddRequest: normalizedPresetAddRequest,
+              blocks: [`${userMessageId}-main`]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: responseSuccess ? 'success' : 'error',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleReversePromptRequest = async (_event: unknown, payload: DirectDraftRequestPayload) => {
     const sessionId = String(payload?.sessionId || '').trim()
     const requestId = String(payload?.requestId || '').trim() || randomUUID()
@@ -2429,6 +2711,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, handleDraftRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, handleTextAddRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_PresetAddRequest, handlePresetAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)

@@ -6,10 +6,16 @@ import './index.css';
 
 const LIMIT = 20;
 const LOAD_MORE_THRESHOLD = 40;
+const draftMetaCache = new Map();
 
 const normalizeDraftList = (response) => (
   Array.isArray(response?.drafts) ? response.drafts.filter((item) => item?.draft_id) : []
 );
+
+const rememberDraftMeta = (draft) => {
+  const draftId = String(draft?.draft_id || '').trim();
+  if (draftId) draftMetaCache.set(draftId, draft);
+};
 
 const DraftSelect = ({
   disabled = false,
@@ -62,6 +68,7 @@ const DraftSelect = ({
   const fetchDraftPage = async (start, replace = false) => {
     const response = await draftList({ limit: LIMIT, offset: start });
     const nextItems = normalizeDraftList(response);
+    nextItems.forEach(rememberDraftMeta);
     setItems((prev) => (replace ? nextItems : [...prev, ...nextItems]));
     setOffset(start + nextItems.length);
     setHasMore(nextItems.length === LIMIT);
@@ -80,6 +87,7 @@ const DraftSelect = ({
         const response = await draftList({ limit: LIMIT, offset: 0 });
         if (cancelled) return;
         const nextItems = normalizeDraftList(response);
+        nextItems.forEach(rememberDraftMeta);
         setItems(nextItems);
         setOffset(nextItems.length);
         setHasMore(nextItems.length === LIMIT);
@@ -119,6 +127,7 @@ const DraftSelect = ({
         const response = await searchDraft({ draft_id: trimmedQuery });
         if (cancelled) return;
         if (response?.success && response?.draft?.draft_id) {
+          rememberDraftMeta(response.draft);
           setSearchResult(response.draft);
           setSearchError('');
         } else {
@@ -145,6 +154,7 @@ const DraftSelect = ({
   const selectedIdSet = useMemo(() => new Set(resolvedSelectedIds), [resolvedSelectedIds]);
   const selectedDraftMetaMap = useMemo(() => {
     const map = new Map();
+    draftMetaCache.forEach((value, key) => map.set(key, value));
     items.forEach((item) => {
       const draftId = String(item?.draft_id || '').trim();
       if (!draftId) return;
