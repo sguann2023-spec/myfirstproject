@@ -2597,6 +2597,7 @@
           "image": "圖像",
           "image_understand": "圖片理解",
           "koubo_template": "口播模板",
+          "remove_bg": "人物去背",
           "search": "聯網搜尋",
           "seed_audio": "豆包音訊",
           "speech": "語音",
@@ -2737,6 +2738,11 @@
           },
           "koubo_template": {
             "submit_koubo_template_task": "提交口播模板任務"
+          },
+          "remove_bg": {
+            "submit_remove_bg_text_behind_task": "文字置於人物後方",
+            "submit_remove_bg_pip_task": "去背子母畫面",
+            "submit_remove_bg_task": "人物去背"
           },
           "search": {
             "web_search": "聯網搜尋"

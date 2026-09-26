@@ -15,6 +15,7 @@ import type ImageGenerateServer from '@main/mcpServers/image-generate'
 import ImageUnderstandServer from '@main/mcpServers/image-understand'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
+import RemoveBgServer from '@main/mcpServers/remove-bg'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
@@ -367,6 +368,25 @@ export async function mountRuntimeMcpServers(input: {
     })
     autoAllowTools.add(vt('subtitle-recognition', 'submit_subtitle_recognition_task'))
     allowMcpPattern(vp('subtitle-recognition'))
+  }
+
+  if (hasCutDomain) {
+    const removeBgServer = new RemoveBgServer()
+    mountMcpServer('remove-bg', {
+      type: 'sdk',
+      name: 'remove-bg',
+      instance: removeBgServer.mcpServer,
+      longRunning: true,
+      timeout: 40 * 60
+    })
+    for (const toolName of [
+      'submit_remove_bg_text_behind_task',
+      'submit_remove_bg_pip_task',
+      'submit_remove_bg_task'
+    ]) {
+      autoAllowTools.add(vt('remove-bg', toolName))
+    }
+    allowMcpPattern(vp('remove-bg'))
   }
 
   if (hasCutDomain) {

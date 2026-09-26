@@ -36,6 +36,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: ImageUnderstandServer },
       { default: KouboTemplateServer },
       { default: MaterialsServer },
+      { default: RemoveBgServer },
       { default: SeedAudioServer },
       { default: SocialCopywritingServer },
       { default: SkillsServer },
@@ -65,6 +66,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/image-understand'),
       import('@main/mcpServers/koubo-template'),
       import('@main/mcpServers/materials'),
+      import('@main/mcpServers/remove-bg'),
       import('@main/mcpServers/seed-audio'),
       import('@main/mcpServers/social-copywriting'),
       import('@main/mcpServers/skills'),
@@ -164,6 +166,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'subtitle-recognition',
         serverName: 'subtitle-recognition',
         createInstance: () => new SubtitleRecognitionServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'remove-bg',
+        serverName: 'remove-bg',
+        createInstance: () => new RemoveBgServer().mcpServer
       },
       {
         serverId: 'storyboard-editor',

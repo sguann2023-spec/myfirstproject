@@ -70,10 +70,15 @@ export function McpServerToolRenderer({
   const isKouboTemplate = isKouboTemplateToolName(toolName)
   const isMediaGeneration = isMediaGenerationToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
+  const isRemoveBg = [
+    'submit_remove_bg_text_behind_task',
+    'submit_remove_bg_pip_task',
+    'submit_remove_bg_task'
+  ].some((name) => toolName === name || toolName.endsWith(`__remove-bg__${name}`))
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
-  const mediaGenerationBillingSummary = isMediaGeneration || isSubtitleRecognition || isReversePromptToolName(toolName)
+  const mediaGenerationBillingSummary = isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
     ? extractMediaGenerationBillingSummary(output)
     : null
 

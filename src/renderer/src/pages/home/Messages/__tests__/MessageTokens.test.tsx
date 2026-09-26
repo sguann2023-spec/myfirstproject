@@ -47,6 +47,39 @@ vi.mock('i18next', () => ({
 }))
 
 describe('MessageTokens', () => {
+  it.each([
+    'submit_remove_bg_text_behind_task',
+    'submit_remove_bg_pip_task',
+    'submit_remove_bg_task'
+  ])('将 %s 的扣费计入最终点数且只计算一次', (tool) => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {
+      removeBg: {
+        id: 'removeBg', type: 'tool', toolName: `mcp__vectcut__remove-bg__${tool}`,
+        metadata: {
+          rawMcpToolResponse: {
+            responseRaw: {
+              content: [{ type: 'text', text: JSON.stringify({
+                billing: { consume: 2.75 },
+                result: { billing: { consume: 2.75 }, mask_url: 'https://example.com/mask.mp4' }
+              }) }]
+            }
+          }
+        }
+      }
+    }
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: `remove-bg-${tool}`, role: 'assistant', blocks: ['removeBg'], status: 'success',
+      model: { pricing: {
+        precise_uncached_input_resource_points_per_unit: 1000000,
+        precise_output_resource_points_per_unit: 1000000
+      } },
+      usageSteps: [{ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }]
+    } as any} />)
+    expect(html).toContain('5.75')
+    expect(html).not.toContain('8.50')
+  })
+
   it('将字幕摘要的实际扣费计入合计，不重复累计文件内的 billing', () => {
     mockState.messages.entities = {}
     mockState.messageBlocks.entities = {
