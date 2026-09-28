@@ -325,6 +325,9 @@ type IntentRoute = {
 - `subtitle_srt`
 - `subtitle_recognition`
 - `video_understand`
+- `text_behind_person`
+- `portrait_pip`
+- `portrait_cutout`
 - `text_intro_animation_list`
 - `text_outro_animation_list`
 - `text_loop_animation_list`
@@ -383,6 +386,9 @@ type IntentRoute = {
 - `subtitle_srt` -> `mcp__vectcut__draft-elements__add_subtitle`
 - `subtitle_recognition` -> `mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task`（单工具封装任务提交 + 轮询直到完成，不再对 Agent 暴露独立的 task_status 工具；支持 `basic`、`nlp`、`llm`、`llm_vad` 四个档位；回包中的字幕内容可能很长，完整结果优先直接写入当前 workspace 根目录下的 `<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理，MCP tool 超时与前端运行态展示可参考 `mcp__vectcut__koubo-template__submit_koubo_template_task` / `KouboTemplateTool.tsx`）
 - `video_understand` -> `mcp__vectcut__video-understand__submit_video_detail_task`（单工具封装本地视频上传 / 远程视频直传、异步任务提交与轮询直到完成；完整结果优先直接写入 workspace 本地 `.capcut/tool-results/video-understand/<taskId>.json`，工具只返回摘要与文件路径；该调用可能持续 `15~30` 分钟，应按长耗时工具处理）
+- `text_behind_person` -> `mcp__vectcut__remove-bg__submit_remove_bg_text_behind_task`
+- `portrait_pip` -> `mcp__vectcut__remove-bg__submit_remove_bg_pip_task`
+- `portrait_cutout` -> `mcp__vectcut__remove-bg__submit_remove_bg_task`
 - `text_intro_animation_list` -> `mcp__vectcut__draft-elements__get_text_intro_types`
 - `text_outro_animation_list` -> `mcp__vectcut__draft-elements__get_text_outro_types`
 - `text_loop_animation_list` -> `mcp__vectcut__draft-elements__get_text_loop_anim_types`
@@ -426,6 +432,11 @@ type IntentRoute = {
 - `media_download`：用于先把远程音频、图片、视频链接下载到当前 workspace，再交给后续 `ffmpeg` 能力处理；当用户给的是 OSS 临时链接、外部图片链接、音视频直链，且后续任务要求本地裁剪、拼接、抽帧或其他依赖本地文件的媒体处理时，应优先补充该子能力，避免直接把不稳定远程 URL 交给 `ffmpeg`
 - `subtitle_recognition`：仅负责识别并提取音频或视频中的字幕内容，不负责把文字添加回草稿，也不负责上屏样式；对 Agent 暴露为单个长耗时工具，内部自行完成本地媒体上传（如有）、异步 ASR 任务提交与轮询，不再拆成独立状态查询工具；远程音频/视频链接可直接传入，本地音频/视频绝对路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理；返回结果中的字幕 JSON 可能很大，完整内容优先直接落盘到当前 workspace 根目录下的 `<taskId>.json`，工具仅返回摘要与文件路径；整体耗时可能达到 `15~30` 分钟，超时与运行态展示策略参考口播模版长任务；档位分为 `basic`（基础、快速）、`nlp`（在 `basic` 基础上增加 12 字一句上限，适合短视频场景，属于快速分句）、`llm`（在 `basic` 基础上增加 12 字上限、翻译、关键词信息，属于智能分句）、`llm_vad`（在 `llm` 基础上进一步去除气口、重复、错误字）
 - `video_understand`：视频理解能力，仅负责结构化理解视频画面内容，不描述声音；对 Agent 暴露为单个长耗时工具，内部自行完成本地视频上传（如有）、异步任务提交与轮询，不再拆成独立状态查询工具；支持单视频 `video_url` 或多视频 `video_urls`，也支持补充 `fps` / `fps_list` 控制抽帧；远程视频链接可直接传入，本地视频绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终结果摘要与落盘文件路径
+- `text_behind_person`：字在人后，将人物视频分成人物前景和文字等轨道写入草稿；必填 `video_url`、`text`，可选 `text_preset_id`（默认 `fc6982de-c94e-447a-82d0-ab361cb27217`）、`draft_id`、`target_start` 等轨道参数。视频不得超过 10 分钟。接口文档：[字在人后](https://docs.vectcut.com/444268907e0)
+- `portrait_pip`：人物抠像画中画；必填 `video_url`、`template` 和 `background_image_url` / `background_video_url` 二选一，支持 8 个位置模板（`left_down` / `left_up` / `right_up` / `right_down` 及对应 `fixed_` 前缀版本）；可选 `draft_id`、`target_start`、`speed`、背景音量等。人物视频和背景视频均不得超过 10 分钟。接口文档：[画中画](https://docs.vectcut.com/444064295e0)
+- `portrait_cutout`：抠人像；`compose_draft=true`（默认）将抠像合成写入草稿，`false` 只返回 `mask_url` / `inverted_mask_url`，不写草稿；支持 `draft_id`、时间范围、缩放、位移、蒙版等可选参数。接口文档：[抠人像](https://docs.vectcut.com/443546638e0)
+- 上述三项都只对 Agent 暴露单个提交并等待完成的 MCP 工具，内部用 `GET /process/remove_bg/submit_task/task_status?task_id=...` 轮询至成功或失败，不额外暴露状态查询工具；`video_url` 和 `background_video_url` 只接受可探测出视频流和时长的视频文件或远程链接，视频时长必须在 10 分钟以内，无法探测时拒绝提交；可直接传远程 URL、本地绝对路径或 `file://` URL，本地视频通过校验后由工具内部上传 OSS，`background_image_url` 仍接受图片。轮询最长 35 分钟，Agent MCP 调用总上限 40 分钟（给上传与收尾留余量），须按长耗时任务展示运行状态；最终返回草稿 ID / URL 或抠像蒙版 URL 及任务状态。[状态查询接口](https://docs.vectcut.com/443545573e0)
+- 抠像任务状态中的 `result.billing.consume` 为本次实际消耗点数；MCP 最终回包在顶层保留 `billing`（包括扣费后任务失败的情况），工具卡片显示点数徽标，最终 Tokens 汇总把该次工具点数计入总消耗且不重复计算嵌套结果。当前接收端 `process/remove_bg/receiver/app.py` 仍限制输入视频不超过 120 秒，客户端的 10 分钟上限不代表服务端已支持 2~10 分钟的视频。
 - `subtitle_template`：字幕样式模版能力，强调“把音频/视频中的文字按指定字幕模版添加回草稿并上屏”，而不是单纯提取字幕；可基于已有草稿继续编辑；用户可主动指定字幕模版，默认使用 `asr_42da310c1e4347ddb2c96dd2a5d055c2`；对 Agent 暴露为单个长耗时工具，内部自行完成异步任务提交与轮询，不再拆成独立状态查询工具；整体耗时通常为 `15~30` 分钟，完成后直接返回最终草稿结果；若输入是本地文件，则字幕模版阶段只提交音频素材（本地视频先抽取音频并上传，本地音频直接上传），并强制不在该阶段把素材写入草稿，待模板草稿生成完成后再把原始本地视频或音频补回草稿
 - `workflow`：剪辑工作流能力，面向一次性提交 `inputs + script` 或 `workflow_id` 给 `/cut_jianying/execute_workflow`，由服务端按工作流 DSL 执行包含 `if` / `loop` / 多步骤编排在内的复杂剪辑流程；它不是“批量工具”的别名。`add_batch_*` 这类工具只表示单个平铺批量操作，不具备工作流分支、循环和编排语义。只要用户明确表达“执行工作流 / workflow / workflow_id / execute_workflow”，就必须优先命中 `workflow`，不能因为句子里同时出现“批量”“多个”“一次性”而退化到 `text_add_batch`、`image_add_batch`、`video_add_batch`、`audio_add_batch`、`add_batch_preset` 等批量工具；该调用可能持续 `15~30` 分钟，应按长耗时工具处理；工作流中的 `inputs` / `script` 既支持远程 URL，也支持本地音频、图片、视频绝对路径或 `file://` URL，Agent 不需要额外先走 `workspace.upload`
 - `image_add` / `video_add` / `audio_add`：既支持远程 `image_url` / `video_url` / `audio_url`，也支持把本地文件路径直接放进对应的 `image_url` / `video_url` / `audio_url`；收到本地路径时不默认自动上传，只有用户明确要拿可复用公网 URL 时才应命中 `workspace.upload`，并统一通过 `/sts/upload/agent_tmp/init` 获取临时可访问 URL
@@ -446,6 +457,7 @@ type IntentRoute = {
 - 用户提到“把两个视频拼在一起”“合并多个视频片段”“拼接视频文件”“把几段视频接成一个”时，应优先命中 `video_concat`
 - 用户提到“识别这个音频里的字幕”“提取这个视频链接的字幕”“把这段音频转成带时间轴的字幕”“识别链接里的文案/字幕”时，应优先命中 `subtitle_recognition`
 - 用户提到“理解这个视频在讲什么”“分析这个视频画面内容”“总结视频镜头内容”“识别视频里出现了什么画面/场景/人物/动作”时，应优先命中 `video_understand`
+- 用户提到“字在人后”“让文字放在人物背后”时，命中 `text_behind_person`；提到“人物抠像画中画”“抠人像叠加到背景做画中画”时，命中 `portrait_pip`；仅要求“抠人像”“提取人物蒙版”时，命中 `portrait_cutout`。对只要蒙版的请求设置 `compose_draft=false`；同一目标不要并行调用三个工具
 - 用户提到“帮我看下这张图”“识别图里文字”“解释这个截图界面是什么”“描述图片里有什么”“看看这张图在讲什么”时，应优先命中 `chat.image_understand`
 - 用户提到“执行剪辑工作流”“运行 workflow_id”“把 inputs + script 一次性写进草稿”“调用 execute_workflow”“按工作流执行”时，应优先命中 `workflow`，且不要再并行命中 `add_batch_*` 或其他单步草稿编辑工具
 - 用户提到“下载草稿”“把这个 draft 下载下来”“下载这个 draft_url”“下载 dfd_xxx 对应的草稿”时，应优先命中 `draft_download`

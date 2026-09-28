@@ -4,6 +4,23 @@ import { CapabilityRouter, buildToolGuidanceOptions } from '../capability-router
 import { buildToolSurface } from '../tool-surface'
 
 describe('CapabilityRouter', () => {
+  it.each([
+    ['把字放在人物背后', 'textBehindPerson', 'text_behind_person'],
+    ['给这个人物视频做抠像画中画叠到背景图上', 'portraitPip', 'portrait_pip'],
+    ['只抠人像，返回人物蒙版不写草稿', 'portraitCutout', 'portrait_cutout']
+  ])('routes %s to its cut tool', (prompt, capability, subdomain) => {
+    const decision = new CapabilityRouter().select({
+      prompt, sessionId: `remove-bg-${subdomain}`, imageCount: 0,
+      isAssistant: false, autonomousEnabled: false, hasCustomMcpServers: false
+    })
+    expect(decision.primaryDomain).toBe('cut')
+    expect(decision.activeDomains.find((entry) => entry.domain === 'cut')?.subdomains).toContain(subdomain)
+    expect(decision.selected.has(capability as any)).toBe(true)
+    expect(['textBehindPerson', 'portraitPip', 'portraitCutout'].filter((item) => decision.selected.has(item as any))).toEqual([
+      capability
+    ])
+  })
+
   it('keeps casual chat in the chat domain with no runtime capabilities', () => {
     const router = new CapabilityRouter()
 

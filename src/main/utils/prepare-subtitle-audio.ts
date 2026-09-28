@@ -47,6 +47,35 @@ const parseDuration = (probe: ProbeResult) => {
   return values.length ? Math.max(...values) : null
 }
 
+/** Verify a local or remote source is a video of known duration before sending it to a video-only API. */
+export async function probeVideoSource(source: string, maxDurationSeconds: number): Promise<number> {
+  let probeOutput: string
+  try {
+    const { stdout } = await execFileAsync(
+      resolveFfprobePath(),
+      ['-v', 'error', '-rw_timeout', '15000000', '-show_entries', 'stream=codec_type,duration:format=duration', '-of', 'json', source],
+      { windowsHide: true, timeout: 30_000, maxBuffer: PROCESS_MAX_BUFFER }
+    )
+    probeOutput = String(stdout || '')
+  } catch (error) {
+    throw new Error(`无法读取视频信息：${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  let probe: ProbeResult
+  try {
+    probe = JSON.parse(probeOutput) as ProbeResult
+  } catch {
+    throw new Error('无法解析视频信息')
+  }
+  if (!probe.streams?.some((stream) => stream.codec_type === 'video')) {
+    throw new Error('仅支持视频类型的文件或链接')
+  }
+  const duration = parseDuration(probe)
+  if (duration === null) throw new Error('无法读取视频时长，无法确认是否在时长限制内')
+  if (duration > maxDurationSeconds) throw new Error(`视频时长不能超过 ${maxDurationSeconds / 60} 分钟`)
+  return duration
+}
+
 /** Probe duration, enforce the recognition limit, and transcode local media to compact MP3. */
 export async function prepareSubtitleAudio(sourcePath: string): Promise<{
   audioPath: string

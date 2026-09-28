@@ -34,7 +34,8 @@
   min-width: 120px;
 }
 
-.chat-panel__tool-menu-list--text .chat-panel__tool-menu-icon {
+.chat-panel__tool-menu-list--text .chat-panel__tool-menu-icon,
+.chat-panel__tool-menu-list--video .chat-panel__tool-menu-icon {
   width: 18px;
   height: 18px;
   font-size: 18px;
@@ -43,6 +44,10 @@
 .chat-panel__tool-menu-list--text .chat-panel__tool-menu-icon--text {
   transform: scale(1.18);
   transform-origin: center;
+}
+
+.chat-panel__tool-menu-icon--preset {
+  object-fit: contain;
 }
 
 .chat-panel__tool-menu-item {

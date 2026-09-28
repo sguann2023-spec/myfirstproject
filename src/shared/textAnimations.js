@@ -643,3 +643,9 @@ export const TEXT_ANIMATION_OPTIONS = {
   outro: ANIMATION_META.Text_outro,
   loop: ANIMATION_META.Text_loop_anim,
 };
+
+export const PRESET_ANIMATION_OPTIONS = {
+  intro: ANIMATION_META.Intro_type,
+  outro: ANIMATION_META.Outro_type,
+  group: ANIMATION_META.Group_animation_type,
+};

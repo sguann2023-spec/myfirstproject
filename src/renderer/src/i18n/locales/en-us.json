@@ -2598,6 +2598,7 @@
           "image_understand": "Image Understanding",
           "koubo_template": "Talking Head Template",
           "materials": "Materials",
+          "remove_bg": "Portrait Cutout",
           "search": "Web Search",
           "seed_audio": "Doubao Audio",
           "speech": "Speech",
@@ -2742,6 +2743,11 @@
           },
           "materials": {
             "folder_links": "View Folder"
+          },
+          "remove_bg": {
+            "submit_remove_bg_text_behind_task": "Text Behind Person",
+            "submit_remove_bg_pip_task": "Cutout Picture-in-Picture",
+            "submit_remove_bg_task": "Remove Background"
           },
           "search": {
             "web_search": "Search the Web"

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import enUs from '../../../../../../i18n/locales/en-us.json'
+import zhCn from '../../../../../../i18n/locales/zh-cn.json'
+import zhTw from '../../../../../../i18n/locales/zh-tw.json'
+
 import { getMcpToolDisplayName, parseMcpToolName } from '../mcpToolDisplay'
 
 describe('mcpToolDisplay', () => {
@@ -46,6 +50,22 @@ describe('mcpToolDisplay', () => {
         t
       })
     ).toBe('剪辑工作流：执行工作流')
+  })
+
+  it.each([
+    ['mcp__vectcut__remove-bg__submit_remove_bg_text_behind_task', '人物抠像：字在人后', '人物去背：文字置於人物後方', 'Portrait Cutout: Text Behind Person'],
+    ['mcp__vectcut__remove-bg__submit_remove_bg_pip_task', '人物抠像：抠像画中画', '人物去背：去背子母畫面', 'Portrait Cutout: Cutout Picture-in-Picture'],
+    ['mcp__vectcut__remove-bg__submit_remove_bg_task', '人物抠像：抠人像', '人物去背：人物去背', 'Portrait Cutout: Remove Background']
+  ])('uses localized names for %s', (name, simplified, traditional, english) => {
+    const parts = parseMcpToolName(name)
+    for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
+      const translate = ((key: string) =>
+        key.split('.').reduce<unknown>(
+          (value, part) => (value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined),
+          locale
+        ) ?? key) as any
+      expect(getMcpToolDisplayName({ ...parts, t: translate })).toBe(expected)
+    }
   })
 
   it('returns translated names for materials MCP tools', () => {

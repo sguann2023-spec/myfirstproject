@@ -197,6 +197,83 @@ const COZE_ADD_TEXT_EXTERNAL_DATA = {
   mainColor: '#CA61FF'
 };
 
+const COZE_ADD_PRESET_PLUGIN_META = {
+  apiID: '7579582015465422848',
+  apiName: 'add_preset',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_ADD_PRESET_NODE_META = {
+  title: 'add_preset',
+  icon: '`https://p9-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1792934308&x-signature=AUg6DYALXGrBgIgvRAn82zVVS0g%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):add_preset',
+  description: '添加剪映的模版/预设片段。需要提前在剪映里编辑好，然后上传到后台，并获取到preset_id'
+};
+
+const COZE_ADD_PRESET_EXTERNAL_DATA = {
+  icon: '`https://lf3-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1792934311&x-signature=JVMggZpBDPNMHoyAHGVA2qVrLrY%3D`',
+  apiName: 'add_preset',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '水平偏移，像素值', input: {}, name: 'transform_x_px', required: false, type: 'float' },
+    { description: '垂直偏移，相对值。0表示位于中心，垂直移动像素 = transform_y * 视频高度', input: {}, name: 'transform_y', required: false, type: 'float' },
+    { description: '画布高度', input: {}, name: 'height', required: false, type: 'integer' },
+    { defaultValue: 'b795a680-a581-4965-84b1-9e9ad313b522', description: '预设片段id, default value is b795a680-a581-4965-84b1-9e9ad313b522', input: {}, name: 'preset_id', required: true, type: 'string' },
+    { description: '替换元素', input: {}, name: 'replacements', required: false, schema: { assistType: 0, type: 'string' }, type: 'list' },
+    { description: '旋转角度', input: {}, name: 'rotation', required: false, type: 'float' },
+    { description: '原始片段截取开始时间', input: {}, name: 'start', required: false, type: 'float' },
+    { description: '目标轨道的开始时间', input: {}, name: 'target_start', required: false, type: 'float' },
+    { description: '轨道名，默认preset_track', input: {}, name: 'track_name', required: false, type: 'string' },
+    { description: '垂直偏移，像素值', input: {}, name: 'transform_y_px', required: false, type: 'float' },
+    { description: '草稿id，不填默认创建新草稿', input: {}, name: 'draft_id', required: false, type: 'string' },
+    { description: '入场动画，和add_video一致', input: {}, name: 'intro_animation', required: false, type: 'string' },
+    { description: '出场动画持续时间', input: {}, name: 'outro_animation_duration', required: false, type: 'float' },
+    { description: '相对轨道位置，越大越靠上', input: {}, name: 'relative_index', required: false, type: 'integer' },
+    { description: '水平方向缩放', input: {}, name: 'scale_x', required: false, type: 'float' },
+    { description: '垂直方向缩放', input: {}, name: 'scale_y', required: false, type: 'float' },
+    { description: '原始片段截取结束时间', input: {}, name: 'end', required: false, type: 'float' },
+    { description: '水平偏移，相对值。0表示位于中心，水平移动像素 = transform_x * 草稿宽度', input: {}, name: 'transform_x', required: false, type: 'float' },
+    { description: '入场动画持续时间', input: {}, name: 'intro_animation_duration', required: false, type: 'float' },
+    { description: '出场动画，和add_video一致', input: {}, name: 'outro_animation', required: false, type: 'string' },
+    { description: '转场动画，和add_video一致', input: {}, name: 'transition', required: false, type: 'string' },
+    { description: '转场动画持续时间', input: {}, name: 'transition_duration', required: false, type: 'float' },
+    { description: '画布宽度', input: {}, name: 'width', required: false, type: 'integer' }
+  ],
+  outputs: [
+    { input: {}, name: 'error', required: false, type: 'string' },
+    {
+      input: {},
+      name: 'output',
+      required: false,
+      schema: [
+        { description: '草稿id, 可以继续编辑', input: {}, name: 'draft_id', required: false, type: 'string' },
+        { description: '草稿链接，复制到浏览器里可以打开预览', input: {}, name: 'draft_url', required: false, type: 'string' }
+      ],
+      type: 'object'
+    },
+    { input: {}, name: 'purchase_link', required: false, type: 'string' },
+    { input: {}, name: 'success', required: false, type: 'boolean' }
+  ],
+  updateTime: 1790232153,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '添加剪映的模版/预设片段。需要提前在剪映里编辑好，然后上传到后台，并获取到preset_id',
+  title: 'add_preset',
+  mainColor: '#CA61FF'
+};
+
 const createLiteralValue = (content) => ({
   type: 'literal',
   content,
@@ -213,10 +290,39 @@ const createInputParameter = (name, type, content) => ({
   }
 });
 
+const createPresetReplacementsInputParameter = (replacements) => ({
+  name: 'replacements',
+  input: {
+    type: 'list',
+    value: {
+      type: 'literal',
+      content: JSON.stringify(replacements.map((item) => JSON.stringify(item)), null, 2),
+      rawMeta: {
+        type: 99
+      }
+    },
+    schema: {
+      type: 'string'
+    }
+  }
+});
+
 const createApiParamEntries = (pluginMeta) => (
-  Object.entries(pluginMeta).map(([name, content]) => (
-    createInputParameter(name, 'string', content)
-  ))
+  Object.entries(pluginMeta).map(([name, content]) => {
+    if (name === 'pluginAuthMode') {
+      return {
+        input: {
+          type: 'integer',
+          value: {
+            content: Number(content) || 0,
+            type: 'literal'
+          }
+        },
+        name
+      };
+    }
+    return createInputParameter(name, 'string', content);
+  })
 );
 
 const createDraftRequestInputParameters = (draftRequest = {}) => {
@@ -373,6 +479,54 @@ const createTextAddRequestInputParameters = (textAddRequest = {}) => {
   return parameters;
 };
 
+const createPresetAddRequestInputParameters = (presetAddRequest = {}) => {
+  const parameters = [];
+  const addString = (name, value) => {
+    const normalized = String(value || '').trim();
+    if (normalized) parameters.push(createInputParameter(name, 'string', normalized));
+  };
+  const addNumber = (name, value, type = 'float') => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) parameters.push(createInputParameter(name, type, normalized));
+  };
+
+  addString('preset_id', presetAddRequest?.preset_id || presetAddRequest?.presetId);
+  addString('draft_id', presetAddRequest?.draft_id || presetAddRequest?.draftId);
+  const replacements = Array.isArray(presetAddRequest?.replacements)
+    ? presetAddRequest.replacements
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .flatMap((item) => Object.entries(item).map(([key, value]) => {
+        const normalizedKey = String(key || '').trim();
+        const normalizedValue = String(value ?? '');
+        return normalizedKey && normalizedValue.trim() ? { [normalizedKey]: normalizedValue } : null;
+      }).filter(Boolean))
+    : [];
+  if (replacements.length) {
+    parameters.push(createPresetReplacementsInputParameter(replacements));
+  }
+  addNumber('rotation', presetAddRequest?.rotation);
+  addNumber('start', presetAddRequest?.start);
+  addNumber('target_start', presetAddRequest?.target_start ?? presetAddRequest?.targetStart);
+  addString('track_name', presetAddRequest?.track_name || presetAddRequest?.trackName);
+  addNumber('transform_y_px', presetAddRequest?.transform_y_px ?? presetAddRequest?.transformYPx);
+  addString('intro_animation', presetAddRequest?.intro_animation || presetAddRequest?.introAnimation);
+  addNumber('outro_animation_duration', presetAddRequest?.outro_animation_duration ?? presetAddRequest?.outroAnimationDuration);
+  addNumber('relative_index', presetAddRequest?.relative_index ?? presetAddRequest?.relativeIndex, 'integer');
+  addNumber('scale_x', presetAddRequest?.scale_x ?? presetAddRequest?.scaleX);
+  addNumber('scale_y', presetAddRequest?.scale_y ?? presetAddRequest?.scaleY);
+  addNumber('end', presetAddRequest?.end);
+  addNumber('transform_x', presetAddRequest?.transform_x ?? presetAddRequest?.transformX);
+  addNumber('transform_x_px', presetAddRequest?.transform_x_px ?? presetAddRequest?.transformXPx);
+  addNumber('transform_y', presetAddRequest?.transform_y ?? presetAddRequest?.transformY);
+  addNumber('intro_animation_duration', presetAddRequest?.intro_animation_duration ?? presetAddRequest?.introAnimationDuration);
+  addString('outro_animation', presetAddRequest?.outro_animation || presetAddRequest?.outroAnimation);
+  addString('transition', presetAddRequest?.transition);
+  addNumber('transition_duration', presetAddRequest?.transition_duration ?? presetAddRequest?.transitionDuration);
+  addNumber('width', presetAddRequest?.width, 'integer');
+  addNumber('height', presetAddRequest?.height, 'integer');
+  return parameters;
+};
+
 export const buildDraftModifyRequestCozeClipboardData = (draftModifyRequest = {}) => {
   const inputParameters = createDraftModifyRequestInputParameters(draftModifyRequest);
 
@@ -513,6 +667,81 @@ export const buildTextAddRequestCozeClipboardData = (textAddRequest = {}) => {
     bounds: {
       x: 892.2094926350246,
       y: 143.43815504513285,
+      width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const buildPresetAddRequestCozeClipboardData = (presetAddRequest = {}) => {
+  const inputParameters = createPresetAddRequestInputParameters(presetAddRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      workflowId: '7582120367239004166',
+      flowMode: 0,
+      spaceId: '7472683780642258985',
+      isDouyin: false,
+      host: 'www.coze.cn'
+    },
+    json: {
+      nodes: [
+        {
+          id: '168109',
+          type: '4',
+          meta: {
+            position: {
+              x: -228.26309482408212,
+              y: -337.8172934143432
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_ADD_PRESET_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_ADD_PRESET_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: [
+              { type: 'string', name: 'error', required: false },
+              {
+                type: 'object',
+                name: 'output',
+                schema: [
+                  { type: 'string', name: 'draft_id', required: false, description: '草稿id, 可以继续编辑' },
+                  { type: 'string', name: 'draft_url', required: false, description: '草稿链接，复制到浏览器里可以打开预览' }
+                ],
+                required: false
+              },
+              { type: 'string', name: 'purchase_link', required: false },
+              { type: 'boolean', name: 'success', required: false }
+            ]
+          },
+          _temp: {
+            bounds: {
+              x: -408.26309482408215,
+              y: -337.8172934143432,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_ADD_PRESET_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: -408.26309482408215,
+      y: -337.8172934143432,
       width: 360,
       height: 112
     }

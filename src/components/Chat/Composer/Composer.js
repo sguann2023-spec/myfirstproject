@@ -45,6 +45,12 @@ import TextAddDetail, {
   DEFAULT_TEXT_ADD_SETTINGS,
   getTextAddToolSendState
 } from '../../TextAddDetail/index';
+import PresetAddDetail, {
+  buildPresetAddRequestParams,
+  buildPresetAddSettingsPrompt,
+  DEFAULT_PRESET_ADD_SETTINGS,
+  getPresetAddToolSendState
+} from '../../PresetAddDetail/index';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_COUNT = 100;
@@ -2368,6 +2374,9 @@ const Composer = ({
   const [selectedTextAddDraftIds, setSelectedTextAddDraftIds] = React.useState([]);
   const [textAddSettings, setTextAddSettings] = React.useState(DEFAULT_TEXT_ADD_SETTINGS);
   const [textAddInput, setTextAddInput] = React.useState('');
+  const [selectedPresetAddDraftIds, setSelectedPresetAddDraftIds] = React.useState([]);
+  const [selectedPresetAddPreset, setSelectedPresetAddPreset] = React.useState(null);
+  const [presetAddSettings, setPresetAddSettings] = React.useState(DEFAULT_PRESET_ADD_SETTINGS);
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
   const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
   const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
@@ -2467,6 +2476,8 @@ const Composer = ({
         : activeTool === 'reverse-prompt'
           ? REVERT_PROMPT_HINT
         : activeTool === 'text-add'
+          ? ''
+        : activeTool === 'preset-add'
           ? ''
         : activeTool === 'draft-inspect'
           ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看图片是否是画中画'
@@ -3826,6 +3837,8 @@ const Composer = ({
       hasSelectedLocalFile,
       selectedDraftIds: activeTool === 'draft-export'
         ? selectedDraftDownloadIds
+        : activeTool === 'preset-add'
+          ? selectedPresetAddDraftIds
         : activeTool === 'text-add'
           ? selectedTextAddDraftIds
         : activeTool === 'draft-inspect'
@@ -3841,6 +3854,8 @@ const Composer = ({
         return getDraftDownloadToolSendState(context);
       case 'text-add':
         return getTextAddToolSendState(context);
+      case 'preset-add':
+        return getPresetAddToolSendState({ ...context, selectedPreset: selectedPresetAddPreset });
       case 'draft-inspect':
         return getDraftInspectToolSendState(context);
       case 'draft-modify':
@@ -3856,6 +3871,8 @@ const Composer = ({
     hasSelectedLocalFile,
     input,
     textAddInput,
+    selectedPresetAddDraftIds,
+    selectedPresetAddPreset,
     subtitleSettings,
     selectedDraftDownloadIds,
     selectedTextAddDraftIds,
@@ -4081,8 +4098,8 @@ const Composer = ({
     } catch (error) {
       console.warn('[Composer] failed to collect image payloads', error);
     }
-    // The hidden chat editor is not the source of text-add content or references.
-    const serializedMessage = activeTool === 'text-add'
+    // The hidden chat editor is not the source of text-add/preset-add content or references.
+    const serializedMessage = activeTool === 'text-add' || activeTool === 'preset-add'
       ? { text: textAddInput, referencedFileUids: new Set() }
       : serializeEditorMessage(editor, buildMarkdownFileLink);
     const hasMultimodalImages = selectedModelSupportsReadImage && imagePayloads.length > 0;
@@ -4133,8 +4150,11 @@ const Composer = ({
       ? voiceSquareComposeParts?.scriptText || ''
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && !combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && !combined) return;
     const selectedTextAddDraftId = String(selectedTextAddDraftIds?.[0] || '').trim();
+    const selectedPresetAddDraftId = String(selectedPresetAddDraftIds?.[0] || '').trim();
+    const selectedPresetAddPresetId = String(selectedPresetAddPreset?.preset_id || '').trim();
+    const presetAddRequestParams = buildPresetAddRequestParams(presetAddSettings);
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
     const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
     const videoOptionPromptSegments = buildVideoOptionPromptSegments({
@@ -4168,6 +4188,13 @@ const Composer = ({
             selectedTextAddDraftId ? `草稿ID：${selectedTextAddDraftId}` : '',
             text ? `文本内容：${text}` : '',
             buildTextAddSettingsPrompt(textAddSettings),
+          ].filter(Boolean).join('\n')
+        : activeTool === 'preset-add'
+          ? [
+            '请向当前草稿添加预设。',
+            selectedPresetAddDraftId ? `草稿ID：${selectedPresetAddDraftId}` : '',
+            selectedPresetAddPresetId ? `预设ID：${selectedPresetAddPresetId}` : '',
+            buildPresetAddSettingsPrompt(presetAddSettings),
           ].filter(Boolean).join('\n')
         : activeTool === 'draft-inspect'
           ? [
@@ -4260,6 +4287,13 @@ const Composer = ({
                     : 1,
         }
         : null,
+      presetAddRequest: activeTool === 'preset-add'
+        ? {
+          draftId: selectedPresetAddDraftId,
+          presetId: selectedPresetAddPresetId,
+          ...presetAddRequestParams,
+        }
+        : null,
       draftExportRequest: activeTool === 'draft-export'
         ? {
           drafts: selectedDraftDownloadIds.map((draftId) => ({
@@ -4279,6 +4313,9 @@ const Composer = ({
     }
     setSelectedDraftDownloadIds([]);
     setSelectedTextAddDraftIds([]);
+    setSelectedPresetAddDraftIds([]);
+    setSelectedPresetAddPreset(null);
+    setPresetAddSettings(DEFAULT_PRESET_ADD_SETTINGS);
     setSelectedDraftInspectIds([]);
     setSelectedDraftModifyIds([]);
     setUploadFileList([]);
@@ -4552,6 +4589,9 @@ const Composer = ({
     setSelectedDraftDownloadIds([]);
     setSelectedDraftInspectIds([]);
     setSelectedTextAddDraftIds([]);
+    setSelectedPresetAddDraftIds([]);
+    setSelectedPresetAddPreset(null);
+    setPresetAddSettings(DEFAULT_PRESET_ADD_SETTINGS);
   }, [activeTool, exitTextAddMode]);
 
   return (
@@ -4623,6 +4663,16 @@ const Composer = ({
                       selectedDraftIds={selectedTextAddDraftIds}
                       onSelectedDraftIdsChange={setSelectedTextAddDraftIds}
                       onSettingsChange={setTextAddSettings}
+                    />
+                  ) : activeTool === 'preset-add' ? (
+                    <PresetAddDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedPresetAddDraftIds}
+                      onSelectedDraftIdsChange={setSelectedPresetAddDraftIds}
+                      selectedPreset={selectedPresetAddPreset}
+                      onSelectedPresetChange={setSelectedPresetAddPreset}
+                      onSettingsChange={setPresetAddSettings}
                     />
                   ) : activeTool === 'reverse-prompt' ? (
                     <RevertPrompt disabled={sessionSending} onBack={handleToolDetailBack} />

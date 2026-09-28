@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  ControlOutlined,
   FileTextOutlined,
   ScissorOutlined,
   SnippetsOutlined,
@@ -17,6 +16,7 @@ import ImagePanIcon from '../../../../../public/image_pan.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
 import { trackEvent } from '../../../../shared/analytics';
 import AiWriteIcon from '../../../../../public/ai_write.svg';
+import PresetIcon from '../../../../../public/preset_icon.svg';
 import TagIcon from '../../../../../public/tag_icon.svg';
 import TitleIcon from '../../../../../public/title_icon.svg';
 
@@ -129,9 +129,23 @@ const TEXT_MENU_ITEMS = [
   // },
 ];
 
+const VIDEO_MENU_ITEMS = [
+  {
+    id: 'ai-video',
+    label: 'AI生成视频',
+    icon: <img className="chat-panel__tool-menu-icon" src={AiVideoIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'preset-add',
+    label: '添加预设',
+    icon: <img className="chat-panel__tool-menu-icon chat-panel__tool-menu-icon--preset" src={PresetIcon} alt="" aria-hidden="true" />,
+  },
+];
+
 const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
   const [draftMenuOpen, setDraftMenuOpen] = React.useState(false);
   const [textMenuOpen, setTextMenuOpen] = React.useState(false);
+  const [videoMenuOpen, setVideoMenuOpen] = React.useState(false);
 
   React.useEffect(() => {
     trackEvent('一级_新草稿_展示', { source: 'composer_tool_area' });
@@ -187,6 +201,27 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
     </div>
   );
 
+  const videoMenuContent = (
+    <div className="chat-panel__tool-menu-list chat-panel__tool-menu-list--video" role="menu" aria-label="视频工具菜单">
+      {VIDEO_MENU_ITEMS.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className="chat-panel__tool-menu-item"
+          role="menuitem"
+          disabled={disabled}
+          onClick={() => {
+            setVideoMenuOpen(false);
+            onSelect && onSelect(item.id);
+          }}
+        >
+          {item.icon}
+          <span className="chat-panel__tool-menu-text">{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div ref={toolAreaRef} className="chat-panel__tool-area" role="toolbar" aria-label="工具区">
       <Popover
@@ -195,7 +230,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
         open={draftMenuOpen}
         onOpenChange={(open) => {
           setDraftMenuOpen(open);
-          if (open) setTextMenuOpen(false);
+          if (open) {
+            setTextMenuOpen(false);
+            setVideoMenuOpen(false);
+          }
         }}
         mouseEnterDelay={0}
         mouseLeaveDelay={0}
@@ -229,7 +267,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
         open={textMenuOpen}
         onOpenChange={(open) => {
           setTextMenuOpen(open);
-          if (open) setDraftMenuOpen(false);
+          if (open) {
+            setDraftMenuOpen(false);
+            setVideoMenuOpen(false);
+          }
         }}
         mouseEnterDelay={0}
         mouseLeaveDelay={0}
@@ -254,26 +295,74 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           )}
         </button>
       </Popover>
-      {TOOL_ITEMS.map((tool) => (
-        <button
-          key={tool.id}
-          type="button"
-          className="chat-panel__tool-button"
-          aria-label={tool.label}
-          title={tool.label}
-          disabled={disabled}
-          onClick={() => {
-            trackEvent(`${tool.label}_点击`, {
-              source: 'composer_tool_area',
-              tool: tool.id,
-            });
-            onSelect && onSelect(tool.id);
-          }}
-        >
-          <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
-          <span className="chat-panel__tool-text">{tool.label}</span>
-        </button>
-      ))}
+      {TOOL_ITEMS.map((tool) => {
+        if (tool.id === 'ai-video') {
+          return (
+            <Popover
+              key={tool.id}
+              trigger="hover"
+              placement="topLeft"
+              open={videoMenuOpen}
+              onOpenChange={(open) => {
+                setVideoMenuOpen(open);
+                if (open) {
+                  setDraftMenuOpen(false);
+                  setTextMenuOpen(false);
+                }
+              }}
+              mouseEnterDelay={0}
+              mouseLeaveDelay={0}
+              align={{ offset: [0, 0] }}
+              classNames={{ root: 'chat-panel__tool-menu-popover' }}
+              content={videoMenuContent}
+            >
+              <button
+                type="button"
+                className="chat-panel__tool-button"
+                aria-label={tool.label}
+                title={tool.label}
+                disabled={disabled}
+                onClick={() => {
+                  trackEvent(`${tool.label}_点击`, {
+                    source: 'composer_tool_area',
+                    tool: tool.id,
+                  });
+                  onSelect && onSelect(tool.id);
+                }}
+              >
+                <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
+                <span className="chat-panel__tool-text">{tool.label}</span>
+                {videoMenuOpen ? (
+                  <ChevronUp size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={14} className="chat-panel__tool-menu-trigger-icon" aria-hidden="true" />
+                )}
+              </button>
+            </Popover>
+          );
+        }
+
+        return (
+          <button
+            key={tool.id}
+            type="button"
+            className="chat-panel__tool-button"
+            aria-label={tool.label}
+            title={tool.label}
+            disabled={disabled}
+            onClick={() => {
+              trackEvent(`${tool.label}_点击`, {
+                source: 'composer_tool_area',
+                tool: tool.id,
+              });
+              onSelect && onSelect(tool.id);
+            }}
+          >
+            <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
+            <span className="chat-panel__tool-text">{tool.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 };

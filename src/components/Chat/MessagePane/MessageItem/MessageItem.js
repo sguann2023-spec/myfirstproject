@@ -11,7 +11,7 @@ import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageT
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
-import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
+import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -104,6 +104,14 @@ const buildTextAddRequestSignature = (textAddRequest = null) => {
     align: Number(textAddRequest?.align ?? 0),
     trackName: String(textAddRequest?.track_name || textAddRequest?.trackName || ''),
     relativeIndex: Number(textAddRequest?.relative_index ?? textAddRequest?.relativeIndex ?? 0)
+  });
+};
+const buildPresetAddRequestSignature = (presetAddRequest = null) => {
+  if (!presetAddRequest || typeof presetAddRequest !== 'object') return '';
+  return JSON.stringify({
+    draftId: String(presetAddRequest?.draftId || presetAddRequest?.draft_id || ''),
+    presetId: String(presetAddRequest?.presetId || presetAddRequest?.preset_id || ''),
+    replacements: Array.isArray(presetAddRequest?.replacements) ? presetAddRequest.replacements : []
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -229,6 +237,64 @@ const buildTextAddRequestApiCurl = (textAddRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const normalizePresetAddReplacements = (replacements = []) => (
+  Array.isArray(replacements)
+    ? replacements
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .flatMap((item) => Object.entries(item).map(([key, value]) => {
+        const normalizedKey = String(key || '').trim();
+        const normalizedValue = String(value ?? '');
+        return normalizedKey && normalizedValue.trim() ? { [normalizedKey]: normalizedValue } : null;
+      }).filter(Boolean))
+    : []
+);
+const buildPresetAddRequestApiCurl = (presetAddRequest = null) => {
+  const numberFields = [
+    ['target_start', presetAddRequest?.target_start ?? presetAddRequest?.targetStart],
+    ['start', presetAddRequest?.start],
+    ['end', presetAddRequest?.end],
+    ['transform_x', presetAddRequest?.transform_x ?? presetAddRequest?.transformX],
+    ['transform_y', presetAddRequest?.transform_y ?? presetAddRequest?.transformY],
+    ['transform_x_px', presetAddRequest?.transform_x_px ?? presetAddRequest?.transformXPx],
+    ['transform_y_px', presetAddRequest?.transform_y_px ?? presetAddRequest?.transformYPx],
+    ['rotation', presetAddRequest?.rotation],
+    ['scale_x', presetAddRequest?.scale_x ?? presetAddRequest?.scaleX],
+    ['scale_y', presetAddRequest?.scale_y ?? presetAddRequest?.scaleY],
+    ['width', presetAddRequest?.width],
+    ['height', presetAddRequest?.height],
+    ['relative_index', presetAddRequest?.relative_index ?? presetAddRequest?.relativeIndex],
+    ['intro_animation_duration', presetAddRequest?.intro_animation_duration ?? presetAddRequest?.introAnimationDuration],
+    ['outro_animation_duration', presetAddRequest?.outro_animation_duration ?? presetAddRequest?.outroAnimationDuration],
+    ['transition_duration', presetAddRequest?.transition_duration ?? presetAddRequest?.transitionDuration]
+  ];
+  const stringFields = [
+    ['track_name', presetAddRequest?.track_name || presetAddRequest?.trackName],
+    ['intro_animation', presetAddRequest?.intro_animation || presetAddRequest?.introAnimation],
+    ['outro_animation', presetAddRequest?.outro_animation || presetAddRequest?.outroAnimation],
+    ['transition', presetAddRequest?.transition]
+  ];
+  const replacements = normalizePresetAddReplacements(presetAddRequest?.replacements);
+  const payload = {
+    preset_id: String(presetAddRequest?.preset_id || presetAddRequest?.presetId || '').trim(),
+    ...(replacements.length ? { replacements } : {})
+  };
+  numberFields.forEach(([key, value]) => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) payload[key] = normalized;
+  });
+  payload.draft_id = String(presetAddRequest?.draft_id || presetAddRequest?.draftId || '').trim();
+  stringFields.forEach(([key, value]) => {
+    const normalized = String(value || '').trim();
+    if (normalized) payload[key] = normalized;
+  });
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
 const buildDraftAgentPrompt = (content = '') => {
   const normalizedContent = String(content || '').trim();
   return normalizedContent ? `使用vectcut工具，${normalizedContent}` : '使用vectcut工具';
@@ -289,6 +355,9 @@ const MessageItem = ({
   const textAddRequest = message?.textAddRequest && typeof message.textAddRequest === 'object'
     ? message.textAddRequest
     : null;
+  const presetAddRequest = message?.presetAddRequest && typeof message.presetAddRequest === 'object'
+    ? message.presetAddRequest
+    : null;
   const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
     ? message.draftInspectRequest
     : null;
@@ -299,11 +368,11 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest));
-  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -323,20 +392,24 @@ const MessageItem = ({
     if (showDraftCozeFormat && canShowDraftCozeAction) {
       return {
         ...message,
-        content: textAddRequest
-          ? buildTextAddRequestCozeClipboardData(textAddRequest)
-          : (draftModifyRequest
-            ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
-            : buildDraftRequestCozeClipboardData(draftRequest)),
+        content: presetAddRequest
+          ? buildPresetAddRequestCozeClipboardData(presetAddRequest)
+          : (textAddRequest
+            ? buildTextAddRequestCozeClipboardData(textAddRequest)
+            : (draftModifyRequest
+              ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
+              : buildDraftRequestCozeClipboardData(draftRequest))),
         imageAttachments: []
       };
     }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
-    const apiContent = textAddRequest
-      ? buildTextAddRequestApiCurl(textAddRequest)
-      : (draftModifyRequest
-        ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-        : buildDraftRequestApiCurl(draftRequest, message));
+    const apiContent = presetAddRequest
+      ? buildPresetAddRequestApiCurl(presetAddRequest)
+      : (textAddRequest
+        ? buildTextAddRequestApiCurl(textAddRequest)
+        : (draftModifyRequest
+          ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
+          : buildDraftRequestApiCurl(draftRequest, message)));
     return {
       ...message,
       content: apiContent,
@@ -348,6 +421,7 @@ const MessageItem = ({
     canShowDraftCozeAction,
     draftModifyRequest,
     draftRequest,
+    presetAddRequest,
     textAddRequest,
     subtitleStoryboardRequest,
     message,
@@ -618,6 +692,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildDraftDownloadRequestSignature(prevMessage.draftDownloadRequest) === buildDraftDownloadRequestSignature(nextMessage.draftDownloadRequest)
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
     && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
+    && buildPresetAddRequestSignature(prevMessage.presetAddRequest) === buildPresetAddRequestSignature(nextMessage.presetAddRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)
     && JSON.stringify(prevMessage.subtitleRecognitionRequest) === JSON.stringify(nextMessage.subtitleRecognitionRequest)

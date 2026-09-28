@@ -2598,6 +2598,7 @@
           "image_understand": "图片理解",
           "koubo_template": "口播模板",
           "materials": "素材库",
+          "remove_bg": "人物抠像",
           "search": "联网搜索",
           "seed_audio": "豆包音频",
           "speech": "语音",
@@ -2742,6 +2743,11 @@
           },
           "materials": {
             "folder_links": "查看文件夹"
+          },
+          "remove_bg": {
+            "submit_remove_bg_text_behind_task": "字在人后",
+            "submit_remove_bg_pip_task": "抠像画中画",
+            "submit_remove_bg_task": "抠人像"
           },
           "search": {
             "web_search": "联网搜索"

@@ -29,6 +29,7 @@ import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
+import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
@@ -697,6 +698,40 @@ const buildTextAddRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: textAddRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildPresetAddRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  presetAddRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `preset_add_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-preset-add-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-elements__add_preset',
+    arguments: presetAddRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-elements__add_preset',
+          name: 'mcp__vectcut__draft-elements__add_preset',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: presetAddRequest,
         status: 'pending'
       }
     }
@@ -1944,6 +1979,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const textAddRequest = role === 'user' && sourceMessage?.textAddRequest && typeof sourceMessage.textAddRequest === 'object'
     ? { ...sourceMessage.textAddRequest }
     : undefined;
+  const presetAddRequest = role === 'user' && sourceMessage?.presetAddRequest && typeof sourceMessage.presetAddRequest === 'object'
+    ? { ...sourceMessage.presetAddRequest }
+    : undefined;
   const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
     ? { ...sourceMessage.draftInspectRequest }
     : undefined;
@@ -1962,6 +2000,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && draftDownloadRequest ? { draftDownloadRequest } : {}),
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
+    ...(role === 'user' && presetAddRequest ? { presetAddRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
     ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
@@ -5072,6 +5111,9 @@ const HomePage = () => {
     const textAddRequest = options?.textAddRequest && typeof options.textAddRequest === 'object'
       ? { ...options.textAddRequest }
       : null;
+    const presetAddRequest = options?.presetAddRequest && typeof options.presetAddRequest === 'object'
+      ? { ...options.presetAddRequest }
+      : null;
     const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
       ? { ...options.draftExportRequest }
       : null;
@@ -5158,6 +5200,7 @@ const HomePage = () => {
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
+        ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5214,6 +5257,7 @@ const HomePage = () => {
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
+        ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5481,6 +5525,60 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'text-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'text-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'text-add-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (presetAddRequest) {
+        const resolvedPresetAddRequest = normalizePresetAddRequestPayload(presetAddRequest);
+        if (!resolvedPresetAddRequest || !String(resolvedPresetAddRequest.draft_id || '').trim() || !String(resolvedPresetAddRequest.preset_id || '').trim()) {
+          throw new Error('preset add request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          presetAddRequest: resolvedPresetAddRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildPresetAddRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            presetAddRequest: resolvedPresetAddRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directPresetAddResult = await window.electronAPI.cherryChatStream.createPresetAddRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          presetAddRequest: resolvedPresetAddRequest,
+        });
+        if (!directPresetAddResult?.ok) {
+          throw new Error(directPresetAddResult?.error || 'preset add request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directPresetAddResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directPresetAddResult?.assistantBlocks) ? directPresetAddResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'preset-add-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'preset-add-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'preset-add-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'preset-add-request.complete');
         setChatSending(false);
         return;
       }

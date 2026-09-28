@@ -27,6 +27,9 @@ export type RuntimeCapability =
   | 'textUpdate'
   | 'subtitleRecognition'
   | 'videoUnderstand'
+  | 'textBehindPerson'
+  | 'portraitPip'
+  | 'portraitCutout'
   | 'subtitleSrt'
   | 'textIntroAnimationList'
   | 'textOutroAnimationList'
@@ -254,6 +257,15 @@ const syncSelectedCapabilitiesFromActiveDomains = (
       }
       if (activeDomain.subdomains.includes('video_understand') && !selected.has('videoUnderstand')) {
         addCapabilityReason(selected, reasons, 'videoUnderstand', 'intent:cut.video_understand')
+      }
+      if (activeDomain.subdomains.includes('text_behind_person')) {
+        addCapabilityReason(selected, reasons, 'textBehindPerson', 'intent:cut.text_behind_person')
+      }
+      if (activeDomain.subdomains.includes('portrait_pip')) {
+        addCapabilityReason(selected, reasons, 'portraitPip', 'intent:cut.portrait_pip')
+      }
+      if (activeDomain.subdomains.includes('portrait_cutout')) {
+        addCapabilityReason(selected, reasons, 'portraitCutout', 'intent:cut.portrait_cutout')
       }
       if (activeDomain.subdomains.includes('text_intro_animation_list') && !selected.has('textIntroAnimationList')) {
         addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'intent:cut.text_intro_animation_list')
@@ -483,6 +495,9 @@ const ALL_OPTIONAL_RUNTIME_CAPABILITIES: RuntimeCapability[] = [
   'textUpdate',
   'subtitleRecognition',
   'videoUnderstand',
+  'textBehindPerson',
+  'portraitPip',
+  'portraitCutout',
   'subtitleSrt',
   'textIntroAnimationList',
   'textOutroAnimationList',
@@ -572,6 +587,9 @@ const STICKY_RUNTIME_CAPABILITIES = new Set<RuntimeCapability>([
   'textUpdate',
   'subtitleRecognition',
   'videoUnderstand',
+  'textBehindPerson',
+  'portraitPip',
+  'portraitCutout',
   'subtitleSrt',
   'textIntroAnimationList',
   'textOutroAnimationList',
@@ -680,6 +698,9 @@ const CUT_COARSE_SUBDOMAIN_MAP: Record<string, string> = {
   workflow: 'workflow',
   subtitle_recognition: 'analysis',
   video_understand: 'analysis',
+  text_behind_person: 'edit',
+  portrait_pip: 'edit',
+  portrait_cutout: 'edit',
   draft_create: 'draft',
   draft_update_meta: 'draft',
   draft_inspect: 'draft',
@@ -1158,6 +1179,13 @@ const hasSubtitleRecognitionIntent = (text: string) =>
     /(字幕|文案|台词|时间轴)/.test(text)) ||
     (/(字幕|文案|台词)/.test(text) && /(识别|提取|抽取|转写)/.test(text)))
 
+const hasTextBehindPersonIntent = (text: string) =>
+  /(字在人后|文字在人后|人物背后.{0,8}(字|文字)|(?:字|文字).{0,8}人物背后|text.behind.person)/.test(text)
+const hasPortraitPipIntent = (text: string) =>
+  /(画中画|picture.in.picture|\bpip\b)/.test(text) && /(抠像|抠人|人物|人像|人|背景)/.test(text)
+const hasPortraitCutoutIntent = (text: string) =>
+  /(抠人像|人物抠像|人像抠图|人像抠像|人物抠图|抠出人物|抠出人像|remove.bg)/.test(text)
+
 const hasImageUnderstandIntent = (text: string) =>
   hasAnyKeyword(text, ['识图', '看图', '读图', '图片理解', '图像理解', '帮我看一下这张图', '分析这张图']) ||
   (((/(理解|分析|总结|概括|描述|识别|识别下|看懂|看下|看一下|看看|读出|提取)/.test(text) ||
@@ -1481,6 +1509,9 @@ export class CapabilityRouter {
       const hasTextDelete = !hasCutWorkflow && hasTextDeleteIntent(text)
       const hasTextUpdate = !hasCutWorkflow && hasTextUpdateIntent(text)
       const hasSubtitleRecognition = hasSubtitleRecognitionIntent(text)
+      const hasTextBehindPerson = !hasCutWorkflow && hasTextBehindPersonIntent(text)
+      const hasPortraitPip = !hasCutWorkflow && !hasTextBehindPerson && hasPortraitPipIntent(text)
+      const hasPortraitCutout = !hasCutWorkflow && !hasTextBehindPerson && !hasPortraitPip && hasPortraitCutoutIntent(text)
       const hasImageUnderstand = !hasCutWorkflow && !hasVideoUnderstandIntent(text) && hasImageUnderstandIntent(text)
       const hasVideoUnderstand = hasVideoUnderstandIntent(text)
       const hasSubtitleSrt = !hasCutWorkflow && hasSubtitleSrtIntent(text)
@@ -1536,6 +1567,9 @@ export class CapabilityRouter {
         hasTextUpdate ||
         hasSubtitleRecognition ||
         hasVideoUnderstand ||
+        hasTextBehindPerson ||
+        hasPortraitPip ||
+        hasPortraitCutout ||
         hasSubtitleSrt ||
         hasTextIntroAnimationList ||
         hasTextOutroAnimationList ||
@@ -1777,6 +1811,9 @@ export class CapabilityRouter {
       if (hasVideoUnderstand) {
         addCapabilityReason(selected, reasons, 'videoUnderstand', 'prompt:video-understand')
       }
+      if (hasTextBehindPerson) addCapabilityReason(selected, reasons, 'textBehindPerson', 'prompt:text-behind-person')
+      if (hasPortraitPip) addCapabilityReason(selected, reasons, 'portraitPip', 'prompt:portrait-pip')
+      if (hasPortraitCutout) addCapabilityReason(selected, reasons, 'portraitCutout', 'prompt:portrait-cutout')
 
       if (hasTextIntroAnimationList) {
         addCapabilityReason(selected, reasons, 'textIntroAnimationList', 'prompt:text-intro-animation-list')
@@ -2184,6 +2221,9 @@ function classifyIntent(args: {
     args.selected.has('textUpdate') ||
     args.selected.has('subtitleRecognition') ||
     args.selected.has('videoUnderstand') ||
+    args.selected.has('textBehindPerson') ||
+    args.selected.has('portraitPip') ||
+    args.selected.has('portraitCutout') ||
     args.selected.has('subtitleSrt') ||
     args.selected.has('textIntroAnimationList') ||
     args.selected.has('textOutroAnimationList') ||
@@ -2351,6 +2391,9 @@ function classifyIntent(args: {
   if (args.selected.has('videoUnderstand')) {
     addDomainSubdomain('cut', 'video_understand', 'capability:video-understand')
   }
+  if (args.selected.has('textBehindPerson')) addDomainSubdomain('cut', 'text_behind_person', 'capability:text-behind-person')
+  if (args.selected.has('portraitPip')) addDomainSubdomain('cut', 'portrait_pip', 'capability:portrait-pip')
+  if (args.selected.has('portraitCutout')) addDomainSubdomain('cut', 'portrait_cutout', 'capability:portrait-cutout')
   if (args.selected.has('subtitleSrt')) addDomainSubdomain('cut', 'subtitle_srt', 'capability:subtitle-srt')
   if (args.selected.has('textIntroAnimationList')) {
     addDomainSubdomain('cut', 'text_intro_animation_list', 'capability:text-intro-animation-list')

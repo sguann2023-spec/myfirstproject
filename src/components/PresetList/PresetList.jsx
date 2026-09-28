@@ -8,7 +8,7 @@ import AddGroupIcon from '../../../public/add_group.svg';
 import RenameGroupIcon from '../../../public/rename_group.svg';
 import DeleteGroupIcon from '../../../public/delete_group.svg';
 
-const PresetList = ({ onSelect }) => {
+const PresetList = ({ onSelect, readOnly = false, showLocal = true }) => {
   const containerRef = useRef(null);
   const [cloudGroups, setCloudGroups] = useState([]);
   const [groupPresets, setGroupPresets] = useState({});
@@ -85,6 +85,7 @@ const PresetList = ({ onSelect }) => {
   };
 
   const mapPresets = (arr) => arr.map((d) => ({
+    ...d,
     id: d?.preset_id || d?.id || '',
     preset_id: d?.preset_id,
     user_id: d?.user_id,
@@ -140,6 +141,7 @@ const PresetList = ({ onSelect }) => {
   const openContextMenu = (e, payload) => {
     e.preventDefault();
     e.stopPropagation();
+    if (readOnly) return;
     const menuWidth = 220;
     const menuHeight = payload?.scope === 'cloud' ? 112 : 64;
     const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
@@ -294,6 +296,11 @@ const PresetList = ({ onSelect }) => {
 
   useEffect(() => {
     let cancelled = false;
+    if (!showLocal) {
+      setLocalPresets([]);
+      setLocalError('');
+      return () => { cancelled = true; };
+    }
     try {
       const path = window.require ? window.require('path') : null;
       const fs = window.require ? window.require('fs') : null;
@@ -323,13 +330,13 @@ const PresetList = ({ onSelect }) => {
       }
     }
     return () => { cancelled = true; };
-  }, []);
+  }, [showLocal]);
 
 
   return (
     <div ref={containerRef} className="presetlist-root" onContextMenu={(e) => openContextMenu(e, { scope: 'root' })}>
 
-      <div className="presetlist-section presetlist-section-local">
+      {showLocal && <div className="presetlist-section presetlist-section-local">
         <div className="presetlist-section-header" onClick={() => setIsLocalOpen(v => !v)} onContextMenu={(e) => openContextMenu(e, { scope: 'local' })}>
           <img src={ExpandIcon} alt="expand" className="presetlist-section-arrow-img" style={{ transform: `rotate(${isLocalOpen ? 0 : -90}deg)` }} />
           <span className="presetlist-section-title">本地预设 ({localPresets.length})</span>
@@ -365,7 +372,7 @@ const PresetList = ({ onSelect }) => {
             })}
           </div>
         )}
-      </div>
+      </div>}
       <div className="presetlist-section presetlist-section-cloud">
         <div className="presetlist-container">
           {cloudError && <div className="presetlist-error">{cloudError}</div>}
@@ -420,7 +427,7 @@ const PresetList = ({ onSelect }) => {
           })}
         </div>
       </div>
-      {contextMenu.visible && (
+      {!readOnly && contextMenu.visible && (
         <div className="presetlist-context-menu" style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }} onClick={(e) => e.stopPropagation()}>
           <div className="presetlist-context-menu-item" onClick={openAddGroupDialog}>
             <img src={AddGroupIcon} alt="add-group" className="presetlist-context-menu-icon" />
@@ -440,7 +447,7 @@ const PresetList = ({ onSelect }) => {
           )}
         </div>
       )}
-      {addGroupDialog.visible && (
+      {!readOnly && addGroupDialog.visible && (
         <div className="presetlist-dialog-mask" onClick={closeAddGroupDialog}>
           <div className="presetlist-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="presetlist-dialog-title">{addGroupDialog.mode === 'rename' ? '重命名分组' : addGroupDialog.mode === 'delete' ? '删除分组' : '添加分组'}</div>

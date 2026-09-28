@@ -36,6 +36,7 @@ declare global {
         createDraftRequest: (payload: any) => Promise<any>
         createDraftModifyRequest: (payload: any) => Promise<any>
         createTextAddRequest: (payload: any) => Promise<any>
+        createPresetAddRequest: (payload: any) => Promise<any>
         createReversePromptRequest: (payload: any) => Promise<any>
         createSubtitleRecognitionRequest: (payload: any) => Promise<any>
         createDraftExportRequest: (payload: any) => Promise<any>
