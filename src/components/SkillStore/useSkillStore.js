@@ -7,33 +7,6 @@ import {
 const AGENT_ID = 'vectcut_claw_default';
 const FEATURED_PAGE_SIZE = 20;
 const TOGGLE_STATE_KEY = 'skill-store:toggle-state:v1';
-const QUICK_SKILLS_MANIFEST_RELATIVE_PATH = 'quick/skills/manifest.json';
-let quickSkillFolderMapPromise = null;
-
-const loadQuickSkillFolderMap = async () => {
-  if (!quickSkillFolderMapPromise) {
-    quickSkillFolderMapPromise = (async () => {
-      const folderMap = new Map();
-      try {
-        const appInfo = await window.api?.getAppInfo?.();
-        const resourcesPath = String(appInfo?.resourcesPath || '').replace(/[\\/]+$/, '');
-        if (!resourcesPath || typeof window.api?.fs?.readText !== 'function') return folderMap;
-        const manifestPath = `${resourcesPath}/${QUICK_SKILLS_MANIFEST_RELATIVE_PATH}`;
-        const manifest = JSON.parse(await window.api.fs.readText(manifestPath));
-        Object.values(manifest?.skills || {}).forEach((item) => {
-          const name = String(item?.name || '').trim().toLowerCase();
-          const folderName = String(item?.folderName || '').trim();
-          if (name && folderName) folderMap.set(name, folderName);
-        });
-      } catch {
-        // Remote marketplace skills can still be installed from their package.
-      }
-      return folderMap;
-    })();
-  }
-  return quickSkillFolderMapPromise;
-};
-
 const getRemoteFolderName = (skill) => String(skill?.folder_name || skill?.folderName || '').trim();
 
 const readJson = (key, fallback) => {
@@ -228,49 +201,15 @@ export const useSkillStore = () => {
         return next;
       });
     };
-    const quickSkillFolderMap = await loadQuickSkillFolderMap();
-    const skillNameKey = String(skill?.name || '').trim().toLowerCase();
-    const bundledFolderName = quickSkillFolderMap.get(skillNameKey) || '';
-    let folderName = getRemoteFolderName(skill) || bundledFolderName;
-    const isBundledQuickSkill = Boolean(
-      bundledFolderName && (!getRemoteFolderName(skill) || getRemoteFolderName(skill) === bundledFolderName)
-    );
+    let folderName = getRemoteFolderName(skill);
     let detail = null;
-    if (skill?.id && (!skill?.previewVideoUrl || !folderName)) {
-      try {
-        detail = await skillCatalogService.getSkillDetail(skill.id);
-        folderName = getRemoteFolderName(detail) || folderName;
-      } catch (error) {
-        // A bundled quick skill can still install from local resources when
-        // its marketplace detail is temporarily unavailable.
-        if (!isBundledQuickSkill) throw error;
-      }
+    if (skill?.id) {
+      detail = await skillCatalogService.getSkillDetail(skill.id);
+      folderName = getRemoteFolderName(detail) || folderName;
     }
     const previewVideoUrl = skill?.previewVideoUrl || detail?.media?.[0]?.url || null;
-    if (isBundledQuickSkill && bundledFolderName && window.api?.getAppInfo && window.api?.skill?.installFromDirectory) {
-      const appInfo = await window.api.getAppInfo();
-      const separator = String(appInfo?.resourcesPath || '').includes('\\') ? '\\' : '/';
-      const directoryPath = [appInfo?.resourcesPath, 'quick', 'skills', bundledFolderName].filter(Boolean).join(separator);
-      const result = await window.api.skill.installFromDirectory({
-        directoryPath,
-        remoteId: skill?.id || null,
-        remoteName: skill?.name || null,
-        folderName: bundledFolderName,
-        source: 'marketplace',
-        sourceUrl: skill?.source_url || skill?.sourceUrl || null,
-        iconUrl: skill?.icon_url || skill?.iconUrl || null,
-        previewVideoUrl
-      });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || '安装技能失败');
-      clearToggleStates(skill, detail, result.data);
-      await refreshInstalled();
-      notifySkillStoreUpdated();
-      return result.data;
-    }
 
     if (skill?.id && window.api?.skill?.installFromRemotePackage) {
-      detail = detail || await skillCatalogService.getSkillDetail(skill.id);
-      folderName = getRemoteFolderName(detail) || folderName;
       if (!folderName) throw new Error('该技能缺少安装文件夹名称');
       const packageUrl = detail?.package?.download_url;
       if (!packageUrl) throw new Error('该技能暂未提供安装包');
@@ -295,8 +234,9 @@ export const useSkillStore = () => {
 
   const uninstall = useCallback(async (skill) => {
     const installed = getInstalledSkill(skill);
-    if (installed?.id && window.api?.skill?.uninstall) {
-      const result = await window.api.skill.uninstall(installed.id);
+    const uninstallId = installed?.folderName || installed?.id || skill?.folderName || skill?.id;
+    if (uninstallId && window.api?.skill?.uninstall) {
+      const result = await window.api.skill.uninstall(uninstallId);
       if (!result?.success) throw new Error(result?.error?.message || result?.error || '卸载技能失败');
       await refreshInstalled();
       notifySkillStoreUpdated();

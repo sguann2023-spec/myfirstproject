@@ -35,3 +35,5 @@ dist-main/
 resources/ffmpeg
 resources/python/*/python/
 log.txt
+.env.local
+.env.*.local

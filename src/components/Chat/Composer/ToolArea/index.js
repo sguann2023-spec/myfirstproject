@@ -14,6 +14,7 @@ import DigitalHumanIcon from '../../../../../public/digital_human.svg';
 import AiVideoIcon from '../../../../../public/ai_video.svg';
 import ImagePanIcon from '../../../../../public/image_pan.svg';
 import VoiceSquareIcon from '../../../../../public/voice.svg';
+import { trackEvent } from '../../../../shared/analytics';
 import AiWriteIcon from '../../../../../public/ai_write.svg';
 import PresetIcon from '../../../../../public/preset_icon.svg';
 import TagIcon from '../../../../../public/tag_icon.svg';
@@ -146,6 +147,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
   const [textMenuOpen, setTextMenuOpen] = React.useState(false);
   const [videoMenuOpen, setVideoMenuOpen] = React.useState(false);
 
+  React.useEffect(() => {
+    trackEvent('一级_新草稿_展示', { source: 'composer_tool_area' });
+  }, []);
+
   const draftMenuContent = (
     <div className="chat-panel__tool-menu-list" role="menu" aria-label="草稿工具菜单">
       {DRAFT_MENU_ITEMS.map((item) => (
@@ -157,6 +162,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           disabled={disabled}
           onClick={() => {
             setDraftMenuOpen(false);
+            trackEvent(`二级_${item.label}_点击`, {
+              source: 'composer_draft_menu',
+              menu_item: item.id,
+            });
             onSelect && onSelect(item.id);
           }}
         >
@@ -178,6 +187,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           disabled={disabled}
           onClick={() => {
             setTextMenuOpen(false);
+            trackEvent(`二级_${item.label}_点击`, {
+              source: 'composer_text_menu',
+              menu_item: item.id,
+            });
             onSelect && onSelect(item.id);
           }}
         >
@@ -234,7 +247,10 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
           aria-label="新草稿"
           title="新草稿"
           disabled={disabled}
-          onClick={() => onSelect && onSelect('draft')}
+          onClick={() => {
+            trackEvent('一级_新草稿_点击', { source: 'composer_tool_area' });
+            onSelect && onSelect('draft');
+          }}
         >
           <img className="chat-panel__tool-icon" src={DraftIcon} alt="" aria-hidden="true" />
           <span className="chat-panel__tool-text">新草稿</span>
@@ -306,7 +322,13 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
                 aria-label={tool.label}
                 title={tool.label}
                 disabled={disabled}
-                onClick={() => onSelect && onSelect(tool.id)}
+                onClick={() => {
+                  trackEvent(`${tool.label}_点击`, {
+                    source: 'composer_tool_area',
+                    tool: tool.id,
+                  });
+                  onSelect && onSelect(tool.id);
+                }}
               >
                 <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
                 <span className="chat-panel__tool-text">{tool.label}</span>
@@ -328,7 +350,13 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
             aria-label={tool.label}
             title={tool.label}
             disabled={disabled}
-            onClick={() => onSelect && onSelect(tool.id)}
+            onClick={() => {
+              trackEvent(`${tool.label}_点击`, {
+                source: 'composer_tool_area',
+                tool: tool.id,
+              });
+              onSelect && onSelect(tool.id);
+            }}
           >
             <img className="chat-panel__tool-icon" src={tool.icon} alt="" aria-hidden="true" />
             <span className="chat-panel__tool-text">{tool.label}</span>
