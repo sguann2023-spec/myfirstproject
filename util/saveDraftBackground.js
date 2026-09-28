@@ -1,10 +1,179 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
+const axios = require('axios');
 const downloader = require('./downloader');
 const i18next = require('i18next');
 const logger = require('./loggerBridge').withContext('SaveDraftBackground');
 const { parentPort } = require('worker_threads'); // 新增
+
+const JY_MGET_ITEM_URL = [
+  'https://lv-api-sinfonlinea.ulikecam.com/artist/v1/effect/mget_item',
+  '?effect_sdk_version=16.4.0',
+  '&channel=jianyingpro_0',
+  '&aid=3704',
+  '&opengl_version=3.3',
+  '&device_id=1053764930506284',
+  '&cpu=12th%20Gen%20Intel(R)%20Core(TM)%20i5-12400F',
+  '&version_name=5.9.0',
+  '&language=zh-Hans',
+  '&region=CN',
+  '&version_code=5.9.0',
+  '&device_platform=windows',
+  '&biz_id=2',
+  '&subdivision_id=',
+  '&gpu=NVIDIA%20GeForce%20RTX%203060',
+  '&version_code_num=329984',
+  '&device_type=x86_64'
+].join('');
+
+const JY_API_HEADERS = {
+  'User-Agent': 'JianyingPro/5.9.0.11632 (Windows 10.0.19045; app_id:3704)',
+  'Accept': 'application/json, text/plain, */*',
+  'Content-Type': 'application/json'
+};
+
+function getCloudAudioId(material) {
+  if (!material || typeof material !== 'object') return '';
+  const candidates = [material.music_id, material.material_id, material.local_material_id];
+  const id = candidates.find((value) => /^\d{10,}$/.test(String(value || '').trim()));
+  return id ? String(id).trim() : '';
+}
+
+function extractCloudAssetUrls(data) {
+  const urls = [];
+  const walk = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'item_urls' && Array.isArray(child)) {
+        urls.push(...child.filter((url) => typeof url === 'string'));
+      } else if (['url', 'video_url', 'download_url'].includes(key) && typeof child === 'string') {
+        urls.push(child);
+      } else {
+        walk(child);
+      }
+    }
+  };
+
+  walk(data);
+  return urls
+    .map((url) => url.replace(/\\u0026/g, '&').replace(/\\\//g, '/'))
+    .filter((url) => /^https?:\/\//i.test(url));
+}
+
+function extractCloudAssetTitle(data) {
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const title = extractCloudAssetTitle(item);
+      if (title) return title;
+    }
+    return '';
+  }
+  if (!data || typeof data !== 'object') return '';
+  if (typeof data.title === 'string' && data.title.trim()) return data.title.trim();
+  if (typeof data.name === 'string' && data.name.trim()) return data.name.trim();
+
+  for (const value of Object.values(data)) {
+    const title = extractCloudAssetTitle(value);
+    if (title) return title;
+  }
+  return '';
+}
+
+function inferCloudAudioExtension(url) {
+  let mimeType = '';
+  try {
+    mimeType = (new URL(url).searchParams.get('mime_type') || '').toLowerCase();
+  } catch {}
+
+  if (mimeType.includes('mpeg')) return '.mp3';
+  if (mimeType.includes('wav')) return '.wav';
+  if (mimeType.includes('ogg')) return '.ogg';
+  if (mimeType.includes('video')) return '.mp4';
+  return '.m4a';
+}
+
+function buildCloudAudioFilename(musicId, title, url) {
+  const safeName = Array.from(title || '')
+    .filter((char) => /[\p{L}\p{N} _]/u.test(char))
+    .join('')
+    .trim();
+  return `${musicId}_${safeName}${inferCloudAudioExtension(url)}`;
+}
+
+function isSafeCloudAssetUrl(value) {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    if (!host || ['localhost', '127.0.0.1', '::1'].includes(host)) return false;
+    if (/^(10\.|192\.168\.|169\.254\.)/.test(host)) return false;
+    const private172 = host.match(/^172\.(\d+)\./);
+    return !private172 || Number(private172[1]) < 16 || Number(private172[1]) > 31;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveUrlById(musicId) {
+  const bodies = [
+    { items: [{ id: musicId, effect_type: 4, source: 3 }] },
+    { items: [{ id: musicId, effect_type: 4 }] },
+    { items: [{ effect_id: musicId, effect_type: 4, source: 3 }] },
+    { items: [{ effect_id: musicId, effect_type: 4 }] }
+  ];
+
+  for (const body of bodies) {
+    try {
+      const response = await axios.post(JY_MGET_ITEM_URL, body, {
+        headers: JY_API_HEADERS,
+        timeout: 20000,
+        // 剪映素材接口应直连，避免继承客户端进程中已失效的 HTTP_PROXY。
+        proxy: false
+      });
+      const url = extractCloudAssetUrls(response.data).find(isSafeCloudAssetUrl);
+      if (url) {
+        return {
+          url,
+          title: extractCloudAssetTitle(response.data)
+        };
+      }
+    } catch (error) {
+      logger.debug(`[CloudAudio] URL resolve failed for ${musicId}: ${error.message}`);
+    }
+  }
+  return null;
+}
+
+async function resolveCloudAudioUrl(material, cache) {
+  const cachedUrl = material?.remote_url || '';
+  const musicId = getCloudAudioId(material);
+  if (!musicId) return cachedUrl;
+
+  if (!cache.has(musicId)) {
+    cache.set(musicId, resolveUrlById(musicId));
+  }
+  const resolvedAsset = await cache.get(musicId);
+  const freshUrl = resolvedAsset?.url || '';
+  const resolvedUrl = freshUrl || cachedUrl;
+  if (freshUrl) {
+    material.remote_url = freshUrl;
+    if (resolvedAsset.title) {
+      const filename = buildCloudAudioFilename(musicId, resolvedAsset.title, freshUrl);
+      material.name = filename;
+      material.material_name = filename;
+    }
+    logger.info(`[CloudAudio] Refreshed download URL for music_id=${musicId}`);
+  } else {
+    logger.warn(`[CloudAudio] Could not refresh URL for music_id=${musicId}, using cached URL`);
+  }
+  return resolvedUrl;
+}
 
 function shouldUseElectronSessionDownload(source) {
   return typeof source === 'string' && /^https?:\/\//i.test(source);
@@ -436,6 +605,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     // 3. 收集下载任务 (30%)
     let fileIdCounter = 1;
     const taskIndexByKey = new Map();
+    const cloudAudioUrlCache = new Map();
     const isLocalLikePath = (value) => typeof value === 'string'
       && (value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('file://'));
     const isHttpLikeUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
@@ -566,7 +736,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     const audios = script.materials.audios;
     if (audios && audios.length > 0) {
       for (const audio of audios) {
-        const remoteUrl = audio.remote_url;
+        const remoteUrl = await resolveCloudAudioUrl(audio, cloudAudioUrlCache);
         const materialName = audio.name;
         const localPath = buildAssetPath(draftFolder, draftName, "audio", materialName);
         // 使用辅助函数构建路径
@@ -678,7 +848,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         const nestedAudios = materials.audios;
         if (nestedAudios && nestedAudios.length > 0) {
           for (const audio of nestedAudios) {
-            const remoteUrl = audio.remote_url;
+            const remoteUrl = await resolveCloudAudioUrl(audio, cloudAudioUrlCache);
             // material_name 在 Python 中兼容了 name，这里也兼容
             const materialName = audio.material_name || audio.name; 
             const localPath = buildAssetPath(draftFolder, draftName, "audio", materialName);
