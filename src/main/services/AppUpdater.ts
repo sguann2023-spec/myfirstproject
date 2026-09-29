@@ -605,7 +605,10 @@ export default class AppUpdater {
 
     this.isInstallingUpdate = true
     app.isQuitting = true
-    const isSilent = process.platform !== 'win32'
+    // Keep Windows updates silent too. NSIS briefly replaces the executable and
+    // desktop shortcut during install; a visible installer leaves a window where
+    // users can click the temporarily invalid shortcut and get a Windows error.
+    const isSilent = true
     logger.info('Triggering quitAndInstall', { isSilent, isForceRunAfter: true, platform: process.platform })
     crashReportService.record('quit-and-install-requested', { isSilent })
     setImmediate(() => {

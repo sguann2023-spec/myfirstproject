@@ -11,7 +11,7 @@ import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageT
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
-import { buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
+import { buildAudioAddRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -112,6 +112,38 @@ const buildPresetAddRequestSignature = (presetAddRequest = null) => {
     draftId: String(presetAddRequest?.draftId || presetAddRequest?.draft_id || ''),
     presetId: String(presetAddRequest?.presetId || presetAddRequest?.preset_id || ''),
     replacements: Array.isArray(presetAddRequest?.replacements) ? presetAddRequest.replacements : []
+  });
+};
+const buildSpeechRequestSignature = (speechRequest = null) => {
+  if (!speechRequest || typeof speechRequest !== 'object') return '';
+  return JSON.stringify({
+    text: String(speechRequest?.text || ''),
+    provider: String(speechRequest?.provider || ''),
+    model: String(speechRequest?.model || ''),
+    voiceId: String(speechRequest?.voice_id || speechRequest?.voiceId || ''),
+    onlyTts: Boolean(speechRequest?.only_tts ?? speechRequest?.onlyTts),
+    draftId: String(speechRequest?.draft_id || speechRequest?.draftId || ''),
+    targetStart: Number(speechRequest?.target_start ?? speechRequest?.targetStart ?? 0),
+    trackName: String(speechRequest?.track_name || speechRequest?.trackName || '')
+  });
+};
+const buildAudioAddRequestSignature = (audioAddRequest = null) => {
+  if (!audioAddRequest || typeof audioAddRequest !== 'object') return '';
+  return JSON.stringify({
+    draftId: String(audioAddRequest?.draft_id || audioAddRequest?.draftId || ''),
+    audioUrl: String(audioAddRequest?.audio_url || audioAddRequest?.audioUrl || ''),
+    musicId: String(audioAddRequest?.music_id || audioAddRequest?.musicId || ''),
+    targetStart: Number(audioAddRequest?.target_start ?? audioAddRequest?.targetStart ?? 0),
+    start: Number(audioAddRequest?.start ?? 0),
+    end: Number(audioAddRequest?.end ?? 0),
+    duration: Number(audioAddRequest?.duration ?? 0),
+    volume: Number(audioAddRequest?.volume ?? 0),
+    speed: Number(audioAddRequest?.speed ?? 0),
+    fadeInDuration: Number(audioAddRequest?.fade_in_duration ?? audioAddRequest?.fadeInDuration ?? 0),
+    fadeOutDuration: Number(audioAddRequest?.fade_out_duration ?? audioAddRequest?.fade_out_duratioin ?? audioAddRequest?.fadeOutDuration ?? 0),
+    trackName: String(audioAddRequest?.track_name || audioAddRequest?.trackName || ''),
+    effectType: String(audioAddRequest?.effect_type || audioAddRequest?.effectType || ''),
+    effectParams: audioAddRequest?.effect_params || audioAddRequest?.effectParams || []
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -295,6 +327,97 @@ const buildPresetAddRequestApiCurl = (presetAddRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildSpeechRequestApiCurl = (speechRequest = null) => {
+  const payload = {
+    ...(String(speechRequest?.provider || '').trim() ? { provider: String(speechRequest.provider).trim() } : {}),
+    text: String(speechRequest?.text || ''),
+    ...(String(speechRequest?.voice_id || speechRequest?.voiceId || '').trim()
+      ? { voice_id: String(speechRequest?.voice_id || speechRequest?.voiceId || '').trim() }
+      : {}),
+    ...(String(speechRequest?.model || '').trim() ? { model: String(speechRequest.model).trim() } : {}),
+    ...(String(speechRequest?.draft_id || speechRequest?.draftId || '').trim()
+      ? { draft_id: String(speechRequest?.draft_id || speechRequest?.draftId || '').trim() }
+      : {}),
+    ...(typeof speechRequest?.only_tts === 'boolean'
+      ? { only_tts: speechRequest.only_tts }
+      : (typeof speechRequest?.onlyTts === 'boolean' ? { only_tts: speechRequest.onlyTts } : {})),
+  };
+  const numberFields = [
+    ['speech_speed', speechRequest?.speech_speed ?? speechRequest?.speechSpeed],
+    ['start', speechRequest?.start],
+    ['end', speechRequest?.end],
+    ['volume', speechRequest?.volume],
+    ['target_start', speechRequest?.target_start ?? speechRequest?.targetStart],
+    ['speed', speechRequest?.speed],
+    ['width', speechRequest?.width],
+    ['height', speechRequest?.height],
+    ['fade_in_duration', speechRequest?.fade_in_duration ?? speechRequest?.fadeInDuration],
+    ['fade_out_duration', speechRequest?.fade_out_duration ?? speechRequest?.fadeOutDuration]
+  ];
+  numberFields.forEach(([key, value]) => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) payload[key] = normalized;
+  });
+  const trackName = String(speechRequest?.track_name || speechRequest?.trackName || '').trim();
+  const effectType = String(speechRequest?.effect_type || speechRequest?.effectType || '').trim();
+  const effectParams = Array.isArray(speechRequest?.effect_params)
+    ? speechRequest.effect_params
+    : (Array.isArray(speechRequest?.effectParams) ? speechRequest.effectParams : null);
+  if (trackName) payload.track_name = trackName;
+  if (effectType) payload.effect_type = effectType;
+  if (effectParams?.length) payload.effect_params = effectParams;
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
+const buildAudioAddRequestApiCurl = (audioAddRequest = null) => {
+  const payload = {
+    ...(String(audioAddRequest?.audio_url || audioAddRequest?.audioUrl || '').trim()
+      ? { audio_url: String(audioAddRequest?.audio_url || audioAddRequest?.audioUrl || '').trim() }
+      : {}),
+    ...(String(audioAddRequest?.music_id || audioAddRequest?.musicId || '').trim()
+      ? { music_id: String(audioAddRequest?.music_id || audioAddRequest?.musicId || '').trim() }
+      : {}),
+    ...(String(audioAddRequest?.draft_id || audioAddRequest?.draftId || '').trim()
+      ? { draft_id: String(audioAddRequest?.draft_id || audioAddRequest?.draftId || '').trim() }
+      : {})
+  };
+  const numberFields = [
+    ['target_start', audioAddRequest?.target_start ?? audioAddRequest?.targetStart],
+    ['start', audioAddRequest?.start],
+    ['end', audioAddRequest?.end],
+    ['duration', audioAddRequest?.duration],
+    ['volume', audioAddRequest?.volume],
+    ['speed', audioAddRequest?.speed],
+    ['fade_in_duration', audioAddRequest?.fade_in_duration ?? audioAddRequest?.fadeInDuration],
+    ['fade_out_duration', audioAddRequest?.fade_out_duration ?? audioAddRequest?.fade_out_duratioin ?? audioAddRequest?.fadeOutDuration],
+    ['width', audioAddRequest?.width],
+    ['height', audioAddRequest?.height]
+  ];
+  numberFields.forEach(([key, value]) => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) payload[key] = normalized;
+  });
+  const trackName = String(audioAddRequest?.track_name || audioAddRequest?.trackName || '').trim();
+  const effectType = String(audioAddRequest?.effect_type || audioAddRequest?.effectType || '').trim();
+  const effectParams = Array.isArray(audioAddRequest?.effect_params)
+    ? audioAddRequest.effect_params
+    : (Array.isArray(audioAddRequest?.effectParams) ? audioAddRequest.effectParams : null);
+  if (trackName) payload.track_name = trackName;
+  if (effectType) payload.effect_type = effectType;
+  if (effectParams?.length) payload.effect_params = effectParams;
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/add_audio' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
 const buildDraftAgentPrompt = (content = '') => {
   const normalizedContent = String(content || '').trim();
   return normalizedContent ? `使用vectcut工具，${normalizedContent}` : '使用vectcut工具';
@@ -358,6 +481,12 @@ const MessageItem = ({
   const presetAddRequest = message?.presetAddRequest && typeof message.presetAddRequest === 'object'
     ? message.presetAddRequest
     : null;
+  const speechRequest = message?.speechRequest && typeof message.speechRequest === 'object'
+    ? message.speechRequest
+    : null;
+  const audioAddRequest = message?.audioAddRequest && typeof message.audioAddRequest === 'object'
+    ? message.audioAddRequest
+    : null;
   const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
     ? message.draftInspectRequest
     : null;
@@ -368,11 +497,11 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || audioAddRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest));
-  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -392,24 +521,32 @@ const MessageItem = ({
     if (showDraftCozeFormat && canShowDraftCozeAction) {
       return {
         ...message,
-        content: presetAddRequest
+        content: audioAddRequest
+          ? buildAudioAddRequestCozeClipboardData(audioAddRequest)
+          : (presetAddRequest
           ? buildPresetAddRequestCozeClipboardData(presetAddRequest)
-          : (textAddRequest
-            ? buildTextAddRequestCozeClipboardData(textAddRequest)
-            : (draftModifyRequest
-              ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
-              : buildDraftRequestCozeClipboardData(draftRequest))),
+          : (speechRequest
+            ? buildSpeechRequestCozeClipboardData(speechRequest)
+            : (textAddRequest
+              ? buildTextAddRequestCozeClipboardData(textAddRequest)
+              : (draftModifyRequest
+                ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
+                : buildDraftRequestCozeClipboardData(draftRequest))))),
         imageAttachments: []
       };
     }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
-    const apiContent = presetAddRequest
+    const apiContent = audioAddRequest
+      ? buildAudioAddRequestApiCurl(audioAddRequest)
+      : (presetAddRequest
       ? buildPresetAddRequestApiCurl(presetAddRequest)
-      : (textAddRequest
-        ? buildTextAddRequestApiCurl(textAddRequest)
-        : (draftModifyRequest
-          ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-          : buildDraftRequestApiCurl(draftRequest, message)));
+      : (speechRequest
+        ? buildSpeechRequestApiCurl(speechRequest)
+        : (textAddRequest
+          ? buildTextAddRequestApiCurl(textAddRequest)
+          : (draftModifyRequest
+            ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
+            : buildDraftRequestApiCurl(draftRequest, message)))));
     return {
       ...message,
       content: apiContent,
@@ -421,7 +558,9 @@ const MessageItem = ({
     canShowDraftCozeAction,
     draftModifyRequest,
     draftRequest,
+    audioAddRequest,
     presetAddRequest,
+    speechRequest,
     textAddRequest,
     subtitleStoryboardRequest,
     message,
@@ -693,6 +832,8 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
     && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
     && buildPresetAddRequestSignature(prevMessage.presetAddRequest) === buildPresetAddRequestSignature(nextMessage.presetAddRequest)
+    && buildSpeechRequestSignature(prevMessage.speechRequest) === buildSpeechRequestSignature(nextMessage.speechRequest)
+    && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)
     && JSON.stringify(prevMessage.subtitleRecognitionRequest) === JSON.stringify(nextMessage.subtitleRecognitionRequest)

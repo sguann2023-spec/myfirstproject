@@ -23,7 +23,26 @@ export const formatAudioClock = (seconds) => {
     .map((value) => String(value).padStart(2, '0'));
 };
 
-const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurationChange }) => {
+const toArrayBuffer = (value) => {
+  if (!value) return null;
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (ArrayBuffer.isView(value)) return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  if (Array.isArray(value?.data)) return Uint8Array.from(value.data).buffer;
+  return null;
+};
+
+const AudioPreview = ({
+  source,
+  file = null,
+  audioData = null,
+  name,
+  onRemove,
+  removeDisabled = false,
+  onDurationChange,
+  showWaveStatus = true,
+  trimStart = null,
+  trimEnd = null,
+}) => {
   const mediaRef = React.useRef(null);
   const playIntent = React.useRef(false);
   const scrubbingRef = React.useRef(false);
@@ -33,7 +52,16 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
   const [peaks, setPeaks] = React.useState([]);
   const [waveStatus, setWaveStatus] = React.useState('正在生成波形');
   const [error, setError] = React.useState('');
+  const normalizedTrimStart = Number.isFinite(Number(trimStart)) ? Math.max(0, Number(trimStart)) : 0;
+  const normalizedTrimEnd = Number.isFinite(Number(trimEnd)) && Number(trimEnd) > normalizedTrimStart
+    ? Number(trimEnd)
+    : duration;
+  const trimActive = duration > 0 && (normalizedTrimStart > 0 || normalizedTrimEnd < duration);
+  const playbackStart = trimActive ? normalizedTrimStart : 0;
+  const playbackEnd = trimActive ? normalizedTrimEnd : duration;
   const progress = duration > 0 ? Math.max(0, Math.min(time / duration, 1)) : 0;
+  const trimStartProgress = duration > 0 ? Math.max(0, Math.min(normalizedTrimStart / duration, 1)) : 0;
+  const trimEndProgress = duration > 0 ? Math.max(0, Math.min(normalizedTrimEnd / duration, 1)) : 1;
   const clock = formatAudioClock(time);
 
   React.useEffect(() => {
@@ -42,12 +70,30 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
     const updateProgress = () => {
       const media = mediaRef.current;
       // timeupdate fires too slowly for a smooth playhead; sample the real clock each frame.
-      if (media && !media.seeking && !scrubbingRef.current) setTime(media.currentTime);
+      if (media && !media.seeking && !scrubbingRef.current) {
+        if (playbackEnd > 0 && media.currentTime >= playbackEnd) {
+          playIntent.current = false;
+          media.pause();
+          media.currentTime = playbackStart;
+          setTime(playbackStart);
+        } else {
+          setTime(media.currentTime);
+        }
+      }
       frame = requestAnimationFrame(updateProgress);
     };
     frame = requestAnimationFrame(updateProgress);
     return () => cancelAnimationFrame(frame);
-  }, [playing, source]);
+  }, [playing, source, playbackStart, playbackEnd]);
+
+  React.useEffect(() => {
+    if (!duration) return;
+    const media = mediaRef.current;
+    const next = Math.min(Math.max(time, playbackStart), playbackEnd || duration);
+    if (Math.abs(next - time) < 0.005) return;
+    if (media) media.currentTime = next;
+    setTime(next);
+  }, [duration, playbackStart, playbackEnd, time]);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -64,33 +110,43 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
       try {
         const Context = window.OfflineAudioContext;
         if (!Context) throw new Error('unsupported');
-        const response = await fetch(source, { signal: controller.signal });
-        if (!response.ok) throw new Error('fetch failed');
         // Limit waveform-only memory use; playback still supports larger media.
         const limit = 64 * 1024 * 1024;
-        if (Number(response.headers.get('content-length')) > limit) throw new Error('large audio');
-        const reader = response.body.getReader();
-        const chunks = [];
-        let size = 0;
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > limit) {
-            await reader.cancel();
-            throw new Error('large audio');
+        let data;
+        const binaryData = toArrayBuffer(audioData);
+        if (binaryData) {
+          if (binaryData.byteLength > limit) throw new Error('large audio');
+          data = binaryData;
+        } else if (file && typeof file.arrayBuffer === 'function') {
+          if (Number(file.size || 0) > limit) throw new Error('large audio');
+          data = await file.arrayBuffer();
+        } else {
+          const response = await fetch(source, { signal: controller.signal });
+          if (!response.ok) throw new Error('fetch failed');
+          if (Number(response.headers.get('content-length')) > limit) throw new Error('large audio');
+          const reader = response.body.getReader();
+          const chunks = [];
+          let size = 0;
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > limit) {
+              await reader.cancel();
+              throw new Error('large audio');
+            }
+            chunks.push(value);
           }
-          chunks.push(value);
+          data = await new Blob(chunks).arrayBuffer();
         }
         if (!active) return;
-        const data = await new Blob(chunks).arrayBuffer();
         // Low-rate decoding is sufficient for an overview and bounds PCM memory.
         const buffer = await new Context(1, 1, 8000).decodeAudioData(data);
         if (!active) return;
         setPeaks(buildAudioPeaks(buffer));
         setWaveStatus('');
       } catch {
-        if (active) setWaveStatus('波形暂不可用，仍可播放');
+        if (active) setWaveStatus(showWaveStatus ? '波形暂不可用，仍可播放' : '');
       }
     };
     void loadWaveform();
@@ -100,7 +156,7 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
       controller.abort();
       media?.pause();
     };
-  }, [source]);
+  }, [source, file, audioData, showWaveStatus]);
 
   const togglePlayback = async () => {
     const media = mediaRef.current;
@@ -111,6 +167,10 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
       return;
     }
     playIntent.current = true;
+    if (media.currentTime < playbackStart || (playbackEnd > 0 && media.currentTime >= playbackEnd)) {
+      media.currentTime = playbackStart;
+      setTime(playbackStart);
+    }
     try {
       await media.play();
       if (!playIntent.current) media.pause();
@@ -135,7 +195,15 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
           ref={mediaRef} src={source} preload="metadata" aria-label="音频预览"
           onLoadedMetadata={updateDuration} onDurationChange={updateDuration}
           onTimeUpdate={(event) => {
-            if (!scrubbingRef.current && !event.currentTarget.seeking) setTime(event.currentTarget.currentTime);
+            if (scrubbingRef.current || event.currentTarget.seeking) return;
+            if (playbackEnd > 0 && event.currentTarget.currentTime >= playbackEnd) {
+              playIntent.current = false;
+              event.currentTarget.pause();
+              event.currentTarget.currentTime = playbackStart;
+              setTime(playbackStart);
+              return;
+            }
+            setTime(event.currentTarget.currentTime);
           }}
           onSeeked={(event) => {
             if (!scrubbingRef.current) setTime(event.currentTarget.currentTime);
@@ -151,6 +219,7 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
             onRemove?.();
           }}><X size={14} aria-hidden="true" /></button>
         <div className="subtitle-audio-waveform" style={{ '--audio-progress': `${progress * 100}%` }}>
+          {trimActive ? <div className="subtitle-audio-trim" style={{ '--audio-trim-start': `${trimStartProgress * 100}%`, '--audio-trim-end': `${trimEndProgress * 100}%` }} aria-hidden="true" /> : null}
           <svg viewBox="0 0 680 200" preserveAspectRatio="none" aria-hidden="true">
             {peaks.map((peak, index) => (
               <line key={index} x1={index * 10 + 5} x2={index * 10 + 5}
@@ -159,7 +228,7 @@ const AudioPreview = ({ source, name, onRemove, removeDisabled = false, onDurati
             ))}
           </svg>
           <div className="subtitle-audio-playhead" aria-hidden="true" />
-          <input type="range" min={0} max={duration || 0} step={0.01}
+          <input type="range" min={playbackStart} max={playbackEnd || duration || 0} step={0.01}
             value={Math.min(time, duration)} disabled={!duration} aria-label="播放进度"
             aria-valuetext={`${clock.join(':')} / ${formatAudioClock(duration).join(':')}`}
             onPointerDown={(event) => {

@@ -4,6 +4,9 @@ import '@renderer/assets/styles/tailwind.css'
 
 import { ConfigProvider } from 'antd'
 import { createRoot } from 'react-dom/client'
+import { installRendererHttpClient } from '../../http/installFetchInterceptor'
+
+installRendererHttpClient()
 
 // document.documentElement.classList.add('tw-scope')
 // document.body.classList.add('tw-scope')

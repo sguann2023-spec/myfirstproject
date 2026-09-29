@@ -158,6 +158,7 @@ const VoiceDetail = ({
   globalVoiceId,
   priceText = '',
   priceModel = '',
+  showPrice = true,
   highlightMember = false,
   showDelete = false,
   deleteDisabled = false,
@@ -188,17 +189,20 @@ const VoiceDetail = ({
   const [unitPriceText, setUnitPriceText] = React.useState(initialPriceText);
 
   React.useEffect(() => {
+    if (!showPrice) return;
     const nextText = String(priceText || '').trim();
     if (cacheKey && nextText) {
       voicePriceCache.set(cacheKey, nextText);
     }
-  }, [cacheKey, priceText]);
+  }, [cacheKey, priceText, showPrice]);
 
   React.useEffect(() => {
+    if (!showPrice) return;
     setUnitPriceText(initialPriceText);
-  }, [initialPriceText]);
+  }, [initialPriceText, showPrice]);
 
   React.useEffect(() => {
+    if (!showPrice) return undefined;
     if (String(priceText || '').trim()) return undefined;
     if (!normalizedProvider && !normalizedVoiceId) {
       setUnitPriceText(DEFAULT_PRICE_TEXT);
@@ -233,7 +237,7 @@ const VoiceDetail = ({
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, normalizedPriceModel, normalizedProvider, normalizedVoiceId, priceText]);
+  }, [cacheKey, normalizedPriceModel, normalizedProvider, normalizedVoiceId, priceText, showPrice]);
 
   const handleFavoriteMouseDown = (event) => {
     event.preventDefault();
@@ -325,10 +329,12 @@ const VoiceDetail = ({
           />
         </button>
       ) : null}
-      <div className="voice-detail__price" title={`单价 ${unitPriceText}`}>
-        <img className="voice-detail__price-icon" src={Point2Icon} alt="" aria-hidden="true" />
-        <span>{unitPriceText}</span>
-      </div>
+      {showPrice ? (
+        <div className="voice-detail__price" title={`单价 ${unitPriceText}`}>
+          <img className="voice-detail__price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+          <span>{unitPriceText}</span>
+        </div>
+      ) : null}
     </div>
   );
 };

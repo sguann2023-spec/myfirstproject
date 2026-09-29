@@ -52,6 +52,13 @@ import PresetAddDetail, {
   DEFAULT_PRESET_ADD_SETTINGS,
   getPresetAddToolSendState
 } from '../../PresetAddDetail/index';
+import AudioAddToolDetail, {
+  buildAudioAddRequestParams,
+  buildAudioAddSettingsPrompt,
+  DEFAULT_AUDIO_ADD_SETTINGS,
+  getAudioAddToolSendState
+} from '../../AudioAddToolDetail/index';
+import { normalizeMemberProvider } from '../../../constants/member';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_COUNT = 100;
@@ -287,6 +294,29 @@ const collectVisibleTreeFiles = (
 const DIGITAL_HUMAN_VIDEO_SLOT_ID = 'digital-human-video';
 const DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID = 'digital-human-selected-voice-id';
 const VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID = 'voice-square-selected-voice-id';
+const VOICE_SQUARE_TEXT_MAX_LENGTH = 1500;
+const VOICE_SQUARE_TEXT_TEMPLATES = [
+  {
+    label: '吵架',
+    content: '那你另请高明啊，你找我干嘛！我告诉你，你也不是什么好东西！',
+  },
+  {
+    label: '暧昧悄悄话',
+    content: '当然可以啦，你知道吗，我真的很喜欢你的声音。你说话的时候，声音特别温柔，特别好听，每次听到你的声音，我都觉得心里暖暖的，特别舒服。',
+  },
+  {
+    label: '四川话',
+    content: '四川话涵盖的词汇、句子很多呢，以下举一些例子：“你吃饭没有”用四川话说就是“你吃莽莽没得”（“莽莽”常指饭） 。 “什么”常说“啥子”。 “没关系”是“莫得事”。 “很好”可以说“好得很”或者“巴适得板”。你想知道四川话里具体哪个词或者哪句话怎么说呀？',
+  },
+  {
+    label: '北京话',
+    content: '嘿哟，您可算来了！我这儿眼巴巴等着您好久啦，咱北京人儿就讲究个实在，就盼着跟您唠唠嗑儿呢！',
+  },
+  {
+    label: '回答上下文',
+    content: '北京…因为我来，这是第二次，上一次是在一…八年还是什么时候来过一次但是时间很短也没有时间去，真正的去游历，所以北京对我来说…只是…还存在一种想象之中啊，嗯没有太多的，直观的体验。',
+  },
+];
 const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE = 'digitalHumanScriptPlaceholder';
 const DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE = 'digitalHumanMotionPlaceholder';
 const AI_WRITE_FIELD_PLACEHOLDER_NODE = 'aiWriteFieldPlaceholder';
@@ -2195,6 +2225,17 @@ const mapTextOffsetToDocPosition = (editor, targetOffset) => {
   return result;
 };
 
+const getVoiceSquareToolSendState = ({ input }) => {
+  const text = String(input || '').trim();
+  if (!text) {
+    return { canSend: false, disabledReason: '必须输入一段文案' };
+  }
+  if (text.length > VOICE_SQUARE_TEXT_MAX_LENGTH) {
+    return { canSend: false, disabledReason: `文案不能超过 ${VOICE_SQUARE_TEXT_MAX_LENGTH} 字` };
+  }
+  return { canSend: true };
+};
+
 const Composer = ({
   agentId,
   runtimeSessionId,
@@ -2236,6 +2277,8 @@ const Composer = ({
   const [selectedPresetAddDraftIds, setSelectedPresetAddDraftIds] = React.useState([]);
   const [selectedPresetAddPreset, setSelectedPresetAddPreset] = React.useState(null);
   const [presetAddSettings, setPresetAddSettings] = React.useState(DEFAULT_PRESET_ADD_SETTINGS);
+  const [selectedAudioAddDraftIds, setSelectedAudioAddDraftIds] = React.useState([]);
+  const [audioAddSettings, setAudioAddSettings] = React.useState(DEFAULT_AUDIO_ADD_SETTINGS);
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
   const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
   const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
@@ -2256,6 +2299,7 @@ const Composer = ({
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
+  const [selectedSpeechModel, setSelectedSpeechModel] = React.useState('');
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
   const [hoveredModelCard, setHoveredModelCard] = React.useState(null);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
@@ -2349,6 +2393,7 @@ const Composer = ({
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
             : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
+  const showVoiceSquareTextTemplates = activeTool === 'voice-square' && !String(input || '').trim();
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
@@ -3700,6 +3745,8 @@ const Composer = ({
         ? selectedDraftDownloadIds
         : activeTool === 'preset-add'
           ? selectedPresetAddDraftIds
+        : activeTool === 'audio-add'
+          ? selectedAudioAddDraftIds
         : activeTool === 'text-add'
           ? selectedTextAddDraftIds
         : activeTool === 'draft-inspect'
@@ -3717,12 +3764,16 @@ const Composer = ({
         return getTextAddToolSendState(context);
       case 'preset-add':
         return getPresetAddToolSendState({ ...context, selectedPreset: selectedPresetAddPreset });
+      case 'audio-add':
+        return getAudioAddToolSendState({ ...context, settings: audioAddSettings });
       case 'draft-inspect':
         return getDraftInspectToolSendState(context);
       case 'draft-modify':
         return getDraftModifyToolSendState(context);
       case 'reverse-prompt':
         return getRevertPromptSendState(context);
+      case 'voice-square':
+        return getVoiceSquareToolSendState(context);
       default:
         return defaultSendState;
     }
@@ -3734,6 +3785,8 @@ const Composer = ({
     textAddInput,
     selectedPresetAddDraftIds,
     selectedPresetAddPreset,
+    selectedAudioAddDraftIds,
+    audioAddSettings,
     subtitleSettings,
     selectedDraftDownloadIds,
     selectedTextAddDraftIds,
@@ -3960,7 +4013,7 @@ const Composer = ({
       console.warn('[Composer] failed to collect image payloads', error);
     }
     // The hidden chat editor is not the source of text-add/preset-add content or references.
-    const serializedMessage = activeTool === 'text-add' || activeTool === 'preset-add'
+    const serializedMessage = activeTool === 'text-add' || activeTool === 'preset-add' || activeTool === 'audio-add'
       ? { text: textAddInput, referencedFileUids: new Set() }
       : serializeEditorMessage(editor, buildMarkdownFileLink);
     const hasMultimodalImages = selectedModelSupportsReadImage && imagePayloads.length > 0;
@@ -4008,11 +4061,13 @@ const Composer = ({
       ? serializedMessage.text || String(input || '').trim()
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && !combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && activeTool !== 'audio-add' && !combined) return;
     const selectedTextAddDraftId = String(selectedTextAddDraftIds?.[0] || '').trim();
     const selectedPresetAddDraftId = String(selectedPresetAddDraftIds?.[0] || '').trim();
     const selectedPresetAddPresetId = String(selectedPresetAddPreset?.preset_id || '').trim();
     const presetAddRequestParams = buildPresetAddRequestParams(presetAddSettings);
+    const selectedAudioAddDraftId = String(selectedAudioAddDraftIds?.[0] || '').trim();
+    const audioAddRequestParams = buildAudioAddRequestParams(audioAddSettings);
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
     const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
     const videoOptionPromptSegments = buildVideoOptionPromptSegments({
@@ -4050,6 +4105,12 @@ const Composer = ({
             selectedPresetAddDraftId ? `草稿ID：${selectedPresetAddDraftId}` : '',
             selectedPresetAddPresetId ? `预设ID：${selectedPresetAddPresetId}` : '',
             buildPresetAddSettingsPrompt(presetAddSettings),
+          ].filter(Boolean).join('\n')
+        : activeTool === 'audio-add'
+          ? [
+            '请向当前草稿添加音频。',
+            selectedAudioAddDraftId ? `草稿ID：${selectedAudioAddDraftId}` : '',
+            buildAudioAddSettingsPrompt(audioAddSettings),
           ].filter(Boolean).join('\n')
         : activeTool === 'draft-inspect'
           ? [
@@ -4149,6 +4210,25 @@ const Composer = ({
           ...presetAddRequestParams,
         }
         : null,
+      audioAddRequest: activeTool === 'audio-add'
+        ? {
+          draftId: selectedAudioAddDraftId,
+          ...audioAddRequestParams,
+        }
+        : null,
+      speechRequest: activeTool === 'voice-square'
+        ? {
+          text,
+          provider: normalizeMemberProvider(
+            selectedVoiceLibraryItem?.price_provider
+            || selectedVoiceLibraryItem?.providers
+            || selectedVoiceLibraryItem?.provider
+          ),
+          ...(String(selectedSpeechModel || '').trim() ? { model: String(selectedSpeechModel).trim() } : {}),
+          voice_id: String(selectedVoiceLibraryItem?.global_voice_id || selectedVoiceLibraryItem?.voice_id || '').trim(),
+          only_tts: true,
+        }
+        : null,
       draftExportRequest: activeTool === 'draft-export'
         ? {
           drafts: selectedDraftDownloadIds.map((draftId) => ({
@@ -4171,6 +4251,8 @@ const Composer = ({
     setSelectedPresetAddDraftIds([]);
     setSelectedPresetAddPreset(null);
     setPresetAddSettings(DEFAULT_PRESET_ADD_SETTINGS);
+    setSelectedAudioAddDraftIds([]);
+    setAudioAddSettings(DEFAULT_AUDIO_ADD_SETTINGS);
     setSelectedDraftInspectIds([]);
     setSelectedDraftModifyIds([]);
     setUploadFileList([]);
@@ -4212,7 +4294,7 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle';
+    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add';
     editor.setEditable(!shouldDisableInput);
     if (shouldDisableInput) {
       if (activeTool === 'draft-export') {
@@ -4364,6 +4446,15 @@ const Composer = ({
       editor.commands.focus('end');
     });
   }, [editor, setInput]);
+
+  const handleVoiceSquareTemplateApply = React.useCallback((content) => {
+    const nextText = String(content || '');
+    latestInputRef.current = nextText;
+    setInput(nextText);
+    if (!editor || editor.isDestroyed) return;
+    editor.commands.setContent(buildEditorDocument(nextText, mentionHighlightRegex), false);
+    editor.commands.focus('end');
+  }, [editor, mentionHighlightRegex, setInput]);
 
   const handleImageTemplateMediaApply = React.useCallback(async (template) => {
     const nextTemplateAttachments = await createImageTemplateAttachmentEntries(template);
@@ -4523,6 +4614,14 @@ const Composer = ({
                       onSelectedPresetChange={setSelectedPresetAddPreset}
                       onSettingsChange={setPresetAddSettings}
                     />
+                  ) : activeTool === 'audio-add' ? (
+                    <AudioAddToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedAudioAddDraftIds}
+                      onSelectedDraftIdsChange={setSelectedAudioAddDraftIds}
+                      onSettingsChange={setAudioAddSettings}
+                    />
                   ) : activeTool === 'reverse-prompt' ? (
                     <RevertPrompt disabled={sessionSending} onBack={handleToolDetailBack} />
                   ) : activeTool === 'ai-write' ? (
@@ -4565,6 +4664,9 @@ const Composer = ({
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+                      selectedModel={selectedSpeechModel}
+                      onModelChange={setSelectedSpeechModel}
+                      inputText={input}
                     />
                   ) : activeTool === 'voice-clone' ? (
                     <VoiceSquareToolDetail
@@ -4694,7 +4796,6 @@ const Composer = ({
                   onClick={attemptSendWithAttachments}
                   aria-label={sessionSending ? '停止生成' : '发送消息'}
                   aria-disabled={sessionSending ? false : isSendDisabled}
-                  disabled={sessionSending ? false : isSendDisabled}
                 >
                   {sessionSending ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
                 </button>
@@ -4862,7 +4963,7 @@ const Composer = ({
               </div>
             </div>
           ) : null}
-          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' ? ' chat-panel__input-editor--hidden' : ''}`}>
+          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
             {isDragActive ? (
               <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
                 <div className="chat-panel__drag-upload-card">
@@ -4880,6 +4981,25 @@ const Composer = ({
               editor={editor}
               className="chat-panel__input chat-panel__input--tiptap"
             />
+            {showVoiceSquareTextTemplates ? (
+              <div className="chat-panel__voice-template-list" aria-label="AI朗读模板文案">
+                {VOICE_SQUARE_TEXT_TEMPLATES.map((template) => (
+                  <button
+                    key={template.label}
+                    type="button"
+                    className="chat-panel__voice-template-chip"
+                    disabled={sessionSending}
+                    title={template.content}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onClick={() => handleVoiceSquareTemplateApply(template.content)}
+                  >
+                    {template.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

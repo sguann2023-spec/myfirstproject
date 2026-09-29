@@ -193,7 +193,7 @@ describe('DraftElementsServer', () => {
       expect.arrayContaining(['target_start', 'speed', 'duration', 'transition', 'rotation'])
     )
     expect(Object.keys(toolsByName.get('add_audio').inputSchema.properties)).toEqual(
-      expect.arrayContaining(['speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin'])
+      expect.arrayContaining(['music_id', 'musicId', 'speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin', 'clientRequestId'])
     )
     expect(Object.keys(toolsByName.get('add_batch_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['durations', 'speed', 'effect_type', 'effect_params', 'fade_out_duratioin'])
@@ -866,5 +866,80 @@ describe('DraftElementsServer', () => {
       audio_url: '/tmp/demo.mp3',
       effect_type: '回音'
     })
+  })
+
+  it('should add library audio using music_id without audio_url', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_audio_music',
+            material_id: 'audio_mat_music'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, 'add_audio', {
+      musicId: '7515257126543981234',
+      draftId: 'dfd_audio_music',
+      targetStart: 2
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      music_id: '7515257126543981234',
+      draft_id: 'dfd_audio_music',
+      target_start: 2
+    })
+  })
+
+  it.each(['draftId', 'draft_id'])('should emit correlated add_audio previews using %s', async (idKey) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockImplementationOnce(async () => {
+        expect(mockWebContentsSend).toHaveBeenCalledExactlyOnceWith(
+          'app:draft-created',
+          expect.objectContaining({
+            action: 'modify', draftId: 'draft-audio-1', clientRequestId: 'audio-request-1', status: 'in_progress'
+          })
+        )
+        return mockJsonResponse({ success: true, output: { material_id: 'audio-1' } })
+      })
+
+    await callTool(createServer(), 'add_audio', {
+      audioUrl: 'https://example.com/demo.mp3', [idKey]: 'draft-audio-1', clientRequestId: ' audio-request-1 '
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).not.toHaveProperty('clientRequestId')
+    expect(mockWebContentsSend).toHaveBeenCalledTimes(2)
+    expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
+      action: 'modify', draftId: 'draft-audio-1', clientRequestId: 'audio-request-1', status: 'completed'
+    }))
+  })
+
+  it('should replace the pending preview with the draft returned by add_audio', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, output: { draft_id: 'new-audio-draft' } }))
+
+    await callTool(createServer(), 'add_audio', { audioUrl: 'https://example.com/demo.mp3', width: 1920, height: 1080 })
+
+    const pending = mockWebContentsSend.mock.calls[0][1]
+    expect(pending).toEqual(expect.objectContaining({
+      action: 'create', draftId: `pending:${pending.clientRequestId}`, status: 'in_progress',
+      width: 1920, height: 1080, createdAt: expect.any(Number)
+    }))
+    expect(pending.clientRequestId).toEqual(expect.any(String))
+    expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
+      action: 'create', draftId: 'new-audio-draft', clientRequestId: pending.clientRequestId, status: 'completed'
+    }))
   })
 })

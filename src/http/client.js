@@ -2,6 +2,7 @@ import { authFetch } from '../auth/authFetch';
 import { tokenStore } from '../auth'; // 统一从 index 导入
 import { loggerService } from '@logger';
 import { CHANNEL_BRAND_HEADER_NAME, getCurrentChannelBrand } from '../../channel-branding/runtime';
+import { isVectcutApiUrl, withClientTypeHeader } from '@shared/network/clientMeta';
 
 const CHANNEL_BRAND = getCurrentChannelBrand();
 
@@ -16,15 +17,18 @@ export function setAuthFailureHandler(handler) {
 }
 
 function withChannelHeaders(options = {}) {
-  const headers = new Headers(options.headers || {});
+  const { url, input, ...requestOptions } = options;
+  const headers = isVectcutApiUrl(url || input)
+    ? withClientTypeHeader(requestOptions.headers)
+    : new Headers(requestOptions.headers || {});
   if (!headers.has(CHANNEL_BRAND_HEADER_NAME)) {
     headers.set(CHANNEL_BRAND_HEADER_NAME, CHANNEL_BRAND);
   }
-  return { ...options, headers };
+  return { ...requestOptions, headers };
 }
 
 async function request(url, options = {}, retryOn401 = true) {
-  const requestOptions = withChannelHeaders(options);
+  const requestOptions = withChannelHeaders({ ...options, url });
 
   // 首次请求（会自动附加 access_token）
   let res = await authFetch(url, requestOptions);

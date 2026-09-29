@@ -32,3 +32,64 @@
 .chat-panel__tts-tool-detail .chat-panel__tool-close-icon {
   font-size: 12px;
 }
+
+.chat-panel__tts-model-button {
+  max-width: 220px;
+}
+
+.chat-panel__tts-model-icon {
+  width: 18px;
+  height: 18px;
+  color: #000000;
+  flex: 0 0 auto;
+  stroke-width: 2;
+}
+
+.chat-panel__tts-model-trigger-text {
+  max-width: 150px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__tts-model-dropdown .ant-dropdown-menu {
+  min-width: 180px;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.chat-panel__tts-model-menu-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.chat-panel__tts-model-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__tts-model-price {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #595959;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chat-panel__tts-model-price-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.chat-panel__tts-model-price-text {
+  display: inline-flex;
+  align-items: center;
+}

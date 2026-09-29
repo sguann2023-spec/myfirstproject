@@ -274,6 +274,148 @@ const COZE_ADD_PRESET_EXTERNAL_DATA = {
   mainColor: '#CA61FF'
 };
 
+const COZE_GENERATE_SPEECH_PLUGIN_META = {
+  apiID: '7579582015465603072',
+  apiName: 'generate_speech',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_GENERATE_SPEECH_NODE_META = {
+  title: 'generate_speech',
+  icon: '`https://p26-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1792725944&x-signature=77%2FPKhfB5c66v1YsGG%2FF3wbCCFo%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):generate_speech',
+  description: '语音合成聚合接口。目前支持微软/豆包/minimax的语音合成接口。可以把生成的音频直接添加到草稿里。'
+};
+
+const COZE_GENERATE_SPEECH_EXTERNAL_DATA = {
+  icon: '`https://lf26-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1792726527&x-signature=J3d1cpzHsz7vl9z8is329xA0%2FXk%3D`',
+  apiName: 'generate_speech',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '音效类型', input: {}, name: 'effect_type', required: false, type: 'string' },
+    { description: '视频高度（默认1920）', input: {}, name: 'height', required: false, type: 'integer' },
+    { defaultValue: 'azure', description: '厂商。可选：azure, volc, minimax。', input: {}, name: 'provider', required: true, type: 'string' },
+    { description: '音频素材的结束截取时间（秒，可选，默认取完整音频长度）', input: {}, name: 'end', required: false, type: 'float' },
+    { description: '淡入时间，单位秒', input: {}, name: 'fade_in_duration', required: false, type: 'float' },
+    { description: '配音语速，可选范围[0.7,1.3]，大于1表示加速', input: {}, name: 'speech_speed', required: false, type: 'float' },
+    { description: '音频在时间线上的起始位置（秒，默认0）', input: {}, name: 'target_start', required: false, type: 'float' },
+    { description: '音量（选填，单位db，默认0.0，-100表示静音）', input: {}, name: 'volume', required: false, type: 'float' },
+    { description: '视频宽度（默认1080）', input: {}, name: 'width', required: false, type: 'integer' },
+    { description: '模型，部分厂商支持多种模型。', input: {}, name: 'model', required: false, type: 'string' },
+    { defaultValue: 'audio_speech', description: '轨道名，默认audio_speech', input: {}, name: 'track_name', required: false, type: 'string' },
+    { defaultValue: 'zh-CN-XiaoxiaoNeural', description: '音色id，注意选择不同厂商，不同模型，支持的音色id不同，不能互通。', input: {}, name: 'voice_id', required: true, type: 'string' },
+    { defaultValue: '你好，今天给大家带来一个福利', description: '文案', input: {}, name: 'text', required: true, type: 'string' },
+    { description: '草稿id，基于已有草稿继续编辑，为空则创建新草稿', input: {}, name: 'draft_id', required: false, type: 'string' },
+    { description: '音效参数（可选，根据effect_type设置）', input: {}, name: 'effect_params', required: false, schema: { type: 'integer' }, type: 'list' },
+    { description: '淡出时间，单位秒', input: {}, name: 'fade_out_duration', required: false, type: 'float' },
+    { description: '只生成音频,没有草稿', input: {}, name: 'only_tts', required: false, type: 'boolean' },
+    { description: '音频速度（默认1.0，>1加速，<1减速）', input: {}, name: 'speed', required: false, type: 'float' },
+    { description: '音频素材的起始截取时间（秒，默认0）', input: {}, name: 'start', required: false, type: 'float' }
+  ],
+  outputs: [
+    { type: 'string', name: 'purchase_link', required: false },
+    { type: 'boolean', name: 'success', required: false },
+    { type: 'string', name: 'error', required: false },
+    {
+      type: 'object',
+      name: 'output',
+      schema: [
+        { type: 'string', name: 'draft_id', required: false },
+        { type: 'string', name: 'draft_url', required: false },
+        { type: 'string', name: 'audio_url', required: false }
+      ],
+      required: false
+    }
+  ],
+  updateTime: 1790093279,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '语音合成聚合接口。目前支持微软/豆包/minimax的语音合成接口。可以把生成的音频直接添加到草稿里。',
+  title: 'generate_speech',
+  mainColor: '#CA61FF'
+};
+
+const COZE_ADD_AUDIO_PLUGIN_META = {
+  apiID: '7579582015465357312',
+  apiName: 'add_audio',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_ADD_AUDIO_NODE_META = {
+  title: 'add_audio',
+  icon: '`https://p9-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1793282304&x-signature=kH9xAsizQQtRwg7H%2BmnQMxYpD6A%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):add_audio',
+  description: '添加音频'
+};
+
+const COZE_ADD_AUDIO_EXTERNAL_DATA = {
+  icon: '`https://lf3-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1793283278&x-signature=VF3umFwv42cMO5FZ84zVfI%2FvN0M%3D`',
+  apiName: 'add_audio',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { defaultValue: '`https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20240830/dzkngm/%E9%BE%99%E5%A9%89.mp3`', description: '音频链接，和music_id二选一', input: {}, name: 'audio_url', required: false, type: 'string' },
+    { description: '剪映音乐/音效素材ID，和audio_url二选一', input: {}, name: 'music_id', required: false, type: 'string' },
+    { description: '目标轨道开始时间', input: {}, name: 'target_start', required: false, type: 'float' },
+    { description: '原始素材的时长，单位秒，精确到小数点后6位。正确设置可以提升运行速度，但是设置错误可能带来不可预知的错误。', input: {}, name: 'duration', required: false, type: 'float' },
+    { description: '淡入时间，单位秒', input: {}, name: 'fade_in_duration', required: false, type: 'float' },
+    { description: '轨道名称，默认audio_main', input: {}, name: 'track_name', required: false, type: 'string' },
+    { description: '草稿宽度', input: {}, name: 'width', required: false, type: 'integer' },
+    { description: '如果想基于已有的草稿继续编辑，这里填上次的草稿id', input: {}, name: 'draft_id', required: false, type: 'string' },
+    { description: '音效，用get_audio_effect_types工具查看支持的音效', input: {}, name: 'effect_type', required: false, type: 'string' },
+    { description: '截取原始素材结束时间', input: {}, name: 'end', required: false, type: 'float' },
+    { description: '草稿高度', input: {}, name: 'height', required: false, type: 'integer' },
+    { defaultValue: 0, description: '截取原始素材开始时间。注意！不是在目标轨道的开始时间，在目标轨道的开始时间使用target_start', input: {}, name: 'start', required: false, type: 'float' },
+    { description: '音效参数列表', input: {}, name: 'effect_params', required: false, schema: { type: 'float' }, type: 'list' },
+    { description: '淡出时间，单位秒', input: {}, name: 'fade_out_duration', required: false, type: 'float' },
+    { defaultValue: 1, description: '音频速度（默认1.0，>1加速，<1减速）', input: {}, name: 'speed', required: false, type: 'float' },
+    { defaultValue: 0, description: '音量，单位db。默认0，小于-60表示静音', input: {}, name: 'volume', required: false, type: 'float' }
+  ],
+  outputs: [
+    { type: 'string', name: 'error', required: false },
+    {
+      type: 'object',
+      name: 'output',
+      schema: [
+        { type: 'string', name: 'draft_id', required: false, description: '草稿id，可以继续编辑' },
+        { type: 'string', name: 'draft_url', required: false, description: '草稿链接，复制到浏览器里打开可以预览' }
+      ],
+      required: false
+    },
+    { type: 'string', name: 'purchase_link', required: false },
+    { type: 'boolean', name: 'success', required: false }
+  ],
+  updateTime: 1790611026,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '添加音频',
+  title: 'add_audio',
+  mainColor: '#CA61FF'
+};
+
 const createLiteralValue = (content) => ({
   type: 'literal',
   content,
@@ -527,6 +669,79 @@ const createPresetAddRequestInputParameters = (presetAddRequest = {}) => {
   return parameters;
 };
 
+const createSpeechRequestInputParameters = (speechRequest = {}) => {
+  const parameters = [];
+  const addString = (name, value) => {
+    const normalized = String(value || '').trim();
+    if (normalized) parameters.push(createInputParameter(name, 'string', normalized));
+  };
+  const addNumber = (name, value, type = 'float') => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) parameters.push(createInputParameter(name, type, normalized));
+  };
+
+  addString('provider', speechRequest?.provider);
+  addString('text', speechRequest?.text);
+  addString('voice_id', speechRequest?.voice_id || speechRequest?.voiceId);
+  addString('model', speechRequest?.model);
+  addString('draft_id', speechRequest?.draft_id || speechRequest?.draftId);
+  addNumber('speech_speed', speechRequest?.speech_speed ?? speechRequest?.speechSpeed);
+  addNumber('target_start', speechRequest?.target_start ?? speechRequest?.targetStart);
+  addNumber('volume', speechRequest?.volume);
+  addNumber('width', speechRequest?.width, 'integer');
+  addNumber('height', speechRequest?.height, 'integer');
+  addString('track_name', speechRequest?.track_name || speechRequest?.trackName);
+  addString('effect_type', speechRequest?.effect_type || speechRequest?.effectType);
+  const effectParams = Array.isArray(speechRequest?.effect_params)
+    ? speechRequest.effect_params
+    : (Array.isArray(speechRequest?.effectParams) ? speechRequest.effectParams : null);
+  if (effectParams?.length) parameters.push(createInputParameter('effect_params', 'list', effectParams));
+  addNumber('fade_in_duration', speechRequest?.fade_in_duration ?? speechRequest?.fadeInDuration);
+  addNumber('fade_out_duration', speechRequest?.fade_out_duration ?? speechRequest?.fadeOutDuration);
+  if (typeof speechRequest?.only_tts === 'boolean') {
+    parameters.push(createInputParameter('only_tts', 'boolean', speechRequest.only_tts));
+  } else if (typeof speechRequest?.onlyTts === 'boolean') {
+    parameters.push(createInputParameter('only_tts', 'boolean', speechRequest.onlyTts));
+  }
+  addNumber('speed', speechRequest?.speed);
+  addNumber('start', speechRequest?.start);
+  addNumber('end', speechRequest?.end);
+  return parameters;
+};
+
+const createAudioAddRequestInputParameters = (audioAddRequest = {}) => {
+  const parameters = [];
+  const addString = (name, value) => {
+    const normalized = String(value || '').trim();
+    if (normalized) parameters.push(createInputParameter(name, 'string', normalized));
+  };
+  const addNumber = (name, value, type = 'float') => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) parameters.push(createInputParameter(name, type, normalized));
+  };
+
+  addString('audio_url', audioAddRequest?.audio_url || audioAddRequest?.audioUrl);
+  addString('music_id', audioAddRequest?.music_id || audioAddRequest?.musicId);
+  addString('draft_id', audioAddRequest?.draft_id || audioAddRequest?.draftId);
+  addNumber('target_start', audioAddRequest?.target_start ?? audioAddRequest?.targetStart);
+  addNumber('duration', audioAddRequest?.duration);
+  addNumber('fade_in_duration', audioAddRequest?.fade_in_duration ?? audioAddRequest?.fadeInDuration);
+  addString('track_name', audioAddRequest?.track_name || audioAddRequest?.trackName);
+  addNumber('width', audioAddRequest?.width, 'integer');
+  addString('effect_type', audioAddRequest?.effect_type || audioAddRequest?.effectType);
+  addNumber('end', audioAddRequest?.end);
+  addNumber('height', audioAddRequest?.height, 'integer');
+  addNumber('start', audioAddRequest?.start);
+  const effectParams = Array.isArray(audioAddRequest?.effect_params)
+    ? audioAddRequest.effect_params
+    : (Array.isArray(audioAddRequest?.effectParams) ? audioAddRequest.effectParams : null);
+  if (effectParams?.length) parameters.push(createInputParameter('effect_params', 'list', effectParams));
+  addNumber('fade_out_duration', audioAddRequest?.fade_out_duration ?? audioAddRequest?.fade_out_duratioin ?? audioAddRequest?.fadeOutDuration);
+  addNumber('speed', audioAddRequest?.speed);
+  addNumber('volume', audioAddRequest?.volume);
+  return parameters;
+};
+
 export const buildDraftModifyRequestCozeClipboardData = (draftModifyRequest = {}) => {
   const inputParameters = createDraftModifyRequestInputParameters(draftModifyRequest);
 
@@ -742,6 +957,130 @@ export const buildPresetAddRequestCozeClipboardData = (presetAddRequest = {}) =>
     bounds: {
       x: -408.26309482408215,
       y: -337.8172934143432,
+      width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const buildSpeechRequestCozeClipboardData = (speechRequest = {}) => {
+  const inputParameters = createSpeechRequestInputParameters(speechRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      workflowId: '7582120367239004166',
+      flowMode: 0,
+      spaceId: '7472683780642258985',
+      isDouyin: false,
+      host: 'www.coze.cn'
+    },
+    json: {
+      nodes: [
+        {
+          id: '110357',
+          type: '4',
+          meta: {
+            position: {
+              x: 330.5232910124702,
+              y: -378.24777121709934
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_GENERATE_SPEECH_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_GENERATE_SPEECH_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: COZE_GENERATE_SPEECH_EXTERNAL_DATA.outputs
+          },
+          _temp: {
+            bounds: {
+              x: 150.52329101247022,
+              y: -378.24777121709934,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_GENERATE_SPEECH_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: 150.52329101247022,
+      y: -378.24777121709934,
+      width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const buildAudioAddRequestCozeClipboardData = (audioAddRequest = {}) => {
+  const inputParameters = createAudioAddRequestInputParameters(audioAddRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      workflowId: '7582120367239004166',
+      flowMode: 0,
+      spaceId: '7472683780642258985',
+      isDouyin: false,
+      host: 'www.coze.cn'
+    },
+    json: {
+      nodes: [
+        {
+          id: '197307',
+          type: '4',
+          meta: {
+            position: {
+              x: 848.2424768184158,
+              y: -527.5775080344873
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_ADD_AUDIO_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_ADD_AUDIO_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: COZE_ADD_AUDIO_EXTERNAL_DATA.outputs
+          },
+          _temp: {
+            bounds: {
+              x: 668.2424768184158,
+              y: -527.5775080344873,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_ADD_AUDIO_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: 668.2424768184158,
+      y: -527.5775080344873,
       width: 360,
       height: 112
     }

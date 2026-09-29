@@ -1,4 +1,5 @@
 import { http } from '../http';
+import { resolveClientType } from '@shared/network/clientMeta';
 
 const debugLog = (...args) => {
   console.info('[chat.js]', ...args);
@@ -43,18 +44,6 @@ const resolveVersionCode = () => {
     globalThis.process?.env?.npm_package_version
   );
   return appVersion || 'unknown';
-};
-
-const resolveClientType = () => {
-  const platform = pickString(
-    typeof navigator !== 'undefined' ? navigator.userAgentData?.platform : '',
-    typeof navigator !== 'undefined' ? navigator.userAgent : ''
-  ).toLowerCase();
-
-  if (platform.includes('win')) return 'windows';
-  if (platform.includes('mac') || platform.includes('darwin')) return 'mac';
-  if (platform.includes('linux') || platform.includes('x11')) return 'linux';
-  return 'pc';
 };
 
 const getClientRequestMeta = () => {

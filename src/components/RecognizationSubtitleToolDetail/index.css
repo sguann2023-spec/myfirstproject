@@ -312,13 +312,42 @@
 }
 
 .subtitle-audio-waveform svg {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
 }
 
+.subtitle-audio-trim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.subtitle-audio-trim::before,
+.subtitle-audio-trim::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.subtitle-audio-trim::before {
+  left: 0;
+  width: var(--audio-trim-start);
+}
+
+.subtitle-audio-trim::after {
+  left: var(--audio-trim-end);
+  right: 0;
+}
+
 .subtitle-audio-playhead {
   position: absolute;
+  z-index: 3;
   top: 0;
   bottom: 0;
   left: var(--audio-progress);
@@ -352,6 +381,7 @@
   margin: 0;
   opacity: 0;
   cursor: ew-resize;
+  z-index: 4;
 }
 
 .subtitle-audio-waveform input::-webkit-slider-thumb {

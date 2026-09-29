@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileSearch,
+  Music,
   SquareArrowOutUpRight,
   SquarePen,
   Undo2,
@@ -90,6 +91,11 @@ const AUDIO_MENU_ITEMS = [
     id: 'voice-square',
     label: 'AI朗读',
     icon: <img className="chat-panel__tool-menu-icon" src={VoiceSquareIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'audio-add',
+    label: '添加音频',
+    icon: <Music size={14} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
   {
     id: 'voice-clone',

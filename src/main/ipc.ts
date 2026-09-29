@@ -40,7 +40,7 @@ import type {
 import checkDiskSpace from 'check-disk-space'
 import Store from 'electron-store'
 import type { ProxyConfig } from 'electron'
-import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, webContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, screen, session, shell, systemPreferences, webContents } from 'electron'
 import fontList from 'font-list'
 import ImageGenerateServer from './mcpServers/image-generate'
 import VideoGenerateServer from './mcpServers/video-generate'
@@ -151,6 +151,203 @@ type SkillWatcherEntry = {
 const SKILL_WATCH_DEBOUNCE_MS = 150
 const skillWatcherEntries = new Map<string, SkillWatcherEntry>()
 const vectcutStore = new Store({ name: 'vectcut' })
+
+const JY_MGET_ITEM_URL = [
+  'https://lv-api-sinfonlinea.ulikecam.com/artist/v1/effect/mget_item',
+  '?effect_sdk_version=16.4.0',
+  '&channel=jianyingpro_0',
+  '&aid=3704',
+  '&opengl_version=3.3',
+  '&device_id=1053764930506284',
+  '&cpu=12th%20Gen%20Intel(R)%20Core(TM)%20i5-12400F',
+  '&version_name=5.9.0',
+  '&language=zh-Hans',
+  '&region=CN',
+  '&version_code=5.9.0',
+  '&device_platform=windows',
+  '&biz_id=2',
+  '&subdivision_id=',
+  '&gpu=NVIDIA%20GeForce%20RTX%203060',
+  '&version_code_num=329984',
+  '&device_type=x86_64'
+].join('')
+
+const JY_API_HEADERS = {
+  'User-Agent': 'JianyingPro/5.9.0.11632 (Windows 10.0.19045; app_id:3704)',
+  Accept: 'application/json, text/plain, */*',
+  'Content-Type': 'application/json'
+}
+
+const JY_DOWNLOAD_HEADERS = {
+  'User-Agent': JY_API_HEADERS['User-Agent'],
+  Accept: 'audio/*, application/octet-stream, */*'
+}
+
+const cloudAudioUrlCache = new Map<string, Promise<{ url: string; title: string } | null>>()
+const cloudAudioPreviewCache = new Map<string, Promise<{ url: string; title: string; localPath: string; previewSource: string }>>()
+
+function extractCloudAssetUrls(data: unknown): string[] {
+  const urls: string[] = []
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk)
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'item_urls' && Array.isArray(child)) {
+        urls.push(...child.filter((url): url is string => typeof url === 'string'))
+      } else if (['url', 'video_url', 'download_url'].includes(key) && typeof child === 'string') {
+        urls.push(child)
+      } else {
+        walk(child)
+      }
+    }
+  }
+
+  walk(data)
+  return urls.map((url) => url.replace(/\\u0026/g, '&').replace(/\\\//g, '/')).filter((url) => /^https?:\/\//i.test(url))
+}
+
+function extractCloudAssetTitle(data: unknown): string {
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const title = extractCloudAssetTitle(item)
+      if (title) return title
+    }
+    return ''
+  }
+  if (!data || typeof data !== 'object') return ''
+  const record = data as Record<string, unknown>
+  if (typeof record.title === 'string' && record.title.trim()) return record.title.trim()
+  if (typeof record.name === 'string' && record.name.trim()) return record.name.trim()
+  for (const value of Object.values(record)) {
+    const title = extractCloudAssetTitle(value)
+    if (title) return title
+  }
+  return ''
+}
+
+function isSafeCloudAssetUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    const host = parsed.hostname.toLowerCase()
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false
+    if (!host || ['localhost', '127.0.0.1', '::1'].includes(host)) return false
+    if (/^(10\.|192\.168\.|169\.254\.)/.test(host)) return false
+    const private172 = host.match(/^172\.(\d+)\./)
+    return !private172 || Number(private172[1]) < 16 || Number(private172[1]) > 31
+  } catch {
+    return false
+  }
+}
+
+function inferCloudAudioExtension(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const mimeType = (parsed.searchParams.get('mime_type') || '').toLowerCase()
+    if (mimeType.includes('mpeg')) return '.mp3'
+    if (mimeType.includes('wav')) return '.wav'
+    if (mimeType.includes('ogg')) return '.ogg'
+    if (mimeType.includes('video')) return '.mp4'
+  } catch {}
+  const pathname = (() => {
+    try { return new URL(url).pathname } catch { return '' }
+  })()
+  const ext = path.extname(pathname).toLowerCase()
+  return ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.mp4'].includes(ext) ? ext : '.m4a'
+}
+
+function buildCloudAudioFilename(musicId: string, title: string, url: string): string {
+  const safeName = Array.from(title || '')
+    .filter((char) => /[\p{L}\p{N} _-]/u.test(char))
+    .join('')
+    .trim()
+    .slice(0, 80)
+  return `${musicId || 'cloud-audio'}_${safeName || 'audio'}${inferCloudAudioExtension(url)}`
+}
+
+async function downloadCloudAudioPreview(url: string, musicId: string, title: string): Promise<{ localPath: string; previewSource: string }> {
+  const cacheDir = path.join(app.getPath('temp'), 'vectcut-cloud-audio-preview')
+  await fs.promises.mkdir(cacheDir, { recursive: true })
+  const localPath = path.join(cacheDir, buildCloudAudioFilename(musicId, title, url))
+  try {
+    await fs.promises.access(localPath, fs.constants.R_OK)
+    return { localPath, previewSource: pathToFileURL(localPath).toString() }
+  } catch {}
+
+  const response = await net.fetch(url, { method: 'GET', headers: JY_DOWNLOAD_HEADERS })
+  if (!response.ok) throw new Error(`云端音频下载失败: ${response.status}`)
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (!buffer.length) throw new Error('云端音频下载结果为空')
+  await fs.promises.writeFile(localPath, buffer)
+  return { localPath, previewSource: pathToFileURL(localPath).toString() }
+}
+
+async function resolveCloudAudioUrlById(musicId: string): Promise<{ url: string; title: string } | null> {
+  const normalizedId = String(musicId || '').trim()
+  if (!/^\d{10,}$/.test(normalizedId)) return null
+  const bodies = [
+    { items: [{ id: normalizedId, effect_type: 4, source: 3 }] },
+    { items: [{ id: normalizedId, effect_type: 4 }] },
+    { items: [{ effect_id: normalizedId, effect_type: 4, source: 3 }] },
+    { items: [{ effect_id: normalizedId, effect_type: 4 }] }
+  ]
+
+  for (const body of bodies) {
+    try {
+      const response = await fetch(JY_MGET_ITEM_URL, {
+        method: 'POST',
+        headers: JY_API_HEADERS,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(20000)
+      })
+      if (!response.ok) continue
+      const data = await response.json()
+      const url = extractCloudAssetUrls(data).find(isSafeCloudAssetUrl)
+      if (url) return { url, title: extractCloudAssetTitle(data) }
+    } catch (error) {
+      logger.debug(`[CloudAudio] URL resolve failed for ${normalizedId}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return null
+}
+
+async function resolveCloudAudioPreview(payload: unknown): Promise<{ url: string; title: string; localPath: string; previewSource: string }> {
+  const input = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+  const musicId = String(input.musicId || input.music_id || '').trim()
+  const cachedUrl = String(input.url || '').trim()
+  const cachedTitle = String(input.title || '').trim()
+  const cacheKey = `${musicId}:${cachedUrl}`
+  if (cloudAudioPreviewCache.has(cacheKey)) return cloudAudioPreviewCache.get(cacheKey)!
+
+  const promise = (async () => {
+    let audioUrl = ''
+    let title = cachedTitle
+    if (musicId) {
+      if (!cloudAudioUrlCache.has(musicId)) {
+        cloudAudioUrlCache.set(musicId, resolveCloudAudioUrlById(musicId))
+      }
+      const resolved = await cloudAudioUrlCache.get(musicId)
+      if (resolved?.url) {
+        audioUrl = resolved.url
+        title = resolved.title || title
+      }
+    }
+    if (!audioUrl && cachedUrl && isSafeCloudAssetUrl(cachedUrl)) audioUrl = cachedUrl
+    if (!audioUrl) throw new Error('云端音频链接解析失败')
+    const preview = await downloadCloudAudioPreview(audioUrl, musicId, title)
+    return { url: audioUrl, title, ...preview }
+  })()
+
+  cloudAudioPreviewCache.set(cacheKey, promise)
+  try {
+    return await promise
+  } catch (error) {
+    cloudAudioPreviewCache.delete(cacheKey)
+    throw error
+  }
+}
 
 function getCachedVectcutApiKey(): string {
   return String(
@@ -1111,6 +1308,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.File_ResumeWatcher, fileManager.resumeFileWatcher.bind(fileManager))
   ipcMain.handle(IpcChannel.File_BatchUploadMarkdown, fileManager.batchUploadMarkdownFiles.bind(fileManager))
   ipcMain.handle(IpcChannel.File_ShowInFolder, fileManager.showInFolder.bind(fileManager))
+  ipcMain.handle('cloud-audio:resolve-url', async (_event, payload) => resolveCloudAudioPreview(payload))
 
   // pdf
   ipcMain.handle(IpcChannel.Pdf_ExtractText, (_, data: Uint8Array | ArrayBuffer | string) => extractPdfText(data))

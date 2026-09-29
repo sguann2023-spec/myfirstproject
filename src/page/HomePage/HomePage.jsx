@@ -30,6 +30,8 @@ import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
+import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
+import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
@@ -732,6 +734,74 @@ const buildPresetAddRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: presetAddRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildAudioAddRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  audioAddRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `audio_add_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-audio-add-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-elements__add_audio',
+    arguments: audioAddRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-elements__add_audio',
+          name: 'mcp__vectcut__draft-elements__add_audio',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: audioAddRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildSpeechRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  speechRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `speech_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-speech-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__speech__generate_speech',
+    arguments: speechRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__speech__generate_speech',
+          name: 'mcp__vectcut__speech__generate_speech',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: speechRequest,
         status: 'pending'
       }
     }
@@ -5129,6 +5199,12 @@ const HomePage = () => {
     const presetAddRequest = options?.presetAddRequest && typeof options.presetAddRequest === 'object'
       ? { ...options.presetAddRequest }
       : null;
+    const audioAddRequest = options?.audioAddRequest && typeof options.audioAddRequest === 'object'
+      ? { ...options.audioAddRequest }
+      : null;
+    const speechRequest = options?.speechRequest && typeof options.speechRequest === 'object'
+      ? { ...options.speechRequest }
+      : null;
     const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
       ? { ...options.draftExportRequest }
       : null;
@@ -5216,6 +5292,8 @@ const HomePage = () => {
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
+        ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
+        ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5273,6 +5351,8 @@ const HomePage = () => {
         ...(draftModifyRequest ? { draftModifyRequest: normalizeDraftModifyRequestPayload(draftModifyRequest) } : {}),
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
+        ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
+        ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5594,6 +5674,115 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'preset-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'preset-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'preset-add-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (audioAddRequest) {
+        const resolvedAudioAddRequest = normalizeAudioAddRequestPayload(audioAddRequest);
+        const hasAudioSource = Boolean(String(resolvedAudioAddRequest?.audio_url || resolvedAudioAddRequest?.music_id || '').trim());
+        if (!resolvedAudioAddRequest || !String(resolvedAudioAddRequest.draft_id || '').trim() || !hasAudioSource) {
+          throw new Error('audio add request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          audioAddRequest: resolvedAudioAddRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildAudioAddRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            audioAddRequest: resolvedAudioAddRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directAudioAddResult = await window.electronAPI.cherryChatStream.createAudioAddRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          audioAddRequest: resolvedAudioAddRequest,
+        });
+        if (!directAudioAddResult?.ok) {
+          throw new Error(directAudioAddResult?.error || 'audio add request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directAudioAddResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directAudioAddResult?.assistantBlocks) ? directAudioAddResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'audio-add-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'audio-add-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'audio-add-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'audio-add-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (speechRequest) {
+        const resolvedSpeechRequest = normalizeSpeechRequestPayload(speechRequest, text);
+        if (!resolvedSpeechRequest || !String(resolvedSpeechRequest.text || '').trim()) {
+          throw new Error('speech request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          speechRequest: resolvedSpeechRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildSpeechRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            speechRequest: resolvedSpeechRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directSpeechResult = await window.electronAPI.cherryChatStream.createSpeechRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          speechRequest: resolvedSpeechRequest,
+        });
+        if (!directSpeechResult?.ok) {
+          throw new Error(directSpeechResult?.error || 'speech request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directSpeechResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directSpeechResult?.assistantBlocks) ? directSpeechResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'speech-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'speech-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'speech-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'speech-request.complete');
         setChatSending(false);
         return;
       }

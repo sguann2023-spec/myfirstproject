@@ -2,6 +2,7 @@
 // other which should be run before the main process is ready
 // eslint-disable-next-line
 import './bootstrap'
+import './services/network/installMainHttpClient'
 
 import '@main/config'
 

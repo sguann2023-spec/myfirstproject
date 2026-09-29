@@ -1069,6 +1069,7 @@ const VoiceLib = ({
                       activeVoiceTab !== VOICE_TAB_MY &&
                       favoritePendingIdSet.has(String(item?.global_voice_id || '').trim())
                     }
+                    showPrice={false}
                     onDelete={activeVoiceTab === VOICE_TAB_MY ? handleDeleteMyVoice : undefined}
                     onPreviewToggle={handlePreviewToggle}
                     onPreviewEnd={handlePreviewEnd}

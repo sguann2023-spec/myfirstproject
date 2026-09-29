@@ -1,4 +1,5 @@
 import { createPreset as createPresetApi, updatePreset as updatePresetApi } from '../../api/preset';
+import { withNodeRequestClientMeta } from '../../http/nodeRequest';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('UploadPreset');
 const OSS_CONFIG = {
@@ -52,7 +53,7 @@ const nodePut = (urlStr, headers, localFile) =>
       settled = true;
       fn(value);
     };
-    const request = transport.request(urlObj, { method: 'PUT', headers }, (response) => {
+    const request = transport.request(urlObj, withNodeRequestClientMeta(urlStr, { method: 'PUT', headers }), (response) => {
       const chunks = [];
       response.on('data', (c) => chunks.push(c));
       response.on('error', (e) => done(reject, e));

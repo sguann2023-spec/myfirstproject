@@ -440,13 +440,13 @@ describe('AppUpdater', () => {
       Object.defineProperty(process, 'platform', { value: originalPlatform })
     })
 
-    it('should use visible installer on Windows', () => {
+    it('should use silent installer on Windows', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
 
       appUpdater.quitAndInstall()
       vi.runAllTimers()
 
-      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
     })
 
     it('should keep silent installer on non-Windows platforms', () => {

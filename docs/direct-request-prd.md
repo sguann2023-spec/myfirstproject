@@ -23,6 +23,8 @@
 | `draft_modify_request` | 修改草稿 | `draft-management` | `modify_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `text_add_request` | 向草稿添加文本 | `draft-elements` | `add_text` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `preset_add_request` | 向草稿添加预设片段 | `draft-elements` | `add_preset` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `speech_request` | AI朗读/语音合成 | `speech` | `generate_speech` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_inspect` | 查看草稿 | `draft-management` | `query_script` | 否 | 否 | 是 | 是 | 是 | 否 | 否 |
@@ -391,7 +393,47 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
 }
 ```
 
-### 4.5 `draft_download_request`
+### 4.5 `speech_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | AI朗读 / 文本转语音，可只生成音频，也可传草稿参数添加到草稿 |
+| 目标 MCP | `speech.generate_speech` |
+| 是否 direct request | 是 |
+| 是否 direct 回复 | 是 |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://jianyingapi.apifox.cn/387705655e0` |
+| `Coze` 是否可展示 | 是，使用 `workflowId=7582120367239004166`、`apiName=generate_speech` |
+| 前端发送条件 | 必须输入朗读文案；音色来自当前选中的 `voice_id`；当前 AI朗读入口默认发送 `only_tts: true` |
+| 触发工具 | `mcp__vectcut__speech__generate_speech` |
+
+典型 payload：
+
+```json
+{
+  "provider": "minimax",
+  "text": "你好，今天的视频就给大家带来一个福利",
+  "voice_id": "gv_dff83e06e1f2d5ec4d572cec6bae6bdd",
+  "only_tts": true
+}
+```
+
+典型 API 展示：
+
+```bash
+curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "provider": "minimax",
+    "text": "你好，今天的视频就给大家带来一个福利",
+    "voice_id": "gv_dff83e06e1f2d5ec4d572cec6bae6bdd",
+    "only_tts": true
+  }'
+```
+
+### 4.6 `draft_download_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -417,7 +459,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
 }
 ```
 
-### 4.6 `draft_export_request`
+### 4.7 `draft_export_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -443,7 +485,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
 }
 ```
 
-### 4.7 `draft_inspect`
+### 4.8 `draft_inspect`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -471,7 +513,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
 
 ---
 
-### 4.8 `reverse_prompt_request`
+### 4.9 `reverse_prompt_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -525,7 +567,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
 
 ---
 
-### 4.9 `subtitle_recognition_request`
+### 4.10 `subtitle_recognition_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -589,7 +631,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_preset' \
 
 ---
 
-### 4.10 `subtitle_storyboard_request`
+### 4.11 `subtitle_storyboard_request`
 
 | 项目 | 规则 |
 | --- | --- |

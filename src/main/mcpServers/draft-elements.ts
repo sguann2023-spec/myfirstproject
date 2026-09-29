@@ -759,18 +759,24 @@ const TOOLS: Tool[] = [
     'add_audio',
     'Add a single audio layer into a VectCut draft.',
     {
-      audioUrl: { type: 'string', description: 'Required audio URL or local file path alias of audio_url.' },
-      audio_url: { type: 'string', description: 'Required audio URL or local file path.' },
+      audioUrl: { type: 'string', description: 'Optional audio URL or local file path alias of audio_url. Required when music_id is not provided.' },
+      audio_url: { type: 'string', description: 'Optional audio URL or local file path. Required when music_id is not provided.' },
+      musicId: { type: 'string', description: 'Optional music or sound effect material ID alias of music_id.' },
+      music_id: { type: 'string', description: 'Optional music or sound effect material ID. Use this for built-in music/effect library assets.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
       targetStart: { type: 'number', description: 'Optional timeline start alias of target_start.' },
       target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Optional draft ID.' },
+      clientRequestId: {
+        type: 'string',
+        description: 'Optional client request ID used to correlate pending and completed UI updates.'
+      },
       volume: { type: 'number', description: 'Optional volume.' },
       speed: { type: 'number', description: 'Optional playback speed.' },
       track_name: { type: 'string', description: 'Optional track name.' },
-      duration: { type: 'number', description: 'Optional target duration in seconds.' },
+      duration: { type: 'number', description: 'Optional original source duration in seconds.' },
       effect_type: { type: 'string', description: 'Optional audio effect type.' },
       effect_params: { type: 'object', description: 'Optional audio effect params.' },
       width: { type: 'number', description: 'Optional canvas width.' },
@@ -778,7 +784,7 @@ const TOOLS: Tool[] = [
       fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
       fade_out_duratioin: { type: 'number', description: 'Optional fade-out duration.' }
     },
-    ['audio_url']
+    []
   ),
   toolWithArgs(
     'add_batch_audio',
@@ -1099,6 +1105,7 @@ const ARG_ALIASES: Record<string, string> = {
   videoUrls: 'video_urls',
   audioUrl: 'audio_url',
   audioUrls: 'audio_urls',
+  musicId: 'music_id',
   targetStart: 'target_start',
   targetStarts: 'target_starts',
   targetEnds: 'target_ends',
@@ -1150,7 +1157,7 @@ const MUTATION_REQUIRED_FIELDS: Record<string, string[]> = {
   add_batch_video: ['video_urls'],
   modify_video: ['draft_id', 'material_id'],
   remove_video: ['draft_id', 'material_id'],
-  add_audio: ['audio_url'],
+  add_audio: [],
   add_batch_audio: ['audio_urls'],
   modify_audio: ['draft_id', 'material_id'],
   remove_audio: ['draft_id', 'material_id'],
@@ -1177,6 +1184,8 @@ const READONLY_TOOL_NAMES = new Set([
   'get_outro_animation_types',
   'get_combo_animation_types'
 ])
+
+const DRAFT_PREVIEW_TOOL_NAMES = new Set(['add_text', 'add_audio'])
 
 type PendingToken = {
   accessToken: string
@@ -1371,6 +1380,16 @@ class DraftElementsServer {
   }
 
   private ensureRequiredFields(toolName: string, body: Record<string, unknown>) {
+    if (toolName === 'add_audio') {
+      const audioUrl = body.audio_url
+      const musicId = body.music_id
+      const hasAudioUrl = typeof audioUrl === 'string' ? Boolean(audioUrl.trim()) : typeof audioUrl !== 'undefined' && audioUrl !== null
+      const hasMusicId = typeof musicId === 'string' ? Boolean(musicId.trim()) : typeof musicId !== 'undefined' && musicId !== null
+      if (!hasAudioUrl && !hasMusicId) {
+        throw new McpError(ErrorCode.InvalidParams, `'audio_url' or 'music_id' is required for ${toolName}`)
+      }
+    }
+
     const required = MUTATION_REQUIRED_FIELDS[toolName] ?? []
     for (const key of required) {
       const value = body[key]
@@ -1439,7 +1458,7 @@ class DraftElementsServer {
     const body = this.normalizeArgs(toolName, args)
     this.ensureRequiredFields(toolName, body)
 
-    const preview = toolName === 'add_text'
+    const preview = DRAFT_PREVIEW_TOOL_NAMES.has(toolName)
       ? {
           clientRequestId: typeof args.clientRequestId === 'string' && args.clientRequestId.trim()
             ? args.clientRequestId.trim()

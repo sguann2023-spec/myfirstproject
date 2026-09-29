@@ -1,0 +1,193 @@
+.chat-panel__audio-add-detail {
+  flex: 0 0 auto;
+}
+
+.chat-panel__audio-add-tool-icon {
+  color: #3167ff;
+  stroke: currentColor;
+}
+
+.chat-panel__audio-add-close-icon {
+  color: #3167ff;
+}
+
+.chat-panel__audio-add-settings-arrow {
+  color: #000000;
+  font-size: 12px;
+}
+
+.chat-panel__audio-add-detail .chat-panel__text-settings-trigger-icon {
+  color: #000000;
+  stroke: currentColor;
+}
+
+.chat-panel__audio-add-settings-popup {
+  width: 690px;
+}
+
+.chat-panel__audio-add-settings-popup.chat-panel__text-settings-popup--preview-only {
+  width: 220px;
+}
+
+.chat-panel__audio-add-settings-popup .chat-panel__text-settings-layout {
+  height: min(390px, calc(100vh - 64px));
+  min-height: 0;
+}
+
+.chat-panel__audio-add-settings-popup .chat-panel__text-settings-main {
+  flex: 1 1 auto;
+  width: 470px;
+  min-width: 0;
+}
+
+.chat-panel__audio-add-settings-popup .chat-panel__text-settings-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.chat-panel__audio-add-settings-preview {
+  align-items: stretch;
+}
+
+.chat-panel__audio-add-preview-shell {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  box-sizing: border-box;
+  border-radius: 8px;
+}
+
+.chat-panel__audio-add-preview-shell.is-dragging {
+  outline: 2px dashed #3167ff;
+  outline-offset: -6px;
+  background: rgba(49, 103, 255, 0.06);
+}
+
+.chat-panel__audio-add-preview-shell .chat-panel__subtitle-preview {
+  width: 100%;
+  height: 300px;
+}
+
+.chat-panel__audio-add-preview-shell .subtitle-audio-card {
+  width: 100%;
+}
+
+.chat-panel__audio-add-source-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-panel__audio-add-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.chat-panel__audio-add-library-select.ant-select {
+  width: 100%;
+}
+
+.chat-panel__audio-add-library-title {
+  overflow: hidden;
+  color: #1f1f1f;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__audio-add-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 190px;
+  border: 1px dashed #d5dae3;
+  border-radius: 8px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+.chat-panel__audio-add-upload:not(:disabled):hover {
+  border-color: #9ca3af;
+  background: #fafafa;
+}
+
+.chat-panel__audio-add-upload:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.chat-panel__audio-add-upload small {
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.chat-panel__audio-add-settings-panel {
+  padding: 4px 4px 12px;
+}
+
+.chat-panel__audio-add-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chat-panel__audio-add-times .chat-panel__text-settings-row {
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.chat-panel__audio-add-settings-panel .chat-panel__text-effect-section .chat-panel__text-settings-control--size {
+  grid-template-columns: minmax(0, 1fr) 114px;
+}
+
+.chat-panel__audio-add-effect-control {
+  width: 100%;
+}
+
+.chat-panel__audio-add-effect-select.ant-select {
+  width: 65%;
+  min-width: 180px;
+  max-width: 100%;
+}
+
+.chat-panel__audio-add-db-slider {
+  margin-bottom: 14px;
+}
+
+.chat-panel__audio-add-db-slider .ant-slider-rail {
+  background-color: #8f8f8f;
+}
+
+.chat-panel__audio-add-db-slider .ant-slider-track {
+  background-color: #f0f0f0;
+}
+
+.chat-panel__audio-add-db-slider .ant-slider-mark-text {
+  font-size: 11px;
+  color: #888888;
+}
+
+.chat-panel__audio-add-track-preview {
+  margin-top: 12px;
+}
+
+.chat-panel__audio-add-track-preview .pinned-draft-track-view__surface .timeline-editor-action {
+  top: 0 !important;
+  height: 100% !important;
+  padding: 0 !important;
+}

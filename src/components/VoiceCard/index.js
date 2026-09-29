@@ -13,6 +13,7 @@ const getVoiceCardCompareShape = (props = {}) => ({
   provider: String(props?.item?.price_provider || props?.item?.providers || props?.item?.provider || '').trim(),
   priceText: String(props?.item?.price_text || props?.item?.price || '').trim(),
   priceModel: String(props?.item?.price_model || '').trim(),
+  showPrice: props?.showPrice !== false,
   favorited: Boolean(props?.item?.favorited),
   isSelected: Boolean(props?.isSelected),
   isPlaying: Boolean(props?.isPlaying),
@@ -30,6 +31,7 @@ const VoiceCard = ({
   highlightMember = false,
   showDelete = false,
   deleteDisabled = false,
+  showPrice = true,
   onPreviewToggle,
   onPreviewEnd,
   onDelete,
@@ -95,6 +97,7 @@ const VoiceCard = ({
         globalVoiceId={item?.global_voice_id}
         priceText={item?.price_text || item?.price}
         priceModel={item?.price_model}
+        showPrice={showPrice}
         highlightMember={highlightMember}
         showDelete={showDelete}
         deleteDisabled={deleteDisabled}

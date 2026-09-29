@@ -61,7 +61,7 @@ interface PlannedText {
   start: number
   end: number
   text?: string
-  type?: 'text' | 'video'
+  type?: 'text' | 'video' | 'audio'
 }
 
 interface PinnedDraftTrackViewProps {
@@ -292,7 +292,7 @@ export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId
     })
 
   if (plannedText) {
-    const plannedType = plannedText.type === 'video' ? 'video' : 'text'
+    const plannedType = plannedText.type === 'video' || plannedText.type === 'audio' ? plannedText.type : 'text'
     const placement = resolveTextPlacement(plannedText)
     const layer = (plannedType === 'text' ? 15000 : 0) + placement.relativeIndex
     const matching = plannedText.trackMode === 'new' ? undefined : rows.find((row) =>
@@ -304,7 +304,7 @@ export const buildTimelineRows = (script: DraftTrackScriptData, selectedActionId
       start: placement.start,
       end: placement.end,
       effectId: plannedType,
-      meterial_name: String(plannedText.text || '').trim() || (plannedType === 'text' ? '文字' : '预设'),
+      meterial_name: String(plannedText.text || '').trim() || (plannedType === 'text' ? '文字' : plannedType === 'audio' ? '音频' : '预设'),
       flexible: false,
       movable: false,
       planned: true,
@@ -654,7 +654,7 @@ export default function PinnedDraftTrackView({ draftTitle, preview, plannedText,
 
   return (
     <div className="pinned-draft-track-view">
-      {plannedAction?.overlap && <div role="status" className="pinned-draft-track-view__warning">该轨道已有{plannedText?.type === 'video' ? '视频' : '文字'}与计划时间重叠，请调整时间或使用其他轨道名。</div>}
+      {plannedAction?.overlap && <div role="status" className="pinned-draft-track-view__warning">该轨道已有{plannedText?.type === 'video' ? '视频' : plannedText?.type === 'audio' ? '音频' : '文字'}与计划时间重叠，请调整时间或使用其他轨道名。</div>}
       {timelineRows.length > 0 ? (
         <div className="pinned-draft-track-view__surface">
           <Timeline

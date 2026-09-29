@@ -633,12 +633,12 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
       }
       return normalizeLocalPath(remoteUrl);
     };
-    const assignMaterialSourcePath = (material, localSourcePath) => {
-      if (!material || !localSourcePath) {
+    const assignMaterialSourcePath = (material, sourcePath) => {
+      if (!material || !sourcePath) {
         return;
       }
-      material.path = localSourcePath;
-      material.replace_path = localSourcePath;
+      material.path = sourcePath;
+      material.replace_path = sourcePath;
     };
     
     const addTask = (type, material, remoteUrl, localPath, downloadOptions = {}) => {
@@ -648,23 +648,50 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
         }
 
         const localSourcePath = resolveLocalSourcePath(remoteUrl);
-        if (localSourcePath && !downloadOptions.forceDownload) {
-            assignMaterialSourcePath(material, localSourcePath);
+        if (localSourcePath) {
+            if (process.platform !== 'darwin' && !downloadOptions.forceDownload) {
+              assignMaterialSourcePath(material, localSourcePath);
+              const exists = fs.existsSync(localSourcePath);
+              logger.info(`[DLTRACE][Worker] 非 macOS 本地素材直接引用，跳过复制`, {
+                type,
+                materialName: material.material_name || material.name || '',
+                localSourcePath,
+                exists
+              });
+              if (!exists) {
+                logger.warn(`[DLTRACE][Worker] 本地素材路径当前不存在，但仍按本地引用写入草稿`, {
+                  type,
+                  materialName: material.material_name || material.name || '',
+                  localSourcePath
+                });
+              }
+              return;
+            }
+
+            assignMaterialSourcePath(material, localPath);
             const exists = fs.existsSync(localSourcePath);
-            logger.info(`[DLTRACE][Worker] 本地素材直接引用，跳过下载`, {
+            logger.info(`[DLTRACE][Worker] 本地素材将复制到草稿 assets 目录`, {
               type,
               materialName: material.material_name || material.name || '',
               localSourcePath,
+              targetPath: localPath,
               exists
             });
             if (!exists) {
-              logger.warn(`[DLTRACE][Worker] 本地素材路径当前不存在，但仍按本地引用写入草稿`, {
+              logger.warn(`[DLTRACE][Worker] 本地素材路径当前不存在，将在复制阶段报错`, {
                 type,
                 materialName: material.material_name || material.name || '',
                 localSourcePath
               });
             }
-            return;
+            if (localPath && path.resolve(localSourcePath) === path.resolve(localPath)) {
+              logger.info(`[DLTRACE][Worker] 本地素材已在草稿 assets 目录，无需重复复制`, {
+                type,
+                materialName: material.material_name || material.name || '',
+                localPath
+              });
+              return;
+            }
         }
 
         const contextKey = downloadOptions.context || 'default';

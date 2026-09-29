@@ -15,6 +15,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { configManager } from './ConfigManager'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
 import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
+import { mainHttpClient } from './network/MainHttpClient'
 import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('LegacyMainCompatIpc')
@@ -613,11 +614,11 @@ async function downloadViaWindowSession(
         }
       }
 
-      const response = await mainWindow.webContents.session.fetch(targetUrl, {
+      const response = await mainWindow.webContents.session.fetch(targetUrl, mainHttpClient.buildRequestInit(targetUrl, {
         method: 'GET',
         headers: payload?.headers || {},
         signal: abortController.signal
-      })
+      }))
 
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`)
@@ -655,6 +656,8 @@ async function downloadViaWindowSession(
       }
 
       const requestHeaders = await buildRequestHeaders(targetUrl)
+      const requestInit = mainHttpClient.buildRequestInit(targetUrl, { headers: requestHeaders })
+      const normalizedHeaders = Object.fromEntries(new Headers(requestInit.headers || requestHeaders).entries())
       const redirectUrl = await new Promise<string | null>((resolve, reject) => {
         let settled = false
 
@@ -677,7 +680,7 @@ async function downloadViaWindowSession(
             port: parsedUrl.port || undefined,
             path: `${parsedUrl.pathname}${parsedUrl.search}`,
             method: 'GET',
-            headers: requestHeaders
+            headers: normalizedHeaders
           },
           (response) => {
             const statusCode = Number(response.statusCode || 0)
