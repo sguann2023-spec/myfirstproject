@@ -257,7 +257,7 @@ export const buildAudioAddSettingsPrompt = (settings = DEFAULT_AUDIO_ADD_SETTING
   const params = buildAudioAddRequestParams(settings);
   return [
     '音频设置：',
-    `文件：${settings.audioName || params.audio_url || params.music_id}`,
+    `文件：${params.audio_url || params.music_id || settings.audioName}`,
     params.music_id ? `素材ID：${params.music_id}` : '',
     `音量：${params.volume}dB`,
     params.speed ? `变速：${params.speed}x` : '',

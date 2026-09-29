@@ -778,7 +778,11 @@ const TOOLS: Tool[] = [
       track_name: { type: 'string', description: 'Optional track name.' },
       duration: { type: 'number', description: 'Optional original source duration in seconds.' },
       effect_type: { type: 'string', description: 'Optional audio effect type.' },
-      effect_params: { type: 'object', description: 'Optional audio effect params.' },
+      effect_params: {
+        type: 'array',
+        items: { type: 'number' },
+        description: 'Optional audio effect params.'
+      },
       width: { type: 'number', description: 'Optional canvas width.' },
       height: { type: 'number', description: 'Optional canvas height.' },
       fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
@@ -835,7 +839,11 @@ const TOOLS: Tool[] = [
       track_name: { type: 'string', description: 'Optional track name.' },
       duration: { type: 'number', description: 'Optional target duration in seconds.' },
       effect_type: { type: 'string', description: 'Optional audio effect type.' },
-      effect_params: { type: 'object', description: 'Optional audio effect params.' },
+      effect_params: {
+        type: 'array',
+        items: { type: 'number' },
+        description: 'Optional audio effect params.'
+      },
       fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
       fade_out_duratioin: { type: 'number', description: 'Optional fade-out duration.' }
     },

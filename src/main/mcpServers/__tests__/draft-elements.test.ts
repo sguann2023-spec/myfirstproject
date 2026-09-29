@@ -195,12 +195,20 @@ describe('DraftElementsServer', () => {
     expect(Object.keys(toolsByName.get('add_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['music_id', 'musicId', 'speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin', 'clientRequestId'])
     )
+    expect(toolsByName.get('add_audio').inputSchema.properties.effect_params).toMatchObject({
+      type: 'array',
+      items: { type: 'number' }
+    })
     expect(Object.keys(toolsByName.get('add_batch_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['durations', 'speed', 'effect_type', 'effect_params', 'fade_out_duratioin'])
     )
     expect(Object.keys(toolsByName.get('modify_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin'])
     )
+    expect(toolsByName.get('modify_audio').inputSchema.properties.effect_params).toMatchObject({
+      type: 'array',
+      items: { type: 'number' }
+    })
     expect(toolsByName.get('add_effect').inputSchema.required).toEqual(['effect_type', 'effect_category'])
     expect(Object.keys(toolsByName.get('add_effect').inputSchema.properties)).toEqual(
       expect.arrayContaining(['start', 'end', 'track_name', 'params', 'width', 'height'])
