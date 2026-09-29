@@ -42,6 +42,7 @@ const AudioPreview = ({
   showWaveStatus = true,
   trimStart = null,
   trimEnd = null,
+  playbackRate = 1,
 }) => {
   const mediaRef = React.useRef(null);
   const playIntent = React.useRef(false);
@@ -63,6 +64,13 @@ const AudioPreview = ({
   const trimStartProgress = duration > 0 ? Math.max(0, Math.min(normalizedTrimStart / duration, 1)) : 0;
   const trimEndProgress = duration > 0 ? Math.max(0, Math.min(normalizedTrimEnd / duration, 1)) : 1;
   const clock = formatAudioClock(time);
+  const normalizedPlaybackRate = Math.min(16, Math.max(0.0625, Number(playbackRate) || 1));
+
+  React.useEffect(() => {
+    const media = mediaRef.current;
+    if (!media) return;
+    media.playbackRate = normalizedPlaybackRate;
+  }, [normalizedPlaybackRate]);
 
   React.useEffect(() => {
     if (!playing) return undefined;

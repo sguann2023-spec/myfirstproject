@@ -81,6 +81,7 @@ export const DEFAULT_AUDIO_ADD_SETTINGS = {
   previewSource: '',
   mediaDuration: 0,
   volumeDb: 0,
+  playbackSpeed: 1,
   fadeInDuration: 0,
   fadeOutDuration: 0,
   targetStart: 0,
@@ -88,6 +89,7 @@ export const DEFAULT_AUDIO_ADD_SETTINGS = {
   sourceEnd: null,
   trackName: 'audio_track',
   trackMode: 'new',
+  sceneEffectEnabled: false,
   sceneEffectType: '',
   sceneEffectParams: {},
   audioSourceType: 'local',
@@ -104,6 +106,7 @@ const clampNumber = (value, min, max, fallback) => {
   return Math.min(max, Math.max(min, resolved));
 };
 const normalizeTime = (value, fallback = 0) => Math.round(clampNumber(value, 0, 86400, fallback) * 100) / 100;
+const normalizeSpeed = (value, fallback = 1) => Math.round(clampNumber(value, 0.1, 5, fallback) * 100) / 100;
 const normalizeOptionalTime = (value, fallback = null) => {
   if (value === null || value === undefined || String(value).trim() === '') return fallback;
   return normalizeTime(value, fallback ?? 0);
@@ -215,19 +218,22 @@ const resolveAudioTrack = (settings, script) => {
 };
 const resolveAudioTimes = (settings) => {
   const duration = normalizeTime(settings?.mediaDuration, 0);
+  const speed = normalizeSpeed(settings?.playbackSpeed ?? settings?.speed, DEFAULT_AUDIO_ADD_SETTINGS.playbackSpeed);
   const sourceStart = normalizeOptionalTime(settings?.sourceStart, 0);
   const sourceEnd = normalizeOptionalTime(settings?.sourceEnd, duration || null);
   const safeSourceEnd = duration ? Math.min(duration, Math.max(sourceEnd ?? duration, sourceStart)) : sourceEnd;
   const clipDuration = safeSourceEnd !== null ? Math.max(0, safeSourceEnd - sourceStart) : duration;
+  const playbackDuration = normalizeTime(speed > 0 ? clipDuration / speed : clipDuration, clipDuration);
   const targetStart = normalizeTime(settings?.targetStart, 0);
-  return { sourceStart, sourceEnd: safeSourceEnd, targetStart, targetEnd: targetStart + clipDuration, duration, clipDuration };
+  return { sourceStart, sourceEnd: safeSourceEnd, targetStart, targetEnd: targetStart + playbackDuration, duration, clipDuration, playbackDuration, speed };
 };
 
 export const buildAudioAddRequestParams = (settings = DEFAULT_AUDIO_ADD_SETTINGS) => {
   const times = resolveAudioTimes(settings);
   const trackName = String(settings?.trackName || DEFAULT_AUDIO_ADD_SETTINGS.trackName).trim();
   const volumeDb = resolveVolumeDb(settings);
-  const sceneEffectType = String(settings?.sceneEffectType || '').trim();
+  const speed = normalizeSpeed(settings?.playbackSpeed ?? settings?.speed, DEFAULT_AUDIO_ADD_SETTINGS.playbackSpeed);
+  const sceneEffectType = settings?.sceneEffectEnabled ? String(settings?.sceneEffectType || '').trim() : '';
   const sceneEffectParams = buildAudioSceneEffectParams(settings);
   const musicId = String(settings?.musicId || settings?.music_id || settings?.cloudAudioId || '').trim();
   const useMusicId = musicId && String(settings?.audioSourceType || '').trim() !== 'local';
@@ -238,6 +244,7 @@ export const buildAudioAddRequestParams = (settings = DEFAULT_AUDIO_ADD_SETTINGS
     ...(times.sourceEnd !== null && times.sourceEnd > 0 ? { end: times.sourceEnd } : {}),
     ...(times.duration > 0 ? { duration: times.duration } : {}),
     volume: volumeDbToRequestValue(volumeDb),
+    ...(speed !== DEFAULT_AUDIO_ADD_SETTINGS.playbackSpeed ? { speed } : {}),
     fade_in_duration: normalizeTime(settings?.fadeInDuration, 0),
     fade_out_duratioin: normalizeTime(settings?.fadeOutDuration, 0),
     ...(sceneEffectType ? { effect_type: sceneEffectType } : {}),
@@ -253,6 +260,7 @@ export const buildAudioAddSettingsPrompt = (settings = DEFAULT_AUDIO_ADD_SETTING
     `文件：${settings.audioName || params.audio_url || params.music_id}`,
     params.music_id ? `素材ID：${params.music_id}` : '',
     `音量：${params.volume}dB`,
+    params.speed ? `变速：${params.speed}x` : '',
     `淡入淡出：${JSON.stringify({ fade_in_duration: params.fade_in_duration, fade_out_duratioin: params.fade_out_duratioin })}`,
     params.effect_type ? `场景音：${JSON.stringify({ effect_type: params.effect_type, effect_params: params.effect_params })}` : '',
     `时间线：${JSON.stringify({ target_start: params.target_start, start: params.start, end: params.end, duration: params.duration, track_name: params.track_name })}`,
@@ -274,6 +282,8 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
   const [settingsOpen, setSettingsOpen] = React.useState(true);
   const [activeSettingsTab, setActiveSettingsTab] = React.useState('settings');
   const [isBasicSectionExpanded, setIsBasicSectionExpanded] = React.useState(true);
+  const [isSpeedSectionExpanded, setIsSpeedSectionExpanded] = React.useState(true);
+  const [isSceneEffectSectionExpanded, setIsSceneEffectSectionExpanded] = React.useState(false);
   const [settings, setSettings] = React.useState({ ...DEFAULT_AUDIO_ADD_SETTINGS });
   const [previewScript, setPreviewScript] = React.useState(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
@@ -505,10 +515,39 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
     end: times.targetEnd,
   } : undefined;
   const volumeDb = resolveVolumeDb(settings);
-  const selectedSceneEffect = getAudioSceneEffect(settings.sceneEffectType);
+  const selectedSceneEffect = settings.sceneEffectEnabled ? getAudioSceneEffect(settings.sceneEffectType) : null;
+  const playbackSpeed = normalizeSpeed(settings.playbackSpeed ?? settings.speed, DEFAULT_AUDIO_ADD_SETTINGS.playbackSpeed);
+  const playbackDuration = times.playbackDuration || 0;
+  const speedDurationMax = times.clipDuration ? normalizeTime(times.clipDuration / 0.1, 0.1) : 0.1;
+  const speedDurationMin = times.clipDuration ? normalizeTime(times.clipDuration / 5, 0.01) : 0;
+  const volumePercent = ((volumeDb + 60) / 80) * 100;
+  const volumeZeroPercent = 75;
+  const volumeIncludeStart = Math.min(volumePercent, volumeZeroPercent);
+  const volumeIncludeEnd = Math.max(volumePercent, volumeZeroPercent);
   const volumeMarks = React.useMemo(() => ({
     0: '0dB',
   }), []);
+  const speedMarks = React.useMemo(() => ({
+    0.1: '',
+    1: '',
+    2: '',
+    3: '',
+    4: '',
+    5: '',
+  }), []);
+  const handleSpeedChange = (value) => updateSetting({ playbackSpeed: normalizeSpeed(value, playbackSpeed) });
+  const handlePlaybackDurationChange = (value) => {
+    const nextDuration = normalizeTime(value, playbackDuration || speedDurationMin || 0);
+    if (!times.clipDuration || nextDuration <= 0) return;
+    updateSetting({ playbackSpeed: normalizeSpeed(times.clipDuration / nextDuration, playbackSpeed) });
+  };
+  const handleSceneEffectEnabledChange = (checked) => {
+    updateSetting({
+      sceneEffectEnabled: checked,
+      ...(checked && !settings.sceneEffectType ? { sceneEffectParams: getAudioSceneEffectParamDefaults('') } : {}),
+    });
+    if (checked) setIsSceneEffectSectionExpanded(true);
+  };
   const handleSceneEffectChange = (value) => updateSetting({
     sceneEffectType: value,
     sceneEffectParams: getAudioSceneEffectParamDefaults(value),
@@ -532,7 +571,7 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
             <div className="chat-panel__text-settings-row">
               <div className="chat-panel__text-settings-label">音量</div>
               <div className="chat-panel__text-settings-control chat-panel__text-settings-control--size">
-                <Slider min={-60} max={20} step={0.1} marks={volumeMarks} included value={volumeDb} disabled={disabled} className="chat-panel__text-settings-slider chat-panel__audio-add-db-slider" tooltip={{ formatter: (value) => (value <= -60 ? '静音' : `${Number(value || 0).toFixed(1)}dB`) }} onChange={(value) => updateSetting({ volumeDb: normalizeVolumeDb(value, volumeDb) })} />
+                <Slider min={-60} max={20} step={0.1} marks={volumeMarks} included={false} value={volumeDb} disabled={disabled} className="chat-panel__text-settings-slider chat-panel__audio-add-db-slider" style={{ '--audio-volume-include-start': `${volumeIncludeStart}%`, '--audio-volume-include-end': `${volumeIncludeEnd}%` }} tooltip={{ formatter: (value) => (value <= -60 ? '静音' : `${Number(value || 0).toFixed(1)}dB`) }} onChange={(value) => updateSetting({ volumeDb: normalizeVolumeDb(value, volumeDb) })} />
                 <InputNumber min={-60} max={20} step={0.1} precision={1} value={volumeDb} disabled={disabled} className="chat-panel__text-settings-number" controls changeOnWheel formatter={(value) => (Number(value) <= -60 ? '静音' : `${value ?? ''}dB`)} parser={(value) => String(value || '').replace('dB', '').replace('静音', '-60').trim()} onChange={(value) => updateSetting({ volumeDb: normalizeVolumeDb(value, volumeDb) })} />
               </div>
             </div>
@@ -550,10 +589,45 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
                 <InputNumber min={0} max={30} step={0.1} precision={1} value={settings.fadeOutDuration} disabled={disabled} className="chat-panel__text-settings-number" controls changeOnWheel formatter={(value) => `${value ?? ''}s`} parser={(value) => String(value || '').replace('s', '').replace('秒', '').trim()} onChange={(value) => updateSetting({ fadeOutDuration: normalizeTime(value, 0) })} />
               </div>
             </div>
+          </> : null}
+        </section>
+        <section className="chat-panel__text-effect-section" aria-label="变速设置">
+          <div className="chat-panel__text-settings-divider" />
+          <button type="button" className="chat-panel__text-settings-section-header" aria-expanded={isSpeedSectionExpanded} onClick={() => setIsSpeedSectionExpanded((prev) => !prev)}>
+            <span className="chat-panel__text-settings-section-title">变速</span>
+            <ChevronDown className={`chat-panel__text-settings-section-icon ${isSpeedSectionExpanded ? 'is-expanded' : ''}`} aria-hidden="true" />
+          </button>
+          {isSpeedSectionExpanded ? <>
+            <div className="chat-panel__text-settings-row">
+              <div className="chat-panel__text-settings-label">倍数</div>
+              <div className="chat-panel__text-settings-control chat-panel__text-settings-control--size chat-panel__audio-add-speed-control">
+                <Slider min={0.1} max={5} step={0.01} marks={speedMarks} included={false} value={playbackSpeed} disabled={disabled} className="chat-panel__text-settings-slider chat-panel__audio-add-speed-slider" tooltip={{ formatter: (value) => `${Number(value || 1).toFixed(2)}x` }} onChange={handleSpeedChange} />
+                <InputNumber min={0.1} max={5} step={0.01} precision={2} value={playbackSpeed} disabled={disabled} className="chat-panel__text-settings-number" controls changeOnWheel formatter={(value) => `${value ?? ''}x`} parser={(value) => String(value || '').replace('x', '').trim()} onChange={handleSpeedChange} />
+              </div>
+            </div>
+            <div className="chat-panel__text-settings-row">
+              <div className="chat-panel__text-settings-label">时长</div>
+              <div className="chat-panel__text-settings-control chat-panel__text-settings-control--size chat-panel__audio-add-speed-control">
+                <Slider min={speedDurationMin || 0} max={speedDurationMax || 0.1} step={0.01} value={playbackDuration} disabled={disabled || !times.clipDuration} className="chat-panel__text-settings-slider chat-panel__audio-add-duration-slider" tooltip={{ formatter: (value) => `${Number(value || 0).toFixed(2)}s` }} onChange={handlePlaybackDurationChange} />
+                <InputNumber min={speedDurationMin || 0} max={speedDurationMax || 0.1} step={0.01} precision={2} value={playbackDuration} disabled={disabled || !times.clipDuration} className="chat-panel__text-settings-number" controls changeOnWheel formatter={(value) => `${value ?? ''}s`} parser={(value) => String(value || '').replace('s', '').replace('秒', '').trim()} onChange={handlePlaybackDurationChange} />
+              </div>
+            </div>
+          </> : null}
+        </section>
+        <section className="chat-panel__text-effect-section" aria-label="声音效果设置">
+          <div className="chat-panel__text-settings-divider" />
+          <div className="chat-panel__text-effect-header">
+            <input type="checkbox" aria-label="启用声音效果" checked={Boolean(settings.sceneEffectEnabled)} disabled={disabled} onChange={(event) => handleSceneEffectEnabledChange(event.target.checked)} />
+            <button type="button" className="chat-panel__text-settings-section-header" aria-expanded={isSceneEffectSectionExpanded} onClick={() => setIsSceneEffectSectionExpanded((prev) => !prev)}>
+              <span className="chat-panel__text-settings-section-title">声音效果</span>
+              <ChevronDown className={`chat-panel__text-settings-section-icon ${isSceneEffectSectionExpanded ? 'is-expanded' : ''}`} aria-hidden="true" />
+            </button>
+          </div>
+          {isSceneEffectSectionExpanded ? <fieldset className="chat-panel__text-effect-fields" disabled={disabled || !settings.sceneEffectEnabled}>
             <div className="chat-panel__text-settings-row">
               <div className="chat-panel__text-settings-label">场景音</div>
               <div className="chat-panel__text-settings-control chat-panel__audio-add-effect-control">
-                <Select className="chat-panel__text-settings-select chat-panel__audio-add-effect-select" value={settings.sceneEffectType || ''} disabled={disabled} options={AUDIO_SCENE_EFFECT_OPTIONS} onChange={handleSceneEffectChange} />
+                <Select className="chat-panel__text-settings-select chat-panel__audio-add-effect-select" value={settings.sceneEffectType || ''} disabled={disabled || !settings.sceneEffectEnabled} options={AUDIO_SCENE_EFFECT_OPTIONS} onChange={handleSceneEffectChange} />
               </div>
             </div>
             {selectedSceneEffect?.params.map((param) => {
@@ -562,13 +636,13 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
                 <div className="chat-panel__text-settings-row" key={`${selectedSceneEffect.value}-${param.name}`}>
                   <div className="chat-panel__text-settings-label">{param.label}</div>
                   <div className="chat-panel__text-settings-control chat-panel__text-settings-control--size">
-                    <Slider min={0} max={100} step={1} value={value} disabled={disabled} className="chat-panel__text-settings-slider" tooltip={{ formatter: (nextValue) => `${Math.round(Number(nextValue || 0))}` }} onChange={(nextValue) => updateSceneEffectParam(param.name, nextValue, param.defaultValue)} />
-                    <InputNumber min={0} max={100} step={1} precision={0} value={value} disabled={disabled} className="chat-panel__text-settings-number" controls changeOnWheel onChange={(nextValue) => updateSceneEffectParam(param.name, nextValue, param.defaultValue)} />
+                    <Slider min={0} max={100} step={1} value={value} disabled={disabled || !settings.sceneEffectEnabled} className="chat-panel__text-settings-slider" tooltip={{ formatter: (nextValue) => `${Math.round(Number(nextValue || 0))}` }} onChange={(nextValue) => updateSceneEffectParam(param.name, nextValue, param.defaultValue)} />
+                    <InputNumber min={0} max={100} step={1} precision={0} value={value} disabled={disabled || !settings.sceneEffectEnabled} className="chat-panel__text-settings-number" controls changeOnWheel onChange={(nextValue) => updateSceneEffectParam(param.name, nextValue, param.defaultValue)} />
                   </div>
                 </div>
               );
             })}
-          </> : null}
+          </fieldset> : null}
         </section>
       </div>
     </div>
@@ -621,7 +695,7 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
             >
               {!hasSelectedDraft ? <DraftSelect mode="single" disabled={disabled} selectedDraftIds={selectedDraftIds} onSelectedDraftIdsChange={onSelectedDraftIdsChange} placeholder="选择草稿" searchPlaceholder="搜索草稿id" triggerClassName="chat-panel__text-settings-draft-select" popoverClassName="chat-panel__text-settings-draft-select-popover" /> : <div className="chat-panel__audio-add-source-panel">
                 {settings.previewSource ? (
-                  <AudioPreview source={settings.previewSource} file={previewFile} audioData={previewAudioData} name={settings.audioName} removeDisabled={disabled || cloudAudioResolving} onRemove={removeAudioFile} onDurationChange={(duration) => updateSetting({ mediaDuration: duration })} showWaveStatus={false} trimStart={times.sourceStart} trimEnd={times.sourceEnd ?? settings.mediaDuration} />
+                  <AudioPreview source={settings.previewSource} file={previewFile} audioData={previewAudioData} name={settings.audioName} removeDisabled={disabled || cloudAudioResolving} onRemove={removeAudioFile} onDurationChange={(duration) => updateSetting({ mediaDuration: duration })} showWaveStatus={false} trimStart={times.sourceStart} trimEnd={times.sourceEnd ?? settings.mediaDuration} playbackRate={playbackSpeed} />
                 ) : <>
                   <button type="button" className="chat-panel__audio-add-upload" disabled={disabled || cloudAudioResolving} onClick={chooseAudioFile}>
                     <Plus size={24} aria-hidden="true" />

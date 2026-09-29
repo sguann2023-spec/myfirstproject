@@ -165,16 +165,58 @@
   max-width: 100%;
 }
 
+.chat-panel__audio-add-speed-control .ant-slider-mark-text {
+  display: none;
+}
+
+.chat-panel__audio-add-speed-slider .ant-slider-dot {
+  width: 1px;
+  height: 16px;
+  margin-top: -6px;
+  border: 0;
+  border-radius: 0;
+  background: #8f8f8f;
+}
+
+.chat-panel__audio-add-duration-slider .ant-slider-rail {
+  height: 3px;
+  background: repeating-linear-gradient(90deg, #d9d9d9 0 18px, transparent 18px 26px);
+}
+
+.chat-panel__audio-add-duration-slider .ant-slider-track {
+  background: transparent;
+}
+
 .chat-panel__audio-add-db-slider {
+  position: relative;
   margin-bottom: 14px;
 }
 
+.chat-panel__audio-add-db-slider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: var(--audio-volume-include-start, 75%);
+  right: calc(100% - var(--audio-volume-include-end, 75%));
+  z-index: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: #8f8f8f;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 .chat-panel__audio-add-db-slider .ant-slider-rail {
-  background-color: #8f8f8f;
+  background: #f0f0f0;
 }
 
 .chat-panel__audio-add-db-slider .ant-slider-track {
-  background-color: #f0f0f0;
+  background-color: transparent;
+}
+
+.chat-panel__audio-add-db-slider .ant-slider-handle,
+.chat-panel__audio-add-db-slider .ant-slider-mark {
+  z-index: 2;
 }
 
 .chat-panel__audio-add-db-slider .ant-slider-mark-text {
