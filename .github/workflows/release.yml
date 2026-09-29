@@ -7,6 +7,10 @@ on:
     tags:
       - 'v*'
 
+env:
+  VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+  VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
+
 jobs:
 
   # 任务 2A: macOS 构建并上传 macOS 资产到 OSS

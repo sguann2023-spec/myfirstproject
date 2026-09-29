@@ -10,6 +10,10 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
+  VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
+
 concurrency:
   group: dev-build-${{ github.ref }}-${{ github.run_id }}
   cancel-in-progress: false
