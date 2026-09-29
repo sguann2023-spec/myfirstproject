@@ -130,5 +130,6 @@ export const trackEvent = (event, properties = {}) => {
   }
 
   writeQueue(queue);
+  logger.info('Analytics event queued', { event, queueSize: queue.length });
   if (queue.length >= BATCH_SIZE) void flushQueue({ force: true });
 };
