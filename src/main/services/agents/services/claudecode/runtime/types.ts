@@ -13,6 +13,10 @@ export type RuntimeSnapshot = {
     id: string
     providerId: string
     providerType: string
+    contextWindowTokens?: number
+    maxInputTokens?: number
+    maxOutputTokens?: number
+    compactionTriggerTokens?: number
   }
   provider: {
     id: string

@@ -370,6 +370,11 @@ export async function processPiHarnessQuery(input: {
   let terminalTimeoutTriggered = false
   let idleTimeoutTriggered = false
   let externalAbortRequested = abortSignal?.aborted === true
+  const compactionTriggerTokens =
+    runtimeBridge.tokenLimits?.compactionTriggerTokens ??
+    (runtimeBridge.tokenLimits?.maxInputTokens
+      ? Math.floor(runtimeBridge.tokenLimits.maxInputTokens * 0.9)
+      : undefined)
 
   const clearTerminalTimeout = () => {
     if (!terminalTimeoutHandle) return
@@ -1028,6 +1033,28 @@ export async function processPiHarnessQuery(input: {
       status: 'completed',
       cumulativeInputTokens: Number((result as any).usage?.input ?? latestInputTokens)
     })
+
+    if (compactionTriggerTokens && finalUsage.inputTokens >= compactionTriggerTokens) {
+      try {
+        logger.info('[PiQuery] compacting context after token threshold', {
+          sessionId,
+          traceId: architectureContext.traceId,
+          inputTokens: finalUsage.inputTokens,
+          compactionTriggerTokens,
+          maxInputTokens: runtimeBridge.tokenLimits?.maxInputTokens,
+          contextWindowTokens: runtimeBridge.tokenLimits?.contextWindowTokens
+        })
+        await runtimeBridge.harness.compact()
+      } catch (error) {
+        logger.warn('[PiQuery] automatic context compaction failed', {
+          sessionId,
+          traceId: architectureContext.traceId,
+          inputTokens: finalUsage.inputTokens,
+          compactionTriggerTokens,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
 
     emitChunk(
       stream,

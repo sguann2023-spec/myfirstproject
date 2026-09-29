@@ -20,7 +20,11 @@ export const ApiModelSchema = z.object({
   provider: z.string().optional(),
   provider_name: z.string().optional(),
   provider_type: ProviderTypeSchema.optional(),
-  provider_model_id: z.string().optional()
+  provider_model_id: z.string().optional(),
+  context_window_tokens: z.number().int().positive().optional(),
+  max_input_tokens: z.number().int().positive().optional(),
+  max_output_tokens: z.number().int().positive().optional(),
+  compaction_trigger_tokens: z.number().int().positive().optional()
 })
 
 // Response schema for /v1/models

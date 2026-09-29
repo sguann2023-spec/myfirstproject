@@ -9,7 +9,6 @@ import { loggerService } from '@logger'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { replaceDevtoolsFont } from '@main/utils/windowUtil'
 import { app, crashReporter } from 'electron'
-import installExtension, { REACT_DEVELOPER_TOOLS, REDUX_DEVTOOLS } from 'electron-devtools-installer'
 import { isDev, isLinux, isWin } from './constant'
 
 import process from 'node:process'
@@ -274,7 +273,10 @@ if (!app.requestSingleInstanceLock()) {
     await setupAppImageDeepLink()
 
     if (isDev) {
-      installExtension([REDUX_DEVTOOLS, REACT_DEVELOPER_TOOLS])
+      void import('electron-devtools-installer')
+        .then(({ installExtension, REDUX_DEVTOOLS, REACT_DEVELOPER_TOOLS }) =>
+          installExtension([REDUX_DEVTOOLS, REACT_DEVELOPER_TOOLS])
+        )
         .then((name) => logger.info(`Added Extension:  ${name}`))
         .catch((err) => logger.error('An error occurred: ', err))
     }

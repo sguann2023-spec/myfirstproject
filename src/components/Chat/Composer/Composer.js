@@ -30,6 +30,7 @@ import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
 import VideoToolDetail from './VideoToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
+import TTSToolDetail from '../../TTSToolDetail/index';
 import DraftToolDetail, { getDraftToolSendState } from '../../DraftToolDetail/index';
 import DraftDownloadToolDetail, { getDraftDownloadToolSendState } from '../../DraftDownloadToolDetail/index';
 import DraftInspectToolDetail, { getDraftInspectToolSendState } from '../../DraftInspectToolDetail/index';
@@ -645,15 +646,6 @@ const createDigitalHumanSelectedVoiceReferenceAttrs = (
     placeholderText: selectedVoiceLibraryItem?.title || '音色id',
   });
 };
-const createVoiceSquareSelectedVoiceReferenceAttrs = (selectedVoiceLibraryItem = null) =>
-  createFileReferenceAttrs({}, {
-    uid: selectedVoiceLibraryItem?.global_voice_id || '',
-    name: selectedVoiceLibraryItem?.title || '音色',
-    fileType: selectedVoiceLibraryItem?.global_voice_id ? 'audio/mpeg' : '',
-    slotId: VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID,
-    slotLabel: '音色',
-    placeholderText: selectedVoiceLibraryItem?.title || '音色',
-  });
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   if (!isBlobLike(file)) {
     reject(new Error('INVALID_FILE'));
@@ -1046,29 +1038,6 @@ const buildDigitalHumanEditorDocument = (
     content,
   };
 };
-const buildVoiceSquareEditorDocument = (selectedVoiceLibraryItem = null) => ({
-  type: 'doc',
-  content: [
-    {
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: '将说话内容: [' },
-        {
-          type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
-          attrs: {
-            text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
-          },
-        },
-        { type: 'text', text: '] 利用音色 ' },
-        {
-          type: 'fileReference',
-          attrs: createVoiceSquareSelectedVoiceReferenceAttrs(selectedVoiceLibraryItem),
-        },
-        { type: 'text', text: ' 合成语音。' },
-      ],
-    },
-  ],
-});
 const buildAiWriteEditorDocument = (presetId = getDefaultAiWritePresetId()) => {
   const preset = getAiWritePresetById(presetId);
   const fields = getAiWriteFields(presetId);
@@ -1564,116 +1533,6 @@ const getAiWriteTemplateCompletionState = (editor, presetId = getDefaultAiWriteP
     totalCount: fields.length,
     isComplete: fields.length > 0 && filledCount === fields.length,
   };
-};
-const getVoiceSquareComposeParts = (editor) => {
-  if (!editor || editor.isDestroyed) {
-    return {
-      scriptText: '',
-      extraText: '',
-    };
-  }
-
-  const paragraphs = [];
-  editor.state.doc.forEach((node) => {
-    if (node.type?.name === 'paragraph') {
-      paragraphs.push(node);
-    }
-  });
-  if (paragraphs.length === 0) {
-    return {
-      scriptText: '',
-      extraText: '',
-    };
-  }
-
-  let hasScriptPlaceholder = false;
-  const beforeVoiceReferenceLines = [];
-  const afterVoiceReferenceLines = [];
-  let reachedVoiceReference = false;
-  const getChildText = (child) => {
-    if (!child) return '';
-    if (child.type?.name === 'hardBreak') return '\n';
-    if (child.type?.name === 'text') return child.text || '';
-    return getInlineNodeText(child);
-  };
-
-  paragraphs.forEach((paragraph) => {
-    let paragraphBeforeVoiceReferenceText = '';
-    let paragraphAfterVoiceReferenceText = '';
-
-    paragraph.forEach((child) => {
-      if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
-        hasScriptPlaceholder = true;
-        return;
-      }
-      if (child.type?.name === 'fileReference' && child.attrs?.slotId === VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) {
-        reachedVoiceReference = true;
-        return true;
-      }
-
-      const childText = getChildText(child);
-      if (!childText) return true;
-
-      if (reachedVoiceReference) {
-        paragraphAfterVoiceReferenceText += childText;
-      } else {
-        paragraphBeforeVoiceReferenceText += childText;
-      }
-      return true;
-    });
-
-    if (paragraphBeforeVoiceReferenceText) {
-      beforeVoiceReferenceLines.push(paragraphBeforeVoiceReferenceText);
-    }
-    if (paragraphAfterVoiceReferenceText) {
-      afterVoiceReferenceLines.push(paragraphAfterVoiceReferenceText);
-    }
-  });
-
-  if (hasScriptPlaceholder) {
-    return {
-      scriptText: '',
-      extraText: '',
-    };
-  }
-
-  const scriptText = beforeVoiceReferenceLines
-    .join('\n')
-    .replace(/^将说话内容[:：]\s*\[/, '')
-    .replace(/\]\s*利用音色\s*$/, '')
-    .trim();
-  const extraText = afterVoiceReferenceLines
-    .join('\n')
-    .replace(/^\s*合成语音。?\s*/, '')
-    .trim();
-
-  return {
-    scriptText,
-    extraText,
-  };
-};
-const syncVoiceSquareReferenceNode = (editorInstance, selectedVoiceLibraryItem) => {
-  if (!editorInstance || editorInstance.isDestroyed) return;
-
-  const nextAttrs = createVoiceSquareSelectedVoiceReferenceAttrs(selectedVoiceLibraryItem);
-  let changed = false;
-  const transaction = editorInstance.state.tr;
-
-  editorInstance.state.doc.descendants((node, pos) => {
-    if (node.type?.name !== 'fileReference') return true;
-    if (node.attrs?.slotId !== VOICE_SQUARE_SELECTED_VOICE_ID_SLOT_ID) return true;
-
-    transaction.setNodeMarkup(pos, undefined, {
-      ...node.attrs,
-      ...nextAttrs,
-    });
-    changed = true;
-    return true;
-  });
-
-  if (changed) {
-    editorInstance.view.dispatch(transaction);
-  }
 };
 const getInlineNodeText = (node) => {
   if (!node) return '';
@@ -2485,6 +2344,8 @@ const Composer = ({
           ? ''
         : activeTool === 'image-pan'
           ? '描述你想要的图片，或者选择本地图片后修改'
+        : activeTool === 'voice-square'
+          ? '请输入文案'
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
             : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
@@ -4141,13 +4002,10 @@ const Composer = ({
         .filter((item) => String(item?.fileType || '').toLowerCase().startsWith('image/'))
         .map((item) => buildAttachmentReferenceText(item))
       : [];
-    const voiceSquareComposeParts = activeTool === 'voice-square'
-      ? getVoiceSquareComposeParts(editor)
-      : null;
     const text = activeTool === 'text-add'
       ? textAddInput
       : activeTool === 'voice-square'
-      ? voiceSquareComposeParts?.scriptText || ''
+      ? serializedMessage.text || String(input || '').trim()
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
     if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && !combined) return;
@@ -4165,10 +4023,7 @@ const Composer = ({
     });
     const nextMessage =
       activeTool === 'voice-square'
-        ? [
-          `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`,
-          voiceSquareComposeParts?.extraText || '',
-        ].filter(Boolean).join(' ')
+        ? `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`
         : activeTool === 'draft'
           ? [
             `请创建一个新草稿，分辨率 ${selectedDraftResolution}。`,
@@ -4354,11 +4209,6 @@ const Composer = ({
       selectedDigitalHumanAvatar
     );
   }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
-
-  React.useEffect(() => {
-    if (activeTool !== 'voice-square') return;
-    syncVoiceSquareReferenceNode(editor, selectedVoiceLibraryItem);
-  }, [activeTool, editor, selectedVoiceLibraryItem]);
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4554,10 +4404,9 @@ const Composer = ({
     setActiveTool(nextTool);
     if (!editor || editor.isDestroyed) return;
     if (nextTool === 'voice-square') {
-      editor.commands.setContent(
-        buildVoiceSquareEditorDocument(selectedVoiceLibraryItem),
-        false
-      );
+      latestInputRef.current = '';
+      setInput('');
+      editor.commands.clearContent();
       editor.commands.focus('end');
       return;
     }
@@ -4712,10 +4561,17 @@ const Composer = ({
                       onSelectedDraftIdsChange={setSelectedDraftModifyIds}
                     />
                   ) : activeTool === 'voice-square' ? (
+                    <TTSToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+                    />
+                  ) : activeTool === 'voice-clone' ? (
                     <VoiceSquareToolDetail
                       disabled={sessionSending}
                       onBack={handleToolDetailBack}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+                      cloneOnly
                     />
                   ) : activeTool === 'digital-human' ? (
                     <DigitalHumanToolDetail

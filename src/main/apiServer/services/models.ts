@@ -10,6 +10,15 @@ type ParsedModelItem = {
   providerId?: string
   providerType?: string
   providerName?: string
+  contextWindowTokens?: number
+  maxInputTokens?: number
+  maxOutputTokens?: number
+  compactionTriggerTokens?: number
+}
+
+const parsePositiveInteger = (value: unknown): number | undefined => {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
 const normalizeModelItem = (item: unknown): ParsedModelItem | undefined => {
@@ -28,7 +37,11 @@ const normalizeModelItem = (item: unknown): ParsedModelItem | undefined => {
     name: String(record.name || record.display_name || modelId).trim() || modelId,
     providerId: String(record.provider_id || '').trim() || undefined,
     providerType: String(record.provider_type || '').trim() || undefined,
-    providerName: String(record.provider_name || '').trim() || undefined
+    providerName: String(record.provider_name || '').trim() || undefined,
+    contextWindowTokens: parsePositiveInteger(record.context_window_tokens),
+    maxInputTokens: parsePositiveInteger(record.max_input_tokens),
+    maxOutputTokens: parsePositiveInteger(record.max_output_tokens),
+    compactionTriggerTokens: parsePositiveInteger(record.compaction_trigger_tokens)
   }
 }
 
@@ -136,7 +149,11 @@ export class ModelsService {
           provider: providerId,
           provider_name: providerName,
           provider_type: providerType,
-          provider_model_id: entry.modelId
+          provider_model_id: entry.modelId,
+          context_window_tokens: entry.contextWindowTokens,
+          max_input_tokens: entry.maxInputTokens,
+          max_output_tokens: entry.maxOutputTokens,
+          compaction_trigger_tokens: entry.compactionTriggerTokens
         }
       })
 

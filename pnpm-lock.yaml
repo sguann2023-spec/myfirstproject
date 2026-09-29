@@ -374,9 +374,6 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@libsql/client@0.17.3)(@opentelemetry/api@1.9.1)
-      electron-devtools-installer:
-        specifier: ^4.0.0
-        version: 4.0.0
       electron-log:
         specifier: ^5.4.3
         version: 5.4.3
@@ -825,6 +822,9 @@ importers:
       electron-builder:
         specifier: ^26.0.12
         version: 26.8.1(electron-builder-squirrel-windows@26.8.1)
+      electron-devtools-installer:
+        specifier: ^4.0.0
+        version: 4.0.0
       electron-vite:
         specifier: ^5.0.0
         version: 5.0.0(@swc/core@1.15.33)(vite@7.3.3(@types/node@25.6.2)(jiti@2.7.0)(less@4.9.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.4))

@@ -179,7 +179,11 @@ function buildRuntimeSnapshot(input: {
     model: {
       id: runtimeEnvironment.modelInfo.modelId,
       providerId: provider?.id ?? '',
-      providerType: provider?.type ?? ''
+      providerType: provider?.type ?? '',
+      contextWindowTokens: runtimeEnvironment.modelTokenLimits?.contextWindowTokens,
+      maxInputTokens: runtimeEnvironment.modelTokenLimits?.maxInputTokens,
+      maxOutputTokens: runtimeEnvironment.modelTokenLimits?.maxOutputTokens,
+      compactionTriggerTokens: runtimeEnvironment.modelTokenLimits?.compactionTriggerTokens
     },
     provider: {
       id: provider?.id ?? '',

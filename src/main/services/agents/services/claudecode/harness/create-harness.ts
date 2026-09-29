@@ -94,6 +94,7 @@ type PiRuntimeBridge = {
   models: PiMutableModels
   provider: PiProvider
   model: PiModel
+  tokenLimits?: ClaudeRuntimeEnvironment['modelTokenLimits']
   harness: PiAgentHarness
   tools: PiAgentHarnessTool[]
   mcpClients: PiMcpClientBridge[]
@@ -1548,6 +1549,8 @@ async function buildPiRuntimeBridge(input: {
     providerApiType === 'anthropic-messages'
       ? String(runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
       : String(runtimeEnvironment.modelInfo.provider?.apiKey || runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
+  const contextWindowTokens = runtimeEnvironment.modelTokenLimits?.contextWindowTokens ?? 200_000
+  const maxOutputTokens = Math.min(runtimeEnvironment.modelTokenLimits?.maxOutputTokens ?? 32_000, 32_000)
 
   const rawApiModule =
     providerApiType === 'openai-completions'
@@ -1584,6 +1587,10 @@ async function buildPiRuntimeBridge(input: {
           ? 'provider_api_host'
           : 'empty',
     hasRuntimeGatewayToken: Boolean(runtimeGatewayToken),
+    contextWindowTokens,
+    maxInputTokens: runtimeEnvironment.modelTokenLimits?.maxInputTokens,
+    maxOutputTokens,
+    compactionTriggerTokens: runtimeEnvironment.modelTokenLimits?.compactionTriggerTokens,
     expectedPathSuffix: requestTarget.expectedPathSuffix,
     expectedRequestUrl: requestTarget.expectedRequestUrl
   })
@@ -1629,8 +1636,8 @@ async function buildPiRuntimeBridge(input: {
           cacheRead: 0,
           cacheWrite: 0
         },
-        contextWindow: 200_000,
-        maxTokens: 32_000
+        contextWindow: contextWindowTokens,
+        maxTokens: maxOutputTokens
       }
     ],
     api: apiModule as any
@@ -1771,6 +1778,7 @@ async function buildPiRuntimeBridge(input: {
     models,
     provider,
     model,
+    tokenLimits: runtimeEnvironment.modelTokenLimits,
     harness,
     tools,
     mcpClients: mcpTools.clients

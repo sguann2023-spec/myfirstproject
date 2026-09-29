@@ -235,6 +235,11 @@ const parseBooleanFlag = (value) => {
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
 };
 
+const parsePositiveInteger = (value) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
 const parseModelItems = (payload) => {
   const candidates = [
     payload?.model_items,
@@ -270,6 +275,10 @@ const parseModelItems = (payload) => {
         provider_model_id: String(item.provider_model_id || '').trim(),
         id: String(item.id || '').trim(),
         read_image: parseBooleanFlag(item.read_image ?? item.readImage),
+        context_window_tokens: parsePositiveInteger(item.context_window_tokens),
+        max_input_tokens: parsePositiveInteger(item.max_input_tokens),
+        max_output_tokens: parsePositiveInteger(item.max_output_tokens),
+        compaction_trigger_tokens: parsePositiveInteger(item.compaction_trigger_tokens),
         price_text: String(item.price_text || '').trim(),
         price_multiplier_text: String(item.price_multiplier_text || '').trim(),
         pricing: item.pricing && typeof item.pricing === 'object' && !Array.isArray(item.pricing)

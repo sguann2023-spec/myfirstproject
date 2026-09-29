@@ -34,7 +34,7 @@ export default defineConfig({
       sourcemap: isDev,
       rollupOptions: {
         input: resolve('src/main/index.ts'),
-        external: ['electron', ...Object.keys(pkg.dependencies)],
+        external: ['electron', 'electron-devtools-installer', ...Object.keys(pkg.dependencies)],
         output: {
           entryFileNames: 'index.js'
         },

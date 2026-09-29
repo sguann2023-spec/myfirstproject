@@ -767,11 +767,25 @@ const buildProvidersState = (modelIds = [], apiKey = '') => {
   return { llm: { providers: Array.from(providersMap.values()) } };
 };
 
-const toModelOption = (model_id, name, icon = '', readImage = false, pricing = undefined, priceText = '', description = '', badges = []) => ({
+const toModelOption = (
+  model_id,
+  name,
+  icon = '',
+  readImage = false,
+  pricing = undefined,
+  priceText = '',
+  description = '',
+  badges = [],
+  tokenLimits = {}
+) => ({
   value: model_id,
   label: name,
   icon,
   read_image: Boolean(readImage),
+  context_window_tokens: tokenLimits.context_window_tokens,
+  max_input_tokens: tokenLimits.max_input_tokens,
+  max_output_tokens: tokenLimits.max_output_tokens,
+  compaction_trigger_tokens: tokenLimits.compaction_trigger_tokens,
   pricing: pricing && typeof pricing === 'object' ? { ...pricing } : undefined,
   price_text: String(priceText || '').trim(),
   description: String(description || '').trim(),
@@ -2673,7 +2687,8 @@ const HomePage = () => {
                 item?.pricing,
                 item?.price_text,
                 item?.description,
-                item?.badges
+                item?.badges,
+                item
               );
             })
             .filter(Boolean)

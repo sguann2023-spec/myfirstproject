@@ -125,6 +125,7 @@ const pickRandomCloneAvatar = () =>
 const VoiceSquareToolDetail = ({
   disabled = false,
   onBack,
+  cloneOnly = false,
   children = null,
   onSelectedVoiceChange = null,
   onVoiceCloneUpload = null,
@@ -147,8 +148,8 @@ const VoiceSquareToolDetail = ({
   const cloneAutoStopTriggeredRef = React.useRef(false);
   const cloneCancelEditNameRef = React.useRef(false);
   const voiceLib = useVoiceLib({ onSelectedVoiceChange });
-  const [activeDetailTool, setActiveDetailTool] = React.useState(null);
-  const [voiceCloneDialogOpen, setVoiceCloneDialogOpen] = React.useState(false);
+  const [activeDetailTool, setActiveDetailTool] = React.useState(cloneOnly ? 'voice-clone' : null);
+  const [voiceCloneDialogOpen, setVoiceCloneDialogOpen] = React.useState(cloneOnly);
   const [cloneRecordingActive, setCloneRecordingActive] = React.useState(false);
   const [cloneRecordSeconds, setCloneRecordSeconds] = React.useState(0);
   const [cloneSelectedFile, setCloneSelectedFile] = React.useState(null);
@@ -213,7 +214,10 @@ const VoiceSquareToolDetail = ({
   const handleVoiceCloneDialogClose = React.useCallback(() => {
     setVoiceCloneDialogOpen(false);
     setActiveDetailTool((prev) => (prev === 'voice-clone' ? null : prev));
-  }, []);
+    if (cloneOnly) {
+      onBack && onBack();
+    }
+  }, [cloneOnly, onBack]);
 
   const handleVoiceCloneDialogOpen = React.useCallback(() => {
     setVoiceCloneDialogOpen(true);

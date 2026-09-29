@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import { loggerService } from '@logger'
 import { config as apiConfigService } from '@main/apiServer/config'
+import { modelsService } from '@main/apiServer/services/models'
 import { validateModelId } from '@main/apiServer/utils'
 import { isWin } from '@main/constant'
 import { getProxyEnvironment } from '@main/services/proxy/nodeProxy'
@@ -21,6 +22,12 @@ type RuntimeApiConfig = Awaited<ReturnType<typeof apiConfigService.get>>
 export type ClaudeRuntimeEnvironment = {
   cwd: string
   modelInfo: ValidatedModelInfo
+  modelTokenLimits?: {
+    contextWindowTokens?: number
+    maxInputTokens?: number
+    maxOutputTokens?: number
+    compactionTriggerTokens?: number
+  }
   apiConfig: RuntimeApiConfig
   env: Record<string, string>
 }
@@ -101,6 +108,29 @@ export async function buildClaudeRuntimeEnvironment(input: {
   const provider = modelInfo.provider
   if (!provider) {
     throw new Error('Provider not found for model')
+  }
+
+  let modelTokenLimits: ClaudeRuntimeEnvironment['modelTokenLimits']
+  try {
+    const listedModels = await modelsService.getModels({})
+    const remoteModel = listedModels.data.find(
+      (item) =>
+        item.id === runtimeModel ||
+        (item.provider === provider.id && item.provider_model_id === modelInfo.modelId)
+    )
+    if (remoteModel) {
+      modelTokenLimits = {
+        contextWindowTokens: remoteModel.context_window_tokens,
+        maxInputTokens: remoteModel.max_input_tokens,
+        maxOutputTokens: remoteModel.max_output_tokens,
+        compactionTriggerTokens: remoteModel.compaction_trigger_tokens
+      }
+    }
+  } catch (error) {
+    logger.warn('Failed to resolve model token limits; using runtime defaults', {
+      model: runtimeModel,
+      error: error instanceof Error ? error.message : String(error)
+    })
   }
 
   const isAzureOpenAI = provider.type === 'azure-openai'
@@ -247,6 +277,7 @@ export async function buildClaudeRuntimeEnvironment(input: {
   return {
     cwd,
     modelInfo,
+    modelTokenLimits,
     apiConfig,
     env
   }
