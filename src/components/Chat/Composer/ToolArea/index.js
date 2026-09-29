@@ -125,7 +125,18 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
 
   React.useEffect(() => {
     trackEvent('一级_新草稿_展示', { source: 'composer_tool_area' });
+    trackEvent('一级_音频_展示', { source: 'composer_tool_area', tool: 'voice-square' });
   }, []);
+
+  React.useEffect(() => {
+    if (!audioMenuOpen) return;
+    AUDIO_MENU_ITEMS.forEach((item) => {
+      trackEvent(`二级_${item.label}_展示`, {
+        source: 'composer_audio_menu',
+        menu_item: item.id,
+      });
+    });
+  }, [audioMenuOpen]);
 
   const closeOtherMenus = (activeMenu) => {
     if (activeMenu !== 'draft') setDraftMenuOpen(false);
@@ -194,7 +205,7 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
         title={label}
         disabled={disabled}
         onClick={() => {
-          trackEvent(`${label}_点击`, { source: 'composer_tool_area', tool: id });
+          trackEvent(id === 'voice-square' && label === '音频' ? '一级_音频_点击' : `${label}_点击`, { source: 'composer_tool_area', tool: id });
           onSelect && onSelect(id);
         }}
       >
