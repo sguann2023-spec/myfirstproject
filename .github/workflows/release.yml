@@ -7,6 +7,10 @@ on:
     tags:
       - 'v*'
 
+env:
+  VITE_POSTHOG_API_KEY: phc_sb72MdD7f2PAkRTrenhse2k8J4swzDtsVa8FhMUGqP22
+  VITE_POSTHOG_HOST: https://app.posthog.com
+
 jobs:
 
   # 任务 2A: macOS 构建并上传 macOS 资产到 OSS
