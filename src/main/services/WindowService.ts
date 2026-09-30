@@ -183,7 +183,35 @@ export class WindowService {
 
   private setupMainWindowMonitor(mainWindow: BrowserWindow) {
     mainWindow.webContents.on('render-process-gone', (_, details) => {
-      logger.error(`Renderer process gone with: ${JSON.stringify(details)}`)
+      let rendererPid = 0
+      let processMetrics: Array<Record<string, unknown>> = []
+      try {
+        rendererPid = mainWindow.webContents.getOSProcessId()
+        processMetrics = app.getAppMetrics()
+          .filter((metric) => metric.pid === rendererPid || metric.type === 'GPU' || metric.type === 'Utility')
+          .map((metric) => ({
+            pid: metric.pid,
+            type: metric.type,
+            name: metric.name,
+            serviceName: metric.serviceName,
+            memory: metric.memory
+          }))
+      } catch (error) {
+        logger.warn('Failed to collect renderer crash context', error as Error)
+      }
+      const crashContext = {
+        ...details,
+        rendererPid,
+        url: mainWindow.webContents.getURL(),
+        isVisible: mainWindow.isVisible(),
+        isFocused: mainWindow.isFocused(),
+        isLoading: mainWindow.webContents.isLoading(),
+        windowBounds: mainWindow.getBounds(),
+        processMetrics,
+        appUptimeSeconds: Math.round(process.uptime())
+      }
+      logger.error(`Renderer process gone with context: ${JSON.stringify(crashContext)}`)
+      crashReportService.record('render-process-gone', crashContext, details.reason === 'crashed' || details.reason === 'oom')
       if (app.isQuitting || mainWindow.isDestroyed()) {
         crashReportService.record('renderer-recovery-action', {
           action: 'skip',
@@ -199,7 +227,11 @@ export class WindowService {
       const lastCrashTime = this.lastRendererProcessCrashTime
       this.lastRendererProcessCrashTime = currentTime
       if (currentTime - lastCrashTime > 60 * 1000) {
-        crashReportService.record('renderer-recovery-action', { action: 'reload', windowId: mainWindow.id })
+        crashReportService.record('renderer-recovery-action', {
+          action: 'reload',
+          windowId: mainWindow.id,
+          elapsedSincePreviousCrashMs: lastCrashTime ? currentTime - lastCrashTime : null
+        })
         // Wait until Chromium has finished tearing down the failed renderer before
         // asking it to create a replacement. Reloading from inside
         // `render-process-gone` can race renderer teardown on Windows.
@@ -208,7 +240,12 @@ export class WindowService {
           mainWindow.webContents.reload()
         }, 100)
       } else {
-        crashReportService.record('renderer-recovery-action', { action: 'exit', exitCode: 1, windowId: mainWindow.id }, true)
+        crashReportService.record('renderer-recovery-action', {
+          action: 'exit',
+          exitCode: 1,
+          windowId: mainWindow.id,
+          elapsedSincePreviousCrashMs: currentTime - lastCrashTime
+        }, true)
         // 如果小于1分钟，则退出应用, 可能是连续crash，需要退出应用
         app.exit(1)
       }
