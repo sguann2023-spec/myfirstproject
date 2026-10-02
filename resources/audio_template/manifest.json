@@ -1,0 +1,427 @@
+{
+  "version": "20261002150400",
+  "updatedAt": "2026-10-02T15:04:00Z",
+  "templateCount": 35,
+  "templates": [
+    {
+      "id": "client_audio_template_001",
+      "index": 1,
+      "category": "文本生成",
+      "subcategory": "港片黑帮：钟 sir 的深夜来电",
+      "description": "双人谍战电话对话，带环境音与悬疑音乐",
+      "prompt": "男子 1 是中青年男性，台湾口音，嗓音低沉，浑厚，富有磁性，气泡音，成熟\n男子 2 是中年男性，台湾口音，嗓音沉稳，沙哑，成熟，稳重\n\n\n先是一声手机震动的声音，环境中伴随着持续的鸟鸣声。音乐以马林巴为主奏乐器，加入 pad 铺底、弦乐组、合成器 lead、电贝斯、打击乐，整体情绪紧张悬疑。\n男子 1 用严肃且带有质问的语气说道：“钟 sir，你是什么时候被收买的？”\n男子 2 通过电话回应，声音经过处理，显得有些遥远和失真，他用一种平静而无奈的语气说：“既然你都知道了，我也没有什么好隐瞒的。阿标手上有些证据，搭配上李勋的人证，足够让青龙帮垮台。”\n男子 1 继续追问，语气中带着一丝怀疑和困惑：“你现在说这些，是要我继续相信你？”\n男子 2 在电话里以一种告诫的口吻说：“信不信都无所谓。我打来只是想提醒你，阿标已经失去耐心，最好待在男公馆别乱跑。在那里，青龙帮的人，不敢轻举妄动。”\n男子 1 简短地问道：“为什么？”\n男子 2 解释道：“据说跟青龙帮的帮规有关，细节我也不清楚。只知道男公馆对他们来说，是个不能动手的地方。”\n男子 1 的语气变得更加尖锐和不解，他说：“我就当你被阿标收买了，那你打这通电话的意图是什么？不是应该希望李峋落入他们手里吗？”\n男子 2 的声音听起来充满了无力感和宿命感，他缓缓说道：“有些事，不是我能选择的。宇川，这是我唯一能做的。保护好李峋，也保重自己。” 然后出现一阵轻微的汽车行驶声，接着是一声轻微的汽车刹车声，随后是两声高跟鞋走路脚步声。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/suspense-crime/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/suspense-crime/generated.wav"
+    },
+    {
+      "id": "client_audio_template_002",
+      "index": 2,
+      "category": "文本生成",
+      "subcategory": "宫廷秘闻：太后的试药之令",
+      "description": "宫廷权谋多角色场景，氛围沉闷紧张",
+      "prompt": "俘虏 是大妈，朴素，略带沙哑，嗓音亲和\n太后 是 55 岁左右的中年女性，嗓音端庄优雅，威严\n御医 是中年男性，浑厚，略微沙哑，响亮，谦逊\n中年男性 是浑厚，深沉，势力\n卫兵首领 是青年男性，严肃，清晰有力，凶狠冷酷\n\n\n音乐开头由铜管组乐器重低音引入并伴随合成器跳音和钢鼓，随后合成器演奏主旋律。音乐由铜管组乐器演奏主旋律并穿插定音鼓，竖琴和手鼓，弦乐组的演奏和定音鼓渐强，镲片点缀，整体音乐氛围沉闷，紧张。\n俘虏用极其惊恐和绝望的语气尖叫：“不要啊！” 其中穿插着男性用力的声音类似于 “嗯”。随后俘虏发出了痛苦吞咽声音：“啊…… 嗯嗯。” 伴随着一声金属质感类似刀光 “唰” 的特效音。\n太后用缓慢、冷酷且充满命令的口吻说道：“把头抬起来。我得记住你现在的样子。”\n太后继续用命令的语气清晰地说：“御医，诊断她的身体状况，详细记录下来。试药后，好做个比对。” 伴随着一声轻微的布鞋在木台阶上走路的脚步声。\n御医用恭敬、顺从的语气回应：“遵旨。” 俘虏声音颤抖和磕巴，带着恐慌和疑问的语气说：“试药？试试什么药啊？” 伴随着一阵持续轻微的布鞋走路脚步声。\n中年男性用严厉、呵斥且不耐烦的语气说：“放肆！太后面前，有你说话的份儿吗？快点儿！”\n俘虏发出几声惊呼和抗议：“哎！哎！干什么？” 期间伴随着恐惧的喘息声。\n句首伴随着两声轻微的布鞋走路脚步声，然后是两声抓住衣服的摩擦声。\n紧接着俘虏发出一连串恐慌的喊叫、喘息和挣扎的呻吟声，语气充满恐惧和困惑：“干什么？哦～干什么？啊啊啊！啊干什么？啊！” 伴随着一声空旷的鼓槌敲击声音效。\n随后语调放低，缓和地喘气：“啊！啊！啊！啊！”\n太后用好奇的语气问道：“怎么样？”\n御医用正式、专业的汇报口吻大声说：“启禀太后，此女身体状况，除心跳快了点儿之外，其余完好。”\n太后用一种分析的语气，带着一丝玩味或满意说道：“心跳得快，感情是被吓的。” 句中夹杂着两声重击鼓点的特效音。\n随后太后用略带不耐烦的语气下令：“得了，快试药吧！” 伴随着一声快速沉闷的鼓槌敲击音。\n俘虏绝望地大喊，声音因激动有些沙哑，反抗地说：“我不！我不要做试验品！我是人！你们干嘛要这样对待我！”\n随后一边挣扎一边尖叫：“啊，我不！啊！” 句尾伴随着几声布鞋急促的跑步声。\n其中穿插着卫兵们错落有力的声音 “抓住她！在这里…” 场面有些混乱。\n伴随着一阵连续重力度抓衣服的摩擦声，然后是几声激烈的打斗声。\n俘虏的抗拒声 “啊！”。\n先是一声人跳跃飞起落地衣服发出的类似 “呼” 的摩擦声，然后又是一声将人抓住的重力度衣服摩擦声。\n俘虏继续绝望地哀嚎：“我不！”\n卫兵首领用训斥、轻蔑和残忍的语气说：“做太后的肉身试验，那是你的福分。非但不懂得珍惜，还想抗拒逃跑！”\n紧接着卫兵首领大声命令：“来啊，把她绑起来！” 伴随着一声重力度的衣服摩擦声。\n其他男性卫兵大声响亮地回应：“是！是！” 伴随着一阵快速的布鞋跑步脚步声，和一声重击鼓的特效音。\n俘虏绝望地哭泣、哀求，声音充满痛苦：“太后！求你饶了我吧！求你饶了我吧！”\n太后用冰冷、不容置疑的最终命令说道：“试药。”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/palace-drug-trial/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/palace-drug-trial/generated.wav"
+    },
+    {
+      "id": "client_audio_template_003",
+      "index": 3,
+      "category": "文本生成",
+      "subcategory": "神话逆袭：须菩提怒闯灵山",
+      "description": "须菩提怒闯灵山群戏，史诗感强",
+      "prompt": "六耳猕猴 是青年男性，嗓音偏尖细，沙哑，张扬\n如来佛祖 是中年男性，嗓音浑厚，沉稳，有力，威严，庄重\n男子 1 是中年男性，嗓音低沉，气质成熟\n男子 2 是中年男性，嗓音低沉，气质沉稳\n男子 3 是中老年男性，声音低沉，沙哑，威严感\n男子 4 是中年男性，嗓音沙哑，成熟\n观音菩萨 是中青年女性，嗓音柔和，温柔，知性\n须菩提 是老年男性，嗓音低沉，沙哑，苍老，气质沉稳\n\n\n音乐以合成器 pad 铺底，同时有合成打击乐、弦乐组、管乐组合奏，整体情绪紧张悬疑，先是一声沉闷的类似钟声 “咚” 的特效音，并伴随着一阵长时间的低频氛围音效，然后是一声尖锐的风声呼啸而过的特效音，紧接着是一声沉重的石门机关开启声，随后又是一声快速闪过的风声特效音，再出现连续两声的类似于 “咻” 的法术闪过特效音，之后是一声较长的类似于 “唰” 的转场特效音，再出现一声类似于 “咻” 的法术闪过特效音，最后是一声类似于 “呼” 的风声转场特效音。\n六耳猕猴声音有混响感，用一种非常得意和满足的语气说道：“爽！这斗战胜佛的位置，坐着就是舒服，嘿嘿嘿。”\n对话中夹杂着一声类似于 “唰” 的法术闪过特效音，然后是一声轻微的走路脚步声，接着是一声跳跃落地的声音，紧跟着是两声布鞋在地面摩擦的脚步声，\n如来佛祖声音整体带有明显回响，语速平缓，语气庄重地说道：“斗战胜佛入我沙门一年，斩妖除魔，功德无量，今日，特赐汝九转金莲一株，以示嘉奖。”\n对话中夹杂着一声类似于 “唰” 的法术闪过特效音，然后是一阵多人布鞋走路脚步声，六耳猕猴先是发出一阵用力的呼喝声，接着语气变得恭敬而正式，回应道：“弟子，谢佛祖恩典。”\n对话后先是一声沉闷的雷声，然后是一阵多人慌乱的跑步脚步声，接着是一声类似于 “哗” 的法术爆炸特效音，再出现一声金属嗡鸣声，众人发出惊慌失措的呼喊声。\n男子 1 用惊慌的语气问道：“发生什么事了？”\n对话中夹杂着一声多人摔倒在地的声音，然后是一声沉闷的爆炸声，接着是一阵持续的电流声，六耳猕猴疑惑的 “嗯？” 了一声。\n然后出现一声类似于 “呼” 的风声转场特效音，男子 2 用困惑且警惕的语气问道：“怎么回事儿？” 对话中夹杂着一声沉闷的爆炸声，然后是一阵多人痛苦的尖叫声，接着是一声重物落地的撞击声，再出现一声爆炸声，\n男子 3 用惊慌但霸气的语气问道：“敌袭！何方妖孽敢擅闯灵山！” 对话中夹杂着一声多人摔倒在地的声音，然后是一声沉闷的爆炸声，接着是一阵持续的电流声，\n观音菩萨轻声的 “啊” 了一声。然后出现一声类似于 “呼” 的风声转场特效音，紧接着是一声巨大的石门被撞开的破碎声，\n男子 4 用震惊地语气说道：“这是？” 其中夹杂着多人的惊呼声。如来佛祖用震惊的语气说：“这股气息…” 音乐以弦乐组合奏为主，加入中国大鼓，整体情绪紧张激烈对话中夹杂着一声沉闷的爆炸声，然后是一阵多人痛苦的尖叫声和惊呼声，接着是一声重物落地的撞击声，再出现一声爆炸声，\n须菩提声音带有回响，充满了压抑已久的愤怒，说道：“当初，汝等言他是妖猴，吾忍了，后来，汝等压他五百年，吾忍了，如今，汝等是非不分真假不明，害我徒儿枉死，让这只六耳冒名顶替，这口气，吾若是再忍，枉为师表，吾徒悟空何在？今日，为师来为他，” 接着音量提高，一字一句地说道：“找回公道！” 对话中夹杂着一声沉闷的爆炸声，然后是一阵多人痛苦的尖叫声，接着是一声重物落地的撞击声，再出现一声爆炸声，然后出现一声类似于 “呼” 的风声转场特效音，紧接着是一阵急促的跑步声，最后出现一声类似于 “呼” 的风声转场特效音。\n六耳猕猴显示一阵害怕地惊呼，然后用惊讶和不解的语气问道：“佛祖，这，这是谁？”\n如来佛祖的声音充满了力量和威严，一字一顿地说道：“斜月三星洞，” 接着音量提高，大喊道：“须菩提！”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/lingshan-declaration/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/lingshan-declaration/generated.wav"
+    },
+    {
+      "id": "client_audio_template_004",
+      "index": 4,
+      "category": "文本生成",
+      "subcategory": "科幻末世：寻找新家园的抉择",
+      "description": "未来科幻末日新闻与通讯场景",
+      "prompt": "旁白 是青年女性，音调稍低，播音腔，有机械感，知性，沉稳\n播报员 是青年女性，英语，音调稍低，气质温和\n女子 是青年女性，嗓音明亮，轻微沙哑，活力\n广播员 是中年男性，嗓音浑厚，磁性，气泡音，有机械感，气质成熟，沉稳\n\n\n音乐以低沉的合成器 pad 铺底，同时有合成鼓点缀，整体情绪紧张不安。背景中伴随着持续的、低沉的嗡嗡声和一些电子音效，营造出一种科技感和危机感。\n旁白语速适中，句首有截断感，语气严肃地说道：“... 来人口急剧增长，面临气候变暖问题，地球将不再适合人类居住，预测地球寿命已面临危机，” 接着声音像从电视机传来，带有轻微回响：“人类开始寻找新的宜居地。”\n首先是一阵类似机器运转的声音，然后是一声表示数据加载的电子提示音，接着是一声清脆的电子提示音，随后是一声表示数据加载的电子提示音，再是一声点击屏幕的电子提示音，最后是一声表示数据加载的电子提示音。\n播报员用平稳的语调播报道：“The surface temperature today is seventy…” 伴随着一阵快速敲击虚拟键盘的声音，然后是一声点击屏幕的电子提示音，接着是一声表示数据加载的电子提示音，随后是一声表示扫描完成的电子提示音，再是一声点击屏幕的电子提示音，最后是一声表示数据加载的电子提示音。\n女子声音带有混响感，先吸一口气，用无奈且担忧的语气说：“哎！再这么下去，这地下也没得待了，” 接着声音像从对讲机传来：“看来乐土计划要加快了。”\n夹杂着一声表示数据加载的电子提示音，然后是一声点击屏幕的电子提示音，接着是一声表示数据加载的电子提示音，随后是一声点击屏幕的电子提示音，再是一声表示数据加载的电子提示音，最后是一声点击屏幕的电子提示音。\n广播员带有回响效果，用认真的语气通知：“紧急通知，紧急通知，请技术人员，立刻到指挥舱内集合。”\n伴随着一阵警报声，音乐停止。\n广播员继续用专业的口吻介绍道：“这颗名代号为 “新伊甸” 的星球，经过初步探测，显示拥有丰富的水资源，适宜的大气组成以及潜在的生命迹象，是乐土计划中最佳的候选地之一。”\n伴随一阵飞船飞行的引擎轰鸣声。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/sci-fi-future/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/sci-fi-future/generated.wav"
+    },
+    {
+      "id": "client_audio_template_005",
+      "index": 5,
+      "category": "文本生成",
+      "subcategory": "古风喜剧：赖床室友的歪理",
+      "description": "古装喜剧双人日常，诙谐配乐",
+      "prompt": "男子 1 是青年男性，嗓音低沉，有磁性，轻微鼻音，儒雅，沉稳\n男子 2 是青年男性，嗓音低沉，沙哑，稳重，沉稳\n\n\n一段情绪诙谐的配乐，合成器 lead 主音演奏主旋律，电贝斯铺底，随后单簧管演奏主旋律。\n男子 1 语速较快，用疑惑的语气说道：“难道是刚成为朋友，友情还不够？”\n男子 1 说道：“那就这样吧。” 然后出现一阵衣物摩擦声，紧接着一阵抖动布料的声音，音乐转变为情绪诙谐的配乐，开头由低音提琴拨奏，随后单簧管演奏主旋律，倍大提琴拨奏铺底，接着长笛演奏主旋律，倍大提琴与短笛穿插伴奏，最后单簧管演奏主旋律，弦乐组拨奏铺底。\n男子 2 惊讶道：“你干嘛？” 夹杂着一声类似铃铛晃动的特效音，\n男子 1 叹了一口气，用轻松的语气说：“哎，风兄，是这样的，我这个人吧，天生呢，就不太喜欢睡地板。你呢，也别太介意啊。”\n伴随着一声升调类似 “嗡” 的卡通音表示说话时的人物动作。\n此时，背景音乐中加入了一段由单簧管或类似木管乐器演奏的旋律，曲调活泼而俏皮，加强了场景的戏剧性和喜剧感。\n男子 1 再次叹了口气，继续说道说：“而且啊，我们的友谊啊，也出了一些问题。日后啊，也得朝夕相伴。”\n然后发出了一声轻笑，他接着说：“你呢也别往心里去。” 夹杂着一声 “当” 的气泡卡通特效音。\n男子 1 满足地叹了口气说：“哎，睡觉了。也不早了。”\n然后用随意地说道：“啊对了，把那个蜡烛吹一下吧。” 夹杂着一声类似 “眨眼” 的卡通特效音表示 “哎” 喊人的动作。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/costume-comedy/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/costume-comedy/generated.wav"
+    },
+    {
+      "id": "client_audio_template_006",
+      "index": 6,
+      "category": "文本生成",
+      "subcategory": "播客闲谈：最冷天里的迪士尼",
+      "description": "双人中文播客对谈，温暖松弛",
+      "prompt": "主播 1 是成年男性，嗓音低沉，略带沙哑，吐字清晰，语速略微偏快\n主播 2 是年轻女性，嗓音偏御，略哑，略微低沉\n\n\n主播 1 语调平缓：“我是觉得亏欠这种事情也不是说一次两次可以补偿得了的，对吧？就是说是一个… 是一个终生的事情。所以就是说。”\n到这里稍微停顿了一下，略微加重了语气肯定道：“这一次去迪士尼，我主要当时想的就是还是这两个原因，就去了”。\n主播 1 语气略微提高，以稍微惊讶的腔调和叙事的口吻说道：“我跟你讲去了之后其实我是有点，有点惊讶的。大家可以看那个视频，当时那个 vlog 里面，我真的挺惊讶，因为我们去的那天是特地挑了上海今年入冬以来最冷的一天。那天最低气温是零下三度。” 这句话中：“特地” 两个字被加重说了出来。\n主播 2 稍微有点沙哑，简短的附和道：“是。”\n主播 1 恢复平缓的语气接着说：“然后，我们两个人就说，欸，天这么冷，应该就没有人排队了。”\n主播 1 说到这里时，主播 2 笑了一声，然后主播 1 继续说着：“我们就想说，哎，我们就这样去。”\n说到这里时，主播 1 有略微吞口水的声音。主播 1 继续说道：“结果去了之后人还是很多，我讲心里话，人还是很多。”\n主播 2 接着用肯定的语气简短的说：“是。”\n主播 1 语气略微偏高，以解释的口吻说道：“但是，惠子跟我说，这个相比于他们夏天来，就是暑期高峰的那种时候来，人已经少太多太多了。因为我们当时可能，连算上走路，再加上进园、排队、安检，最终我们到可以进去开始玩儿的时候，可能也就花了十五二十分钟。”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/two-host-podcast/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/two-host-podcast/generated.wav"
+    },
+    {
+      "id": "client_audio_template_007",
+      "index": 7,
+      "category": "文本生成",
+      "subcategory": "新闻专题：火场追踪与证词",
+      "description": "新闻专题纪实配音与现场音效",
+      "prompt": "旁白 是青年女子，三十岁出头，发音清晰，标准普通话，新闻专题配音风格，理性，克制，有报道感\n现场保安 是中年男子，五十岁左右，声音粗粝，语速偏慢，轻微东北口音，像经历过现场惊吓后的陈述状态\n\n\n音乐以电子脉冲节奏、低沉合成器铺底和弦乐持续音开始，钢片琴与电钢琴交替演奏简短动机，整体节奏明快但紧绷，营造出一种真实、急迫、带有现场感的新闻专题氛围。\n开头说话前先出现一声短促的电流切换声，紧接着是一声类似风切过空旷地带的 “呼” 转场特效音，在音乐衬托下，旁白用沉稳而快速的信息播报语气说道：“第一次报警电话打进指挥中心的时候，仓库外的火势，其实还没有蔓延到最危险的区域。”\n在一句话结束后有短暂停顿，底乐里加入一层更明显的鼓点，旁白的语气变得更凝重，突出事态变化：“但是，根据现场调度记录和救援时间轴，前线指挥员，” 最后几个字放慢并加重，形成结论落点：“最终确认了险情失控的关键节点。”\n接着，现场保安以仍有余悸的口吻回忆道：音乐停止，“我看见里面先是冒烟，后来一下就窜起来了，喊人、拉闸，都来不及。”\n随后音乐以电子鼓点加强、弦乐组短音切分和持续低频音墙重新进入，电钢琴继续演奏重复型主旋律，整体延续紧张、纪实、推进感强的风格。\n对白过程中叠加远处消防警报声、对讲机电流杂音、零星脚步声和空旷场地回声，中间插入一声短促 “呼” 的转场特效音，最后收在一声急促而清晰的木门撞击声上。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/fire-scene-news/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/fire-scene-news/generated.wav"
+    },
+    {
+      "id": "client_audio_template_008",
+      "index": 8,
+      "category": "文本生成",
+      "subcategory": "马来播客：教育政策访谈",
+      "description": "马来语政务访谈，口语节奏自然",
+      "prompt": "Pegawai pendidikan dan komunikasi ialah lelaki pertengahan usia, suara tenang dan bersahaja, loghat Melayu Johor, gaya temu bual urusan awam\nPengacara wanita ialah wanita dewasa, suara lembut, hos program temu bual\n\n\nPegawai pendidikan dan komunikasi menerangkan rancangan kerjanya dengan ikhlas, praktikal dan tempo yang stabil: “Pertama, terima kasih kepada RTM Johor kerana buat sesi temubual khas kepada saya lah. Setelah mengangkat sumpah err pada 12 hari bulan yang lepas, err sebagai penguasa pendidikan dan penerangan, ini merupakan satu tanggungjawab yang besar kepada saya kerana err kita fokuskan terhadap pendidikan anak bangsa negeri Johor. Dan hasrat untuk melonjakkan pendidikan ini, err menuju ke Maju Johor 2030. Kita nak melahirkan anak bangsa Johor yang tsk kat orang gemilang dari segi jasmani, rohani, intelektual dan sosial. Bagi mereka ini dan juga kita nak memastikan err yang penting ialah inisiatif kerajaan negeri Johor ini dapat diketahui oleh semua rakyat Johor. Sebelum ini, banyak yang dilakukan, err bantuan-bantuan dan sebagainya yang kita salurkan daripada kerajaan negeri Johor, namun inisiatif ini tidak dapat di- err diterima oleh rakyat Johor dari segi err pengetahuannya. Jadi pada hari ini kita nak menyusun semula inisiatif kerajaan supaya rakyat Johor tahu bahawa kerajaan Johor banyak memberikan inisiatif kepada mereka semua. Dan saya lebih gu- gunakan ungkapan 'rakyat mesti tahu itu' supaya apa yang kerajaan Johor lakukan dapat ditahu dan diketahui oleh rakyat Johor. Dan err sekarang saya baru memasuki minggu kedua, saya menyusun perancangan yang rapi. Dan betul dengan semua jabatan di bawah err portfolio saya, dan insya-Allah kita akan cuba menyusunnya terbaik. Dan saya berharap rakyat Johor mendoakan kejayaan saya memegang portfolio yang ada sedia ada ni.”\nPengacara wanita menyelitkan beberapa respons ringkas dan perlahan sepanjang penerangan itu, termasuk “Mhm” dan “Ya”, untuk menunjukkan persetujuan dan mengekalkan aliran perbualan.",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/malay-education-podcast/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/malay-education-podcast/generated.wav"
+    },
+    {
+      "id": "client_audio_template_009",
+      "index": 9,
+      "category": "文本生成",
+      "subcategory": "西语访谈：普通人的储蓄选择",
+      "description": "西语街头访谈，关于储蓄的真实分享",
+      "prompt": "La primera entrevistada es mujer adulta joven, hablante nativa de español con acento mexicano, voz cálida y sencilla, situación de entrevista cotidiana\nLa segunda entrevistada es mujer joven, hablante nativa de español con acento mexicano, voz clara y luminosa, también entrevistada en un contexto laboral\n\n\nAl comienzo se oye un aviso electrónico muy breve y de volumen bajo, que desaparece enseguida.\nLa primera entrevistada comparte de forma relajada: “Eh, pues solamente en una caja de ahorro que tengo por parte del trabajo, hmm pues para realmente nunca ahorro para nada en específico, solo para para gastos que se presentan cuando recibo el ahorro.”\nLa primera entrevistada continúa con franqueza y explica la dificultad real de ahorrar: “Eh, para mí es difícil, para mí es difícil porque de pronto pues eh, ocupas el dinero que llega para para las las las compras, los gastos que tienes que hacer y pues es un poco difícil destinar un eh parte del presupuesto para el ahorro.”\nLuego explica por qué eligió el plan de ahorro de su lugar de trabajo: “Pues nada en específico, como que todos los gastos en general. Por eso opté por la opción del ahorro eh por parte del trabajo porque ya es un descuento que hacen directo de mi nómina.”\nLa segunda entrevistada agrega con calma: “Bueno, ahorro porque estoy dentro de una caja de ahorro eh por parte de mi trabajo, eh y es bueno, el ahorro es quincenal.”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/spanish-savings-interview/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/spanish-savings-interview/generated.wav"
+    },
+    {
+      "id": "client_audio_template_010",
+      "index": 10,
+      "category": "文本生成",
+      "subcategory": "悬疑追踪：树上背包的发现",
+      "description": "悬疑探案叙述，环境音与线索推进",
+      "prompt": "调查员 是 35 岁左右的青年男性，声音温和，轻微鼻音，TVB 普通话，探案类电视剧风格\n\n\n开头由电贝斯和电子鼓组演奏，随后弦乐组进入，接着小提琴震音向上琶音演奏，氛围诡异、紧张。背景中传来一男一女同时的尖叫声 “啊！” 带有回响。\n调查员以一种回忆而略带严肃的叙事语气说道：“误打误撞发现一棵树上挂着一个黑色包。” 先是伴随着一声类似拿起木棍的轻微碰撞声音，然后是一声类似背包轻微碰撞的声音，随后是一声包掉在杂草地上的声音。\n调查员继续以平稳、沉着的语调讲述：“把它从树上弄下来之后……” 此时音乐转变，竖琴主奏，电子合成小提琴演奏高音作为 pad 使用，中间穿插部分合成器 Fx 效果音作为铺垫，氛围诡异黑暗。调查员继续讲道：“发现里面有 Fria 的护照。所以确定那个包是 Fria 的，就把它带回家了。我之前就跟你提过有另一个包。” 伴随着一阵树叶上的脚步声，然后是一声展开纸张的声音，接着是一阵在皮包中翻找物品的声音，再是一声类似风声 “呼” 的转场特效音。\n随后调查员发出了一声沉重的叹息，透露出疲惫或沉重的情绪。\n调查员接着用较为沉重的语气推测说：“我觉得你老婆掉下山的时候，抱着那个包。” 音乐停止。伴随着环境音起，持续的轻微鸟叫声到结束。\n最后，调查员揭示了一个关键信息，语气中带有发现重大线索的意味：“竟然有一个重大的发现，就是包上有摄像...” 话语在结尾处被截断。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/suspense-backpack-clue/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/suspense-backpack-clue/generated.wav"
+    },
+    {
+      "id": "client_audio_template_011",
+      "index": 11,
+      "category": "文本生成",
+      "subcategory": "泰语播客：聪明与财富",
+      "description": "泰语理财播客，自然叙事节奏",
+      "prompt": "ผู้เล่าเรื่องหญิง เป็นหญิงวัยผู้ใหญ่ตอนต้นถึงกลาง เจ้าของภาษาไทย สำเนียงกรุงเทพฯ มาตรฐาน น้ำเสียงนุ่มนวลชัดเจน เป็นผู้สร้างเนื้อหาด้านการเงิน\n\n\nผู้เล่าเรื่องหญิงพูดอย่างเป็นกันเองและสม่ำเสมอ ราวกับกำลังคุยกับผู้ฟัง: “สวัสดีค่ะดิฉันบันทิตาพานจันทร์ ข้อที่หนึ่ง คนฉลาดไม่ได้หมายความว่าจะต้องเป็นคนรวย เคยสงสัยไหมคะว่าทำไมบางคนเรียนเก่งมาก แต่สุดท้ายก็ยังลำบากเรื่องเงิน หรือว่าทำไมบางคนไม่ได้เก่งเรื่องวิชาการเลย แต่กลับสามารถสร้างธุรกิจจนรวยมหาศาลได้ เรื่องนี้ไม่ได้เกี่ยวกับ IQ หรือว่าใบบริญญา แต่มันเกี่ยวกับวิธีคิดเรื่องเงินและก็พฤติกรรมทางการเงินล้นๆเลยนะคะ คนที่เรียนเก่งอาจจะรู้วิธีในการแก้สมการที่ซับซ้อน แต่พอเจอเรื่องเงินอาจจะไม่เคยเรียนรู้วิธีการเก็บออม การลงทุน หรือว่าการบริหารรายรับรายจ่ายเลย ส่วนคนที่รวยก็ไม่ได้แปลว่าต้องฉลาดที่สุด แต่เขารู้ว่าหาเงินแล้วต้องใช้ให้เป็น เขาจะไม่เอาเงินทั้งหมดไปถลุงกับของหรูหราฟุ่มเฟื่อย แต่เลือกลงทุนให้มันงอกเงย มีคนมากมายนะคะที่ได้เงินเดือนเป็นแสน แต่สิ้นเดือนก็หมดเกลี้ยง เพราะใช้ชีวิตแบบชั้นรวยอ่ะถี่ในอนาคตได้”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/thai-wealth-podcast/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/T_to_A/thai-wealth-podcast/generated.wav"
+    },
+    {
+      "id": "client_audio_template_012",
+      "index": 12,
+      "category": "参考生成",
+      "subcategory": "女主回忆：游泳池里的那个下午",
+      "description": "参考音色复刻女主怀旧独白",
+      "prompt": "女主 是青年女子，普通话，音调偏低，有些沙哑，饰演者为 \n参考录音1\n\n\n\n音乐开头由手碟演奏主旋律，合成弦乐铺底做和声，塑造出略带忧伤和怀旧的氛围。环境中伴随着公路上嘈杂的多辆车辆行驶声和不规律的鸣笛声，直到结束。\n女主用温柔且平静的声音，在一声轻笑后开始讲述，说：\"我们上中学的时候相爱，后来一直在一起。我们学习成绩都不好，都没考上大学。\"\n此时音乐停止，女主继续说道：\"他爱看武侠，还有… 就是跟我谈恋爱。\" 在说到最后一句时稍有停顿，随后发出了一声非常轻微的、充满怀念意味的笑声。\n女主用落寞和伤感的语气继续说道：\"我们都不起眼，没有人…… 在乎我们。\" 中间有明显的停顿。\n女主语速变慢，有些磕巴地接着说：\"高考结束那天，我们都很沮丧。那天…… 我们也没…… 没见面。\"\n女主吸了一口气，继续以平稳的叙事口吻讲述：\"他从考场出来，花了五块钱，买了一张游泳票，在游泳池里待了一个下午。\"\n女主用更加轻柔和富有感情的口吻说：\"明晃晃的太阳下，他第一次哭了。\"\n经过一段长时间的停顿后，女主稍微抬高自己的语调继续讲述：\"后来他就开始了…… 出租车司机的生活。\"\n女主充满感情地回忆道：\"后来…… 他跟我说。\"\n在短暂的停顿后，女主用略带哽咽和颤抖的声线继续说道：\"遇上我…… 是他那么大最开心的一件事。\"\n结尾有一声长时间尖锐的汽车刹车声。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/li-mi-memory/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/li-mi-memory/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/li-mi-memory/reference-1.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_013",
+      "index": 13,
+      "category": "参考生成",
+      "subcategory": "带货主播：榴莲热情推销",
+      "description": "参考音色复刻带货直播双人互动",
+      "prompt": "带货主播 1 是青年女声，声音明亮，带有东北口音，热情，饰演者为 \n参考录音1\n\n带货主播 2 是青年女声，声线温柔甜美，饰演者为 \n参考录音2\n\n\n\n背景音乐极其微弱，以东北风格为主，女声演唱，整体音乐氛围热闹积极。\n带货主播 1 状态积极、仔细且设身处地的为直播间观众介绍道：“金黄色的，这一定是很好的这个品质榴莲，那我进来瞅一眼吧。”\n期间穿插着带货主播 2 认同的 “对” 的声音。带货主播 1 继续热情高亢的介绍道：“A 加级别的树熟的当地国的这一个，金枕头榴莲肉儿。”\n这时带货主播 2 也补充说道：“金枕”\n带货主播 1 接着说道：“而且是带核榴莲肉朋友们，不是属于把那个里面的那个核给您抠出去的。其实人为干预越少，您可能吃着更安心一点儿点儿，并且呢它放得住，保质期是 18 个月呢。”\n还有碰触塑料包装袋发出的声音。\n同时带货主播 1 继续推销道：“啊，所以就是看您家里冰箱冷冻层的地方了。要是真有地方，我建议大家能买两包儿，不买一包儿。”\n带货主播 1 接着说：“因为买两包儿我们还有一个 10 块钱的小优惠，还有一个 10 块钱的小优惠。你看噼里啪啦已经在把 1 打在公屏上。” 说到这时语气搞怪地说道：“熟练地让人心疼。”\n期间不停地穿插着带货主播 2 的赞同附和声：“对”“嗯”。\n带货主播 2 笑着赞同道：“哎呦，是”\n带货主播 1 继续强调道：“熟练地让人心疼。”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/ecommerce-duo/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/ecommerce-duo/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/ecommerce-duo/reference-1.wav",
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/ecommerce-duo/reference-2.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_014",
+      "index": 14,
+      "category": "参考生成",
+      "subcategory": "港片警察：双人质问冲突",
+      "description": "参考音色复刻港片警察三人冲突",
+      "prompt": "男主 是中年男性，港式普通话，警察，饰演者为 \n参考录音1\n\n女警察 是青年女性，语调较高，略带沙哑，饰演者为 \n参考录音2\n\n同伴男声 是中青年男声，嗓音温和，轻微港式普通话，饰演者为 \n参考录音3\n\n\n\n男主情绪激动，用质问和不耐烦的语气说道：“你配合我，还是我配合你啊？你有没有搞清楚？”\n女警察语速较快，言辞中充满鄙视和愤怒，语气和声量逐渐加重，用更高亢、更具攻击性的语气反驳道：“现在是在内地发生的命案，就是我的事！我配合你？我为什么要配合你？一个没有大脑的人，你应该来配合我，知道吗？猪头！”\n男主声音因愤怒而拔高，大声回击：“你说我什么？脑子进水啊？有本事自己查啊！有病啊！” 然后出现一阵在木地板快速走路的脚步声，直到 “三八” 结束，并伴随一声手拍额头的声音。\n男主在离开时轻蔑地低声骂了一句：“三八！” 伴随着一声从木桌拿起物品的碰撞声。\n期间，同伴男生略带疑惑发出一声 “哎？”。\n伴随着一阵运动鞋由远到近的急促跑步声。\n女警察突然愤怒地大喊：“我打你！” 随后出现一声击打身体的声音，紧接着出现水被吐到地板上的声音。\n随后同伴男声立刻发出阻止声：“喂！”\n女警察大声尖锐地怒吼：“陈子龙！道歉！” 伴随着两人一阵急促的脚步声。\n男主背景中传来同伴男声的惊呼声，语气十分惊慌：“啊别别别别别别！别动，别动！”\n其中穿插着女警察暴躁又愤怒叫喊：“你给我道歉啊！” 伴随着一声类似纸杯被扔在地板上的碰撞声。\n男主带着急切且暴躁的声音大喊：“放手！放手！” 其中伴随着两声从木桌上拿起物品的磕碰声。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/police-standoff/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/police-standoff/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/police-standoff/reference-1.wav",
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/police-standoff/reference-2.wav",
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/police-standoff/reference-3.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_015",
+      "index": 15,
+      "category": "参考生成",
+      "subcategory": "配音演员播客：行业与职业选择",
+      "description": "参考音色复刻男女主播播客对谈",
+      "prompt": "主播 1是年轻女生，嗓音甜美，可爱，活泼，吐字清晰，播客，饰演者为 \n参考录音1\n\n主播 2 是成年男性，嗓音低沉浑厚，有磁性，略有鼻音，温柔，吐字清晰，饰演者为 \n参考录音2\n\n\n\n主播1发出表示倾听的“嗯嗯”声。\n同时，主播2用平稳温柔的语气说：“你听听这个名字啊，八一制片厂，去……” ，\n话还没说完，主播1突然带着笑腔说道：“哎呀，突然有一种我要看老电影的感觉。”说完笑了起来，\n中间穿插着主播2的笑声，主播2温柔附和道：“对，去面试他们那边的那个配音演员的那个情况，但是，我问了一下，他们的…呃…就是…怎么说，比如说最后留下12个人进入终轮，最终中间不断退出的，然后加上硬性的考试、体检不达标，最后剩下的也就是三选一，这种情况。”\n中间穿插着主播1“嗯嗯”的附和声，主播2接着用带有感慨和总结性的语气说：“就根本没有我们想的说稳定的企业那么香的那种感觉了。” “那么”加重读了出来。\n中间穿插着主播1肯定赞同的语气回应的“嗯”。\n主播1用平缓的语气略带忧郁和思索道：“所以我觉得现在这个时代，应该就是…啧，你越能够把自己的个人兴趣…”\n主播1还在讲话时主播2表示赞同的附和：“哎对…”\n主播1接着说道：“和新兴产业能够结合得很好的话，并且你还能付出勇气去踏出那一步，我觉得是给这些人铺了一条非常漂亮的道路。”\n说话期间中间隐约穿插着主播2的夸赞以及肯定的语气：“这话说的太好了。”\n主播2紧接着说：“就是还是要静下心来去思考，像你说的那个兴趣在哪儿，然后，而不是说看哪个赚钱…然后现在就往那边去走。”\n里面穿插着主播1赞同的语气和附和：“对对对”和一声“嗯”，主播2还没说完，主播1带着赞同的语气插话道：“对，就是你挖掘自己比别人更有天赋的点。”\n主播1和主播2几乎同时发出“对”的附和声。\n主播1用犹豫思索和严肃的语调分析道：“嗯…但是，啧，同时吧…我觉得也会让一些初入社会的年轻人，陷入到一种迷茫当中，就是不知道该如何去抉择适合自己的职业发展道路。我觉得也挺残酷的。”\n主播2用一种分析性的语气回应：“因为他们最难的是没有人教他们思考。”\n主播1表示赞同：“对。”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/podcast-chat/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/podcast-chat/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/podcast-chat/reference-1.wav",
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/podcast-chat/reference-2.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_016",
+      "index": 16,
+      "category": "参考生成",
+      "subcategory": "多角色对白：同音色多表达",
+      "description": "参考音色复刻多角色室内对白",
+      "prompt": "角色 1 以 \n参考录音1\n 的音色为基础，保留原始音色的自然质感\n角色 2 以 \n参考录音1\n 的音色为基础，使用更沉稳、克制的成年男性表达\n角色 3 以 \n参考录音1\n 的音色为基础，使用更明亮、活泼的年轻女性表达\n\n\n生成一段多角色剧情对白。\n三位角色在同一室内对话场景中自然交替说话，语速、停顿与情绪转折清晰，同时保留统一的音色辨识度。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/multi-role-voice-expansion/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/multi-role-voice-expansion/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/multi-role-voice-expansion/reference-1.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_017",
+      "index": 17,
+      "category": "参考生成",
+      "subcategory": "西语Vlog：告别有毒关系",
+      "description": "参考音色复刻西语日常 Vlog 分享",
+      "prompt": "青年女性内容创作者 是西班牙语母语、卡斯蒂利亚通用口音，音色清亮自然，日常 Vlog 分享风格，饰演者为 \n参考录音1\n\n\n\n青年女性内容创作者以真诚笃定、聊天般的松弛语速分享：\"Yo creo que una de las cosas más fundamentales para hacer un glow up es salir de las relaciones tóxicas, ya bien sea tu pareja, ya bien sean amigas, ya bien sean amigos o ya bien sea familia, las relaciones tóxicas están en todas partes por desgracia y creo que es algo que afecta mucho no solo a nuestra salud mental sino también a nuestra salud física. Al final la mente y el cuerpo están conectados así que cuando estáis mal emocionalmente siempre vais a estar también mal anímicamente y eso se va a reflejar mucho también en vuestro exterior.\"",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/spanish-vlog-toxic-relationships/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/spanish-vlog-toxic-relationships/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/spanish-vlog-toxic-relationships/reference-1.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_018",
+      "index": 18,
+      "category": "参考生成",
+      "subcategory": "法语播客：空虚文化闲谈",
+      "description": "参考音色复刻法语双主持播客",
+      "prompt": "男主持人 是松弛、自然的法语播客主持人，饰演者为 \n参考录音1\n\n女主持人 是关切、自然接话的法语播客主持人，饰演者为 \n参考录音2\n\n\n\n男主持人以松弛、自然的法语开场：\"Salut, je partage ton avis sur Janvier, ça y est, c’est passé.\"\n女主持人关切接话：\"Est-ce que ça va quand même ?\"\n男主持人淡然回应：\"Ouais, tout va bien, rien de spécial, écoute, la vie continue, suit son cours, comme on dit.\"\n女主持人轻笑后自然推进节目主题，围绕“空虚文化”展开讨论；两人保持真实的停顿、附和和口语节奏。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/french-podcast-small-talk/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/french-podcast-small-talk/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/french-podcast-small-talk/reference-1.wav",
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/french-podcast-small-talk/reference-2.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_019",
+      "index": 19,
+      "category": "参考生成",
+      "subcategory": "韩语ASMR：贴近耳畔的低语",
+      "description": "参考音色复刻韩语 ASMR 低语",
+      "prompt": "ASMR 引导者 是年轻女性、韩语母语，声音柔软温和，贴近耳畔的气声低语，舒缓安抚，饰演者为 \n参考录音1\n\n\n\n开头有极轻微的身体触碰麦克风声，全程保留低音量织物摩擦声。\nASMR 引导者舒缓安抚地说：\"네, 여기 누워 주세요. 아, 등에 뭐가 나 가지고 눕지를 못 하신다고요. 뭐 그럼 괜찮아요. 그냥 앉아서 진행해도 될 거 같아요.\"",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/korean-asmr-whisper/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/korean-asmr-whisper/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/korean-asmr-whisper/reference-1.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_020",
+      "index": 20,
+      "category": "参考生成",
+      "subcategory": "日语有声书：古都的哲学家",
+      "description": "参考音色复刻日语有声书朗读",
+      "prompt": "旁白 是中年男性，声线低沉浑厚，标准日语，有声书朗读风格，语速平缓，语气沉稳庄重，饰演者为 \n参考录音1\n\n\n\n旁白以富有叙事感的语调说：\"かつて千年の都と歌われたことのはずれに、世界はどこまでもシンプルであり、人は今日からでも幸せになれると説く哲学者が住んでいた。\"",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/japanese-audiobook-philosophy/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/japanese-audiobook-philosophy/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/japanese-audiobook-philosophy/reference-1.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_021",
+      "index": 21,
+      "category": "参考生成",
+      "subcategory": "印尼语闲聊：剪辑日常回忆",
+      "description": "参考音色复刻印尼语闲聊片段",
+      "prompt": "女性 是青年，印尼语母语使用者，标准口音，日常闲聊场景，饰演者为 \n参考录音1\n\n\n\n女性以放松自然的闲聊语气平稳讲述：\"Nggak ada. Dulu aku ngerjain tuh editan ya, sebelum ada tim aku itu ermm adik aku yang ngeteh.\"",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/indonesian-career-chat/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/indonesian-career-chat/generated.wav",
+      "referenceAudioUrls": [
+        "https://player.install-ai-guider.top/example/client_audio_template/assets/A_to_A/indonesian-career-chat/reference-1.wav"
+      ]
+    },
+    {
+      "id": "client_audio_template_022",
+      "index": 22,
+      "category": "时间控制",
+      "subcategory": "Pocara 面霜：优雅甜美广告",
+      "description": "通过 [s:s] 时间戳控制广告节奏",
+      "prompt": "广告播音员 是二十五岁左右年轻女子，声音优雅甜美，普通话，吐字清晰\n\n音频以而长线条合成器开始，电子鼓组进入，合成器铃类乐器点缀，整体舒缓优雅的音乐氛围。\n广告播音员语速慢、平缓、柔和且富有吸引力地说道：[2.7s:5.7s]“美丽的旅程，值得一个璀璨的开始。”\n广告播音员继续以专业、舒缓、有说服力的语调介绍产品，且音量有增大，语速稍有加快道：[6.6s:18.9s]“Pocara面霜，专为年轻肌肤定制的第一瓶高端养护。\n深海精粹与智能水润科技交融，瞬间渗透，24小时超强锁水，让肌肤如晨露般透亮饱满。”\n句首伴随着一声水声流过的特效音，然后出现两声短暂、轻微的撞击水声音效，紧接着出现一阵类似于[19.7s:20.6s]“咕噜咕噜”的气泡声。\n广告播音员用清晰柔美但坚定的声音念出品牌名称和广告语：[22.1s:24.3s]“Pocara，开启你的高光时刻。”\n结尾响起一段空灵的风铃质感的合成器音效。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/sound-effect-cue/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/sound-effect-cue/generated.wav"
+    },
+    {
+      "id": "client_audio_template_023",
+      "index": 23,
+      "category": "时间控制",
+      "subcategory": "告别母亲：带哭腔的叮嘱",
+      "description": "通过 [s:s] 时间戳控制哭腔停顿",
+      "prompt": "女子 是轻柔颤抖、带哭腔的女性声音\n\n音频以缓慢、悲伤的弦乐开场。女子说：[3.8s:7.1s]“再也不担心，会碰见娘。”结尾呈现气声。她平复情绪后继续说：[8.0s:16.7s]“要乖乖地听姐姐的话，用功念书，别辜负了你爹对你的期望。”短暂停顿、强忍哭泣的吸气后，她说道：[18.6s:20.0s]“你们白家。”结尾深吸一口气。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/emotion-progression/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/emotion-progression/generated.wav"
+    },
+    {
+      "id": "client_audio_template_024",
+      "index": 24,
+      "category": "时间控制",
+      "subcategory": "张寒燕剧情：疗养院对质",
+      "description": "通过 [s:s] 时间戳控制多角色切换",
+      "prompt": "旁白 是青年女性，嗓音清亮温润，成熟，吐字清晰\n疗养院负责人 是音色偏御姐，嗓音稍微低沉\n张寒燕 是嗓音偏甜美，情绪表达强烈\n\n旁白语调偏高，语气平稳的叙事语调讲述道：[0.5s:7.8s]“张寒燕刚打完电话，淮海疗养院的负责人就出来了，一脸苦大仇深地说道。”\n旁白模仿疗养院负责人的语气，用安抚、略带紧张的语气对张寒燕说：[8.9s:13.9s]“张女士，我们这边一定会全力配合，请您先冷静一下。”\n旁白恢复正常语气，继续以叙事风格描述道：[14.8s:21.1s]“张寒燕盯着眼前这个有点油腻的中年男人，一字一句地问道。”\n旁白模仿张寒燕的语气，用激动、愤怒且音量和音调都稍微拔高的声音质问道：[22.2s:25.3s]“冷静？冷静？你告诉我，什么叫冷静？”\n旁白恢复正常语气最后解释道：[26.2s:31.3s]“张寒燕的声音由于情绪激动，一下子提高了好几度。”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/narrative-transition/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/narrative-transition/generated.wav"
+    },
+    {
+      "id": "client_audio_template_025",
+      "index": 25,
+      "category": "时间控制",
+      "subcategory": "跑车品牌：史诗感广告旁白",
+      "description": "通过 [s:s] 时间戳控制广告与引擎声",
+      "prompt": "广告旁白 是三十岁左右青年男子，低沉，磁性，有点烟嗓，普通话，咬字清晰\n\n音乐以钢琴演奏分解和弦的同时辅以合成器FX音色为开始进入，紧接着弦乐组加入与钢琴一同演奏分解和弦，并增宽演奏音域，使听感更加饱满，低音铜管组铺垫，随后史诗感的打击乐点缀。音乐整体氛围高端大气，史诗感强。\n先出现一声轻微的纸张翻动声，广告旁白语速平缓，有一点点不羁，带有专业的广告配音风格说道：[5.7s:7.9s]“优秀的产品源自优秀的创意。”\n广告旁白继续以沉稳的语调说：[8.5s:10.0s]“每一次创意的推敲，”\n伴随着旁白，出现一阵跑车引擎加速的低沉的嗡鸣声，持续到下句结束。\n广告旁白声音渐弱道：[11.2s:13.5s]“都带着引擎共鸣和灵感的燃烧。”\n广告旁白继续声音渐弱说道：[14.2s:17.5s]“每一次启动都是对传统规则的优雅反叛。”\n伴随着一阵有力的跑车引擎轰鸣声，声音由弱渐强。\n广告旁白用坚定而有力的语调说道：[18.6s:20.3s]“某跑车品牌不制造跑车。”\n之后持续伴随着一阵跑车高速行驶时的引擎轰鸣声，直到下句旁白结束。\n广告旁白紧接着沉稳地说出广告的核心信息：[20.9s:23.3s]“他们制造的是明日极速的体验。”\n然后出现一阵较为短暂的跑车高速行驶时的低沉引擎轰鸣声。\n结尾响起一段空灵的风铃质感的合成器音效。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/narration-progression/cover.png",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/timestamp/narration-progression/generated.wav"
+    },
+    {
+      "id": "client_audio_template_026",
+      "index": 26,
+      "category": "多语种",
+      "subcategory": "法语悬疑：旧公寓深夜怪谈",
+      "description": "法语惊悚剧情：旧公寓多角色对白",
+      "prompt": "La femme est une jeune femme adulte, voix plutôt fine mais posée, souffle court et retenu, tendue, style thriller contemporain.\nL'homme est un homme d'âge mûr, voix grave et rauque, respiration un peu lourde, ton vigilant et retenu, style thriller contemporain.\nLa petite fille est une jeune enfant, voix aérienne et éthérée, débit très lent, teintée d'un rire étrange à peine perceptible, comme venue de très loin.\n\nScène en intérieur, dans le couloir d'un vieil immeuble en pleine nuit, calme et oppressant : le grésillement électrique d'un vieux néon persiste en fond sonore, et par moments le gémissement du vent qui s'engouffre dans la cage d'escalier résonne au loin.\nOn entend d'abord des pas lents et nets qui se rapprochent progressivement, puis s'arrêtent.\nLa femme baisse volontairement la voix et, d'un débit ralenti, murmure d'un ton inquiet : « Écoute… j'en suis sûre, je viens d'entendre quelqu'un parler à l'intérieur du 403. » Aussitôt après, un bref craquement de parquet retentit derrière la porte, immédiatement suivi d'un léger tintement de verre.\nL'homme répond d'une voix très basse, très calme mais nettement tendue : « Ne fais pas de bruit… Cet étage a été condamné il y a trois ans, plus personne n'y habite. » La respiration de la femme se met à trembler ; elle insiste, la voix nouée par l'angoisse : « Alors… d'où vient cette voix ? » Un silence de deux secondes s'installe ; on n'entend plus que le faible grésillement électrique et le souffle retenu des deux personnages.\nPuis survient un très léger frottement, un « frrr… » d'ongles griffant la porte.\nAlors, de derrière la porte, la voix d'une petite fille, avec un léger écho caverneux, articule doucement, mot après mot : « Grande sœur… c'est bien moi… que vous cherchez ? Ça fait si longtemps que j'attends. » La femme retient brusquement son souffle et balbutie d'une voix chevrotante : « Comment… comment sait-elle qu'on est là ? » L'instant d'après, dans un « clac » sec, le verrou saute, et la vieille porte en fer s'ouvre dans un grincement strident ; la femme laisse échapper un cri qu'elle étouffe aussitôt, et murmure : « La porte… la porte s'est ouverte toute seule ! » Le ton de l'homme se durcit d'un coup ; contenant sa terreur, il siffle presque entre ses dents, sur un débit rapide : « Ne regarde pas à l'intérieur… Cours !\nNe te retourne pas ! » Éclatent alors des pas précipités, désordonnés, mêlés à une respiration haletante ; au même moment, derrière eux, résonne le petit rire de la fillette, très léger mais tout contre l'oreille, un rire qui se rapproche de plus en plus.\nEnfin, tous les sons ambiants s'éteignent brutalement et sombrent dans un silence de mort, ne laissant qu'un unique claquement de porte, sec et définitif.",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/french/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/french/generated.wav"
+    },
+    {
+      "id": "client_audio_template_027",
+      "index": 27,
+      "category": "多语种",
+      "subcategory": "日语便利店：雨夜的温暖豆乳",
+      "description": "日语便利店：年轻女孩与老店员夜话",
+      "prompt": "女の子は20代前半の若い女性、澄んだ声で、少し疲れと寒さがにじみ、話すテンポはやや速く、息づかいがやや荒い。\n店員のおじいさんは60歳前後の年配の男性、しゃがれて温かみのある声、ゆったりと落ち着いた話し方、穏やかで優しい。\n\n音楽は柔らかなピアノを主旋律とし、控えめなストリングスを下地に加え、全体は温かく穏やかで少し癒やしのあるトーン。\n音量は終始、人の声より下に抑える。\n舞台は室内のコンビニで、窓の外ではしとしとと降り続ける雨の音と、時折通り過ぎる車の水しぶきの音が最後まで続く。\nまず「ピンポン」という自動ドアのチャイム音が鳴り、続いて慌ただしい足音がする。\n女の子が小声でつぶやくように言う:「はぁ…… この雨、ひどすぎ…… 終電、絶対間に合わないよ…… 傘まで風でひっくり返っちゃって、もうびしょ濡れ。\n」店員のおじいさんが、気遣うような口調でゆっくりと言う:「外、寒かったろう？\nちょっと座っていきなさい。\nこの雨はすぐには止まらないよ。\nこの時間だと、道にもう車もほとんど走ってないしね。\n」女の子が申し訳なさそうな口調で言う:「すみません…… じゃあ、ちょっとだけ雨宿りさせてもらったら帰ります。\n」おじいさんが朗らかに笑いながら言う:「ははは、こんな夜中に話し相手がいてくれて、こっちこそ嬉しいよ。\n」続いて電子レンジの低い「ブーン」という音がして、「チン」という完了音が鳴る。\n温かい飲み物がカウンターに「コトッ」と置かれる音。\nおじいさんが笑みを含んだ声で言う:「ほら、あったかい豆乳だ。\n今あっためたばかりだよ。\n体を温めなさい。\n」女の子が少し涙声で、柔らかい声で言う:「そんな……　ありがとう…… ありがとうございます。\n」おじいさんが穏やかな声で言う:「いいから、温かいうちにお飲み。\n体があったまってから帰りなさい。\n道中、気をつけてね。\n」このとき窓の外で車が通り過ぎる小さな水しぶきの音がして、ピアノの旋律がそっと高まり、雨音は次第に小さくなって、音楽が優しく終わる。",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/japanese/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/japanese/generated.wav"
+    },
+    {
+      "id": "client_audio_template_028",
+      "index": 28,
+      "category": "多语种",
+      "subcategory": "韩语宠物店：误把羊驼当金毛",
+      "description": "韩语情景喜剧：误认物种的尴尬",
+      "prompt": "민우는 30대 초반 남성, 아주 부드럽고 다정한 저음, 아는 척하는 말투.\n지아는 20대 중반 여성, 무표정하고 툭 던지는 말투.\n성우 내레이션은 예능 자막처럼 단호하고 익살스러운 목소리.\n\n경쾌하고 장난스러운 느낌의 휘파람 소리나 통통 튀는 K-드라마 예능풍 BGM이 흐른다. 아기자기하고 밝은 분위기의 애견 카페 겸 펫숍. 민우 \"어우\\~ 얘, 모질 관리 상태가 완전 예술이네. 어릴 때부터 엘리트 교육 제대로 받은 골든 리트리버구만? 몇 살이니, 아가?\"\n지아: \"손님…… 그거 알파카인데요.\"\n[효과음] 쿵쾅-! 콰르르릉-! (유리창이 산산조각 나거나 돌벽이 무너지는 듯한 황당함 서린 석화 효과음) 민우 (내적 독백 / 에코 효과 적용, 사정없이 흔들리는 다급한 목소리): \"아…… 알파카?! 잠깐만, 카페에 왜 알파카가 있어?! 목은 왜 이렇게 길어?!\"\n민우 (현실 대사 / 경련하듯 억지 웃음, 목소리가 삑사리 나며 갈라짐): \"하…… 하하하! 내, 내가 당연히 알죠! 내가 여기 직원분 전문성을 좀 테스트해 본 겁니다! 요 녀석 보세요, 털 색깔이랑 이 순한 눈망울이 딱 골든 리트리버랑 아주 일맥상통하잖아? 아하하하…… 하하…… 착하지?\"\n[효과음] (민우가 알파카를 다독이려 털을 쓰다듬는 둔탁한 \"툭툭, 스윽스윽\" 소리) [효과음] 퉤——!! 촤악-! (알파카가 거칠게 침을 모아 얼굴에 정확히 내뱉는 우렁찬 소리) [효과음] 쓸쓸한 바이올린 솔로 음과 함께 까마귀 울음소리: 까악\\~ 까악\\~ 민우 (넋이 나간 채 실성한 듯한 목소리): \"하…… 하하…… 하…….\"\n[효과음] (지아가 각 티슈에서 곽 티슈를 폭폭 뽑아내는 소리 \"샥, 샥\") 지아 (여전히 무표정한 톤으로 비수를 꽂으며): \"아무래도…… 손님의 '테스트 결과'가 아주 마음에 안 들었나 봐요. 여기 닦으세요. 얘 평소엔 침 안 뱉는데, 손님 손길이 되게 싫었나 보네.\"\n[효과음] (쾅-! 하는 예능 자막 등장 효과음과 함께 성우의 내레이션) 성우 내레이션: \"오늘의 교훈: 알파카와 섣부른 동족 맺기는 금물.\"",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/korean/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/korean/generated.wav"
+    },
+    {
+      "id": "client_audio_template_029",
+      "index": 29,
+      "category": "多语种",
+      "subcategory": "马来语剧情：怀孕后的争执",
+      "description": "马来语剧情：年轻情侣激烈争执",
+      "prompt": "Adira ialah wanita muda, suara jelas dan tajam, sedang dilanda marah serta panik.\nHaris ialah lelaki muda, suara dingin dan bersahaja.\n\nMuzik orkestra yang perlahan dan berat bermula dengan nada panjang alat gesek, membina suasana misteri yang tidak selesa dan tegang sebagai latar berterusan untuk dialog.\nAdira menyoal dengan keras: “Sekarang ni, kita nak buat apa? Kau kena bertanggungjawab? Ini anak engkau ni.”\nHaris membalas dengan tidak percaya: “Kau serius kah tidak?”\nEmosi Adira semakin memuncak; suaranya naik dengan marah: “Eh, kau ingat aku nak buat permainan ke? Buat bantuan mengandung ni. Kau kena bertanggungjawab tau Haris? Anak kau ni.”\nHaris dengan tegas dan kejam menolak tanggungjawab: “Tak nak. Aku tak akan tanggungjawab. Sabot aku.”\nAdira terkejut dan menjerit tidak percaya: “Eh kau gilakah? Anak kau tau dalam perut aku ni.”\nDengan nada mengugut, Haris memberi arahan terus: “Kau gugurkan sekarang. Kau gugurkan.”\nAdira menjadi semakin marah dan bercakap laju: “Eh, kau ni dah gila apa? Kau ni tak ada otak ke? Kau ingat benda mudah ke nak gugur-gugurkan ni?”\nHaris hilang sabar dan bertanya: “Habis kau nak aku buat apa lagi?”\nSelepas jeda singkat, Adira merendahkan suara dengan niat gelap: “Aku ada plan. Kita kenakan abang sepupu aku.”\nHaris bertanya: “Kenapa dengan dia?”\nAdira menjawab dengan dendam yang tertahan: “Dulu dia ex aku.”\nHaris meneruskan kebimbangannya: “Abang kau dah lepas. Tapi nama aku ni masih busuk lagi.”\nAdira menerangkan rancangan itu: “Kita kenakan Ikram. Cakap dia kena tangkap basah dengan aku.”\nHaris segera bersetuju: “Okey. Boleh.”\nMuzik orkestra meningkat dari segi kelantangan dan intensiti; gesekan menjadi lebih berat dan besar, menguatkan suasana gelap serta menekan selepas rancangan itu dipersetujui.",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/malay/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/malay/generated.wav"
+    },
+    {
+      "id": "client_audio_template_030",
+      "index": 30,
+      "category": "多语种",
+      "subcategory": "德语面试：求职者的三大优势",
+      "description": "德语面试：求职者沉稳介绍优势",
+      "prompt": "Der Interviewer ist ein Mann mittleren Alters, hat eine ruhige und formelle Stimme, führt berufliche Bewerbungsgespräche auf Deutsch\nDie Bewerberin ist eine Frau im jungen bis mittleren Erwachsenenalter, hat eine reife und tragfähige Stimme, ist eine deutschsprachige Bewerberin\n\nHintergrundton: leises, gleichmäßiges Brummen der Klimaanlage in einem schlichten Büroraum, die Atmosphäre ist ruhig und konzentriert, passend zu einem formellen Gespräch.\nDer Interviewer lehnt sich leicht zurück, fragt höflich und in ruhigem, formellem Ton: „Wären Sie so freundlich, mir Ihre drei größten persönlichen Stärken zu nennen?“\nDie Bewerberin denkt kurz nach, nippt einmal leicht an ihrem Wasserglas, bestätigt die Frage und antwortet dann selbstsicher und klar gegliedert: „Meine drei größten persönlichen Stärken? Okay. Als erstes auf jeden Fall das analytische Denken. Im Controlling ist es wichtig, komplexe Sachverhalte zu erkennen und dann schnell Lösungen zu finden. Dabei hilft mir meine zweite Stärke, die strukturierte Arbeitsweise. Meine dritte Stärke ist die Zuverlässigkeit.“",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/german/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/german/generated.wav"
+    },
+    {
+      "id": "client_audio_template_031",
+      "index": 31,
+      "category": "多语种",
+      "subcategory": "英语超英片段：叔父的告别",
+      "description": "英语超英片段：告别与行动桥段",
+      "prompt": "A young man is a low, slightly husky voice, subdued and grief-stricken, standard American English.\nAn older woman is a low, gentle, reassuring voice, standard American English.\nAn older male voice is deep, resonant, authoritative but paternal, standard American English.\n\nThe clip has deliberately lo-fi audio quality, with faint electrical interference and room noise throughout. In a silent outdoor setting, heavy breathing and soft footsteps moving through grass can be heard.\nA young man takes a few breaths as if holding back emotion, then says quietly, with a catch in his throat: “I missed him a lot today.”\nAn older woman speaks slowly and softly: “I know. I miss him too.” She takes a breath, steadies herself, and adds: “But he was there.”\nThe young man, overwhelmed by regret, continues in a low, shaken voice: “I can't help thinking about the last thing I said to him. He tried to tell me something important, and I threw it in his face.”\nThe woman becomes firmer while remaining warm, speaking at an even, encouraging pace: “You loved him, and he loved you. He never doubted the man you'd grow into. How you were meant for great things. You won't disappoint him.”\nAfter the dialogue, footsteps and the soft rustle of clothing remain under a sorrowful string score that gradually grows broader and more epic.\nAn older male voice enters with solemn clarity: “With great power comes great responsibility. Remember that. Remember that.”\nThe audio then shifts into a high-energy action sequence: urgent orchestral music, repeated web-like whooshes, rushing wind, breaking glass, heavy impacts, and explosions create an intense cinematic battle atmosphere.",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/english/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/english/generated.wav"
+    },
+    {
+      "id": "client_audio_template_032",
+      "index": 32,
+      "category": "多语种",
+      "subcategory": "泰语节目：华人身份的讨论",
+      "description": "泰语文化节目：华人身份的讨论",
+      "prompt": "ผู้ออกรายการหลัก คือ ชายวัยกลางคน เจ้าของภาษาไทย สำเนียงมาตรฐาน น้ำเสียงสุขุม การออกเสียงชัดเจน\nผู้ออกรายการรอง คือ ชายหนุ่ม เจ้าของภาษาไทย สำเนียงมาตรฐาน น้ำเสียงทุ้มต่ำ\n\nเสียงดนตรีบรรเลงด้วยกีตาร์โปร่งแบบเบาๆ ที่มีจังหวะสบายๆ เหมาะกับรายการคุยกันสบายๆ พร้อมเสียงแบ็คกราวนด์ของผู้คนคุยกันเบาๆ ในสตูดิโอเล็กน้อย สร้างบรรยากาศที่ผ่อนคลายและเป็นกันเอง\nผู้ออกรายการหลักพูดด้วยจังหวะสม่ำเสมอและเป็นอย่างจริงจัง เพื่ออธิบายความแตกต่างของคำเรียกตัวตนในบริบทต่างๆ: \"จริง ๆ แล้วอ่ะ การเรียกประเทศจีนเนี่ยมันไม่ได้มีคำเดียว สมมติอาม่าอากงแล้วล่องสำเภามาจากจีนแผ่นดินใหญ่ แล้วเรามาอยู่ที่นี่เราก็จะบอกว่าเราเป็นลูกหลานคนจีน เออ แต่ว่าถ้าเป็นคนจีนที่อยู่เมืองจีนอ่ะ เราก็บอกเขาว่าเป็นคนจีนเหมือนกัน ถูกปะ แต่ว่ามันมีจีนกับจีนโพ้นทะเล\"\nผู้ออกรายการรองพยักหน้าขานรับด้วยคำสั้น ๆ หลายครั้ง ก่อนเพิ่มเติมประเด็นอย่างเป็นธรรมชาติ: \"อะ พวกเราอ่ะ เป็นจีนโพ้นทะเล\"\nผู้ออกรายการหลักขานรับตามด้วยน้ำเสียงที่เห็นด้วย: \"อะ เป็นจีนโพ้นทะเล\"\nผู้ออกรายการหลักอธิบายต่อถึงความหมายและความแตกต่างของคนสองกลุ่มด้วยน้ำเสียงที่อธิบายชัดเจน: \"โพ้นประเทศ คือ ข้ามทะเลมา อะนะ กับจีนที่อยู่แผ่นดินใหญ่\"",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/thai/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/thai/generated.wav"
+    },
+    {
+      "id": "client_audio_template_033",
+      "index": 33,
+      "category": "多语种",
+      "subcategory": "印尼语品牌广告：Gojek 的创意",
+      "description": "印尼语品牌广告：诗意旁白与收尾",
+      "prompt": "Narator perempuan adalah perempuan paruh baya, suara hangat dan cerdas, penutur asli bahasa Indonesia dengan aksen standar, gaya iklan naratif.\nPenyiar laki-laki adalah pria dewasa, suara mantap dan penuh, penutur asli bahasa Indonesia dengan aksen standar, gaya iklan merek.\n\nMusik orkestra yang hangat dan inspiratif mengalun sepanjang audio. Pembukaan dimulai dengan melodi cello yang dalam dan lapang, lalu lapisan biola serta gesek lainnya masuk perlahan untuk memperkaya tekstur. Melodinya lembut namun terus bergerak maju, selalu berada di bawah suara manusia untuk membangun suasana penuh harapan dan kepedulian.\nNarator perempuan menyampaikan kisah komunitas kreatif lokal dengan puitis dan meyakinkan: “Ini kisah para cerdikiawan, anak bangsa yang berkarya dengan kecerdikan. Segala perkara dapat dituntaskan, garpu pun jadi alat berbagi kesejukan. Lika-liku jalanan tak mampu mengusik, menyangga kepala jadi inspirasi bagi yang melirik. Mereka menantang aturan klasik, kuah mi bakso, kompak, satu plastik. Dan bukan, bukan demi eksistensi, namun rana lebih untuk memperkaya galeri selfie. Mereka menerobos semua permasalahan, lepas tangan pun bisa telponan. Menakjubkan, setiap hari mereka menyirami diri dengan gagasan. Terus melangkah dalam ruang gerak yang minimal melampui batas dengan penuh akal. Jadilah cerdikiawan dan raih ragam solusi untuk setiap situasi. Layaknya aplikasi, karya anak bangsa.”\nPenyiar laki-laki menutup dengan yakin dan ramah: “Pasti ada jalan, dengan Gojek.”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/indonesian/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/indonesian/generated.wav"
+    },
+    {
+      "id": "client_audio_template_034",
+      "index": 34,
+      "category": "多语种",
+      "subcategory": "西语足球解说：绝杀瞬间",
+      "description": "西语足球直播：进球瞬间解说高潮",
+      "prompt": "El comentarista es un hombre de mediana edad, en español peninsular, voz brillante, penetrante, tono profesional de narrador deportivo, muy expresivo.\n\nEstadio de fútbol al aire libre, con el clamor constante de las gradas de fondo, que sube y baja según el partido. Una sola voz: el comentarista.\nEl comentarista empieza con ritmo medio y algo analítico: «…Minuto setenta y ocho, sigue uno a uno. El local no tiene prisa, mueve el balón atrás buscando abrir la defensa… ¡y el rival aprieta en el centro!»\nAcelera, más tenso: «¡Saca el portero en largo… no llega nadie, contragolpe, dos contra tres, peligro!… ¡El cuatro vuelve a tiempo y despeja fuera! Susto y nada más.» (un fuerte «¡pum!» del despeje)\nVuelve al ritmo medio: «Saque de banda, recupera el local. El ocho levanta la cabeza… ¡pase filtrado, el extremo por la derecha llega a línea de fondo!» (el clamor sube)\nDe golpe, a máxima velocidad y volumen, atropellándose: «¡Centro… lío en el área! ¡Peina de cabeza, rebota! ¡Remata el diez…! ¡Paradón! ¡El rechace, bloqueado! ¡Y otra! ¡Córner! ¡El local se vuelca arriba!» (golpes del balón, barullo, «¡Oh! ¡Oh!» de la grada)\nToma aire, la voz en suspenso: «Están todos en el área, ¡hasta el portero ha subido!… Saca el córner, al segundo palo…» (el balón cruza el aire, cabezazo)\nGolpe sordo del balón en la red, medio segundo de silencio, y estalla con ese alargamiento característico, hasta quedarse afónico: «¡Al segundo palo… GOOOOOOOOL!!! ¡GOL! ¡DOS a UNO!!! ¡Se adelanta a todos y la mete!!» (la grada explota y lo tapa todo)\nEntre la ovación, sin aire, entrecortado: «¡Esto es insistir! ¡Tres paradas en la línea, y a la cuarta entra! ¡El estadio enloquece! ¡Quedan diez minutos y se ponen por delante!» Al final, ovación, himno y aplausos se prolongan unos segundos y se desvanecen entre el clamor.",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/spanish/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/spanish/generated.wav"
+    },
+    {
+      "id": "client_audio_template_035",
+      "index": 35,
+      "category": "多语种",
+      "subcategory": "越南语Vlog：阅读技巧两分钟",
+      "description": "越南语 Vlog：阅读技巧教学分享",
+      "prompt": "Một nữ blogger người Việt là phụ nữ trẻ, giọng trong trẻo tự nhiên, người sáng tạo nội dung chia sẻ kỹ năng trực tuyến cho đại chúng.\n\nMột nữ blogger người Việt nói với thái độ thân thiện, nhiệt tình và tốc độ vừa phải bằng giọng miền Nam: “Hai phút cải thiện kỹ năng đọc. Đây là một trường hợp có thể mình mới vừa chỉnh học với của mình xong, cho nên là sẵn đây mình nhìn thấy comment của bạn, thì mình sẽ giải đáp và hướng dẫn bạn làm cái mẹo này ngay luôn nhé.”",
+      "model": "seed-audio-1.0",
+      "coverUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/vietnamese/cover.svg",
+      "previewAudioUrl": "https://player.install-ai-guider.top/example/client_audio_template/assets/multilingual/vietnamese/generated.wav"
+    }
+  ]
+}

@@ -2599,7 +2599,7 @@
           "koubo_template": "口播模板",
           "remove_bg": "人物去背",
           "search": "聯網搜尋",
-          "seed_audio": "豆包音訊",
+          "seed_audio": "AI音訊",
           "speech": "語音",
           "storyboard_editor": "字幕分鏡",
           "subtitle_recognition": "字幕識別",
@@ -2748,7 +2748,7 @@
             "web_search": "聯網搜尋"
           },
           "seed_audio": {
-            "generate_seed_audio": "生成豆包音訊"
+            "generate_seed_audio": "生成AI音訊"
           },
           "speech": {
             "generate_speech": "生成語音"

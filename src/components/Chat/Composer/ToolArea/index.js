@@ -2,6 +2,7 @@ import React from 'react';
 import { SnippetsOutlined } from '@ant-design/icons';
 import { Popover } from 'antd';
 import {
+  AudioLines,
   BookSearch,
   ChevronDown,
   ChevronUp,
@@ -91,6 +92,11 @@ const AUDIO_MENU_ITEMS = [
     id: 'voice-square',
     label: 'AI朗读',
     icon: <img className="chat-panel__tool-menu-icon" src={VoiceSquareIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'music-generate',
+    label: 'AI生成音频',
+    icon: <AudioLines size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
   {
     id: 'audio-add',

@@ -143,6 +143,7 @@ export enum IpcChannel {
   CherryChatStream_PresetAddRequest = 'cherry-chat-stream:preset-add-request',
   CherryChatStream_AudioAddRequest = 'cherry-chat-stream:audio-add-request',
   CherryChatStream_SpeechRequest = 'cherry-chat-stream:speech-request',
+  CherryChatStream_SeedAudioRequest = 'cherry-chat-stream:seed-audio-request',
   CherryChatStream_AiVideoRequest = 'cherry-chat-stream:ai-video-request',
   CherryChatStream_ReversePromptRequest = 'cherry-chat-stream:reverse-prompt-request',
   CherryChatStream_SubtitleRecognitionRequest = 'cherry-chat-stream:subtitle-recognition-request',

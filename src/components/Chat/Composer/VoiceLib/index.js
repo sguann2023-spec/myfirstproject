@@ -274,11 +274,15 @@ const persistSelectedVoiceLibraryItem = (item) => {
 export const getInitialSelectedVoiceLibraryItem = () =>
   readPersistedSelectedVoiceLibraryItem() || DEFAULT_SELECTED_VOICE_LIBRARY_ITEM;
 
-export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
+export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '', onPick = null } = {}) => {
+  const normalizedLockedProvider = String(lockedProvider || '').trim().toLowerCase();
+  const initialFilters = normalizedLockedProvider
+    ? { ...DEFAULT_VOICE_LIBRARY_FILTERS, provider: normalizedLockedProvider }
+    : DEFAULT_VOICE_LIBRARY_FILTERS;
   const initialSelectedVoiceLibraryItemRef = React.useRef(getInitialSelectedVoiceLibraryItem());
   const loadTrackerRef = React.useRef(createVoiceLoadTracker());
-  const allVoiceFiltersRef = React.useRef(normalizeVoiceLibraryFilters(DEFAULT_VOICE_LIBRARY_FILTERS));
-  const allVoiceFilterSignatureRef = React.useRef(buildVoiceLibraryFilterSignature(DEFAULT_VOICE_LIBRARY_FILTERS));
+  const allVoiceFiltersRef = React.useRef(normalizeVoiceLibraryFilters(initialFilters));
+  const allVoiceFilterSignatureRef = React.useRef(buildVoiceLibraryFilterSignature(initialFilters));
   const filterOptionsRequestIdRef = React.useRef('');
   const [activeVoiceTab, setActiveVoiceTab] = React.useState(VOICE_TAB_ALL);
   const [voiceLibraryOpen, setVoiceLibraryOpen] = React.useState(false);
@@ -294,7 +298,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   const [favoritePendingIds, setFavoritePendingIds] = React.useState([]);
   const [deletePendingIds, setDeletePendingIds] = React.useState([]);
   const [voiceLibraryFilters, setVoiceLibraryFilters] = React.useState(() =>
-    normalizeVoiceLibraryFilters(DEFAULT_VOICE_LIBRARY_FILTERS)
+    normalizeVoiceLibraryFilters(initialFilters)
   );
   const [voiceLibraryFilterOptions, setVoiceLibraryFilterOptions] = React.useState(
     DEFAULT_VOICE_LIBRARY_FILTER_OPTIONS
@@ -369,6 +373,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
   }, []);
 
   const handleVoiceLibraryFilterChange = React.useCallback((key, value) => {
+    if (normalizedLockedProvider && key === 'provider') return;
     setVoiceLibraryFilters((prev) => {
       const nextFilters = normalizeVoiceLibraryFilters({
         ...prev,
@@ -383,7 +388,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
       }
       return nextFilters;
     });
-  }, []);
+  }, [normalizedLockedProvider]);
 
   const handleVoiceSelect = React.useCallback((voiceId, item = null, sourceTab = '') => {
     const normalizedVoiceId = String(voiceId || '').trim();
@@ -407,7 +412,15 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     }
 
     setSelectedVoiceLibraryId(normalizedVoiceId);
-  }, []);
+    if (typeof onPick === 'function') {
+      try {
+        onPick(nextSelectedItem || item || { global_voice_id: normalizedVoiceId });
+      } catch (error) {
+        // noop
+      }
+      setVoiceLibraryOpen(false);
+    }
+  }, [onPick]);
 
   const syncVoiceFavoriteStatus = React.useCallback((globalVoiceId, favorited, item) => {
     const normalizedId = String(globalVoiceId || '').trim();
@@ -935,6 +948,8 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null } = {}) => {
     voiceLibraryFilterOptionsLoading,
     voiceLibraryFilters,
     voiceLibraryOpen,
+    setVoiceLibraryOpen,
+    lockedProvider: normalizedLockedProvider,
   };
 };
 
@@ -946,6 +961,7 @@ const VoiceLib = ({
   label = '音色',
   onOpenChange = null,
   selectedTextPrefix = '音色',
+  hideTrigger = false,
 }) => {
   if (!controller) return null;
 
@@ -972,7 +988,9 @@ const VoiceLib = ({
     voiceLibraryFilterOptionsLoading,
     voiceLibraryFilters,
     voiceLibraryOpen,
+    lockedProvider,
   } = controller;
+  const hasLockedProvider = Boolean(String(lockedProvider || '').trim());
   const voiceLibraryListHeight = getVoiceLibraryListHeight(activeVoiceTab);
 
   const emptyText =
@@ -1102,7 +1120,8 @@ const VoiceLib = ({
           >
             <Select
               size="small"
-              allowClear
+              allowClear={!hasLockedProvider}
+              disabled={hasLockedProvider}
               placeholder="供应商"
               className="chat-panel__voice-library-filter"
               value={voiceLibraryFilters.provider}
@@ -1155,47 +1174,51 @@ const VoiceLib = ({
               <img className="chat-panel__voice-library-tab-icon" src={VoiceLibIcon} alt="" aria-hidden="true" />
             </button>
           </Tooltip>
-          <Tooltip title="收藏音色">
-            <button
-              type="button"
-              className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_FAVORITES ? 'active' : ''}`}
-              aria-label="收藏音色"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setActiveVoiceTab(VOICE_TAB_FAVORITES);
-              }}
-            >
-              <img
-                className="chat-panel__voice-library-tab-icon"
-                src={VoiceCollectIcon}
-                alt=""
-                aria-hidden="true"
-              />
-            </button>
-          </Tooltip>
-          <Tooltip title="我的音色">
-            <button
-              type="button"
-              className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_MY ? 'active' : ''}`}
-              aria-label="我的音色"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setActiveVoiceTab(VOICE_TAB_MY);
-              }}
-            >
-              <img className="chat-panel__voice-library-tab-icon" src={MyVoiceIcon} alt="" aria-hidden="true" />
-            </button>
-          </Tooltip>
+          {hasLockedProvider ? null : (
+            <Tooltip title="收藏音色">
+              <button
+                type="button"
+                className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_FAVORITES ? 'active' : ''}`}
+                aria-label="收藏音色"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveVoiceTab(VOICE_TAB_FAVORITES);
+                }}
+              >
+                <img
+                  className="chat-panel__voice-library-tab-icon"
+                  src={VoiceCollectIcon}
+                  alt=""
+                  aria-hidden="true"
+                />
+              </button>
+            </Tooltip>
+          )}
+          {hasLockedProvider ? null : (
+            <Tooltip title="我的音色">
+              <button
+                type="button"
+                className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_MY ? 'active' : ''}`}
+                aria-label="我的音色"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveVoiceTab(VOICE_TAB_MY);
+                }}
+              >
+                <img className="chat-panel__voice-library-tab-icon" src={MyVoiceIcon} alt="" aria-hidden="true" />
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
     );
@@ -1210,6 +1233,7 @@ const VoiceLib = ({
     handleVoiceLibraryFilterChange,
     handleVoiceLibraryScroll,
     handleVoiceSelect,
+    hasLockedProvider,
     hasMoreVoiceLibraryItems,
     playingVoiceId,
     selectedVoiceLibraryId,
@@ -1289,9 +1313,17 @@ const VoiceLib = ({
       menu={{ items: [] }}
       popupRender={() => voiceLibraryPopupContent}
     >
-      <span className="chat-panel__tool-dropdown-trigger">
-        {triggerButton}
-      </span>
+      {hideTrigger ? (
+        <span
+          className="chat-panel__voice-library-hidden-trigger"
+          style={{ display: 'inline-block', width: 0, height: 0, overflow: 'hidden', position: 'absolute' }}
+          aria-hidden="true"
+        />
+      ) : (
+        <span className="chat-panel__tool-dropdown-trigger">
+          {triggerButton}
+        </span>
+      )}
     </Dropdown>
   );
 };

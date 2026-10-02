@@ -925,6 +925,8 @@ const legacyElectronAPI = {
       ipcRenderer.invoke(IpcChannel.CherryChatStream_AudioAddRequest, payload),
     createSpeechRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_SpeechRequest, payload),
+    createSeedAudioRequest: (payload: any = {}) =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_SeedAudioRequest, payload),
     createAiVideoRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_AiVideoRequest, payload),
     createReversePromptRequest: (payload: any = {}) =>

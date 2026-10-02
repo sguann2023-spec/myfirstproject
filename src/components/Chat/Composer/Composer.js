@@ -30,6 +30,7 @@ import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
 import VideoToolDetail from './VideoToolDetail/index';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
+import VoiceLib, { useVoiceLib } from './VoiceLib/index';
 import TTSToolDetail from '../../TTSToolDetail/index';
 import DraftToolDetail, { getDraftToolSendState } from '../../DraftToolDetail/index';
 import DraftDownloadToolDetail, { getDraftDownloadToolSendState } from '../../DraftDownloadToolDetail/index';
@@ -58,6 +59,10 @@ import AudioAddToolDetail, {
   DEFAULT_AUDIO_ADD_SETTINGS,
   getAudioAddToolSendState
 } from '../../AudioAddToolDetail/index';
+import MusicGenerateToolDetail, {
+  buildMusicGenerateRequestParams,
+  getMusicGenerateToolSendState
+} from '../../MusicGenerateToolDetail/index';
 import { normalizeMemberProvider } from '../../../constants/member';
 
 const { shell } = window.require('electron');
@@ -369,6 +374,12 @@ const DRAFT_PLACEHOLDER_CONFIG = [
 ];
 const DRAFT_MODIFY_PLACEHOLDER_CONFIG = [
   { key: 'draft_cover', label: '新封面', kind: 'image' },
+];
+const MUSIC_GENERATE_UPLOAD_MAX_COUNT = 3;
+const MUSIC_GENERATE_PLACEHOLDER_CONFIG = [
+  { key: 'music_reference_image', label: '参考图片', kind: 'image' },
+  { key: 'music_reference_audio', label: '参考音频', kind: 'audio' },
+  { key: 'music_reference_voice_id', label: '音色ID', kind: 'voice' },
 ];
 const VIDEO_REFERENCE_UPLOAD_MAX_COUNT = 10;
 const VIDEO_FRAME_SLOT_ORDER = {
@@ -1357,6 +1368,34 @@ const createVideoTemplateAttachmentEntries = async (template = {}) => {
   }));
 
   return entries.filter(Boolean);
+};
+const createMusicGenerateTemplateAttachmentEntries = async (template = {}) => {
+  const entries = [];
+  const templateId = String(template?.id || 'template').trim();
+  const referenceAudioUrls = Array.isArray(template?.referenceAudioUrls) ? template.referenceAudioUrls : [];
+
+  for (let i = 0; i < referenceAudioUrls.length; i += 1) {
+    const url = String(referenceAudioUrls[i] || '').trim();
+    if (!url) continue;
+    const fileNameFromUrl = getRemoteMediaUrlFileName(url);
+    const fallbackExtension = getFileExtension(fileNameFromUrl);
+    const indexSuffix = referenceAudioUrls.length > 1 ? ` ${i + 1}` : '';
+    const resolvedName = fallbackExtension ? `参考音频${indexSuffix}.${fallbackExtension}` : `参考音频${indexSuffix}`;
+    const guessedFileType = guessFileTypeFromName(fileNameFromUrl);
+    const audioEntry = await createRemoteAttachmentEntry({
+      uid: `music-template:${templateId}:audio:${i}`,
+      name: resolvedName.trim(),
+      url,
+      fileType: guessedFileType !== 'text/plain' ? guessedFileType : 'audio/wav',
+      sourceType: 'music_template',
+      sourceLabel: templateId,
+    });
+    if (audioEntry) {
+      entries.push({ ...audioEntry, slotId: 'music_reference_audio' });
+    }
+  }
+
+  return entries;
 };
 const createImageTemplateAttachmentEntries = async (template = {}) => {
   const contentItems = Array.isArray(template?.content) ? template.content : [];
@@ -2353,6 +2392,14 @@ const Composer = ({
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
+  const musicVoicePickHandlerRef = React.useRef(null);
+  const musicVoiceLib = useVoiceLib({
+    lockedProvider: 'volc2.0',
+    onPick: (item) => {
+      musicVoicePickHandlerRef.current?.(item);
+    },
+  });
+  const MUSIC_REFERENCE_VOICE_SLOT_ID = 'music_reference_voice_id';
   const [selectedSpeechModel, setSelectedSpeechModel] = React.useState('');
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
   const [hoveredModelCard, setHoveredModelCard] = React.useState(null);
@@ -2389,6 +2436,7 @@ const Composer = ({
   const mentionPanelPointerDownRef = React.useRef(false);
   const requestUploadPickerRef = React.useRef(() => {});
   const toolbarUploadTriggerRef = React.useRef(null);
+  const musicPlaceholderUploadInputRef = React.useRef(null);
   const pendingTemplateSlotAutoReferenceRef = React.useRef('');
   const inputWrapRef = React.useRef(null);
   const mentionPanelRef = React.useRef(null);
@@ -2444,6 +2492,8 @@ const Composer = ({
           ? '描述你想要的图片，或者选择本地图片后修改'
         : activeTool === 'voice-square'
           ? '请输入文案'
+        : activeTool === 'music-generate'
+          ? '描述你想生成的音频，例如人声、音乐、环境声和音效'
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
             : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
@@ -2451,8 +2501,36 @@ const Composer = ({
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
+    if (activeTool === 'music-generate' && slotId) {
+      const placeholder = MUSIC_GENERATE_PLACEHOLDER_CONFIG.find((item) => String(item.key) === String(slotId));
+      const slotKind = placeholder?.kind;
+      if (slotKind === 'voice') {
+        musicVoiceLib.setVoiceLibraryOpen?.(true);
+        return;
+      }
+      const slotAccept = slotKind === 'audio'
+        ? 'audio/*'
+        : slotKind === 'image'
+          ? 'image/*'
+          : '';
+      const inputEl = musicPlaceholderUploadInputRef.current;
+      if (inputEl) {
+        if (slotAccept) inputEl.setAttribute('accept', slotAccept);
+        else inputEl.removeAttribute('accept');
+        inputEl.value = '';
+        inputEl.click();
+        return;
+      }
+    }
     toolbarUploadTriggerRef.current?.click?.();
   };
+
+  const handleMusicPlaceholderInputChange = React.useCallback((event) => {
+    const picked = Array.from(event?.target?.files || []);
+    event.target.value = '';
+    if (picked.length === 0) return;
+    queueFilesForUploadRef.current?.(picked);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -3657,10 +3735,18 @@ const Composer = ({
     validateFile: null,
     typeErrorMessage: '新草稿仅支持上传封面图',
   }), []);
+  const musicGenerateUploadLimit = React.useMemo(() => ({
+    maxCount: MUSIC_GENERATE_UPLOAD_MAX_COUNT,
+    imageOnly: false,
+    accept: 'image/*,audio/*',
+    validateFile: null,
+    typeErrorMessage: 'AI生成音频参考仅支持上传图片或音频',
+  }), []);
   const activeUploadLimit = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoModeUploadLimit;
     if (activeTool === 'image-pan') return imagePanUploadLimit;
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadLimit;
+    if (activeTool === 'music-generate') return musicGenerateUploadLimit;
     return {
       maxCount: MAX_UPLOAD_COUNT,
       imageOnly: false,
@@ -3668,7 +3754,7 @@ const Composer = ({
       validateFile: null,
       typeErrorMessage: '',
     };
-  }, [activeTool, draftUploadLimit, imagePanUploadLimit, videoModeUploadLimit]);
+  }, [activeTool, draftUploadLimit, imagePanUploadLimit, musicGenerateUploadLimit, videoModeUploadLimit]);
   const uploadAccept = React.useMemo(() => {
     if (activeUploadLimit.imageOnly) return 'image/*';
     return activeUploadLimit.accept;
@@ -3722,12 +3808,26 @@ const Composer = ({
       return total + durationSeconds;
     }, 0);
   }, [activeTool, normalizedSelectedVideoGenerationMode, uploadedFileMeta]);
+  const musicGenerateUploadPlaceholders = React.useMemo(() => {
+    if (activeTool !== 'music-generate') return [];
+    const occupiedSlotIds = new Set(
+      uploadedFileMeta
+        .map((item) => String(item?.slotId || '').trim())
+        .filter(Boolean)
+    );
+    const remaining = MUSIC_GENERATE_PLACEHOLDER_CONFIG.filter(
+      (item) => !occupiedSlotIds.has(String(item.key || '').trim())
+    );
+    if (uploadedFileMeta.length >= MUSIC_GENERATE_UPLOAD_MAX_COUNT) return [];
+    return remaining;
+  }, [activeTool, uploadedFileMeta]);
   const activeUploadPlaceholders = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoUploadPlaceholders;
     if (activeTool === 'image-pan') return imagePanUploadPlaceholders;
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadPlaceholders;
+    if (activeTool === 'music-generate') return musicGenerateUploadPlaceholders;
     return [];
-  }, [activeTool, draftUploadPlaceholders, imagePanUploadPlaceholders, videoUploadPlaceholders]);
+  }, [activeTool, draftUploadPlaceholders, imagePanUploadPlaceholders, musicGenerateUploadPlaceholders, videoUploadPlaceholders]);
   const activePreviewSlotOrder = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoPreviewSlotOrder;
     return [];
@@ -3828,6 +3928,8 @@ const Composer = ({
         return getRevertPromptSendState(context);
       case 'voice-square':
         return getVoiceSquareToolSendState(context);
+      case 'music-generate':
+        return getMusicGenerateToolSendState(context);
       default:
         return defaultSendState;
     }
@@ -3868,14 +3970,26 @@ const Composer = ({
     if (normalizedFiles.length === 0) return;
     const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
     const isPendingVideoFrameSlot = activeTool === 'ai-video' && isVideoFrameSlotId(pendingSlotId);
+    const musicPendingPlaceholder = activeTool === 'music-generate' && pendingSlotId
+      ? MUSIC_GENERATE_PLACEHOLDER_CONFIG.find((item) => String(item.key) === pendingSlotId)
+      : null;
+    const musicSlotKind = musicPendingPlaceholder?.kind;
 
     const { imageOnly, maxCount, typeErrorMessage, validateFile } = activeUploadLimit;
-    const typeFilteredFiles = imageOnly
-      ? normalizedFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
-      : typeof validateFile === 'function'
-        ? normalizedFiles.filter((item) => validateFile(item))
+    const musicSlotFilteredFiles = musicSlotKind === 'audio'
+      ? normalizedFiles.filter((item) => String(getResolvedUploadFileType(item) || '').toLowerCase().startsWith('audio/'))
+      : musicSlotKind === 'image'
+        ? normalizedFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
         : normalizedFiles;
-    if (typeFilteredFiles.length !== normalizedFiles.length) {
+    if (musicSlotFilteredFiles.length !== normalizedFiles.length) {
+      message.error(musicSlotKind === 'audio' ? '参考音频只能上传音频文件' : '参考图片只能上传图片文件');
+    }
+    const typeFilteredFiles = imageOnly
+      ? musicSlotFilteredFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
+      : typeof validateFile === 'function'
+        ? musicSlotFilteredFiles.filter((item) => validateFile(item))
+        : musicSlotFilteredFiles;
+    if (typeFilteredFiles.length !== musicSlotFilteredFiles.length) {
       message.error(typeErrorMessage);
     }
     if (typeFilteredFiles.length === 0) return;
@@ -4102,6 +4216,7 @@ const Composer = ({
       .filter((item) => item.uid && item.name && isFileLike(item.file));
     const remainingLocalReferences = uploadedFileMeta
       .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
+      .filter((item) => String(item?.kind || '') !== 'voice_id')
       .map((item) => buildAttachmentReferenceText(item));
     const draftCoverReferences = activeTool === 'draft' || activeTool === 'draft-modify'
       ? uploadedFileMeta
@@ -4122,6 +4237,29 @@ const Composer = ({
     const presetAddRequestParams = buildPresetAddRequestParams(presetAddSettings);
     const selectedAudioAddDraftId = String(selectedAudioAddDraftIds?.[0] || '').trim();
     const audioAddRequestParams = buildAudioAddRequestParams(audioAddSettings);
+    const musicGenerateRequestParams = buildMusicGenerateRequestParams(text);
+    if (musicGenerateRequestParams && activeTool === 'music-generate') {
+      const voiceIdAttachment = uploadedFileMeta.find(
+        (item) => String(item?.kind || '') === 'voice_id' && String(item?.voiceId || '').trim()
+      );
+      if (voiceIdAttachment) {
+        musicGenerateRequestParams.voice_id = String(voiceIdAttachment.voiceId).trim();
+      }
+      const referenceAudioUrls = uploadedFileMeta
+        .filter((item) => String(item?.slotId || '') === 'music_reference_audio')
+        .map((item) => String(item?.url || item?.sourcePath || '').trim())
+        .filter(Boolean);
+      const referenceImageUrls = uploadedFileMeta
+        .filter((item) => String(item?.slotId || '') === 'music_reference_image')
+        .map((item) => String(item?.url || item?.sourcePath || '').trim())
+        .filter(Boolean);
+      if (referenceAudioUrls.length > 0) {
+        musicGenerateRequestParams.referenceAudios = referenceAudioUrls;
+      }
+      if (referenceImageUrls.length > 0) {
+        musicGenerateRequestParams.referenceImage = referenceImageUrls[0];
+      }
+    }
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
     const selectedDraftModifyId = String(selectedDraftModifyIds?.[0] || '').trim();
     const videoOptionPromptSegments = buildVideoOptionPromptSegments({
@@ -4180,6 +4318,8 @@ const Composer = ({
             selectedAudioAddDraftId ? `草稿ID：${selectedAudioAddDraftId}` : '',
             buildAudioAddSettingsPrompt(audioAddSettings),
           ].filter(Boolean).join('\n')
+        : activeTool === 'music-generate'
+          ? `请调用 mcp__vectcut__seed-audio__generate_seed_audio 生成音频，提示词：${combined}`
         : activeTool === 'draft-inspect'
           ? [
             '请查看当前草稿。',
@@ -4296,6 +4436,9 @@ const Composer = ({
           voice_id: String(selectedVoiceLibraryItem?.global_voice_id || selectedVoiceLibraryItem?.voice_id || '').trim(),
           only_tts: true,
         }
+        : null,
+      seedAudioRequest: activeTool === 'music-generate'
+        ? musicGenerateRequestParams
         : null,
       aiVideoRequest: activeTool === 'ai-video'
         ? aiVideoRequestPayload
@@ -4535,6 +4678,43 @@ const Composer = ({
     });
   }, []);
 
+  const handleMusicGenerateTemplateMediaApply = React.useCallback(async (template) => {
+    const nextTemplateAttachments = await createMusicGenerateTemplateAttachmentEntries(template);
+    setUploadedFileMeta((prev) => {
+      const retainedItems = (Array.isArray(prev) ? prev : []).filter((item) => String(item?.sourceType || '').trim() !== 'music_template');
+      return [...retainedItems, ...nextTemplateAttachments];
+    });
+  }, []);
+
+  musicVoicePickHandlerRef.current = (item) => {
+    const voiceId = String(item?.global_voice_id || item?.voice_id || '').trim();
+    if (!voiceId) return;
+    const voiceName = String(item?.title || item?.name || voiceId).trim() || voiceId;
+    const virtualAttachment = {
+      uid: `music-voice:${voiceId}:${Date.now()}`,
+      kind: 'voice_id',
+      slotId: MUSIC_REFERENCE_VOICE_SLOT_ID,
+      name: voiceName,
+      voiceId,
+      sourceType: 'music_voice_pick',
+      sourceLabel: voiceId,
+      fileType: 'application/x-voice-id',
+      status: 'done',
+      percent: 100,
+    };
+    setUploadedFileMeta((prev) => {
+      const retained = (Array.isArray(prev) ? prev : []).filter(
+        (x) => String(x?.slotId || '') !== MUSIC_REFERENCE_VOICE_SLOT_ID
+      );
+      return [...retained, virtualAttachment];
+    });
+    try {
+      syncTemplateFileReferenceNode(editor, MUSIC_REFERENCE_VOICE_SLOT_ID, virtualAttachment);
+    } catch (error) {
+      console.warn('[Composer] failed to sync voice id reference node', error);
+    }
+  };
+
   const handleVideoTemplateMediaApply = React.useCallback(async (template) => {
     const nextTemplateAttachments = await createVideoTemplateAttachmentEntries(template);
     setUploadedFileMeta((prev) => {
@@ -4614,6 +4794,14 @@ const Composer = ({
         onClose={() => setPartSplitDialogOpen(false)}
       /> : null}
       <div className="chat-panel__editor">
+        <input
+          ref={musicPlaceholderUploadInputRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleMusicPlaceholderInputChange}
+        />
+        <VoiceLib controller={musicVoiceLib} hideTrigger />
         <LocalFilePreviewList
           files={uploadedFileMeta}
           placeholders={activeUploadPlaceholders}
@@ -4738,6 +4926,13 @@ const Composer = ({
                       selectedModel={selectedSpeechModel}
                       onModelChange={setSelectedSpeechModel}
                       inputText={input}
+                    />
+                  ) : activeTool === 'music-generate' ? (
+                    <MusicGenerateToolDetail
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      onPromptChange={handleImageTemplateApply}
+                      onTemplateMediaChange={handleMusicGenerateTemplateMediaApply}
                     />
                   ) : activeTool === 'voice-clone' ? (
                     <VoiceSquareToolDetail

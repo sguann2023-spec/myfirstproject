@@ -1,4 +1,4 @@
-import { File, FileAudio, FileVideo, X } from 'lucide-react';
+import { AudioLines, File, FileAudio, FileVideo, X } from 'lucide-react';
 import FirstFrameIcon from '../../../../../public/first_frame.svg';
 import './index.css';
 
@@ -9,6 +9,8 @@ const getFileExtension = (fileName = '') => {
   return normalized.split('.').pop() || '';
 };
 
+const isVoiceIdFile = (file = {}) => String(file?.kind || '').trim() === 'voice_id';
+
 const getFileKindFromType = (fileType = '') => {
   if (String(fileType).startsWith('image/')) return 'image';
   if (String(fileType).startsWith('video/')) return 'video';
@@ -16,6 +18,10 @@ const getFileKindFromType = (fileType = '') => {
   return 'file';
 };
 const getFileMetaLabel = (file = {}) => {
+  if (isVoiceIdFile(file)) {
+    const voiceId = String(file?.voiceId || '').trim();
+    return voiceId ? `voice_id: ${voiceId}` : 'VOICE ID';
+  }
   const extension = getFileExtension(file.name).toUpperCase();
   if (extension) return extension;
   const kind = getFileKindFromType(file.fileType);
@@ -30,6 +36,13 @@ const getPreviewUrl = (file = {}) => (
 );
 
 const renderFileThumb = (file = {}) => {
+  if (isVoiceIdFile(file)) {
+    return (
+      <span className="chat-panel__local-file-preview-thumb-icon" aria-hidden="true">
+        <AudioLines size={18} />
+      </span>
+    );
+  }
   const previewUrl = getPreviewUrl(file);
   const kind = getFileKindFromType(file.fileType);
 
@@ -147,7 +160,7 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], o
           }
 
           const file = entry.value;
-          const isImage = getFileKindFromType(file.fileType) === 'image';
+          const isImage = !isVoiceIdFile(file) && getFileKindFromType(file.fileType) === 'image';
 
           return (
             <div
@@ -173,9 +186,11 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], o
                   <div className="chat-panel__local-file-preview-name" title={getFileDisplayName(file)}>
                     {getFileDisplayName(file)}
                   </div>
-                  <div className="chat-panel__local-file-preview-meta">
-                    {getFileMetaLabel(file)}
-                  </div>
+                  {isVoiceIdFile(file) ? null : (
+                    <div className="chat-panel__local-file-preview-meta">
+                      {getFileMetaLabel(file)}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

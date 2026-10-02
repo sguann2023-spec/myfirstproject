@@ -205,7 +205,7 @@ type IntentRoute = {
 ；如果用户给的是“参考视频”，应优先原样保留为 `video_url` + `role=reference_video`，不要默认把视频拆成抽帧图片 + 分离音频，除非用户明确要求“抽帧”“拆音轨”“提取参考图/参考音频”
 - `speech`：传统 TTS，按“文字 + 音色”合成语音；凡是“语音合成”“生成语音”“配音”“朗读”“念出来”等表述，都默认命中 `speech`；即使出现“豆包”“多人”“背景音乐”“音效”等词，只要没有完整出现精确短语 `豆包生成语音` 或 `豆包语言生成`，也一律不要命中 `seed_audio`
 - `voice_conversion`：AI 变声 / 声音转换，输入应是原始音频或视频，再指定目标 `voice_id`，将现有声音转换成另一种音色；默认理解为尽量保持原始语速、停顿和情绪不变，而不是重新按文本做 TTS；当用户表达“变声”“换音色”“把这段音频换成另一个声音”“保持语速不变”“保持情绪不变”等诉求时，应优先命中 `voice_conversion`；接口形态上应视为异步任务，先提交原始 `audio_url` / `video_url` 与目标 `voice_id` 获取 `task_id`，再轮询任务状态直至拿到 `result.converted_url`；远程音频/视频链接可直接传入，本地音频/视频绝对路径或 `file://` URL 也允许直接传入并由工具内部自动上传处理，不需要额外先走 `workspace.upload`
-- `seed_audio`：仅在用户输入中完整出现精确短语 `豆包生成语音` 或 `豆包语言生成` 时才命中；少一个字、错一个字、换序表达（如“用豆包语音生成”）都不能命中 `seed_audio`
+- `seed_audio`：当请求来自前端 `AI生成音频` 工具入口，或用户输入中完整出现精确短语 `豆包生成语音` / `豆包语言生成` 时命中；调用 `mcp__vectcut__seed-audio__generate_seed_audio`，对应接口文档为 https://docs.vectcut.com/482521762e0，核心上游接口为 `POST /llm/tts/seed_audio/generate`，主要参数是 `model="seed-audio-1.0"`、`text_prompt` 和可选 `references[].audio_url`。普通“语音合成 / 朗读 / 配音”不走该能力，仍命中 `speech`
 - `digital_human`：数字人生成功能对 Agent 暴露为单个长任务工具，内部自行处理异步任务提交与轮询，不再要求单独状态查询；远程音频 / 视频 / 图片链接可直接传入，本地绝对路径或 `file://` URL 也允许直接传入并由工具内部处理；整体耗时通常为 `15~30` 分钟，完成后直接返回最终视频结果
 
 ### 6. `skills`

@@ -32,6 +32,7 @@ import { normalizeChatError } from '../../shared/chatError';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
+import { normalizeSeedAudioRequestPayload } from '../../shared/seedAudioRequest';
 import { normalizeAiVideoRequestPayload } from '../../shared/aiVideoRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
@@ -845,6 +846,40 @@ const buildSpeechRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: speechRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildSeedAudioRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  seedAudioRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `seed_audio_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-seed-audio-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__seed-audio__generate_seed_audio',
+    arguments: seedAudioRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__seed-audio__generate_seed_audio',
+          name: 'mcp__vectcut__seed-audio__generate_seed_audio',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: seedAudioRequest,
         status: 'pending'
       }
     }
@@ -5282,6 +5317,9 @@ const HomePage = () => {
     const speechRequest = options?.speechRequest && typeof options.speechRequest === 'object'
       ? { ...options.speechRequest }
       : null;
+    const seedAudioRequest = options?.seedAudioRequest && typeof options.seedAudioRequest === 'object'
+      ? { ...options.seedAudioRequest }
+      : null;
     const aiVideoRequest = options?.aiVideoRequest && typeof options.aiVideoRequest === 'object'
       ? { ...options.aiVideoRequest }
       : null;
@@ -5374,6 +5412,7 @@ const HomePage = () => {
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
+        ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
@@ -5434,6 +5473,7 @@ const HomePage = () => {
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
+        ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
@@ -5543,6 +5583,60 @@ const HomePage = () => {
         userMessage,
         images,
       });
+
+      if (seedAudioRequest) {
+        const resolvedSeedAudioRequest = normalizeSeedAudioRequestPayload(seedAudioRequest, text);
+        if (!resolvedSeedAudioRequest || !String(resolvedSeedAudioRequest.text_prompt || '').trim()) {
+          throw new Error('seed audio request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          seedAudioRequest: resolvedSeedAudioRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildSeedAudioRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            seedAudioRequest: resolvedSeedAudioRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directSeedAudioResult = await window.electronAPI.cherryChatStream.createSeedAudioRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          seedAudioRequest: resolvedSeedAudioRequest,
+        });
+        if (!directSeedAudioResult?.ok) {
+          throw new Error(directSeedAudioResult?.error || 'seed audio request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directSeedAudioResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directSeedAudioResult?.assistantBlocks) ? directSeedAudioResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'seed-audio-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'seed-audio-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'seed-audio-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'seed-audio-request.complete');
+        setChatSending(false);
+        return;
+      }
 
       if (aiVideoRequest) {
         const aiVideoRequestWithLocalFiles = resolveAiVideoRequestLocalAttachmentUrls(

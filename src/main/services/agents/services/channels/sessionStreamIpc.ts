@@ -5,6 +5,7 @@ import { normalizeDirectAiVideoRequest } from './aiVideoRequest'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
+import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import VideoGenerateServer from '@main/mcpServers/video-generate'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
@@ -60,6 +61,7 @@ type DirectDraftRequestPayload = {
   reversePromptRequest?: { shareText?: string }
   subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string }
   audioAddRequest?: Record<string, unknown>
+  seedAudioRequest?: Record<string, unknown>
   aiVideoRequest?: Record<string, unknown>
   draftRequest?: {
     action?: 'create'
@@ -317,6 +319,25 @@ async function callSpeechTool(toolName: string, args: Record<string, unknown>) {
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
     throw new Error('Speech server did not register tools/call handler')
+  }
+  return callToolHandler(
+    {
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args
+      }
+    },
+    {}
+  )
+}
+
+async function callSeedAudioTool(toolName: string, args: Record<string, unknown>) {
+  const server = new SeedAudioServer()
+  const handlers = (server.mcpServer.server as any)?._requestHandlers
+  const callToolHandler = handlers?.get('tools/call')
+  if (typeof callToolHandler !== 'function') {
+    throw new Error('Seed audio server did not register tools/call handler')
   }
   return callToolHandler(
     {
@@ -640,6 +661,65 @@ function normalizeDirectSpeechRequest(input: Record<string, unknown> = {}, fallb
   }
 }
 
+function normalizeDirectSeedAudioRequest(input: Record<string, unknown> = {}, fallbackPrompt = '') {
+  const promptRaw = typeof input?.text_prompt === 'string'
+    ? input.text_prompt
+    : typeof input?.textPrompt === 'string'
+      ? input.textPrompt
+      : typeof input?.prompt === 'string'
+        ? input.prompt
+        : typeof input?.prompt_text === 'string'
+          ? input.prompt_text
+          : fallbackPrompt
+  const textPrompt = String(promptRaw || '').trim()
+  if (!textPrompt) {
+    throw new Error('text_prompt is required for seed audio request')
+  }
+
+  const model = typeof input?.model === 'string' && input.model.trim() ? input.model.trim() : 'seed-audio-1.0'
+  const voiceIdRaw = typeof input?.voiceId === 'string' ? input.voiceId : input?.voice_id
+  const voiceId = typeof voiceIdRaw === 'string' && voiceIdRaw.trim() ? voiceIdRaw.trim() : undefined
+  const speaker = typeof input?.speaker === 'string' && input.speaker.trim() ? input.speaker.trim() : undefined
+  const audioUrlRaw = typeof input?.audioUrl === 'string' ? input.audioUrl : input?.audio_url
+  const audioUrl = typeof audioUrlRaw === 'string' && audioUrlRaw.trim() ? audioUrlRaw.trim() : undefined
+  const imageUrlRaw = typeof input?.imageUrl === 'string' ? input.imageUrl : input?.image_url
+  const imageUrl = typeof imageUrlRaw === 'string' && imageUrlRaw.trim() ? imageUrlRaw.trim() : undefined
+  const references = Array.isArray(input?.references)
+    ? input.references.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    : []
+  const referenceAudiosRaw = Array.isArray(input?.referenceAudios)
+    ? input.referenceAudios
+    : Array.isArray(input?.reference_audios)
+      ? input.reference_audios
+      : []
+  const referenceAudios = referenceAudiosRaw
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean)
+  const referenceImageRaw = typeof input?.referenceImage === 'string'
+    ? input.referenceImage
+    : typeof input?.reference_image === 'string'
+      ? input.reference_image
+      : ''
+  const referenceImage = typeof referenceImageRaw === 'string' && referenceImageRaw.trim()
+    ? referenceImageRaw.trim()
+    : undefined
+
+  return {
+    text_prompt: textPrompt,
+    model,
+    ...(voiceId ? { voice_id: voiceId } : {}),
+    ...(speaker ? { speaker } : {}),
+    ...(audioUrl ? { audio_url: audioUrl } : {}),
+    ...(imageUrl ? { image_url: imageUrl } : {}),
+    ...(references.length ? { references } : {}),
+    ...(referenceAudios.length ? { referenceAudios } : {}),
+    ...(referenceImage ? { referenceImage } : {}),
+    ...(input?.audio_config && typeof input.audio_config === 'object' ? { audio_config: input.audio_config } : {}),
+    ...(input?.audioConfig && typeof input.audioConfig === 'object' ? { audio_config: input.audioConfig } : {}),
+    ...(input?.watermark && typeof input.watermark === 'object' ? { watermark: input.watermark } : {})
+  }
+}
+
 function buildDirectDraftDownloadAssistantText(input: {
   drafts: Array<{
     draftId: string
@@ -817,6 +897,39 @@ function buildDirectSpeechErrorAssistantText(input: {
     errorCode ? `- 错误码：${errorCode}` : '',
     '',
     '请检查文案、音色 ID 和厂商是否匹配后重试。'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectSeedAudioAssistantText(input: {
+  prompt?: string
+  toolResponse: Record<string, any>
+}): string {
+  const prompt = String(input?.prompt || '').trim()
+  const audioUrl = String(input?.toolResponse?.url || input?.toolResponse?.audio_url || '').trim()
+  const model = String(input?.toolResponse?.model || '').trim()
+  const duration = Number(input?.toolResponse?.duration_seconds)
+  return [
+    'AI音频已生成成功！',
+    '',
+    prompt ? `- 提示词：${prompt}` : '',
+    model ? `- 模型：${model}` : '',
+    Number.isFinite(duration) ? `- 时长：${duration.toFixed(2)}s` : '',
+    audioUrl ? `- 音频链接：${audioUrl}` : '',
+    '',
+    '还需要继续生成其他音频，或者把这段音频添加到草稿里吗？'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectSeedAudioErrorAssistantText(input: { prompt?: string; errorCode?: string }): string {
+  const prompt = String(input?.prompt || '').trim()
+  const errorCode = String(input?.errorCode || '').trim()
+  return [
+    'AI音频生成失败。',
+    '',
+    prompt ? `- 提示词：${prompt}` : '',
+    errorCode ? `- 错误：${errorCode}` : '',
+    '',
+    '请检查提示词或参考素材链接后重试。'
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
@@ -1377,6 +1490,70 @@ function buildDirectSpeechAssistantBlocks(input: {
           tool: {
             id: 'mcp__vectcut__speech__generate_speech',
             name: 'mcp__vectcut__speech__generate_speech',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectSeedAudioAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+  status?: 'success' | 'error'
+}) {
+  const {
+    assistantMessageId,
+    modelId,
+    toolCallId,
+    toolArgs,
+    toolResponse,
+    assistantText,
+    createdAtIso,
+    status = 'success'
+  } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__vectcut__seed-audio__generate_seed_audio',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__vectcut__seed-audio__generate_seed_audio',
+            name: 'mcp__vectcut__seed-audio__generate_seed_audio',
             serverName: 'vectcut',
             serverId: 'vectcut',
             type: 'mcp'
@@ -3279,6 +3456,130 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleSeedAudioRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedSeedAudioRequest = normalizeDirectSeedAudioRequest(
+        payload?.seedAudioRequest && typeof payload.seedAudioRequest === 'object'
+          ? payload.seedAudioRequest as Record<string, unknown>
+          : {},
+        String(payload?.userContent || '').trim()
+      )
+      const prompt = String(normalizedSeedAudioRequest?.text_prompt || '').trim()
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `seed_audio_request_${requestId}`
+      const toolArgs: Record<string, unknown> = { ...normalizedSeedAudioRequest }
+
+      const toolResult = await callSeedAudioTool('generate_seed_audio', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
+      const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
+      const assistantText = responseSuccess
+        ? buildDirectSeedAudioAssistantText({ prompt, toolResponse })
+        : buildDirectSeedAudioErrorAssistantText({ prompt, errorCode })
+      const assistantBlocks = buildDirectSeedAudioAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso,
+        status: responseSuccess ? 'success' : 'error'
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: responseSuccess ? 'completed' : 'failed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              seedAudioRequest: normalizedSeedAudioRequest,
+              blocks: [`${userMessageId}-main`]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: responseSuccess ? 'success' : 'error',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleAiVideoRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
     try {
       const sessionId = String(payload?.sessionId || '').trim()
@@ -3574,6 +3875,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(IpcChannel.CherryChatStream_PresetAddRequest, handlePresetAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_AudioAddRequest, handleAudioAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SpeechRequest, handleSpeechRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_SeedAudioRequest, handleSeedAudioRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_AiVideoRequest, handleAiVideoRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, handleReversePromptRequest)

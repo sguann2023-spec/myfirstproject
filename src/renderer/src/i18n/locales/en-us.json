@@ -2600,7 +2600,7 @@
           "materials": "Materials",
           "remove_bg": "Portrait Cutout",
           "search": "Web Search",
-          "seed_audio": "Doubao Audio",
+          "seed_audio": "AI Audio",
           "speech": "Speech",
           "storyboard_editor": "Subtitle Storyboard",
           "subtitle_recognition": "Subtitle Recognition",
@@ -2753,7 +2753,7 @@
             "web_search": "Search the Web"
           },
           "seed_audio": {
-            "generate_seed_audio": "Generate Doubao Audio"
+            "generate_seed_audio": "Generate Audio"
           },
           "speech": {
             "generate_speech": "Generate Speech"

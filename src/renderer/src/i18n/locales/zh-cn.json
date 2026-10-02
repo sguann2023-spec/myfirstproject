@@ -2600,7 +2600,7 @@
           "materials": "素材库",
           "remove_bg": "人物抠像",
           "search": "联网搜索",
-          "seed_audio": "豆包音频",
+          "seed_audio": "AI生成音频",
           "speech": "语音",
           "storyboard_editor": "字幕分镜",
           "subtitle_recognition": "字幕识别",
@@ -2753,7 +2753,7 @@
             "web_search": "联网搜索"
           },
           "seed_audio": {
-            "generate_seed_audio": "生成豆包音频"
+            "generate_seed_audio": "生成音频"
           },
           "speech": {
             "generate_speech": "生成语音"
