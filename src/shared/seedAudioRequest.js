@@ -19,6 +19,14 @@ export const normalizeSeedAudioRequestPayload = (seedAudioRequest = {}, fallback
 
   const model = firstString(seedAudioRequest.model) || DEFAULT_SEED_AUDIO_MODEL;
   const voiceId = firstString(seedAudioRequest.voice_id, seedAudioRequest.voiceId);
+  const voiceIdsRaw = Array.isArray(seedAudioRequest.voice_ids)
+    ? seedAudioRequest.voice_ids
+    : Array.isArray(seedAudioRequest.voiceIds)
+      ? seedAudioRequest.voiceIds
+      : [];
+  const voiceIds = voiceIdsRaw
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
   const speaker = firstString(seedAudioRequest.speaker);
   const audioUrl = firstString(seedAudioRequest.audio_url, seedAudioRequest.audioUrl);
   const imageUrl = firstString(seedAudioRequest.image_url, seedAudioRequest.imageUrl);
@@ -41,6 +49,7 @@ export const normalizeSeedAudioRequestPayload = (seedAudioRequest = {}, fallback
     text_prompt: textPrompt,
     model,
     ...(voiceId ? { voice_id: voiceId } : {}),
+    ...(voiceIds.length ? { voice_ids: voiceIds } : {}),
     ...(speaker ? { speaker } : {}),
     ...(audioUrl ? { audio_url: audioUrl } : {}),
     ...(imageUrl ? { image_url: imageUrl } : {}),

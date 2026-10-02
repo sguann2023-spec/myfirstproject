@@ -679,6 +679,14 @@ function normalizeDirectSeedAudioRequest(input: Record<string, unknown> = {}, fa
   const model = typeof input?.model === 'string' && input.model.trim() ? input.model.trim() : 'seed-audio-1.0'
   const voiceIdRaw = typeof input?.voiceId === 'string' ? input.voiceId : input?.voice_id
   const voiceId = typeof voiceIdRaw === 'string' && voiceIdRaw.trim() ? voiceIdRaw.trim() : undefined
+  const voiceIdsRaw = Array.isArray((input as Record<string, unknown>)?.voiceIds)
+    ? ((input as Record<string, unknown>).voiceIds as unknown[])
+    : Array.isArray((input as Record<string, unknown>)?.voice_ids)
+      ? ((input as Record<string, unknown>).voice_ids as unknown[])
+      : []
+  const voiceIds = voiceIdsRaw
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean)
   const speaker = typeof input?.speaker === 'string' && input.speaker.trim() ? input.speaker.trim() : undefined
   const audioUrlRaw = typeof input?.audioUrl === 'string' ? input.audioUrl : input?.audio_url
   const audioUrl = typeof audioUrlRaw === 'string' && audioUrlRaw.trim() ? audioUrlRaw.trim() : undefined
@@ -708,6 +716,7 @@ function normalizeDirectSeedAudioRequest(input: Record<string, unknown> = {}, fa
     text_prompt: textPrompt,
     model,
     ...(voiceId ? { voice_id: voiceId } : {}),
+    ...(voiceIds.length ? { voice_ids: voiceIds } : {}),
     ...(speaker ? { speaker } : {}),
     ...(audioUrl ? { audio_url: audioUrl } : {}),
     ...(imageUrl ? { image_url: imageUrl } : {}),

@@ -4024,15 +4024,20 @@ const Composer = ({
     const nextEntries = (await Promise.all(resolvedAcceptedFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
     if (nextEntries.length === 0) return;
 
+    const isMusicPendingSlot = Boolean(musicPendingPlaceholder) && (musicSlotKind === 'audio' || musicSlotKind === 'image');
     const nextUploadItems = nextEntries.map((item) => (
       isPendingVideoFrameSlot
         ? { ...item.uploadItem, slotId: pendingSlotId }
-        : item.uploadItem
+        : isMusicPendingSlot
+          ? { ...item.uploadItem, slotId: pendingSlotId }
+          : item.uploadItem
     ));
     const nextFileMeta = nextEntries.map((item) => (
       isPendingVideoFrameSlot
         ? { ...item.fileMeta, slotId: pendingSlotId, slotLabel: TEMPLATE_MEDIA_ROLE_LABELS[pendingSlotId] || '' }
-        : item.fileMeta
+        : isMusicPendingSlot
+          ? { ...item.fileMeta, slotId: pendingSlotId, slotLabel: musicPendingPlaceholder?.label || '' }
+          : item.fileMeta
     ));
 
     setUploadFileList((prev) => {
@@ -4238,13 +4243,19 @@ const Composer = ({
     const selectedAudioAddDraftId = String(selectedAudioAddDraftIds?.[0] || '').trim();
     const audioAddRequestParams = buildAudioAddRequestParams(audioAddSettings);
     const musicGenerateRequestParams = buildMusicGenerateRequestParams(text);
+    const musicGenerateVoiceIds = [];
+    const musicGenerateReferenceAudioUrls = [];
+    let musicGenerateReferenceImageUrl = '';
     if (musicGenerateRequestParams && activeTool === 'music-generate') {
-      const voiceIdAttachment = uploadedFileMeta.find(
+      const voiceIdAttachments = (uploadedFileMeta || []).filter(
         (item) => String(item?.kind || '') === 'voice_id' && String(item?.voiceId || '').trim()
       );
-      if (voiceIdAttachment) {
-        musicGenerateRequestParams.voice_id = String(voiceIdAttachment.voiceId).trim();
-      }
+      voiceIdAttachments.forEach((item) => {
+        const voiceId = String(item.voiceId).trim();
+        if (voiceId && !musicGenerateVoiceIds.includes(voiceId)) {
+          musicGenerateVoiceIds.push(voiceId);
+        }
+      });
       const referenceAudioUrls = uploadedFileMeta
         .filter((item) => String(item?.slotId || '') === 'music_reference_audio')
         .map((item) => String(item?.url || item?.sourcePath || '').trim())
@@ -4253,6 +4264,30 @@ const Composer = ({
         .filter((item) => String(item?.slotId || '') === 'music_reference_image')
         .map((item) => String(item?.url || item?.sourcePath || '').trim())
         .filter(Boolean);
+      // 火山 Seed Audio HTTP 接口原生接受 references 数组：
+      //   [{voice_id: 'gv_xxx'}, {audio_url: 'https://...'}, {image_url: 'https://...'}]
+      // prompt 中用 "@音频1 / @音频2" 占位引用对应 reference 项。
+      const referencesPayload = [];
+      musicGenerateVoiceIds.forEach((voiceId) => {
+        referencesPayload.push({ voice_id: voiceId });
+      });
+      referenceAudioUrls.forEach((url) => {
+        referencesPayload.push({ audio_url: url });
+        musicGenerateReferenceAudioUrls.push(url);
+      });
+      referenceImageUrls.forEach((url) => {
+        referencesPayload.push({ image_url: url });
+      });
+      if (referenceImageUrls.length > 0) {
+        musicGenerateReferenceImageUrl = referenceImageUrls[0];
+      }
+      if (referencesPayload.length > 0) {
+        musicGenerateRequestParams.references = referencesPayload;
+      }
+      // 以下三个字段保留供旧链路兼容，但主体以 references 数组为准
+      if (musicGenerateVoiceIds.length > 0) {
+        musicGenerateRequestParams.voice_ids = musicGenerateVoiceIds;
+      }
       if (referenceAudioUrls.length > 0) {
         musicGenerateRequestParams.referenceAudios = referenceAudioUrls;
       }
@@ -4319,7 +4354,16 @@ const Composer = ({
             buildAudioAddSettingsPrompt(audioAddSettings),
           ].filter(Boolean).join('\n')
         : activeTool === 'music-generate'
-          ? `请调用 mcp__vectcut__seed-audio__generate_seed_audio 生成音频，提示词：${combined}`
+          ? [
+            `请调用 mcp__vectcut__seed-audio__generate_seed_audio 生成音频，提示词：${combined}`,
+            musicGenerateVoiceIds.length > 0
+              ? `参考音色ID（voice_id）：${musicGenerateVoiceIds.join('、')}`
+              : '',
+            musicGenerateReferenceAudioUrls.length > 0
+              ? `参考音频：${musicGenerateReferenceAudioUrls.join('、')}`
+              : '',
+            musicGenerateReferenceImageUrl ? `参考图片：${musicGenerateReferenceImageUrl}` : '',
+          ].filter(Boolean).join('\n')
         : activeTool === 'draft-inspect'
           ? [
             '请查看当前草稿。',

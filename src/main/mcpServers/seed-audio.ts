@@ -637,12 +637,50 @@ class SeedAudioServer {
     }
     delete payload.image_url
 
-    // 图片与音频参考互斥；speaker/voice_id 与 audio 互斥
+    // 聚合音色 ID（voice_id / voice_ids）：火山 Seed Audio HTTP API 接受
+    //   references: [{voice_id: 'gv_xxx'}]
+    // 顶层 voice_id 字段也兼容（旧链路），这里统一归到 voiceIdInputs 后再放进 references。
+    const voiceIdInputs: string[] = []
+    const pushVoiceIdInput = (value: unknown) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          if (typeof item === 'string' && item.trim()) voiceIdInputs.push(item.trim())
+        })
+      } else if (typeof value === 'string' && value.trim()) {
+        voiceIdInputs.push(value.trim())
+      }
+    }
+    pushVoiceIdInput(args.voice_ids)
+    pushVoiceIdInput((args as Record<string, unknown>).voiceIds)
+    if (typeof payload.voice_id === 'string' && payload.voice_id.trim()) {
+      voiceIdInputs.push(payload.voice_id.trim())
+    }
+    // 用户直接传入的 references 数组：合并其中的 voice_id / audio_url / image_url 项
+    const explicitReferencesRaw = Array.isArray((args as Record<string, unknown>).references)
+      ? ((args as Record<string, unknown>).references as unknown[])
+      : null
+    if (explicitReferencesRaw) {
+      explicitReferencesRaw.forEach((item) => {
+        if (!item || typeof item !== 'object') return
+        const refItem = item as Record<string, unknown>
+        const vId = typeof refItem.voice_id === 'string' ? refItem.voice_id.trim() : ''
+        if (vId) voiceIdInputs.push(vId)
+        const aUrl = typeof refItem.audio_url === 'string' ? refItem.audio_url.trim() : ''
+        if (aUrl) audioInputs.push(aUrl)
+        const iUrl = typeof refItem.image_url === 'string' ? refItem.image_url.trim() : ''
+        if (iUrl) imageInputs.push(iUrl)
+      })
+    }
+    // 顶层 voice_id 字段已经并入 voiceIdInputs，清理掉避免误导（下文会由 references 承载）
+    delete payload.voice_id
+    delete (payload as Record<string, unknown>).voice_ids
+    delete (payload as Record<string, unknown>).references
+    const uniqueVoiceIds = Array.from(new Set(voiceIdInputs))
+
+    // 图片与音频参考互斥（火山文档：image 与 audio 不能同时存在）
     const hasImageInput = imageInputs.length > 0 || Boolean(payload.image_data)
     const hasAudioInput = audioInputs.length > 0 || Boolean(payload.audio_data)
-    const hasSpeaker =
-      Boolean(payload.speaker && String(payload.speaker).trim()) ||
-      Boolean(payload.voice_id && String(payload.voice_id).trim())
+    const hasSpeakerField = Boolean(payload.speaker && String(payload.speaker).trim())
 
     if (hasImageInput && hasAudioInput) {
       throw new McpError(
@@ -650,10 +688,10 @@ class SeedAudioServer {
         'Reference image and reference audio cannot be used together per seed-audio API'
       )
     }
-    if (hasImageInput && hasSpeaker) {
+    if (hasImageInput && hasSpeakerField) {
       throw new McpError(
         ErrorCode.InvalidParams,
-        'Reference image cannot be used together with speaker/voice_id per seed-audio API'
+        'Reference image cannot be used together with speaker per seed-audio API'
       )
     }
 
@@ -687,35 +725,42 @@ class SeedAudioServer {
       imageInputs.map((item, idx) => this.prepareImageReferenceUrl(item, `reference_image[${idx}]`))
     )
 
-    // 构造 references 数组（文档约定：参考资源列表，顺序对应 text_prompt 中 @音频N）
+    // 构造 references 数组（火山 Seed Audio HTTP 原生字段，顺序对应 text_prompt 中 @音频N）
+    //   项形态：{voice_id: 'gv_xxx'} / {audio_url: 'https://...'} / {image_url: 'https://...'}
     const references: Array<Record<string, unknown>> = []
+    uniqueVoiceIds.forEach((voiceId) => {
+      references.push({ voice_id: voiceId })
+    })
     resolvedAudioUrls.forEach((url) => {
-      references.push({ type: 'audio', audio_url: url })
+      references.push({ audio_url: url })
     })
     resolvedImageUrls.forEach((url) => {
-      references.push({ type: 'image', image_url: url })
+      references.push({ image_url: url })
     })
 
     if (references.length > 0) {
       payload.references = references
-      // 同时填充单值字段以兼容仅支持 audio_url / image_url 的后端
-      if (resolvedAudioUrls.length > 0) {
-        payload.audio_url = resolvedAudioUrls[0]
-      }
-      if (resolvedImageUrls.length > 0) {
-        payload.image_url = resolvedImageUrls[0]
-      }
     }
 
     return {
       payload,
       resolvedAudioUrls,
-      resolvedImageUrls
+      resolvedImageUrls,
+      resolvedVoiceIds: uniqueVoiceIds
     }
   }
 
   private async generateSeedAudio(args: Record<string, unknown>) {
-    const { payload, resolvedAudioUrls, resolvedImageUrls } = await this.buildSeedAudioPayload(args)
+    const { payload, resolvedAudioUrls, resolvedImageUrls, resolvedVoiceIds } = await this.buildSeedAudioPayload(args)
+    logger.info('Seed audio generation request', {
+      model: payload.model,
+      voiceIdCount: resolvedVoiceIds.length,
+      voiceIds: resolvedVoiceIds,
+      speaker: payload.speaker || null,
+      audioReferenceCount: resolvedAudioUrls.length,
+      imageReferenceCount: resolvedImageUrls.length,
+      argKeys: Object.keys(args || {})
+    })
     const response = await this.requestWithAuth(payload)
 
     if (!response.ok) {
@@ -730,7 +775,10 @@ class SeedAudioServer {
       success: result.success,
       durationSeconds: result.duration_seconds,
       audioReferenceCount: resolvedAudioUrls.length,
-      imageReferenceCount: resolvedImageUrls.length
+      imageReferenceCount: resolvedImageUrls.length,
+      voiceIdCount: resolvedVoiceIds.length,
+      voiceIds: resolvedVoiceIds,
+      speaker: payload.speaker || null
     })
 
     return this.formatJsonResult({
@@ -739,7 +787,7 @@ class SeedAudioServer {
       request: {
         model: payload.model,
         prompt: payload.text_prompt,
-        voice_id: payload.voice_id,
+        voice_ids: resolvedVoiceIds,
         speaker: payload.speaker,
         reference_audios: resolvedAudioUrls,
         reference_images: resolvedImageUrls
