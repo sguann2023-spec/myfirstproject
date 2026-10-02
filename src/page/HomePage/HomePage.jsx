@@ -32,6 +32,7 @@ import { normalizeChatError } from '../../shared/chatError';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
+import { normalizeAiVideoRequestPayload } from '../../shared/aiVideoRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
@@ -322,6 +323,8 @@ const persistPendingChatLocalAttachments = async ({
     return {
       content: '',
       imageAttachmentPreviews,
+      persistedEntries: [],
+      replaceContentPlaceholders: (content = '') => String(content || ''),
     };
   }
 
@@ -358,6 +361,7 @@ const persistPendingChatLocalAttachments = async ({
   );
 
   return {
+    persistedEntries: persistedEntries.filter(Boolean),
     imageAttachmentPreviews: imageAttachmentPreviews.map((item) => {
       const persisted = persistedByUid.get(String(item?.uid || '').trim());
       if (!persisted) return item;
@@ -377,6 +381,45 @@ const persistPendingChatLocalAttachments = async ({
       });
       return nextContent;
     }
+  };
+};
+const resolveAiVideoRequestLocalAttachmentUrls = (aiVideoRequest = null, persistedEntries = []) => {
+  if (!aiVideoRequest || typeof aiVideoRequest !== 'object' || !Array.isArray(aiVideoRequest.content)) {
+    return aiVideoRequest;
+  }
+
+  const persistedByUid = new Map(
+    (Array.isArray(persistedEntries) ? persistedEntries : [])
+      .filter((item) => item?.uid && item?.sourcePath)
+      .map((item) => [String(item.uid).trim(), String(item.sourcePath).trim()])
+  );
+  if (persistedByUid.size === 0) return aiVideoRequest;
+
+  const content = aiVideoRequest.content.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const type = String(item.type || '').trim();
+    const mediaField = type === 'image_url' ? 'image_url'
+      : type === 'video_url' ? 'video_url'
+        : type === 'audio_url' ? 'audio_url' : '';
+    if (!mediaField) return item;
+
+    const rawMedia = item[mediaField];
+    const rawUrl = typeof rawMedia === 'string'
+      ? rawMedia.trim()
+      : String(rawMedia?.url || '').trim();
+    const uid = rawUrl.startsWith('local-attachment:') ? rawUrl.slice('local-attachment:'.length).trim() : '';
+    const sourcePath = uid ? persistedByUid.get(uid) : '';
+    if (!sourcePath) return item;
+
+    return {
+      ...item,
+      [mediaField]: { url: sourcePath },
+    };
+  });
+
+  return {
+    ...aiVideoRequest,
+    content,
   };
 };
 const parseDraftResolutionDimensions = (value = '') => {
@@ -802,6 +845,40 @@ const buildSpeechRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: speechRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildAiVideoRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  aiVideoRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `ai_video_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-ai-video-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__video__generate_video',
+    arguments: aiVideoRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__video__generate_video',
+          name: 'mcp__vectcut__video__generate_video',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: aiVideoRequest,
         status: 'pending'
       }
     }
@@ -5205,6 +5282,9 @@ const HomePage = () => {
     const speechRequest = options?.speechRequest && typeof options.speechRequest === 'object'
       ? { ...options.speechRequest }
       : null;
+    const aiVideoRequest = options?.aiVideoRequest && typeof options.aiVideoRequest === 'object'
+      ? { ...options.aiVideoRequest }
+      : null;
     const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
       ? { ...options.draftExportRequest }
       : null;
@@ -5294,6 +5374,7 @@ const HomePage = () => {
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
+        ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5353,6 +5434,7 @@ const HomePage = () => {
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
+        ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5437,12 +5519,16 @@ const HomePage = () => {
         }
       }
 
+      let persistedPendingAttachmentEntries = [];
       if (pendingLocalAttachments.length > 0) {
         const persistedPendingAttachments = await persistPendingChatLocalAttachments({
           workspacePath: getSessionWorkspacePath(runtimeSession),
           imageAttachmentPreviews,
           pendingLocalAttachments,
         });
+        persistedPendingAttachmentEntries = Array.isArray(persistedPendingAttachments.persistedEntries)
+          ? persistedPendingAttachments.persistedEntries
+          : [];
         imageAttachmentPreviews = persistedPendingAttachments.imageAttachmentPreviews;
         text = persistedPendingAttachments.replaceContentPlaceholders(text);
         updateChatMessage(targetSessionId, userMessage.id, {
@@ -5457,6 +5543,64 @@ const HomePage = () => {
         userMessage,
         images,
       });
+
+      if (aiVideoRequest) {
+        const aiVideoRequestWithLocalFiles = resolveAiVideoRequestLocalAttachmentUrls(
+          aiVideoRequest,
+          persistedPendingAttachmentEntries
+        );
+        const resolvedAiVideoRequest = normalizeAiVideoRequestPayload(aiVideoRequestWithLocalFiles, text);
+        if (!resolvedAiVideoRequest || !Array.isArray(resolvedAiVideoRequest.content) || resolvedAiVideoRequest.content.length === 0) {
+          throw new Error('ai video request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          aiVideoRequest: resolvedAiVideoRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildAiVideoRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            aiVideoRequest: resolvedAiVideoRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directAiVideoResult = await window.electronAPI.cherryChatStream.createAiVideoRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          aiVideoRequest: resolvedAiVideoRequest,
+        });
+        if (!directAiVideoResult?.ok) {
+          throw new Error(directAiVideoResult?.error || 'ai video request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directAiVideoResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directAiVideoResult?.assistantBlocks) ? directAiVideoResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'ai-video-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'ai-video-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'ai-video-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'ai-video-request.complete');
+        setChatSending(false);
+        return;
+      }
 
       if (draftRequest) {
         const { width, height } = parseDraftResolutionDimensions(draftRequest?.resolution);

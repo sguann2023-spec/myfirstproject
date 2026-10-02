@@ -11,7 +11,7 @@ import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageT
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
-import { buildAudioAddRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
+import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -144,6 +144,18 @@ const buildAudioAddRequestSignature = (audioAddRequest = null) => {
     trackName: String(audioAddRequest?.track_name || audioAddRequest?.trackName || ''),
     effectType: String(audioAddRequest?.effect_type || audioAddRequest?.effectType || ''),
     effectParams: audioAddRequest?.effect_params || audioAddRequest?.effectParams || []
+  });
+};
+const buildAiVideoRequestSignature = (aiVideoRequest = null) => {
+  if (!aiVideoRequest || typeof aiVideoRequest !== 'object') return '';
+  return JSON.stringify({
+    model: String(aiVideoRequest?.model || ''),
+    resolution: String(aiVideoRequest?.resolution || ''),
+    genDuration: Number(aiVideoRequest?.gen_duration ?? aiVideoRequest?.genDuration ?? 0),
+    generateAudio: Boolean(aiVideoRequest?.generate_audio ?? aiVideoRequest?.generateAudio),
+    superResolve: Boolean(aiVideoRequest?.super_resolve ?? aiVideoRequest?.superResolve),
+    enableSeedanceOffline: Boolean(aiVideoRequest?.enable_seedance_offline ?? aiVideoRequest?.enableSeedanceOffline),
+    content: Array.isArray(aiVideoRequest?.content) ? aiVideoRequest.content : []
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -418,6 +430,33 @@ const buildAudioAddRequestApiCurl = (audioAddRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildAiVideoRequestApiCurl = (aiVideoRequest = null) => {
+  const content = Array.isArray(aiVideoRequest?.content) ? aiVideoRequest.content : [];
+  const payload = {
+    model: String(aiVideoRequest?.model || '').trim(),
+    resolution: String(aiVideoRequest?.resolution || '').trim(),
+    ...(content.length ? { content } : {}),
+    ...(Number.isFinite(Number(aiVideoRequest?.gen_duration ?? aiVideoRequest?.genDuration))
+      ? { gen_duration: Number(aiVideoRequest?.gen_duration ?? aiVideoRequest?.genDuration) }
+      : {}),
+    ...(typeof aiVideoRequest?.generate_audio === 'boolean'
+      ? { generate_audio: aiVideoRequest.generate_audio }
+      : (typeof aiVideoRequest?.generateAudio === 'boolean' ? { generate_audio: aiVideoRequest.generateAudio } : {})),
+    ...(typeof aiVideoRequest?.super_resolve === 'boolean'
+      ? { super_resolve: aiVideoRequest.super_resolve }
+      : (typeof aiVideoRequest?.superResolve === 'boolean' ? { super_resolve: aiVideoRequest.superResolve } : {})),
+    ...(typeof aiVideoRequest?.enable_seedance_offline === 'boolean'
+      ? { enable_seedance_offline: aiVideoRequest.enable_seedance_offline }
+      : (typeof aiVideoRequest?.enableSeedanceOffline === 'boolean' ? { enable_seedance_offline: aiVideoRequest.enableSeedanceOffline } : {})),
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/generate_ai_video' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
 const buildDraftAgentPrompt = (content = '') => {
   const normalizedContent = String(content || '').trim();
   return normalizedContent ? `使用vectcut工具，${normalizedContent}` : '使用vectcut工具';
@@ -487,6 +526,9 @@ const MessageItem = ({
   const audioAddRequest = message?.audioAddRequest && typeof message.audioAddRequest === 'object'
     ? message.audioAddRequest
     : null;
+  const aiVideoRequest = message?.aiVideoRequest && typeof message.aiVideoRequest === 'object'
+    ? message.aiVideoRequest
+    : null;
   const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
     ? message.draftInspectRequest
     : null;
@@ -497,11 +539,11 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || audioAddRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || audioAddRequest || aiVideoRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest));
-  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -521,7 +563,9 @@ const MessageItem = ({
     if (showDraftCozeFormat && canShowDraftCozeAction) {
       return {
         ...message,
-        content: audioAddRequest
+        content: aiVideoRequest
+          ? buildAiVideoRequestCozeClipboardData(aiVideoRequest)
+          : (audioAddRequest
           ? buildAudioAddRequestCozeClipboardData(audioAddRequest)
           : (presetAddRequest
           ? buildPresetAddRequestCozeClipboardData(presetAddRequest)
@@ -531,12 +575,14 @@ const MessageItem = ({
               ? buildTextAddRequestCozeClipboardData(textAddRequest)
               : (draftModifyRequest
                 ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
-                : buildDraftRequestCozeClipboardData(draftRequest))))),
+                : buildDraftRequestCozeClipboardData(draftRequest)))))),
         imageAttachments: []
       };
     }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
-    const apiContent = audioAddRequest
+    const apiContent = aiVideoRequest
+      ? buildAiVideoRequestApiCurl(aiVideoRequest)
+      : (audioAddRequest
       ? buildAudioAddRequestApiCurl(audioAddRequest)
       : (presetAddRequest
       ? buildPresetAddRequestApiCurl(presetAddRequest)
@@ -546,7 +592,7 @@ const MessageItem = ({
           ? buildTextAddRequestApiCurl(textAddRequest)
           : (draftModifyRequest
             ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-            : buildDraftRequestApiCurl(draftRequest, message)))));
+            : buildDraftRequestApiCurl(draftRequest, message))))));
     return {
       ...message,
       content: apiContent,
@@ -559,6 +605,7 @@ const MessageItem = ({
     draftModifyRequest,
     draftRequest,
     audioAddRequest,
+    aiVideoRequest,
     presetAddRequest,
     speechRequest,
     textAddRequest,
@@ -834,6 +881,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildPresetAddRequestSignature(prevMessage.presetAddRequest) === buildPresetAddRequestSignature(nextMessage.presetAddRequest)
     && buildSpeechRequestSignature(prevMessage.speechRequest) === buildSpeechRequestSignature(nextMessage.speechRequest)
     && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
+    && buildAiVideoRequestSignature(prevMessage.aiVideoRequest) === buildAiVideoRequestSignature(nextMessage.aiVideoRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)
     && JSON.stringify(prevMessage.subtitleRecognitionRequest) === JSON.stringify(nextMessage.subtitleRecognitionRequest)

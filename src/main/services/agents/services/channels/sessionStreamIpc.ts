@@ -1,10 +1,12 @@
 import { modelsService } from '@main/apiServer/services/models'
 import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import { normalizeDirectAudioAddRequest } from './audioAddRequest'
+import { normalizeDirectAiVideoRequest } from './aiVideoRequest'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
+import VideoGenerateServer from '@main/mcpServers/video-generate'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import { loggerService } from '@logger'
@@ -58,6 +60,7 @@ type DirectDraftRequestPayload = {
   reversePromptRequest?: { shareText?: string }
   subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string }
   audioAddRequest?: Record<string, unknown>
+  aiVideoRequest?: Record<string, unknown>
   draftRequest?: {
     action?: 'create'
     width?: number
@@ -314,6 +317,25 @@ async function callSpeechTool(toolName: string, args: Record<string, unknown>) {
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
     throw new Error('Speech server did not register tools/call handler')
+  }
+  return callToolHandler(
+    {
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args
+      }
+    },
+    {}
+  )
+}
+
+async function callVideoTool(toolName: string, args: Record<string, unknown>) {
+  const server = new VideoGenerateServer()
+  const handlers = (server.mcpServer.server as any)?._requestHandlers
+  const callToolHandler = handlers?.get('tools/call')
+  if (typeof callToolHandler !== 'function') {
+    throw new Error('Video server did not register tools/call handler')
   }
   return callToolHandler(
     {
@@ -795,6 +817,54 @@ function buildDirectSpeechErrorAssistantText(input: {
     errorCode ? `- 错误码：${errorCode}` : '',
     '',
     '请检查文案、音色 ID 和厂商是否匹配后重试。'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectAiVideoAssistantText(input: {
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, any>
+}): string {
+  const toolArgs = input?.toolArgs || {}
+  const toolResponse = input?.toolResponse || {}
+  const output = toolResponse.output && typeof toolResponse.output === 'object' ? toolResponse.output : {}
+  const content = Array.isArray(toolArgs.content) ? toolArgs.content : []
+  const prompt = String((content.find((item: any) => item?.type === 'text') as any)?.text || '').trim()
+  const videoUrl = String(output?.video_url || toolResponse.video_url || '').trim()
+  const draftId = String(output?.draft_id || toolResponse.draft_id || '').trim()
+  const draftUrl = String(output?.draft_url || toolResponse.draft_url || '').trim()
+  const taskId = String(toolResponse.task_id || toolResponse.id || '').trim()
+
+  return [
+    'AI 视频生成完成！',
+    '',
+    prompt ? `- 提示词：${prompt}` : '',
+    toolArgs.model ? `- 模型：${String(toolArgs.model)}` : '',
+    toolArgs.resolution ? `- 分辨率：${String(toolArgs.resolution)}` : '',
+    toolArgs.gen_duration ? `- 时长：${String(toolArgs.gen_duration)} 秒` : '',
+    taskId ? `- 任务 ID：${taskId}` : '',
+    videoUrl ? `- 视频链接：${videoUrl}` : '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    draftUrl ? `- 草稿链接：${draftUrl}` : '',
+    '',
+    '你可以继续基于这个结果做剪辑、配音或添加到草稿。'
+  ].filter((line) => line !== null && line !== undefined).join(EOL)
+}
+
+function buildDirectAiVideoErrorAssistantText(input: {
+  toolArgs: Record<string, unknown>
+  errorCode?: string
+}): string {
+  const content = Array.isArray(input?.toolArgs?.content) ? input.toolArgs.content : []
+  const prompt = String((content.find((item: any) => item?.type === 'text') as any)?.text || '').trim()
+  const errorCode = String(input?.errorCode || '').trim()
+  return [
+    'AI 视频生成失败。',
+    '',
+    prompt ? `- 提示词：${prompt}` : '',
+    input?.toolArgs?.model ? `- 模型：${String(input.toolArgs.model)}` : '',
+    errorCode ? `- 错误信息：${errorCode}` : '',
+    '',
+    '请检查模型、分辨率、提示词和参考素材后重试。'
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
@@ -1307,6 +1377,70 @@ function buildDirectSpeechAssistantBlocks(input: {
           tool: {
             id: 'mcp__vectcut__speech__generate_speech',
             name: 'mcp__vectcut__speech__generate_speech',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectAiVideoAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+  status?: 'success' | 'error'
+}) {
+  const {
+    assistantMessageId,
+    modelId,
+    toolCallId,
+    toolArgs,
+    toolResponse,
+    assistantText,
+    createdAtIso,
+    status = 'success'
+  } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__vectcut__video__generate_video',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__vectcut__video__generate_video',
+            name: 'mcp__vectcut__video__generate_video',
             serverName: 'vectcut',
             serverId: 'vectcut',
             type: 'mcp'
@@ -3145,6 +3279,129 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleAiVideoRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedAiVideoRequest = normalizeDirectAiVideoRequest(
+        payload?.aiVideoRequest && typeof payload.aiVideoRequest === 'object'
+          ? payload.aiVideoRequest as Record<string, unknown>
+          : {},
+        String(payload?.userContent || '').trim()
+      )
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `ai_video_request_${requestId}`
+      const toolArgs: Record<string, unknown> = { ...normalizedAiVideoRequest }
+
+      const toolResult = await callVideoTool('generate_video', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
+      const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
+      const assistantText = responseSuccess
+        ? buildDirectAiVideoAssistantText({ toolArgs, toolResponse })
+        : buildDirectAiVideoErrorAssistantText({ toolArgs, errorCode })
+      const assistantBlocks = buildDirectAiVideoAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso,
+        status: responseSuccess ? 'success' : 'error'
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: responseSuccess ? 'completed' : 'failed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              aiVideoRequest: normalizedAiVideoRequest,
+              blocks: [`${userMessageId}-main`]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: responseSuccess ? 'success' : 'error',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleReversePromptRequest = async (_event: unknown, payload: DirectDraftRequestPayload) => {
     const sessionId = String(payload?.sessionId || '').trim()
     const requestId = String(payload?.requestId || '').trim() || randomUUID()
@@ -3317,6 +3574,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(IpcChannel.CherryChatStream_PresetAddRequest, handlePresetAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_AudioAddRequest, handleAudioAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SpeechRequest, handleSpeechRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_AiVideoRequest, handleAiVideoRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, handleReversePromptRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)

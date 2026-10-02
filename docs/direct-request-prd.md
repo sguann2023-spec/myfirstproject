@@ -24,6 +24,7 @@
 | `text_add_request` | 向草稿添加文本 | `draft-elements` | `add_text` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `preset_add_request` | 向草稿添加预设片段 | `draft-elements` | `add_preset` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `speech_request` | AI朗读/语音合成 | `speech` | `generate_speech` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `ai_video_request` | AI生成视频 | `video` | `generate_video` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
@@ -433,7 +434,39 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
   }'
 ```
 
-### 4.6 `draft_download_request`
+### 4.6 `ai_video_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 根据提示词和可选参考图/视频/音频生成 AI 视频 |
+| 目标 MCP | `video.generate_video` |
+| 是否 direct request | 是，跳过普通 Agent 推理，直接调用 `video-generate.ts` |
+| 是否 direct 回复 | 是，主进程基于工具返回的任务、视频和草稿信息生成固定回复 |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/403445863e0` |
+| `Coze` 是否可展示 | 是，使用 `workflowId=7668682150007488554`，复制 `generate_ai_video` + 循环查询链路（`time_delay` / `ai_video_task_status` / 选择器 / 设置变量）；Coze 节点保留必填 `prompt`，`content` 按插件要求写入 JSON 字符串 |
+| 前端发送条件 | 必须输入提示词，参考素材按生成方式传入统一 `content` 数组 |
+| 触发工具 | `mcp__vectcut__video__generate_video` |
+
+典型 payload：
+
+```json
+{
+  "model": "seedance-2.0-fast",
+  "resolution": "1080x1920",
+  "gen_duration": 5,
+  "generate_audio": true,
+  "content": [
+    { "type": "text", "text": "一只猫在霓虹城市里奔跑" },
+    { "type": "image_url", "image_url": { "url": "/absolute/path/first.png" }, "role": "first_frame" }
+  ]
+}
+```
+
+---
+
+### 4.7 `draft_download_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -459,7 +492,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 }
 ```
 
-### 4.7 `draft_export_request`
+### 4.8 `draft_export_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -485,7 +518,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 }
 ```
 
-### 4.8 `draft_inspect`
+### 4.9 `draft_inspect`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -513,7 +546,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.9 `reverse_prompt_request`
+### 4.10 `reverse_prompt_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -567,7 +600,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.10 `subtitle_recognition_request`
+### 4.11 `subtitle_recognition_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -631,7 +664,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.11 `subtitle_storyboard_request`
+### 4.12 `subtitle_storyboard_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -691,6 +724,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 | `draft_modify_request` | `mcp__vectcut__draft-management__modify_draft` |
 | `text_add_request` | `mcp__vectcut__draft-elements__add_text` |
 | `preset_add_request` | `mcp__vectcut__draft-elements__add_preset` |
+| `ai_video_request` | `mcp__vectcut__video__generate_video` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
 | `reverse_prompt_request` | `mcp__vectcut__copylab__derive_copy_prompt` |

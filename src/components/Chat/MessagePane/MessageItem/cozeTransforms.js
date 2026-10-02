@@ -347,6 +347,174 @@ const COZE_GENERATE_SPEECH_EXTERNAL_DATA = {
   mainColor: '#CA61FF'
 };
 
+const COZE_GENERATE_AI_VIDEO_PLUGIN_META = {
+  apiID: '7594008880368304143',
+  apiName: 'generate_ai_video',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_GENERATE_AI_VIDEO_NODE_META = {
+  title: 'generate_ai_video',
+  icon: 'https://p6-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1793346809&x-signature=bePUSpxfuxBBs0c7htWwEpDAHmM%3D',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):generate_ai_video',
+  description: 'AI视频生成聚合接口，集成了常见的AI视频生成模型。异步接口，发起任务后，用ai_video_task_status查询任务结果。'
+};
+
+const COZE_GENERATE_AI_VIDEO_EXTERNAL_DATA = {
+  icon: 'https://lf3-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1793347727&x-signature=r6xW8Q3f1xK6ua0dzhoZUaATIzQ%3D',
+  apiName: 'generate_ai_video',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '提示词', input: {}, name: 'prompt', required: true, type: 'string' },
+    { defaultValue: 'veo3.1', description: '模型', input: {}, name: 'model', required: true, type: 'string' },
+    { description: '分辨率，例如1080x1920', input: {}, name: 'resolution', required: true, type: 'string' },
+    { description: 'AI生成视频的时长', input: {}, name: 'gen_duration', required: false, type: 'integer' },
+    { description: '是否生成同步音频', input: {}, name: 'generate_audio', required: false, type: 'boolean' },
+    { description: '是否开启超分', input: {}, name: 'super_resolve', required: false, type: 'boolean' },
+    { description: '是否开启闲时seedance生成', input: {}, name: 'enable_seedance_offline', required: false, type: 'boolean' },
+    { description: 'seedance2.0兼容字段，用来做多模态参考输入', input: {}, name: 'content', required: false, type: 'string' }
+  ],
+  outputs: [
+    { type: 'string', name: 'status', required: false },
+    { type: 'string', name: 'task_id', required: false }
+  ],
+  updateTime: 1790737041,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: 'AI视频生成聚合接口，集成了常见的AI视频生成模型。异步接口，发起任务后，用ai_video_task_status查询任务结果。',
+  title: 'generate_ai_video',
+  mainColor: '#CA61FF'
+};
+
+const COZE_AI_VIDEO_STATUS_PLUGIN_META = {
+  apiID: '7594008880368320527',
+  apiName: 'ai_video_task_status',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_AI_VIDEO_STATUS_NODE_META = {
+  title: 'ai_video_task_status',
+  icon: 'https://p6-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1793346809&x-signature=bePUSpxfuxBBs0c7htWwEpDAHmM%3D',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):ai_video_task_status',
+  description: '查询AI视频生成聚合接口的生成状态\n'
+};
+
+const COZE_AI_VIDEO_STATUS_EXTERNAL_DATA = {
+  icon: 'https://lf3-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1793347758&x-signature=9QqaniVNszxZE7HMq3qGiuhcYw8%3D',
+  apiName: 'ai_video_task_status',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '任务id', input: {}, name: 'task_id', required: true, type: 'string' }
+  ],
+  outputs: [
+    { input: {}, name: 'progress', required: false, type: 'float' },
+    { input: {}, name: 'draft_error', required: false, type: 'string' },
+    { input: {}, name: 'draft_id', required: false, type: 'string' },
+    { input: {}, name: 'id', required: false, type: 'string' },
+    { input: {}, name: 'message', required: false, type: 'string' },
+    { input: {}, name: 'draft_url', required: false, type: 'string' },
+    { input: {}, name: 'status', required: false, type: 'string' },
+    { input: {}, name: 'video_url', required: false, type: 'string' }
+  ],
+  updateTime: 1790737041,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '查询AI视频生成聚合接口的生成状态\n',
+  title: 'ai_video_task_status',
+  mainColor: '#CA61FF'
+};
+
+const COZE_TIME_DELAY_PLUGIN_META = {
+  apiID: '7492383327479988233',
+  apiName: 'time_delay',
+  pluginID: '7492383327479971849',
+  pluginName: '时间延迟',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: ''
+};
+
+const COZE_TIME_DELAY_NODE_META = {
+  title: 'time_delay_1',
+  icon: 'https://p3-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/de96ea4cda1b4deebe35069a9f9e1370~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1774753320&x-signature=pKqYGF2YcR4VQ6rWn6xs8%2Fyb19M%3D',
+  subtitle: '时间延迟:time_delay',
+  description: '时间延迟插件，以秒为单位。支持时长0-59秒。'
+};
+
+const COZE_TIME_DELAY_EXTERNAL_DATA = {
+  icon: 'https://lf26-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/1986185754052569_1743861713842683049_xXHJg8NwwV.jpg?lk3s=cd508e2b&x-expires=1793347727&x-signature=r5cNmIeR6QgI9cCEcOtm8U4OZ1E%3D',
+  apiName: 'time_delay',
+  pluginID: '7492383327479971849',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7480062106935951360',
+  inputs: [
+    { description: '延迟秒数', input: {}, name: 'seconds', required: true, type: 'integer' }
+  ],
+  outputs: [
+    { description: '提示信息', input: {}, name: 'message', required: true, type: 'string' },
+    { description: '延迟秒数', input: {}, name: 'seconds', required: false, type: 'integer' }
+  ],
+  updateTime: 1787217009,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '时间延迟插件，以秒为单位。支持时长0-59秒。',
+  title: 'time_delay',
+  mainColor: '#CA61FF'
+};
+
+const COZE_LOOP_NODE_META = {
+  title: '循环_1',
+  icon: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/dvsmryvd_avi_dvsm/ljhwZthlaukjlkulzlp/icon/icon-Loop-v2.jpg',
+  description: '用于通过设定循环次数和逻辑，重复执行一系列任务',
+  mainColor: '#00B2B2',
+  subTitle: '循环'
+};
+
+const COZE_CONDITION_NODE_META = {
+  title: '选择器',
+  icon: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/dvsmryvd_avi_dvsm/ljhwZthlaukjlkulzlp/icon/icon-Condition-v2.jpg',
+  description: '连接多个下游分支，若设定的条件成立则仅运行对应的分支，若均不成立则只运行“否则”分支',
+  mainColor: '#00B2B2',
+  subTitle: '选择器'
+};
+
+const COZE_LOOP_SET_VARIABLE_NODE_META = {
+  title: '设置变量',
+  icon: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/dvsmryvd_avi_dvsm/ljhwZthlaukjlkulzlp/icon/icon-LoopSetVariable-v2.jpg',
+  description: '用于重置循环变量的值，使其下次循环使用重置后的值',
+  mainColor: '#00B2B2',
+  subTitle: '设置变量'
+};
+
 const COZE_ADD_AUDIO_PLUGIN_META = {
   apiID: '7579582015465357312',
   apiName: 'add_audio',
@@ -430,6 +598,26 @@ const createInputParameter = (name, type, content) => ({
     type,
     value: createLiteralValue(content)
   }
+});
+
+const createRefValue = (blockID, name, type = 'string') => ({
+  type,
+  value: {
+    type: 'ref',
+    content: {
+      source: 'block-output',
+      blockID,
+      name
+    },
+    rawMeta: {
+      type: 1
+    }
+  }
+});
+
+const createRefInputParameter = (name, blockID, outputName, type = 'string') => ({
+  name,
+  input: createRefValue(blockID, outputName, type)
 });
 
 const createPresetReplacementsInputParameter = (replacements) => ({
@@ -706,6 +894,35 @@ const createSpeechRequestInputParameters = (speechRequest = {}) => {
   addNumber('speed', speechRequest?.speed);
   addNumber('start', speechRequest?.start);
   addNumber('end', speechRequest?.end);
+  return parameters;
+};
+
+const createAiVideoRequestInputParameters = (aiVideoRequest = {}) => {
+  const content = Array.isArray(aiVideoRequest?.content) ? aiVideoRequest.content : [];
+  const prompt = String(content.find((item) => item?.type === 'text')?.text || aiVideoRequest?.prompt || '').trim();
+  const parameters = [
+    createInputParameter('prompt', 'string', prompt),
+    createInputParameter('model', 'string', String(aiVideoRequest?.model || '').trim()),
+    createInputParameter('resolution', 'string', String(aiVideoRequest?.resolution || '').trim())
+  ];
+  const genDuration = Number(aiVideoRequest?.gen_duration ?? aiVideoRequest?.genDuration);
+  if (Number.isFinite(genDuration)) parameters.push(createInputParameter('gen_duration', 'integer', genDuration));
+  if (typeof aiVideoRequest?.generate_audio === 'boolean') {
+    parameters.push(createInputParameter('generate_audio', 'boolean', aiVideoRequest.generate_audio));
+  } else if (typeof aiVideoRequest?.generateAudio === 'boolean') {
+    parameters.push(createInputParameter('generate_audio', 'boolean', aiVideoRequest.generateAudio));
+  }
+  if (typeof aiVideoRequest?.super_resolve === 'boolean') {
+    parameters.push(createInputParameter('super_resolve', 'boolean', aiVideoRequest.super_resolve));
+  } else if (typeof aiVideoRequest?.superResolve === 'boolean') {
+    parameters.push(createInputParameter('super_resolve', 'boolean', aiVideoRequest.superResolve));
+  }
+  if (typeof aiVideoRequest?.enable_seedance_offline === 'boolean') {
+    parameters.push(createInputParameter('enable_seedance_offline', 'boolean', aiVideoRequest.enable_seedance_offline));
+  } else if (typeof aiVideoRequest?.enableSeedanceOffline === 'boolean') {
+    parameters.push(createInputParameter('enable_seedance_offline', 'boolean', aiVideoRequest.enableSeedanceOffline));
+  }
+  if (content.length) parameters.push(createInputParameter('content', 'string', JSON.stringify(content)));
   return parameters;
 };
 
@@ -1020,6 +1237,316 @@ export const buildSpeechRequestCozeClipboardData = (speechRequest = {}) => {
       x: 150.52329101247022,
       y: -378.24777121709934,
       width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const buildAiVideoRequestCozeClipboardData = (aiVideoRequest = {}) => {
+  const inputParameters = createAiVideoRequestInputParameters(aiVideoRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      workflowId: '7668682150007488554',
+      flowMode: 0,
+      spaceId: '7472683780642258985',
+      isDouyin: false,
+      host: 'www.coze.cn'
+    },
+    json: {
+      nodes: [
+        {
+          id: '101263',
+          type: '21',
+          meta: {
+            position: {
+              x: 287.84735062031314,
+              y: -179.4738610729286
+            },
+            canvasPosition: {
+              x: -320.9224882738878,
+              y: 143.69107672696035
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_LOOP_NODE_META
+            },
+            inputs: {
+              inputParameters: [],
+              loopType: 'count',
+              loopCount: {
+                type: 'integer',
+                value: {
+                  type: 'literal',
+                  content: 150,
+                  rawMeta: {
+                    type: 2
+                  }
+                }
+              },
+              variableParameters: [
+                {
+                  name: 'result',
+                  input: {
+                    type: 'string',
+                    value: createLiteralValue(' ')
+                  }
+                }
+              ]
+            },
+            outputs: [
+              createRefInputParameter('output', '101263', 'result')
+            ]
+          },
+          blocks: [
+            {
+              id: '1752177',
+              type: '4',
+              meta: {
+                position: {
+                  x: 0,
+                  y: 100
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_TIME_DELAY_NODE_META
+                },
+                inputs: {
+                  apiParam: createApiParamEntries(COZE_TIME_DELAY_PLUGIN_META),
+                  inputParameters: [
+                    {
+                      name: 'seconds',
+                      input: {
+                        type: 'integer',
+                        value: {
+                          type: 'literal',
+                          content: 10,
+                          rawMeta: {
+                            type: 2
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  settingOnError: {
+                    processType: 1,
+                    timeoutMs: 180000,
+                    retryTimes: 0
+                  }
+                },
+                outputs: COZE_TIME_DELAY_EXTERNAL_DATA.outputs
+              },
+              _temp: {
+                bounds: {
+                  x: -500.9224882738878,
+                  y: 243.69107672696035,
+                  width: 360,
+                  height: 112
+                },
+                externalData: {
+                  ...COZE_TIME_DELAY_EXTERNAL_DATA
+                }
+              }
+            },
+            {
+              id: '125927',
+              type: '4',
+              meta: {
+                position: {
+                  x: 423.9478895979671,
+                  y: 99.99999999999999
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_AI_VIDEO_STATUS_NODE_META
+                },
+                inputs: {
+                  apiParam: createApiParamEntries(COZE_AI_VIDEO_STATUS_PLUGIN_META),
+                  inputParameters: [
+                    createRefInputParameter('task_id', '177411', 'task_id')
+                  ],
+                  settingOnError: {
+                    processType: 1,
+                    timeoutMs: 180000,
+                    retryTimes: 0
+                  }
+                },
+                outputs: COZE_AI_VIDEO_STATUS_EXTERNAL_DATA.outputs
+              },
+              _temp: {
+                bounds: {
+                  x: -76.97459867592067,
+                  y: 243.69107672696032,
+                  width: 360,
+                  height: 112
+                },
+                externalData: {
+                  ...COZE_AI_VIDEO_STATUS_EXTERNAL_DATA
+                }
+              }
+            },
+            {
+              id: '195103',
+              type: '8',
+              meta: {
+                position: {
+                  x: 909.9153392979259,
+                  y: 88
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_CONDITION_NODE_META
+                },
+                inputs: {
+                  branches: [
+                    {
+                      condition: {
+                        logic: 2,
+                        conditions: [
+                          {
+                            operator: 1,
+                            left: {
+                              input: createRefValue('125927', 'status')
+                            },
+                            right: {
+                              input: {
+                                type: 'string',
+                                value: createLiteralValue('succeeded')
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: 408.99285102403815,
+                  y: 231.69107672696035,
+                  width: 360,
+                  height: 138
+                },
+                externalData: {
+                  icon: COZE_CONDITION_NODE_META.icon,
+                  description: COZE_CONDITION_NODE_META.description,
+                  title: COZE_CONDITION_NODE_META.title,
+                  mainColor: COZE_CONDITION_NODE_META.mainColor
+                }
+              }
+            },
+            {
+              id: '113569',
+              type: '20',
+              meta: {
+                position: {
+                  x: 1395.8827889978845,
+                  y: 99.99999999999999
+                }
+              },
+              data: {
+                inputs: {
+                  inputParameters: [
+                    {
+                      left: createRefValue('101263', 'result'),
+                      right: createRefValue('125927', 'video_url')
+                    }
+                  ]
+                },
+                nodeMeta: {
+                  ...COZE_LOOP_SET_VARIABLE_NODE_META
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: 894.9603007239966,
+                  y: 243.69107672696032,
+                  width: 360,
+                  height: 86
+                },
+                externalData: {
+                  icon: COZE_LOOP_SET_VARIABLE_NODE_META.icon,
+                  description: COZE_LOOP_SET_VARIABLE_NODE_META.description,
+                  title: COZE_LOOP_SET_VARIABLE_NODE_META.title,
+                  mainColor: COZE_LOOP_SET_VARIABLE_NODE_META.mainColor
+                }
+              }
+            }
+          ],
+          edges: [
+            { sourceNodeID: '101263', targetNodeID: '1752177', sourcePortID: 'loop-function-inline-output' },
+            { sourceNodeID: '1752177', targetNodeID: '125927' },
+            { sourceNodeID: '125927', targetNodeID: '195103' },
+            { sourceNodeID: '195103', targetNodeID: '113569', sourcePortID: 'true' },
+            { sourceNodeID: '195103', targetNodeID: '101263', sourcePortID: 'false', targetPortID: 'loop-function-inline-input' },
+            { sourceNodeID: '113569', targetNodeID: '101263', targetPortID: 'loop-function-inline-input' }
+          ],
+          _temp: {
+            bounds: {
+              x: 107.84735062031314,
+              y: -179.4738610729286,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              icon: COZE_LOOP_NODE_META.icon,
+              description: COZE_LOOP_NODE_META.description,
+              title: '循环',
+              mainColor: COZE_LOOP_NODE_META.mainColor
+            }
+          }
+        },
+        {
+          id: '177411',
+          type: '4',
+          meta: {
+            position: {
+              x: -174.86671954832167,
+              y: -179.4738610729286
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_GENERATE_AI_VIDEO_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_GENERATE_AI_VIDEO_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: COZE_GENERATE_AI_VIDEO_EXTERNAL_DATA.outputs
+          },
+          _temp: {
+            bounds: {
+              x: -354.86671954832167,
+              y: -179.4738610729286,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_GENERATE_AI_VIDEO_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: [
+        { sourceNodeID: '177411', targetNodeID: '101263' }
+      ]
+    },
+    bounds: {
+      x: -354.86671954832167,
+      y: -179.4738610729286,
+      width: 822.7140701686349,
       height: 112
     }
   }, null, 2);

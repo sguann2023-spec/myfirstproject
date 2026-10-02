@@ -631,6 +631,60 @@ const buildVideoOptionPromptSegments = ({
   }
   return segments;
 };
+const resolveAiVideoMediaUrl = (file = {}) => {
+  const directUrl = String(file?.url || file?.sourcePath || '').trim();
+  if (directUrl) return directUrl;
+  const uid = String(file?.uid || '').trim();
+  return uid ? `local-attachment:${uid}` : '';
+};
+const buildAiVideoContentItem = (file = {}, generationMode = DEFAULT_VIDEO_GENERATION_MODE, index = 0) => {
+  const url = resolveAiVideoMediaUrl(file);
+  if (!url) return null;
+  const fileType = String(file?.fileType || '').toLowerCase();
+  if (fileType.startsWith('image/')) {
+    const slotId = String(file?.slotId || '').trim();
+    const role = slotId || (generationMode === 'first_frame'
+      ? 'first_frame'
+      : generationMode === 'first_last_frame'
+        ? (index === 0 ? 'first_frame' : 'last_frame')
+        : 'reference_image');
+    return { type: 'image_url', image_url: { url }, role };
+  }
+  if (fileType.startsWith('video/')) return { type: 'video_url', video_url: { url }, role: 'reference_video' };
+  if (fileType.startsWith('audio/')) return { type: 'audio_url', audio_url: { url }, role: 'reference_audio' };
+  return null;
+};
+const buildAiVideoRequestPayload = ({
+  prompt = '',
+  uploadedFiles = [],
+  model = DEFAULT_VIDEO_MODEL,
+  generationMode = DEFAULT_VIDEO_GENERATION_MODE,
+  resolution = DEFAULT_VIDEO_RESOLUTION,
+  duration = DEFAULT_VIDEO_DURATION,
+  generateAudio = DEFAULT_VIDEO_GENERATE_AUDIO,
+  seedanceOffline = DEFAULT_VIDEO_SEEDANCE_OFFLINE,
+  superResolve = DEFAULT_VIDEO_SUPER_RESOLVE,
+  capability = null,
+} = {}) => {
+  const normalizedGenerationMode = normalizeVideoGenerationMode(generationMode);
+  const mediaContent = (Array.isArray(uploadedFiles) ? uploadedFiles : [])
+    .map((file, index) => buildAiVideoContentItem(file, normalizedGenerationMode, index))
+    .filter(Boolean);
+  const content = [
+    { type: 'text', text: String(prompt || '').trim() },
+    ...mediaContent,
+  ].filter((item) => item.type !== 'text' || item.text);
+  return {
+    model: normalizeVideoModel(model),
+    generationMode: normalizedGenerationMode,
+    resolution: normalizeVideoResolution(resolution),
+    gen_duration: normalizeVideoDuration(duration),
+    content,
+    ...(capability?.generate_audio_supported ? { generate_audio: Boolean(generateAudio) } : {}),
+    ...(capability?.seedance_offline_supported ? { enable_seedance_offline: Boolean(seedanceOffline) } : {}),
+    ...(capability?.super_resolve_supported ? { super_resolve: Boolean(superResolve) } : {}),
+  };
+};
 const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   uid: overrides.uid ?? file.uid ?? '',
   name: overrides.name ?? file.name ?? '',
@@ -4076,6 +4130,20 @@ const Composer = ({
       seedanceOffline: selectedVideoSeedanceOffline,
       superResolve: selectedVideoSuperResolve,
     });
+    const aiVideoRequestPayload = activeTool === 'ai-video'
+      ? buildAiVideoRequestPayload({
+        prompt: text,
+        uploadedFiles: uploadedFileMeta,
+        model: selectedVideoModel,
+        generationMode: selectedVideoGenerationMode,
+        resolution: selectedVideoResolution,
+        duration: selectedVideoDuration,
+        generateAudio: selectedVideoGenerateAudio,
+        seedanceOffline: selectedVideoSeedanceOffline,
+        superResolve: selectedVideoSuperResolve,
+        capability: activeVideoCapability,
+      })
+      : null;
     const nextMessage =
       activeTool === 'voice-square'
         ? `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`
@@ -4228,6 +4296,9 @@ const Composer = ({
           voice_id: String(selectedVoiceLibraryItem?.global_voice_id || selectedVoiceLibraryItem?.voice_id || '').trim(),
           only_tts: true,
         }
+        : null,
+      aiVideoRequest: activeTool === 'ai-video'
+        ? aiVideoRequestPayload
         : null,
       draftExportRequest: activeTool === 'draft-export'
         ? {
