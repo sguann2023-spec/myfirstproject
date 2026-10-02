@@ -4244,55 +4244,32 @@ const Composer = ({
     const audioAddRequestParams = buildAudioAddRequestParams(audioAddSettings);
     const musicGenerateRequestParams = buildMusicGenerateRequestParams(text);
     const musicGenerateVoiceIds = [];
-    const musicGenerateReferenceAudioUrls = [];
-    let musicGenerateReferenceImageUrl = '';
     if (musicGenerateRequestParams && activeTool === 'music-generate') {
-      const voiceIdAttachments = (uploadedFileMeta || []).filter(
-        (item) => String(item?.kind || '') === 'voice_id' && String(item?.voiceId || '').trim()
-      );
-      voiceIdAttachments.forEach((item) => {
-        const voiceId = String(item.voiceId).trim();
-        if (voiceId && !musicGenerateVoiceIds.includes(voiceId)) {
-          musicGenerateVoiceIds.push(voiceId);
-        }
-      });
-      const referenceAudioUrls = uploadedFileMeta
-        .filter((item) => String(item?.slotId || '') === 'music_reference_audio')
-        .map((item) => String(item?.url || item?.sourcePath || '').trim())
-        .filter(Boolean);
-      const referenceImageUrls = uploadedFileMeta
-        .filter((item) => String(item?.slotId || '') === 'music_reference_image')
-        .map((item) => String(item?.url || item?.sourcePath || '').trim())
-        .filter(Boolean);
       // 火山 Seed Audio HTTP 接口原生接受 references 数组：
       //   [{voice_id: 'gv_xxx'}, {audio_url: 'https://...'}, {image_url: 'https://...'}]
-      // prompt 中用 "@音频1 / @音频2" 占位引用对应 reference 项。
+      // 按附件卡片顺序生成，确保 prompt 中“参考录音N”对应 references[N-1]。
       const referencesPayload = [];
-      musicGenerateVoiceIds.forEach((voiceId) => {
-        referencesPayload.push({ voice_id: voiceId });
+      (uploadedFileMeta || []).forEach((item) => {
+        const slotId = String(item?.slotId || '').trim();
+        const voiceId = String(item?.voiceId || '').trim();
+        const sourceUrl = String(item?.url || item?.sourcePath || '').trim();
+        if (String(item?.kind || '') === 'voice_id' && voiceId) {
+          referencesPayload.push({ voice_id: voiceId });
+          if (!musicGenerateVoiceIds.includes(voiceId)) {
+            musicGenerateVoiceIds.push(voiceId);
+          }
+          return;
+        }
+        if (slotId === 'music_reference_audio' && sourceUrl) {
+          referencesPayload.push({ audio_url: sourceUrl });
+          return;
+        }
+        if (slotId === 'music_reference_image' && sourceUrl) {
+          referencesPayload.push({ image_url: sourceUrl });
+        }
       });
-      referenceAudioUrls.forEach((url) => {
-        referencesPayload.push({ audio_url: url });
-        musicGenerateReferenceAudioUrls.push(url);
-      });
-      referenceImageUrls.forEach((url) => {
-        referencesPayload.push({ image_url: url });
-      });
-      if (referenceImageUrls.length > 0) {
-        musicGenerateReferenceImageUrl = referenceImageUrls[0];
-      }
       if (referencesPayload.length > 0) {
         musicGenerateRequestParams.references = referencesPayload;
-      }
-      // 以下三个字段保留供旧链路兼容，但主体以 references 数组为准
-      if (musicGenerateVoiceIds.length > 0) {
-        musicGenerateRequestParams.voice_ids = musicGenerateVoiceIds;
-      }
-      if (referenceAudioUrls.length > 0) {
-        musicGenerateRequestParams.referenceAudios = referenceAudioUrls;
-      }
-      if (referenceImageUrls.length > 0) {
-        musicGenerateRequestParams.referenceImage = referenceImageUrls[0];
       }
     }
     const selectedDraftInspectId = String(selectedDraftInspectIds?.[0] || '').trim();
@@ -4359,10 +4336,6 @@ const Composer = ({
             musicGenerateVoiceIds.length > 0
               ? `参考音色ID（voice_id）：${musicGenerateVoiceIds.join('、')}`
               : '',
-            musicGenerateReferenceAudioUrls.length > 0
-              ? `参考音频：${musicGenerateReferenceAudioUrls.join('、')}`
-              : '',
-            musicGenerateReferenceImageUrl ? `参考图片：${musicGenerateReferenceImageUrl}` : '',
           ].filter(Boolean).join('\n')
         : activeTool === 'draft-inspect'
           ? [
