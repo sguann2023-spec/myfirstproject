@@ -127,6 +127,17 @@ const buildSpeechRequestSignature = (speechRequest = null) => {
     trackName: String(speechRequest?.track_name || speechRequest?.trackName || '')
   });
 };
+const buildSeedAudioRequestSignature = (seedAudioRequest = null) => {
+  if (!seedAudioRequest || typeof seedAudioRequest !== 'object') return '';
+  return JSON.stringify({
+    textPrompt: String(seedAudioRequest?.text_prompt || seedAudioRequest?.textPrompt || seedAudioRequest?.prompt || ''),
+    model: String(seedAudioRequest?.model || ''),
+    voiceId: String(seedAudioRequest?.voice_id || seedAudioRequest?.voiceId || ''),
+    references: Array.isArray(seedAudioRequest?.references) ? seedAudioRequest.references : [],
+    audioUrl: String(seedAudioRequest?.audio_url || seedAudioRequest?.audioUrl || ''),
+    imageUrl: String(seedAudioRequest?.image_url || seedAudioRequest?.imageUrl || '')
+  });
+};
 const buildVoiceConversionRequestSignature = (voiceConversionRequest = null) => {
   if (!voiceConversionRequest || typeof voiceConversionRequest !== 'object') return '';
   return JSON.stringify({
@@ -394,6 +405,37 @@ const buildSpeechRequestApiCurl = (speechRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildSeedAudioRequestApiCurl = (seedAudioRequest = null) => {
+  const references = Array.isArray(seedAudioRequest?.references)
+    ? seedAudioRequest.references.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+  const referenceAudios = Array.isArray(seedAudioRequest?.referenceAudios)
+    ? seedAudioRequest.referenceAudios
+    : (Array.isArray(seedAudioRequest?.reference_audios) ? seedAudioRequest.reference_audios : []);
+  const normalizedReferenceAudios = referenceAudios
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .map((audioUrl) => ({ audio_url: audioUrl }));
+  const allReferences = [...references, ...normalizedReferenceAudios];
+  const audioUrl = String(seedAudioRequest?.audio_url || seedAudioRequest?.audioUrl || '').trim();
+  const imageUrl = String(seedAudioRequest?.image_url || seedAudioRequest?.imageUrl || '').trim();
+  const voiceId = String(seedAudioRequest?.voice_id || seedAudioRequest?.voiceId || '').trim();
+  const payload = {
+    model: String(seedAudioRequest?.model || 'seed-audio-1.0').trim() || 'seed-audio-1.0',
+    text_prompt: String(seedAudioRequest?.text_prompt || seedAudioRequest?.textPrompt || seedAudioRequest?.prompt || '').trim(),
+    ...(allReferences.length ? { references: allReferences } : {}),
+    ...(audioUrl ? { audio_url: audioUrl } : {}),
+    ...(imageUrl ? { image_url: imageUrl } : {}),
+    ...(voiceId ? { voice_id: voiceId } : {})
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/llm/tts/seed_audio/generate' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data-raw '${payloadText}'`
+  ].join('\n');
+};
 const buildVoiceConversionRequestApiCurl = (voiceConversionRequest = null) => {
   const audioUrl = String(voiceConversionRequest?.audio_url || voiceConversionRequest?.audioUrl || '').trim();
   const videoUrl = String(voiceConversionRequest?.video_url || voiceConversionRequest?.videoUrl || '').trim();
@@ -552,6 +594,9 @@ const MessageItem = ({
   const speechRequest = message?.speechRequest && typeof message.speechRequest === 'object'
     ? message.speechRequest
     : null;
+  const seedAudioRequest = message?.seedAudioRequest && typeof message.seedAudioRequest === 'object'
+    ? message.seedAudioRequest
+    : null;
   const voiceConversionRequest = message?.voiceConversionRequest && typeof message.voiceConversionRequest === 'object'
     ? message.voiceConversionRequest
     : null;
@@ -571,10 +616,10 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
   const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
@@ -620,13 +665,15 @@ const MessageItem = ({
       ? buildPresetAddRequestApiCurl(presetAddRequest)
       : (voiceConversionRequest
         ? buildVoiceConversionRequestApiCurl(voiceConversionRequest)
-        : (speechRequest
-        ? buildSpeechRequestApiCurl(speechRequest)
-        : (textAddRequest
-          ? buildTextAddRequestApiCurl(textAddRequest)
-          : (draftModifyRequest
-            ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-            : buildDraftRequestApiCurl(draftRequest, message)))))));
+        : (seedAudioRequest
+          ? buildSeedAudioRequestApiCurl(seedAudioRequest)
+          : (speechRequest
+          ? buildSpeechRequestApiCurl(speechRequest)
+          : (textAddRequest
+            ? buildTextAddRequestApiCurl(textAddRequest)
+            : (draftModifyRequest
+              ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
+              : buildDraftRequestApiCurl(draftRequest, message))))))));
     return {
       ...message,
       content: apiContent,
@@ -641,6 +688,7 @@ const MessageItem = ({
     audioAddRequest,
     aiVideoRequest,
     voiceConversionRequest,
+    seedAudioRequest,
     presetAddRequest,
     speechRequest,
     textAddRequest,
@@ -915,6 +963,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
     && buildPresetAddRequestSignature(prevMessage.presetAddRequest) === buildPresetAddRequestSignature(nextMessage.presetAddRequest)
     && buildVoiceConversionRequestSignature(prevMessage.voiceConversionRequest) === buildVoiceConversionRequestSignature(nextMessage.voiceConversionRequest)
+    && buildSeedAudioRequestSignature(prevMessage.seedAudioRequest) === buildSeedAudioRequestSignature(nextMessage.seedAudioRequest)
     && buildSpeechRequestSignature(prevMessage.speechRequest) === buildSpeechRequestSignature(nextMessage.speechRequest)
     && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
     && buildAiVideoRequestSignature(prevMessage.aiVideoRequest) === buildAiVideoRequestSignature(nextMessage.aiVideoRequest)

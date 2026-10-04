@@ -2207,6 +2207,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const presetAddRequest = role === 'user' && sourceMessage?.presetAddRequest && typeof sourceMessage.presetAddRequest === 'object'
     ? { ...sourceMessage.presetAddRequest }
     : undefined;
+  const seedAudioRequest = role === 'user' && sourceMessage?.seedAudioRequest && typeof sourceMessage.seedAudioRequest === 'object'
+    ? { ...sourceMessage.seedAudioRequest }
+    : undefined;
   const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
     ? { ...sourceMessage.draftInspectRequest }
     : undefined;
@@ -2229,6 +2232,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && presetAddRequest ? { presetAddRequest } : {}),
+    ...(role === 'user' && seedAudioRequest ? { seedAudioRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(role === 'user' && voiceConversionRequest ? { voiceConversionRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),

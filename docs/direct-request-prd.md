@@ -24,6 +24,7 @@
 | `text_add_request` | 向草稿添加文本 | `draft-elements` | `add_text` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `preset_add_request` | 向草稿添加预设片段 | `draft-elements` | `add_preset` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `speech_request` | AI朗读/语音合成 | `speech` | `generate_speech` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `seed_audio_request` | AI生成音频 | `seed-audio` | `generate_seed_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `voice_conversion_request` | 音频/视频变声 | `voice-conversion` | `submit_voice_conversion_task` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `ai_video_request` | AI生成视频 | `video` | `generate_video` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
@@ -435,7 +436,56 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
   }'
 ```
 
-### 4.6 `voice_conversion_request`
+### 4.6 `seed_audio_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 根据文本提示词和可选参考音频 / 音色 ID 生成音频 |
+| 目标 MCP | `seed-audio.generate_seed_audio` |
+| 是否 direct request | 是，跳过普通 Agent 推理，直接执行 Seed Audio MCP |
+| 是否 direct 回复 | 是，主进程基于工具返回的音频、时长和点数生成固定回复 |
+| 前端消息标记对象 | `seedAudioRequest` |
+| requestId | IPC 顶层及前端标记中保存；工具调用 ID 为 `seed_audio_request_${requestId}` |
+| 支持展示类型 | `文字` / `Agent` / `API`；不支持 `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/482521762e0` |
+| 前端发送条件 | 输入音频描述；可选参考音频、参考图片、音色 ID |
+| 点数 | 发送前只展示后台下发单价；实际消耗按生成结果时长结算，并以后台返回的 `billing.consume` 为准 |
+
+典型 payload：
+
+```json
+{
+  "model": "seed-audio-1.0",
+  "text_prompt": "生成一段 15 秒科技感产品开场音频，包含轻快电子背景音乐、清脆提示音和收尾上扬音效。",
+  "references": [
+    {
+      "audio_url": "https://player.install-ai-guider.top/example/old_speech.mp3"
+    }
+  ]
+}
+```
+
+典型 API 展示：
+
+```bash
+curl --location 'https://open.vectcut.com/llm/tts/seed_audio/generate' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data-raw '{
+    "model": "seed-audio-1.0",
+    "text_prompt": "生成一段 15 秒科技感产品开场音频，包含轻快电子背景音乐、清脆提示音和收尾上扬音效。",
+    "references": [
+      {
+        "audio_url": "https://player.install-ai-guider.top/example/old_speech.mp3"
+      }
+    ]
+  }'
+```
+
+---
+
+### 4.7 `voice_conversion_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -489,7 +539,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 
 ---
 
-### 4.7 `ai_video_request`
+### 4.8 `ai_video_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -779,6 +829,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 | `draft_modify_request` | `mcp__vectcut__draft-management__modify_draft` |
 | `text_add_request` | `mcp__vectcut__draft-elements__add_text` |
 | `preset_add_request` | `mcp__vectcut__draft-elements__add_preset` |
+| `seed_audio_request` | `mcp__vectcut__seed-audio__generate_seed_audio` |
 | `voice_conversion_request` | `mcp__vectcut__voice-conversion__submit_voice_conversion_task` |
 | `ai_video_request` | `mcp__vectcut__video__generate_video` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
