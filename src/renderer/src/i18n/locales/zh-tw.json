@@ -2782,7 +2782,7 @@
           },
           "voice_conversion": {
             "get_voice_conversion_task_status": "查詢聲音轉換任務狀態",
-            "submit_voice_conversion_task": "提交聲音轉換任務"
+            "submit_voice_conversion_task": "變聲"
           },
           "zcaceres_fetch": {
             "fetch_html": "抓取網頁 HTML",

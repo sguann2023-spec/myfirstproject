@@ -2791,7 +2791,7 @@
           },
           "voice_conversion": {
             "get_voice_conversion_task_status": "查询声音转换任务状态",
-            "submit_voice_conversion_task": "提交声音转换任务"
+            "submit_voice_conversion_task": "变声"
           },
           "zcaceres_fetch": {
             "fetch_html": "抓取网页 HTML",

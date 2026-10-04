@@ -13,6 +13,7 @@ import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message }
 import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
 import { getVideoGenerationCapabilities } from '../../../api/chat';
+import { getProjectPricing } from '../../../api/pricing';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import {
@@ -63,6 +64,12 @@ import MusicGenerateToolDetail, {
   buildMusicGenerateRequestParams,
   getMusicGenerateToolSendState
 } from '../../MusicGenerateToolDetail/index';
+import VoiceConversationTool, {
+  buildVoiceConversionRequestParams,
+  getVoiceConversionToolSendState,
+  VOICE_CONVERSION_SOURCE_SLOT_ID,
+  VOICE_CONVERSION_VOICE_SLOT_ID,
+} from '../../VoiceConversationTool/index';
 import { normalizeMemberProvider } from '../../../constants/member';
 
 const { shell } = window.require('electron');
@@ -79,6 +86,9 @@ const TOOL_BAR_MIN_RIGHT_GAP = 32;
 const TOOL_BAR_NAV_VISIBILITY_THRESHOLD = 24;
 const AI_WRITE_TOOL_PREFIX = 'ai-write:';
 const TREE_LIST_MAX_ENTRIES = 20000;
+const MUSIC_GENERATE_PROJECT_ID = '363';
+const VOICE_CONVERSION_AUDIO_PROJECT_ID = '99';
+const VOICE_CONVERSION_VIDEO_PROJECT_ID = '100';
 const IMAGE_FILE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
 const VIDEO_FILE_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
 const AUDIO_FILE_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']);
@@ -380,6 +390,11 @@ const MUSIC_GENERATE_PLACEHOLDER_CONFIG = [
   { key: 'music_reference_image', label: '参考图片', kind: 'image' },
   { key: 'music_reference_audio', label: '参考音频', kind: 'audio' },
   { key: 'music_reference_voice_id', label: '音色ID', kind: 'voice' },
+];
+const VOICE_CONVERSION_UPLOAD_MAX_COUNT = 2;
+const VOICE_CONVERSION_PLACEHOLDER_CONFIG = [
+  { key: VOICE_CONVERSION_SOURCE_SLOT_ID, label: '音频/视频', kind: 'media' },
+  { key: VOICE_CONVERSION_VOICE_SLOT_ID, label: '音色ID', kind: 'voice' },
 ];
 const VIDEO_REFERENCE_UPLOAD_MAX_COUNT = 10;
 const VIDEO_FRAME_SLOT_ORDER = {
@@ -1173,6 +1188,88 @@ const normalizeMediaDurationSeconds = (value) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
 };
+const formatPointCost = (value) => {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) return '';
+  return `${Number(normalized.toFixed(2)).toString()}积分`;
+};
+const collectProjectPricingEntries = (value, results = []) => {
+  if (!value || typeof value !== 'object') return results;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectProjectPricingEntries(item, results));
+    return results;
+  }
+  const projectId = value.project_id ?? value.projectId ?? value.id;
+  const unitPrice = value.resource_points_per_unit ?? value.unit_price ?? value.unitPrice;
+  if (projectId !== undefined && unitPrice !== undefined) {
+    results.push(value);
+  }
+  Object.values(value).forEach((item) => {
+    if (item && typeof item === 'object') collectProjectPricingEntries(item, results);
+  });
+  return results;
+};
+const normalizeProjectPricingEntry = (entry = null) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const unitPrice = Number(entry.resource_points_per_unit ?? entry.unit_price ?? entry.unitPrice);
+  if (!Number.isFinite(unitPrice)) return null;
+  return {
+    projectId: String(entry.project_id ?? entry.projectId ?? entry.id ?? '').trim(),
+    projectName: String(entry.project_name ?? entry.projectName ?? entry.name ?? '').trim(),
+    unitPrice,
+    priceUnit: String(entry.price_unit ?? entry.priceUnit ?? '').trim(),
+  };
+};
+const findProjectPricingEntry = (pricingPayload, projectId) => {
+  const targetProjectId = String(projectId || '').trim();
+  if (!targetProjectId) return null;
+  return normalizeProjectPricingEntry(
+    collectProjectPricingEntries(pricingPayload).find((item) => (
+      String(item?.project_id ?? item?.projectId ?? item?.id ?? '').trim() === targetProjectId
+    ))
+  );
+};
+const buildVoiceConversionPriceState = ({ pricingPayload = null, sourceFile = null } = {}) => {
+  const sourceFileType = String(sourceFile?.fileType || '').toLowerCase();
+  const isVideoSource = sourceFileType.startsWith('video/');
+  const audioPrice = findProjectPricingEntry(pricingPayload, VOICE_CONVERSION_AUDIO_PROJECT_ID);
+  const videoPrice = findProjectPricingEntry(pricingPayload, VOICE_CONVERSION_VIDEO_PROJECT_ID);
+  const activePrice = isVideoSource ? videoPrice : audioPrice;
+  const durationSeconds = normalizeMediaDurationSeconds(sourceFile?.durationSeconds);
+  if (activePrice && durationSeconds > 0) {
+    const billingMinutes = Math.max(1, Math.ceil(durationSeconds / 60));
+    const total = activePrice.unitPrice * billingMinutes;
+    return {
+      text: formatPointCost(total),
+      title: `预估消耗 ${formatPointCost(total)}，按 ${billingMinutes} 分钟计费，不足一分钟按一分钟计算，实际费用以结算为准`,
+    };
+  }
+  if (activePrice) {
+    const priceUnit = activePrice.priceUnit || '分钟';
+    return {
+      text: `${Number(activePrice.unitPrice.toFixed(2)).toString()}积分/${priceUnit}`,
+      title: `${activePrice.projectName || '变声'} 单价：${Number(activePrice.unitPrice.toFixed(2)).toString()}积分/${priceUnit}，按媒体时长向上取整计费`,
+    };
+  }
+  if (audioPrice || videoPrice) {
+    const parts = [
+      audioPrice ? `音频 ${Number(audioPrice.unitPrice.toFixed(2)).toString()}积分/${audioPrice.priceUnit || '分钟'}` : '',
+      videoPrice ? `视频 ${Number(videoPrice.unitPrice.toFixed(2)).toString()}积分/${videoPrice.priceUnit || '分钟'}` : '',
+    ].filter(Boolean);
+    return { text: '按时长计费', title: parts.join('，') };
+  }
+  return { text: '', title: '' };
+};
+const buildMusicGeneratePriceState = (pricingPayload = null) => {
+  const price = findProjectPricingEntry(pricingPayload, MUSIC_GENERATE_PROJECT_ID);
+  if (!price) return { text: '', title: '' };
+  const unitPriceText = Number(price.unitPrice.toFixed(2)).toString();
+  const priceUnit = price.priceUnit || '秒';
+  return {
+    text: `${unitPriceText}积分/${priceUnit}`,
+    title: `${price.projectName || 'AI生成音频'} 单价：${unitPriceText}积分/${priceUnit}，实际消耗按生成结果时长结算`,
+  };
+};
 const createLocalObjectUrl = (file) => {
   if (!isFileLike(file) || typeof URL?.createObjectURL !== 'function') return '';
   try {
@@ -1255,8 +1352,8 @@ const createLocalAttachmentEntry = async (rawFile = {}) => {
   ).trim();
   const fileType = targetFile?.type || rawFile?.type || '';
   const kind = getFileKindFromType(fileType);
-  const mediaMetadata = localObjectUrl && kind === 'video'
-    ? await readMediaMetadata(localObjectUrl, 'video')
+  const mediaMetadata = localObjectUrl && (kind === 'video' || kind === 'audio')
+    ? await readMediaMetadata(localObjectUrl, kind === 'audio' ? 'audio' : 'video')
     : { durationLabel: '', durationSeconds: 0 };
 
   return {
@@ -2392,9 +2489,16 @@ const Composer = ({
   const [selectedVoiceLibraryItem, setSelectedVoiceLibraryItem] = React.useState(() =>
     getInitialSelectedVoiceLibraryItem()
   );
+  const [voiceConversionPricing, setVoiceConversionPricing] = React.useState(null);
   const musicVoicePickHandlerRef = React.useRef(null);
   const musicVoiceLib = useVoiceLib({
     lockedProvider: 'volc2.0',
+    onPick: (item) => {
+      musicVoicePickHandlerRef.current?.(item);
+    },
+  });
+  const voiceConversionVoiceLib = useVoiceLib({
+    lockedProvider: 'elevenlabs',
     onPick: (item) => {
       musicVoicePickHandlerRef.current?.(item);
     },
@@ -2452,6 +2556,17 @@ const Composer = ({
     canScrollRight: false,
   });
   const [toolContentMaxWidth, setToolContentMaxWidth] = React.useState(null);
+  React.useEffect(() => {
+    let active = true;
+    getProjectPricing()
+      .then((result) => {
+        if (active) setVoiceConversionPricing(result || null);
+      })
+      .catch(() => {
+        if (active) setVoiceConversionPricing(null);
+      });
+    return () => { active = false; };
+  }, []);
   const workspaceConfig = React.useMemo(() => getWorkspaceConfig(session), [session]);
   const primarySkillWorkdir = React.useMemo(
     () => workspaceConfig.lockedPath,
@@ -2494,6 +2609,8 @@ const Composer = ({
           ? '请输入文案'
         : activeTool === 'music-generate'
           ? '描述你想生成的音频，例如人声、音乐、环境声和音效'
+        : activeTool === 'voice-conversion'
+          ? '选择音频/视频和音色ID后发送'
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
             : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
@@ -2501,17 +2618,23 @@ const Composer = ({
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
-    if (activeTool === 'music-generate' && slotId) {
-      const placeholder = MUSIC_GENERATE_PLACEHOLDER_CONFIG.find((item) => String(item.key) === String(slotId));
+    if ((activeTool === 'music-generate' || activeTool === 'voice-conversion') && slotId) {
+      const placeholderConfig = activeTool === 'voice-conversion'
+        ? VOICE_CONVERSION_PLACEHOLDER_CONFIG
+        : MUSIC_GENERATE_PLACEHOLDER_CONFIG;
+      const placeholder = placeholderConfig.find((item) => String(item.key) === String(slotId));
       const slotKind = placeholder?.kind;
       if (slotKind === 'voice') {
-        musicVoiceLib.setVoiceLibraryOpen?.(true);
+        const targetVoiceLib = activeTool === 'voice-conversion' ? voiceConversionVoiceLib : musicVoiceLib;
+        targetVoiceLib.setVoiceLibraryOpen?.(true);
         return;
       }
       const slotAccept = slotKind === 'audio'
         ? 'audio/*'
         : slotKind === 'image'
           ? 'image/*'
+          : slotKind === 'media'
+            ? 'audio/*,video/*'
           : '';
       const inputEl = musicPlaceholderUploadInputRef.current;
       if (inputEl) {
@@ -3742,11 +3865,22 @@ const Composer = ({
     validateFile: null,
     typeErrorMessage: 'AI生成音频参考仅支持上传图片或音频',
   }), []);
+  const voiceConversionUploadLimit = React.useMemo(() => ({
+    maxCount: VOICE_CONVERSION_UPLOAD_MAX_COUNT,
+    imageOnly: false,
+    accept: 'audio/*,video/*',
+    validateFile: (file) => {
+      const fileType = getResolvedUploadFileType(file);
+      return isAudioFileType(fileType) || isVideoFileType(fileType);
+    },
+    typeErrorMessage: '变声仅支持上传音频或视频',
+  }), []);
   const activeUploadLimit = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoModeUploadLimit;
     if (activeTool === 'image-pan') return imagePanUploadLimit;
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadLimit;
     if (activeTool === 'music-generate') return musicGenerateUploadLimit;
+    if (activeTool === 'voice-conversion') return voiceConversionUploadLimit;
     return {
       maxCount: MAX_UPLOAD_COUNT,
       imageOnly: false,
@@ -3754,7 +3888,7 @@ const Composer = ({
       validateFile: null,
       typeErrorMessage: '',
     };
-  }, [activeTool, draftUploadLimit, imagePanUploadLimit, musicGenerateUploadLimit, videoModeUploadLimit]);
+  }, [activeTool, draftUploadLimit, imagePanUploadLimit, musicGenerateUploadLimit, videoModeUploadLimit, voiceConversionUploadLimit]);
   const uploadAccept = React.useMemo(() => {
     if (activeUploadLimit.imageOnly) return 'image/*';
     return activeUploadLimit.accept;
@@ -3821,15 +3955,41 @@ const Composer = ({
     if (uploadedFileMeta.length >= MUSIC_GENERATE_UPLOAD_MAX_COUNT) return [];
     return remaining;
   }, [activeTool, uploadedFileMeta]);
+  const musicGeneratePriceState = React.useMemo(() => (
+    buildMusicGeneratePriceState(voiceConversionPricing)
+  ), [voiceConversionPricing]);
+  const voiceConversionUploadPlaceholders = React.useMemo(() => {
+    if (activeTool !== 'voice-conversion') return [];
+    const occupiedSlotIds = new Set(
+      uploadedFileMeta
+        .map((item) => String(item?.slotId || '').trim())
+        .filter(Boolean)
+    );
+    if (uploadedFileMeta.length >= VOICE_CONVERSION_UPLOAD_MAX_COUNT) return [];
+    return VOICE_CONVERSION_PLACEHOLDER_CONFIG.filter(
+      (item) => !occupiedSlotIds.has(String(item.key || '').trim())
+    );
+  }, [activeTool, uploadedFileMeta]);
+  const voiceConversionSourceFile = React.useMemo(() => (
+    uploadedFileMeta.find((item) => String(item?.slotId || '').trim() === VOICE_CONVERSION_SOURCE_SLOT_ID) || null
+  ), [uploadedFileMeta]);
+  const voiceConversionPriceState = React.useMemo(() => (
+    buildVoiceConversionPriceState({
+      pricingPayload: voiceConversionPricing,
+      sourceFile: voiceConversionSourceFile,
+    })
+  ), [voiceConversionPricing, voiceConversionSourceFile]);
   const activeUploadPlaceholders = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoUploadPlaceholders;
     if (activeTool === 'image-pan') return imagePanUploadPlaceholders;
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadPlaceholders;
     if (activeTool === 'music-generate') return musicGenerateUploadPlaceholders;
+    if (activeTool === 'voice-conversion') return voiceConversionUploadPlaceholders;
     return [];
-  }, [activeTool, draftUploadPlaceholders, imagePanUploadPlaceholders, musicGenerateUploadPlaceholders, videoUploadPlaceholders]);
+  }, [activeTool, draftUploadPlaceholders, imagePanUploadPlaceholders, musicGenerateUploadPlaceholders, videoUploadPlaceholders, voiceConversionUploadPlaceholders]);
   const activePreviewSlotOrder = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoPreviewSlotOrder;
+    if (activeTool === 'voice-conversion') return VOICE_CONVERSION_PLACEHOLDER_CONFIG.map((item) => item.key);
     return [];
   }, [activeTool, videoPreviewSlotOrder]);
   const hasToolPreviewRow = uploadedFileMeta.length > 0 || activeUploadPlaceholders.length > 0;
@@ -3895,6 +4055,7 @@ const Composer = ({
     const context = {
       input: activeTool === 'text-add' ? textAddInput : input,
       hasSelectedLocalFile,
+      uploadedFiles: uploadedFileMeta,
       selectedDraftIds: activeTool === 'draft-export'
         ? selectedDraftDownloadIds
         : activeTool === 'preset-add'
@@ -3930,6 +4091,8 @@ const Composer = ({
         return getVoiceSquareToolSendState(context);
       case 'music-generate':
         return getMusicGenerateToolSendState(context);
+      case 'voice-conversion':
+        return getVoiceConversionToolSendState(context);
       default:
         return defaultSendState;
     }
@@ -3947,7 +4110,8 @@ const Composer = ({
     selectedDraftDownloadIds,
     selectedTextAddDraftIds,
     selectedDraftInspectIds,
-    selectedDraftModifyIds
+    selectedDraftModifyIds,
+    uploadedFileMeta
   ]);
   const canSend = Boolean(toolSendState?.canSend);
   const sendDisabledReason = !canSend ? String(toolSendState?.disabledReason || '').trim() : '';
@@ -3970,26 +4134,43 @@ const Composer = ({
     if (normalizedFiles.length === 0) return;
     const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
     const isPendingVideoFrameSlot = activeTool === 'ai-video' && isVideoFrameSlotId(pendingSlotId);
+    const shouldAutoFillVoiceConversionSource = activeTool === 'voice-conversion'
+      && !pendingSlotId
+      && !uploadedFileMeta.some((item) => String(item?.slotId || '').trim() === VOICE_CONVERSION_SOURCE_SLOT_ID);
+    if (activeTool === 'voice-conversion' && !pendingSlotId && !shouldAutoFillVoiceConversionSource) {
+      message.error('请点击音色ID槽位选择音色，或先移除已有源文件后重新上传');
+      return;
+    }
+    const activePendingSlotId = shouldAutoFillVoiceConversionSource ? VOICE_CONVERSION_SOURCE_SLOT_ID : pendingSlotId;
     const musicPendingPlaceholder = activeTool === 'music-generate' && pendingSlotId
       ? MUSIC_GENERATE_PLACEHOLDER_CONFIG.find((item) => String(item.key) === pendingSlotId)
       : null;
-    const musicSlotKind = musicPendingPlaceholder?.kind;
+    const voiceConversionPendingPlaceholder = activeTool === 'voice-conversion' && activePendingSlotId
+      ? VOICE_CONVERSION_PLACEHOLDER_CONFIG.find((item) => String(item.key) === activePendingSlotId)
+      : null;
+    const activePendingPlaceholder = musicPendingPlaceholder || voiceConversionPendingPlaceholder;
+    const activeSlotKind = activePendingPlaceholder?.kind;
 
     const { imageOnly, maxCount, typeErrorMessage, validateFile } = activeUploadLimit;
-    const musicSlotFilteredFiles = musicSlotKind === 'audio'
+    const slotFilteredFiles = activeSlotKind === 'audio'
       ? normalizedFiles.filter((item) => String(getResolvedUploadFileType(item) || '').toLowerCase().startsWith('audio/'))
-      : musicSlotKind === 'image'
+      : activeSlotKind === 'image'
         ? normalizedFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
+        : activeSlotKind === 'media'
+          ? normalizedFiles.filter((item) => {
+            const fileType = getResolvedUploadFileType(item);
+            return isAudioFileType(fileType) || isVideoFileType(fileType);
+          })
         : normalizedFiles;
-    if (musicSlotFilteredFiles.length !== normalizedFiles.length) {
-      message.error(musicSlotKind === 'audio' ? '参考音频只能上传音频文件' : '参考图片只能上传图片文件');
+    if (slotFilteredFiles.length !== normalizedFiles.length) {
+      message.error(activeSlotKind === 'audio' ? '参考音频只能上传音频文件' : activeSlotKind === 'media' ? '变声源文件只能上传音频或视频' : '参考图片只能上传图片文件');
     }
     const typeFilteredFiles = imageOnly
-      ? musicSlotFilteredFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
+      ? slotFilteredFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
       : typeof validateFile === 'function'
-        ? musicSlotFilteredFiles.filter((item) => validateFile(item))
-        : musicSlotFilteredFiles;
-    if (typeFilteredFiles.length !== musicSlotFilteredFiles.length) {
+        ? slotFilteredFiles.filter((item) => validateFile(item))
+        : slotFilteredFiles;
+    if (typeFilteredFiles.length !== slotFilteredFiles.length) {
       message.error(typeErrorMessage);
     }
     if (typeFilteredFiles.length === 0) return;
@@ -4011,50 +4192,52 @@ const Composer = ({
     });
 
     if (hasOverflow) {
-      message.error(activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify'
+      message.error(activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify' || activeTool === 'voice-conversion'
         ? `当前模式最多上传 ${maxCount} 个文件`
         : `最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
     }
     if (acceptedFiles.length === 0) return;
-    const resolvedAcceptedFiles = isPendingVideoFrameSlot ? acceptedFiles.slice(0, 1) : acceptedFiles;
-    if (isPendingVideoFrameSlot && acceptedFiles.length > 1) {
-      message.error('当前槽位一次只能上传 1 张图片');
+    const isSingleFileSlot = isPendingVideoFrameSlot || Boolean(voiceConversionPendingPlaceholder);
+    const resolvedAcceptedFiles = isSingleFileSlot ? acceptedFiles.slice(0, 1) : acceptedFiles;
+    if (isSingleFileSlot && acceptedFiles.length > 1) {
+      message.error(isPendingVideoFrameSlot ? '当前槽位一次只能上传 1 张图片' : '当前槽位一次只能上传 1 个文件');
     }
 
     const nextEntries = (await Promise.all(resolvedAcceptedFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
     if (nextEntries.length === 0) return;
 
-    const isMusicPendingSlot = Boolean(musicPendingPlaceholder) && (musicSlotKind === 'audio' || musicSlotKind === 'image');
+    const isMusicPendingSlot = Boolean(musicPendingPlaceholder) && (activeSlotKind === 'audio' || activeSlotKind === 'image');
+    const isVoiceConversionPendingSlot = Boolean(voiceConversionPendingPlaceholder) && activeSlotKind === 'media';
     const nextUploadItems = nextEntries.map((item) => (
       isPendingVideoFrameSlot
-        ? { ...item.uploadItem, slotId: pendingSlotId }
-        : isMusicPendingSlot
-          ? { ...item.uploadItem, slotId: pendingSlotId }
+        ? { ...item.uploadItem, slotId: activePendingSlotId }
+        : isMusicPendingSlot || isVoiceConversionPendingSlot
+          ? { ...item.uploadItem, slotId: activePendingSlotId }
           : item.uploadItem
     ));
     const nextFileMeta = nextEntries.map((item) => (
       isPendingVideoFrameSlot
-        ? { ...item.fileMeta, slotId: pendingSlotId, slotLabel: TEMPLATE_MEDIA_ROLE_LABELS[pendingSlotId] || '' }
-        : isMusicPendingSlot
-          ? { ...item.fileMeta, slotId: pendingSlotId, slotLabel: musicPendingPlaceholder?.label || '' }
+        ? { ...item.fileMeta, slotId: activePendingSlotId, slotLabel: TEMPLATE_MEDIA_ROLE_LABELS[activePendingSlotId] || '' }
+        : isMusicPendingSlot || isVoiceConversionPendingSlot
+          ? { ...item.fileMeta, slotId: activePendingSlotId, slotLabel: activePendingPlaceholder?.label || '' }
           : item.fileMeta
     ));
 
     setUploadFileList((prev) => {
-      if (!isPendingVideoFrameSlot) return [...prev, ...nextUploadItems];
-      const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== pendingSlotId);
-      return sortItemsByVideoFrameSlot([...retainedItems, ...nextUploadItems]);
+      if (!isPendingVideoFrameSlot && !isVoiceConversionPendingSlot) return [...prev, ...nextUploadItems];
+      const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== activePendingSlotId);
+      return isPendingVideoFrameSlot ? sortItemsByVideoFrameSlot([...retainedItems, ...nextUploadItems]) : [...retainedItems, ...nextUploadItems];
     });
     setUploadedFileMeta((prev) => {
-      if (!isPendingVideoFrameSlot) return [...prev, ...nextFileMeta];
-      const replacedItem = prev.find((item) => String(item?.slotId || '').trim() === pendingSlotId);
+      if (!isPendingVideoFrameSlot && !isVoiceConversionPendingSlot) return [...prev, ...nextFileMeta];
+      const replacedItem = prev.find((item) => String(item?.slotId || '').trim() === activePendingSlotId);
       revokeLocalObjectUrl(replacedItem?.localThumbUrl);
-      const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== pendingSlotId);
-      return sortItemsByVideoFrameSlot([...retainedItems, ...nextFileMeta]);
+      const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== activePendingSlotId);
+      return isPendingVideoFrameSlot ? sortItemsByVideoFrameSlot([...retainedItems, ...nextFileMeta]) : [...retainedItems, ...nextFileMeta];
     });
 
-    if (pendingSlotId && nextFileMeta[0]) {
-      syncTemplateFileReferenceNode(editor, pendingSlotId, nextFileMeta[0]);
+    if (activePendingSlotId && nextFileMeta[0]) {
+      syncTemplateFileReferenceNode(editor, activePendingSlotId, nextFileMeta[0]);
       pendingTemplateSlotAutoReferenceRef.current = '';
     }
   }, [activeTool, activeUploadLimit, editor, sessionSending, uploadedFileMeta]);
@@ -4235,7 +4418,7 @@ const Composer = ({
       ? serializedMessage.text || String(input || '').trim()
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && activeTool !== 'audio-add' && !combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && activeTool !== 'audio-add' && activeTool !== 'voice-conversion' && !combined) return;
     const selectedTextAddDraftId = String(selectedTextAddDraftIds?.[0] || '').trim();
     const selectedPresetAddDraftId = String(selectedPresetAddDraftIds?.[0] || '').trim();
     const selectedPresetAddPresetId = String(selectedPresetAddPreset?.preset_id || '').trim();
@@ -4243,6 +4426,7 @@ const Composer = ({
     const selectedAudioAddDraftId = String(selectedAudioAddDraftIds?.[0] || '').trim();
     const audioAddRequestParams = buildAudioAddRequestParams(audioAddSettings);
     const musicGenerateRequestParams = buildMusicGenerateRequestParams(text);
+    const voiceConversionRequestParams = buildVoiceConversionRequestParams(uploadedFileMeta);
     const musicGenerateVoiceIds = [];
     if (musicGenerateRequestParams && activeTool === 'music-generate') {
       // 火山 Seed Audio HTTP 接口原生接受 references 数组：
@@ -4336,6 +4520,13 @@ const Composer = ({
             musicGenerateVoiceIds.length > 0
               ? `参考音色ID（voice_id）：${musicGenerateVoiceIds.join('、')}`
               : '',
+          ].filter(Boolean).join('\n')
+        : activeTool === 'voice-conversion'
+          ? [
+            '请进行变声处理。',
+            voiceConversionRequestParams?.audio_url ? `audio_url：${voiceConversionRequestParams.audio_url}` : '',
+            voiceConversionRequestParams?.video_url ? `video_url：${voiceConversionRequestParams.video_url}` : '',
+            voiceConversionRequestParams?.voice_id ? `voice_id：${voiceConversionRequestParams.voice_id}` : '',
           ].filter(Boolean).join('\n')
         : activeTool === 'draft-inspect'
           ? [
@@ -4457,6 +4648,9 @@ const Composer = ({
       seedAudioRequest: activeTool === 'music-generate'
         ? musicGenerateRequestParams
         : null,
+      voiceConversionRequest: activeTool === 'voice-conversion'
+        ? voiceConversionRequestParams
+        : null,
       aiVideoRequest: activeTool === 'ai-video'
         ? aiVideoRequestPayload
         : null,
@@ -4525,7 +4719,7 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add';
+    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'voice-conversion';
     editor.setEditable(!shouldDisableInput);
     if (shouldDisableInput) {
       if (activeTool === 'draft-export') {
@@ -4707,13 +4901,14 @@ const Composer = ({
     const voiceId = String(item?.global_voice_id || item?.voice_id || '').trim();
     if (!voiceId) return;
     const voiceName = String(item?.title || item?.name || voiceId).trim() || voiceId;
+    const voiceSlotId = activeTool === 'voice-conversion' ? VOICE_CONVERSION_VOICE_SLOT_ID : MUSIC_REFERENCE_VOICE_SLOT_ID;
     const virtualAttachment = {
-      uid: `music-voice:${voiceId}:${Date.now()}`,
+      uid: `${activeTool === 'voice-conversion' ? 'voice-conversion' : 'music'}-voice:${voiceId}:${Date.now()}`,
       kind: 'voice_id',
-      slotId: MUSIC_REFERENCE_VOICE_SLOT_ID,
+      slotId: voiceSlotId,
       name: voiceName,
       voiceId,
-      sourceType: 'music_voice_pick',
+      sourceType: activeTool === 'voice-conversion' ? 'voice_conversion_voice_pick' : 'music_voice_pick',
       sourceLabel: voiceId,
       fileType: 'application/x-voice-id',
       status: 'done',
@@ -4721,12 +4916,12 @@ const Composer = ({
     };
     setUploadedFileMeta((prev) => {
       const retained = (Array.isArray(prev) ? prev : []).filter(
-        (x) => String(x?.slotId || '') !== MUSIC_REFERENCE_VOICE_SLOT_ID
+        (x) => String(x?.slotId || '') !== voiceSlotId
       );
       return [...retained, virtualAttachment];
     });
     try {
-      syncTemplateFileReferenceNode(editor, MUSIC_REFERENCE_VOICE_SLOT_ID, virtualAttachment);
+      syncTemplateFileReferenceNode(editor, voiceSlotId, virtualAttachment);
     } catch (error) {
       console.warn('[Composer] failed to sync voice id reference node', error);
     }
@@ -4819,6 +5014,7 @@ const Composer = ({
           onChange={handleMusicPlaceholderInputChange}
         />
         <VoiceLib controller={musicVoiceLib} hideTrigger />
+        <VoiceLib controller={voiceConversionVoiceLib} hideTrigger />
         <LocalFilePreviewList
           files={uploadedFileMeta}
           placeholders={activeUploadPlaceholders}
@@ -4950,6 +5146,13 @@ const Composer = ({
                       onBack={handleToolDetailBack}
                       onPromptChange={handleImageTemplateApply}
                       onTemplateMediaChange={handleMusicGenerateTemplateMediaApply}
+                      priceState={musicGeneratePriceState}
+                    />
+                  ) : activeTool === 'voice-conversion' ? (
+                    <VoiceConversationTool
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      priceState={voiceConversionPriceState}
                     />
                   ) : activeTool === 'voice-clone' ? (
                     <VoiceSquareToolDetail
@@ -5246,7 +5449,7 @@ const Composer = ({
               </div>
             </div>
           ) : null}
-          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
+          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'voice-conversion' ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
             {isDragActive ? (
               <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
                 <div className="chat-panel__drag-upload-card">

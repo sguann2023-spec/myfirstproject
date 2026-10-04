@@ -19,7 +19,10 @@ const AUDIO_TOOL_NAMES = new Set([
   'mcp__vectcut__speech__generate_speech',
   'generate_seed_audio',
   'mcp__seed-audio__generate_seed_audio',
-  'mcp__vectcut__seed-audio__generate_seed_audio'
+  'mcp__vectcut__seed-audio__generate_seed_audio',
+  'submit_voice_conversion_task',
+  'mcp__voice-conversion__submit_voice_conversion_task',
+  'mcp__vectcut__voice-conversion__submit_voice_conversion_task'
 ])
 
 const IMAGE_TOOL_NAMES = new Set([

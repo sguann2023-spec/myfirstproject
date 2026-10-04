@@ -2791,7 +2791,7 @@
           },
           "voice_conversion": {
             "get_voice_conversion_task_status": "Check Voice Conversion Task Status",
-            "submit_voice_conversion_task": "Submit Voice Conversion Task"
+            "submit_voice_conversion_task": "Voice Conversion"
           },
           "zcaceres_fetch": {
             "fetch_html": "Fetch HTML",

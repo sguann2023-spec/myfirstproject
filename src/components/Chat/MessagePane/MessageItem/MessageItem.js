@@ -127,6 +127,14 @@ const buildSpeechRequestSignature = (speechRequest = null) => {
     trackName: String(speechRequest?.track_name || speechRequest?.trackName || '')
   });
 };
+const buildVoiceConversionRequestSignature = (voiceConversionRequest = null) => {
+  if (!voiceConversionRequest || typeof voiceConversionRequest !== 'object') return '';
+  return JSON.stringify({
+    audioUrl: String(voiceConversionRequest?.audio_url || voiceConversionRequest?.audioUrl || ''),
+    videoUrl: String(voiceConversionRequest?.video_url || voiceConversionRequest?.videoUrl || ''),
+    voiceId: String(voiceConversionRequest?.voice_id || voiceConversionRequest?.voiceId || '')
+  });
+};
 const buildAudioAddRequestSignature = (audioAddRequest = null) => {
   if (!audioAddRequest || typeof audioAddRequest !== 'object') return '';
   return JSON.stringify({
@@ -386,6 +394,27 @@ const buildSpeechRequestApiCurl = (speechRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildVoiceConversionRequestApiCurl = (voiceConversionRequest = null) => {
+  const audioUrl = String(voiceConversionRequest?.audio_url || voiceConversionRequest?.audioUrl || '').trim();
+  const videoUrl = String(voiceConversionRequest?.video_url || voiceConversionRequest?.videoUrl || '').trim();
+  const voiceId = String(voiceConversionRequest?.voice_id || voiceConversionRequest?.voiceId || '').trim();
+  const payload = {
+    ...(videoUrl ? { video_url: videoUrl } : { audio_url: audioUrl }),
+    voice_id: voiceId
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    '# 1. 提交变声任务',
+    "curl --location 'https://open.vectcut.com/llm/sts/submit/generate' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`,
+    '',
+    '# 2. 使用上一步返回的 task_id 查询结果',
+    "curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<task_id>' \\",
+    "--header 'Authorization: Bearer <token>'"
+  ].join('\n');
+};
 const buildAudioAddRequestApiCurl = (audioAddRequest = null) => {
   const payload = {
     ...(String(audioAddRequest?.audio_url || audioAddRequest?.audioUrl || '').trim()
@@ -523,6 +552,9 @@ const MessageItem = ({
   const speechRequest = message?.speechRequest && typeof message.speechRequest === 'object'
     ? message.speechRequest
     : null;
+  const voiceConversionRequest = message?.voiceConversionRequest && typeof message.voiceConversionRequest === 'object'
+    ? message.voiceConversionRequest
+    : null;
   const audioAddRequest = message?.audioAddRequest && typeof message.audioAddRequest === 'object'
     ? message.audioAddRequest
     : null;
@@ -539,10 +571,10 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || audioAddRequest || aiVideoRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
   const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
@@ -586,13 +618,15 @@ const MessageItem = ({
       ? buildAudioAddRequestApiCurl(audioAddRequest)
       : (presetAddRequest
       ? buildPresetAddRequestApiCurl(presetAddRequest)
-      : (speechRequest
+      : (voiceConversionRequest
+        ? buildVoiceConversionRequestApiCurl(voiceConversionRequest)
+        : (speechRequest
         ? buildSpeechRequestApiCurl(speechRequest)
         : (textAddRequest
           ? buildTextAddRequestApiCurl(textAddRequest)
           : (draftModifyRequest
             ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-            : buildDraftRequestApiCurl(draftRequest, message))))));
+            : buildDraftRequestApiCurl(draftRequest, message)))))));
     return {
       ...message,
       content: apiContent,
@@ -606,6 +640,7 @@ const MessageItem = ({
     draftRequest,
     audioAddRequest,
     aiVideoRequest,
+    voiceConversionRequest,
     presetAddRequest,
     speechRequest,
     textAddRequest,
@@ -879,6 +914,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildDraftModifyRequestSignature(prevMessage.draftModifyRequest) === buildDraftModifyRequestSignature(nextMessage.draftModifyRequest)
     && buildTextAddRequestSignature(prevMessage.textAddRequest) === buildTextAddRequestSignature(nextMessage.textAddRequest)
     && buildPresetAddRequestSignature(prevMessage.presetAddRequest) === buildPresetAddRequestSignature(nextMessage.presetAddRequest)
+    && buildVoiceConversionRequestSignature(prevMessage.voiceConversionRequest) === buildVoiceConversionRequestSignature(nextMessage.voiceConversionRequest)
     && buildSpeechRequestSignature(prevMessage.speechRequest) === buildSpeechRequestSignature(nextMessage.speechRequest)
     && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
     && buildAiVideoRequestSignature(prevMessage.aiVideoRequest) === buildAiVideoRequestSignature(nextMessage.aiVideoRequest)

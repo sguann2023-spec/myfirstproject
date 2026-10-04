@@ -240,14 +240,13 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const voiceConversionServer = new VoiceConversionServer()
+    const voiceConversionServer = new VoiceConversionServer(cwd)
     mountMcpServer('voice-conversion', {
       type: 'sdk',
       name: 'voice-conversion',
       instance: voiceConversionServer.mcpServer
     })
     autoAllowTools.add(vt('voice-conversion', 'submit_voice_conversion_task'))
-    autoAllowTools.add(vt('voice-conversion', 'get_voice_conversion_task_status'))
     allowMcpPattern(vp('voice-conversion'))
   }
 

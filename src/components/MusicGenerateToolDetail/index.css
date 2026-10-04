@@ -11,6 +11,29 @@
   flex: 0 0 auto;
 }
 
+.chat-panel__music-generate-price {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #595959;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chat-panel__music-generate-price-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.chat-panel__music-generate-price-text {
+  display: inline-flex;
+  align-items: center;
+}
+
 .chat-panel__music-generate-popup {
   width: min(330px, calc(100vw - 160px));
   max-height: 360px;

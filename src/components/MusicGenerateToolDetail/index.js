@@ -2,6 +2,7 @@ import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
 import { Dropdown, Tooltip } from 'antd';
 import { AudioLines, Play, Pause, Loader2 } from 'lucide-react';
+import Point2Icon from '../../../public/point2.svg';
 import './index.css';
 
 const AUDIO_TEMPLATE_MANIFEST_URL = 'https://player.install-ai-guider.top/example/client_audio_template/manifest.json';
@@ -199,8 +200,10 @@ const AudioTemplatePopover = ({ disabled = false, onApplyTemplate = null }) => {
   );
 };
 
-const MusicGenerateToolDetail = ({ disabled = false, onBack, onPromptChange = null, onTemplateMediaChange = null }) => {
+const MusicGenerateToolDetail = ({ disabled = false, onBack, onPromptChange = null, onTemplateMediaChange = null, priceState = null }) => {
   const [open, setOpen] = React.useState(false);
+  const priceText = String(priceState?.text || '').trim();
+  const priceTitle = String(priceState?.title || '').trim() || (priceText ? `单价 ${priceText}` : '');
 
   const popupContent = (
     <AudioTemplatePopover
@@ -241,6 +244,12 @@ const MusicGenerateToolDetail = ({ disabled = false, onBack, onPromptChange = nu
             </button>
           </span>
         </Dropdown>
+        {priceText ? (
+          <span className="chat-panel__music-generate-price" title={priceTitle}>
+            <img className="chat-panel__music-generate-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+            <span className="chat-panel__music-generate-price-text">{priceText}</span>
+          </span>
+        ) : null}
       </div>
     </div>
   );

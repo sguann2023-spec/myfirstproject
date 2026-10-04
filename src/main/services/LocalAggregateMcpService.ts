@@ -135,7 +135,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'voice-conversion',
         serverName: 'voice-conversion',
-        createInstance: () => new VoiceConversionServer().mcpServer
+        createInstance: () => new VoiceConversionServer(workspacePath).mcpServer
       },
       {
         serverId: 'seed-audio',

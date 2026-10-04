@@ -34,6 +34,7 @@ import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
 import { normalizeSeedAudioRequestPayload } from '../../shared/seedAudioRequest';
 import { normalizeAiVideoRequestPayload } from '../../shared/aiVideoRequest';
+import { buildVoiceConversionRequestProcessingBlocks, normalizeVoiceConversionRequestPayload } from '../../shared/voiceConversionRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
@@ -421,6 +422,34 @@ const resolveAiVideoRequestLocalAttachmentUrls = (aiVideoRequest = null, persist
   return {
     ...aiVideoRequest,
     content,
+  };
+};
+const resolveVoiceConversionRequestLocalAttachmentUrls = (voiceConversionRequest = null, persistedEntries = []) => {
+  if (!voiceConversionRequest || typeof voiceConversionRequest !== 'object') {
+    return voiceConversionRequest;
+  }
+
+  const persistedByUid = new Map(
+    (Array.isArray(persistedEntries) ? persistedEntries : [])
+      .filter((item) => item?.uid && item?.sourcePath)
+      .map((item) => [String(item.uid).trim(), String(item.sourcePath).trim()])
+  );
+  if (persistedByUid.size === 0) return voiceConversionRequest;
+
+  const replaceLocalAttachment = (value = '') => {
+    const normalized = String(value || '').trim();
+    const uid = normalized.startsWith('local-attachment:') ? normalized.slice('local-attachment:'.length).trim() : '';
+    return uid && persistedByUid.get(uid) ? persistedByUid.get(uid) : normalized;
+  };
+
+  return {
+    ...voiceConversionRequest,
+    ...(voiceConversionRequest.audio_url || voiceConversionRequest.audioUrl
+      ? { audio_url: replaceLocalAttachment(voiceConversionRequest.audio_url || voiceConversionRequest.audioUrl) }
+      : {}),
+    ...(voiceConversionRequest.video_url || voiceConversionRequest.videoUrl
+      ? { video_url: replaceLocalAttachment(voiceConversionRequest.video_url || voiceConversionRequest.videoUrl) }
+      : {}),
   };
 };
 const parseDraftResolutionDimensions = (value = '') => {
@@ -2181,6 +2210,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const draftInspectRequest = role === 'user' && sourceMessage?.draftInspectRequest && typeof sourceMessage.draftInspectRequest === 'object'
     ? { ...sourceMessage.draftInspectRequest }
     : undefined;
+  const voiceConversionRequest = role === 'user' && sourceMessage?.voiceConversionRequest && typeof sourceMessage.voiceConversionRequest === 'object'
+    ? { ...sourceMessage.voiceConversionRequest }
+    : undefined;
   const reversePromptRequest = role === 'user' && sourceMessage?.reversePromptRequest
     ? { ...sourceMessage.reversePromptRequest }
     : undefined;
@@ -2198,6 +2230,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && presetAddRequest ? { presetAddRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
+    ...(role === 'user' && voiceConversionRequest ? { voiceConversionRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
     ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
       ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
@@ -5320,6 +5353,9 @@ const HomePage = () => {
     const seedAudioRequest = options?.seedAudioRequest && typeof options.seedAudioRequest === 'object'
       ? { ...options.seedAudioRequest }
       : null;
+    const voiceConversionRequest = options?.voiceConversionRequest && typeof options.voiceConversionRequest === 'object'
+      ? { ...options.voiceConversionRequest }
+      : null;
     const aiVideoRequest = options?.aiVideoRequest && typeof options.aiVideoRequest === 'object'
       ? { ...options.aiVideoRequest }
       : null;
@@ -5413,6 +5449,7 @@ const HomePage = () => {
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
+        ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
@@ -5474,6 +5511,7 @@ const HomePage = () => {
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
+        ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
@@ -5583,6 +5621,64 @@ const HomePage = () => {
         userMessage,
         images,
       });
+
+      if (voiceConversionRequest) {
+        const voiceConversionRequestWithLocalFiles = resolveVoiceConversionRequestLocalAttachmentUrls(
+          voiceConversionRequest,
+          persistedPendingAttachmentEntries
+        );
+        const resolvedVoiceConversionRequest = normalizeVoiceConversionRequestPayload(voiceConversionRequestWithLocalFiles);
+        if (!resolvedVoiceConversionRequest || !String(resolvedVoiceConversionRequest.voice_id || '').trim()) {
+          throw new Error('voice conversion request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          voiceConversionRequest: resolvedVoiceConversionRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildVoiceConversionRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            voiceConversionRequest: resolvedVoiceConversionRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directVoiceConversionResult = await window.electronAPI.cherryChatStream.createVoiceConversionRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          voiceConversionRequest: resolvedVoiceConversionRequest,
+        });
+        if (!directVoiceConversionResult?.ok) {
+          throw new Error(directVoiceConversionResult?.error || 'voice conversion request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directVoiceConversionResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directVoiceConversionResult?.assistantBlocks) ? directVoiceConversionResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'voice-conversion-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'voice-conversion-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'voice-conversion-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'voice-conversion-request.complete');
+        setChatSending(false);
+        return;
+      }
 
       if (seedAudioRequest) {
         const resolvedSeedAudioRequest = normalizeSeedAudioRequestPayload(seedAudioRequest, text);

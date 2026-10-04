@@ -8,6 +8,7 @@ import {
   ChevronUp,
   FileSearch,
   Music,
+  Ribbon,
   SquareArrowOutUpRight,
   SquarePen,
   Undo2,
@@ -107,6 +108,11 @@ const AUDIO_MENU_ITEMS = [
     id: 'voice-clone',
     label: '克隆',
     icon: <img className="chat-panel__tool-menu-icon" src={VoiceCloneIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'voice-conversion',
+    label: '变声',
+    icon: <Ribbon size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
 ];
 

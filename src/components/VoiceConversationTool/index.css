@@ -1,0 +1,46 @@
+.chat-panel__voice-conversion-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.chat-panel__voice-conversion-detail .chat-panel__tool-tooltip-trigger,
+.chat-panel__voice-conversion-detail .chat-panel__tool-detail-content {
+  display: inline-flex;
+  align-items: center;
+}
+
+.chat-panel__voice-conversion-detail-content {
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-panel__voice-conversion-tool-icon {
+  color: #3167ff;
+  stroke: currentColor;
+}
+
+.chat-panel__voice-conversion-price {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #595959;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chat-panel__voice-conversion-price-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.chat-panel__voice-conversion-price-text {
+  display: inline-flex;
+  align-items: center;
+}

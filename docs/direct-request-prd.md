@@ -24,6 +24,7 @@
 | `text_add_request` | 向草稿添加文本 | `draft-elements` | `add_text` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `preset_add_request` | 向草稿添加预设片段 | `draft-elements` | `add_preset` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `speech_request` | AI朗读/语音合成 | `speech` | `generate_speech` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `voice_conversion_request` | 音频/视频变声 | `voice-conversion` | `submit_voice_conversion_task` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `ai_video_request` | AI生成视频 | `video` | `generate_video` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
@@ -434,7 +435,61 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
   }'
 ```
 
-### 4.6 `ai_video_request`
+### 4.6 `voice_conversion_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 将原始音频或视频的音色替换为 ElevenLabs 目标音色，保持语速、情绪不变 |
+| 目标 MCP | `voice-conversion.submit_voice_conversion_task` |
+| 是否 direct request | 是，跳过普通 Agent 推理，直接执行变声 MCP 的提交与轮询流程 |
+| 是否 direct 回复 | 是，主进程基于工具返回的工作区文件、任务 ID、远程链接和点数生成固定回复 |
+| 前端消息标记对象 | `voiceConversionRequest` |
+| requestId | IPC 顶层及前端标记中保存；工具调用 ID 为 `voice_conversion_request_${requestId}` |
+| 支持展示类型 | `文字` / `Agent` / `API`；不支持 `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/481771906e0` |
+| 前端发送条件 | 已选择一个音频或视频文件，且已选择 ElevenLabs 音色 ID |
+| 文件处理 | 浏览器本地文件先保存到当前工作区；本地视频由 MCP 抽音频提交，结果再合并为工作区视频文件；不向源文件目录写副本 |
+| 点数 | 保留后台实际 `billing.consume`，工具卡片及消息合计展示；不使用预估价格替代实际扣费 |
+
+典型 payload：
+
+```json
+{
+  "audio_url": "https://player.install-ai-guider.top/example/old_speech.mp3",
+  "voice_id": "fYmV8EanqZP9BI4WvpB7"
+}
+```
+
+典型 API 展示：
+
+```bash
+# 1. 提交变声任务
+curl --location 'https://open.vectcut.com/llm/sts/submit/generate' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "audio_url": "https://player.install-ai-guider.top/example/old_speech.mp3",
+    "voice_id": "fYmV8EanqZP9BI4WvpB7"
+  }'
+
+# 2. 使用上一步返回的 task_id 查询结果
+curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<task_id>' \
+  --header 'Authorization: Bearer <token>'
+```
+
+视频变声 payload：
+
+```json
+{
+  "video_url": "https://example.com/source.mp4",
+  "voice_id": "fYmV8EanqZP9BI4WvpB7"
+}
+```
+
+---
+
+### 4.7 `ai_video_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -466,7 +521,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.7 `draft_download_request`
+### 4.8 `draft_download_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -492,7 +547,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 }
 ```
 
-### 4.8 `draft_export_request`
+### 4.9 `draft_export_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -518,7 +573,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 }
 ```
 
-### 4.9 `draft_inspect`
+### 4.10 `draft_inspect`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -546,7 +601,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.10 `reverse_prompt_request`
+### 4.11 `reverse_prompt_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -600,7 +655,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.11 `subtitle_recognition_request`
+### 4.12 `subtitle_recognition_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -664,7 +719,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 
 ---
 
-### 4.12 `subtitle_storyboard_request`
+### 4.13 `subtitle_storyboard_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -724,6 +779,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/generate_speech' \
 | `draft_modify_request` | `mcp__vectcut__draft-management__modify_draft` |
 | `text_add_request` | `mcp__vectcut__draft-elements__add_text` |
 | `preset_add_request` | `mcp__vectcut__draft-elements__add_preset` |
+| `voice_conversion_request` | `mcp__vectcut__voice-conversion__submit_voice_conversion_task` |
 | `ai_video_request` | `mcp__vectcut__video__generate_video` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
