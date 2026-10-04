@@ -22,7 +22,10 @@ const IMAGE_RESOLUTION_OPTIONS = [
   { value: '1440x2560', label: '9:16 | 高清2K' },
 ];
 
-const getModelIcon = (model) => {
+const getModelIcon = (model, remoteIcon = '') => {
+  const normalizedRemoteIcon = String(remoteIcon || '').trim();
+  if (normalizedRemoteIcon) return normalizedRemoteIcon;
+
   const normalized = String(model || '').trim().toLowerCase();
   if (normalized.startsWith('nano_banana')) return ImageModelNanoBananaBlackIcon;
   if (normalized === 'gpt-image-2' || normalized === 'gpt-image-2-all') return ImageModelGptBlackIcon;
@@ -87,11 +90,26 @@ const renderModelBadge = (badge) => (
   </span>
 );
 
-const renderModelContent = (model, label, description = '', badges = []) => {
-  const icon = getModelIcon(model);
+const renderModelContent = (model, label, description = '', badges = [], remoteIcon = '') => {
+  const icon = getModelIcon(model, remoteIcon);
+  const fallbackIcon = getModelIcon(model);
   return (
     <span className="chat-panel__image-pan-option">
-      {icon ? <img className="chat-panel__image-pan-option-icon" src={icon} alt="" aria-hidden="true" /> : null}
+      {icon ? (
+        <img
+          className="chat-panel__image-pan-option-icon"
+          src={icon}
+          alt=""
+          aria-hidden="true"
+          onError={(event) => {
+            if (fallbackIcon && event.currentTarget.src !== fallbackIcon) {
+              event.currentTarget.src = fallbackIcon;
+            } else {
+              event.currentTarget.style.display = 'none';
+            }
+          }}
+        />
+      ) : null}
       <span className="chat-panel__image-pan-option-main">
         <span className="chat-panel__image-pan-option-header">
           <span className="chat-panel__image-pan-option-text">{label}</span>
@@ -162,6 +180,7 @@ const ImagePanToolDetail = ({
       value: String(item?.model || '').trim(),
       label: String(item?.display_name || '').trim() || normalizeModelLabel(item?.model),
       description: String(item?.description || '').trim(),
+      icon: String(item?.icon || '').trim(),
       badges: Array.isArray(item?.badges) ? item.badges.filter((badge) => typeof badge === 'string' && badge.trim()) : [],
       priceText: formatImagePriceText(item?.price?.resource_points_per_unit),
     })).filter((item) => item.value);
@@ -216,14 +235,14 @@ const ImagePanToolDetail = ({
     value: item.value,
     label: (
       <span className="chat-panel__image-pan-option-wrap">
-        {renderModelContent(item.value, item.label, item.description, item.badges)}
+        {renderModelContent(item.value, item.label, item.description, item.badges, item.icon)}
         <span className="chat-panel__image-pan-option-price-wrap">
           <img className="chat-panel__image-pan-option-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
           <span className="chat-panel__image-pan-option-price">{item.priceText || '--/张'}</span>
         </span>
       </span>
     ),
-    selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value)),
+    selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value, item.icon)),
   })), [modelPickerOpen, resolvedModelOptions]);
 
   const handleApplyTemplate = React.useCallback((template) => {
