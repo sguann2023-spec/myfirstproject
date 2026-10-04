@@ -132,6 +132,7 @@ const normalizeImageCapabilitiesResult = (payload, filters = {}) => {
       model,
       display_name: String(capability?.display_name || '').trim(),
       description: String(capability?.description || '').trim(),
+      icon: String(capability?.icon || '').trim(),
       badges: Array.isArray(capability?.badges)
         ? capability.badges.map((badge) => String(badge || '').trim()).filter(Boolean)
         : [],
