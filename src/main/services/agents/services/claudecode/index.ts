@@ -1026,12 +1026,38 @@ class ClaudeCodeService implements AgentServiceInterface {
       })
 
       queryPromise.catch((error) => {
+        const rawMessage = error instanceof Error ? error.message : String(error)
+        const normalizedMessage = rawMessage.toLowerCase()
+        let userMessage = rawMessage
+        let errorCode = 'AGENT_STREAM_ERROR'
+
+        if (normalizedMessage.includes('insufficient remaining points') || normalizedMessage.includes('剩余点数不足')) {
+          userMessage = '当前账号剩余点数不足，请充值后重试。'
+          errorCode = 'INSUFFICIENT_POINTS'
+        } else if (
+          normalizedMessage.includes('input tokens exceed') ||
+          normalizedMessage.includes('context limit') ||
+          normalizedMessage.includes('输入 token 数超出')
+        ) {
+          userMessage = '当前会话内容过长，已超过模型上下文限制。请新建会话或减少历史内容后重试。'
+          errorCode = 'CONTEXT_LIMIT_EXCEEDED'
+        }
+
         logger.error('Unhandled Claude Code stream error', {
-          error: error instanceof Error ? { name: error.name, message: error.message } : String(error)
+          error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+          errorCode,
+          traceId,
+          topicId: session.id,
+          model: piHarness.runtimeBridge?.model?.id,
+          provider: piHarness.runtimeBridge?.model?.provider
         })
         aiStream.emit('data', {
           type: 'error',
-          error: error instanceof Error ? error : new Error(String(error))
+          error: Object.assign(new Error(userMessage), {
+            name: errorCode,
+            code: errorCode,
+            originalMessage: rawMessage
+          })
         })
       })
     })

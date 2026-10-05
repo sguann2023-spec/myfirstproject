@@ -618,7 +618,21 @@ class FileStorage {
     filePath: string,
     data: Uint8Array | string
   ): Promise<void> => {
-    await fs.promises.writeFile(filePath, data)
+    try {
+      await fs.promises.writeFile(filePath, data)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code
+      logger.error('Failed to write file', error as Error, {
+        filePath,
+        errorCode: code,
+        dataBytes: typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength,
+        freeSpaceRelated: code === 'ENOSPC'
+      })
+      if (code === 'ENOSPC') {
+        throw new Error('磁盘空间不足，无法保存文件。请清理磁盘空间后重试。')
+      }
+      throw error
+    }
   }
 
   public fileNameGuard = async (

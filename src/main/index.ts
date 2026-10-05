@@ -185,9 +185,29 @@ if (!app.requestSingleInstanceLock()) {
   }
   app.on('child-process-gone', (_, details) => {
     const isQuitting = Boolean(app.isQuitting)
+    let processMetrics: Array<Record<string, unknown>> = []
+    try {
+      processMetrics = app.getAppMetrics()
+        .filter((metric) => metric.type === 'GPU' || metric.type === 'Utility' || metric.type === 'Renderer')
+        .map((metric) => ({
+          pid: metric.pid,
+          type: metric.type,
+          name: metric.name,
+          serviceName: metric.serviceName,
+          memory: metric.memory,
+          cpu: metric.cpu
+        }))
+    } catch (error) {
+      logger.warn('Failed to collect child process crash metrics', error as Error)
+    }
+    logger.error('Electron child process gone', {
+      ...details,
+      isQuitting,
+      processMetrics
+    })
     crashReportService.record(
       'child-process-gone',
-      { ...details, isQuitting },
+      { ...details, isQuitting, processMetrics },
       !isQuitting && details.reason !== 'clean-exit'
     )
   })
