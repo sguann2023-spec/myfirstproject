@@ -4,8 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentStream } from '../../interfaces/AgentStreamInterface'
 
-const { invokeMock } = vi.hoisted(() => ({
-  invokeMock: vi.fn()
+const { invokeMock, persistExchangeMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  persistExchangeMock: vi.fn()
 }))
 
 vi.mock('@logger', () => ({
@@ -34,6 +35,12 @@ vi.mock('../../BaseService', () => ({
     async getDatabase() {
       throw new Error('getDatabase should be mocked in tests')
     }
+  }
+}))
+
+vi.mock('../../database/sessionMessageRepository', () => ({
+  agentMessageRepository: {
+    persistExchange: persistExchangeMock
   }
 }))
 
@@ -105,6 +112,7 @@ describe('SessionMessageService cancelled persistence', () => {
         })
       ])
     )
+    expect(persistSpy.mock.calls[0]?.[11]).toBe(true)
   })
 
   it('persists a cancelled exchange when usage exists without assistant text blocks', async () => {
@@ -149,11 +157,12 @@ describe('SessionMessageService cancelled persistence', () => {
 
     expect(persistSpy).toHaveBeenCalledTimes(1)
     expect(persistSpy.mock.calls[0]?.[2]).toEqual([])
-    expect(persistSpy.mock.calls[0]?.[7]).toMatchObject({
+    expect(persistSpy.mock.calls[0]?.[8]).toMatchObject({
       prompt_tokens: 11,
       completion_tokens: 7,
       total_tokens: 18
     })
+    expect(persistSpy.mock.calls[0]?.[11]).toBe(true)
   })
 
   it('skips persistence for a cancelled exchange with no text, blocks, or usage', async () => {
@@ -231,6 +240,40 @@ describe('SessionMessageService cancelled persistence', () => {
     await expect(result.completion).resolves.toEqual({})
 
     expect(persistSpy).toHaveBeenCalledTimes(1)
-    expect(persistSpy.mock.calls[0]?.[9]).toBe(originalCreatedAt)
+    expect(persistSpy.mock.calls[0]?.[10]).toBe(originalCreatedAt)
+    expect(persistSpy.mock.calls[0]?.[11]).toBe(true)
+  })
+
+  it('marks only the assistant message as cancelled in persisted history', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    persistExchangeMock.mockResolvedValue({})
+
+    await (service as any).persistHeadlessExchange(
+      { id: 'session-1', agent_id: 'agent-1', model: 'qwen3.7-plus' },
+      '什么是勾股定理？',
+      [{ id: 'thinking-1', type: 'thinking', status: 'success', content: '分析中' }],
+      'runtime-session-1',
+      'assistant-1',
+      undefined,
+      undefined,
+      'qwen3.7-plus',
+      undefined,
+      undefined,
+      1787504105982,
+      true
+    )
+
+    const persisted = persistExchangeMock.mock.calls[0]?.[0]
+    expect(persisted.user.payload.message).toMatchObject({
+      role: 'user',
+      status: 'success'
+    })
+    expect(persisted.user.payload.message.aborted).toBeUndefined()
+    expect(persisted.assistant.payload.message).toMatchObject({
+      role: 'assistant',
+      status: 'cancelled',
+      aborted: true
+    })
   })
 })

@@ -35,11 +35,6 @@ const TOOL_ITEMS = [
     label: '视频',
     icon: AiVideoIcon,
   },
-  {
-    id: 'digital-human',
-    label: '数字人',
-    icon: DigitalHumanIcon,
-  },
 ];
 
 const DRAFT_MENU_ITEMS = [
@@ -121,6 +116,11 @@ const VIDEO_MENU_ITEMS = [
     id: 'ai-video',
     label: 'AI生成视频',
     icon: <img className="chat-panel__tool-menu-icon" src={AiVideoIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'digital-human',
+    label: '数字人',
+    icon: <img className="chat-panel__tool-menu-icon" src={DigitalHumanIcon} alt="" aria-hidden="true" />,
   },
   {
     id: 'preset-add',

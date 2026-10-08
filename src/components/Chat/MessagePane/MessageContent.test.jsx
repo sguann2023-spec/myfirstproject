@@ -109,3 +109,16 @@ it('uses live Redux blocks ahead of stale fallback snapshots', async () => {
   expect(firstLayouts).toEqual(['Latest reply']);
   expect(container.textContent).toBe('Latest reply');
 });
+
+it('keeps an interrupted assistant turn visible when no answer text was produced', async () => {
+  const value = {
+    id: 'reply',
+    role: 'assistant',
+    blocks: [],
+    content: '',
+    aborted: true,
+  };
+  await act(async () => root.render(<Probe value={value} />));
+
+  expect(container.textContent).toBe('已停止生成');
+});

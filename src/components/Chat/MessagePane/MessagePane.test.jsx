@@ -35,7 +35,13 @@ vi.mock('@renderer/components/VirtualList', () => ({
 }));
 
 vi.mock('./MessageGroup/MessageGroup', () => ({
-  default: ({ messages }) => <div>{messages.map((message) => message.content).join('')}</div>,
+  default: ({ messages }) => (
+    <div>
+      {messages.map((message) => (
+        `${message.content}${message.aborted ? '[aborted]' : ''}${message.blocks?.map((block) => block.content).join('') || ''}`
+      )).join('')}
+    </div>
+  ),
 }));
 vi.mock('./WelcomePage', () => ({ default: () => <div>Welcome</div> }));
 
@@ -105,6 +111,21 @@ afterEach(async () => {
 });
 
 describe('MessagePane auto-scroll', () => {
+  it('renders terminal block and interrupted-state updates when message text is unchanged', async () => {
+    messages = [{ id: 'reply', role: 'assistant', content: '', blocks: [] }];
+    await render();
+    expect(container.textContent).toBe('');
+
+    messages = [{
+      ...messages[0],
+      aborted: true,
+      blocks: [{ id: 'thought', content: 'Partial reasoning' }],
+    }];
+    await render();
+
+    expect(container.textContent).toBe('[aborted]Partial reasoning');
+  });
+
   it('opens existing history at the actual bottom, including padding', async () => {
     await render();
     await flushFrames();

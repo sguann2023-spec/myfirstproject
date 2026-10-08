@@ -1852,6 +1852,7 @@
       "quota": "Account quota exhausted, please recharge or switch provider",
       "server": "Server error, please retry later",
       "stream": "Response interrupted, check network stability or retry",
+      "tool_schema": "Tool parameter configuration error. Please update the client or contact support.",
       "unknown": "An error occurred",
       "view_details": "View Details"
     },
@@ -2661,7 +2662,7 @@
             "create_image_driven_digital_human": "Image-Driven Digital Human",
             "create_lip_sync_digital_human": "Mouth-Synced Digital Human",
             "create_omni_image_driven_digital_human": "Omni Image-Driven Digital Human",
-            "create_seedance_digital_human": "Seedance Digital Human"
+            "create_seedance_digital_human": "Image-Driven Digital Human"
           },
           "draft_elements": {
             "add_audio": "Add Audio",

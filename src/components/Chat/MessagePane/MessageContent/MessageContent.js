@@ -77,6 +77,10 @@ const buildAssistantMessageStatus = ({ message, isLoading, entities, blockIds })
   return hasActiveBlock ? 'processing' : 'success';
 };
 
+const InterruptedNotice = ({ visible }) => (
+  visible ? <div className="chat-message-interrupted">已停止生成</div> : null
+);
+
 const buildAssistantBlockState = ({ message, isLoading }) => {
   const messageId = String(message?.id || `assistant-${Date.now()}`);
   const createdAt = new Date().toISOString();
@@ -199,6 +203,7 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
       ...storeMessage,
       status: isLoading ? fallbackAssistantStatus : (storeMessage?.status || fallbackAssistantStatus),
       error: fallbackMessage?.error || storeMessage?.error || null,
+      aborted: Boolean(fallbackMessage?.aborted || storeMessage?.aborted),
       retryStatusText: fallbackMessage?.retryStatusText || storeMessage?.retryStatusText || ''
     }
     : {
@@ -234,6 +239,7 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
   return (
     <div className="chat-message-content tw-scope chat-tool-layout-fix">
       <MessageBlockRenderer blocks={blocks} message={resolvedMessage} fallbackBlockEntities={fallbackAssistantState.entities} />
+      <InterruptedNotice visible={!isLoading && resolvedMessage.aborted} />
     </div>
   );
 };
@@ -351,6 +357,7 @@ const MessageContent = ({ message, isLoading = false }) => {
     <Provider store={appStore}>
       <div className="chat-message-content tw-scope chat-tool-layout-fix">
         <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} fallbackBlockEntities={assistantState.entities} />
+        <InterruptedNotice visible={!isLoading && message?.aborted} />
       </div>
     </Provider>
   );

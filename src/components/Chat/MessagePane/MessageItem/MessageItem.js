@@ -10,8 +10,9 @@ import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
+import { buildDigitalHumanRequestApiCurl } from '../../../../shared/digitalHumanRequest';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
-import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData } from './cozeTransforms';
+import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDigitalHumanRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData, isDigitalHumanRequestCozeSupported } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -175,6 +176,18 @@ const buildAiVideoRequestSignature = (aiVideoRequest = null) => {
     superResolve: Boolean(aiVideoRequest?.super_resolve ?? aiVideoRequest?.superResolve),
     enableSeedanceOffline: Boolean(aiVideoRequest?.enable_seedance_offline ?? aiVideoRequest?.enableSeedanceOffline),
     content: Array.isArray(aiVideoRequest?.content) ? aiVideoRequest.content : []
+  });
+};
+const buildDigitalHumanRequestSignature = (digitalHumanRequest = null) => {
+  if (!digitalHumanRequest || typeof digitalHumanRequest !== 'object') return '';
+  return JSON.stringify({
+    mode: String(digitalHumanRequest?.mode || ''),
+    copywriting: String(digitalHumanRequest?.copywriting || ''),
+    voiceId: String(digitalHumanRequest?.voice_id || digitalHumanRequest?.voiceId || ''),
+    imageUrl: String(digitalHumanRequest?.image_url || digitalHumanRequest?.imageUrl || ''),
+    videoUrl: String(digitalHumanRequest?.video_url || digitalHumanRequest?.videoUrl || ''),
+    prompt: String(digitalHumanRequest?.prompt || ''),
+    outputResolution: Number(digitalHumanRequest?.output_resolution ?? digitalHumanRequest?.outputResolution ?? 0)
   });
 };
 const buildDraftInspectRequestSignature = (draftInspectRequest = null) => {
@@ -606,6 +619,10 @@ const MessageItem = ({
   const aiVideoRequest = message?.aiVideoRequest && typeof message.aiVideoRequest === 'object'
     ? message.aiVideoRequest
     : null;
+  const digitalHumanRequest = message?.digitalHumanRequest && typeof message.digitalHumanRequest === 'object'
+    ? message.digitalHumanRequest
+    : null;
+  const isLipSyncDigitalHumanRequest = isDigitalHumanRequestCozeSupported(digitalHumanRequest);
   const draftInspectRequest = message?.draftInspectRequest && typeof message.draftInspectRequest === 'object'
     ? message.draftInspectRequest
     : null;
@@ -616,11 +633,11 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || digitalHumanRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
-  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || Boolean(digitalHumanRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || isLipSyncDigitalHumanRequest);
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -640,7 +657,9 @@ const MessageItem = ({
     if (showDraftCozeFormat && canShowDraftCozeAction) {
       return {
         ...message,
-        content: aiVideoRequest
+        content: isLipSyncDigitalHumanRequest
+          ? buildDigitalHumanRequestCozeClipboardData(digitalHumanRequest)
+          : (aiVideoRequest
           ? buildAiVideoRequestCozeClipboardData(aiVideoRequest)
           : (audioAddRequest
           ? buildAudioAddRequestCozeClipboardData(audioAddRequest)
@@ -652,12 +671,14 @@ const MessageItem = ({
               ? buildTextAddRequestCozeClipboardData(textAddRequest)
               : (draftModifyRequest
                 ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
-                : buildDraftRequestCozeClipboardData(draftRequest)))))),
+                : buildDraftRequestCozeClipboardData(draftRequest))))))),
         imageAttachments: []
       };
     }
     if (!canShowDraftApiAction || !showDraftApiFormat) return message;
-    const apiContent = aiVideoRequest
+    const apiContent = digitalHumanRequest
+      ? buildDigitalHumanRequestApiCurl(digitalHumanRequest)
+      : (aiVideoRequest
       ? buildAiVideoRequestApiCurl(aiVideoRequest)
       : (audioAddRequest
       ? buildAudioAddRequestApiCurl(audioAddRequest)
@@ -673,7 +694,7 @@ const MessageItem = ({
             ? buildTextAddRequestApiCurl(textAddRequest)
             : (draftModifyRequest
               ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-              : buildDraftRequestApiCurl(draftRequest, message))))))));
+              : buildDraftRequestApiCurl(draftRequest, message)))))))));
     return {
       ...message,
       content: apiContent,
@@ -687,6 +708,8 @@ const MessageItem = ({
     draftRequest,
     audioAddRequest,
     aiVideoRequest,
+    digitalHumanRequest,
+    isLipSyncDigitalHumanRequest,
     voiceConversionRequest,
     seedAudioRequest,
     presetAddRequest,
@@ -967,6 +990,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildSpeechRequestSignature(prevMessage.speechRequest) === buildSpeechRequestSignature(nextMessage.speechRequest)
     && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
     && buildAiVideoRequestSignature(prevMessage.aiVideoRequest) === buildAiVideoRequestSignature(nextMessage.aiVideoRequest)
+    && buildDigitalHumanRequestSignature(prevMessage.digitalHumanRequest) === buildDigitalHumanRequestSignature(nextMessage.digitalHumanRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)
     && JSON.stringify(prevMessage.subtitleRecognitionRequest) === JSON.stringify(nextMessage.subtitleRecognitionRequest)

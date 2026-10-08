@@ -401,7 +401,7 @@ function getDigitalHumanMeta(
   const resolutionLabel = outputResolution ? `${outputResolution}P` : undefined
 
   const modeLabel =
-    mode === 'lip_sync' ? '对口型' : mode === 'seedance' ? 'Seedance' : undefined
+    mode === 'lip_sync' ? '对口型' : mode === 'seedance' ? '图片驱动数字人' : undefined
 
   return [progressLabel, modelLabel, modeLabel, durationLabel, resolutionLabel].filter((item): item is string => Boolean(item))
 }

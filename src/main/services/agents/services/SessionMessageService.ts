@@ -290,7 +290,8 @@ export class SessionMessageService extends BaseService {
                       req.model,
                       usage,
                       accumulator.getUsageSteps(),
-                      req.createdAt
+                      req.createdAt,
+                      true
                     )
                       .then(resolveCompletion)
                       .catch((err) => {
@@ -344,7 +345,8 @@ export class SessionMessageService extends BaseService {
     modelId?: string,
     usage?: PersistedUsage,
     usageSteps?: PersistedUsage[],
-    userCreatedAt?: number
+    userCreatedAt?: number,
+    aborted = false
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
     const normalizedUserCreatedAt =
@@ -418,7 +420,8 @@ export class SessionMessageService extends BaseService {
         topicId,
         createdAt: normalizedAssistantCreatedAt,
         updatedAt: now,
-        status: 'success',
+        status: aborted ? 'cancelled' : 'success',
+        aborted,
         blocks: assistantBlocks.map((block) => block.id),
         modelId: modelId || session.model,
         metrics: {

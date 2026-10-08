@@ -448,6 +448,93 @@ const COZE_AI_VIDEO_STATUS_EXTERNAL_DATA = {
   mainColor: '#CA61FF'
 };
 
+const COZE_CREATE_DIGITAL_HUMAN_PLUGIN_META = {
+  apiID: '7594783961818349611',
+  apiName: 'create_digital_human',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: ''
+};
+
+const COZE_CREATE_DIGITAL_HUMAN_NODE_META = {
+  title: 'create_digital_human',
+  icon: '`https://p26-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1794046330&x-signature=A6H7FBhjrZvTJUaId3%2FlYW8AvQc%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):create_digital_human',
+  description: '创建数字人，音频驱动的对口型策略\n'
+};
+
+const COZE_CREATE_DIGITAL_HUMAN_EXTERNAL_DATA = {
+  icon: '`https://lf3-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1794046550&x-signature=6zbXyFskxf84GN%2B5lcLQBT1fNHw%3D`',
+  apiName: 'create_digital_human',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '音频链接', input: {}, name: 'audio_url', required: true, type: 'string' },
+    { description: '视频链接', input: {}, name: 'video_url', required: true, type: 'string' }
+  ],
+  outputs: [
+    { input: {}, name: 'message', required: false, type: 'string' },
+    { input: {}, name: 'task_id', required: false, type: 'string' }
+  ],
+  updateTime: 1790737041,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '创建数字人，音频驱动的对口型策略\n',
+  title: 'create_digital_human',
+  mainColor: '#CA61FF'
+};
+
+const COZE_DIGITAL_HUMAN_STATUS_PLUGIN_META = {
+  apiID: '7594783961818365995',
+  apiName: 'digital_human_task_status',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: ''
+};
+
+const COZE_DIGITAL_HUMAN_STATUS_NODE_META = {
+  title: 'digital_human_task_status',
+  icon: '`https://p26-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1794046330&x-signature=A6H7FBhjrZvTJUaId3%2FlYW8AvQc%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):digital_human_task_status',
+  description: '查看数字人生成状态\n'
+};
+
+const COZE_DIGITAL_HUMAN_STATUS_EXTERNAL_DATA = {
+  icon: '`https://lf9-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1794069746&x-signature=VQ8Sstvshz3LZMlpLkS6eoJmH9g%3D`',
+  apiName: 'digital_human_task_status',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '任务id', input: {}, name: 'task_id', required: true, type: 'string' }
+  ],
+  outputs: [
+    { input: {}, name: 'digital_human_url', required: false, type: 'string' },
+    { input: {}, name: 'message', required: false, type: 'string' }
+  ],
+  updateTime: 1790737041,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '查看数字人生成状态\n',
+  title: 'digital_human_task_status',
+  mainColor: '#CA61FF'
+};
+
 const COZE_TIME_DELAY_PLUGIN_META = {
   apiID: '7492383327479988233',
   apiName: 'time_delay',
@@ -924,6 +1011,23 @@ const createAiVideoRequestInputParameters = (aiVideoRequest = {}) => {
   }
   if (content.length) parameters.push(createInputParameter('content', 'string', JSON.stringify(content)));
   return parameters;
+};
+
+const createDigitalHumanRequestInputParameters = (digitalHumanRequest = {}) => {
+  const audioUrl = String(
+    digitalHumanRequest?.audio_url
+    || digitalHumanRequest?.audioUrl
+    || '<generated_audio_url>'
+  ).trim();
+  const videoUrl = String(
+    digitalHumanRequest?.video_url
+    || digitalHumanRequest?.videoUrl
+    || ''
+  ).trim();
+  return [
+    createInputParameter('audio_url', 'string', audioUrl),
+    createInputParameter('video_url', 'string', videoUrl)
+  ];
 };
 
 const createAudioAddRequestInputParameters = (audioAddRequest = {}) => {
@@ -1547,6 +1651,314 @@ export const buildAiVideoRequestCozeClipboardData = (aiVideoRequest = {}) => {
       x: -354.86671954832167,
       y: -179.4738610729286,
       width: 822.7140701686349,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const isDigitalHumanRequestCozeSupported = (digitalHumanRequest = {}) => (
+  String(digitalHumanRequest?.mode || '').trim() === 'lip_sync'
+);
+
+export const buildDigitalHumanRequestCozeClipboardData = (digitalHumanRequest = {}) => {
+  const inputParameters = createDigitalHumanRequestInputParameters(digitalHumanRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      workflowId: '7668682150007488554',
+      flowMode: 0,
+      spaceId: '7472683780642258985',
+      isDouyin: false,
+      host: 'www.coze.cn'
+    },
+    json: {
+      nodes: [
+        {
+          id: '101578',
+          type: '4',
+          meta: {
+            position: {
+              x: 888.6009912829397,
+              y: -329.75263794564313
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_CREATE_DIGITAL_HUMAN_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_CREATE_DIGITAL_HUMAN_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: COZE_CREATE_DIGITAL_HUMAN_EXTERNAL_DATA.outputs
+          },
+          _temp: {
+            bounds: {
+              x: 708.6009912829397,
+              y: -329.75263794564313,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_CREATE_DIGITAL_HUMAN_EXTERNAL_DATA
+            }
+          }
+        },
+        {
+          id: '101579',
+          type: '21',
+          meta: {
+            position: {
+              x: 1370.362559478161,
+              y: -329.75263794564313
+            },
+            canvasPosition: {
+              x: 1190.362559478161,
+              y: -329.75263794564313
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_LOOP_NODE_META
+            },
+            inputs: {
+              inputParameters: [],
+              loopType: 'count',
+              loopCount: {
+                type: 'integer',
+                value: {
+                  type: 'literal',
+                  content: 150,
+                  rawMeta: {
+                    type: 2
+                  }
+                }
+              },
+              variableParameters: [
+                {
+                  name: 'result',
+                  input: {
+                    type: 'string',
+                    value: createLiteralValue(' ')
+                  }
+                }
+              ]
+            },
+            outputs: [
+              createRefInputParameter('output', '101579', 'result')
+            ]
+          },
+          blocks: [
+            {
+              id: '134580',
+              type: '4',
+              meta: {
+                position: {
+                  x: 0,
+                  y: 100
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_TIME_DELAY_NODE_META
+                },
+                inputs: {
+                  apiParam: createApiParamEntries(COZE_TIME_DELAY_PLUGIN_META),
+                  inputParameters: [
+                    {
+                      name: 'seconds',
+                      input: {
+                        type: 'integer',
+                        value: {
+                          type: 'literal',
+                          content: 10,
+                          rawMeta: {
+                            type: 2
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  settingOnError: {
+                    processType: 1,
+                    timeoutMs: 180000,
+                    retryTimes: 0
+                  }
+                },
+                outputs: COZE_TIME_DELAY_EXTERNAL_DATA.outputs
+              },
+              _temp: {
+                bounds: {
+                  x: 1190.362559478161,
+                  y: -229.75263794564313,
+                  width: 360,
+                  height: 112
+                },
+                externalData: {
+                  ...COZE_TIME_DELAY_EXTERNAL_DATA
+                }
+              }
+            },
+            {
+              id: '134581',
+              type: '4',
+              meta: {
+                position: {
+                  x: 423.9478895979671,
+                  y: 99.99999999999999
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_DIGITAL_HUMAN_STATUS_NODE_META
+                },
+                inputs: {
+                  apiParam: createApiParamEntries(COZE_DIGITAL_HUMAN_STATUS_PLUGIN_META),
+                  inputParameters: [
+                    createRefInputParameter('task_id', '101578', 'task_id')
+                  ],
+                  settingOnError: {
+                    processType: 1,
+                    timeoutMs: 180000,
+                    retryTimes: 0
+                  }
+                },
+                outputs: COZE_DIGITAL_HUMAN_STATUS_EXTERNAL_DATA.outputs
+              },
+              _temp: {
+                bounds: {
+                  x: 1614.310449076128,
+                  y: -229.75263794564313,
+                  width: 360,
+                  height: 112
+                },
+                externalData: {
+                  ...COZE_DIGITAL_HUMAN_STATUS_EXTERNAL_DATA
+                }
+              }
+            },
+            {
+              id: '134582',
+              type: '8',
+              meta: {
+                position: {
+                  x: 909.9153392979259,
+                  y: 88
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_CONDITION_NODE_META
+                },
+                inputs: {
+                  branches: [
+                    {
+                      condition: {
+                        logic: 2,
+                        conditions: [
+                          {
+                            operator: 10,
+                            left: {
+                              input: createRefValue('134581', 'digital_human_url')
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: 2100.277898776087,
+                  y: -241.75263794564313,
+                  width: 360,
+                  height: 138
+                },
+                externalData: {
+                  icon: COZE_CONDITION_NODE_META.icon,
+                  description: COZE_CONDITION_NODE_META.description,
+                  title: COZE_CONDITION_NODE_META.title,
+                  mainColor: COZE_CONDITION_NODE_META.mainColor
+                }
+              }
+            },
+            {
+              id: '134583',
+              type: '20',
+              meta: {
+                position: {
+                  x: 1395.8827889978845,
+                  y: 99.99999999999999
+                }
+              },
+              data: {
+                inputs: {
+                  inputParameters: [
+                    {
+                      left: createRefValue('101579', 'result'),
+                      right: createRefValue('134581', 'digital_human_url')
+                    }
+                  ]
+                },
+                nodeMeta: {
+                  ...COZE_LOOP_SET_VARIABLE_NODE_META
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: 2586.2453484760455,
+                  y: -229.75263794564313,
+                  width: 360,
+                  height: 86
+                },
+                externalData: {
+                  icon: COZE_LOOP_SET_VARIABLE_NODE_META.icon,
+                  description: COZE_LOOP_SET_VARIABLE_NODE_META.description,
+                  title: COZE_LOOP_SET_VARIABLE_NODE_META.title,
+                  mainColor: COZE_LOOP_SET_VARIABLE_NODE_META.mainColor
+                }
+              }
+            }
+          ],
+          edges: [
+            { sourceNodeID: '101579', targetNodeID: '134580', sourcePortID: 'loop-function-inline-output' },
+            { sourceNodeID: '134580', targetNodeID: '134581' },
+            { sourceNodeID: '134581', targetNodeID: '134582' },
+            { sourceNodeID: '134582', targetNodeID: '134583', sourcePortID: 'true' },
+            { sourceNodeID: '134582', targetNodeID: '101579', sourcePortID: 'false', targetPortID: 'loop-function-inline-input' },
+            { sourceNodeID: '134583', targetNodeID: '101579', targetPortID: 'loop-function-inline-input' }
+          ],
+          _temp: {
+            bounds: {
+              x: 1190.362559478161,
+              y: -329.75263794564313,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              icon: COZE_LOOP_NODE_META.icon,
+              description: COZE_LOOP_NODE_META.description,
+              title: '循环',
+              mainColor: COZE_LOOP_NODE_META.mainColor
+            }
+          }
+        }
+      ],
+      edges: [
+        { sourceNodeID: '101578', targetNodeID: '101579' }
+      ]
+    },
+    bounds: {
+      x: 708.6009912829397,
+      y: -329.75263794564313,
+      width: 1021.7615681952214,
       height: 112
     }
   }, null, 2);

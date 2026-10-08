@@ -1852,6 +1852,7 @@
       "quota": "帳戶額度已用完，請儲值或更換服務商",
       "server": "伺服器異常，建議稍後重試",
       "stream": "回應中斷，請檢查網路穩定性或重試",
+      "tool_schema": "工具參數設定異常，請更新用戶端或聯絡技術支援",
       "unknown": "發生了一個錯誤",
       "view_details": "查看詳情"
     },
@@ -2659,7 +2660,7 @@
             "create_image_driven_digital_human": "圖片驅動數位人",
             "create_lip_sync_digital_human": "口型驅動數位人",
             "create_omni_image_driven_digital_human": "Omni 圖片驅動數位人",
-            "create_seedance_digital_human": "Seedance 數位人"
+            "create_seedance_digital_human": "圖片驅動數位人"
           },
           "draft_elements": {
             "add_audio": "添加音訊",

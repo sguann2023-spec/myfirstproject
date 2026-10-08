@@ -383,4 +383,51 @@ describe('SpeechGenerateServer', () => {
       title: '缓存音色'
     })
   })
+
+  it('should not pair an explicit voice ID with a persisted provider', async () => {
+    mockStoreGet.mockImplementation((key: string) => {
+      if (key === 'auth.refresh_token') return 'refresh-token'
+      if (key === VOICE_SELECTED_STORAGE_KEY) {
+        return {
+          global_voice_id: 'gv_cached_voice',
+          providers: 'volc'
+        }
+      }
+      return undefined
+    })
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            audio_url: 'https://example.com/audio.mp3'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    await callTool(server, {
+      text: 'use explicit voice without provider',
+      voice_id: 'pfetRIoSD753RDghCo31',
+      only_tts: true
+    })
+
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      text: 'use explicit voice without provider',
+      voice_id: 'pfetRIoSD753RDghCo31',
+      only_tts: true
+    })
+    expect(mockStoreSet).not.toHaveBeenCalledWith(
+      VOICE_SELECTED_STORAGE_KEY,
+      expect.anything()
+    )
+  })
 })

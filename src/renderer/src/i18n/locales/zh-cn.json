@@ -1852,6 +1852,7 @@
       "quota": "账户额度已用完，请充值或更换服务商",
       "server": "服务器异常，建议稍后重试",
       "stream": "响应传输中断，请检查网络稳定性或重试",
+      "tool_schema": "工具参数配置异常，请更新客户端或联系技术支持",
       "unknown": "发生了一个错误",
       "view_details": "查看详情"
     },
@@ -2661,7 +2662,7 @@
             "create_image_driven_digital_human": "图片驱动数字人",
             "create_lip_sync_digital_human": "口型驱动数字人",
             "create_omni_image_driven_digital_human": "Omni 图片驱动数字人",
-            "create_seedance_digital_human": "Seedance 数字人"
+            "create_seedance_digital_human": "图片驱动数字人"
           },
           "draft_elements": {
             "add_audio": "添加音频",

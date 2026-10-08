@@ -338,9 +338,6 @@ const AI_WRITE_FIELD_PLACEHOLDER_NODE = 'aiWriteFieldPlaceholder';
 const DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT = '请输入文案';
 const AI_WRITE_FIELD_PLACEHOLDER_TEXT = '请输入';
 const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
-const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
-const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
-const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
 const IMAGE_PAN_MODEL_STORAGE_KEY = 'chat-panel:image-pan-model';
 const IMAGE_PAN_RESOLUTION_STORAGE_KEY = 'chat-panel:image-pan-resolution';
 const DRAFT_RESOLUTION_STORAGE_KEY = 'chat-panel:draft-resolution';
@@ -354,9 +351,6 @@ const VIDEO_SUPER_RESOLVE_STORAGE_KEY = 'chat-panel:video-super-resolve';
 const DEFAULT_DIGITAL_HUMAN_MODE = 'seedance-avatar';
 const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avatar']);
 const DIGITAL_HUMAN_OPTION_VALUES = new Set(['seedance-avatar', 'jimeng-avatar', 'lips']);
-const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
 const DEFAULT_IMAGE_PAN_MODEL = 'seedream-4.5';
 const DEFAULT_IMAGE_PAN_RESOLUTION = '1440x2560';
 const DEFAULT_DRAFT_RESOLUTION = '1920x1080';
@@ -413,6 +407,18 @@ const VIDEO_GENERATION_PLACEHOLDER_CONFIG = {
     { key: 'reference', label: `参考内容`, kind: 'file' },
   ],
 };
+const DIGITAL_HUMAN_UPLOAD_MAX_COUNT = 1;
+const DIGITAL_HUMAN_VIDEO_MAX_SIZE_MB = 500;
+const DIGITAL_HUMAN_VIDEO_MAX_SIZE_BYTES = DIGITAL_HUMAN_VIDEO_MAX_SIZE_MB * 1024 * 1024;
+const DIGITAL_HUMAN_VIDEO_MIN_DURATION_SECONDS = 10;
+const DIGITAL_HUMAN_VIDEO_MAX_DURATION_SECONDS = 150;
+const DIGITAL_HUMAN_SCRIPT_MIN_LENGTH = 30;
+const DIGITAL_HUMAN_LIPS_SCRIPT_MAX_LENGTH = 650;
+const DIGITAL_HUMAN_SEEDANCE_SCRIPT_MAX_LENGTH = 650;
+const DIGITAL_HUMAN_JIMENG_SCRIPT_MAX_LENGTH = 200;
+const DIGITAL_HUMAN_PLACEHOLDER_CONFIG = [
+  { key: DIGITAL_HUMAN_VIDEO_SLOT_ID, label: '人物视频', kind: 'video' },
+];
 const DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT = '画面中人物正在进行拍摄一个口播视频，自然的说话。人物在口播过程中，有着自然的摆头、张嘴、眼神变化以及手势的动作，在重点或者疑问的时候，他的表情甚至更加细微的表现出来强调或者疑问等等情感。视频的音频部分完全由他的口播声音构成，没有其他对话或杂音。严禁画面中出现文字。'
 const FILE_SLOT_PLACEHOLDER = '请输入';
 const normalizeDigitalHumanMode = (value) => {
@@ -421,6 +427,7 @@ const normalizeDigitalHumanMode = (value) => {
 };
 const isDigitalHumanImageDriveMode = (value) => DIGITAL_HUMAN_IMAGE_DRIVE_MODES.has(String(value || '').trim());
 const isSeedanceDigitalHumanMode = (value) => String(value || '').trim() === 'seedance-avatar';
+const isDigitalHumanLipsMode = (value) => String(value || '').trim() === 'lips';
 const readPersistedDigitalHumanMode = () => {
   try {
     return normalizeDigitalHumanMode(localStorage.getItem(DIGITAL_HUMAN_MODE_STORAGE_KEY));
@@ -429,31 +436,13 @@ const readPersistedDigitalHumanMode = () => {
   }
 };
 const normalizeDigitalHumanAvatarTitle = (value) => {
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE;
+  return String(value || '').trim();
 };
 const normalizeDigitalHumanAvatarCoverUrl = (value) => {
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL;
+  return String(value || '').trim();
 };
 const normalizeDigitalHumanAvatarVoiceId = (value) => {
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID;
-};
-const readPersistedDigitalHumanAvatarSelection = () => {
-  try {
-    return {
-      title: normalizeDigitalHumanAvatarTitle(localStorage.getItem(DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY)),
-      cover_url: normalizeDigitalHumanAvatarCoverUrl(localStorage.getItem(DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY)),
-      voice_id: normalizeDigitalHumanAvatarVoiceId(localStorage.getItem(DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY)),
-    };
-  } catch (error) {
-    return {
-      title: DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE,
-      cover_url: DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL,
-      voice_id: DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID,
-    };
-  }
+  return String(value || '').trim();
 };
 
 const normalizeImagePanModel = (value) => {
@@ -731,31 +720,6 @@ const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   sourceType: overrides.sourceType ?? file.sourceType ?? '',
   sourceLabel: overrides.sourceLabel ?? file.sourceLabel ?? '',
 });
-const createDigitalHumanSelectedVoiceReferenceAttrs = (
-  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
-  selectedVoiceLibraryItem = null,
-  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
-) => {
-  if (isDigitalHumanImageDriveMode(selectedMode)) {
-    return createFileReferenceAttrs({}, {
-      uid: normalizeDigitalHumanAvatarVoiceId(selectedAvatar?.voice_id),
-      name: normalizeDigitalHumanAvatarTitle(selectedAvatar?.title),
-      fileType: 'audio/mpeg',
-      slotId: DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID,
-      slotLabel: '形象音色',
-      placeholderText: normalizeDigitalHumanAvatarTitle(selectedAvatar?.title),
-    });
-  }
-
-  return createFileReferenceAttrs({}, {
-    uid: selectedVoiceLibraryItem?.global_voice_id || '',
-    name: selectedVoiceLibraryItem?.title || '音色id',
-    fileType: selectedVoiceLibraryItem?.global_voice_id ? 'audio/mpeg' : '',
-    slotId: DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID,
-    slotLabel: '音色id',
-    placeholderText: selectedVoiceLibraryItem?.title || '音色id',
-  });
-};
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   if (!isBlobLike(file)) {
     reject(new Error('INVALID_FILE'));
@@ -766,128 +730,6 @@ const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   reader.onerror = () => reject(reader.error || new Error('READ_FILE_FAILED'));
   reader.readAsDataURL(file);
 });
-const createDigitalHumanMediaReferenceAttrs = (
-  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
-  currentFile = {},
-  selectedAvatar = readPersistedDigitalHumanAvatarSelection()
-) =>
-  createFileReferenceAttrs(currentFile, {
-    uid: isDigitalHumanImageDriveMode(selectedMode)
-      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
-      : currentFile.uid,
-    name: isDigitalHumanImageDriveMode(selectedMode)
-      ? normalizeDigitalHumanAvatarTitle(selectedAvatar?.title)
-      : currentFile.name,
-    url: isDigitalHumanImageDriveMode(selectedMode)
-      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
-      : currentFile.url,
-    fileType: isDigitalHumanImageDriveMode(selectedMode) ? 'image/jpeg' : currentFile.fileType,
-    thumbnailUrl: isDigitalHumanImageDriveMode(selectedMode)
-      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
-      : currentFile.thumbnailUrl,
-    previewUrl: isDigitalHumanImageDriveMode(selectedMode)
-      ? normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
-      : currentFile.previewUrl,
-    templateSlot: true,
-    slotId: DIGITAL_HUMAN_VIDEO_SLOT_ID,
-    slotLabel: isDigitalHumanImageDriveMode(selectedMode) ? '人物照片' : '人物视频',
-    acceptedKind: isDigitalHumanImageDriveMode(selectedMode) ? 'image' : 'video',
-    placeholderText: isDigitalHumanImageDriveMode(selectedMode) ? '选择的形象照片' : '请上传人物视频',
-  });
-const createDigitalHumanScriptNode = (scriptText = '') => {
-  const normalizedScriptText = String(scriptText || '');
-  if (normalizedScriptText.trim()) {
-    return {
-      type: 'text',
-      text: normalizedScriptText,
-    };
-  }
-
-  return {
-    type: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE,
-    attrs: {
-      text: DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_TEXT,
-    },
-  };
-};
-const normalizeDigitalHumanMotionText = (value) => {
-  const normalizedValue = String(value || '').trim();
-  if (!normalizedValue) return DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT;
-
-  const bracketMatchedValue = normalizedValue.match(/^\[(.*)\]$/s);
-  const cleanedValue = bracketMatchedValue ? String(bracketMatchedValue[1] || '').trim() : normalizedValue;
-  return cleanedValue || DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT;
-};
-const createDigitalHumanMotionNode = (motionText = DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT) => ({
-  type: DIGITAL_HUMAN_MOTION_PLACEHOLDER_NODE,
-  attrs: {
-    text: normalizeDigitalHumanMotionText(motionText),
-  },
-});
-const isVideoDigitalHumanMediaReference = (attrs = {}) => {
-  const fileType = String(attrs?.fileType || '').trim().toLowerCase();
-  const acceptedKind = String(attrs?.acceptedKind || '').trim().toLowerCase();
-  return fileType.startsWith('video/') || acceptedKind === 'video';
-};
-const getReusableDigitalHumanMediaReferenceAttrs = (selectedMode = DEFAULT_DIGITAL_HUMAN_MODE, attrs = {}) => {
-  if (isDigitalHumanImageDriveMode(selectedMode)) return {};
-  return isVideoDigitalHumanMediaReference(attrs) ? attrs : {};
-};
-const buildDigitalHumanMediaParagraph = (
-  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
-  currentFile = {},
-  selectedAvatar = readPersistedDigitalHumanAvatarSelection(),
-  motionText = DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
-  scriptText = ''
-) => {
-  if (isSeedanceDigitalHumanMode(selectedMode)) {
-    return {
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: '将说话内容：[' },
-        createDigitalHumanScriptNode(scriptText),
-        { type: 'text', text: '] 利用音色 ' },
-        {
-          type: 'fileReference',
-          attrs: createDigitalHumanSelectedVoiceReferenceAttrs(selectedMode, null, selectedAvatar),
-        },
-        { type: 'text', text: ' 和人物照片 ' },
-        {
-          type: 'fileReference',
-          attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
-        },
-        { type: 'text', text: ' 合并成一个seedance数字人视频。' }
-      ],
-    };
-  }
-
-  if (isDigitalHumanImageDriveMode(selectedMode)) {
-    return {
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: '第二步: 将上一步生成的语音和人物照片 ' },
-        {
-          type: 'fileReference',
-          attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
-        },
-        { type: 'text', text: ' 合并成一个即梦数字人视频，视频中的人物动作是' },
-        createDigitalHumanMotionNode(motionText),
-      ],
-    };
-  }
-
-  return {
-    type: 'paragraph',
-    content: [
-      { type: 'text', text: '第二步: 将上一步生成的语音和人物视频 ' },
-      {
-        type: 'fileReference',
-        attrs: createDigitalHumanMediaReferenceAttrs(selectedMode, currentFile, selectedAvatar),
-      },
-      { type: 'text', text: ' 合并成一个数字人视频。' },
-    ],
-  };
-};
 const getFileReferenceNodeText = (attrs = {}) => {
   if (attrs?.uid) {
     return getFileReferenceText(attrs);
@@ -1097,56 +939,6 @@ const createAiWriteFieldPlaceholderExtension = () => {
       return ReactNodeViewRenderer(AiWriteFieldPlaceholderNodeView);
     },
   });
-};
-const buildDigitalHumanEditorDocument = (
-  selectedVoiceLibraryItem = null,
-  selectedMode = readPersistedDigitalHumanMode(),
-  selectedAvatar = readPersistedDigitalHumanAvatarSelection(),
-  {
-    scriptText = '',
-    motionText = DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
-    mediaReferenceAttrs = {},
-  } = {}
-) => {
-  const content = [
-    {
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: '执行下面步骤：' },
-      ],
-    },
-  ];
-
-  if (!isSeedanceDigitalHumanMode(selectedMode)) {
-    content.push({
-      type: 'paragraph',
-      content: [
-        { type: 'text', text: '第一步: 将说话内容：[' },
-        createDigitalHumanScriptNode(scriptText),
-        { type: 'text', text: '] 利用音色 ' },
-        {
-          type: 'fileReference',
-          attrs: createDigitalHumanSelectedVoiceReferenceAttrs(selectedMode, selectedVoiceLibraryItem, selectedAvatar),
-        },
-        { type: 'text', text: ' 合成语音。' },
-      ],
-    });
-  }
-
-  content.push(
-    buildDigitalHumanMediaParagraph(
-      selectedMode,
-      mediaReferenceAttrs,
-      selectedAvatar,
-      motionText,
-      scriptText
-    )
-  );
-
-  return {
-    type: 'doc',
-    content,
-  };
 };
 const buildAiWriteEditorDocument = (presetId = getDefaultAiWritePresetId()) => {
   const preset = getAiWritePresetById(presetId);
@@ -1629,77 +1421,6 @@ const getEditorPlainText = (editor) => {
   if (!editor || editor.isDestroyed) return '';
   return editor.getText({ blockSeparator: '\n' });
 };
-const getDigitalHumanTemplateCompletionState = (editor) => {
-  if (!editor || editor.isDestroyed) {
-    return {
-      hasScriptContent: false,
-      hasVideoReference: false,
-      isComplete: false,
-    };
-  }
-
-  const paragraphs = [];
-  editor.state.doc.forEach((node) => {
-    if (node.type?.name === 'paragraph') {
-      paragraphs.push(node);
-    }
-  });
-
-  let hasScriptPlaceholder = false;
-  let hasVideoReference = false;
-  const scriptLines = [];
-
-  paragraphs.forEach((paragraph) => {
-    let paragraphBeforeVoiceReferenceText = '';
-    let reachedVoiceReference = false;
-
-    paragraph.forEach((child) => {
-      if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
-        hasScriptPlaceholder = true;
-        return;
-      }
-
-      if (
-        child.type?.name === 'fileReference' &&
-        child.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID &&
-        child.attrs?.uid
-      ) {
-        hasVideoReference = true;
-      }
-
-      if (
-        child.type?.name === 'fileReference' &&
-        child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID
-      ) {
-        reachedVoiceReference = true;
-        return true;
-      }
-
-      if (!reachedVoiceReference && child.type?.name === 'text') {
-        paragraphBeforeVoiceReferenceText += child.text || '';
-      }
-      return true;
-    });
-
-    if (reachedVoiceReference && paragraphBeforeVoiceReferenceText) {
-      scriptLines.push(paragraphBeforeVoiceReferenceText);
-    }
-  });
-
-  const normalizedScriptText = scriptLines
-    .join('\n')
-    .replace(/^第一步:\s*将说话内容[:：]/, '')
-    .replace(/^将说话内容[:：]/, '')
-    .replace(/\s*利用音色\s*$/, '')
-    .trim();
-
-  const hasScriptContent = !hasScriptPlaceholder && normalizedScriptText.length > 0;
-  return {
-    hasScriptContent,
-    hasVideoReference,
-    isComplete: hasScriptContent && hasVideoReference,
-  };
-};
 const getAiWriteTemplateCompletionState = (editor, presetId = getDefaultAiWritePresetId()) => {
   const fields = getAiWriteFields(presetId);
 
@@ -1765,126 +1486,6 @@ const getInlineNodeText = (node) => {
     return getFileReferenceNodeText(node.attrs);
   }
   return node.text || node.textContent || '';
-};
-const extractDigitalHumanTemplateState = (editorInstance) => {
-  if (!editorInstance || editorInstance.isDestroyed) {
-    return {
-      scriptText: '',
-      motionText: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
-      mediaReferenceAttrs: {},
-    };
-  }
-
-  const paragraphs = [];
-  editorInstance.state.doc.forEach((node) => {
-    if (node.type?.name === 'paragraph') {
-      paragraphs.push(node);
-    }
-  });
-
-  let hasScriptPlaceholder = false;
-  let scriptText = '';
-  let motionText = '';
-  let mediaReferenceAttrs = {};
-
-  paragraphs.forEach((paragraph) => {
-    let reachedVoiceReference = false;
-    let reachedMediaReference = false;
-    let beforeVoiceReferenceText = '';
-    let afterMediaReferenceText = '';
-
-    paragraph.forEach((child) => {
-      if (child.type?.name === DIGITAL_HUMAN_SCRIPT_PLACEHOLDER_NODE) {
-        hasScriptPlaceholder = true;
-        return;
-      }
-
-      if (
-        child.type?.name === 'fileReference'
-        && child.attrs?.slotId === DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID
-      ) {
-        reachedVoiceReference = true;
-        return true;
-      }
-
-      if (
-        child.type?.name === 'fileReference'
-        && child.attrs?.slotId === DIGITAL_HUMAN_VIDEO_SLOT_ID
-      ) {
-        mediaReferenceAttrs = { ...child.attrs };
-        reachedMediaReference = true;
-        return true;
-      }
-
-      const childText = getInlineNodeText(child);
-      if (!childText) return true;
-
-      if (!reachedVoiceReference) {
-        beforeVoiceReferenceText += childText;
-      }
-
-      if (reachedMediaReference) {
-        afterMediaReferenceText += childText;
-      }
-
-      return true;
-    });
-
-    if (!hasScriptPlaceholder && reachedVoiceReference && beforeVoiceReferenceText) {
-      const normalizedScriptText = beforeVoiceReferenceText
-        .replace(/^第一步:\s*将说话内容[:：]\s*\[/, '')
-        .replace(/^将说话内容[:：]\s*\[/, '')
-        .replace(/\]\s*利用音色\s*$/, '')
-        .trim();
-
-      if (normalizedScriptText) {
-        scriptText = normalizedScriptText;
-      }
-    }
-
-    if (!motionText && afterMediaReferenceText.includes('动作是')) {
-      const normalizedMotionText = afterMediaReferenceText
-        .replace(/^.*动作是/, '')
-        .trim();
-
-      if (normalizedMotionText) {
-        motionText = normalizeDigitalHumanMotionText(normalizedMotionText);
-      }
-    }
-  });
-
-  return {
-    scriptText: hasScriptPlaceholder ? '' : scriptText,
-    motionText: normalizeDigitalHumanMotionText(motionText),
-    mediaReferenceAttrs,
-  };
-};
-const syncDigitalHumanTemplateDocument = (
-  editorInstance,
-  selectedMode,
-  selectedVoiceLibraryItem,
-  selectedAvatar
-) => {
-  if (!editorInstance || editorInstance.isDestroyed) return;
-
-  const currentDocument = editorInstance.getJSON();
-  const currentTemplateState = extractDigitalHumanTemplateState(editorInstance);
-  const nextDocument = buildDigitalHumanEditorDocument(
-    selectedVoiceLibraryItem,
-    selectedMode,
-    selectedAvatar,
-    {
-      scriptText: currentTemplateState.scriptText,
-      motionText: currentTemplateState.motionText,
-      mediaReferenceAttrs: getReusableDigitalHumanMediaReferenceAttrs(
-        selectedMode,
-        currentTemplateState.mediaReferenceAttrs
-      ),
-    }
-  );
-
-  if (JSON.stringify(currentDocument) === JSON.stringify(nextDocument)) return;
-  editorInstance.commands.setContent(nextDocument, false);
 };
 const syncTemplateFileReferenceNode = (editorInstance, slotId, targetFile) => {
   if (!editorInstance || editorInstance.isDestroyed || !slotId || !targetFile?.uid) return false;
@@ -2426,6 +2027,56 @@ const getVoiceSquareToolSendState = ({ input }) => {
   return { canSend: true };
 };
 
+const getDigitalHumanToolSendState = ({
+  input,
+  uploadedFiles = [],
+  selectedMode = DEFAULT_DIGITAL_HUMAN_MODE,
+  selectedAvatar = null,
+}) => {
+  const text = String(input || '').trim();
+  if (!text) {
+    return { canSend: false, disabledReason: '请输入数字人口播文案', isComplete: false };
+  }
+
+  const textLength = Array.from(text).length;
+  const scriptModeLabel = isDigitalHumanLipsMode(selectedMode)
+    ? '口型驱动'
+    : isSeedanceDigitalHumanMode(selectedMode)
+      ? '图片驱动'
+      : '即梦图片驱动';
+  const scriptMaxLength = isDigitalHumanLipsMode(selectedMode)
+    ? DIGITAL_HUMAN_LIPS_SCRIPT_MAX_LENGTH
+    : isSeedanceDigitalHumanMode(selectedMode)
+      ? DIGITAL_HUMAN_SEEDANCE_SCRIPT_MAX_LENGTH
+      : DIGITAL_HUMAN_JIMENG_SCRIPT_MAX_LENGTH;
+  if (textLength < DIGITAL_HUMAN_SCRIPT_MIN_LENGTH || textLength > scriptMaxLength) {
+    return {
+      canSend: false,
+      disabledReason: `${scriptModeLabel}文案需为 ${DIGITAL_HUMAN_SCRIPT_MIN_LENGTH}–${scriptMaxLength} 字，当前 ${textLength} 字`,
+      isComplete: false,
+    };
+  }
+
+  if (isDigitalHumanLipsMode(selectedMode)) {
+    const hasVideoFile = (Array.isArray(uploadedFiles) ? uploadedFiles : []).some((item) => (
+      String(item?.slotId || '').trim() === DIGITAL_HUMAN_VIDEO_SLOT_ID && isVideoFileType(item?.fileType)
+    ));
+    if (!hasVideoFile) {
+      return { canSend: false, disabledReason: '请上传人物视频', isComplete: false };
+    }
+  } else {
+    const hasAvatar = Boolean(
+      normalizeDigitalHumanAvatarVoiceId(selectedAvatar?.voice_id)
+      && normalizeDigitalHumanAvatarCoverUrl(selectedAvatar?.cover_url)
+    );
+    if (!hasAvatar) {
+      return { canSend: false, disabledReason: '数字形象加载中，请稍候', isComplete: false };
+    }
+  }
+
+  return { canSend: true, isComplete: true };
+};
+
 const Composer = ({
   agentId,
   runtimeSessionId,
@@ -2454,7 +2105,7 @@ const Composer = ({
   const [activeTool, setActiveTool] = React.useState(null);
   const [selectedAiWritePresetId, setSelectedAiWritePresetId] = React.useState(() => getDefaultAiWritePresetId());
   const [selectedDigitalHumanMode, setSelectedDigitalHumanMode] = React.useState(() => readPersistedDigitalHumanMode());
-  const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(() => readPersistedDigitalHumanAvatarSelection());
+  const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(null);
   const [selectedImagePanModel, setSelectedImagePanModel] = React.useState(() => readPersistedImagePanModel());
   const [selectedImagePanResolution, setSelectedImagePanResolution] = React.useState(() => readPersistedImagePanResolution());
   const [selectedDraftResolution, setSelectedDraftResolution] = React.useState(() => readPersistedDraftResolution());
@@ -2588,7 +2239,7 @@ const Composer = ({
   );
   const inputPlaceholder =
     activeTool === 'digital-human'
-      ? ''
+      ? '请输入文案'
       : activeTool === 'draft'
         ? '输入草稿名'
         : activeTool === 'draft-modify'
@@ -2618,10 +2269,12 @@ const Composer = ({
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
-    if ((activeTool === 'music-generate' || activeTool === 'voice-conversion') && slotId) {
+    if ((activeTool === 'music-generate' || activeTool === 'voice-conversion' || activeTool === 'digital-human') && slotId) {
       const placeholderConfig = activeTool === 'voice-conversion'
         ? VOICE_CONVERSION_PLACEHOLDER_CONFIG
-        : MUSIC_GENERATE_PLACEHOLDER_CONFIG;
+        : activeTool === 'digital-human'
+          ? DIGITAL_HUMAN_PLACEHOLDER_CONFIG
+          : MUSIC_GENERATE_PLACEHOLDER_CONFIG;
       const placeholder = placeholderConfig.find((item) => String(item.key) === String(slotId));
       const slotKind = placeholder?.kind;
       if (slotKind === 'voice') {
@@ -2633,6 +2286,8 @@ const Composer = ({
         ? 'audio/*'
         : slotKind === 'image'
           ? 'image/*'
+          : slotKind === 'video'
+            ? 'video/*'
           : slotKind === 'media'
             ? 'audio/*,video/*'
           : '';
@@ -3875,12 +3530,20 @@ const Composer = ({
     },
     typeErrorMessage: '变声仅支持上传音频或视频',
   }), []);
+  const digitalHumanUploadLimit = React.useMemo(() => ({
+    maxCount: DIGITAL_HUMAN_UPLOAD_MAX_COUNT,
+    imageOnly: false,
+    accept: 'video/*',
+    validateFile: (file) => isVideoFileType(getResolvedUploadFileType(file)),
+    typeErrorMessage: '人物视频仅支持上传视频文件',
+  }), []);
   const activeUploadLimit = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoModeUploadLimit;
     if (activeTool === 'image-pan') return imagePanUploadLimit;
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadLimit;
     if (activeTool === 'music-generate') return musicGenerateUploadLimit;
     if (activeTool === 'voice-conversion') return voiceConversionUploadLimit;
+    if (activeTool === 'digital-human' && isDigitalHumanLipsMode(selectedDigitalHumanMode)) return digitalHumanUploadLimit;
     return {
       maxCount: MAX_UPLOAD_COUNT,
       imageOnly: false,
@@ -3888,7 +3551,7 @@ const Composer = ({
       validateFile: null,
       typeErrorMessage: '',
     };
-  }, [activeTool, draftUploadLimit, imagePanUploadLimit, musicGenerateUploadLimit, videoModeUploadLimit, voiceConversionUploadLimit]);
+  }, [activeTool, digitalHumanUploadLimit, draftUploadLimit, imagePanUploadLimit, musicGenerateUploadLimit, selectedDigitalHumanMode, videoModeUploadLimit, voiceConversionUploadLimit]);
   const uploadAccept = React.useMemo(() => {
     if (activeUploadLimit.imageOnly) return 'image/*';
     return activeUploadLimit.accept;
@@ -3970,6 +3633,11 @@ const Composer = ({
       (item) => !occupiedSlotIds.has(String(item.key || '').trim())
     );
   }, [activeTool, uploadedFileMeta]);
+  const digitalHumanUploadPlaceholders = React.useMemo(() => {
+    if (activeTool !== 'digital-human' || !isDigitalHumanLipsMode(selectedDigitalHumanMode)) return [];
+    const hasVideo = uploadedFileMeta.some((item) => String(item?.slotId || '').trim() === DIGITAL_HUMAN_VIDEO_SLOT_ID);
+    return hasVideo ? [] : DIGITAL_HUMAN_PLACEHOLDER_CONFIG;
+  }, [activeTool, selectedDigitalHumanMode, uploadedFileMeta]);
   const voiceConversionSourceFile = React.useMemo(() => (
     uploadedFileMeta.find((item) => String(item?.slotId || '').trim() === VOICE_CONVERSION_SOURCE_SLOT_ID) || null
   ), [uploadedFileMeta]);
@@ -3985,11 +3653,13 @@ const Composer = ({
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadPlaceholders;
     if (activeTool === 'music-generate') return musicGenerateUploadPlaceholders;
     if (activeTool === 'voice-conversion') return voiceConversionUploadPlaceholders;
+    if (activeTool === 'digital-human') return digitalHumanUploadPlaceholders;
     return [];
-  }, [activeTool, draftUploadPlaceholders, imagePanUploadPlaceholders, musicGenerateUploadPlaceholders, videoUploadPlaceholders, voiceConversionUploadPlaceholders]);
+  }, [activeTool, digitalHumanUploadPlaceholders, draftUploadPlaceholders, imagePanUploadPlaceholders, musicGenerateUploadPlaceholders, videoUploadPlaceholders, voiceConversionUploadPlaceholders]);
   const activePreviewSlotOrder = React.useMemo(() => {
     if (activeTool === 'ai-video') return videoPreviewSlotOrder;
     if (activeTool === 'voice-conversion') return VOICE_CONVERSION_PLACEHOLDER_CONFIG.map((item) => item.key);
+    if (activeTool === 'digital-human') return DIGITAL_HUMAN_PLACEHOLDER_CONFIG.map((item) => item.key);
     return [];
   }, [activeTool, videoPreviewSlotOrder]);
   const hasToolPreviewRow = uploadedFileMeta.length > 0 || activeUploadPlaceholders.length > 0;
@@ -4041,8 +3711,13 @@ const Composer = ({
   };
   const hasSelectedLocalFile = uploadFileList.length > 0;
   const digitalHumanCompletionState = React.useMemo(
-    () => getDigitalHumanTemplateCompletionState(editor),
-    [editor, input]
+    () => getDigitalHumanToolSendState({
+      input,
+      uploadedFiles: uploadedFileMeta,
+      selectedMode: selectedDigitalHumanMode,
+      selectedAvatar: selectedDigitalHumanAvatar,
+    }),
+    [input, selectedDigitalHumanAvatar, selectedDigitalHumanMode, uploadedFileMeta]
   );
   const aiWriteCompletionState = React.useMemo(
     () => getAiWriteTemplateCompletionState(editor, selectedAiWritePresetId),
@@ -4093,6 +3768,8 @@ const Composer = ({
         return getMusicGenerateToolSendState(context);
       case 'voice-conversion':
         return getVoiceConversionToolSendState(context);
+      case 'digital-human':
+        return digitalHumanCompletionState;
       default:
         return defaultSendState;
     }
@@ -4111,7 +3788,8 @@ const Composer = ({
     selectedTextAddDraftIds,
     selectedDraftInspectIds,
     selectedDraftModifyIds,
-    uploadedFileMeta
+    uploadedFileMeta,
+    digitalHumanCompletionState
   ]);
   const canSend = Boolean(toolSendState?.canSend);
   const sendDisabledReason = !canSend ? String(toolSendState?.disabledReason || '').trim() : '';
@@ -4134,6 +3812,10 @@ const Composer = ({
     if (normalizedFiles.length === 0) return;
     const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
     const isPendingVideoFrameSlot = activeTool === 'ai-video' && isVideoFrameSlotId(pendingSlotId);
+    const shouldAutoFillDigitalHumanVideo = activeTool === 'digital-human'
+      && isDigitalHumanLipsMode(selectedDigitalHumanMode)
+      && !pendingSlotId
+      && !uploadedFileMeta.some((item) => String(item?.slotId || '').trim() === DIGITAL_HUMAN_VIDEO_SLOT_ID);
     const shouldAutoFillVoiceConversionSource = activeTool === 'voice-conversion'
       && !pendingSlotId
       && !uploadedFileMeta.some((item) => String(item?.slotId || '').trim() === VOICE_CONVERSION_SOURCE_SLOT_ID);
@@ -4141,14 +3823,21 @@ const Composer = ({
       message.error('请点击音色ID槽位选择音色，或先移除已有源文件后重新上传');
       return;
     }
-    const activePendingSlotId = shouldAutoFillVoiceConversionSource ? VOICE_CONVERSION_SOURCE_SLOT_ID : pendingSlotId;
+    const activePendingSlotId = shouldAutoFillDigitalHumanVideo
+      ? DIGITAL_HUMAN_VIDEO_SLOT_ID
+      : shouldAutoFillVoiceConversionSource
+        ? VOICE_CONVERSION_SOURCE_SLOT_ID
+        : pendingSlotId;
     const musicPendingPlaceholder = activeTool === 'music-generate' && pendingSlotId
       ? MUSIC_GENERATE_PLACEHOLDER_CONFIG.find((item) => String(item.key) === pendingSlotId)
       : null;
     const voiceConversionPendingPlaceholder = activeTool === 'voice-conversion' && activePendingSlotId
       ? VOICE_CONVERSION_PLACEHOLDER_CONFIG.find((item) => String(item.key) === activePendingSlotId)
       : null;
-    const activePendingPlaceholder = musicPendingPlaceholder || voiceConversionPendingPlaceholder;
+    const digitalHumanPendingPlaceholder = activeTool === 'digital-human' && activePendingSlotId
+      ? DIGITAL_HUMAN_PLACEHOLDER_CONFIG.find((item) => String(item.key) === activePendingSlotId)
+      : null;
+    const activePendingPlaceholder = musicPendingPlaceholder || voiceConversionPendingPlaceholder || digitalHumanPendingPlaceholder;
     const activeSlotKind = activePendingPlaceholder?.kind;
 
     const { imageOnly, maxCount, typeErrorMessage, validateFile } = activeUploadLimit;
@@ -4156,6 +3845,8 @@ const Composer = ({
       ? normalizedFiles.filter((item) => String(getResolvedUploadFileType(item) || '').toLowerCase().startsWith('audio/'))
       : activeSlotKind === 'image'
         ? normalizedFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
+        : activeSlotKind === 'video'
+          ? normalizedFiles.filter((item) => isVideoFileType(getResolvedUploadFileType(item)))
         : activeSlotKind === 'media'
           ? normalizedFiles.filter((item) => {
             const fileType = getResolvedUploadFileType(item);
@@ -4163,7 +3854,7 @@ const Composer = ({
           })
         : normalizedFiles;
     if (slotFilteredFiles.length !== normalizedFiles.length) {
-      message.error(activeSlotKind === 'audio' ? '参考音频只能上传音频文件' : activeSlotKind === 'media' ? '变声源文件只能上传音频或视频' : '参考图片只能上传图片文件');
+      message.error(activeSlotKind === 'audio' ? '参考音频只能上传音频文件' : activeSlotKind === 'video' ? '人物视频只能上传视频文件' : activeSlotKind === 'media' ? '变声源文件只能上传音频或视频' : '参考图片只能上传图片文件');
     }
     const typeFilteredFiles = imageOnly
       ? slotFilteredFiles.filter((item) => isImageFileType(getResolvedUploadFileType(item)))
@@ -4192,44 +3883,68 @@ const Composer = ({
     });
 
     if (hasOverflow) {
-      message.error(activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify' || activeTool === 'voice-conversion'
+      message.error(activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify' || activeTool === 'voice-conversion' || activeTool === 'digital-human'
         ? `当前模式最多上传 ${maxCount} 个文件`
         : `最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
     }
     if (acceptedFiles.length === 0) return;
-    const isSingleFileSlot = isPendingVideoFrameSlot || Boolean(voiceConversionPendingPlaceholder);
+    const isDigitalHumanPendingSlot = Boolean(digitalHumanPendingPlaceholder) && activeSlotKind === 'video';
+    const isSingleFileSlot = isPendingVideoFrameSlot || Boolean(voiceConversionPendingPlaceholder) || isDigitalHumanPendingSlot;
     const resolvedAcceptedFiles = isSingleFileSlot ? acceptedFiles.slice(0, 1) : acceptedFiles;
     if (isSingleFileSlot && acceptedFiles.length > 1) {
       message.error(isPendingVideoFrameSlot ? '当前槽位一次只能上传 1 张图片' : '当前槽位一次只能上传 1 个文件');
     }
 
-    const nextEntries = (await Promise.all(resolvedAcceptedFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
+    const uploadableFiles = isDigitalHumanPendingSlot
+      ? resolvedAcceptedFiles.filter((file) => Number(file?.size || file?.originFileObj?.size || 0) <= DIGITAL_HUMAN_VIDEO_MAX_SIZE_BYTES)
+      : resolvedAcceptedFiles;
+    if (uploadableFiles.length !== resolvedAcceptedFiles.length) {
+      message.error(`人物视频大小不能超过 ${DIGITAL_HUMAN_VIDEO_MAX_SIZE_MB}MB`);
+    }
+    if (uploadableFiles.length === 0) return;
+
+    const createdEntries = (await Promise.all(uploadableFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
+    const nextEntries = isDigitalHumanPendingSlot
+      ? createdEntries.filter((item) => {
+        const durationSeconds = normalizeMediaDurationSeconds(item?.fileMeta?.durationSeconds);
+        const isDurationValid = durationSeconds >= DIGITAL_HUMAN_VIDEO_MIN_DURATION_SECONDS
+          && durationSeconds <= DIGITAL_HUMAN_VIDEO_MAX_DURATION_SECONDS;
+        if (!isDurationValid) {
+          revokeLocalObjectUrl(item?.fileMeta?.localThumbUrl);
+        }
+        return isDurationValid;
+      })
+      : createdEntries;
+    if (isDigitalHumanPendingSlot && nextEntries.length !== createdEntries.length) {
+      message.error(`人物视频时长需在 ${DIGITAL_HUMAN_VIDEO_MIN_DURATION_SECONDS} 秒到 ${DIGITAL_HUMAN_VIDEO_MAX_DURATION_SECONDS} 秒之间`);
+    }
     if (nextEntries.length === 0) return;
 
     const isMusicPendingSlot = Boolean(musicPendingPlaceholder) && (activeSlotKind === 'audio' || activeSlotKind === 'image');
     const isVoiceConversionPendingSlot = Boolean(voiceConversionPendingPlaceholder) && activeSlotKind === 'media';
+    const shouldBindPendingSlot = isMusicPendingSlot || isVoiceConversionPendingSlot || isDigitalHumanPendingSlot;
     const nextUploadItems = nextEntries.map((item) => (
       isPendingVideoFrameSlot
         ? { ...item.uploadItem, slotId: activePendingSlotId }
-        : isMusicPendingSlot || isVoiceConversionPendingSlot
+        : shouldBindPendingSlot
           ? { ...item.uploadItem, slotId: activePendingSlotId }
           : item.uploadItem
     ));
     const nextFileMeta = nextEntries.map((item) => (
       isPendingVideoFrameSlot
         ? { ...item.fileMeta, slotId: activePendingSlotId, slotLabel: TEMPLATE_MEDIA_ROLE_LABELS[activePendingSlotId] || '' }
-        : isMusicPendingSlot || isVoiceConversionPendingSlot
+        : shouldBindPendingSlot
           ? { ...item.fileMeta, slotId: activePendingSlotId, slotLabel: activePendingPlaceholder?.label || '' }
           : item.fileMeta
     ));
 
     setUploadFileList((prev) => {
-      if (!isPendingVideoFrameSlot && !isVoiceConversionPendingSlot) return [...prev, ...nextUploadItems];
+      if (!isPendingVideoFrameSlot && !isVoiceConversionPendingSlot && !isDigitalHumanPendingSlot) return [...prev, ...nextUploadItems];
       const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== activePendingSlotId);
       return isPendingVideoFrameSlot ? sortItemsByVideoFrameSlot([...retainedItems, ...nextUploadItems]) : [...retainedItems, ...nextUploadItems];
     });
     setUploadedFileMeta((prev) => {
-      if (!isPendingVideoFrameSlot && !isVoiceConversionPendingSlot) return [...prev, ...nextFileMeta];
+      if (!isPendingVideoFrameSlot && !isVoiceConversionPendingSlot && !isDigitalHumanPendingSlot) return [...prev, ...nextFileMeta];
       const replacedItem = prev.find((item) => String(item?.slotId || '').trim() === activePendingSlotId);
       revokeLocalObjectUrl(replacedItem?.localThumbUrl);
       const retainedItems = prev.filter((item) => String(item?.slotId || '').trim() !== activePendingSlotId);
@@ -4240,7 +3955,7 @@ const Composer = ({
       syncTemplateFileReferenceNode(editor, activePendingSlotId, nextFileMeta[0]);
       pendingTemplateSlotAutoReferenceRef.current = '';
     }
-  }, [activeTool, activeUploadLimit, editor, sessionSending, uploadedFileMeta]);
+  }, [activeTool, activeUploadLimit, editor, selectedDigitalHumanMode, sessionSending, uploadedFileMeta]);
 
   const handleBeforeUpload = React.useCallback((file, batchFileList = []) => {
     const normalizedBatch = Array.isArray(batchFileList) && batchFileList.length > 0
@@ -4478,9 +4193,72 @@ const Composer = ({
         capability: activeVideoCapability,
       })
       : null;
+    const digitalHumanVideoFile = activeTool === 'digital-human'
+      ? uploadedFileMeta.find((item) => String(item?.slotId || '').trim() === DIGITAL_HUMAN_VIDEO_SLOT_ID)
+      : null;
+    const digitalHumanVoiceId = isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
+      ? normalizeDigitalHumanAvatarVoiceId(selectedDigitalHumanAvatar?.voice_id)
+      : String(selectedVoiceLibraryItem?.global_voice_id || '').trim();
+    const digitalHumanVoiceProvider = normalizeMemberProvider(
+      isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
+        ? ''
+        : (
+          selectedVoiceLibraryItem?.price_provider
+          || selectedVoiceLibraryItem?.providers
+          || selectedVoiceLibraryItem?.provider
+        )
+    );
+    const digitalHumanModeLabel = isDigitalHumanLipsMode(selectedDigitalHumanMode)
+      ? '口型驱动'
+      : isSeedanceDigitalHumanMode(selectedDigitalHumanMode)
+        ? '图片驱动'
+        : '即梦图片驱动';
+    const digitalHumanRequestPayload = activeTool === 'digital-human'
+      ? {
+        mode: isDigitalHumanLipsMode(selectedDigitalHumanMode)
+          ? 'lip_sync'
+          : isSeedanceDigitalHumanMode(selectedDigitalHumanMode)
+            ? 'seedance'
+            : 'omni',
+        copywriting: text,
+        voice_id: digitalHumanVoiceId,
+        voice_provider: digitalHumanVoiceProvider,
+        ...(isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
+          ? { image_url: normalizeDigitalHumanAvatarCoverUrl(selectedDigitalHumanAvatar?.cover_url) }
+          : {
+            video_url: String(
+              digitalHumanVideoFile?.url
+              || digitalHumanVideoFile?.sourcePath
+              || digitalHumanVideoFile?.previewUrl
+              || (digitalHumanVideoFile?.uid ? `local-attachment:${digitalHumanVideoFile.uid}` : '')
+              || ''
+            ).trim()
+          }),
+        ...(selectedDigitalHumanMode === 'jimeng-avatar'
+          ? {
+            prompt: DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT,
+            output_resolution: 1080
+          }
+          : {}),
+      }
+      : null;
     const nextMessage =
       activeTool === 'voice-square'
         ? `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`
+        : activeTool === 'digital-human'
+          ? [
+            `请生成${digitalHumanModeLabel}数字人视频。`,
+            `说话内容：${text}`,
+            digitalHumanVoiceId ? `音色ID：${digitalHumanVoiceId}` : '',
+            isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
+              ? `数字形象：${normalizeDigitalHumanAvatarTitle(selectedDigitalHumanAvatar?.title)}（${normalizeDigitalHumanAvatarCoverUrl(selectedDigitalHumanAvatar?.cover_url)}）`
+              : '',
+            digitalHumanVideoFile ? `人物视频：${buildAttachmentReferenceText(digitalHumanVideoFile)}` : '',
+            selectedDigitalHumanMode === 'jimeng-avatar' ? `人物动作：${DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT}` : '',
+            selectedDigitalHumanMode === 'jimeng-avatar'
+              ? '数字人工具会在同一次调用中内置合成口播音频，不要单独调用语音生成工具。'
+              : '',
+          ].filter(Boolean).join('\n')
         : activeTool === 'draft'
           ? [
             `请创建一个新草稿，分辨率 ${selectedDraftResolution}。`,
@@ -4654,6 +4432,9 @@ const Composer = ({
       aiVideoRequest: activeTool === 'ai-video'
         ? aiVideoRequestPayload
         : null,
+      digitalHumanRequest: activeTool === 'digital-human'
+        ? digitalHumanRequestPayload
+        : null,
       draftExportRequest: activeTool === 'draft-export'
         ? {
           drafts: selectedDraftDownloadIds.map((draftId) => ({
@@ -4706,16 +4487,6 @@ const Composer = ({
   React.useEffect(() => {
     handleSendWithAttachmentsRef.current = attemptSendWithAttachments;
   }, [attemptSendWithAttachments]);
-
-  React.useEffect(() => {
-    if (activeTool !== 'digital-human') return;
-    syncDigitalHumanTemplateDocument(
-      editor,
-      selectedDigitalHumanMode,
-      selectedVoiceLibraryItem,
-      selectedDigitalHumanAvatar
-    );
-  }, [activeTool, editor, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem]);
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4965,14 +4736,9 @@ const Composer = ({
       return;
     }
     if (nextTool === 'digital-human') {
-      editor.commands.setContent(
-        buildDigitalHumanEditorDocument(
-          selectedVoiceLibraryItem,
-          selectedDigitalHumanMode,
-          selectedDigitalHumanAvatar
-        ),
-        false
-      );
+      latestInputRef.current = '';
+      setInput('');
+      editor.commands.clearContent();
       editor.commands.focus('end');
       return;
     }
@@ -4981,7 +4747,7 @@ const Composer = ({
       setInput('');
       editor.commands.clearContent();
     }
-  }, [activeTool, editor, enterTextAddMode, exitTextAddMode, handleAiWritePresetSelect, selectedAiWritePresetId, selectedDigitalHumanAvatar, selectedDigitalHumanMode, selectedVoiceLibraryItem, setInput]);
+  }, [activeTool, editor, enterTextAddMode, exitTextAddMode, handleAiWritePresetSelect, selectedAiWritePresetId, setInput]);
 
   const handleToolDetailBack = React.useCallback(() => {
     if (activeTool === 'text-add') {

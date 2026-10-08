@@ -110,6 +110,19 @@ describe('DigitalHumanServer', () => {
     ])
   })
 
+  it('should complete lip-sync polling only when task_status is 1', () => {
+    const server = createServer()
+    const isCompleted = (server as any).isCompleted.bind(server)
+
+    expect(isCompleted('lip_sync', {
+      task_status: 5,
+      digital_human_url: 'https://example.com/non-terminal-result.mp4'
+    })).toBe(false)
+    expect(isCompleted('lip_sync', {
+      task_status: 1
+    })).toBe(true)
+  })
+
   it('should create and wait for a lip-sync digital human result', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -117,6 +130,15 @@ describe('DigitalHumanServer', () => {
           access_token: 'access-token',
           refresh_token: 'refresh-token-next',
           expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            audio_url: 'https://example.com/generated-speech.mp3'
+          },
+          success: true
         })
       )
       .mockResolvedValueOnce(
@@ -135,24 +157,37 @@ describe('DigitalHumanServer', () => {
 
     const server = createServer()
     const result = await callTool(server, 'create_lip_sync_digital_human', {
-      audioUrl: 'https://example.com/audio.mp3',
+      copywriting: '欢迎使用口型驱动数字人',
+      voiceId: 'voice-123',
       videoUrl: 'https://example.com/video.mp4'
     })
 
     expect(mockStoreSet).toHaveBeenCalledWith('auth.refresh_token', 'refresh-token-next')
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
-      'https://open.vectcut.com/cut_jianying/digital_human/create',
+      'https://open.vectcut.com/cut_jianying/generate_speech',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          audio_url: 'https://example.com/audio.mp3',
-          video_url: 'https://example.com/video.mp4'
+          text: '欢迎使用口型驱动数字人',
+          voice_id: 'voice-123',
+          only_tts: true
         })
       })
     )
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       3,
+      'https://open.vectcut.com/cut_jianying/digital_human/create',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          audio_url: 'https://example.com/generated-speech.mp3',
+          video_url: 'https://example.com/video.mp4'
+        })
+      })
+    )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      4,
       'https://open.vectcut.com/cut_jianying/digital_human/task_status?task_id=5114327',
       expect.objectContaining({
         method: 'GET'
@@ -165,14 +200,7 @@ describe('DigitalHumanServer', () => {
       action: 'submit_and_wait',
       estimated_wait_time: '15-30 minutes',
       task_id: '5114327',
-      output_resolution: undefined,
       source_summary: [
-        {
-          field_name: 'audioUrl',
-          original_input: 'https://example.com/audio.mp3',
-          submitted_url: 'https://example.com/audio.mp3',
-          source_kind: 'remote_url'
-        },
         {
           field_name: 'videoUrl',
           original_input: 'https://example.com/video.mp4',
@@ -200,6 +228,15 @@ describe('DigitalHumanServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
+          error: '',
+          output: {
+            audio_url: 'https://example.com/generated-speech.mp3'
+          },
+          success: true
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
           task_id: 'omni-1',
           message: '任务创建成功'
         })
@@ -213,18 +250,31 @@ describe('DigitalHumanServer', () => {
 
     const server = createServer()
     const result = await callTool(server, 'create_image_driven_digital_human', {
-      audioUrl: 'https://example.com/audio.mp3',
+      copywriting: '欢迎使用图片驱动数字人',
+      voiceId: 'voice-123',
       imageUrl: 'https://example.com/avatar.png',
       prompt: '人物自然地进行口播'
     })
 
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
+      'https://open.vectcut.com/cut_jianying/generate_speech',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          text: '欢迎使用图片驱动数字人',
+          voice_id: 'voice-123',
+          only_tts: true
+        })
+      })
+    )
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      3,
       'https://open.vectcut.com/cut_jianying/digital_human/omni/submit',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          audio_url: 'https://example.com/audio.mp3',
+          audio_url: 'https://example.com/generated-speech.mp3',
           image_url: 'https://example.com/avatar.png',
           prompt: '人物自然地进行口播',
           output_resolution: 1080
@@ -243,6 +293,18 @@ describe('DigitalHumanServer', () => {
       },
       video_url: 'https://example.com/omni.mp4'
     })
+  })
+
+  it('should expose text and voice inputs for Omni without a separate audio input', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const tool = result.tools.find(
+      (item: { name: string }) => item.name === 'create_omni_image_driven_digital_human'
+    )
+
+    expect(tool.inputSchema.required).toEqual(['copywriting', 'voiceId', 'imageUrl', 'prompt'])
+    expect(tool.inputSchema.properties).not.toHaveProperty('audioUrl')
+    expect(tool.description).toContain('do not call a separate speech generation tool first')
   })
 
   it('should create and wait for a seedance digital human result', async () => {
@@ -266,7 +328,9 @@ describe('DigitalHumanServer', () => {
           status: 'success',
           progress: 100,
           success: true,
-          video_url: 'https://example.com/seedance.mp4'
+          result: {
+            video_url: 'https://example.com/seedance.mp4'
+          }
         })
       )
 
@@ -361,12 +425,6 @@ describe('DigitalHumanServer', () => {
 
     const payload = JSON.parse(result.content[0].text)
     expect(payload.source_summary).toEqual([
-      {
-        field_name: 'audioUrl',
-        original_input: localAudioPath,
-        submitted_url: 'https://oss.example.com/audio.mp3?token=1',
-        source_kind: 'local_file'
-      },
       {
         field_name: 'videoUrl',
         original_input: localVideoPath,

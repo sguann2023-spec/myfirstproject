@@ -1668,6 +1668,18 @@ export class CapabilityRouter {
         (/(模型|分辨率|时长|duration|gen_duration|超分|闲时生成|首帧|尾帧|首尾帧|静音|无声|无声音|有声|声音)/.test(text) ||
           /seedance|veo|grok-video/i.test(text))
       const hasExplicitSpeechGenerationIntent = /(语音合成|生成语音|配音|朗读|念出来|tts|音色|旁白|speech)/i.test(text)
+      const hasDigitalHumanIntent =
+        hasAnyKeyword(text, [
+          '数字人',
+          '口播',
+          '唇形',
+          '唇动',
+          '人像驱动',
+          '形象',
+          'lip sync',
+          'lipsync',
+          'image driven'
+        ]) && !hasTemplateIntent
       const hasImplicitBrowserUrlIntent =
         hasUrlLikeText(args.prompt) && !hasCutSpecificIntent && !hasWorkspaceDownloadIntent && !hasWebDownloadIntent
 
@@ -1734,6 +1746,7 @@ export class CapabilityRouter {
         hasAnyKeyword(text, ['语音', '配音', '音色', '朗读', '声音', 'tts', 'voice', 'speech', 'audio']) &&
         !shouldGenerateSeedAudio &&
         !shouldConvertVoice &&
+        !hasDigitalHumanIntent &&
         !(hasAiVideoParameterContext && !hasExplicitSpeechGenerationIntent)
       ) {
         addCapabilityReason(selected, reasons, 'speech', 'prompt:speech')
@@ -1743,20 +1756,7 @@ export class CapabilityRouter {
         addCapabilityReason(selected, reasons, 'seedAudio', 'prompt:seed-audio')
       }
 
-      if (
-        hasAnyKeyword(text, [
-          '数字人',
-          '口播',
-          '唇形',
-          '唇动',
-          '人像驱动',
-          '形象',
-          'lip sync',
-          'lipsync',
-          'image driven'
-        ]) &&
-        !hasTemplateIntent
-      ) {
+      if (hasDigitalHumanIntent) {
         addCapabilityReason(selected, reasons, 'digitalHuman', 'prompt:digital-human')
       }
 

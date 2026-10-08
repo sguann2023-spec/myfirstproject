@@ -41,6 +41,7 @@ declare global {
         createSpeechRequest: (payload: any) => Promise<any>
         createSeedAudioRequest: (payload: any) => Promise<any>
         createAiVideoRequest: (payload: any) => Promise<any>
+        createDigitalHumanRequest: (payload: any) => Promise<any>
         createReversePromptRequest: (payload: any) => Promise<any>
         createSubtitleRecognitionRequest: (payload: any) => Promise<any>
         createDraftExportRequest: (payload: any) => Promise<any>

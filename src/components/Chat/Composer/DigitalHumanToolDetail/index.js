@@ -22,13 +22,6 @@ import VoiceLib, { useVoiceLib } from '../VoiceLib';
 import CreateDigitalHumanAvatorDialog from '../CreateDigitalHumanAvatorDialog';
 
 const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
-const DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY = 'chat-panel:digital-human-avatar-title';
-const DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY = 'chat-panel:digital-human-avatar-cover-url';
-const DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-id';
-const DIGITAL_HUMAN_AVATAR_VOICE_PROVIDER_STORAGE_KEY = 'chat-panel:digital-human-avatar-voice-provider';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE = '和蔼奶奶';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL = 'https://player.install-ai-guider.top/example/digital_human/omni_pic_example_1.jpg';
-const DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID = 'pfetRIoSD753RDghCo31';
 const ELEVENLABS_PROVIDER = 'elevenlabs';
 const SEEDANCE_AVATAR_PROVIDER_TIP = '仅支持elevenlabs克隆音色';
 const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
@@ -36,10 +29,9 @@ const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avat
 const DIGITAL_HUMAN_OPTIONS = [
   {
     value: 'seedance-avatar',
-    label: 'seedance图片驱动',
+    label: '图片驱动数字人',
     icon: DigitalHumanAvatarIcon,
     pricingKey: 'seedance_image_driver',
-    badges: ['官网同款'],
     highlightMember: true,
   },
   {
@@ -60,7 +52,6 @@ const DIGITAL_HUMAN_OPTIONS = [
 const DEFAULT_PRICE_TEXT = '--/秒';
 let digitalHumanPriceCache = null;
 let digitalHumanPriceRequest = null;
-let digitalHumanAvatarExampleCache = null;
 let digitalHumanAvatarExampleRequest = null;
 const DIGITAL_HUMAN_OPTION_VALUES = new Set(DIGITAL_HUMAN_OPTIONS.map((item) => item.value));
 
@@ -106,97 +97,18 @@ const persistDigitalHumanMode = (value) => {
 };
 
 const normalizeDigitalHumanAvatarTitle = (value) => {
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE;
-};
-
-const readPersistedDigitalHumanAvatarTitle = () => {
-  try {
-    return normalizeDigitalHumanAvatarTitle(localStorage.getItem(DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY));
-  } catch (error) {
-    return DEFAULT_DIGITAL_HUMAN_AVATAR_TITLE;
-  }
-};
-
-const persistDigitalHumanAvatarTitle = (value) => {
-  try {
-    localStorage.setItem(
-      DIGITAL_HUMAN_AVATAR_TITLE_STORAGE_KEY,
-      normalizeDigitalHumanAvatarTitle(value)
-    );
-  } catch (error) {
-    // Ignore storage errors so avatar title still works in-memory.
-  }
+  return String(value || '').trim();
 };
 
 const normalizeDigitalHumanAvatarCoverUrl = (value) => {
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL;
-};
-
-const readPersistedDigitalHumanAvatarCoverUrl = () => {
-  try {
-    return normalizeDigitalHumanAvatarCoverUrl(localStorage.getItem(DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY));
-  } catch (error) {
-    return DEFAULT_DIGITAL_HUMAN_AVATAR_COVER_URL;
-  }
-};
-
-const persistDigitalHumanAvatarCoverUrl = (value) => {
-  try {
-    localStorage.setItem(
-      DIGITAL_HUMAN_AVATAR_COVER_URL_STORAGE_KEY,
-      normalizeDigitalHumanAvatarCoverUrl(value)
-    );
-  } catch (error) {
-    // Ignore storage errors so avatar cover still works in-memory.
-  }
+  return String(value || '').trim();
 };
 
 const normalizeDigitalHumanAvatarVoiceId = (value) => {
-  const normalizedValue = String(value || '').trim();
-  return normalizedValue || DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID;
+  return String(value || '').trim();
 };
 
 const normalizeDigitalHumanAvatarVoiceProvider = (value) => String(value || '').trim().toLowerCase();
-
-const readPersistedDigitalHumanAvatarVoiceId = () => {
-  try {
-    return normalizeDigitalHumanAvatarVoiceId(localStorage.getItem(DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY));
-  } catch (error) {
-    return DEFAULT_DIGITAL_HUMAN_AVATAR_VOICE_ID;
-  }
-};
-
-const persistDigitalHumanAvatarVoiceId = (value) => {
-  try {
-    localStorage.setItem(
-      DIGITAL_HUMAN_AVATAR_VOICE_ID_STORAGE_KEY,
-      normalizeDigitalHumanAvatarVoiceId(value)
-    );
-  } catch (error) {
-    // Ignore storage errors so avatar voice id still works in-memory.
-  }
-};
-
-const readPersistedDigitalHumanAvatarVoiceProvider = () => {
-  try {
-    return normalizeDigitalHumanAvatarVoiceProvider(localStorage.getItem(DIGITAL_HUMAN_AVATAR_VOICE_PROVIDER_STORAGE_KEY));
-  } catch (error) {
-    return '';
-  }
-};
-
-const persistDigitalHumanAvatarVoiceProvider = (value) => {
-  try {
-    localStorage.setItem(
-      DIGITAL_HUMAN_AVATAR_VOICE_PROVIDER_STORAGE_KEY,
-      normalizeDigitalHumanAvatarVoiceProvider(value)
-    );
-  } catch (error) {
-    // Ignore storage errors so avatar voice provider still works in-memory.
-  }
-};
 
 const normalizeDigitalHumanAvatarSeedanceAvailability = (value) => {
   if (typeof value === 'boolean') return value;
@@ -404,15 +316,13 @@ const DigitalHumanToolDetail = ({
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [priceMap, setPriceMap] = React.useState(() => getInitialPriceMap());
   const [avatarDropdownOpen, setAvatarDropdownOpen] = React.useState(false);
-  const [avatarExamples, setAvatarExamples] = React.useState(() => digitalHumanAvatarExampleCache || []);
+  const [avatarExamples, setAvatarExamples] = React.useState([]);
   const [avatarExamplesLoading, setAvatarExamplesLoading] = React.useState(false);
   const [avatarExamplesError, setAvatarExamplesError] = React.useState('');
-  const [selectedAvatarTitle, setSelectedAvatarTitle] = React.useState(() => readPersistedDigitalHumanAvatarTitle());
-  const [selectedAvatarCoverUrl, setSelectedAvatarCoverUrl] = React.useState(() => readPersistedDigitalHumanAvatarCoverUrl());
-  const [selectedAvatarVoiceId, setSelectedAvatarVoiceId] = React.useState(() => readPersistedDigitalHumanAvatarVoiceId());
-  const [selectedAvatarVoiceProvider, setSelectedAvatarVoiceProvider] = React.useState(
-    () => readPersistedDigitalHumanAvatarVoiceProvider()
-  );
+  const [selectedAvatarTitle, setSelectedAvatarTitle] = React.useState('');
+  const [selectedAvatarCoverUrl, setSelectedAvatarCoverUrl] = React.useState('');
+  const [selectedAvatarVoiceId, setSelectedAvatarVoiceId] = React.useState('');
+  const [selectedAvatarVoiceProvider, setSelectedAvatarVoiceProvider] = React.useState('');
   const [playingAvatarExampleKey, setPlayingAvatarExampleKey] = React.useState('');
   const [deletingAvatarIds, setDeletingAvatarIds] = React.useState([]);
   const [createAvatarDialogOpen, setCreateAvatarDialogOpen] = React.useState(false);
@@ -420,34 +330,12 @@ const DigitalHumanToolDetail = ({
   const [membershipSummary, setMembershipSummary] = React.useState(() => normalizeMembershipSummary());
   const [membershipLoaded, setMembershipLoaded] = React.useState(false);
   const voiceLib = useVoiceLib({ onSelectedVoiceChange });
-  const selectedAvatarButtonText = `形象 ${selectedAvatarTitle}`;
+  const selectedAvatarButtonText = selectedAvatarTitle ? `形象 ${selectedAvatarTitle}` : '选择形象';
   const seedanceLocked =
     membershipLoaded && selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE && !membershipSummary.isActive;
-  const knownVoiceProviderById = React.useMemo(() => {
-    const providerMap = new Map();
-    const registerVoiceItem = (item) => {
-      const voiceId = String(item?.global_voice_id || item?.voice_id || '').trim();
-      if (!voiceId) return;
-      const provider = normalizeDigitalHumanAvatarVoiceProvider(
-        item?.price_provider || item?.providers || item?.provider || item?.voice_provider
-      );
-      if (!provider) return;
-      providerMap.set(voiceId, provider);
-    };
-
-    registerVoiceItem(voiceLib?.selectedVoiceLibraryItem);
-    (voiceLib?.myVoiceState?.items || []).forEach(registerVoiceItem);
-    return providerMap;
-  }, [voiceLib?.myVoiceState?.items, voiceLib?.selectedVoiceLibraryItem]);
-
   const resolveAvatarVoiceProvider = React.useCallback((item = {}) => {
-    const directProvider = resolveDigitalHumanAvatarVoiceProvider(item);
-    if (directProvider) return directProvider;
-
-    const voiceId = String(item?.voice_id || item?.global_voice_id || '').trim();
-    if (!voiceId) return '';
-    return knownVoiceProviderById.get(voiceId) || '';
-  }, [knownVoiceProviderById]);
+    return resolveDigitalHumanAvatarVoiceProvider(item);
+  }, []);
 
   const resolveAvatarSeedanceAvailability = React.useCallback((item = {}) => {
     const explicitAvailability = normalizeDigitalHumanAvatarSeedanceAvailability(item?.can_use_seedance);
@@ -616,57 +504,12 @@ const DigitalHumanToolDetail = ({
     };
   }, []);
 
-  const fetchAvatarExamples = React.useCallback(async () => {
-    setAvatarExamplesLoading(true);
-    setAvatarExamplesError('');
-    try {
-      const pendingRequest = digitalHumanAvatarExampleRequest || getDigitalHumanAvatarExamples();
-      digitalHumanAvatarExampleRequest = pendingRequest;
-      const result = await pendingRequest;
-      const nextExamples = normalizeDigitalHumanAvatarExamples(result);
-      digitalHumanAvatarExampleCache = nextExamples;
-      setAvatarExamples(nextExamples);
-    } catch (error) {
-      setAvatarExamples(digitalHumanAvatarExampleCache || []);
-      setAvatarExamplesError('加载失败，请稍后重试');
-    } finally {
-      setAvatarExamplesLoading(false);
-      digitalHumanAvatarExampleRequest = null;
-    }
-  }, []);
-
-  const handleAvatarDropdownOpenChange = React.useCallback((nextOpen) => {
-    setAvatarDropdownOpen(nextOpen);
-    if (!nextOpen) {
-      setPlayingAvatarExampleKey('');
-      return;
-    }
-
-    if (!digitalHumanAvatarExampleCache && !digitalHumanAvatarExampleRequest) {
-      void fetchAvatarExamples();
-      return;
-    }
-
-    if (digitalHumanAvatarExampleCache) {
-      setAvatarExamples(digitalHumanAvatarExampleCache);
-      setAvatarExamplesError('');
-    }
-  }, [fetchAvatarExamples]);
-
-  const closeCreateAvatarDialog = React.useCallback(() => {
-    setCreateAvatarDialogOpen(false);
-  }, []);
-
   const handleAvatarUse = React.useCallback((item) => {
     const nextTitle = normalizeDigitalHumanAvatarTitle(item?.title);
     const nextCoverUrl = normalizeDigitalHumanAvatarCoverUrl(item?.cover_url);
     const nextVoiceId = normalizeDigitalHumanAvatarVoiceId(item?.voice_id);
     const nextVoiceProvider = resolveAvatarVoiceProvider(item);
     const nextCanUseSeedance = resolveAvatarSeedanceAvailability(item);
-    persistDigitalHumanAvatarTitle(nextTitle);
-    persistDigitalHumanAvatarCoverUrl(nextCoverUrl);
-    persistDigitalHumanAvatarVoiceId(nextVoiceId);
-    persistDigitalHumanAvatarVoiceProvider(nextVoiceProvider);
     setSelectedAvatarTitle(nextTitle);
     setSelectedAvatarCoverUrl(nextCoverUrl);
     setSelectedAvatarVoiceId(nextVoiceId);
@@ -677,6 +520,46 @@ const DigitalHumanToolDetail = ({
     setAvatarDropdownOpen(false);
     setPlayingAvatarExampleKey('');
   }, [resolveAvatarSeedanceAvailability, resolveAvatarVoiceProvider]);
+
+  const fetchAvatarExamples = React.useCallback(async () => {
+    setAvatarExamplesLoading(true);
+    setAvatarExamplesError('');
+    try {
+      const pendingRequest = digitalHumanAvatarExampleRequest || getDigitalHumanAvatarExamples();
+      digitalHumanAvatarExampleRequest = pendingRequest;
+      const result = await pendingRequest;
+      const nextExamples = normalizeDigitalHumanAvatarExamples(result);
+      setAvatarExamples(nextExamples);
+      handleAvatarUse(nextExamples[0] || null);
+    } catch (error) {
+      setAvatarExamples([]);
+      handleAvatarUse(null);
+      setAvatarExamplesError('加载失败，请稍后重试');
+    } finally {
+      setAvatarExamplesLoading(false);
+      digitalHumanAvatarExampleRequest = null;
+    }
+  }, [handleAvatarUse]);
+
+  React.useEffect(() => {
+    void fetchAvatarExamples();
+  }, [fetchAvatarExamples]);
+
+  const handleAvatarDropdownOpenChange = React.useCallback((nextOpen) => {
+    setAvatarDropdownOpen(nextOpen);
+    if (!nextOpen) {
+      setPlayingAvatarExampleKey('');
+      return;
+    }
+
+    if (avatarExamples.length === 0 && !digitalHumanAvatarExampleRequest) {
+      void fetchAvatarExamples();
+    }
+  }, [avatarExamples.length, fetchAvatarExamples]);
+
+  const closeCreateAvatarDialog = React.useCallback(() => {
+    setCreateAvatarDialogOpen(false);
+  }, []);
 
   const openCreateAvatarDialog = React.useCallback((event) => {
     event.preventDefault();
@@ -691,15 +574,33 @@ const DigitalHumanToolDetail = ({
     if (normalizedItems.length === 0) return;
 
     setAvatarExamples((prev) => {
-      const nextItems = [
+      return [
         ...normalizedItems,
         ...prev.filter((item) => item.exampleKey !== normalizedItems[0].exampleKey),
       ];
-      digitalHumanAvatarExampleCache = nextItems;
-      return nextItems;
     });
     setAvatarExamplesError('');
   }, []);
+
+  React.useEffect(() => {
+    if (!isDigitalHumanImageDriveMode(selectedMode)) return;
+    if (selectedAvatarVoiceId && selectedAvatarCoverUrl) return;
+    if (avatarExamples.length === 0) return;
+
+    const firstAvailableAvatar = selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE
+      ? avatarExamples.find(isSeedanceSupportedAvatar)
+      : avatarExamples[0];
+    if (firstAvailableAvatar) {
+      handleAvatarUse(firstAvailableAvatar);
+    }
+  }, [
+    avatarExamples,
+    handleAvatarUse,
+    isSeedanceSupportedAvatar,
+    selectedAvatarCoverUrl,
+    selectedAvatarVoiceId,
+    selectedMode,
+  ]);
 
   React.useEffect(() => {
     if (selectedMode !== SEEDANCE_DIGITAL_HUMAN_MODE) return;
@@ -707,7 +608,6 @@ const DigitalHumanToolDetail = ({
 
     const knownSelectedAvatarVoiceProvider = resolveAvatarVoiceProvider({ voice_id: selectedAvatarVoiceId });
     if (knownSelectedAvatarVoiceProvider) {
-      persistDigitalHumanAvatarVoiceProvider(knownSelectedAvatarVoiceProvider);
       setSelectedAvatarVoiceProvider(knownSelectedAvatarVoiceProvider);
       return;
     }
@@ -727,7 +627,7 @@ const DigitalHumanToolDetail = ({
       return;
     }
 
-    if (avatarExamples.length === 0 && !avatarExamplesLoading && !digitalHumanAvatarExampleCache && !digitalHumanAvatarExampleRequest) {
+    if (avatarExamples.length === 0 && !avatarExamplesLoading && !digitalHumanAvatarExampleRequest) {
       void fetchAvatarExamples();
     }
   }, [
@@ -757,9 +657,7 @@ const DigitalHumanToolDetail = ({
       }
 
       setAvatarExamples((prev) => {
-        const nextItems = prev.filter((item) => String(item.avatar_id || '').trim() !== normalizedAvatarId);
-        digitalHumanAvatarExampleCache = nextItems;
-        return nextItems;
+        return prev.filter((item) => String(item.avatar_id || '').trim() !== normalizedAvatarId);
       });
       setPlayingAvatarExampleKey((currentValue) => (currentValue === normalizedExampleKey ? '' : currentValue));
       message.success('删除成功');
@@ -1047,7 +945,12 @@ const DigitalHumanToolDetail = ({
                 title={selectedAvatarButtonText}
                 disabled={disabled || seedanceLocked}
               >
-                <img className="chat-panel__tool-icon" src={selectedAvatarCoverUrl} alt="" aria-hidden="true" />
+                <img
+                  className="chat-panel__tool-icon"
+                  src={selectedAvatarCoverUrl || DigitalHumanAvatarIcon}
+                  alt=""
+                  aria-hidden="true"
+                />
                 <span
                   className="chat-panel__tool-text"
                   style={{
@@ -1066,8 +969,10 @@ const DigitalHumanToolDetail = ({
         {children}
       </div>
       <CreateDigitalHumanAvatorDialog
+        key={selectedMode}
         open={createAvatarDialogOpen}
         name={createAvatarName}
+        lockedVoiceProvider={selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE ? ELEVENLABS_PROVIDER : ''}
         onCreated={handleCreateAvatarCreated}
         onClose={closeCreateAvatarDialog}
         onNameChange={setCreateAvatarName}

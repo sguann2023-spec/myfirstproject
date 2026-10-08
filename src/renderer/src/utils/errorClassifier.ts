@@ -90,6 +90,15 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     return { category: 'model', i18nKey: 'error.diagnosis.model', navTarget: `/settings/provider${providerSuffix}` }
   }
 
+  // Tool schema errors are rejected before model usage, so do not present them as quota/billing issues.
+  if (
+    msg.includes('invalid_function_parameters') ||
+    msg.includes('invalid schema for function') ||
+    (msg.includes('function.parameters') && msg.includes('invalid_request_error'))
+  ) {
+    return { category: 'mcp', i18nKey: 'error.diagnosis.tool_schema', navTarget: '/settings/mcp/servers' }
+  }
+
   // Quota / rate limit (429)
   if (
     numStatus === 429 ||

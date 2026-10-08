@@ -228,6 +228,13 @@
   animation-delay: 0.3s;
 }
 
+.chat-message-interrupted {
+  margin-top: 6px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 @keyframes chat-message-dot {
   0%,
   80%,

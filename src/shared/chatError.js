@@ -56,6 +56,17 @@ const classifyError = ({ message = '', status } = {}) => {
   }
 
   if (
+    lower.includes('invalid_function_parameters')
+    || lower.includes('invalid schema for function')
+    || (lower.includes('function.parameters') && lower.includes('invalid_request_error'))
+  ) {
+    return {
+      category: 'mcp',
+      title: '工具参数配置异常，请更新客户端或联系技术支持。',
+    };
+  }
+
+  if (
     status === 429
     || lower.includes('quota')
     || lower.includes('rate limit')

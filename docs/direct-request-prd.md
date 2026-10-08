@@ -27,6 +27,7 @@
 | `seed_audio_request` | AI生成音频 | `seed-audio` | `generate_seed_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `voice_conversion_request` | 音频/视频变声 | `voice-conversion` | `submit_voice_conversion_task` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `ai_video_request` | AI生成视频 | `video` | `generate_video` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `digital_human_request` | 生成数字人视频 | `digital-human` | 按模式选择对应创建工具 | 是 | 是 | 是 | 是 | 是 | 是 | 仅口型 |
 | `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
 | `draft_export_request` | 导出草稿 | `draft-download` | `export_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
@@ -571,7 +572,64 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 
 ---
 
-### 4.8 `draft_download_request`
+### 4.9 `digital_human_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 根据文案、音色及人物图片或视频生成数字人视频 |
+| 目标 MCP | `digital-human`；按 `mode` 调用口型驱动、Omni 图片驱动或图片驱动数字人工具 |
+| 是否 direct request | 是，跳过普通 Agent 推理，直接执行数字人 MCP 的音频合成、提交及轮询流程 |
+| 是否 direct 回复 | 是，主进程基于任务及视频结果生成固定回复 |
+| 支持展示类型 | `文字` / `Agent` / `API`；口型模式额外支持 `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，按模式使用下列三份 API 文档 |
+| `Coze` 是否可展示 | 仅 `mode=lip_sync`；使用 `workflowId=7668682150007488554`，复制创建任务及循环查询链路 |
+| 前端发送条件 | 必须有口播文案、音色 ID；口型模式必须有人物视频，图片模式必须有人物图片 |
+
+API 文档：
+
+- 口型驱动：`https://docs.vectcut.com/404742851e0`
+- Omni 图片驱动：`https://docs.vectcut.com/468131500e0`
+- 图片驱动数字人：`https://docs.vectcut.com/475739919e0`
+
+统一 payload：
+
+```json
+{
+  "mode": "lip_sync | omni | seedance",
+  "copywriting": "口播文案",
+  "voice_id": "音色 ID",
+  "image_url": "图片模式的人物图片",
+  "video_url": "口型模式的人物视频",
+  "prompt": "Omni 模式的动作提示词",
+  "output_resolution": 1080
+}
+```
+
+`lip_sync` 和 `omni` 会在同一次数字人 MCP 调用内先合成音频，再向公开数字人 API 提交
+`audio_url`。API 展示使用 `<generated_audio_url>` 占位，不把内部临时音频写入用户消息或历史记录。
+
+口型模式的 Coze 展示规则：
+
+- 创建节点：`create_digital_human`，节点 ID `101578`，API ID `7594783961818349611`。
+- 查询节点：`digital_human_task_status`，节点 ID `134581`，API ID `7594783961818365995`。
+- 创建节点的 `task_id` 通过块输出引用传给查询节点。
+- 创建请求未显式携带 `audio_url` 时，卡片使用 `<generated_audio_url>` 占位；人物视频取当前请求的 `video_url`。
+- 循环最多执行 150 次，每次先延时 10 秒，再查询任务状态。
+- 选择器使用 `operator=10` 判断查询节点的 `digital_human_url` 是否有值；有值时写入循环变量 `result` 并结束等待，无值时继续轮询。
+- Omni 和图片驱动模式不展示 Coze 切换入口。
+
+模式与工具：
+
+| `mode` | MCP Tool | API endpoint |
+| --- | --- | --- |
+| `lip_sync` | `create_lip_sync_digital_human` | `/cut_jianying/digital_human/create` |
+| `omni` | `create_omni_image_driven_digital_human` | `/cut_jianying/digital_human/omni/submit` |
+| `seedance` | `create_seedance_digital_human` | `/llm/digital_human/seedance/submit` |
+
+---
+
+### 4.10 `draft_download_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -597,7 +655,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 }
 ```
 
-### 4.9 `draft_export_request`
+### 4.11 `draft_export_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -623,7 +681,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 }
 ```
 
-### 4.10 `draft_inspect`
+### 4.12 `draft_inspect`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -651,7 +709,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 
 ---
 
-### 4.11 `reverse_prompt_request`
+### 4.13 `reverse_prompt_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -705,7 +763,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 
 ---
 
-### 4.12 `subtitle_recognition_request`
+### 4.14 `subtitle_recognition_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -769,7 +827,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 
 ---
 
-### 4.13 `subtitle_storyboard_request`
+### 4.15 `subtitle_storyboard_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -832,6 +890,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 | `seed_audio_request` | `mcp__vectcut__seed-audio__generate_seed_audio` |
 | `voice_conversion_request` | `mcp__vectcut__voice-conversion__submit_voice_conversion_task` |
 | `ai_video_request` | `mcp__vectcut__video__generate_video` |
+| `digital_human_request` | 按模式使用 `mcp__vectcut__digital-human__create_lip_sync_digital_human` / `create_omni_image_driven_digital_human` / `create_seedance_digital_human` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |
 | `reverse_prompt_request` | `mcp__vectcut__copylab__derive_copy_prompt` |

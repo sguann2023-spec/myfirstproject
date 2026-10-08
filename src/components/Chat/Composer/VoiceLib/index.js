@@ -104,7 +104,14 @@ const normalizeVoiceTitle = (item) =>
   String(item?.title || item?.voice_name || item?.name || item?.display_name || '').trim();
 
 const normalizeVoiceProvider = (item) =>
-  normalizeMemberProvider(item?.price_provider || item?.providers || item?.provider);
+  normalizeMemberProvider(
+    item?.price_provider
+    || item?.provider
+    || item?.providers
+    || item?.voice_provider
+    || item?.voice_provider_type
+    || item?.voice_source_provider
+  );
 
 const buildVoicePendingKey = (voiceId, provider) =>
   [normalizeMemberProvider(provider), String(voiceId || '').trim()].join('|');
@@ -241,9 +248,11 @@ const normalizePersistedVoiceItem = (item) => {
   const normalizedId = String(item?.global_voice_id || '').trim();
   if (!normalizedId) return null;
   const normalizedSourceTab = normalizeVoiceSourceTab(item?.sourceTab);
+  const normalizedProvider = normalizeVoiceProvider(item);
 
   return {
     ...DEFAULT_SELECTED_VOICE_LIBRARY_ITEM,
+    ...(normalizedProvider ? { providers: normalizedProvider } : {}),
     ...(item || {}),
     global_voice_id: normalizedId,
     ...(normalizedSourceTab ? { sourceTab: normalizedSourceTab } : {}),
@@ -279,7 +288,12 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
   const initialFilters = normalizedLockedProvider
     ? { ...DEFAULT_VOICE_LIBRARY_FILTERS, provider: normalizedLockedProvider }
     : DEFAULT_VOICE_LIBRARY_FILTERS;
-  const initialSelectedVoiceLibraryItemRef = React.useRef(getInitialSelectedVoiceLibraryItem());
+  const persistedSelectedVoice = getInitialSelectedVoiceLibraryItem();
+  const initialSelectedVoiceLibraryItemRef = React.useRef(
+    normalizedLockedProvider && normalizeVoiceProvider(persistedSelectedVoice) !== normalizedLockedProvider
+      ? null
+      : persistedSelectedVoice
+  );
   const loadTrackerRef = React.useRef(createVoiceLoadTracker());
   const allVoiceFiltersRef = React.useRef(normalizeVoiceLibraryFilters(initialFilters));
   const allVoiceFilterSignatureRef = React.useRef(buildVoiceLibraryFilterSignature(initialFilters));
@@ -292,7 +306,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
   );
   const [myVoiceState, setMyVoiceState] = React.useState(() => createVoiceListState(VOICE_MY_LIBRARY_INITIAL_OFFSET));
   const [selectedVoiceLibraryId, setSelectedVoiceLibraryId] = React.useState(
-    initialSelectedVoiceLibraryItemRef.current.global_voice_id
+    initialSelectedVoiceLibraryItemRef.current?.global_voice_id || ''
   );
   const [playingVoiceId, setPlayingVoiceId] = React.useState('');
   const [favoritePendingIds, setFavoritePendingIds] = React.useState([]);
@@ -327,7 +341,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
       ) || null;
 
     if (matchedItem) return matchedItem;
-    if (selectedVoiceLibraryId === initialSelectedVoiceLibraryItemRef.current.global_voice_id) {
+    if (selectedVoiceLibraryId === initialSelectedVoiceLibraryItemRef.current?.global_voice_id) {
       return initialSelectedVoiceLibraryItemRef.current;
     }
 
@@ -406,6 +420,13 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
         : null
     );
 
+    if (
+      normalizedLockedProvider
+      && normalizeVoiceProvider(nextSelectedItem || item) !== normalizedLockedProvider
+    ) {
+      return;
+    }
+
     if (nextSelectedItem) {
       initialSelectedVoiceLibraryItemRef.current = nextSelectedItem;
       persistSelectedVoiceLibraryItem(nextSelectedItem);
@@ -420,7 +441,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
       }
       setVoiceLibraryOpen(false);
     }
-  }, [onPick]);
+  }, [normalizedLockedProvider, onPick]);
 
   const syncVoiceFavoriteStatus = React.useCallback((globalVoiceId, favorited, item) => {
     const normalizedId = String(globalVoiceId || '').trim();
@@ -593,6 +614,12 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
         }
       }
 
+      if (normalizedLockedProvider) {
+        nextItems = nextItems.filter(
+          (item) => normalizeVoiceProvider(item) === normalizedLockedProvider
+        );
+      }
+
       if (loadTrackerRef.current[tab]?.latestRequestId !== requestId) {
         return;
       }
@@ -633,7 +660,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
         loadTrackerRef.current[tab].activeOffset = null;
       }
     }
-  }, []);
+  }, [normalizedLockedProvider]);
 
   React.useEffect(() => {
     loadTrackerRef.current[VOICE_TAB_ALL].activeRequestId = '';
@@ -753,7 +780,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
 
       if (selectedVoiceLibraryId === normalizedVoiceId) {
         const fallbackVoiceId =
-          getVoiceSelectionValue(nextMyItems[0], 0) || initialSelectedVoiceLibraryItemRef.current.global_voice_id;
+          getVoiceSelectionValue(nextMyItems[0], 0) || initialSelectedVoiceLibraryItemRef.current?.global_voice_id || '';
         setSelectedVoiceLibraryId(fallbackVoiceId);
       }
     },
@@ -814,8 +841,10 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
 
   const hasMoreVoiceLibraryItems = React.useMemo(() => {
     const total = Number(currentVoiceState?.pagination?.total) || 0;
-    return total > 0 && currentVoiceState.items.length < total;
-  }, [currentVoiceState]);
+    const offset = Number(currentVoiceState?.pagination?.offset) || getVoiceInitialOffsetByTab(activeVoiceTab);
+    const limit = Number(currentVoiceState?.pagination?.limit) || VOICE_LIBRARY_LIMIT;
+    return total > offset + limit;
+  }, [activeVoiceTab, currentVoiceState]);
 
   const loadMoreVoiceLibrary = React.useCallback(() => {
     const tabLoadTracker = loadTrackerRef.current[activeVoiceTab];
@@ -871,6 +900,20 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
   ]);
 
   React.useEffect(() => {
+    if (!voiceLibraryOpen || !normalizedLockedProvider || activeVoiceTab === VOICE_TAB_ALL) return;
+    if (!currentVoiceState.initialized || currentVoiceState.loading || currentVoiceState.loadingMore) return;
+    if (currentVoiceState.items.length > 0 || !hasMoreVoiceLibraryItems) return;
+    loadMoreVoiceLibrary();
+  }, [
+    activeVoiceTab,
+    currentVoiceState,
+    hasMoreVoiceLibraryItems,
+    loadMoreVoiceLibrary,
+    normalizedLockedProvider,
+    voiceLibraryOpen,
+  ]);
+
+  React.useEffect(() => {
     if (!voiceLibraryOpen) {
       setPlayingVoiceId('');
     }
@@ -894,6 +937,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
   const upsertMyVoiceItem = React.useCallback((item) => {
     const normalizedId = String(item?.global_voice_id || '').trim();
     if (!normalizedId) return;
+    if (normalizedLockedProvider && normalizeVoiceProvider(item) !== normalizedLockedProvider) return;
 
     setMyVoiceState((prev) => {
       const existingIndex = prev.items.findIndex(
@@ -921,7 +965,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
         },
       };
     });
-  }, []);
+  }, [normalizedLockedProvider]);
 
   return {
     activeVoiceTab,
@@ -1174,51 +1218,47 @@ const VoiceLib = ({
               <img className="chat-panel__voice-library-tab-icon" src={VoiceLibIcon} alt="" aria-hidden="true" />
             </button>
           </Tooltip>
-          {hasLockedProvider ? null : (
-            <Tooltip title="收藏音色">
-              <button
-                type="button"
-                className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_FAVORITES ? 'active' : ''}`}
-                aria-label="收藏音色"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setActiveVoiceTab(VOICE_TAB_FAVORITES);
-                }}
-              >
-                <img
-                  className="chat-panel__voice-library-tab-icon"
-                  src={VoiceCollectIcon}
-                  alt=""
-                  aria-hidden="true"
-                />
-              </button>
-            </Tooltip>
-          )}
-          {hasLockedProvider ? null : (
-            <Tooltip title="我的音色">
-              <button
-                type="button"
-                className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_MY ? 'active' : ''}`}
-                aria-label="我的音色"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setActiveVoiceTab(VOICE_TAB_MY);
-                }}
-              >
-                <img className="chat-panel__voice-library-tab-icon" src={MyVoiceIcon} alt="" aria-hidden="true" />
-              </button>
-            </Tooltip>
-          )}
+          <Tooltip title="收藏音色">
+            <button
+              type="button"
+              className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_FAVORITES ? 'active' : ''}`}
+              aria-label="收藏音色"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setActiveVoiceTab(VOICE_TAB_FAVORITES);
+              }}
+            >
+              <img
+                className="chat-panel__voice-library-tab-icon"
+                src={VoiceCollectIcon}
+                alt=""
+                aria-hidden="true"
+              />
+            </button>
+          </Tooltip>
+          <Tooltip title="我的音色">
+            <button
+              type="button"
+              className={`chat-panel__voice-library-tab ${activeVoiceTab === VOICE_TAB_MY ? 'active' : ''}`}
+              aria-label="我的音色"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setActiveVoiceTab(VOICE_TAB_MY);
+              }}
+            >
+              <img className="chat-panel__voice-library-tab-icon" src={MyVoiceIcon} alt="" aria-hidden="true" />
+            </button>
+          </Tooltip>
         </div>
       </div>
     );

@@ -65,6 +65,21 @@ describe('DraftDownloadServer', () => {
     ])
   })
 
+  it('should expose OpenAI-compatible top-level input schemas', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+
+    for (const tool of result.tools) {
+      expect(tool.inputSchema.type).toBe('object')
+      expect(tool.inputSchema).not.toHaveProperty('anyOf')
+      expect(tool.inputSchema).not.toHaveProperty('oneOf')
+      expect(tool.inputSchema).not.toHaveProperty('allOf')
+      expect(tool.inputSchema).not.toHaveProperty('enum')
+      expect(tool.inputSchema).not.toHaveProperty('const')
+      expect(tool.inputSchema).not.toHaveProperty('not')
+    }
+  })
+
   it('should accept snake_case draft_id for download', async () => {
     const server = createServer()
     const result = await callTool(server, 'download_draft', {

@@ -34,6 +34,7 @@ import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
 import { normalizeSeedAudioRequestPayload } from '../../shared/seedAudioRequest';
 import { normalizeAiVideoRequestPayload } from '../../shared/aiVideoRequest';
+import { normalizeDigitalHumanRequestPayload } from '../../shared/digitalHumanRequest';
 import { buildVoiceConversionRequestProcessingBlocks, normalizeVoiceConversionRequestPayload } from '../../shared/voiceConversionRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
@@ -449,6 +450,34 @@ const resolveVoiceConversionRequestLocalAttachmentUrls = (voiceConversionRequest
       : {}),
     ...(voiceConversionRequest.video_url || voiceConversionRequest.videoUrl
       ? { video_url: replaceLocalAttachment(voiceConversionRequest.video_url || voiceConversionRequest.videoUrl) }
+      : {}),
+  };
+};
+const resolveDigitalHumanRequestLocalAttachmentUrls = (digitalHumanRequest = null, persistedEntries = []) => {
+  if (!digitalHumanRequest || typeof digitalHumanRequest !== 'object') {
+    return digitalHumanRequest;
+  }
+
+  const persistedByUid = new Map(
+    (Array.isArray(persistedEntries) ? persistedEntries : [])
+      .filter((item) => item?.uid && item?.sourcePath)
+      .map((item) => [String(item.uid).trim(), String(item.sourcePath).trim()])
+  );
+  if (persistedByUid.size === 0) return digitalHumanRequest;
+
+  const replaceLocalAttachment = (value = '') => {
+    const normalized = String(value || '').trim();
+    const uid = normalized.startsWith('local-attachment:') ? normalized.slice('local-attachment:'.length).trim() : '';
+    return uid && persistedByUid.get(uid) ? persistedByUid.get(uid) : normalized;
+  };
+
+  return {
+    ...digitalHumanRequest,
+    ...(digitalHumanRequest.image_url || digitalHumanRequest.imageUrl
+      ? { image_url: replaceLocalAttachment(digitalHumanRequest.image_url || digitalHumanRequest.imageUrl) }
+      : {}),
+    ...(digitalHumanRequest.video_url || digitalHumanRequest.videoUrl
+      ? { video_url: replaceLocalAttachment(digitalHumanRequest.video_url || digitalHumanRequest.videoUrl) }
       : {}),
   };
 };
@@ -943,6 +972,46 @@ const buildAiVideoRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: aiVideoRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildDigitalHumanRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  digitalHumanRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `digital_human_request_${String(requestId || '').trim() || Date.now()}`;
+  const mode = String(digitalHumanRequest?.mode || '').trim();
+  const toolName = mode === 'lip_sync'
+    ? 'mcp__vectcut__digital-human__create_lip_sync_digital_human'
+    : mode === 'seedance'
+      ? 'mcp__vectcut__digital-human__create_seedance_digital_human'
+      : 'mcp__vectcut__digital-human__create_omni_image_driven_digital_human';
+  return [{
+    id: `${assistantMessageId}-digital-human-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName,
+    arguments: digitalHumanRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: toolName,
+          name: toolName,
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: digitalHumanRequest,
         status: 'pending'
       }
     }
@@ -1651,6 +1720,7 @@ const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false
 const hasInterruptedAssistantState = (message = {}) => {
   if (String(message?.role || '').toLowerCase() !== 'assistant') return false;
   if (Boolean(message?.aborted)) return true;
+  if (isInterruptedBlockStatus(message?.status)) return true;
   if (String(message?.error?.category || '').toLowerCase() === 'aborted') return true;
   const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
   return blocks.some((block) => {
@@ -2049,14 +2119,12 @@ const shouldApplyHydratedMessages = ({
   const beforeAssistantUsageMessageCount = countAssistantUsageMessages(currentMessages);
   const beforePricedUsageMessageCount = countAssistantPricedUsageMessages(currentMessages);
   const beforeHasUnstableToolBlocks = hasUnstableAssistantToolBlocks(currentMessages);
-  const beforeHasInterruptedAssistantState = (Array.isArray(currentMessages) ? currentMessages : []).some(hasInterruptedAssistantState);
   const afterVisibleAssistantCount = countVisibleAssistantMessages(hydratedMessages);
   const afterMissingAssistantCount = countMissingVisibleAssistantMessages(hydratedMessages);
   const afterStructuredAssistantBlockCount = countStructuredAssistantBlocks(hydratedMessages);
   const afterAssistantUsageStepCount = countAssistantUsageSteps(hydratedMessages);
   const afterAssistantUsageMessageCount = countAssistantUsageMessages(hydratedMessages);
   const afterPricedUsageMessageCount = countAssistantPricedUsageMessages(hydratedMessages);
-  const afterHasInterruptedAssistantState = (Array.isArray(hydratedMessages) ? hydratedMessages : []).some(hasInterruptedAssistantState);
 
   return (
     beforeMessageCount === 0
@@ -2067,7 +2135,6 @@ const shouldApplyHydratedMessages = ({
     || afterAssistantUsageStepCount > beforeAssistantUsageStepCount
     || afterAssistantUsageMessageCount > beforeAssistantUsageMessageCount
     || afterPricedUsageMessageCount > beforePricedUsageMessageCount
-    || (beforeHasInterruptedAssistantState && !afterHasInterruptedAssistantState)
     || (beforeHasUnstableToolBlocks && afterVisibleAssistantCount > 0)
   );
 };
@@ -2216,6 +2283,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const voiceConversionRequest = role === 'user' && sourceMessage?.voiceConversionRequest && typeof sourceMessage.voiceConversionRequest === 'object'
     ? { ...sourceMessage.voiceConversionRequest }
     : undefined;
+  const digitalHumanRequest = role === 'user' && sourceMessage?.digitalHumanRequest && typeof sourceMessage.digitalHumanRequest === 'object'
+    ? { ...sourceMessage.digitalHumanRequest }
+    : undefined;
   const reversePromptRequest = role === 'user' && sourceMessage?.reversePromptRequest
     ? { ...sourceMessage.reversePromptRequest }
     : undefined;
@@ -2235,6 +2305,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && seedAudioRequest ? { seedAudioRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(role === 'user' && voiceConversionRequest ? { voiceConversionRequest } : {}),
+    ...(role === 'user' && digitalHumanRequest ? { digitalHumanRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
     ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
       ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
@@ -5363,6 +5434,9 @@ const HomePage = () => {
     const aiVideoRequest = options?.aiVideoRequest && typeof options.aiVideoRequest === 'object'
       ? { ...options.aiVideoRequest }
       : null;
+    const digitalHumanRequest = options?.digitalHumanRequest && typeof options.digitalHumanRequest === 'object'
+      ? { ...options.digitalHumanRequest }
+      : null;
     const draftExportRequest = options?.draftExportRequest && typeof options.draftExportRequest === 'object'
       ? { ...options.draftExportRequest }
       : null;
@@ -5455,6 +5529,7 @@ const HomePage = () => {
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
+        ...(digitalHumanRequest ? { digitalHumanRequest: normalizeDigitalHumanRequestPayload(digitalHumanRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5517,6 +5592,7 @@ const HomePage = () => {
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
+        ...(digitalHumanRequest ? { digitalHumanRequest: normalizeDigitalHumanRequestPayload(digitalHumanRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {}),
@@ -5625,6 +5701,64 @@ const HomePage = () => {
         userMessage,
         images,
       });
+
+      if (digitalHumanRequest) {
+        const requestWithLocalFiles = resolveDigitalHumanRequestLocalAttachmentUrls(
+          digitalHumanRequest,
+          persistedPendingAttachmentEntries
+        );
+        const resolvedDigitalHumanRequest = normalizeDigitalHumanRequestPayload(requestWithLocalFiles, text);
+        if (!resolvedDigitalHumanRequest) {
+          throw new Error('digital human request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          digitalHumanRequest: resolvedDigitalHumanRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildDigitalHumanRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            digitalHumanRequest: resolvedDigitalHumanRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directDigitalHumanResult = await window.electronAPI.cherryChatStream.createDigitalHumanRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          digitalHumanRequest: resolvedDigitalHumanRequest,
+        });
+        if (!directDigitalHumanResult?.ok) {
+          throw new Error(directDigitalHumanResult?.error || 'digital human request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directDigitalHumanResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directDigitalHumanResult?.assistantBlocks) ? directDigitalHumanResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'digital-human-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'digital-human-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'digital-human-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'digital-human-request.complete');
+        setChatSending(false);
+        return;
+      }
 
       if (voiceConversionRequest) {
         const voiceConversionRequestWithLocalFiles = resolveVoiceConversionRequestLocalAttachmentUrls(

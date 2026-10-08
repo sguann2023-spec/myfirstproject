@@ -4,7 +4,9 @@ import { PlusOutlined } from '@ant-design/icons';
 import { Image, message, Spin, Upload } from 'antd';
 import { createDigitalHumanAvatarLibrary } from '../../../../api/digital_human';
 import { uploadDigitalHumanAvatarCover } from '../../../../api/sts';
+import { normalizeMemberProvider } from '../../../../constants/member';
 import VoiceLib, { useVoiceLib } from '../VoiceLib';
+import { resizeDigitalHumanAvatarImage } from './imageProcessing';
 import './index.css';
 
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
@@ -19,6 +21,7 @@ const getBase64 = (file) => new Promise((resolve, reject) => {
 const CreateDigitalHumanAvatorDialog = ({
   open = false,
   name = '',
+  lockedVoiceProvider = '',
   onClose,
   onCreated,
   onNameChange,
@@ -27,21 +30,41 @@ const CreateDigitalHumanAvatorDialog = ({
   const [previewImage, setPreviewImage] = React.useState('');
   const [fileList, setFileList] = React.useState([]);
   const [saving, setSaving] = React.useState(false);
-  const voiceLib = useVoiceLib();
-  const hasSelectedVoice = Boolean(voiceLib?.selectedVoiceLibraryItem?.global_voice_id);
-  const canSave = Boolean(fileList.length > 0 && String(name || '').trim() && hasSelectedVoice);
+  const [processingImage, setProcessingImage] = React.useState(false);
+  const imageProcessingIdRef = React.useRef(0);
+  const voiceLib = useVoiceLib({ lockedProvider: lockedVoiceProvider });
+  const normalizedLockedVoiceProvider = normalizeMemberProvider(lockedVoiceProvider);
+  const selectedVoiceProvider = normalizeMemberProvider(
+    voiceLib?.selectedVoiceLibraryItem?.price_provider
+    || voiceLib?.selectedVoiceLibraryItem?.provider
+    || voiceLib?.selectedVoiceLibraryItem?.providers
+    || voiceLib?.selectedVoiceLibraryItem?.voice_provider
+    || voiceLib?.selectedVoiceLibraryItem?.voice_provider_type
+    || voiceLib?.selectedVoiceLibraryItem?.voice_source_provider
+    || ''
+  );
+  const hasSelectedVoice = Boolean(voiceLib?.selectedVoiceLibraryItem?.global_voice_id)
+    && (!normalizedLockedVoiceProvider || selectedVoiceProvider === normalizedLockedVoiceProvider);
+  const canSave = Boolean(
+    !processingImage
+    && fileList.length > 0
+    && String(name || '').trim()
+    && hasSelectedVoice
+  );
 
   React.useEffect(() => {
     if (!open) {
+      imageProcessingIdRef.current += 1;
+      setProcessingImage(false);
       setPreviewOpen(false);
       setPreviewImage('');
     }
   }, [open]);
 
   const handleClose = React.useCallback(() => {
-    if (saving) return;
+    if (saving || processingImage) return;
     onClose?.();
-  }, [onClose, saving]);
+  }, [onClose, processingImage, saving]);
 
   const handlePreview = React.useCallback(async (file) => {
     if (!file.url && !file.preview && file.originFileObj) {
@@ -56,15 +79,54 @@ const CreateDigitalHumanAvatorDialog = ({
     setFileList(nextFileList.slice(-1));
   }, []);
 
+  const handleBeforeUpload = React.useCallback(async (file) => {
+    if (!String(file?.type || '').toLowerCase().startsWith('image/')) {
+      message.error('请选择图片文件');
+      return Upload.LIST_IGNORE;
+    }
+
+    const processingId = imageProcessingIdRef.current + 1;
+    imageProcessingIdRef.current = processingId;
+    setProcessingImage(true);
+
+    try {
+      const result = await resizeDigitalHumanAvatarImage(file);
+      if (processingId !== imageProcessingIdRef.current) return Upload.LIST_IGNORE;
+
+      setFileList([{
+        uid: file.uid,
+        name: result.file.name,
+        status: 'done',
+        type: result.file.type,
+        size: result.file.size,
+        originFileObj: result.file,
+      }]);
+      setPreviewOpen(false);
+      setPreviewImage('');
+
+      if (result.resized) {
+        message.info(`图片分辨率超过 1080P，已自动压缩为 ${result.width}×${result.height}`);
+      }
+    } catch (error) {
+      if (processingId === imageProcessingIdRef.current) {
+        message.error(error?.message || '图片处理失败，请重新选择');
+      }
+    } finally {
+      if (processingId === imageProcessingIdRef.current) {
+        setProcessingImage(false);
+      }
+    }
+
+    return Upload.LIST_IGNORE;
+  }, []);
+
   const handleSave = React.useCallback(async () => {
     if (!canSave || saving) return;
 
     const targetFile = fileList[0]?.originFileObj || fileList[0];
     const title = String(name || '').trim();
     const voiceId = String(voiceLib?.selectedVoiceLibraryItem?.global_voice_id || '').trim();
-    const voiceProvider = String(
-      voiceLib?.selectedVoiceLibraryItem?.provider || voiceLib?.selectedVoiceLibraryItem?.providers || ''
-    ).trim().toLowerCase();
+    const voiceProvider = selectedVoiceProvider;
     const canUseSeedance = voiceProvider === 'elevenlabs';
 
     if (!targetFile || !title || !voiceId) return;
@@ -112,7 +174,7 @@ const CreateDigitalHumanAvatorDialog = ({
     } finally {
       setSaving(false);
     }
-  }, [canSave, fileList, name, onClose, onCreated, onNameChange, saving, voiceLib]);
+  }, [canSave, fileList, name, onClose, onCreated, onNameChange, saving, selectedVoiceProvider, voiceLib]);
 
   const uploadButton = (
     <button className="chat-panel__digital-human-create-upload-trigger" type="button">
@@ -152,10 +214,12 @@ const CreateDigitalHumanAvatorDialog = ({
           />
         </div>
         <div className="chat-panel__digital-human-create-body">
-          {saving ? (
+          {saving || processingImage ? (
             <div className="chat-panel__digital-human-create-loading">
               <Spin size="small" />
-              <span className="chat-panel__digital-human-create-loading-text">保存中...</span>
+              <span className="chat-panel__digital-human-create-loading-text">
+                {processingImage ? '图片处理中...' : '保存中...'}
+              </span>
             </div>
           ) : null}
           <div className="chat-panel__digital-human-create-field">
@@ -164,9 +228,9 @@ const CreateDigitalHumanAvatorDialog = ({
                 accept="image/*"
                 listType="picture-card"
                 fileList={fileList}
-                disabled={saving}
+                disabled={saving || processingImage}
                 maxCount={1}
-                beforeUpload={() => false}
+                beforeUpload={handleBeforeUpload}
                 onPreview={handlePreview}
                 onChange={handleUploadChange}
                 className="chat-panel__digital-human-create-upload"

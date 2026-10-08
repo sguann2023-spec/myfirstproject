@@ -511,7 +511,7 @@ describe('CapabilityRouter', () => {
       hasCustomMcpServers: false
     })
     const digitalHumanDecision = router.select({
-      prompt: '生成数字人',
+      prompt: '请生成数字人口播视频，说话内容：你好，音色ID：voice-123',
       sessionId: 'session-digital-human',
       imageCount: 0,
       isAssistant: false,
@@ -549,6 +549,7 @@ describe('CapabilityRouter', () => {
     expect(digitalHumanDecision.primaryDomain).toBe('ai_media')
     expect(digitalHumanDecision.subdomains).toEqual(['digital_human'])
     expect(digitalHumanDecision.selected.has('digitalHuman')).toBe(true)
+    expect(digitalHumanDecision.selected.has('speech')).toBe(false)
     expect(imageDecision.primaryDomain).toBe('ai_media')
     expect(imageDecision.subdomains).toEqual(['image'])
     expect(imageDecision.selected.has('image')).toBe(true)

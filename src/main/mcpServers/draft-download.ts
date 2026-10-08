@@ -46,6 +46,7 @@ const DOWNLOAD_DRAFT_TOOL: Tool = {
         description: 'Optional batch of drafts to download.',
         items: {
           type: 'object',
+          description: 'Draft item. Provide draftId or draft_id as the identifier.',
           properties: {
             draftId: {
               type: 'string',
@@ -76,12 +77,10 @@ const DOWNLOAD_DRAFT_TOOL: Tool = {
               description: 'Alias of createdAt.'
             }
           },
-          anyOf: [{ required: ['draftId'] }, { required: ['draft_id'] }],
           additionalProperties: false
         }
       }
     },
-    anyOf: [{ required: ['draftId'] }, { required: ['draft_id'] }, { required: ['drafts'] }],
     additionalProperties: false
   }
 }

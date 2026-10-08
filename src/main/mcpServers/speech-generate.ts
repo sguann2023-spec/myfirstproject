@@ -186,6 +186,22 @@ type SpeechGenerateResponse = {
   [key: string]: unknown
 }
 
+type SpeechGenerationStore = {
+  get: (key: string) => unknown
+  set: (key: string, value: unknown) => unknown
+}
+
+type SpeechGenerationDependencies = {
+  store: SpeechGenerationStore
+  request: (endpoint: string, body: Record<string, unknown>) => Promise<Response>
+}
+
+export type GeneratedSpeech = {
+  audioUrl: string
+  payload: Record<string, unknown>
+  result: SpeechGenerateResponse
+}
+
 const SPEECH_FIELD_ALIASES: Record<string, string> = {
   voiceId: 'voice_id',
   speechSpeed: 'speech_speed',
@@ -198,6 +214,109 @@ const SPEECH_FIELD_ALIASES: Record<string, string> = {
   fadeInDuration: 'fade_in_duration',
   fadeOutDuration: 'fade_out_duration',
   licenseKey: 'license_key'
+}
+
+const readPersistedSelectedVoiceItem = (store: SpeechGenerationStore): PersistedSelectedVoiceItem | null => {
+  const rawValue = store.get(VOICE_SELECTED_STORAGE_KEY)
+
+  if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+    return null
+  }
+
+  const item = rawValue as PersistedSelectedVoiceItem
+  const voiceId = String(item.global_voice_id || item.voice_id || '').trim()
+  if (!voiceId) {
+    return null
+  }
+
+  return {
+    ...item,
+    global_voice_id: voiceId
+  }
+}
+
+const persistSelectedVoiceItem = (
+  store: SpeechGenerationStore,
+  voiceId: string,
+  provider: string,
+  currentItem: PersistedSelectedVoiceItem | null
+) => {
+  const normalizedVoiceId = String(voiceId || '').trim()
+  if (!normalizedVoiceId) {
+    return
+  }
+
+  const normalizedProvider = String(provider || '').trim()
+  store.set(VOICE_SELECTED_STORAGE_KEY, {
+    ...(currentItem ?? {}),
+    global_voice_id: normalizedVoiceId,
+    providers: normalizedProvider || currentItem?.providers || currentItem?.provider || DEFAULT_SPEECH_PROVIDER
+  })
+}
+
+const buildSpeechPayload = (args: Record<string, unknown>, store: SpeechGenerationStore) => {
+  const text = typeof args.text === 'string' ? args.text.trim() : ''
+  const persistedVoiceItem = readPersistedSelectedVoiceItem(store)
+  const voiceIdRaw = typeof args.voiceId === 'string' ? args.voiceId : args.voice_id
+  const explicitVoiceId = typeof voiceIdRaw === 'string' ? voiceIdRaw.trim() : ''
+  const hasExplicitVoiceId = Boolean(explicitVoiceId)
+  const voiceId =
+    hasExplicitVoiceId
+      ? explicitVoiceId
+      : String(persistedVoiceItem?.global_voice_id || persistedVoiceItem?.voice_id || DEFAULT_SPEECH_VOICE_ID).trim()
+  if (!text) {
+    throw new McpError(ErrorCode.InvalidParams, "'text' is required for generate_speech")
+  }
+
+  const explicitProvider = typeof args.provider === 'string' ? args.provider.trim() : ''
+  const provider = explicitProvider || (
+    hasExplicitVoiceId
+      ? ''
+      : String(persistedVoiceItem?.providers || persistedVoiceItem?.provider || DEFAULT_SPEECH_PROVIDER).trim() ||
+        DEFAULT_SPEECH_PROVIDER
+  )
+
+  const payload: Record<string, unknown> = {}
+
+  for (const [rawKey, value] of Object.entries(args)) {
+    if (value === undefined) {
+      continue
+    }
+    const key = SPEECH_FIELD_ALIASES[rawKey] ?? rawKey
+    payload[key] = value
+  }
+
+  payload.text = text
+  payload.voice_id = voiceId
+  if (provider) {
+    payload.provider = provider
+    persistSelectedVoiceItem(store, voiceId, provider, persistedVoiceItem)
+  } else {
+    delete payload.provider
+  }
+  return payload
+}
+
+export const generateSpeechAudio = async (
+  args: Record<string, unknown>,
+  dependencies: SpeechGenerationDependencies
+): Promise<GeneratedSpeech> => {
+  const payload = buildSpeechPayload(args, dependencies.store)
+  const response = await dependencies.request(SPEECH_GENERATE_ENDPOINT, payload)
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`Speech generation failed (${response.status}): ${body || 'unknown error'}`)
+  }
+
+  const result = (await response.json()) as SpeechGenerateResponse
+  const audioUrl = String(result.output?.audio_url || '').trim()
+
+  return {
+    audioUrl,
+    payload,
+    result
+  }
 }
 
 class SpeechGenerateServer {
@@ -348,87 +467,11 @@ class SpeechGenerateServer {
     }
   }
 
-  private readPersistedSelectedVoiceItem(): PersistedSelectedVoiceItem | null {
-    const rawValue = this.store.get(VOICE_SELECTED_STORAGE_KEY)
-
-    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
-      return null
-    }
-
-    const item = rawValue as PersistedSelectedVoiceItem
-    const voiceId = String(item.global_voice_id || item.voice_id || '').trim()
-    if (!voiceId) {
-      return null
-    }
-
-    return {
-      ...item,
-      global_voice_id: voiceId
-    }
-  }
-
-  private persistSelectedVoiceItem(voiceId: string, provider: string) {
-    const normalizedVoiceId = String(voiceId || '').trim()
-    if (!normalizedVoiceId) {
-      return
-    }
-
-    const normalizedProvider = String(provider || '').trim()
-    const currentItem = this.readPersistedSelectedVoiceItem()
-
-    this.store.set(VOICE_SELECTED_STORAGE_KEY, {
-      ...(currentItem ?? {}),
-      global_voice_id: normalizedVoiceId,
-      providers: normalizedProvider || currentItem?.providers || currentItem?.provider || DEFAULT_SPEECH_PROVIDER
-    })
-  }
-
-  private buildSpeechPayload(args: Record<string, unknown>) {
-    const text = typeof args.text === 'string' ? args.text.trim() : ''
-    const persistedVoiceItem = this.readPersistedSelectedVoiceItem()
-    const voiceIdRaw = typeof args.voiceId === 'string' ? args.voiceId : args.voice_id
-    const voiceId =
-      typeof voiceIdRaw === 'string' && voiceIdRaw.trim()
-        ? voiceIdRaw.trim()
-        : String(persistedVoiceItem?.global_voice_id || persistedVoiceItem?.voice_id || DEFAULT_SPEECH_VOICE_ID).trim()
-    if (!text) {
-      throw new McpError(ErrorCode.InvalidParams, "'text' is required for generate_speech")
-    }
-
-    const provider =
-      typeof args.provider === 'string' && args.provider.trim()
-        ? args.provider.trim()
-        : String(persistedVoiceItem?.providers || persistedVoiceItem?.provider || DEFAULT_SPEECH_PROVIDER).trim() ||
-          DEFAULT_SPEECH_PROVIDER
-
-    const payload: Record<string, unknown> = {
-      provider
-    }
-
-    for (const [rawKey, value] of Object.entries(args)) {
-      if (value === undefined) {
-        continue
-      }
-      const key = SPEECH_FIELD_ALIASES[rawKey] ?? rawKey
-      payload[key] = value
-    }
-
-    payload.text = text
-    payload.voice_id = voiceId
-    this.persistSelectedVoiceItem(voiceId, provider)
-    return payload
-  }
-
   private async generateSpeech(args: Record<string, unknown>) {
-    const payload = this.buildSpeechPayload(args)
-    const response = await this.requestWithAuth(payload)
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`Speech generation failed (${response.status}): ${body || 'unknown error'}`)
-    }
-
-    const result = (await response.json()) as SpeechGenerateResponse
+    const { payload, result } = await generateSpeechAudio(args, {
+      store: this.store,
+      request: (_endpoint, body) => this.requestWithAuth(body)
+    })
 
     // #region debug-point D:speech-generate-server-result
     fetch('http://127.0.0.1:7777/event', {

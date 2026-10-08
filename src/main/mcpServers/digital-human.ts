@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { loggerService } from '@logger'
 import { ossUploadService } from '@main/services/OssUploadService'
 import { getResourcePath } from '@main/utils'
+import { generateSpeechAudio } from './speech-generate'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -46,20 +47,24 @@ const PROCESS_MAX_BUFFER = 1024 * 1024
 const CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_lip_sync_digital_human',
   description:
-    'Create a lip-sync digital human video from one audio source and one portrait video source, and wait until the same tool call finishes with the final video result. Remote URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
+    'Create a lip-sync digital human video from one copywriting text, one voice ID, and one portrait video. Speech audio is synthesized inside this tool; do not call a separate speech generation tool first. The same tool call waits for the final video result.',
   inputSchema: {
     type: 'object',
     properties: {
-      audioUrl: {
+      copywriting: {
         type: 'string',
-        description: 'Required source audio URL, file URL, or absolute local path.'
+        description: 'Required spoken copywriting content.'
+      },
+      voiceId: {
+        type: 'string',
+        description: 'Required voice ID used to synthesize the digital human audio.'
       },
       videoUrl: {
         type: 'string',
         description: 'Required portrait video URL, file URL, or absolute local path.'
       }
     },
-    required: ['audioUrl', 'videoUrl'],
+    required: ['copywriting', 'voiceId', 'videoUrl'],
     additionalProperties: false
   }
 }
@@ -83,13 +88,17 @@ const GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
 const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_image_driven_digital_human',
   description:
-    'Create a Jimeng Omni image-driven digital human video from one audio source, one portrait image, and one scene prompt, and wait until the same tool call finishes with the final video result. Remote URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
+    'Create a Jimeng Omni image-driven digital human video from one portrait image, one copywriting text, one voice ID, and one scene prompt. Speech audio is synthesized inside this tool; do not call a separate speech generation tool first. The same tool call waits for the final video result.',
   inputSchema: {
     type: 'object',
     properties: {
-      audioUrl: {
+      copywriting: {
         type: 'string',
-        description: 'Required source audio URL, file URL, or absolute local path. Must not exceed 60 seconds.'
+        description: 'Required spoken copywriting content.'
+      },
+      voiceId: {
+        type: 'string',
+        description: 'Required voice ID used to synthesize the digital human audio.'
       },
       imageUrl: {
         type: 'string',
@@ -105,7 +114,7 @@ const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
         description: 'Optional output resolution. Defaults to 1080.'
       }
     },
-    required: ['audioUrl', 'imageUrl', 'prompt'],
+    required: ['copywriting', 'voiceId', 'imageUrl', 'prompt'],
     additionalProperties: false
   }
 }
@@ -141,7 +150,7 @@ const GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
 const CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_seedance_digital_human',
   description:
-    'Create a Seedance image-driven digital human video from one portrait image, one copywriting text, and one voice ID, and wait until the same tool call finishes with the final video result. Remote image URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
+    'Create an image-driven digital human video from one portrait image, one copywriting text, and one voice ID, and wait until the same tool call finishes with the final video result. Remote image URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -165,13 +174,13 @@ const CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL: Tool = {
 
 const GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
   name: 'get_seedance_digital_human_status',
-  description: 'Backward-compatible status query for a Seedance image-driven digital human task.',
+  description: 'Backward-compatible status query for an image-driven digital human task.',
   inputSchema: {
     type: 'object',
     properties: {
       taskId: {
         type: 'string',
-        description: 'Required Seedance digital human task ID.'
+        description: 'Required image-driven digital human task ID.'
       }
     },
     required: ['taskId'],
@@ -234,6 +243,10 @@ type DigitalHumanCreateResponse = {
 type DigitalHumanStatusResponse = {
   digital_human_url?: string
   video_url?: string
+  result?: {
+    video_url?: string
+    [key: string]: unknown
+  }
   task_status?: number | string
   status?: string
   progress?: number | null
@@ -633,7 +646,7 @@ class DigitalHumanServer {
   }
 
   private extractVideoUrl(result: DigitalHumanStatusResponse): string | undefined {
-    const directCandidates = [result.video_url, result.digital_human_url]
+    const directCandidates = [result.video_url, result.digital_human_url, result.result?.video_url]
     for (const candidate of directCandidates) {
       if (typeof candidate === 'string' && candidate.trim()) {
         return candidate.trim()
@@ -669,8 +682,7 @@ class DigitalHumanServer {
 
   private isCompleted(mode: 'lip_sync' | 'image_driven' | 'seedance_image_driven', result: DigitalHumanStatusResponse): boolean {
     if (mode === 'lip_sync') {
-      const taskStatus = String(result.task_status ?? '').trim().toLowerCase()
-      return Boolean(this.extractVideoUrl(result)) || ['1', '5', 'done', 'success', 'completed'].includes(taskStatus)
+      return String(result.task_status ?? '').trim() === '1'
     }
     const status = this.normalizeStatus(result.status)
     return Boolean(this.extractVideoUrl(result)) || status === 'success' || status === 'succeeded' || status === 'completed'
@@ -718,8 +730,9 @@ class DigitalHumanServer {
     while (Date.now() < deadline) {
       attempt += 1
       const result = await this.queryStatus(statusEndpoint, taskId)
+      const completed = this.isCompleted(mode, result)
 
-      if (this.isCompleted(mode, result)) {
+      if (completed) {
         await this.reportProgress(extra, 100, result.message || '数字人生成完成')
         return result
       }
@@ -766,6 +779,9 @@ class DigitalHumanServer {
     await this.reportProgress(args.extra, 12, '数字人任务已提交，预计 15-30 分钟完成')
     const finalResult = await this.waitForResult(args.mode, taskId, args.statusEndpoint, args.extra, args.processingMessage)
     const videoUrl = this.extractVideoUrl(finalResult)
+    if (!videoUrl) {
+      throw new Error('Digital human task completed without a video URL')
+    }
 
     return this.formatJsonResult({
       provider: 'vectcut',
@@ -790,9 +806,8 @@ class DigitalHumanServer {
   }
 
   private async createLipSyncDigitalHuman(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
-    const audioInput = this.getRequiredString(args, 'audioUrl', 'audio_url')
     const videoInput = this.getRequiredString(args, 'videoUrl', 'video_url')
-    const preparedAudio = await this.prepareSource(audioInput, 'audioUrl')
+    const audioUrl = await this.resolveSpeechAudioUrl(args, extra)
     const preparedVideo = await this.prepareSource(videoInput, 'videoUrl')
 
     return this.submitAndWait({
@@ -800,10 +815,10 @@ class DigitalHumanServer {
       submitEndpoint: DIGITAL_HUMAN_CREATE_ENDPOINT,
       statusEndpoint: DIGITAL_HUMAN_STATUS_ENDPOINT,
       requestBody: {
-        audio_url: preparedAudio.submittedUrl,
+        audio_url: audioUrl,
         video_url: preparedVideo.submittedUrl
       },
-      sourceSummary: [preparedAudio, preparedVideo],
+      sourceSummary: [preparedVideo],
       extra,
       processingMessage: '正在生成口型驱动数字人',
       submitMessage: '正在提交口型驱动数字人任务'
@@ -824,7 +839,6 @@ class DigitalHumanServer {
   }
 
   private async createImageDrivenDigitalHuman(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
-    const audioInput = this.getRequiredString(args, 'audioUrl', 'audio_url')
     const imageInput = this.getRequiredString(args, 'imageUrl', 'image_url')
     const prompt = this.getRequiredString(args, 'prompt')
     const outputResolution =
@@ -833,25 +847,67 @@ class DigitalHumanServer {
         : typeof args.output_resolution === 'number'
           ? args.output_resolution
           : DEFAULT_OMNI_OUTPUT_RESOLUTION
-    const preparedAudio = await this.prepareSource(audioInput, 'audioUrl')
     const preparedImage = await this.prepareSource(imageInput, 'imageUrl')
+    const audioUrl = await this.resolveSpeechAudioUrl(args, extra)
 
     return this.submitAndWait({
       mode: 'image_driven',
       submitEndpoint: OMNI_DIGITAL_HUMAN_SUBMIT_ENDPOINT,
       statusEndpoint: OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT,
       requestBody: {
-        audio_url: preparedAudio.submittedUrl,
+        audio_url: audioUrl,
         image_url: preparedImage.submittedUrl,
         prompt,
         output_resolution: outputResolution
       },
       outputResolution,
-      sourceSummary: [preparedAudio, preparedImage],
+      sourceSummary: [preparedImage],
       extra,
       processingMessage: '正在生成图片驱动数字人',
       submitMessage: '正在提交图片驱动数字人任务'
     })
+  }
+
+  private async resolveSpeechAudioUrl(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+    const legacyAudioInput =
+      typeof args.audioUrl === 'string'
+        ? args.audioUrl.trim()
+        : typeof args.audio_url === 'string'
+          ? args.audio_url.trim()
+          : ''
+    let audioUrl = legacyAudioInput
+
+    if (audioUrl) {
+      audioUrl = (await this.prepareSource(audioUrl, 'audioUrl')).submittedUrl
+    } else {
+      const copywriting = this.getRequiredString(args, 'copywriting')
+      const voiceId = this.getRequiredString(args, 'voiceId', 'voice_id')
+      const provider = String(args.provider || args.voiceProvider || args.voice_provider || '').trim()
+      await this.reportProgress(extra, 2, '正在生成数字人口播音频')
+      const generatedSpeech = await generateSpeechAudio(
+        {
+          text: copywriting,
+          voiceId,
+          ...(provider ? { provider } : {}),
+          onlyTts: true
+        },
+        {
+          store: this.store,
+          request: (endpoint, body) =>
+            this.requestWithAuth(endpoint, {
+              method: 'POST',
+              body
+            })
+        }
+      )
+      audioUrl = generatedSpeech.audioUrl
+      if (!audioUrl) {
+        throw new Error(
+          `Speech generation returned no audio URL: ${generatedSpeech.result.error || 'unknown error'}`
+        )
+      }
+    }
+    return audioUrl
   }
 
   private async getImageDrivenDigitalHumanStatus(args: Record<string, unknown>) {
@@ -884,8 +940,8 @@ class DigitalHumanServer {
       },
       sourceSummary: [preparedImage],
       extra,
-      processingMessage: '正在生成 Seedance 数字人',
-      submitMessage: '正在提交 Seedance 数字人任务'
+      processingMessage: '正在生成图片驱动数字人',
+      submitMessage: '正在提交图片驱动数字人任务'
     })
   }
 

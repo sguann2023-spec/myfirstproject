@@ -370,6 +370,11 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
       prev.id !== next.id
       || prev.role !== next.role
       || prev.content !== next.content
+      || prev.blocks !== next.blocks
+      || prev.error !== next.error
+      || prev.aborted !== next.aborted
+      || prev.digitalHumanRequest !== next.digitalHumanRequest
+      || prev.storeAssistantMessageId !== next.storeAssistantMessageId
       || prev.createdAt !== next.createdAt
       || prev.updatedAt !== next.updatedAt
     ) {
