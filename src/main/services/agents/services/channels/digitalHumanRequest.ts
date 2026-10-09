@@ -64,3 +64,48 @@ export function isDirectDigitalHumanResponseComplete(mode: string, response: Rec
   if (mode !== 'lip_sync') return true
   return String(response.task_status ?? '').trim() === '1'
 }
+
+export function buildDirectDigitalHumanPackagingArgs(input: {
+  template: string
+  videoUrl: string
+  copywriting: string
+}) {
+  return {
+    template: input.template,
+    videoUrl: input.videoUrl,
+    textContent: input.copywriting,
+    params: {
+      remove_silence: false
+    }
+  }
+}
+
+export function mapDirectRequestStageProgress(
+  progress: number,
+  total: number,
+  stageStart: number,
+  stageEnd: number
+) {
+  const normalizedTotal = Number.isFinite(total) && total > 0 ? total : 100
+  const normalizedProgress = Math.max(0, Math.min(1, progress / normalizedTotal))
+  return stageStart + normalizedProgress * (stageEnd - stageStart)
+}
+
+export function buildPackagedDraftExportArgs(
+  packagingResponse: Record<string, unknown> | null | undefined,
+  template: string
+) {
+  const output =
+    packagingResponse?.output &&
+    typeof packagingResponse.output === 'object' &&
+    !Array.isArray(packagingResponse.output)
+      ? packagingResponse.output as Record<string, unknown>
+      : {}
+  const draftId = String(output.draft_id || packagingResponse?.draft_id || '').trim()
+  if (!draftId) return null
+
+  return {
+    draftId,
+    draftName: `${template} 智能包装`
+  }
+}

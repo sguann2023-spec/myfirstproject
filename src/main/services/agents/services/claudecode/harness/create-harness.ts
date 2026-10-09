@@ -1406,9 +1406,6 @@ function buildCodemodeTool(input: {
         toolCallId: nestedToolCallId,
         inputChars: summarizeValue(toolArgs).length
       })
-      // #region debug-point A:nested-mcp-start
-      void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'A', location: 'create-harness.ts:buildCodemodeTool.execute', msg: '[DEBUG] Nested MCP execution started', data: { traceId: invokeContext.runtime.traceId, toolName: tool.name, toolCallId: nestedToolCallId }, ts: Date.now() }) }).catch(() => {})
-      // #endregion
 
       try {
         await capturePendingFileChangeSnapshots({

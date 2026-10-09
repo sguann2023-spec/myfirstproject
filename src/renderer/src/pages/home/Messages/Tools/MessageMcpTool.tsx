@@ -277,7 +277,12 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       if (isVideoUnderstandeToolName(toolName)) {
         return extractVideoUnderstandeBillingSummary(toolResponse.response)
       }
-      if (isMediaGenerationToolName(toolName) || isSubtitleRecognitionToolName(toolName) || isReversePromptToolName(toolName)) {
+      if (
+        isKouboTemplateToolName(toolName) ||
+        isMediaGenerationToolName(toolName) ||
+        isSubtitleRecognitionToolName(toolName) ||
+        isReversePromptToolName(toolName)
+      ) {
         return extractMediaGenerationBillingSummary({
           response: toolResponse.response,
           responseRaw: toolResponse.responseRaw
@@ -287,44 +292,6 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
     },
     [tool?.name, toolResponse.response, toolResponse.responseRaw]
   )
-
-  if (isMediaGenerationToolName(tool?.name || '')) {
-    // #region debug-point C:message-mcp-tool-billing
-    fetch('http://127.0.0.1:7777/event', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: 'media-billing-missing',
-        runId: 'pre-fix',
-        hypothesisId: 'C',
-        location: 'MessageMcpTool.tsx:billingSummary',
-        msg: '[DEBUG] legacy message mcp tool billing state',
-        data: {
-          toolName: tool?.name || '',
-          status,
-          progress,
-          progressMessage,
-          hasBillingSummary: Boolean(billingSummary),
-          billingDisplayText: billingSummary?.displayText ?? null,
-          responsePreview: (() => {
-            try {
-              return JSON.stringify(toolResponse.response).slice(0, 280)
-            } catch {
-              return String(toolResponse.response).slice(0, 280)
-            }
-          })(),
-          responseRawPreview: (() => {
-            try {
-              return JSON.stringify(toolResponse.responseRaw).slice(0, 280)
-            } catch {
-              return String(toolResponse.responseRaw).slice(0, 280)
-            }
-          })()
-        },
-        ts: Date.now()
-      })
-    }).catch(() => {})
-    // #endregion
-  }
 
   useEffect(() => {
     const removeListener = window.electron.ipcRenderer.on(
@@ -424,24 +391,24 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
             {billingSummary && (isDone || isError) && (
               <span
                 className="image-understand-tool-billing-badge"
-                style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingBadgeStyle : undefined}
+                style={isMediaGeneration || isKouboTemplate ? mediaGenerationLegacyHeaderBillingBadgeStyle : undefined}
                 title={`总消耗 ${billingSummary.displayText}`}>
                 <img
                   className="image-understand-tool-billing-icon"
                   src={
                     isVideoUnderstandeToolName(tool?.name || '')
                       ? getVideoUnderstandePointIconUrl()
-                      : isMediaGenerationToolName(tool?.name || '')
+                      : isMediaGeneration || isKouboTemplate
                         ? getMediaGenerationPointIconUrl()
                         : getImageUnderstandePointIconUrl()
                   }
-                  style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingIconStyle : undefined}
+                  style={isMediaGeneration || isKouboTemplate ? mediaGenerationLegacyHeaderBillingIconStyle : undefined}
                   alt=""
                   aria-hidden="true"
                 />
                 <span
                   className="image-understand-tool-billing-text"
-                  style={isMediaGenerationToolName(tool?.name || '') ? mediaGenerationLegacyHeaderBillingTextStyle : undefined}>
+                  style={isMediaGeneration || isKouboTemplate ? mediaGenerationLegacyHeaderBillingTextStyle : undefined}>
                   {billingSummary.displayText}
                 </span>
               </span>

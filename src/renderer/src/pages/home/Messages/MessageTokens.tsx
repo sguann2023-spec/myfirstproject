@@ -89,7 +89,10 @@ function extractBillingPointsFromPayload(payload: unknown): number | null {
   const nestedBilling = asRecord(record.billing)
   if (nestedBilling) {
     return asFiniteNumber(
-      nestedBilling.total_consumed_points ?? nestedBilling.points_consumed ?? nestedBilling.consume
+      nestedBilling.total_consumed_points ??
+        nestedBilling.points_consumed ??
+        nestedBilling.deduct_points ??
+        nestedBilling.consume
     )
   }
 
@@ -99,6 +102,10 @@ function extractBillingPointsFromPayload(payload: unknown): number | null {
 
   if ('points_consumed' in record) {
     return asFiniteNumber(record.points_consumed)
+  }
+
+  if ('deduct_points' in record) {
+    return asFiniteNumber(record.deduct_points)
   }
 
   if ('consume' in record) {

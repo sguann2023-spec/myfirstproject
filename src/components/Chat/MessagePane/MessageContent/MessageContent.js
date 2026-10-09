@@ -77,6 +77,12 @@ const buildAssistantMessageStatus = ({ message, isLoading, entities, blockIds })
   return hasActiveBlock ? 'processing' : 'success';
 };
 
+const isActiveBlockStatus = (status) => (
+  status === MessageBlockStatus.PENDING
+  || status === MessageBlockStatus.PROCESSING
+  || status === MessageBlockStatus.STREAMING
+);
+
 const InterruptedNotice = ({ visible }) => (
   visible ? <div className="chat-message-interrupted">已停止生成</div> : null
 );
@@ -162,6 +168,7 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
 
 const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId, isLoading = false }) => {
   const storeMessage = useSelector((state) => state?.messages?.entities?.[storeAssistantMessageId] || null);
+  const storeBlockEntities = useSelector((state) => state?.messageBlocks?.entities || {});
   const fallbackAssistantState = React.useMemo(
     () => buildAssistantBlockState({ message: fallbackMessage, isLoading }),
     [fallbackMessage, isLoading]
@@ -179,13 +186,24 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
     () => String(fallbackMessage?.createdAt || new Date().toISOString()),
     [fallbackMessage?.id, fallbackMessage?.createdAt]
   );
+  const hasActiveStoreBlock = React.useMemo(
+    () => (Array.isArray(storeMessage?.blocks) ? storeMessage.blocks : [])
+      .some((id) => isActiveBlockStatus(storeBlockEntities[id]?.status)),
+    [storeMessage?.blocks, storeBlockEntities]
+  );
+  const shouldUseTerminalFallback = Boolean(
+    storeMessage
+    && !isLoading
+    && fallbackAssistantStatus !== 'processing'
+    && hasActiveStoreBlock
+  );
 
   React.useEffect(() => {
     const fallbackBlocks = fallbackAssistantState.blockIds
       .map((id) => fallbackAssistantState.entities[id])
       .filter(Boolean);
     if (fallbackBlocks.length === 0) return;
-    if (!storeMessage) {
+    if (!storeMessage || shouldUseTerminalFallback) {
       appStore.dispatch(upsertManyBlocks(fallbackBlocks));
       return;
     }
@@ -196,12 +214,15 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
     if (extraBlocks.length > 0) {
       appStore.dispatch(upsertManyBlocks(extraBlocks));
     }
-  }, [storeMessage, fallbackAssistantState]);
+  }, [storeMessage, fallbackAssistantState, shouldUseTerminalFallback]);
 
   const resolvedMessage = storeMessage
     ? {
       ...storeMessage,
-      status: isLoading ? fallbackAssistantStatus : (storeMessage?.status || fallbackAssistantStatus),
+      status: isLoading || shouldUseTerminalFallback
+        ? fallbackAssistantStatus
+        : (storeMessage?.status || fallbackAssistantStatus),
+      blocks: shouldUseTerminalFallback ? fallbackAssistantState.blockIds : storeMessage?.blocks,
       error: fallbackMessage?.error || storeMessage?.error || null,
       aborted: Boolean(fallbackMessage?.aborted || storeMessage?.aborted),
       retryStatusText: fallbackMessage?.retryStatusText || storeMessage?.retryStatusText || ''

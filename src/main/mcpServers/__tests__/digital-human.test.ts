@@ -135,6 +135,9 @@ describe('DigitalHumanServer', () => {
       .mockResolvedValueOnce(
         mockJsonResponse({
           error: '',
+          billing: {
+            total_consumed_points: 10
+          },
           output: {
             audio_url: 'https://example.com/generated-speech.mp3'
           },
@@ -151,7 +154,10 @@ describe('DigitalHumanServer', () => {
         mockJsonResponse({
           task_status: 1,
           digital_human_url: 'https://example.com/dh.mp4',
-          message: '处理完成'
+          message: '处理完成',
+          billing: {
+            total_consumed_points: 90
+          }
         })
       )
 
@@ -214,7 +220,12 @@ describe('DigitalHumanServer', () => {
       task_status: 1,
       message: '处理完成',
       digital_human_url: 'https://example.com/dh.mp4',
-      video_url: 'https://example.com/dh.mp4'
+      video_url: 'https://example.com/dh.mp4',
+      billing: {
+        total_consumed_points: 100,
+        digital_human_consumed_points: 90,
+        speech_consumed_points: 10
+      }
     })
   })
 

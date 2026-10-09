@@ -55,9 +55,6 @@ export default function MessageTool({ block }: Props) {
   const toolRenderer = ChooseTool(toolResponse)
 
   if (!toolRenderer) {
-    // #region debug-point C:renderer-rejection
-    void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'C', location: 'MessageTool.tsx:MessageTool', msg: '[DEBUG] Renderer rejected tool block', data: { blockId: block.id, messageId: block.messageId, toolName: toolResponse?.tool?.name, toolType: toolResponse?.tool?.type }, ts: Date.now() }) }).catch(() => {})
-    // #endregion
     return null
   }
 

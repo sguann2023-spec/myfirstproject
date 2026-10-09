@@ -468,9 +468,6 @@ export async function processPiHarnessQuery(input: {
     registerMcpProgressCallId(toolCallId, emittedToolCallId)
     pendingToolCalls.set(toolCallId, pendingToolCall)
     pendingToolCalls.set(emittedToolCallId, pendingToolCall)
-    // #region debug-point B:stream-tool-registration
-    void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'B', location: 'pi-query-stream.ts:registerPendingPiToolCall', msg: '[DEBUG] Pi stream registered tool call', data: { traceId: architectureContext.traceId, providerToolCallId: toolCallId, emittedToolCallId, toolName, source }, ts: Date.now() }) }).catch(() => {})
-    // #endregion
 
     if (source === 'message_end_snapshot') {
       logger.warn('[PiQuery] recovered missing toolcall_end from assistant message_end snapshot', {
@@ -976,9 +973,6 @@ export async function processPiHarnessQuery(input: {
         const errorObj = idleTimeoutTriggered
           ? createPiIdleTimeoutError(idleTimeoutMs)
           : (error instanceof Error ? error : new Error(String(error)))
-        // #region debug-point E:prompt-error
-        void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'E', location: 'pi-query-stream.ts:prompt-catch', msg: '[DEBUG] Prompt attempt threw', data: { currentAttempt, errorName: errorObj.name, errorMessage: errorObj.message, stack: errorObj.stack }, ts: Date.now() }) }).catch(() => {})
-        // #endregion
         // 中途已经产出内容也允许重试，只要错误可重试且未被外部 abort。
         const madeProgress = hasMadeProgressSinceSnapshot()
         const nextRetryCount = computeNextRetryCount()

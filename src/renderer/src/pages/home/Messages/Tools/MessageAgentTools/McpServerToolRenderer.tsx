@@ -22,6 +22,7 @@ interface McpServerToolProps {
   output?: unknown
   progress?: number
   progressMessage?: string
+  isRunning?: boolean
 }
 
 export function isAgentMcpToolName(name: string): boolean {
@@ -59,7 +60,8 @@ export function McpServerToolRenderer({
   input,
   output,
   progress,
-  progressMessage
+  progressMessage,
+  isRunning = false
 }: McpServerToolProps): NonNullable<CollapseProps['items']>[number] {
   const { t } = useTranslation()
 
@@ -67,6 +69,9 @@ export function McpServerToolRenderer({
   const mcpText = extractMcpText(output)
   const normalizedOutput = mcpText !== null ? { value: mcpText } : normalizeArgs(output)
   const normalizedProgressMessage = normalizeProgressMessage(progressMessage, progress)
+  const headerProgressMessage = /^\d+(?:\.\d+)?%$/.test(normalizedProgressMessage || '')
+    ? undefined
+    : normalizedProgressMessage
   const isKouboTemplate = isKouboTemplateToolName(toolName)
   const isMediaGeneration = isMediaGenerationToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
@@ -78,41 +83,9 @@ export function McpServerToolRenderer({
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
-  const mediaGenerationBillingSummary = isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
+  const mediaGenerationBillingSummary = isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
     ? extractMediaGenerationBillingSummary(output)
     : null
-
-  if (isMediaGeneration) {
-    // #region debug-point B:mcp-server-tool-renderer-billing
-    fetch('http://127.0.0.1:7777/event', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: 'media-billing-missing',
-        runId: 'pre-fix',
-        hypothesisId: 'B',
-        location: 'McpServerToolRenderer.tsx:billingSummary',
-        msg: '[DEBUG] media generation billing summary computed',
-        data: {
-          toolName,
-          progress,
-          progressMessage: normalizedProgressMessage,
-          outputType: Array.isArray(output) ? 'array' : typeof output,
-          outputKeys: output && typeof output === 'object' && !Array.isArray(output) ? Object.keys(output as Record<string, unknown>).slice(0, 8) : [],
-          hasBillingSummary: Boolean(mediaGenerationBillingSummary),
-          billingDisplayText: mediaGenerationBillingSummary?.displayText ?? null,
-          outputPreview: (() => {
-            try {
-              return JSON.stringify(output).slice(0, 320)
-            } catch {
-              return String(output).slice(0, 320)
-            }
-          })()
-        },
-        ts: Date.now()
-      })
-    }).catch(() => {})
-    // #endregion
-  }
 
   const mediaGenerationHeaderStatsStyle = {
     display: 'inline-flex',
@@ -194,7 +167,7 @@ export function McpServerToolRenderer({
       <ToolHeader
         toolName={toolName}
         icon={<Wrench size={14} />}
-        params={normalizedProgressMessage || t('message.tools.labels.mcpServerTool')}
+        params={headerProgressMessage || t('message.tools.labels.mcpServerTool')}
         stats={headerStats}
         variant="collapse-label"
         showStatus={false}
@@ -208,7 +181,7 @@ export function McpServerToolRenderer({
             output={output}
             progress={progress}
             progressMessage={normalizedProgressMessage}
-            isRunning={typeof progress === 'number' && progress < 1}
+            isRunning={isRunning}
           />
         ) : null}
         {isMediaGeneration ? (
@@ -218,7 +191,7 @@ export function McpServerToolRenderer({
             output={output}
             progress={progress}
             progressMessage={normalizedProgressMessage}
-            isRunning={typeof progress === 'number' && progress < 1}
+            isRunning={isRunning}
           />
         ) : null}
         {isSubtitleRecognition ? (
@@ -227,7 +200,7 @@ export function McpServerToolRenderer({
             output={output}
             progress={progress}
             progressMessage={normalizedProgressMessage}
-            isRunning={typeof progress === 'number' && progress < 1}
+            isRunning={isRunning}
           />
         ) : null}
         {isSubtitleTemplate ? (
@@ -236,7 +209,7 @@ export function McpServerToolRenderer({
             output={output}
             progress={progress}
             progressMessage={normalizedProgressMessage}
-            isRunning={typeof progress === 'number' && progress < 1}
+            isRunning={isRunning}
           />
         ) : null}
         {!isKouboTemplate && !isMediaGeneration && !isSubtitleRecognition && !isSubtitleTemplate && normalizedInput && (

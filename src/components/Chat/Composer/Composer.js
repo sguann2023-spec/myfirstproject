@@ -1258,6 +1258,28 @@ const createVideoTemplateAttachmentEntries = async (template = {}) => {
 
   return entries.filter(Boolean);
 };
+const createDigitalHumanTemplateAttachmentEntry = async (template = {}) => {
+  const url = String(template?.sourceVideo || '').trim();
+  if (!url) return null;
+  const fileNameFromUrl = getRemoteMediaUrlFileName(url);
+  const fallbackExtension = getFileExtension(fileNameFromUrl);
+  const attachment = await createRemoteAttachmentEntry({
+    uid: `digital-human-template:${template?.value || template?.id || 'template'}:source-video`,
+    name: fallbackExtension ? `人物视频.${fallbackExtension}` : '人物视频',
+    url,
+    fileType: 'video/mp4',
+    sourceType: 'digital_human_template',
+    sourceLabel: String(template?.value || template?.id || '').trim(),
+  });
+  return attachment
+    ? {
+        ...attachment,
+        slotId: DIGITAL_HUMAN_VIDEO_SLOT_ID,
+        status: 'done',
+        percent: 100,
+      }
+    : null;
+};
 const createMusicGenerateTemplateAttachmentEntries = async (template = {}) => {
   const entries = [];
   const templateId = String(template?.id || 'template').trim();
@@ -4197,12 +4219,22 @@ const Composer = ({
     const digitalHumanVideoFile = activeTool === 'digital-human'
       ? uploadedFileMeta.find((item) => String(item?.slotId || '').trim() === DIGITAL_HUMAN_VIDEO_SLOT_ID)
       : null;
-    const digitalHumanVoiceId = isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
-      ? normalizeDigitalHumanAvatarVoiceId(selectedDigitalHumanAvatar?.voice_id)
-      : String(selectedVoiceLibraryItem?.global_voice_id || '').trim();
+    const selectedDigitalHumanVoiceId = String(
+      selectedVoiceLibraryItem?.global_voice_id || selectedVoiceLibraryItem?.voice_id || ''
+    ).trim();
+    const shouldUseTemplateImageVoice = Boolean(
+      selectedDigitalHumanPackagingTemplate
+      && isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
+      && selectedDigitalHumanVoiceId
+    );
+    const digitalHumanVoiceId = shouldUseTemplateImageVoice
+      ? selectedDigitalHumanVoiceId
+      : isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
+        ? normalizeDigitalHumanAvatarVoiceId(selectedDigitalHumanAvatar?.voice_id)
+        : selectedDigitalHumanVoiceId;
     const digitalHumanVoiceProvider = normalizeMemberProvider(
       isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
-        ? ''
+        ? 'elevenlabs'
         : (
           selectedVoiceLibraryItem?.price_provider
           || selectedVoiceLibraryItem?.providers
@@ -4711,6 +4743,18 @@ const Composer = ({
     });
   }, []);
 
+  const handleDigitalHumanTemplateMediaApply = React.useCallback(async (template) => {
+    const nextTemplateAttachment = await createDigitalHumanTemplateAttachmentEntry(template);
+    setUploadedFileMeta((prev) => {
+      const retainedItems = (Array.isArray(prev) ? prev : []).filter(
+        (item) => String(item?.sourceType || '').trim() !== 'digital_human_template'
+      );
+      return nextTemplateAttachment
+        ? [...retainedItems, nextTemplateAttachment]
+        : retainedItems;
+    });
+  }, []);
+
   const handleToolSelect = React.useCallback((toolId) => {
     const normalizedToolId = String(toolId || '').trim();
     if (normalizedToolId.startsWith(AI_WRITE_TOOL_PREFIX)) {
@@ -4941,6 +4985,8 @@ const Composer = ({
                       onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
                       onPackagingTemplateChange={setSelectedDigitalHumanPackagingTemplate}
+                      onPromptChange={handleVoiceSquareTemplateApply}
+                      onTemplateMediaChange={handleDigitalHumanTemplateMediaApply}
                     />
                   ) : activeTool === 'image-pan' ? (
                     <ImagePanToolDetail

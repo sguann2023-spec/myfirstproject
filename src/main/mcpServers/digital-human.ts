@@ -23,6 +23,7 @@ const ffprobeStatic = require('ffprobe-static') as { path?: string }
 
 const API_HOST = 'https://open.vectcut.com'
 const DIGITAL_HUMAN_CREATE_ENDPOINT = '/cut_jianying/digital_human/create'
+const DIGITAL_HUMAN_UPLOAD_ENDPOINT = '/cut_jianying/digital_human/upload'
 const DIGITAL_HUMAN_STATUS_ENDPOINT = '/cut_jianying/digital_human/task_status'
 const OMNI_DIGITAL_HUMAN_SUBMIT_ENDPOINT = '/cut_jianying/digital_human/omni/submit'
 const OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT = '/cut_jianying/digital_human/omni/task_status'
@@ -233,11 +234,19 @@ type FfprobeResult = {
 }
 
 type DigitalHumanCreateResponse = {
+  audio_media_id?: string
   message?: string
   task_id?: string
   status?: string
   success?: boolean
+  video_media_id?: string
   [key: string]: unknown
+}
+
+type DigitalHumanUploadResponse = {
+  media_id?: string
+  message?: string
+  success?: boolean
 }
 
 type DigitalHumanStatusResponse = {
@@ -253,6 +262,11 @@ type DigitalHumanStatusResponse = {
   message?: string | null
   success?: boolean
   [key: string]: unknown
+}
+
+type ResolvedSpeechAudio = {
+  audioUrl: string
+  billingSource?: Record<string, unknown>
 }
 
 class DigitalHumanServer {
@@ -698,7 +712,7 @@ class DigitalHumanServer {
       const numericProgress = result.progress <= 1 ? result.progress * 100 : result.progress
       return Math.max(12, Math.min(95, Math.round(numericProgress)))
     }
-    return Math.min(92, 12 + attempt * 5)
+    return Math.min(95, 12 + attempt * 2)
   }
 
   private async queryStatus(endpoint: string, taskId: string): Promise<DigitalHumanStatusResponse> {
@@ -715,6 +729,66 @@ class DigitalHumanServer {
     }
 
     return (await response.json()) as DigitalHumanStatusResponse
+  }
+
+  private isResourceUploadFailure(result: DigitalHumanCreateResponse): boolean {
+    return !String(result.task_id || '').trim() && String(result.message || '').includes('资源上传失败')
+  }
+
+  private async uploadRemoteMedia(fileUrl: string, mediaType: 'audio' | 'video'): Promise<string> {
+    const response = await this.requestWithAuth(DIGITAL_HUMAN_UPLOAD_ENDPOINT, {
+      method: 'POST',
+      body: {
+        file_url: fileUrl,
+        media_type: mediaType
+      }
+    })
+    const result = (await response.json().catch(() => ({}))) as DigitalHumanUploadResponse
+    const mediaId = String(result.media_id || '').trim()
+    if (!response.ok || !mediaId) {
+      throw new Error(
+        `Digital human ${mediaType} upload retry failed (${response.status}): ${result.message || 'unknown error'}`
+      )
+    }
+    return mediaId
+  }
+
+  private async retryLipSyncSubmissionAfterUploadFailure(
+    requestBody: Record<string, unknown>,
+    failedResult: DigitalHumanCreateResponse,
+    extra?: ToolExecutionExtra
+  ): Promise<DigitalHumanCreateResponse> {
+    const videoUrl = String(requestBody.video_url || '').trim()
+    const audioUrl = String(requestBody.audio_url || '').trim()
+    if (!videoUrl || !audioUrl) {
+      return failedResult
+    }
+
+    let videoMediaId = String(failedResult.video_media_id || '').trim()
+    let audioMediaId = String(failedResult.audio_media_id || '').trim()
+    if (!videoMediaId) {
+      await this.reportProgress(extra, 6, '正在重试上传人物视频')
+      videoMediaId = await this.uploadRemoteMedia(videoUrl, 'video')
+    }
+    if (!audioMediaId) {
+      await this.reportProgress(extra, 9, '正在重试上传口播音频')
+      audioMediaId = await this.uploadRemoteMedia(audioUrl, 'audio')
+    }
+
+    await this.reportProgress(extra, 11, '资源上传成功，正在重新提交数字人任务')
+    const response = await this.requestWithAuth(DIGITAL_HUMAN_CREATE_ENDPOINT, {
+      method: 'POST',
+      body: {
+        ...requestBody,
+        video_media_id: videoMediaId,
+        audio_media_id: audioMediaId
+      }
+    })
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Digital human creation retry failed (${response.status}): ${body || 'unknown error'}`)
+    }
+    return (await response.json()) as DigitalHumanCreateResponse
   }
 
   private async waitForResult(
@@ -758,6 +832,7 @@ class DigitalHumanServer {
     extra?: ToolExecutionExtra
     processingMessage: string
     submitMessage: string
+    speechBillingSource?: Record<string, unknown>
   }) {
     await this.reportProgress(args.extra, 5, args.submitMessage)
     const response = await this.requestWithAuth(args.submitEndpoint, {
@@ -770,7 +845,20 @@ class DigitalHumanServer {
       throw new Error(`Digital human creation failed (${response.status}): ${body || 'unknown error'}`)
     }
 
-    const submitResult = (await response.json()) as DigitalHumanCreateResponse
+    let submitResult = (await response.json()) as DigitalHumanCreateResponse
+    if (args.mode === 'lip_sync' && this.isResourceUploadFailure(submitResult)) {
+      logger.warn('Digital human resource upload failed, retrying from desktop', {
+        message: submitResult.message,
+        hasVideoMediaId: Boolean(submitResult.video_media_id),
+        hasAudioMediaId: Boolean(submitResult.audio_media_id)
+      })
+      submitResult = await this.retryLipSyncSubmissionAfterUploadFailure(
+        args.requestBody,
+        submitResult,
+        args.extra
+      )
+    }
+
     const taskId = String(submitResult.task_id || '').trim()
     if (!taskId) {
       throw new Error(`Digital human submission returned no task ID: ${JSON.stringify(submitResult)}`)
@@ -782,6 +870,12 @@ class DigitalHumanServer {
     if (!videoUrl) {
       throw new Error('Digital human task completed without a video URL')
     }
+
+    const combinedResult = {
+      ...submitResult,
+      ...finalResult
+    }
+    const combinedBilling = this.mergeSpeechBilling(combinedResult, args.speechBillingSource)
 
     return this.formatJsonResult({
       provider: 'vectcut',
@@ -799,15 +893,15 @@ class DigitalHumanServer {
       output: {
         video_url: videoUrl
       },
-      ...submitResult,
-      ...finalResult,
-      ...(videoUrl ? { video_url: videoUrl } : {})
+      ...combinedResult,
+      ...(videoUrl ? { video_url: videoUrl } : {}),
+      ...(combinedBilling ? { billing: combinedBilling } : {})
     })
   }
 
   private async createLipSyncDigitalHuman(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
     const videoInput = this.getRequiredString(args, 'videoUrl', 'video_url')
-    const audioUrl = await this.resolveSpeechAudioUrl(args, extra)
+    const speechAudio = await this.resolveSpeechAudioUrl(args, extra)
     const preparedVideo = await this.prepareSource(videoInput, 'videoUrl')
 
     return this.submitAndWait({
@@ -815,13 +909,14 @@ class DigitalHumanServer {
       submitEndpoint: DIGITAL_HUMAN_CREATE_ENDPOINT,
       statusEndpoint: DIGITAL_HUMAN_STATUS_ENDPOINT,
       requestBody: {
-        audio_url: audioUrl,
+        audio_url: speechAudio.audioUrl,
         video_url: preparedVideo.submittedUrl
       },
       sourceSummary: [preparedVideo],
       extra,
       processingMessage: '正在生成口型驱动数字人',
-      submitMessage: '正在提交口型驱动数字人任务'
+      submitMessage: '正在提交口型驱动数字人任务',
+      speechBillingSource: speechAudio.billingSource
     })
   }
 
@@ -848,14 +943,14 @@ class DigitalHumanServer {
           ? args.output_resolution
           : DEFAULT_OMNI_OUTPUT_RESOLUTION
     const preparedImage = await this.prepareSource(imageInput, 'imageUrl')
-    const audioUrl = await this.resolveSpeechAudioUrl(args, extra)
+    const speechAudio = await this.resolveSpeechAudioUrl(args, extra)
 
     return this.submitAndWait({
       mode: 'image_driven',
       submitEndpoint: OMNI_DIGITAL_HUMAN_SUBMIT_ENDPOINT,
       statusEndpoint: OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT,
       requestBody: {
-        audio_url: audioUrl,
+        audio_url: speechAudio.audioUrl,
         image_url: preparedImage.submittedUrl,
         prompt,
         output_resolution: outputResolution
@@ -864,11 +959,52 @@ class DigitalHumanServer {
       sourceSummary: [preparedImage],
       extra,
       processingMessage: '正在生成图片驱动数字人',
-      submitMessage: '正在提交图片驱动数字人任务'
+      submitMessage: '正在提交图片驱动数字人任务',
+      speechBillingSource: speechAudio.billingSource
     })
   }
 
-  private async resolveSpeechAudioUrl(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+  private extractConsumedPoints(source: Record<string, unknown> | undefined): number | null {
+    if (!source) return null
+    const billing = source.billing && typeof source.billing === 'object' && !Array.isArray(source.billing)
+      ? source.billing as Record<string, unknown>
+      : source
+    const value = Number(
+      billing.total_consumed_points
+      ?? billing.points_consumed
+      ?? billing.deduct_points
+      ?? billing.consume
+    )
+    return Number.isFinite(value) ? value : null
+  }
+
+  private mergeSpeechBilling(
+    digitalHumanResult: Record<string, unknown>,
+    speechBillingSource?: Record<string, unknown>
+  ): Record<string, unknown> | null {
+    const speechPoints = this.extractConsumedPoints(speechBillingSource)
+    if (speechPoints === null) return null
+
+    const digitalHumanPoints = this.extractConsumedPoints(digitalHumanResult) ?? 0
+    const existingBilling =
+      digitalHumanResult.billing &&
+      typeof digitalHumanResult.billing === 'object' &&
+      !Array.isArray(digitalHumanResult.billing)
+        ? digitalHumanResult.billing as Record<string, unknown>
+        : {}
+
+    return {
+      ...existingBilling,
+      total_consumed_points: digitalHumanPoints + speechPoints,
+      digital_human_consumed_points: digitalHumanPoints,
+      speech_consumed_points: speechPoints
+    }
+  }
+
+  private async resolveSpeechAudioUrl(
+    args: Record<string, unknown>,
+    extra?: ToolExecutionExtra
+  ): Promise<ResolvedSpeechAudio> {
     const legacyAudioInput =
       typeof args.audioUrl === 'string'
         ? args.audioUrl.trim()
@@ -876,6 +1012,7 @@ class DigitalHumanServer {
           ? args.audio_url.trim()
           : ''
     let audioUrl = legacyAudioInput
+    let billingSource: Record<string, unknown> | undefined
 
     if (audioUrl) {
       audioUrl = (await this.prepareSource(audioUrl, 'audioUrl')).submittedUrl
@@ -901,13 +1038,17 @@ class DigitalHumanServer {
         }
       )
       audioUrl = generatedSpeech.audioUrl
+      billingSource = generatedSpeech.result
       if (!audioUrl) {
         throw new Error(
           `Speech generation returned no audio URL: ${generatedSpeech.result.error || 'unknown error'}`
         )
       }
     }
-    return audioUrl
+    return {
+      audioUrl,
+      billingSource
+    }
   }
 
   private async getImageDrivenDigitalHumanStatus(args: Record<string, unknown>) {

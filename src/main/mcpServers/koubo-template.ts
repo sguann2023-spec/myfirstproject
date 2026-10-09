@@ -42,7 +42,12 @@ const KOUBO_TEMPLATE_AGENT_IDS = {
   intellectual_red: 'koubo_f47ac10b58cc4372a5670e02b2c3d479',
   classical_dark_brown: 'koubo_7b2f0c9d4e6a41f8b3c5d7e9a1b2c4d6',
   fisheye_ins: 'koubo_5e7a9c3d1f2b4a6e8c0d5f7b9e1a3c6d',
-  luxury_white_bilingual: 'koubo_6a4f2c9e8b1d4f7aa3c5e9d02b6f8c13'
+  luxury_white_bilingual: 'koubo_6a4f2c9e8b1d4f7aa3c5e9d02b6f8c13',
+  live_replay_slicing: 'koubo_8d7ce6ae1ebf44078cfd86a6adbaee9d',
+  bouncing_subtitles: 'koubo_25829735dad8416a8698f1263384892c',
+  smart_match_montage: 'koubo_cdc085a575594080871bcd5dc1bfaa62',
+  three_line_rotation: 'koubo_038df3f9ad8445fb9a94e6f475a9311d',
+  staggered_two_line_subtitles: 'koubo_09f74c4d062a456eaaf83a1af157c46f'
 } as const
 
 type KouboTemplateKey = keyof typeof KOUBO_TEMPLATE_AGENT_IDS
@@ -60,7 +65,12 @@ const KOUBO_TEMPLATE_REQUIREMENTS: Record<KouboTemplateKey, Array<'media_urls' |
   intellectual_red: ['media_urls'],
   classical_dark_brown: ['media_urls'],
   fisheye_ins: ['media_urls'],
-  luxury_white_bilingual: ['media_urls']
+  luxury_white_bilingual: ['media_urls'],
+  live_replay_slicing: ['media_urls'],
+  bouncing_subtitles: ['media_urls'],
+  smart_match_montage: ['media_urls'],
+  three_line_rotation: ['media_urls'],
+  staggered_two_line_subtitles: ['media_urls']
 }
 
 const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
@@ -586,7 +596,7 @@ class KouboTemplateServer {
       })
 
       if (status === 'processing') {
-        const mappedProgress = Math.min(90, 20 + attempt * 8)
+        const mappedProgress = Math.min(95, 12 + attempt)
         await this.reportProgress(extra, mappedProgress, latestResult.message || '口播模版处理中')
       }
 
@@ -627,7 +637,9 @@ class KouboTemplateServer {
     logger.info('Koubo template task submitted', {
       template: payload.template ?? 'custom',
       agentId: payload.body.agent_id,
-      taskId: result.task_id
+      taskId: result.task_id,
+      hasTextContent: Boolean(String(payload.body.params.text_content || '').trim()),
+      removeSilence: payload.body.params.remove_silence
     })
 
     const taskId = String(result.task_id || '').trim()

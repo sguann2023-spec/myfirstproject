@@ -84,33 +84,6 @@ const StoryboardEditor = ({
   const resumeAfterSeekRef = React.useRef(false);
   const dragRef = React.useRef(false);
   const commitRef = React.useRef(null);
-  const playbackProbeRef = React.useRef({ stalled: 0, lastNext: null, lastMediaTime: null });
-  // #region debug-point A-E:short-shot-playback-stall
-  const debugPlaybackEvent = React.useCallback((hypothesisId, location, msg, data = {}) => {
-    fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({
-      sessionId: 'short-shot-playback-stall',
-      runId: 'post-fix-2',
-      hypothesisId,
-      location,
-      msg,
-      data,
-      ts: Date.now(),
-    }) }).catch(() => {});
-  }, []);
-  // #endregion
-  // #region debug-point E:分段耗时
-  const debugTimings = React.useRef([]);
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      const samples = debugTimings.current.splice(0);
-      if (samples.length) fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({
-        sessionId: 'playhead-jitter', runId: 'timing-after', hypothesisId: 'E-F',
-        msg: '[DEBUG] 分段耗时批次', data: { samples }, ts: Date.now(),
-      }) }).catch(() => {});
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-  // #endregion
   const audioOnly = /\.(aac|flac|m4a|mp3|ogg|wav|wma)(?:[?#]|$)/i.test(mediaSource);
   const Media = audioOnly ? 'audio' : 'video';
   const seekMedia = useMediaSeeker(mediaRef, mediaSource);
@@ -194,18 +167,6 @@ const StoryboardEditor = ({
     setScrollLeft(scroller.scrollLeft);
   }, [scale]);
   React.useLayoutEffect(() => { movePlayhead(visualPositionRef.current); }, [scale, movePlayhead]);
-  // #region debug-point B:react-render-overwrite
-  React.useLayoutEffect(() => {
-    const node = playheadRef.current;
-    if (!playing || !node) return;
-    fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({
-      sessionId: 'playhead-jitter', runId: 'post-fix', hypothesisId: 'B',
-      location: 'StoryboardEditor.jsx:playhead-render', msg: '[DEBUG] React position render',
-      data: { position, visualPosition: visualPositionRef.current, inlineTransform: node.style.transform },
-      ts: Date.now(),
-    }) }).catch(() => {});
-  }, [position, playing]);
-  // #endregion
 
   React.useEffect(() => {
     const scroller = scrollerRef.current;
@@ -228,19 +189,7 @@ const StoryboardEditor = ({
     return () => scroller.removeEventListener('wheel', wheel);
   }, [disabled, total]);
 
-  const stop = React.useCallback((reason = 'unspecified') => {
-    // #region debug-point D:stop-call
-    debugPlaybackEvent('D', 'StoryboardEditor.jsx:stop', '[DEBUG] stop called', {
-      reason,
-      intent: intentRef.current,
-      position: positionRef.current,
-      mediaTime: mediaRef.current?.currentTime,
-      paused: mediaRef.current?.paused,
-      ended: mediaRef.current?.ended,
-      seeking: mediaRef.current?.seeking,
-      readyState: mediaRef.current?.readyState,
-    });
-    // #endregion
+  const stop = React.useCallback(() => {
     const nextPosition = intentRef.current ? livePlaybackPosition() : positionRef.current;
     intentRef.current = false;
     resumeAfterSeekRef.current = false;
@@ -357,17 +306,6 @@ const StoryboardEditor = ({
   }, [source, stop]);
 
   React.useEffect(() => {
-    // #region debug-point D:clips-effect
-    debugPlaybackEvent('D', 'StoryboardEditor.jsx:clips-effect', '[DEBUG] clips effect triggered', {
-      clipCount: clips.length,
-      selectedId,
-      currentSelected: selectedRef.current,
-      position: positionRef.current,
-      intent: intentRef.current,
-      firstClipId: clips[0]?.id,
-      lastClipId: clips.at(-1)?.id,
-    });
-    // #endregion
     stop('clips-effect');
     if (trimRef.current) return;
     marqueeRef.current = null;
@@ -432,88 +370,17 @@ const StoryboardEditor = ({
     };
   }, [mediaSource]);
   React.useEffect(() => { if (disabled) stop('disabled-effect'); }, [disabled, stop]);
-  // #region debug-point E:media-events
-  React.useEffect(() => {
-    const media = mediaRef.current;
-    if (!media) return undefined;
-    const attach = (type, hypothesisId) => {
-      const handler = () => debugPlaybackEvent(hypothesisId, `StoryboardEditor.jsx:media:${type}`, '[DEBUG] media event', {
-        type,
-        currentTime: media.currentTime,
-        paused: media.paused,
-        ended: media.ended,
-        seeking: media.seeking,
-        readyState: media.readyState,
-        intent: intentRef.current,
-        position: positionRef.current,
-      });
-      media.addEventListener(type, handler);
-      return handler;
-    };
-    const listeners = [
-      ['play', 'A'],
-      ['pause', 'A'],
-      ['seeking', 'E'],
-      ['seeked', 'E'],
-      ['waiting', 'C'],
-      ['ended', 'D'],
-    ].map(([type, hypothesisId]) => [type, attach(type, hypothesisId)]);
-    return () => listeners.forEach(([type, handler]) => media.removeEventListener(type, handler));
-  }, [mediaSource, debugPlaybackEvent]);
-  // #endregion
 
   const playMedia = async () => {
     if (!mediaRef.current || !intentRef.current) return;
     if (mediaRef.current.seeking || mediaRef.current.readyState < 2) {
       resumeAfterSeekRef.current = true;
-      debugPlaybackEvent('F', 'StoryboardEditor.jsx:playMedia:defer', '[DEBUG] defer play until seek/ready', {
-        currentTime: mediaRef.current.currentTime,
-        paused: mediaRef.current.paused,
-        ended: mediaRef.current.ended,
-        seeking: mediaRef.current.seeking,
-        readyState: mediaRef.current.readyState,
-        position: positionRef.current,
-      });
       return;
     }
-    // #region debug-point A-C:play-request
-    debugPlaybackEvent('A', 'StoryboardEditor.jsx:playMedia:start', '[DEBUG] playMedia request', {
-      currentTime: mediaRef.current.currentTime,
-      paused: mediaRef.current.paused,
-      ended: mediaRef.current.ended,
-      seeking: mediaRef.current.seeking,
-      readyState: mediaRef.current.readyState,
-      position: positionRef.current,
-    });
-    // #endregion
     try {
       await mediaRef.current.play();
-      // #region debug-point C:play-resolve
-      debugPlaybackEvent('C', 'StoryboardEditor.jsx:playMedia:resolved', '[DEBUG] playMedia resolved', {
-        currentTime: mediaRef.current.currentTime,
-        paused: mediaRef.current.paused,
-        ended: mediaRef.current.ended,
-        seeking: mediaRef.current.seeking,
-        readyState: mediaRef.current.readyState,
-        intent: intentRef.current,
-        position: positionRef.current,
-      });
-      // #endregion
       if (!intentRef.current) mediaRef.current?.pause();
-    } catch (error) {
-      // #region debug-point C:play-reject
-      debugPlaybackEvent('C', 'StoryboardEditor.jsx:playMedia:rejected', '[DEBUG] playMedia rejected', {
-        name: error?.name,
-        message: error?.message,
-        currentTime: mediaRef.current?.currentTime,
-        paused: mediaRef.current?.paused,
-        ended: mediaRef.current?.ended,
-        seeking: mediaRef.current?.seeking,
-        readyState: mediaRef.current?.readyState,
-        intent: intentRef.current,
-        position: positionRef.current,
-      });
-      // #endregion
+    } catch {
       if (intentRef.current) {
         stop('playMedia-catch');
         setError('素材无法播放，请检查文件或链接');
@@ -528,27 +395,9 @@ const StoryboardEditor = ({
     if (!point || point.clip.blank) return;
     if (media.seeking || media.readyState < 2) {
       resumeAfterSeekRef.current = true;
-      debugPlaybackEvent('F', 'StoryboardEditor.jsx:resumePlaybackMedia:defer', '[DEBUG] resume deferred', {
-        clipId: point.clip.id,
-        currentTime: media.currentTime,
-        paused: media.paused,
-        ended: media.ended,
-        seeking: media.seeking,
-        readyState: media.readyState,
-        position: positionRef.current,
-      });
       return;
     }
     resumeAfterSeekRef.current = false;
-    debugPlaybackEvent('F', 'StoryboardEditor.jsx:resumePlaybackMedia:play', '[DEBUG] resume media playback', {
-      clipId: point.clip.id,
-      currentTime: media.currentTime,
-      paused: media.paused,
-      ended: media.ended,
-      seeking: media.seeking,
-      readyState: media.readyState,
-      position: positionRef.current,
-    });
     void playMedia();
   };
 
@@ -575,29 +424,6 @@ const StoryboardEditor = ({
       || !nextPlayableClip(clips, positionRef.current)) commit(next.timelineStart);
     intentRef.current = true;
     React.startTransition(() => setPlaying(true));
-    // #region debug-point A:toggle-playback
-    debugPlaybackEvent('A', 'StoryboardEditor.jsx:togglePlayback', '[DEBUG] toggle playback start', {
-      currentClipId: timelinePoint(clips, positionRef.current)?.clip.id,
-      nextClipId: next.id,
-      position: positionRef.current,
-      playableDuration,
-      mediaSource: Boolean(mediaSource),
-    });
-    // #endregion
-    // #region debug-point C:playback-layout
-    const playhead = playheadRef.current;
-    const surface = surfaceRef.current;
-    if (playhead && surface) fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({
-      sessionId: 'playhead-jitter', runId: 'post-fix', hypothesisId: 'C',
-      location: 'StoryboardEditor.jsx:togglePlayback', msg: '[DEBUG] Playback layout',
-      data: {
-        scale, zoom, devicePixelRatio: window.devicePixelRatio,
-        surfaceWidth: surface.getBoundingClientRect().width, surfaceOffsetWidth: surface.offsetWidth,
-        playheadLeft: playhead.getBoundingClientRect().left, inlineTransform: playhead.style.transform,
-      },
-      ts: Date.now(),
-    }) }).catch(() => {});
-    // #endregion
     if (!timelinePoint(clips, positionRef.current)?.clip.blank) void playMedia();
   };
 
@@ -606,12 +432,8 @@ const StoryboardEditor = ({
     if (!playing) return undefined;
     let frame;
     let previous = performance.now();
-    let debugFrame = 0;
     const tick = (now) => {
       if (!intentRef.current) return;
-      // #region debug-point E:帧开始
-      const debugStarted = performance.now();
-      // #endregion
       // 在修改字幕和播放头之前读取布局，避免同一帧内强制重排。
       const scroller = scrollerRef.current;
       const viewportLeft = scroller?.scrollLeft || 0;
@@ -632,36 +454,6 @@ const StoryboardEditor = ({
         // 短距离 seek 后再恢复播放，避免 seek/play 同帧竞争导致 play 被中断。
         if (resumeAfterSeekRef.current && media.paused && intentRef.current) resumePlaybackMedia();
       }
-      // #region debug-point B:stalled-progress
-      if (!point.clip.blank && media && !media.seeking && media.readyState >= 2) {
-        const mediaTime = media.currentTime * 1000;
-        const probe = playbackProbeRef.current;
-        const sameNext = probe.lastNext !== null && Math.abs(next - probe.lastNext) < 0.5;
-        const sameMediaTime = probe.lastMediaTime !== null && Math.abs(mediaTime - probe.lastMediaTime) < 0.5;
-        probe.stalled = sameNext && sameMediaTime ? probe.stalled + 1 : 0;
-        probe.lastNext = next;
-        probe.lastMediaTime = mediaTime;
-        if (probe.stalled === 2 || probe.stalled === 5 || probe.stalled === 10) {
-          debugPlaybackEvent('B', 'StoryboardEditor.jsx:playback-tick:stalled', '[DEBUG] playback stalled sample', {
-            stalledFrames: probe.stalled,
-            clipId: point.clip.id,
-            rangeStart: point.range.start,
-            rangeEnd: point.range.end,
-            next,
-            position: positionRef.current,
-            mediaTime,
-            paused: media.paused,
-            ended: media.ended,
-            seeking: media.seeking,
-            readyState: media.readyState,
-          });
-        }
-      } else {
-        playbackProbeRef.current.stalled = 0;
-        playbackProbeRef.current.lastNext = next;
-        playbackProbeRef.current.lastMediaTime = media && Number.isFinite(media.currentTime) ? media.currentTime * 1000 : null;
-      }
-      // #endregion
       previous = now;
       let boundary = point;
       let jumped = false;
@@ -669,17 +461,6 @@ const StoryboardEditor = ({
       // position across continuous ranges, but stop at the first real cut.
       while (next >= boundary.rangeTimelineEnd) {
         if (boundary.rangeTimelineEnd >= total) {
-          // #region debug-point D:stop-at-total
-          debugPlaybackEvent('D', 'StoryboardEditor.jsx:playback-tick:stop-total', '[DEBUG] stop at total boundary', {
-            clipId: boundary.clip.id,
-            rangeTimelineEnd: boundary.rangeTimelineEnd,
-            total,
-            next,
-            mediaTime: media?.currentTime,
-            ended: media?.ended,
-            seeking: media?.seeking,
-          });
-          // #endregion
           positionRef.current = total;
           visualPositionRef.current = total;
           movePlayhead(total);
@@ -691,32 +472,9 @@ const StoryboardEditor = ({
         const following = timelinePoint(clips, boundary.rangeTimelineEnd);
         if (!boundary.clip.blank && !following.clip.blank
           && boundary.range.end === following.range.start) {
-          // #region debug-point D:continuous-boundary
-          debugPlaybackEvent('D', 'StoryboardEditor.jsx:playback-tick:continuous', '[DEBUG] continuous boundary carry', {
-            fromClipId: boundary.clip.id,
-            toClipId: following.clip.id,
-            next,
-            rangeEnd: boundary.range.end,
-            followingRangeStart: following.range.start,
-            mediaTime: media?.currentTime,
-            ended: media?.ended,
-            seeking: media?.seeking,
-          });
-          // #endregion
           boundary = following;
           continue;
         }
-        // #region debug-point D:hard-boundary
-        debugPlaybackEvent('D', 'StoryboardEditor.jsx:playback-tick:jump', '[DEBUG] hard boundary jump', {
-          fromClipId: boundary.clip.id,
-          toClipId: following?.clip.id,
-          next,
-          boundaryEnd: boundary.rangeTimelineEnd,
-          mediaTime: media?.currentTime,
-          ended: media?.ended,
-          seeking: media?.seeking,
-        });
-        // #endregion
         commitRef.current(boundary.rangeTimelineEnd, true);
         if (!following.clip.blank) resumePlaybackMedia();
         jumped = true;
@@ -726,48 +484,16 @@ const StoryboardEditor = ({
         commitRef.current(next, true, false);
       } else if (!jumped) {
         positionRef.current = next;
-        const predictedVisual = next;
-        const correction = false;
         visualPositionRef.current = next;
         movePlayhead(visualPositionRef.current);
         syncPlaybackUi(next);
-        // #region debug-point A:media-sampling
-        debugFrame += 1;
-        if (debugFrame <= 5 || debugFrame % 10 === 0 || correction) fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({
-          sessionId: 'playhead-jitter', runId: 'post-fix', hypothesisId: 'A',
-          location: 'StoryboardEditor.jsx:playback-tick', msg: '[DEBUG] Playback frame sample',
-          data: {
-            frame: debugFrame, elapsed, mediaTime: media?.currentTime, seeking: media?.seeking,
-            logicalPosition: next, predictedVisual, visualPosition: visualPositionRef.current,
-            correction, inlineTransform: playheadRef.current?.style.transform,
-          },
-          ts: Date.now(),
-        }) }).catch(() => {});
-        // #endregion
-        // #region debug-point D:frame-gap
-        if (elapsed > 30 && debugFrame % 10 === 0) fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({
-          sessionId: 'playhead-jitter', runId: 'post-fix', hypothesisId: 'D',
-          location: 'StoryboardEditor.jsx:playback-tick', msg: '[DEBUG] Long animation frame',
-          data: { frame: debugFrame, elapsed, logicalPosition: next, visualPosition: visualPositionRef.current },
-          ts: Date.now(),
-        }) }).catch(() => {});
-        // #endregion
       }
       const x = positionRef.current / 1000 * scale;
-      // #region debug-point E:布局开始
-      const debugBeforeLayout = performance.now();
-      // #endregion
       if (scroller && (x > viewportLeft + viewportWidth - 30 || x < viewportLeft)) {
         const nextScrollLeft = Math.max(0, x - viewportWidth / 3);
         scroller.scrollLeft = nextScrollLeft;
         setScrollLeft(nextScrollLeft);
       }
-      // #region debug-point E:帧完成
-      if (debugTimings.current.length < 120) debugTimings.current.push({
-        kind: 'frame', elapsed, work: debugBeforeLayout - debugStarted,
-        layout: performance.now() - debugBeforeLayout, boundary: boundary !== point || jumped,
-      });
-      // #endregion
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -882,11 +608,6 @@ const StoryboardEditor = ({
       <div ref={subtitleRef} className="storyboard-preview__subtitle" hidden={!subtitle}>{subtitle}</div>
       {error ? <div className="storyboard-preview__error" role="status">{error}</div> : null}
     </div>
-    <React.Profiler id="subtitles" onRender={(id, phase, actualDuration) => {
-      // #region debug-point F:字幕渲染
-      if (debugTimings.current.length < 120) debugTimings.current.push({ kind: id, phase, actualDuration });
-      // #endregion
-    }}>
     <SubtitlePanel clips={clips} segments={segments} selectedIds={selectedIds}
       aiDisabled={aiDisabled} onAiAssist={onAiAssist ? async () => {
         stop();
@@ -912,7 +633,6 @@ const StoryboardEditor = ({
         onDeleteSubtitles(pendingUnits);
         setPendingKeys([]);
       }} />
-    </React.Profiler>
     </div>
     <section className="storyboard-timeline" aria-label="字幕分镜轨道">
       <div className="storyboard-toolbar">

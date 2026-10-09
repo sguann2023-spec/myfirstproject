@@ -110,6 +110,69 @@ it('uses live Redux blocks ahead of stale fallback snapshots', async () => {
   expect(container.textContent).toBe('Latest reply');
 });
 
+it('replaces active Redux blocks with a terminal persisted snapshot', async () => {
+  store.state = {
+    messageBlocks: {
+      entities: {
+        'pending-tool': {
+          id: 'pending-tool',
+          messageId: 'liveMessage',
+          type: 'tool',
+          status: 'processing',
+          metadata: {
+            rawMcpToolResponse: {
+              id: 'koubo-template-call',
+              status: 'pending',
+            },
+          },
+        },
+      },
+    },
+    messages: {
+      entities: {
+        liveMessage: {
+          id: 'liveMessage',
+          role: 'assistant',
+          status: 'processing',
+          blocks: ['pending-tool'],
+        },
+      },
+    },
+  };
+  const value = {
+    ...message('reply', [
+      {
+        id: 'completed-tool',
+        messageId: 'liveMessage',
+        type: 'tool',
+        status: 'success',
+        metadata: {
+          rawMcpToolResponse: {
+            id: 'koubo-template-call',
+            status: 'done',
+            response: { status: 'success', success: true },
+          },
+        },
+      },
+      block('completed-main', 'Complete reply'),
+    ]),
+    storeAssistantMessageId: 'liveMessage',
+  };
+
+  await act(async () => root.render(<Probe value={value} />));
+
+  expect(container.textContent).toContain('Complete reply');
+  expect(container.textContent).not.toContain('处理中');
+  expect(store.state.messageBlocks.entities['completed-tool']).toMatchObject({
+    status: 'success',
+    metadata: {
+      rawMcpToolResponse: {
+        status: 'done',
+      },
+    },
+  });
+});
+
 it('keeps an interrupted assistant turn visible when no answer text was produced', async () => {
   const value = {
     id: 'reply',

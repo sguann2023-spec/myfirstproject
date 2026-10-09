@@ -39,6 +39,22 @@ describe('mediaGenerationBilling', () => {
     })
   })
 
+  it('extracts deduct_points from a completed oral-template task', () => {
+    expect(
+      extractMediaGenerationBillingSummary({
+        status: 'success',
+        success: true,
+        deduct_points: 40,
+        output: {
+          draft_id: 'draft-1'
+        }
+      })
+    ).toEqual({
+      totalConsumedPoints: 40,
+      displayText: '40.00'
+    })
+  })
+
   it('returns point icon url', () => {
     expect(getMediaGenerationPointIconUrl()).toContain('image/svg+xml')
   })

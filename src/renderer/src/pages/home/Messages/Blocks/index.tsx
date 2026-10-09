@@ -292,53 +292,6 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
 
   const blocksToRender = isHistoryExpanded ? groupedBlocks : visibleGroupedBlocks
 
-  useEffect(() => {
-    const summarizeGroup = (group: GroupedBlock) => {
-      const groupBlocks = Array.isArray(group) ? group : [group]
-      return groupBlocks.map((block) => ({
-        id: block.id,
-        type: block.type,
-        toolName:
-          block.type === MessageBlockType.TOOL
-            ? block.metadata?.rawMcpToolResponse?.tool?.name ?? block.toolName
-            : undefined
-      }))
-    }
-
-    // #region debug-point D:final-block-selection
-    void fetch('http://127.0.0.1:7777/event', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: 'nested-tool-card-missing',
-        runId: 'post-fix-render',
-        hypothesisId: 'D',
-        location: 'Blocks/index.tsx:MessageBlockRenderer',
-        msg: '[DEBUG] Renderer selected message blocks',
-        data: {
-          messageId: message.id,
-          messageStatus: message.status,
-          isProcessing,
-          isHistoryExpanded,
-          resultAnchorIndex,
-          all: groupedBlocks.flatMap(summarizeGroup),
-          hidden: hiddenGroupedBlocks.flatMap(summarizeGroup),
-          rendered: blocksToRender.flatMap(summarizeGroup)
-        },
-        ts: Date.now()
-      })
-    }).catch(() => {})
-    // #endregion
-  }, [
-    blocksToRender,
-    groupedBlocks,
-    hiddenGroupedBlocks,
-    isHistoryExpanded,
-    isProcessing,
-    message.id,
-    message.status,
-    resultAnchorIndex
-  ])
-
   const renderGroupedBlock = (block: GroupedBlock): React.ReactNode => {
     if (Array.isArray(block)) {
       const groupKey = block.map((b) => b.id).join('-')

@@ -17,9 +17,12 @@ import DigitalHumanSelectedIcon from '../../../../../public/digital_human_select
 import LipsIcon from '../../../../../public/lips.svg';
 import DigitalHumanAvatarIcon from '../../../../../public/digital_human_avatar.svg';
 import DigitalHumanAvatarMemberIcon from '../../../../../public/digital_human_avatar_member.svg';
+import ImageTemplateIcon from '../../../../../public/image_template.svg';
 import Point2Icon from '../../../../../public/point2.svg';
+import digitalTemplateManifest from '../../../../../resources/digital_template/manifest.json';
 import VoiceLib, { useVoiceLib } from '../VoiceLib';
 import CreateDigitalHumanAvatorDialog from '../CreateDigitalHumanAvatorDialog';
+import '../VideoTemplatePopover/index.css';
 
 const DIGITAL_HUMAN_MODE_STORAGE_KEY = 'chat-panel:digital-human-mode';
 const ELEVENLABS_PROVIDER = 'elevenlabs';
@@ -29,7 +32,7 @@ const DIGITAL_HUMAN_IMAGE_DRIVE_MODES = new Set(['jimeng-avatar', 'seedance-avat
 const DIGITAL_HUMAN_OPTIONS = [
   {
     value: 'seedance-avatar',
-    label: '图片驱动数字人',
+    label: '图片驱动',
     icon: DigitalHumanAvatarIcon,
     pricingKey: 'seedance_image_driver',
     highlightMember: true,
@@ -48,63 +51,200 @@ const DIGITAL_HUMAN_OPTIONS = [
     pricingKey: 'lip_sync',
   },
 ];
-const SMART_PACKAGING_OPTIONS = [
-  {
-    value: 'knowledge_pip',
-    label: '知识黄白·AI画中画',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/3c9e19e4-7b8d-4710-bd67-1bf87490880f.mov.png',
-  },
-  {
-    value: 'traditional_bilingual',
-    label: 'ins风·繁体双语',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/0e45ed20-1574-4484-89fa-46b586f0e281.jpg',
-  },
-  {
-    value: 'national_classic',
-    label: '国风经典',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/ab8b6ade-bfbe-41e3-a410-bd9b877d063e.jpg',
-  },
-  {
-    value: 'basic_yellow_white',
-    label: '基础黄白',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/654ce51d-9e1b-4fc7-a1ee-1575b8185e59.jpg',
-  },
-  {
-    value: 'classic_grass_green',
-    label: '经典·草绿色',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/db82296c-894f-4517-a69d-7196f63eb91f.png',
-  },
-  {
-    value: 'international_orange_bilingual',
-    label: '国际橙·双语',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/9a962f18-5f0d-4218-a19c-f9c92785fe9c.png',
-  },
-  {
-    value: 'eye_catching_green_bilingual',
-    label: '吸睛绿·双语',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/0a5c05be-8dd7-4da1-9790-bcfe83396e6e.png',
-  },
-  {
-    value: 'intellectual_red',
-    label: '高知红',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/4f2225ef-6a17-4bbf-868e-da4ccae0fecc2.png',
-  },
-  {
-    value: 'classical_dark_brown',
-    label: '古典深棕',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/c2c24036-6228-47b5-9bf4-b0d84c4a429b.png',
-  },
-  {
-    value: 'fisheye_ins',
-    label: '鱼眼ins',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/89fc3a79-97a7-46e2-85e1-a24d716863dd.png',
-  },
-  {
-    value: 'luxury_white_bilingual',
-    label: '轻奢白·双语',
-    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/6857d06e-61c8-4394-92e5-e7fc309e8412.jpg',
-  },
-];
+const SMART_PACKAGING_OPTIONS = (digitalTemplateManifest.templates || [])
+  .filter((item) => item.enabled && item.agentId)
+  .map((item) => ({
+    value: item.key,
+    label: item.name,
+    coverUrl: item.cover,
+    previewUrl: item.preview,
+    description: item.description,
+    prompt: item.prompt,
+    generationMode: item.generationMode,
+    generationModeLabel: item.generationModeLabel,
+    voice: item.voice,
+    sourceVideo: item.sourceVideo,
+  }));
+
+const DigitalHumanTemplatePopover = ({
+  selectedTemplate,
+  onSelect,
+  showGenerationMode = true,
+  showNoPackagingOption = false,
+}) => {
+  const [hoveredTemplateId, setHoveredTemplateId] = React.useState('');
+  const [unmutedTemplateId, setUnmutedTemplateId] = React.useState('');
+  const [loadedPreviewIds, setLoadedPreviewIds] = React.useState(() => new Set());
+  const [loadedCoverIds, setLoadedCoverIds] = React.useState(() => new Set());
+  const [readyPreviewIds, setReadyPreviewIds] = React.useState(() => new Set());
+  const videoElementMapRef = React.useRef(new Map());
+
+  const addLoadedId = React.useCallback((setter, templateId) => {
+    setter((previous) => {
+      if (previous.has(templateId)) return previous;
+      const next = new Set(previous);
+      next.add(templateId);
+      return next;
+    });
+  }, []);
+
+  React.useEffect(() => {
+    videoElementMapRef.current.forEach((element, templateId) => {
+      if (!element) return;
+      element.muted = templateId !== unmutedTemplateId;
+      if (templateId === hoveredTemplateId && loadedPreviewIds.has(templateId)) {
+        element.currentTime = 0;
+        element.play()?.catch?.(() => {});
+      } else {
+        element.pause();
+        element.currentTime = 0;
+      }
+    });
+  }, [hoveredTemplateId, loadedPreviewIds, unmutedTemplateId]);
+
+  React.useEffect(() => {
+    if (unmutedTemplateId && hoveredTemplateId !== unmutedTemplateId) {
+      setUnmutedTemplateId('');
+    }
+  }, [hoveredTemplateId, unmutedTemplateId]);
+
+  React.useEffect(() => () => {
+    videoElementMapRef.current.forEach((element) => element?.pause());
+    videoElementMapRef.current.clear();
+  }, []);
+
+  return (
+    <div className="chat-panel__video-template-popover-panel">
+      <div className="chat-panel__video-template-grid">
+        {showNoPackagingOption ? (
+          <button
+            type="button"
+            className="chat-panel__video-template-card"
+            aria-pressed={!selectedTemplate}
+            onClick={() => onSelect('')}
+          >
+            <div className="chat-panel__video-template-card-cover chat-panel__digital-template-none-card">
+              <Box size={28} strokeWidth={1.6} aria-hidden="true" />
+              <span>不使用智能包装</span>
+              {!selectedTemplate ? (
+                <span className="chat-panel__digital-template-none-selected" aria-label="已选择">
+                  <Check size={14} strokeWidth={2.4} aria-hidden="true" />
+                </span>
+              ) : null}
+            </div>
+          </button>
+        ) : null}
+        {SMART_PACKAGING_OPTIONS.map((item) => {
+          const isHovered = hoveredTemplateId === item.value;
+          const isUnmuted = unmutedTemplateId === item.value;
+          const shouldLoadPreview = Boolean(item.previewUrl) && loadedPreviewIds.has(item.value);
+          const isCoverLoaded = loadedCoverIds.has(item.value);
+          const isPreviewLoading =
+            shouldLoadPreview && isHovered && !readyPreviewIds.has(item.value);
+
+          return (
+            <button
+              key={item.value}
+              type="button"
+              className="chat-panel__video-template-card"
+              onClick={() => onSelect(item.value)}
+              onMouseEnter={() => {
+                addLoadedId(setLoadedPreviewIds, item.value);
+                setHoveredTemplateId(item.value);
+              }}
+              onMouseLeave={() => setHoveredTemplateId((current) => (current === item.value ? '' : current))}
+              onFocus={() => {
+                addLoadedId(setLoadedPreviewIds, item.value);
+                setHoveredTemplateId(item.value);
+              }}
+              onBlur={() => setHoveredTemplateId((current) => (current === item.value ? '' : current))}
+            >
+              <div className="chat-panel__video-template-card-cover" aria-label={item.description || item.label}>
+                {!isCoverLoaded ? <span className="chat-panel__video-template-card-loading" aria-hidden="true" /> : null}
+                <img
+                  className={`chat-panel__video-template-card-image${isCoverLoaded ? ' is-loaded' : ''}`}
+                  src={item.coverUrl}
+                  alt=""
+                  aria-hidden="true"
+                  onLoad={() => addLoadedId(setLoadedCoverIds, item.value)}
+                  onError={() => addLoadedId(setLoadedCoverIds, item.value)}
+                />
+                {item.previewUrl ? (
+                  <video
+                    ref={(element) => {
+                      if (element) videoElementMapRef.current.set(item.value, element);
+                      else videoElementMapRef.current.delete(item.value);
+                    }}
+                    className={`chat-panel__video-template-card-video${isHovered ? ' is-active' : ''}`}
+                    src={shouldLoadPreview ? item.previewUrl : undefined}
+                    poster={item.coverUrl}
+                    muted
+                    playsInline
+                    loop
+                    preload="none"
+                    onLoadedData={() => addLoadedId(setReadyPreviewIds, item.value)}
+                    onCanPlay={() => addLoadedId(setReadyPreviewIds, item.value)}
+                    onError={() => addLoadedId(setReadyPreviewIds, item.value)}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {isPreviewLoading ? <span className="chat-panel__video-template-card-preview-loading" aria-hidden="true" /> : null}
+                {item.previewUrl ? (
+                  <span
+                    className="chat-panel__video-template-card-audio"
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={isUnmuted ? '静音预览' : '开启声音'}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const nextUnmutedId = isUnmuted ? '' : item.value;
+                      addLoadedId(setLoadedPreviewIds, item.value);
+                      setHoveredTemplateId(item.value);
+                      setUnmutedTemplateId(nextUnmutedId);
+                      const element = videoElementMapRef.current.get(item.value);
+                      if (element) {
+                        element.muted = !nextUnmutedId;
+                        element.play()?.catch?.(() => {});
+                      }
+                    }}
+                  >
+                    {isUnmuted ? (
+                      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M2.5 6.2H5l3-2.4v8.4L5 9.8H2.5V6.2Z" fill="currentColor" />
+                        <path d="M10.2 6.1C10.7 6.55 11 7.23 11 8s-.3 1.45-.8 1.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                        <path d="M11.7 4.7C12.56 5.53 13.1 6.69 13.1 8s-.54 2.47-1.4 3.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M2.5 6.2H5l3-2.4v8.4L5 9.8H2.5V6.2Z" fill="currentColor" />
+                        <path d="M10.4 6.1 13 8.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                        <path d="M13 6.1 10.4 8.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                      </svg>
+                    )}
+                  </span>
+                ) : null}
+                <div className="chat-panel__video-template-card-hover">
+                  {showGenerationMode ? (
+                    <span className="chat-panel__video-template-card-tag">{item.generationModeLabel}</span>
+                  ) : null}
+                  <span className="chat-panel__video-template-card-desc">{item.description || item.label}</span>
+                  <span className="chat-panel__video-template-card-action chat-panel__digital-template-card-action">
+                    <span>{selectedTemplate === item.value ? '已选择' : '使用'}</span>
+                    <span className="chat-panel__digital-template-card-price">
+                      <img src={Point2Icon} alt="" aria-hidden="true" />
+                      <span>20/分钟</span>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 const DEFAULT_PRICE_TEXT = '--/秒';
 let digitalHumanPriceCache = null;
@@ -369,6 +509,8 @@ const DigitalHumanToolDetail = ({
   onModeChange = null,
   onSelectedAvatarChange = null,
   onPackagingTemplateChange = null,
+  onPromptChange = null,
+  onTemplateMediaChange = null,
 }) => {
   const [selectedMode, setSelectedMode] = React.useState(() => readPersistedDigitalHumanMode());
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -387,6 +529,7 @@ const DigitalHumanToolDetail = ({
   const [createAvatarName, setCreateAvatarName] = React.useState('');
   const [selectedPackagingTemplate, setSelectedPackagingTemplate] = React.useState('');
   const [packagingDropdownOpen, setPackagingDropdownOpen] = React.useState(false);
+  const [digitalTemplateOpen, setDigitalTemplateOpen] = React.useState(false);
   const [membershipSummary, setMembershipSummary] = React.useState(() => normalizeMembershipSummary());
   const [membershipLoaded, setMembershipLoaded] = React.useState(false);
   const voiceLib = useVoiceLib({ onSelectedVoiceChange });
@@ -482,6 +625,32 @@ const DigitalHumanToolDetail = ({
     setSelectedPackagingTemplate(normalizedValue);
     onPackagingTemplateChange?.(normalizedValue);
   }, [onPackagingTemplateChange]);
+
+  const handlePackagingTemplateSelect = React.useCallback((nextValue) => {
+    handlePackagingTemplateChange(nextValue);
+    const selectedTemplate = SMART_PACKAGING_OPTIONS.find((item) => item.value === nextValue);
+    if (selectedTemplate?.generationMode) {
+      handleModeChange(selectedTemplate.generationMode);
+    }
+    if (selectedTemplate?.prompt) {
+      onPromptChange?.(selectedTemplate.prompt);
+    }
+    if (selectedTemplate?.voice?.global_voice_id) {
+      voiceLib.setSelectedVoiceLibraryId(
+        selectedTemplate.voice.global_voice_id,
+        selectedTemplate.voice
+      );
+    }
+    onTemplateMediaChange?.(selectedTemplate);
+    setPackagingDropdownOpen(false);
+    setDigitalTemplateOpen(false);
+  }, [
+    handleModeChange,
+    handlePackagingTemplateChange,
+    onPromptChange,
+    onTemplateMediaChange,
+    voiceLib.setSelectedVoiceLibraryId,
+  ]);
 
   React.useEffect(() => {
     void refreshMembershipSummary();
@@ -1043,62 +1212,12 @@ const DigitalHumanToolDetail = ({
           overlayClassName="chat-panel__smart-packaging-dropdown"
           align={{ offset: [-420, -12] }}
           content={(
-            <div className="chat-panel__smart-packaging-popup">
-              <div className="chat-panel__smart-packaging-grid">
-                {[
-                  {
-                    value: '',
-                    label: '不使用模板',
-                    coverUrl: '',
-                  },
-                  ...SMART_PACKAGING_OPTIONS,
-                ].map((item) => {
-                  const selected = selectedPackagingTemplate === item.value;
-                  return (
-                    <button
-                      key={item.value || 'none'}
-                      type="button"
-                      className={`chat-panel__smart-packaging-card ${
-                        item.coverUrl ? '' : 'chat-panel__smart-packaging-card--empty'
-                      } ${selected ? 'is-selected' : ''}`}
-                      title={item.label}
-                      onClick={() => {
-                        handlePackagingTemplateChange(item.value);
-                        setPackagingDropdownOpen(false);
-                      }}
-                    >
-                      <span className="chat-panel__smart-packaging-cover-wrap">
-                        {item.coverUrl ? (
-                          <img
-                            className="chat-panel__smart-packaging-cover"
-                            src={item.coverUrl}
-                            alt=""
-                            aria-hidden="true"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="chat-panel__smart-packaging-empty-content">
-                            <Box size={28} strokeWidth={1.5} aria-hidden="true" />
-                            <span>不使用模板</span>
-                          </span>
-                        )}
-                        <span className="chat-panel__smart-packaging-hover">
-                          <span className="chat-panel__smart-packaging-hover-name">{item.label}</span>
-                          <span className="chat-panel__smart-packaging-hover-action">
-                            {selected ? '已选择' : '使用'}
-                          </span>
-                        </span>
-                        {selected ? (
-                          <span className="chat-panel__smart-packaging-check">
-                            <Check size={13} strokeWidth={2.5} aria-hidden="true" />
-                          </span>
-                        ) : null}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <DigitalHumanTemplatePopover
+              selectedTemplate={selectedPackagingTemplate}
+              onSelect={handlePackagingTemplateSelect}
+              showGenerationMode={false}
+              showNoPackagingOption
+            />
           )}
         >
           <button
@@ -1116,6 +1235,34 @@ const DigitalHumanToolDetail = ({
               className={`chat-panel__tool-dropdown-arrow ${packagingDropdownOpen ? 'open' : ''}`}
               aria-hidden="true"
             />
+          </button>
+        </Popover>
+        <Popover
+          trigger="click"
+          placement="topLeft"
+          open={disabled ? false : digitalTemplateOpen}
+          onOpenChange={setDigitalTemplateOpen}
+          overlayClassName="chat-panel__smart-packaging-dropdown"
+          align={{ offset: [-420, -12] }}
+          content={(
+            <DigitalHumanTemplatePopover
+              selectedTemplate={selectedPackagingTemplate}
+              onSelect={handlePackagingTemplateSelect}
+            />
+          )}
+        >
+          <button
+            type="button"
+            className={`chat-panel__digital-template-trigger ${digitalTemplateOpen ? 'is-open' : ''}`}
+            disabled={disabled}
+          >
+            <img
+              className="chat-panel__digital-template-trigger-icon"
+              src={ImageTemplateIcon}
+              alt=""
+              aria-hidden="true"
+            />
+            <span className="chat-panel__digital-template-trigger-text">模版</span>
           </button>
         </Popover>
         {children}

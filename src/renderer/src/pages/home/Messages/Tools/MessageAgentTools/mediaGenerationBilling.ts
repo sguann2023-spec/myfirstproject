@@ -118,21 +118,28 @@ function extractTruncatedPayloadFromText(value: unknown): GenericRecord | null {
   const candidates = collectTextCandidates(value)
 
   for (const candidate of candidates) {
-    if (!candidate.includes('billing') && !candidate.includes('points_consumed') && !candidate.includes('total_consumed_points')) {
+    if (
+      !candidate.includes('billing') &&
+      !candidate.includes('deduct_points') &&
+      !candidate.includes('points_consumed') &&
+      !candidate.includes('total_consumed_points')
+    ) {
       continue
     }
 
     const consume = extractNumberField(candidate, 'consume')
+    const deductPoints = extractNumberField(candidate, 'deduct_points')
     const pointsConsumed = extractNumberField(candidate, 'points_consumed')
     const totalConsumedPoints = extractNumberField(candidate, 'total_consumed_points')
 
-    if (consume === null && pointsConsumed === null && totalConsumedPoints === null) {
+    if (consume === null && deductPoints === null && pointsConsumed === null && totalConsumedPoints === null) {
       continue
     }
 
     return {
       billing: {
         ...(consume !== null ? { consume } : {}),
+        ...(deductPoints !== null ? { deduct_points: deductPoints } : {}),
         ...(pointsConsumed !== null ? { points_consumed: pointsConsumed } : {}),
         ...(totalConsumedPoints !== null ? { total_consumed_points: totalConsumedPoints } : {})
       }
@@ -158,6 +165,7 @@ function extractMcpText(output: unknown): string | null {
 function hasBillingShape(record: GenericRecord): boolean {
   return (
     'billing' in record ||
+    'deduct_points' in record ||
     'points_consumed' in record ||
     'total_consumed_points' in record ||
     'consume' in record
@@ -221,7 +229,7 @@ function extractBillingRecord(payload: unknown): BillingRecord | null {
   const nestedBilling = asRecord(record.billing)
   if (nestedBilling) return nestedBilling
 
-  if ('total_consumed_points' in record || 'points_consumed' in record || 'consume' in record) {
+  if ('total_consumed_points' in record || 'points_consumed' in record || 'deduct_points' in record || 'consume' in record) {
     return record
   }
 
@@ -287,48 +295,8 @@ export function extractMediaGenerationBillingSummary(output: unknown): MediaGene
   const parsed = parsedFromSharedOutput ?? extractMcpJson(output)
   const billing = extractBillingRecord(parsed ?? output)
   const totalConsumedPoints = asFiniteNumber(
-    billing?.total_consumed_points ?? billing?.points_consumed ?? billing?.consume
+    billing?.total_consumed_points ?? billing?.points_consumed ?? billing?.deduct_points ?? billing?.consume
   )
-
-  // #region debug-point D:media-generation-billing-helper
-  fetch('http://127.0.0.1:7777/event', {
-    method: 'POST',
-    body: JSON.stringify({
-      sessionId: 'media-billing-missing',
-      runId: 'pre-fix',
-      hypothesisId: 'D',
-      location: 'mediaGenerationBilling.ts:extractMediaGenerationBillingSummary',
-      msg: '[DEBUG] media generation billing helper evaluated',
-      data: {
-        parsedKeys: parsed ? Object.keys(parsed).slice(0, 10) : [],
-        billingKeys: billing ? Object.keys(billing).slice(0, 10) : [],
-        totalConsumedPoints,
-        parsedPreview: (() => {
-          try {
-            return JSON.stringify(parsed).slice(0, 320)
-          } catch {
-            return String(parsed).slice(0, 320)
-          }
-        })(),
-        billingPreview: (() => {
-          try {
-            return JSON.stringify(billing).slice(0, 320)
-          } catch {
-            return String(billing).slice(0, 320)
-          }
-        })(),
-        outputPreview: (() => {
-          try {
-            return JSON.stringify(output).slice(0, 320)
-          } catch {
-            return String(output).slice(0, 320)
-          }
-        })()
-      },
-      ts: Date.now()
-    })
-  }).catch(() => {})
-  // #endregion
 
   if (totalConsumedPoints === null) return null
 

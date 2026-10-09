@@ -141,7 +141,14 @@ function ToolContent({
   const renderedItem = isValidAgentToolsType(toolName)
     ? renderTool(toolName, (input ?? {}) as Record<string, unknown>, output)
     : isAgentMcpToolName(toolName ?? '')
-      ? McpServerToolRenderer({ toolName: toolName ?? 'Tool', input, output, progress, progressMessage })
+      ? McpServerToolRenderer({
+          toolName: toolName ?? 'Tool',
+          input,
+          output,
+          progress,
+          progressMessage,
+          isRunning: isStreaming
+        })
       : UnknownToolRenderer({ toolName: toolName ?? 'Tool', input, output })
 
   const toolContentItem: NonNullable<CollapseProps['items']>[number] = {
@@ -177,11 +184,12 @@ function ToolContent({
 // 统一的组件渲染入口
 export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolResponse }) {
   const { arguments: args, response, responseRaw, tool, status, partialArguments } = toolResponse
+  const resolvedToolCallId = String(toolResponse.toolCallId || toolResponse.id || '').trim()
   const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
 
   const pendingPermission = useAppSelector((state) =>
-    selectPendingPermission(state.toolPermissions, toolResponse.toolCallId)
+    selectPendingPermission(state.toolPermissions, resolvedToolCallId)
   )
 
   const parsedPartialArgs = useMemo(() => {
@@ -194,7 +202,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   }, [partialArguments])
 
   useEffect(() => {
-    if (!isAgentMcpToolName(tool?.name || '') || !toolResponse.toolCallId) {
+    if (!isAgentMcpToolName(tool?.name || '') || !resolvedToolCallId) {
       setProgress(0)
       setProgressMessage('')
       return
@@ -203,7 +211,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
     const removeListener = window.electron.ipcRenderer.on(
       IpcChannel.Mcp_Progress,
       (_event: Electron.IpcRendererEvent, data: MCPProgressEvent) => {
-        if (data.callId === toolResponse.toolCallId) {
+        if (data.callId === resolvedToolCallId) {
           setProgress(data.progress)
           setProgressMessage(data.message || '')
         }
@@ -215,7 +223,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
       setProgressMessage('')
       removeListener()
     }
-  }, [tool?.name, toolResponse.toolCallId])
+  }, [tool?.name, resolvedToolCallId])
 
   React.useEffect(() => {
     const toolName = String(tool?.name || '')
@@ -256,6 +264,13 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   const effectiveStatus = getEffectiveStatus(displayStatus, !!pendingPermission)
   const hasDisplayError = getDisplayToolHasError(toolResponse, status === 'error')
 
+  useEffect(() => {
+    if (effectiveStatus === 'done' || effectiveStatus === 'error' || effectiveStatus === 'cancelled') {
+      setProgress(0)
+      setProgressMessage('')
+    }
+  }, [effectiveStatus, resolvedToolCallId])
+
   if (effectiveStatus === 'waiting') {
     return <ToolPermissionRequestCard toolResponse={toolResponse} />
   }
@@ -280,47 +295,6 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
 
     return isAgentMcpToolName(toolName) ? (responseRaw ?? response) : response
   })()
-
-  if (!isLoading && isMediaGenerationToolName(toolName)) {
-    // #region debug-point A:message-agent-tools-resolved-output
-    fetch('http://127.0.0.1:7777/event', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: 'media-billing-missing',
-        runId: 'pre-fix',
-        hypothesisId: 'A',
-        location: 'MessageAgentTools/index.tsx:resolvedOutput',
-        msg: '[DEBUG] media tool resolved output prepared',
-        data: {
-          toolName,
-          status: effectiveStatus,
-          hasResponse: response !== undefined,
-          hasResponseRaw: responseRaw !== undefined,
-          resolvedOutputType: Array.isArray(resolvedOutput) ? 'array' : typeof resolvedOutput,
-          resolvedOutputKeys:
-            resolvedOutput && typeof resolvedOutput === 'object' && !Array.isArray(resolvedOutput)
-              ? Object.keys(resolvedOutput as Record<string, unknown>).slice(0, 8)
-              : [],
-          responsePreview: (() => {
-            try {
-              return JSON.stringify(response).slice(0, 280)
-            } catch {
-              return String(response).slice(0, 280)
-            }
-          })(),
-          responseRawPreview: (() => {
-            try {
-              return JSON.stringify(responseRaw).slice(0, 280)
-            } catch {
-              return String(responseRaw).slice(0, 280)
-            }
-          })()
-        },
-        ts: Date.now()
-      })
-    }).catch(() => {})
-    // #endregion
-  }
 
   return (
     <ToolContent

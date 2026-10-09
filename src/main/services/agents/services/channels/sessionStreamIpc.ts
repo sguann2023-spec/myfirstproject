@@ -2,7 +2,13 @@ import { modelsService } from '@main/apiServer/services/models'
 import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import { normalizeDirectAudioAddRequest } from './audioAddRequest'
 import { normalizeDirectAiVideoRequest } from './aiVideoRequest'
-import { isDirectDigitalHumanResponseComplete, normalizeDirectDigitalHumanRequest } from './digitalHumanRequest'
+import {
+  buildDirectDigitalHumanPackagingArgs,
+  buildPackagedDraftExportArgs,
+  isDirectDigitalHumanResponseComplete,
+  mapDirectRequestStageProgress,
+  normalizeDirectDigitalHumanRequest
+} from './digitalHumanRequest'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
@@ -395,7 +401,37 @@ async function callVideoTool(toolName: string, args: Record<string, unknown>) {
   )
 }
 
-async function callDigitalHumanTool(toolName: string, args: Record<string, unknown>) {
+function createDirectToolProgressExtra(callId: string, stageStart: number, stageEnd: number) {
+  return {
+    requestId: callId,
+    _meta: { progressToken: callId },
+    sendNotification: async (notification: {
+      params?: {
+        progress?: number
+        total?: number
+      }
+    }) => {
+      const progress = mapDirectRequestStageProgress(
+        Number(notification?.params?.progress || 0),
+        Number(notification?.params?.total || 100),
+        stageStart,
+        stageEnd
+      )
+      const percent = Math.max(1, Math.min(99, Math.round(progress * 100)))
+      windowService.getMainWindow()?.webContents.send(IpcChannel.Mcp_Progress, {
+        callId,
+        progress,
+        message: `${percent}%`
+      })
+    }
+  }
+}
+
+async function callDigitalHumanTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  extra: Record<string, unknown> = {}
+) {
   const server = new DigitalHumanServer()
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
@@ -410,11 +446,15 @@ async function callDigitalHumanTool(toolName: string, args: Record<string, unkno
         arguments: args
       }
     },
-    {}
+    extra
   )
 }
 
-async function callKouboTemplateTool(toolName: string, args: Record<string, unknown>) {
+async function callKouboTemplateTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  extra: Record<string, unknown> = {}
+) {
   const server = new KouboTemplateServer()
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
@@ -429,7 +469,7 @@ async function callKouboTemplateTool(toolName: string, args: Record<string, unkn
         arguments: args
       }
     },
-    {}
+    extra
   )
 }
 
@@ -1144,6 +1184,7 @@ function buildDirectDigitalHumanAssistantText(input: {
   toolResponse: Record<string, any>
   packagingTemplate?: string
   packagingResponse?: Record<string, any>
+  autoExported?: boolean
 }): string {
   const mode = String(input?.mode || '').trim()
   const toolResponse = input?.toolResponse || {}
@@ -1166,7 +1207,11 @@ function buildDirectDigitalHumanAssistantText(input: {
     draftId ? `- 草稿 ID：${draftId}` : '',
     draftUrl ? `- 草稿链接：${draftUrl}` : '',
     '',
-    packagingTemplate ? '你可以打开包装后的草稿继续编辑。' : '你可以继续预览结果，或者把视频添加到草稿中。'
+    packagingTemplate
+      ? input.autoExported
+        ? '包装后的草稿已加入自动导出队列。'
+        : '你可以打开包装后的草稿继续编辑。'
+      : '你可以继续预览结果，或者把视频添加到草稿中。'
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
@@ -4240,7 +4285,12 @@ export function registerSessionStreamIpc(): void {
         Object.entries(toolArgs).filter(([key, value]) => key !== 'provider' && value !== undefined && value !== '')
       )
 
-      const toolResult = await callDigitalHumanTool(toolConfig.name, toolArgs)
+      const digitalHumanProgressEnd = packagingTemplate ? 0.7 : 0.99
+      const toolResult = await callDigitalHumanTool(
+        toolConfig.name,
+        toolArgs,
+        createDirectToolProgressExtra(toolCallId, 0.01, digitalHumanProgressEnd)
+      )
       const toolResponse = parseDraftResultText(toolResult)
       const hasCompletedStatus = isDirectDigitalHumanResponseComplete(mode, toolResponse)
       const errorCode = String(
@@ -4268,21 +4318,30 @@ export function registerSessionStreamIpc(): void {
       let packagingResponse: Record<string, any> | null = null
       let packagingToolResult: any = null
       let packagingError = ''
+      let draftExportResponse: Record<string, any> | null = null
+      let draftExportToolResult: any = null
+      let draftExportError = ''
       const packagingToolCallId = `koubo_template_request_${requestId}`
       const packagingToolName = 'mcp__vectcut__koubo-template__submit_koubo_template_task'
+      const draftExportToolCallId = `draft_export_request_${requestId}`
+      const draftExportToolName = 'mcp__vectcut__draft-download__export_draft'
       const packagingArgs = packagingTemplate
-        ? {
+        ? buildDirectDigitalHumanPackagingArgs({
             template: packagingTemplate,
             videoUrl: getDirectDigitalHumanVideoUrl(toolResponse),
-            textContent: normalizedRequest.copywriting
-          }
+            copywriting: normalizedRequest.copywriting
+          })
         : null
 
       if (responseSuccess && packagingArgs) {
         if (!packagingArgs.videoUrl) {
           packagingError = '数字人结果中没有可用于智能包装的视频链接'
         } else {
-          packagingToolResult = await callKouboTemplateTool('submit_koubo_template_task', packagingArgs)
+          packagingToolResult = await callKouboTemplateTool(
+            'submit_koubo_template_task',
+            packagingArgs,
+            createDirectToolProgressExtra(toolCallId, 0.7, 0.99)
+          )
           packagingResponse = parseDraftResultText(packagingToolResult)
           packagingError = String(
             packagingResponse?.error
@@ -4295,22 +4354,64 @@ export function registerSessionStreamIpc(): void {
 
       const packagingSuccess = !packagingTemplate
         || (Boolean(packagingResponse) && !packagingToolResult?.isError && packagingResponse?.success !== false && !packagingError)
-      const overallSuccess = responseSuccess && packagingSuccess
-      const assistantText = !responseSuccess
-        ? buildDirectDigitalHumanErrorAssistantText({ mode, errorCode })
-        : packagingSuccess
-          ? buildDirectDigitalHumanAssistantText({
-              mode,
-              toolResponse,
-              packagingTemplate,
-              packagingResponse: packagingResponse || undefined
-            })
-          : [
-              buildDirectDigitalHumanAssistantText({ mode, toolResponse }),
-              '',
-              '智能包装失败。',
-              packagingError ? `- 错误信息：${packagingError}` : ''
-            ].filter(Boolean).join(EOL)
+      const draftExportArgs = packagingTemplate && packagingSuccess
+        ? buildPackagedDraftExportArgs(packagingResponse, packagingTemplate)
+        : null
+
+      if (responseSuccess && packagingSuccess && packagingTemplate) {
+        if (!draftExportArgs) {
+          draftExportError = '智能包装结果中没有可导出的草稿 ID'
+        } else {
+          draftExportToolResult = await callDraftDownloadTool('export_draft', draftExportArgs)
+          draftExportResponse = parseDraftResultText(draftExportToolResult)
+          draftExportError = String(
+            draftExportResponse?.error
+            || draftExportResponse?.rawText
+            || ''
+          ).trim()
+        }
+      }
+
+      const draftExportSuccess = !packagingTemplate
+        || (
+          packagingSuccess
+          && Boolean(draftExportArgs)
+          && !draftExportToolResult?.isError
+          && Number(draftExportResponse?.accepted || 0) > 0
+          && !draftExportError
+        )
+      const overallSuccess = responseSuccess && packagingSuccess && draftExportSuccess
+      let assistantText = ''
+      if (!responseSuccess) {
+        assistantText = buildDirectDigitalHumanErrorAssistantText({ mode, errorCode })
+      } else if (!packagingSuccess) {
+        assistantText = [
+          buildDirectDigitalHumanAssistantText({ mode, toolResponse }),
+          '',
+          '智能包装失败。',
+          packagingError ? `- 错误信息：${packagingError}` : ''
+        ].filter(Boolean).join(EOL)
+      } else if (!draftExportSuccess) {
+        assistantText = [
+          buildDirectDigitalHumanAssistantText({
+            mode,
+            toolResponse,
+            packagingTemplate,
+            packagingResponse: packagingResponse || undefined
+          }),
+          '',
+          '自动导出草稿失败。',
+          draftExportError ? `- 错误信息：${draftExportError}` : ''
+        ].filter(Boolean).join(EOL)
+      } else {
+        assistantText = buildDirectDigitalHumanAssistantText({
+          mode,
+          toolResponse,
+          packagingTemplate,
+          packagingResponse: packagingResponse || undefined,
+          autoExported: Boolean(packagingTemplate)
+        })
+      }
       const packagingBlocks = responseSuccess && packagingArgs
         ? buildDirectDigitalHumanAssistantBlocks({
             assistantMessageId,
@@ -4324,9 +4425,23 @@ export function registerSessionStreamIpc(): void {
             status: packagingSuccess ? 'success' : 'error'
           })
         : []
+      const draftExportBlocks = responseSuccess && packagingSuccess && draftExportArgs
+        ? buildDirectDigitalHumanAssistantBlocks({
+            assistantMessageId,
+            modelId,
+            toolCallId: draftExportToolCallId,
+            toolName: draftExportToolName,
+            toolArgs: draftExportArgs,
+            toolResponse: draftExportResponse || { error: draftExportError },
+            assistantText: '',
+            createdAtIso,
+            status: draftExportSuccess ? 'success' : 'error'
+          })
+        : []
       const assistantBlocks = [
         digitalHumanBlocks[0],
         ...(packagingBlocks.length > 0 ? [packagingBlocks[0]] : []),
+        ...(draftExportBlocks.length > 0 ? [draftExportBlocks[0]] : []),
         {
           ...digitalHumanBlocks[digitalHumanBlocks.length - 1],
           content: assistantText,

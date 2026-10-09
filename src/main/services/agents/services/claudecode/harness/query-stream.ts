@@ -265,26 +265,6 @@ function updateThinkingProbe(message: SDKMessage, thinkingProbe: ThinkingProbe, 
           blockType
         })
         thinkingDetectionReported = true
-        void fetch('http://127.0.0.1:7777/event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: 'claude-thinking-depth',
-            runId: 'pre-fix',
-            hypothesisId: 'B',
-            location: 'src/main/services/agents/services/claudecode/index.ts',
-            msg: '[DEBUG] ClaudeCode response emitted thinking block',
-            data: {
-              agentSessionId: sessionId,
-              eventType,
-              blockType,
-              index: event?.index,
-              streamReasoningStartCount: thinkingProbe.streamReasoningStartCount,
-              streamReasoningDeltaCount: thinkingProbe.streamReasoningDeltaCount
-            },
-            ts: Date.now()
-          })
-        }).catch(() => {})
       }
     } else if (eventType === 'content_block_delta') {
       const deltaType = String(event?.delta?.type || '')

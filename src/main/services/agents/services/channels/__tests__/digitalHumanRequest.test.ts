@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { isDirectDigitalHumanResponseComplete, normalizeDirectDigitalHumanRequest } from '../digitalHumanRequest'
+import {
+  buildDirectDigitalHumanPackagingArgs,
+  buildPackagedDraftExportArgs,
+  isDirectDigitalHumanResponseComplete,
+  mapDirectRequestStageProgress,
+  normalizeDirectDigitalHumanRequest
+} from '../digitalHumanRequest'
 
 describe('normalizeDirectDigitalHumanRequest', () => {
   it('keeps only normalized direct request fields', () => {
@@ -59,5 +65,37 @@ describe('normalizeDirectDigitalHumanRequest', () => {
     expect(isDirectDigitalHumanResponseComplete('lip_sync', {
       task_status: 1
     })).toBe(true)
+  })
+
+  it('disables silence removal and keeps the original copywriting for smart packaging', () => {
+    expect(buildDirectDigitalHumanPackagingArgs({
+      template: 'fisheye_ins',
+      videoUrl: 'https://example.com/result.mp4',
+      copywriting: '必须原样传入的数字人文案'
+    })).toEqual({
+      template: 'fisheye_ins',
+      videoUrl: 'https://example.com/result.mp4',
+      textContent: '必须原样传入的数字人文案',
+      params: {
+        remove_silence: false
+      }
+    })
+  })
+
+  it('maps tool progress into the overall direct request stage', () => {
+    expect(mapDirectRequestStageProgress(50, 100, 0.01, 0.7)).toBeCloseTo(0.355)
+    expect(mapDirectRequestStageProgress(100, 100, 0.7, 0.99)).toBeCloseTo(0.99)
+  })
+
+  it('builds an automatic export request only from a packaged draft result', () => {
+    expect(buildPackagedDraftExportArgs({
+      output: {
+        draft_id: 'dfd_packaged_1'
+      }
+    }, 'fisheye_ins')).toEqual({
+      draftId: 'dfd_packaged_1',
+      draftName: 'fisheye_ins 智能包装'
+    })
+    expect(buildPackagedDraftExportArgs({ output: {} }, 'fisheye_ins')).toBeNull()
   })
 })
