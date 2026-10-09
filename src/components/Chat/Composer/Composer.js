@@ -569,8 +569,11 @@ const sortItemsByVideoFrameSlot = (items = []) => (
     return leftOrder - rightOrder;
   })
 );
-const getVideoModeUploadLimit = (mode) => {
+const getVideoModeUploadLimit = (mode, capability = null) => {
   const normalizedMode = normalizeVideoGenerationMode(mode);
+  const audioReferenceDisabled = capability?.max_audio_reference_count === 0;
+  const validateReferenceFile = (file) => isSupportedVideoReferenceFile(file)
+    && (!audioReferenceDisabled || !isAudioFileType(getResolvedUploadFileType(file)));
   if (normalizedMode === 'first_frame') {
     return {
       maxCount: 1,
@@ -589,17 +592,19 @@ const getVideoModeUploadLimit = (mode) => {
     return {
       maxCount: VIDEO_REFERENCE_UPLOAD_MAX_COUNT,
       imageOnly: false,
-      accept: 'image/*,video/*,audio/*',
-      validateFile: isSupportedVideoReferenceFile,
-      typeErrorMessage: '参考生成模式仅支持上传图片、视频、音频',
+      accept: audioReferenceDisabled ? 'image/*,video/*' : 'image/*,video/*,audio/*',
+      validateFile: validateReferenceFile,
+      typeErrorMessage: audioReferenceDisabled
+        ? '当前模型仅支持上传图片、视频参考，不支持音频'
+        : '参考生成模式仅支持上传图片、视频、音频',
     };
   }
   return {
     maxCount: MAX_UPLOAD_COUNT,
     imageOnly: false,
-    accept: undefined,
-    validateFile: null,
-    typeErrorMessage: '',
+    accept: audioReferenceDisabled ? 'image/*,video/*' : undefined,
+    validateFile: audioReferenceDisabled ? validateReferenceFile : null,
+    typeErrorMessage: audioReferenceDisabled ? '当前模型仅支持上传图片、视频参考，不支持音频' : '',
   };
 };
 
@@ -3519,8 +3524,8 @@ const Composer = ({
     [selectedVideoGenerationMode]
   );
   const videoModeUploadLimit = React.useMemo(
-    () => getVideoModeUploadLimit(normalizedSelectedVideoGenerationMode),
-    [normalizedSelectedVideoGenerationMode]
+    () => getVideoModeUploadLimit(normalizedSelectedVideoGenerationMode, activeVideoCapability),
+    [normalizedSelectedVideoGenerationMode, activeVideoCapability]
   );
   const imagePanUploadLimit = React.useMemo(() => ({
     maxCount: IMAGE_PAN_UPLOAD_MAX_COUNT,

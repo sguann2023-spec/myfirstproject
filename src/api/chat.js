@@ -175,6 +175,7 @@ const normalizeVideoCapabilitiesResult = (payload, filters = {}) => {
       reference_supported: Boolean(capability?.reference_supported),
       first_frame_extend_supported: Boolean(capability?.first_frame_extend_supported),
       first_last_frame_supported: Boolean(capability?.first_last_frame_supported),
+      max_audio_reference_count: capability?.max_audio_reference_count,
       multi_image_reference_supported: Boolean(capability?.multi_image_reference_supported),
       generate_audio_supported: Boolean(capability?.generate_audio_supported),
       seedance_offline_supported: Boolean(capability?.seedance_offline_supported),
