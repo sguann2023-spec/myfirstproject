@@ -1,7 +1,7 @@
 import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
 import { Dropdown, Empty, Popover, Select, Spin, Tooltip, message } from 'antd';
-import { Check, Play, Plus, Square, Trash2 } from 'lucide-react';
+import { Box, Check, Play, Plus, Square, Trash2 } from 'lucide-react';
 import {
   deleteDigitalHumanAvatarLibrary,
   getDigitalHumanAvatarExamples,
@@ -46,6 +46,63 @@ const DIGITAL_HUMAN_OPTIONS = [
     label: '口型驱动',
     icon: LipsIcon,
     pricingKey: 'lip_sync',
+  },
+];
+const SMART_PACKAGING_OPTIONS = [
+  {
+    value: 'knowledge_pip',
+    label: '知识黄白·AI画中画',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/3c9e19e4-7b8d-4710-bd67-1bf87490880f.mov.png',
+  },
+  {
+    value: 'traditional_bilingual',
+    label: 'ins风·繁体双语',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/0e45ed20-1574-4484-89fa-46b586f0e281.jpg',
+  },
+  {
+    value: 'national_classic',
+    label: '国风经典',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/ab8b6ade-bfbe-41e3-a410-bd9b877d063e.jpg',
+  },
+  {
+    value: 'basic_yellow_white',
+    label: '基础黄白',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/654ce51d-9e1b-4fc7-a1ee-1575b8185e59.jpg',
+  },
+  {
+    value: 'classic_grass_green',
+    label: '经典·草绿色',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/db82296c-894f-4517-a69d-7196f63eb91f.png',
+  },
+  {
+    value: 'international_orange_bilingual',
+    label: '国际橙·双语',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/9a962f18-5f0d-4218-a19c-f9c92785fe9c.png',
+  },
+  {
+    value: 'eye_catching_green_bilingual',
+    label: '吸睛绿·双语',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/0a5c05be-8dd7-4da1-9790-bcfe83396e6e.png',
+  },
+  {
+    value: 'intellectual_red',
+    label: '高知红',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/4f2225ef-6a17-4bbf-868e-da4ccae0fecc2.png',
+  },
+  {
+    value: 'classical_dark_brown',
+    label: '古典深棕',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/c2c24036-6228-47b5-9bf4-b0d84c4a429b.png',
+  },
+  {
+    value: 'fisheye_ins',
+    label: '鱼眼ins',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/89fc3a79-97a7-46e2-85e1-a24d716863dd.png',
+  },
+  {
+    value: 'luxury_white_bilingual',
+    label: '轻奢白·双语',
+    coverUrl: 'https://player.install-ai-guider.top/store/691fe23c377c2a33f03997fb/6857d06e-61c8-4394-92e5-e7fc309e8412.jpg',
   },
 ];
 
@@ -311,6 +368,7 @@ const DigitalHumanToolDetail = ({
   onSelectedVoiceChange = null,
   onModeChange = null,
   onSelectedAvatarChange = null,
+  onPackagingTemplateChange = null,
 }) => {
   const [selectedMode, setSelectedMode] = React.useState(() => readPersistedDigitalHumanMode());
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -327,12 +385,17 @@ const DigitalHumanToolDetail = ({
   const [deletingAvatarIds, setDeletingAvatarIds] = React.useState([]);
   const [createAvatarDialogOpen, setCreateAvatarDialogOpen] = React.useState(false);
   const [createAvatarName, setCreateAvatarName] = React.useState('');
+  const [selectedPackagingTemplate, setSelectedPackagingTemplate] = React.useState('');
+  const [packagingDropdownOpen, setPackagingDropdownOpen] = React.useState(false);
   const [membershipSummary, setMembershipSummary] = React.useState(() => normalizeMembershipSummary());
   const [membershipLoaded, setMembershipLoaded] = React.useState(false);
   const voiceLib = useVoiceLib({ onSelectedVoiceChange });
   const selectedAvatarButtonText = selectedAvatarTitle ? `形象 ${selectedAvatarTitle}` : '选择形象';
   const seedanceLocked =
     membershipLoaded && selectedMode === SEEDANCE_DIGITAL_HUMAN_MODE && !membershipSummary.isActive;
+  const selectedPackagingTemplateLabel = SMART_PACKAGING_OPTIONS.find(
+    (item) => item.value === selectedPackagingTemplate
+  )?.label;
   const resolveAvatarVoiceProvider = React.useCallback((item = {}) => {
     return resolveDigitalHumanAvatarVoiceProvider(item);
   }, []);
@@ -413,6 +476,12 @@ const DigitalHumanToolDetail = ({
       onModeChange(normalizedValue);
     }
   }, [membershipLoaded, membershipSummary.isActive, onModeChange]);
+
+  const handlePackagingTemplateChange = React.useCallback((nextValue) => {
+    const normalizedValue = String(nextValue || '').trim();
+    setSelectedPackagingTemplate(normalizedValue);
+    onPackagingTemplateChange?.(normalizedValue);
+  }, [onPackagingTemplateChange]);
 
   React.useEffect(() => {
     void refreshMembershipSummary();
@@ -966,6 +1035,89 @@ const DigitalHumanToolDetail = ({
             </span>
           </Dropdown>
         ) : null}
+        <Popover
+          trigger="click"
+          placement="topLeft"
+          open={packagingDropdownOpen}
+          onOpenChange={setPackagingDropdownOpen}
+          overlayClassName="chat-panel__smart-packaging-dropdown"
+          align={{ offset: [-420, -12] }}
+          content={(
+            <div className="chat-panel__smart-packaging-popup">
+              <div className="chat-panel__smart-packaging-grid">
+                {[
+                  {
+                    value: '',
+                    label: '不使用模板',
+                    coverUrl: '',
+                  },
+                  ...SMART_PACKAGING_OPTIONS,
+                ].map((item) => {
+                  const selected = selectedPackagingTemplate === item.value;
+                  return (
+                    <button
+                      key={item.value || 'none'}
+                      type="button"
+                      className={`chat-panel__smart-packaging-card ${
+                        item.coverUrl ? '' : 'chat-panel__smart-packaging-card--empty'
+                      } ${selected ? 'is-selected' : ''}`}
+                      title={item.label}
+                      onClick={() => {
+                        handlePackagingTemplateChange(item.value);
+                        setPackagingDropdownOpen(false);
+                      }}
+                    >
+                      <span className="chat-panel__smart-packaging-cover-wrap">
+                        {item.coverUrl ? (
+                          <img
+                            className="chat-panel__smart-packaging-cover"
+                            src={item.coverUrl}
+                            alt=""
+                            aria-hidden="true"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className="chat-panel__smart-packaging-empty-content">
+                            <Box size={28} strokeWidth={1.5} aria-hidden="true" />
+                            <span>不使用模板</span>
+                          </span>
+                        )}
+                        <span className="chat-panel__smart-packaging-hover">
+                          <span className="chat-panel__smart-packaging-hover-name">{item.label}</span>
+                          <span className="chat-panel__smart-packaging-hover-action">
+                            {selected ? '已选择' : '使用'}
+                          </span>
+                        </span>
+                        {selected ? (
+                          <span className="chat-panel__smart-packaging-check">
+                            <Check size={13} strokeWidth={2.5} aria-hidden="true" />
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        >
+          <button
+            type="button"
+            className={`chat-panel__tool-button ${
+              packagingDropdownOpen || selectedPackagingTemplate ? 'chat-panel__tool-button--sub-active' : ''
+            }`}
+            aria-label="智能包装"
+            title={selectedPackagingTemplateLabel ? `智能包装：${selectedPackagingTemplateLabel}` : '智能包装'}
+            disabled={disabled}
+          >
+            <Box className="chat-panel__tool-icon" size={20} strokeWidth={2} aria-hidden="true" />
+            <span className="chat-panel__tool-text">{selectedPackagingTemplateLabel || '智能包装'}</span>
+            <DownOutlined
+              className={`chat-panel__tool-dropdown-arrow ${packagingDropdownOpen ? 'open' : ''}`}
+              aria-hidden="true"
+            />
+          </button>
+        </Popover>
         {children}
       </div>
       <CreateDigitalHumanAvatorDialog

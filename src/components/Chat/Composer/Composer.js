@@ -2106,6 +2106,7 @@ const Composer = ({
   const [selectedAiWritePresetId, setSelectedAiWritePresetId] = React.useState(() => getDefaultAiWritePresetId());
   const [selectedDigitalHumanMode, setSelectedDigitalHumanMode] = React.useState(() => readPersistedDigitalHumanMode());
   const [selectedDigitalHumanAvatar, setSelectedDigitalHumanAvatar] = React.useState(null);
+  const [selectedDigitalHumanPackagingTemplate, setSelectedDigitalHumanPackagingTemplate] = React.useState('');
   const [selectedImagePanModel, setSelectedImagePanModel] = React.useState(() => readPersistedImagePanModel());
   const [selectedImagePanResolution, setSelectedImagePanResolution] = React.useState(() => readPersistedImagePanResolution());
   const [selectedDraftResolution, setSelectedDraftResolution] = React.useState(() => readPersistedDraftResolution());
@@ -4223,6 +4224,9 @@ const Composer = ({
         copywriting: text,
         voice_id: digitalHumanVoiceId,
         voice_provider: digitalHumanVoiceProvider,
+        ...(selectedDigitalHumanPackagingTemplate
+          ? { packaging_template: selectedDigitalHumanPackagingTemplate }
+          : {}),
         ...(isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
           ? { image_url: normalizeDigitalHumanAvatarCoverUrl(selectedDigitalHumanAvatar?.cover_url) }
           : {
@@ -4258,6 +4262,7 @@ const Composer = ({
             selectedDigitalHumanMode === 'jimeng-avatar'
               ? '数字人工具会在同一次调用中内置合成口播音频，不要单独调用语音生成工具。'
               : '',
+            selectedDigitalHumanPackagingTemplate ? `智能包装：${selectedDigitalHumanPackagingTemplate}` : '',
           ].filter(Boolean).join('\n')
         : activeTool === 'draft'
           ? [
@@ -4736,6 +4741,7 @@ const Composer = ({
       return;
     }
     if (nextTool === 'digital-human') {
+      setSelectedDigitalHumanPackagingTemplate('');
       latestInputRef.current = '';
       setInput('');
       editor.commands.clearContent();
@@ -4934,6 +4940,7 @@ const Composer = ({
                       onModeChange={setSelectedDigitalHumanMode}
                       onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
+                      onPackagingTemplateChange={setSelectedDigitalHumanPackagingTemplate}
                     />
                   ) : activeTool === 'image-pan' ? (
                     <ImagePanToolDetail

@@ -47,6 +47,27 @@ describe('normalizeDigitalHumanRequestPayload', () => {
     })).toBeNull();
   });
 
+  it('keeps a supported smart packaging template and drops unsupported values', () => {
+    const baseRequest = {
+      mode: 'seedance',
+      copywriting: '必须原样传给包装接口的文案',
+      voice_id: 'voice-3',
+      image_url: 'https://example.com/person.jpg',
+    };
+
+    expect(normalizeDigitalHumanRequestPayload({
+      ...baseRequest,
+      packaging_template: 'knowledge_pip',
+    })).toMatchObject({
+      copywriting: '必须原样传给包装接口的文案',
+      packaging_template: 'knowledge_pip',
+    });
+    expect(normalizeDigitalHumanRequestPayload({
+      ...baseRequest,
+      packaging_template: 'ai_trim_pauses',
+    })).not.toHaveProperty('packaging_template');
+  });
+
   it('builds the documented API request for each mode', () => {
     const lipSyncCurl = buildDigitalHumanRequestApiCurl({
       mode: 'lip_sync',

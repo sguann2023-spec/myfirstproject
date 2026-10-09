@@ -7,6 +7,19 @@ const MODE_ALIASES = {
   'seedance-avatar': 'seedance',
   seedance: 'seedance',
 };
+const DIGITAL_HUMAN_PACKAGING_TEMPLATES = new Set([
+  'knowledge_pip',
+  'traditional_bilingual',
+  'national_classic',
+  'basic_yellow_white',
+  'classic_grass_green',
+  'international_orange_bilingual',
+  'eye_catching_green_bilingual',
+  'intellectual_red',
+  'classical_dark_brown',
+  'fisheye_ins',
+  'luxury_white_bilingual',
+]);
 
 export const normalizeDigitalHumanMode = (value = '') => (
   MODE_ALIASES[String(value || '').trim()] || ''
@@ -22,6 +35,7 @@ export const normalizeDigitalHumanRequestPayload = (request = {}, fallbackCopywr
   const imageUrl = String(request.image_url || request.imageUrl || '').trim();
   const videoUrl = String(request.video_url || request.videoUrl || '').trim();
   const prompt = String(request.prompt || '').trim();
+  const packagingTemplate = String(request.packaging_template || request.packagingTemplate || '').trim();
   const outputResolution = Number(request.output_resolution ?? request.outputResolution);
 
   if (!mode || !copywriting || !voiceId) return null;
@@ -36,6 +50,9 @@ export const normalizeDigitalHumanRequestPayload = (request = {}, fallbackCopywr
     ...(imageUrl ? { image_url: imageUrl } : {}),
     ...(videoUrl ? { video_url: videoUrl } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(DIGITAL_HUMAN_PACKAGING_TEMPLATES.has(packagingTemplate)
+      ? { packaging_template: packagingTemplate }
+      : {}),
     ...(mode === 'omni' && (outputResolution === 720 || outputResolution === 1080)
       ? { output_resolution: outputResolution }
       : {}),

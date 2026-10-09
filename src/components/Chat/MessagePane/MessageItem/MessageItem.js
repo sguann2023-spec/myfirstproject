@@ -187,6 +187,7 @@ const buildDigitalHumanRequestSignature = (digitalHumanRequest = null) => {
     imageUrl: String(digitalHumanRequest?.image_url || digitalHumanRequest?.imageUrl || ''),
     videoUrl: String(digitalHumanRequest?.video_url || digitalHumanRequest?.videoUrl || ''),
     prompt: String(digitalHumanRequest?.prompt || ''),
+    packagingTemplate: String(digitalHumanRequest?.packaging_template || digitalHumanRequest?.packagingTemplate || ''),
     outputResolution: Number(digitalHumanRequest?.output_resolution ?? digitalHumanRequest?.outputResolution ?? 0)
   });
 };

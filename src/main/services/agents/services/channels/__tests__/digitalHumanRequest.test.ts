@@ -30,6 +30,27 @@ describe('normalizeDirectDigitalHumanRequest', () => {
     })).toThrow('video_url is required')
   })
 
+  it('keeps only supported smart packaging templates', () => {
+    const request = {
+      mode: 'seedance',
+      copywriting: '必须原样传给包装接口的文案',
+      voice_id: 'voice-1',
+      image_url: 'https://example.com/avatar.png'
+    }
+
+    expect(normalizeDirectDigitalHumanRequest({
+      ...request,
+      packagingTemplate: 'knowledge_pip'
+    })).toMatchObject({
+      copywriting: '必须原样传给包装接口的文案',
+      packaging_template: 'knowledge_pip'
+    })
+    expect(normalizeDirectDigitalHumanRequest({
+      ...request,
+      packagingTemplate: 'ai_trim_pauses'
+    })).not.toHaveProperty('packaging_template')
+  })
+
   it('allows lip-sync direct request success only at task_status 1', () => {
     expect(isDirectDigitalHumanResponseComplete('lip_sync', {
       task_status: 5,

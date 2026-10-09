@@ -7,6 +7,7 @@ import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
+import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
 import VideoGenerateServer from '@main/mcpServers/video-generate'
@@ -400,6 +401,25 @@ async function callDigitalHumanTool(toolName: string, args: Record<string, unkno
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
     throw new Error('Digital human server did not register tools/call handler')
+  }
+  return callToolHandler(
+    {
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: args
+      }
+    },
+    {}
+  )
+}
+
+async function callKouboTemplateTool(toolName: string, args: Record<string, unknown>) {
+  const server = new KouboTemplateServer()
+  const handlers = (server.mcpServer.server as any)?._requestHandlers
+  const callToolHandler = handlers?.get('tools/call')
+  if (typeof callToolHandler !== 'function') {
+    throw new Error('Koubo template server did not register tools/call handler')
   }
   return callToolHandler(
     {
@@ -1107,31 +1127,46 @@ function buildDirectAiVideoErrorAssistantText(input: {
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
-function buildDirectDigitalHumanAssistantText(input: {
-  mode?: string
-  toolResponse: Record<string, any>
-}): string {
-  const mode = String(input?.mode || '').trim()
-  const toolResponse = input?.toolResponse || {}
+function getDirectDigitalHumanVideoUrl(toolResponse: Record<string, any> = {}): string {
   const output = toolResponse.output && typeof toolResponse.output === 'object' ? toolResponse.output : {}
   const result = toolResponse.result && typeof toolResponse.result === 'object' ? toolResponse.result : {}
-  const modeLabel = mode === 'lip_sync' ? '口型驱动数字人' : '图片驱动数字人'
-  const taskId = String(toolResponse.task_id || toolResponse.id || '').trim()
-  const videoUrl = String(
+  return String(
     output?.video_url
     || result?.video_url
     || toolResponse.digital_human_url
     || toolResponse.video_url
     || ''
   ).trim()
+}
+
+function buildDirectDigitalHumanAssistantText(input: {
+  mode?: string
+  toolResponse: Record<string, any>
+  packagingTemplate?: string
+  packagingResponse?: Record<string, any>
+}): string {
+  const mode = String(input?.mode || '').trim()
+  const toolResponse = input?.toolResponse || {}
+  const modeLabel = mode === 'lip_sync' ? '口型驱动数字人' : '图片驱动数字人'
+  const taskId = String(toolResponse.task_id || toolResponse.id || '').trim()
+  const videoUrl = getDirectDigitalHumanVideoUrl(toolResponse)
+  const packagingTemplate = String(input?.packagingTemplate || '').trim()
+  const packagingOutput = input?.packagingResponse?.output && typeof input.packagingResponse.output === 'object'
+    ? input.packagingResponse.output
+    : {}
+  const draftId = String(packagingOutput?.draft_id || '').trim()
+  const draftUrl = String(packagingOutput?.draft_url || '').trim()
 
   return [
-    `${modeLabel}生成完成！`,
+    packagingTemplate ? `${modeLabel}生成并完成智能包装！` : `${modeLabel}生成完成！`,
     '',
     taskId ? `- 任务 ID：${taskId}` : '',
     videoUrl ? `- 视频链接：${videoUrl}` : '',
+    packagingTemplate ? `- 包装模板：${packagingTemplate}` : '',
+    draftId ? `- 草稿 ID：${draftId}` : '',
+    draftUrl ? `- 草稿链接：${draftUrl}` : '',
     '',
-    '你可以继续预览结果，或者把视频添加到草稿中。'
+    packagingTemplate ? '你可以打开包装后的草稿继续编辑。' : '你可以继续预览结果，或者把视频添加到草稿中。'
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
@@ -4155,6 +4190,7 @@ export function registerSessionStreamIpc(): void {
       )
       const mode = String(normalizedRequest.mode || '').trim()
       const provider = String(normalizedRequest.voice_provider || '').trim()
+      const packagingTemplate = String(normalizedRequest.packaging_template || '').trim()
       const toolConfig = mode === 'lip_sync'
         ? {
             name: 'create_lip_sync_digital_human',
@@ -4218,20 +4254,85 @@ export function registerSessionStreamIpc(): void {
         && toolResponse?.success !== false
         && !errorCode
         && hasCompletedStatus
-      const assistantText = responseSuccess
-        ? buildDirectDigitalHumanAssistantText({ mode, toolResponse })
-        : buildDirectDigitalHumanErrorAssistantText({ mode, errorCode })
-      const assistantBlocks = buildDirectDigitalHumanAssistantBlocks({
+      const digitalHumanBlocks = buildDirectDigitalHumanAssistantBlocks({
         assistantMessageId,
         modelId,
         toolCallId,
         toolName: toolConfig.fullName,
         toolArgs: displayToolArgs,
         toolResponse,
-        assistantText,
+        assistantText: '',
         createdAtIso,
         status: responseSuccess ? 'success' : 'error'
       })
+      let packagingResponse: Record<string, any> | null = null
+      let packagingToolResult: any = null
+      let packagingError = ''
+      const packagingToolCallId = `koubo_template_request_${requestId}`
+      const packagingToolName = 'mcp__vectcut__koubo-template__submit_koubo_template_task'
+      const packagingArgs = packagingTemplate
+        ? {
+            template: packagingTemplate,
+            videoUrl: getDirectDigitalHumanVideoUrl(toolResponse),
+            textContent: normalizedRequest.copywriting
+          }
+        : null
+
+      if (responseSuccess && packagingArgs) {
+        if (!packagingArgs.videoUrl) {
+          packagingError = '数字人结果中没有可用于智能包装的视频链接'
+        } else {
+          packagingToolResult = await callKouboTemplateTool('submit_koubo_template_task', packagingArgs)
+          packagingResponse = parseDraftResultText(packagingToolResult)
+          packagingError = String(
+            packagingResponse?.error
+            || packagingResponse?.rawText
+            || (packagingResponse?.success === false ? packagingResponse?.message : '')
+            || ''
+          ).trim()
+        }
+      }
+
+      const packagingSuccess = !packagingTemplate
+        || (Boolean(packagingResponse) && !packagingToolResult?.isError && packagingResponse?.success !== false && !packagingError)
+      const overallSuccess = responseSuccess && packagingSuccess
+      const assistantText = !responseSuccess
+        ? buildDirectDigitalHumanErrorAssistantText({ mode, errorCode })
+        : packagingSuccess
+          ? buildDirectDigitalHumanAssistantText({
+              mode,
+              toolResponse,
+              packagingTemplate,
+              packagingResponse: packagingResponse || undefined
+            })
+          : [
+              buildDirectDigitalHumanAssistantText({ mode, toolResponse }),
+              '',
+              '智能包装失败。',
+              packagingError ? `- 错误信息：${packagingError}` : ''
+            ].filter(Boolean).join(EOL)
+      const packagingBlocks = responseSuccess && packagingArgs
+        ? buildDirectDigitalHumanAssistantBlocks({
+            assistantMessageId,
+            modelId,
+            toolCallId: packagingToolCallId,
+            toolName: packagingToolName,
+            toolArgs: packagingArgs,
+            toolResponse: packagingResponse || { error: packagingError },
+            assistantText: '',
+            createdAtIso,
+            status: packagingSuccess ? 'success' : 'error'
+          })
+        : []
+      const assistantBlocks = [
+        digitalHumanBlocks[0],
+        ...(packagingBlocks.length > 0 ? [packagingBlocks[0]] : []),
+        {
+          ...digitalHumanBlocks[digitalHumanBlocks.length - 1],
+          content: assistantText,
+          status: overallSuccess ? 'success' : 'error'
+        }
+      ]
 
       const activeSegment = await ensureDirectRequestSegment(session)
       await agentTurnRepository.save({
@@ -4244,7 +4345,7 @@ export function registerSessionStreamIpc(): void {
         assistantText,
         startedAt: createdAtIso,
         completedAt: createdAtIso,
-        status: responseSuccess ? 'completed' : 'failed'
+        status: overallSuccess ? 'completed' : 'failed'
       })
 
       const topicId = `agent-session:${session.id}`
@@ -4284,7 +4385,7 @@ export function registerSessionStreamIpc(): void {
               topicId,
               createdAt: createdAtIso,
               updatedAt: createdAtIso,
-              status: responseSuccess ? 'success' : 'error',
+              status: overallSuccess ? 'success' : 'error',
               blocks: assistantBlocks.map((block) => block.id),
               modelId
             },

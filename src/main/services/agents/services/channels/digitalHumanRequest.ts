@@ -7,6 +7,19 @@ const MODE_ALIASES: Record<string, string> = {
   'seedance-avatar': 'seedance',
   seedance: 'seedance'
 }
+const DIGITAL_HUMAN_PACKAGING_TEMPLATES = new Set([
+  'knowledge_pip',
+  'traditional_bilingual',
+  'national_classic',
+  'basic_yellow_white',
+  'classic_grass_green',
+  'international_orange_bilingual',
+  'eye_catching_green_bilingual',
+  'intellectual_red',
+  'classical_dark_brown',
+  'fisheye_ins',
+  'luxury_white_bilingual'
+])
 
 export function normalizeDirectDigitalHumanRequest(
   input: Record<string, unknown> = {},
@@ -19,6 +32,7 @@ export function normalizeDirectDigitalHumanRequest(
   const imageUrl = String(input.image_url || input.imageUrl || '').trim()
   const videoUrl = String(input.video_url || input.videoUrl || '').trim()
   const prompt = String(input.prompt || '').trim()
+  const packagingTemplate = String(input.packaging_template || input.packagingTemplate || '').trim()
   const outputResolution = Number(input.output_resolution ?? input.outputResolution)
 
   if (!mode) throw new Error('mode is required for digital human request')
@@ -37,6 +51,9 @@ export function normalizeDirectDigitalHumanRequest(
     ...(imageUrl ? { image_url: imageUrl } : {}),
     ...(videoUrl ? { video_url: videoUrl } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(DIGITAL_HUMAN_PACKAGING_TEMPLATES.has(packagingTemplate)
+      ? { packaging_template: packagingTemplate }
+      : {}),
     ...(mode === 'omni' && (outputResolution === 720 || outputResolution === 1080)
       ? { output_resolution: outputResolution }
       : {})
