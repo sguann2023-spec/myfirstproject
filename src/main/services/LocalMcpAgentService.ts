@@ -666,15 +666,10 @@ async function getInstalledDesktopApps(): Promise<DesktopInstalledApp[]> {
       ['/Applications', path.join(os.homedir(), 'Applications')].map(async (directory) => {
         try {
           const apps = await getMacInstalledApps(directory) as MacInstalledApp[]
-          logger.info('Scanned local MCP application directory', {
-            directory,
-            count: Array.isArray(apps) ? apps.length : 0
-          })
           return apps
         } catch (error) {
           // macOS does not create a per-user Applications directory by default.
           if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-            logger.info('Skipped missing local MCP application directory', { directory })
             return []
           }
           logger.error(`Failed to scan installed applications in ${directory}`, error as Error)
@@ -732,18 +727,6 @@ class LocalMcpAgentService {
         } satisfies LocalMcpDetectedAgent
       })
     )
-
-    logger.info('Detected local MCP agents', {
-      platform: process.platform,
-      desktopAppCount: desktopApps.length,
-      detected: agents.map((agent) => ({
-        id: agent.id,
-        installed: agent.installed,
-        installType: agent.installType,
-        path: agent.path,
-        detectionHint: agent.detectionHint
-      }))
-    })
 
     return agents
   }

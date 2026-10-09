@@ -1,4 +1,3 @@
-import { loggerService } from '@logger'
 import type { NormalToolResponse } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
 import React from 'react'
@@ -15,7 +14,6 @@ interface Props {
 const builtinToolsPrefix = 'builtin_'
 const agentMcpToolsPrefix = 'mcp__'
 const agentTools = Object.values(AgentToolsType)
-const logger = loggerService.withContext('MessageTool')
 
 const isAgentTool = (toolName: AgentToolsType) => {
   if (agentTools.includes(toolName) || toolName.startsWith(agentMcpToolsPrefix)) {
@@ -51,22 +49,15 @@ export default function MessageTool({ block }: Props) {
   const toolResponse = block.metadata?.rawMcpToolResponse as NormalToolResponse
 
   if (!toolResponse) {
-    logger.warn('Skip non-mcp tool render: rawMcpToolResponse missing', {
-      blockId: block.id,
-      messageId: block.messageId
-    })
     return null
   }
 
   const toolRenderer = ChooseTool(toolResponse)
 
   if (!toolRenderer) {
-    logger.warn('Skip non-mcp tool render: no renderer matched', {
-      blockId: block.id,
-      messageId: block.messageId,
-      toolName: toolResponse?.tool?.name,
-      toolType: toolResponse?.tool?.type
-    })
+    // #region debug-point C:renderer-rejection
+    void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'C', location: 'MessageTool.tsx:MessageTool', msg: '[DEBUG] Renderer rejected tool block', data: { blockId: block.id, messageId: block.messageId, toolName: toolResponse?.tool?.name, toolType: toolResponse?.tool?.type }, ts: Date.now() }) }).catch(() => {})
+    // #endregion
     return null
   }
 

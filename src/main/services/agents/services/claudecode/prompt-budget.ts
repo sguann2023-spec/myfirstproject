@@ -1,7 +1,5 @@
 import { loggerService } from '@logger'
 
-import type { ActiveIntentDomain, IntentDomain, RuntimeToolLayer } from './capability-router'
-
 const logger = loggerService.withContext('PromptBudgetProbe')
 const previousFingerprintsBySession = new Map<string, RequestFingerprints>()
 
@@ -37,18 +35,12 @@ export function logPromptBudgetProbe(args: {
   segmentId?: string
   parentSegmentId?: string
   model: string
-  toolLayer: RuntimeToolLayer
-  activeDomains?: ActiveIntentDomain[]
-  primaryDomain?: IntentDomain
-  subdomains?: string[]
-  companionDomains?: IntentDomain[]
   prompt: string
   systemPrompt: unknown
   builtinTools: string[]
-  allowedTools: string[]
+  autoAllowedTools: string[]
   mcpServerNames: string[]
   activeSkills: string[]
-  selectedCapabilities: string[]
   promptLengths?: Record<string, number>
   systemPromptVersion?: string
   systemPromptHash?: string
@@ -60,7 +52,7 @@ export function logPromptBudgetProbe(args: {
     segment('userPrompt', args.prompt),
     segment('systemPrompt', args.systemPrompt),
     segment('builtinTools', args.builtinTools),
-    segment('autoAllowedTools', args.allowedTools),
+    segment('autoAllowedTools', args.autoAllowedTools),
     segment('mcpServers', args.mcpServerNames),
     segment('activeSkills', args.activeSkills)
   ]
@@ -99,12 +91,6 @@ export function logPromptBudgetProbe(args: {
     segmentId: args.segmentId,
     parentSegmentId: args.parentSegmentId,
     model: args.model,
-    toolLayer: args.toolLayer,
-    activeDomains: args.activeDomains ?? [],
-    primaryDomain: args.primaryDomain,
-    subdomains: args.subdomains ?? [],
-    companionDomains: args.companionDomains ?? [],
-    selectedCapabilities: args.selectedCapabilities,
     systemPromptVersion: args.systemPromptVersion,
     systemPromptHash: args.systemPromptHash,
     continuationSummaryChars: args.continuationSummaryChars ?? 0,

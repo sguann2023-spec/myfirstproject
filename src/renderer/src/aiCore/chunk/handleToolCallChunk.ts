@@ -308,12 +308,6 @@ export class ToolCallChunkHandler {
     if (toolCall.streamingArgs) {
       const normalizedStreamingArgs = normalizeStreamingArgs(toolCall.streamingArgs)
       if (normalizedStreamingArgs !== toolCall.streamingArgs) {
-        logger.warn('🔧 [ToolCallChunkHandler] Collapsed duplicated streaming args before parse', {
-          toolCallId,
-          toolName: toolCall.toolName,
-          beforePreview: summarizeForLog(toolCall.streamingArgs),
-          afterPreview: summarizeForLog(normalizedStreamingArgs)
-        })
         toolCall.streamingArgs = normalizedStreamingArgs
       }
       try {
@@ -328,8 +322,6 @@ export class ToolCallChunkHandler {
     toolCall.lastEventAt = Date.now()
     toolCall.lastStage = 'input-end'
     this.scheduleToolCallWatchdog(toolCallId)
-
-    logger.info(`🔧 [ToolCallChunkHandler] Tool input streaming completed: ${toolCall.toolName} (${toolCallId})`)
 
     // 发送 streaming 完成 chunk
     const toolResponse: MCPToolResponse | NormalToolResponse = {
@@ -371,11 +363,6 @@ export class ToolCallChunkHandler {
       existingToolCall.lastEventAt = Date.now()
       existingToolCall.lastStage = 'tool-call'
       this.scheduleToolCallWatchdog(toolCallId)
-      logger.info('🔧 [ToolCallChunkHandler] Tool call finalized after streaming input', {
-        toolCallId,
-        toolName,
-        argsPreview: summarizeForLog(args)
-      })
       return
     }
 
@@ -495,12 +482,6 @@ export class ToolCallChunkHandler {
 
     // 从活跃调用中移除（交互结束后整个实例会被丢弃）
     this.removeActiveToolCall(toolCallId)
-    logger.info('🔧 [ToolCallChunkHandler] Tool result received', {
-      toolCallId,
-      toolName: toolCallInfo.toolName,
-      inputPreview: summarizeForLog(input),
-      outputPreview: summarizeForLog(output)
-    })
 
     // 调用 onChunk
     if (this.onChunk) {

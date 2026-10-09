@@ -6,7 +6,6 @@ export interface BuildSegmentPromptInput {
   promptView: PromptView
   modelId?: string
   builtinTools?: string[]
-  allowedTools?: string[]
 }
 
 export interface SegmentPromptService {
@@ -42,7 +41,7 @@ export class SegmentPromptServiceImpl implements SegmentPromptService {
       systemPromptHash: buildPromptHash(systemPrompt),
       systemPromptVersion: 'v1',
       modelHash: input.modelId ? buildPromptHash(input.modelId) : undefined,
-      toolsHash: buildPromptHash(stableStringify([...(input.builtinTools ?? []), ...(input.allowedTools ?? [])])),
+      toolsHash: buildPromptHash(stableStringify(input.builtinTools ?? [])),
       messagesHash: buildPromptHash(stableStringify(input.promptView))
     }
   }

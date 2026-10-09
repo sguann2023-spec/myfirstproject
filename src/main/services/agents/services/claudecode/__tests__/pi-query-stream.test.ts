@@ -13,6 +13,7 @@ vi.mock('@logger', () => ({
 }))
 
 vi.mock('@shared/sessionPayloadLimits', () => ({
+  isInlineToolPayloadTruncated: vi.fn(() => false),
   limitInlineToolPayload: vi.fn((value: unknown) => value)
 }))
 
@@ -54,16 +55,21 @@ function createHarnessStub(overrides?: {
 }): {
   harness: any
   emitAgentEvent: (event: unknown) => Promise<void>
+  emitNestedToolEvent: (event: unknown) => Promise<void>
   abort: ReturnType<typeof vi.fn>
   prompt: ReturnType<typeof vi.fn>
 } {
   let listener: ((event: unknown) => Promise<void>) | undefined
+  let nestedToolListener: ((event: unknown) => void | Promise<void>) | undefined
   const abort = vi.fn(overrides?.abort ?? (async () => undefined))
   const prompt = vi.fn(overrides?.prompt ?? (async () => ({ role: 'assistant', content: [], stopReason: 'stop', usage: {} })))
 
   return {
     emitAgentEvent: async (event) => {
       await listener?.(event)
+    },
+    emitNestedToolEvent: async (event) => {
+      await nestedToolListener?.(event)
     },
     abort,
     prompt,
@@ -73,6 +79,12 @@ function createHarnessStub(overrides?: {
       importStrategy: 'npm-native-import',
       invokeContext: {
         runtime: { traceId: 'trace-1' },
+        skills: {},
+        prompt: {
+          resources: {
+            skills: []
+          }
+        },
         projection: {
           topicId: 'topic-1',
           piSessionId: 'pi-session-1'
@@ -82,6 +94,12 @@ function createHarnessStub(overrides?: {
       appendAssistantResponse() {},
       recordProjectionEvent() {},
       runtimeBridge: {
+        subscribeNestedToolEvents(next: (event: unknown) => void | Promise<void>) {
+          nestedToolListener = next
+          return () => {
+            nestedToolListener = undefined
+          }
+        },
         model: {
           provider: 'provider-1',
           id: 'model-1'
@@ -409,6 +427,76 @@ describe('processPiHarnessQuery', () => {
     expect(chunkTypes).toContain('tool-call')
     expect(chunkTypes).toContain('tool-input-end')
     expect(stream.events.map((event) => event.type)).toContain('error')
+  })
+
+  it('projects nested Codemode MCP calls as normal tool card chunks', async () => {
+    const nestedToolName = 'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task'
+    const nestedToolCallId = 'codemode-nested-1'
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        await harnessStub.emitNestedToolEvent({
+          type: 'start',
+          toolCallId: nestedToolCallId,
+          toolName: nestedToolName,
+          input: { audioPath: '/tmp/audio.wav' }
+        })
+        await harnessStub.emitNestedToolEvent({
+          type: 'success',
+          toolCallId: nestedToolCallId,
+          toolName: nestedToolName,
+          input: { audioPath: '/tmp/audio.wav' },
+          result: {
+            content: [{ type: 'text', text: '{"taskId":"task-1"}' }]
+          }
+        })
+        return {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'done' }],
+          stopReason: 'stop',
+          usage: {}
+        }
+      }
+    })
+    const stream = createStreamRecorder()
+
+    await processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1',
+        topicId: 'topic-1',
+        currentPrompt: 'hello',
+        activeSegment,
+        currentTurn,
+        promptEnvelope: {
+          systemPromptVersion: 'v1',
+          systemPromptHash: 'hash-1',
+          systemPrompt: 'system'
+        },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+
+    const chunks = stream.events
+      .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk')
+      .map((event) => event.chunk)
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-call',
+        toolCallId: nestedToolCallId,
+        toolName: nestedToolName
+      })
+    )
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-result',
+        toolCallId: nestedToolCallId,
+        toolName: nestedToolName
+      })
+    )
   })
 
   it('retries retriable upstream errors when no text or tool side effects were produced', async () => {

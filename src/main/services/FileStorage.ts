@@ -1347,7 +1347,6 @@ class FileStorage {
       }
 
       // Fallback: if no results, try greedy substring match on all files
-      logger.debug('Fuzzy glob returned no results, falling back to greedy substring match')
       const fallbackArgs = this.buildRipgrepBaseArgs(options, resolvedPath)
 
       const fallbackResult = await executeRipgrep(fallbackArgs)

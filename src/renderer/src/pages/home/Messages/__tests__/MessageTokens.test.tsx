@@ -110,6 +110,68 @@ describe('MessageTokens', () => {
     expect(html).toContain('6.00')
   })
 
+  it('不重复统计 Codemode 返回的嵌套工具扣费', () => {
+    mockState.messages.entities = {}
+    const billingResponse = {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            billing: { consume: 3 },
+            result_summary: { segment_count: 20 }
+          })
+        }
+      ]
+    }
+    mockState.messageBlocks.entities = {
+      codemode: {
+        id: 'codemode',
+        type: 'tool',
+        toolName: 'codemode',
+        metadata: {
+          rawMcpToolResponse: {
+            tool: { name: 'codemode' },
+            responseRaw: billingResponse
+          }
+        }
+      },
+      subtitle: {
+        id: 'subtitle',
+        type: 'tool',
+        toolName: 'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task',
+        metadata: {
+          rawMcpToolResponse: {
+            tool: { name: 'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task' },
+            responseRaw: billingResponse
+          }
+        }
+      }
+    }
+
+    const html = renderToStaticMarkup(
+      <MessageTokens
+        message={
+          {
+            id: 'codemode-nested-billing',
+            role: 'assistant',
+            blocks: ['codemode', 'subtitle'],
+            status: 'success',
+            model: {
+              pricing: {
+                precise_uncached_input_resource_points_per_unit: 1000000,
+                precise_output_resource_points_per_unit: 1000000
+              }
+            },
+            usageSteps: [{ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }]
+          } as any
+        }
+      />
+    )
+
+    expect(html).toContain('6.00')
+    expect(html).not.toContain('9.00')
+  })
+
   it('在存在 usageSteps 时优先按 step 聚合展示', () => {
     mockState.messageBlocks.entities = {}
 

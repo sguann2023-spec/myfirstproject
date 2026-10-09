@@ -39,7 +39,9 @@
     },
     "asar": true,
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "node_modules/@earendil-works/pi-codemode/**/*",
+      "node_modules/quickjs-wasi/**/*"
     ],
     "directories": {
       "output": "build"
@@ -213,6 +215,7 @@
     "@e965/xlsx": "^0.20.3",
     "@earendil-works/pi-agent-core": "0.83.0",
     "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-codemode": "1.1.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@emotion/is-prop-valid": "^1.4.0",

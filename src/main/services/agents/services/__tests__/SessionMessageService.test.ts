@@ -57,6 +57,59 @@ describe('TextStreamAccumulator', () => {
     ])
   })
 
+  it('persists failed tool calls as error blocks', () => {
+    const accumulator = new TextStreamAccumulator()
+    const error = {
+      content: [
+        {
+          type: 'text',
+          text: 'cat: subtitle.json: No such file or directory'
+        }
+      ]
+    }
+
+    accumulator.add({ type: 'tool-input-start', id: 'tool-error-1', toolName: 'Bash' } as any)
+    accumulator.add({
+      type: 'tool-call',
+      toolCallId: 'tool-error-1',
+      toolName: 'Bash',
+      input: { command: 'cat subtitle.json' }
+    } as any)
+    accumulator.add({
+      type: 'tool-error',
+      toolCallId: 'tool-error-1',
+      toolName: 'Bash',
+      input: { command: 'cat subtitle.json' },
+      error,
+      rawError: error
+    } as any)
+
+    const blocks = accumulator.getAssistantBlocks('message-1', 'openai:glm-5.3')
+    const toolBlock = blocks.find((block) => block.type === 'tool')
+
+    expect(accumulator.summarizeState()).toMatchObject({
+      toolCallCount: 1,
+      toolResultCount: 1
+    })
+    expect(toolBlock).toMatchObject({
+      type: 'tool',
+      status: 'error',
+      toolName: 'Bash',
+      content: error,
+      error: {
+        message: 'Tool execution failed/error',
+        details: error
+      },
+      metadata: {
+        rawMcpToolResponse: {
+          status: 'error',
+          response: error,
+          responseRaw: error
+        }
+      }
+    })
+  })
+
   it('accumulates token usage across agent steps', () => {
     const accumulator = new TextStreamAccumulator()
 

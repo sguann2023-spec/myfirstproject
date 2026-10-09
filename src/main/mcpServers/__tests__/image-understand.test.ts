@@ -92,9 +92,10 @@ describe('ImageUnderstandServer', () => {
     const result = await listTools(server)
 
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['inspect_image'])
+    expect(result.tools[0].inputSchema.properties).toHaveProperty('image')
   })
 
-  it('should send remote image urls directly to qwen3.7-plus', async () => {
+  it('should send remote image urls directly to gpt-5.6-luna', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -141,7 +142,7 @@ describe('ImageUnderstandServer', () => {
     )
 
     const requestBody = JSON.parse(mockNetFetch.mock.calls[1][1].body as string)
-    expect(requestBody.model).toBe('qwen3.7-plus')
+    expect(requestBody.model).toBe('gpt-5.6-luna')
     expect(requestBody.messages[0].content[1]).toEqual({
       type: 'image_url',
       image_url: {
@@ -163,7 +164,7 @@ describe('ImageUnderstandServer', () => {
     ])
   })
 
-  it('should convert local files to data urls before submitting', async () => {
+  it.each(['file_path', 'image'])('should convert local files supplied via %s to data urls before submitting', async (sourceField) => {
     const localImagePath = path.join(workspaceRoot, 'local-source.png')
     await fs.writeFile(localImagePath, Buffer.from('hello-image'))
 
@@ -191,11 +192,11 @@ describe('ImageUnderstandServer', () => {
 
     const server = createServer(workspaceRoot)
     const result = await callTool(server, 'inspect_image', {
-      file_path: localImagePath
+      [sourceField]: localImagePath
     })
 
     const requestBody = JSON.parse(mockNetFetch.mock.calls[1][1].body as string)
-    expect(requestBody.model).toBe('qwen3.7-plus')
+    expect(requestBody.model).toBe('gpt-5.6-luna')
     expect(requestBody.messages[0].content[1].type).toBe('image_url')
     expect(requestBody.messages[0].content[1].image_url.url).toMatch(/^data:image\/png;base64,/)
 
@@ -212,7 +213,7 @@ describe('ImageUnderstandServer', () => {
 
     const storedText = await fs.readFile(payload.artifact.file_path, 'utf8')
     const storedPayload = JSON.parse(storedText)
-    expect(storedPayload.request.model).toBe('qwen3.7-plus')
+    expect(storedPayload.request.model).toBe('gpt-5.6-luna')
     expect(storedPayload.answer).toBe('本地图片识别完成。')
   })
 
@@ -242,7 +243,7 @@ describe('ImageUnderstandServer', () => {
 
     const payload = JSON.parse(result.content[0].text)
     expect(payload.answer).toBe('这是一张工具界面截图。')
-    expect(payload.response_summary.model).toBe('qwen3.7-plus')
+    expect(payload.response_summary.model).toBe('gpt-5.6-luna')
   })
 
   it('should preserve billing fields from SSE-style responses', async () => {

@@ -45,6 +45,7 @@ export class TextStreamAccumulator {
       inline: unknown
       raw: unknown
       truncated: boolean
+      status: 'done' | 'error'
     }
   >()
   private readonly toolCallOrder: string[] = []
@@ -183,7 +184,29 @@ export class TextStreamAccumulator {
           this.toolResults.set(toolCallId, {
             inline,
             raw,
-            truncated: typeof legacyPart.truncated === 'boolean' ? legacyPart.truncated : raw !== inline
+            truncated: typeof legacyPart.truncated === 'boolean' ? legacyPart.truncated : raw !== inline,
+            status: 'done'
+          })
+        }
+        break
+      }
+      case 'tool-error': {
+        const toolCallId = this.getToolCallKey(chunk)
+        if (toolCallId) {
+          this.ensureToolEntry(toolCallId, chunk.toolName)
+          const legacyPart = chunk as {
+            error?: unknown
+            rawError?: unknown
+            providerMetadata?: { raw?: unknown }
+            truncated?: boolean
+          }
+          const inline = legacyPart.error ?? legacyPart.providerMetadata?.raw
+          const raw = legacyPart.rawError ?? inline
+          this.toolResults.set(toolCallId, {
+            inline,
+            raw,
+            truncated: typeof legacyPart.truncated === 'boolean' ? legacyPart.truncated : raw !== inline,
+            status: 'error'
           })
         }
         break
@@ -424,6 +447,7 @@ export class TextStreamAccumulator {
       const toolCall = this.toolCalls.get(segment.toolCallId)
       if (!toolCall) continue
       const toolResult = this.toolResults.get(segment.toolCallId)
+      const isToolError = toolResult?.status === 'error'
       emittedToolBlocks.add(segment.toolCallId)
       blocks.push({
         id: randomUUID(),
@@ -431,12 +455,22 @@ export class TextStreamAccumulator {
         type: 'tool',
         createdAt: now,
         updatedAt: now,
-        status: toolResult !== undefined ? 'success' : 'processing',
+        status: isToolError ? 'error' : toolResult !== undefined ? 'success' : 'processing',
         model: modelId,
         toolId: segment.toolCallId,
         toolName: toolCall.toolName,
         arguments: toolCall.input && typeof toolCall.input === 'object' ? toolCall.input : undefined,
         content: toolResult?.inline,
+        ...(isToolError
+          ? {
+              error: {
+                message: 'Tool execution failed/error',
+                details: toolResult.inline,
+                name: null,
+                stack: null
+              }
+            }
+          : {}),
         metadata: {
           rawMcpToolResponse: {
             id: segment.toolCallId,
@@ -450,7 +484,7 @@ export class TextStreamAccumulator {
                 : toolCall.input !== undefined
                   ? String(toolCall.input)
                   : undefined,
-            status: toolResult !== undefined ? 'done' : 'pending',
+            status: isToolError ? 'error' : toolResult !== undefined ? 'done' : 'pending',
             response: toolResult?.inline,
             responseRaw: toolResult?.raw,
             truncated: toolResult?.truncated ?? false
@@ -466,18 +500,29 @@ export class TextStreamAccumulator {
       const toolCall = this.toolCalls.get(toolCallId)
       if (!toolCall) continue
       const toolResult = this.toolResults.get(toolCallId)
+      const isToolError = toolResult?.status === 'error'
       blocks.push({
         id: randomUUID(),
         messageId,
         type: 'tool',
         createdAt: now,
         updatedAt: now,
-        status: toolResult !== undefined ? 'success' : 'processing',
+        status: isToolError ? 'error' : toolResult !== undefined ? 'success' : 'processing',
         model: modelId,
         toolId: toolCallId,
         toolName: toolCall.toolName,
         arguments: toolCall.input && typeof toolCall.input === 'object' ? toolCall.input : undefined,
         content: toolResult?.inline,
+        ...(isToolError
+          ? {
+              error: {
+                message: 'Tool execution failed/error',
+                details: toolResult.inline,
+                name: null,
+                stack: null
+              }
+            }
+          : {}),
         metadata: {
           rawMcpToolResponse: {
             id: toolCallId,
@@ -491,7 +536,7 @@ export class TextStreamAccumulator {
                 : toolCall.input !== undefined
                   ? String(toolCall.input)
                   : undefined,
-            status: toolResult !== undefined ? 'done' : 'pending',
+            status: isToolError ? 'error' : toolResult !== undefined ? 'done' : 'pending',
             response: toolResult?.inline,
             responseRaw: toolResult?.raw,
             truncated: toolResult?.truncated ?? false

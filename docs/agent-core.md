@@ -476,7 +476,6 @@ bridges
 - `autoAllowTools`
 - `mountedMcpServers`
 - `toolLayer`
-- `selectedCapabilities`
 
 用途：
 
@@ -573,7 +572,6 @@ type ToolRuntimeSnapshot = {
   activeToolNames: string[]
   allowedTools: string[]
   autoAllowTools: string[]
-  selectedCapabilities: string[]
   toolLayer: string
   mountedMcpServers: Array<{
     key: string

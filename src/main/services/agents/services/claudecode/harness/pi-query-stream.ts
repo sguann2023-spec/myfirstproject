@@ -17,7 +17,7 @@ import {
 } from './mcp-progress-call-id-map'
 import { conversationSegmentService } from '../session-architecture/ConversationSegmentService'
 import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
-import type { ClaudeCodeHarnessAdapter } from './create-harness'
+import type { ClaudeCodeHarnessAdapter, PiNestedToolEvent } from './create-harness'
 import type { SessionArchitectureContext } from './query-stream'
 import { buildInlineToolResultPayload } from './tool-result-payload'
 
@@ -33,6 +33,7 @@ type PendingToolCall = {
   providerToolCallId: string
   toolName: string
   input?: unknown
+  startedAt: number
 }
 
 type PiToolCallSnapshot = {
@@ -363,6 +364,10 @@ export async function processPiHarnessQuery(input: {
   let toolCallCount = 0
   let toolResultCount = 0
   let currentAttempt = 0
+  const queryStartedAt = Date.now()
+  let assistantRound = 0
+  let currentAssistantStartedAt = queryStartedAt
+  let lastToolCompletedAt: number | undefined
   const terminalTimeoutMs = resolvePiTerminalTimeoutMs()
   const idleTimeoutMs = resolvePiIdleTimeoutMs()
   let terminalTimeoutHandle: NodeJS.Timeout | undefined
@@ -445,7 +450,7 @@ export async function processPiHarnessQuery(input: {
     toolName: string
     toolInput: unknown
     providerMetadata: ProviderMetadata
-    source: 'toolcall_end' | 'message_end_snapshot'
+    source: 'toolcall_end' | 'message_end_snapshot' | 'nested-codemode'
   }): void => {
     const { toolCallId, emittedToolCallId, toolName, toolInput, providerMetadata, source } = input
     if (pendingToolCalls.has(toolCallId) || pendingToolCalls.has(emittedToolCallId)) {
@@ -457,11 +462,15 @@ export async function processPiHarnessQuery(input: {
       emittedId: emittedToolCallId,
       providerToolCallId: toolCallId,
       toolName,
-      input: toolInput
+      input: toolInput,
+      startedAt: Date.now()
     }
     registerMcpProgressCallId(toolCallId, emittedToolCallId)
     pendingToolCalls.set(toolCallId, pendingToolCall)
     pendingToolCalls.set(emittedToolCallId, pendingToolCall)
+    // #region debug-point B:stream-tool-registration
+    void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'B', location: 'pi-query-stream.ts:registerPendingPiToolCall', msg: '[DEBUG] Pi stream registered tool call', data: { traceId: architectureContext.traceId, providerToolCallId: toolCallId, emittedToolCallId, toolName, source }, ts: Date.now() }) }).catch(() => {})
+    // #endregion
 
     if (source === 'message_end_snapshot') {
       logger.warn('[PiQuery] recovered missing toolcall_end from assistant message_end snapshot', {
@@ -470,7 +479,8 @@ export async function processPiHarnessQuery(input: {
         toolCallId,
         emittedToolCallId,
         toolName,
-        toolCallCount
+        toolCallCount,
+        assistantElapsedMs: Date.now() - currentAssistantStartedAt
       })
     } else {
       logger.info('[PiQuery] assistant toolcall_end', {
@@ -479,7 +489,8 @@ export async function processPiHarnessQuery(input: {
         toolCallId,
         emittedToolCallId,
         toolName,
-        toolCallCount
+        toolCallCount,
+        assistantElapsedMs: Date.now() - currentAssistantStartedAt
       })
     }
 
@@ -506,6 +517,74 @@ export async function processPiHarnessQuery(input: {
     )
   }
 
+  const handleNestedToolEvent = async (event: PiNestedToolEvent): Promise<void> => {
+    const providerMetadata: ProviderMetadata = {
+      ...providerMetadataBase,
+      raw: {
+        ...(providerMetadataBase.raw as Record<string, unknown>),
+        nestedCodemodeTool: true
+      }
+    }
+
+    if (event.type === 'start') {
+      registerPendingPiToolCall({
+        toolCallId: event.toolCallId,
+        emittedToolCallId: event.toolCallId,
+        toolName: event.toolName,
+        toolInput: event.input,
+        providerMetadata,
+        source: 'nested-codemode'
+      })
+      return
+    }
+
+    const pending = pendingToolCalls.get(event.toolCallId)
+    const emittedToolCallId = pending?.emittedId || event.toolCallId
+    unregisterMcpProgressCallId(event.toolCallId, emittedToolCallId)
+    toolResultCount += 1
+
+    if (event.type === 'error') {
+      emitChunk(
+        stream,
+        {
+          type: 'tool-error',
+          toolCallId: emittedToolCallId,
+          toolName: event.toolName,
+          input: pending?.input ?? event.input,
+          error: limitInlineToolPayload(event.error, { label: `${event.toolName} 错误输出` }),
+          rawError: event.error,
+          providerExecuted: false,
+          providerMetadata
+        } as TextStreamPart<any>,
+        harness
+      )
+    } else {
+      const inlineSource = buildInlineToolResultPayload(event.result)
+      const inlinePayload = Array.isArray(inlineSource) ? { content: inlineSource } : inlineSource
+      emitChunk(
+        stream,
+        {
+          type: 'tool-result',
+          toolCallId: emittedToolCallId,
+          toolName: event.toolName,
+          input: pending?.input ?? event.input,
+          output: limitInlineToolPayload(inlinePayload, { label: `${event.toolName} 回包` }),
+          rawOutput: event.result,
+          truncated: isInlineToolPayloadTruncated(inlinePayload),
+          providerExecuted: false,
+          providerMetadata
+        } as TextStreamPart<any>,
+        harness
+      )
+    }
+
+    architectureContext.pendingFileChanges.delete(event.toolCallId)
+    pendingToolCalls.delete(event.toolCallId)
+    if (emittedToolCallId !== event.toolCallId) {
+      pendingToolCalls.delete(emittedToolCallId)
+    }
+  }
+
   const emitRetryStatusChunk = (attempt: number): void => {
     emitChunk(
       stream,
@@ -519,23 +598,19 @@ export async function processPiHarnessQuery(input: {
     )
   }
 
+  const unsubscribeNestedTools = runtimeBridge.subscribeNestedToolEvents(handleNestedToolEvent)
   const unsubscribe = runtimeBridge.harness.subscribe(async (event) => {
     // 每收到任何 harness 事件都视为有活性，重置并重新武装空闲超时，
     // 确保流中途断网后 idleTimeoutMs 内无新事件即可触发重试。
     armIdleTimeout()
     if (event.type === 'message_start' && event.message.role === 'assistant') {
+      const now = Date.now()
+      assistantRound += 1
+      currentAssistantStartedAt = now
       armTerminalTimeout()
       currentAssistantMessageId = `pi_assistant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       currentAssistantUsage = convertPiUsage((event.message as any).usage)
       currentAssistantStopReason = mapPiStopReason((event.message as any).stopReason)
-      logger.info('[PiQuery] assistant message_start', {
-        sessionId,
-        traceId: architectureContext.traceId,
-        piSessionId: harness.invokeContext.projection.piSessionId,
-        messageId: currentAssistantMessageId,
-        usage: (event.message as any).usage,
-        stopReason: (event.message as any).stopReason
-      })
       emitChunk(
         stream,
         {
@@ -570,12 +645,6 @@ export async function processPiHarnessQuery(input: {
       switch (assistantEvent.type) {
         case 'text_start':
           textBlockContents.set(blockId, '')
-          logger.info('[PiQuery] assistant text_start', {
-            sessionId,
-            traceId: architectureContext.traceId,
-            blockId,
-            contentIndex: assistantEvent.contentIndex
-          })
           emitChunk(stream, { type: 'text-start', id: blockId, providerMetadata } as TextStreamPart<any>, harness)
           return
         case 'text_delta':
@@ -595,14 +664,6 @@ export async function processPiHarnessQuery(input: {
           return
         case 'text_end':
           const completedText = textBlockContents.get(blockId) || ''
-          logger.info('[PiQuery] assistant text_end', {
-            sessionId,
-            traceId: architectureContext.traceId,
-            blockId,
-            textDeltaCount,
-            streamedAssistantTextChars: streamedAssistantText.length,
-            blockTextChars: completedText.length
-          })
           emitChunk(
             stream,
             {
@@ -757,6 +818,7 @@ export async function processPiHarnessQuery(input: {
       }
 
       if (event.isError) {
+        lastToolCompletedAt = Date.now()
         logger.warn('[PiQuery] tool_execution_end error', {
           sessionId,
           traceId: architectureContext.traceId,
@@ -764,6 +826,8 @@ export async function processPiHarnessQuery(input: {
           emittedToolCallId,
           toolName,
           toolResultCount,
+          executionElapsedMs: pending ? lastToolCompletedAt - pending.startedAt : undefined,
+          queryElapsedMs: lastToolCompletedAt - queryStartedAt,
           error: summarizeValue(event.result)
         })
         emitChunk(
@@ -789,6 +853,7 @@ export async function processPiHarnessQuery(input: {
       }
 
       const output = (event.result as { content?: unknown; details?: unknown }).content ?? event.result
+      lastToolCompletedAt = Date.now()
       const rawOutput = event.result
       const inlineSource = buildInlineToolResultPayload(event.result)
       const inlinePayload = Array.isArray(inlineSource) ? { content: inlineSource } : inlineSource
@@ -804,6 +869,8 @@ export async function processPiHarnessQuery(input: {
         emittedToolCallId,
         toolName,
         toolResultCount,
+        executionElapsedMs: pending ? lastToolCompletedAt - pending.startedAt : undefined,
+        queryElapsedMs: lastToolCompletedAt - queryStartedAt,
         outputSummary: summarizePiContent(Array.isArray(output) ? output : [output])
       })
       const toolResultChunk = {
@@ -867,19 +934,51 @@ export async function processPiHarnessQuery(input: {
         // 不在 attempt 起始时武装 idle timeout：首个 chunk 前的等待完全交给
         // SessionStreamIpc 的启动/连接超时兜底，避免慢首字节被误判为断流。
         // 首个 harness event 到达后（见 subscribe 回调）才开始检测空闲。
-        result = await runtimeBridge.harness.prompt(prompt, {
-          images: images?.map((image) => ({
-            type: 'image',
-            data: image.data,
-            mimeType: image.media_type
-          }))
-        })
+        const explicitSkill = harness.invokeContext.skills.skillInvocationContext
+        if (explicitSkill && !images?.length) {
+          logger.info('[PiSkill] invoking native harness skill', {
+            sessionId,
+            traceId: architectureContext.traceId,
+            skillName: explicitSkill.skillName,
+            skillFilePath: explicitSkill.skillFilePath,
+            attempt: currentAttempt
+          })
+          result = await runtimeBridge.harness.skill(explicitSkill.skillName, prompt)
+        } else {
+          let effectivePrompt = prompt
+          if (explicitSkill) {
+            const skillResource = harness.invokeContext.prompt.resources.skills.find(
+              (skill) => skill.name === explicitSkill.skillName
+            )
+            if (skillResource && harness.packageBridge) {
+              effectivePrompt = harness.packageBridge.agentCore.formatSkillInvocation(skillResource, prompt)
+            }
+            logger.info('[PiSkill] invoking image-compatible skill prompt', {
+              sessionId,
+              traceId: architectureContext.traceId,
+              skillName: explicitSkill.skillName,
+              skillFilePath: explicitSkill.skillFilePath,
+              imageCount: images?.length ?? 0,
+              attempt: currentAttempt
+            })
+          }
+          result = await runtimeBridge.harness.prompt(effectivePrompt, {
+            images: images?.map((image) => ({
+              type: 'image',
+              data: image.data,
+              mimeType: image.media_type
+            }))
+          })
+        }
       } catch (error) {
         clearTerminalTimeout()
         clearIdleTimeout()
         const errorObj = idleTimeoutTriggered
           ? createPiIdleTimeoutError(idleTimeoutMs)
           : (error instanceof Error ? error : new Error(String(error)))
+        // #region debug-point E:prompt-error
+        void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'E', location: 'pi-query-stream.ts:prompt-catch', msg: '[DEBUG] Prompt attempt threw', data: { currentAttempt, errorName: errorObj.name, errorMessage: errorObj.message, stack: errorObj.stack }, ts: Date.now() }) }).catch(() => {})
+        // #endregion
         // 中途已经产出内容也允许重试，只要错误可重试且未被外部 abort。
         const madeProgress = hasMadeProgressSinceSnapshot()
         const nextRetryCount = computeNextRetryCount()
@@ -1106,6 +1205,7 @@ export async function processPiHarnessQuery(input: {
       abortSignal.removeEventListener('abort', onAbort)
     }
     unsubscribe()
+    unsubscribeNestedTools()
     await Promise.allSettled((runtimeBridge.mcpClients ?? []).map((client) => client.close()))
   }
 }

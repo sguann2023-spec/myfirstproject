@@ -1,140 +1,44 @@
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 
-import type { CapabilityDecision, IntentDomain, RuntimeToolLayer } from './capability-router'
-
-export const BUILTIN_TOOL_LAYERS: Record<RuntimeToolLayer, string[]> = {
-  chat: ['AskUserQuestion'],
-  web: [],
-  'workspace-read': ['Read', 'NotebookRead', 'Bash'],
-  'workspace-write': ['Read', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash'],
-  agentic: [
-    'Read',
-    'NotebookRead',
-    'Edit',
-    'MultiEdit',
-    'Write',
-    'NotebookEdit',
-    'Bash',
-    'Task',
-    'TodoWrite'
-  ]
-}
-
-const SAFE_AUTO_ALLOW_BUILTINS = new Set(['Read', 'NotebookRead', 'TodoWrite'])
-
-const FILTERED_TOOLS = new Set(['WebFetch', 'mcp__exa__web_fetch_exa'])
+export type RuntimeToolLayer = 'codemode'
 
 export type ToolSurface = {
   builtinTools: string[]
   autoAllowedTools: Set<string>
-  allowedToolsOption: string[]
   toolsOption: Options['tools']
-  layer: RuntimeToolLayer
-}
-
-const DOMAIN_SUBDOMAIN_BUILTINS: Partial<Record<IntentDomain, Record<string, string[]>>> = {
-  chat: {
-    bash: ['Bash']
-  },
-  workspace: {
-    read: ['Read', 'Bash'],
-    write: ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash'],
-    execute: ['Read', 'Bash'],
-    find: ['Bash'],
-    notebook: ['NotebookRead', 'NotebookEdit'],
-    task: ['Task', 'TodoWrite']
-  },
-  web: {
-    search: ['WebSearch'],
-    fetch: ['WebFetch']
-  }
-}
-
-const ALL_BUILTIN_TOOLS = Array.from(
-  new Set([
-    ...Object.values(BUILTIN_TOOL_LAYERS).flat(),
-    ...Object.values(DOMAIN_SUBDOMAIN_BUILTINS).flatMap((domainMap) => Object.values(domainMap).flat())
-  ])
-)
-
-const collectDomainBuiltinTools = (decision: CapabilityDecision): string[] => {
-  const tools = new Set<string>()
-  const applyDomain = (domain: IntentDomain) => {
-    const domainMap = DOMAIN_SUBDOMAIN_BUILTINS[domain]
-    if (!domainMap) return
-    for (const domainTools of Object.values(domainMap)) {
-      for (const tool of domainTools) {
-        tools.add(tool)
-      }
-    }
-  }
-
-  for (const activeDomain of decision.activeDomains) {
-    applyDomain(activeDomain.domain)
-  }
-
-  if (decision.activeDomains.some((activeDomain) => ['materials', 'web', 'cut'].includes(activeDomain.domain))) {
-    tools.add('Bash')
-  }
-
-  return Array.from(tools)
+  layer: 'codemode'
 }
 
 export function buildToolSurface(args: {
-  decision: CapabilityDecision
   sessionAllowedTools?: string[]
   isAssistant: boolean
+  hasExplicitSkillInvocation?: boolean
 }): ToolSurface {
-  const domainBuiltinTools = collectDomainBuiltinTools(args.decision)
-  const baseChatTools = BUILTIN_TOOL_LAYERS.chat ?? []
-  const fallbackLayerTools = BUILTIN_TOOL_LAYERS[args.decision.toolLayer] ?? []
-  const hasSkillsDomain = args.decision.activeDomains.some((domainEntry) => domainEntry.domain === 'skills')
-  const shouldUseFallbackLayerTools =
-    domainBuiltinTools.length === 0 &&
-    (args.decision.activeDomains.length === 0 ||
-      args.decision.activeDomains.every((domainEntry) => ['chat', 'workspace', 'web'].includes(domainEntry.domain)))
-  const builtinTools = (hasSkillsDomain
-    ? ALL_BUILTIN_TOOLS
-    : Array.from(new Set([...baseChatTools, ...(shouldUseFallbackLayerTools ? fallbackLayerTools : domainBuiltinTools)])))
-  const availableBuiltinSet = new Set(builtinTools)
-  const sessionAllowedTools = (args.sessionAllowedTools ?? []).filter((tool) => !FILTERED_TOOLS.has(tool))
+  const builtinTools = args.hasExplicitSkillInvocation
+    ? ['AskUserQuestion', 'Bash', 'Read']
+    : ['AskUserQuestion', 'Bash']
   const autoAllowedTools = new Set<string>()
 
-  for (const tool of builtinTools) {
-    if (SAFE_AUTO_ALLOW_BUILTINS.has(tool)) {
+  for (const tool of args.sessionAllowedTools ?? []) {
+    if (tool.startsWith('mcp__')) {
       autoAllowedTools.add(tool)
-    }
-  }
-
-  for (const tool of sessionAllowedTools) {
-    if (availableBuiltinSet.has(tool) || tool.startsWith('mcp__')) {
-      autoAllowedTools.add(tool)
-    }
-  }
-
-  if (args.isAssistant) {
-    for (const tool of ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash', 'Task']) {
-      autoAllowedTools.delete(tool)
     }
   }
 
   return {
     builtinTools,
     autoAllowedTools,
-    allowedToolsOption: Array.from(autoAllowedTools).sort(),
     toolsOption: builtinTools,
-    layer: args.decision.toolLayer
+    layer: 'codemode'
   }
 }
 
 export function addAutoAllowedTool(surface: ToolSurface, toolName: string): void {
   surface.autoAllowedTools.add(toolName)
-  surface.allowedToolsOption = Array.from(surface.autoAllowedTools).sort()
 }
 
 export function addAutoAllowedTools(surface: ToolSurface, toolNames: string[]): void {
   for (const toolName of toolNames) {
     surface.autoAllowedTools.add(toolName)
   }
-  surface.allowedToolsOption = Array.from(surface.autoAllowedTools).sort()
 }

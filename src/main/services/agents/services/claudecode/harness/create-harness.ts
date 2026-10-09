@@ -24,6 +24,7 @@ import { windowService } from '@main/services/WindowService'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
+import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search'
 import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { buildToolOutputPreview } from './tool-output-preview'
 
@@ -46,8 +47,32 @@ export type ClaudeCodeHarnessProjectionEvent = {
   errorMessage?: string
 }
 
+export type PiNestedToolEvent =
+  | {
+      type: 'start'
+      toolCallId: string
+      toolName: string
+      input: Record<string, unknown>
+    }
+  | {
+      type: 'success'
+      toolCallId: string
+      toolName: string
+      input: Record<string, unknown>
+      result: unknown
+    }
+  | {
+      type: 'error'
+      toolCallId: string
+      toolName: string
+      input: Record<string, unknown>
+      error: unknown
+    }
+
 type PiAgentCoreModule = typeof import('@earendil-works/pi-agent-core')
 type PiAiModule = typeof import('@earendil-works/pi-ai')
+type PiCodemodeModule = typeof import('@earendil-works/pi-codemode')
+type PiCodemodeTool = import('@earendil-works/pi-codemode').CodemodeTool
 type PiApiModule = {
   stream: unknown
   streamSimple: unknown
@@ -67,6 +92,7 @@ type PiAgentHarnessTool = import('@earendil-works/pi-agent-core').AgentHarnessTo
 type PiPackageBridge = {
   agentCore: PiAgentCoreModule
   piAi: PiAiModule
+  piCodemode: PiCodemodeModule
   anthropicMessagesApi: PiApiModule
   openAiCompletionsApi: PiApiModule
   openAiResponsesApi: PiApiModule
@@ -98,6 +124,7 @@ type PiRuntimeBridge = {
   harness: PiAgentHarness
   tools: PiAgentHarnessTool[]
   mcpClients: PiMcpClientBridge[]
+  subscribeNestedToolEvents(listener: (event: PiNestedToolEvent) => void | Promise<void>): () => void
 }
 
 export type ClaudeCodeHarnessAdapter = {
@@ -157,9 +184,10 @@ const nativeDynamicImport = new Function('specifier', 'return import(specifier)'
 ) => Promise<TModule>
 
 async function tryLoadPiPackageBridge(): Promise<PiPackageBridge> {
-  const [agentCore, piAi, anthropicMessagesApi, openAiCompletionsApi, openAiResponsesApi, azureOpenAiResponsesApi] = await Promise.all([
+  const [agentCore, piAi, piCodemode, anthropicMessagesApi, openAiCompletionsApi, openAiResponsesApi, azureOpenAiResponsesApi] = await Promise.all([
     nativeDynamicImport<PiAgentCoreModule>('@earendil-works/pi-agent-core'),
     nativeDynamicImport<PiAiModule>('@earendil-works/pi-ai'),
+    nativeDynamicImport<PiCodemodeModule>('@earendil-works/pi-codemode'),
     nativeDynamicImport<PiApiModule>('@earendil-works/pi-ai/api/anthropic-messages'),
     nativeDynamicImport<PiApiModule>('@earendil-works/pi-ai/api/openai-completions'),
     nativeDynamicImport<PiApiModule>('@earendil-works/pi-ai/api/openai-responses'),
@@ -169,6 +197,7 @@ async function tryLoadPiPackageBridge(): Promise<PiPackageBridge> {
   return {
     agentCore,
     piAi,
+    piCodemode,
     anthropicMessagesApi,
     openAiCompletionsApi,
     openAiResponsesApi,
@@ -190,11 +219,6 @@ function summarizeValue(value: unknown): string {
   } catch {
     return String(value)
   }
-}
-
-function matchAllowedTool(allowedTools: string[], toolName: string): boolean {
-  if (allowedTools.length === 0) return true
-  return allowedTools.some((pattern) => (pattern.endsWith('*') ? toolName.startsWith(pattern.slice(0, -1)) : pattern === toolName))
 }
 
 function resolveWorkspaceUploadArguments(
@@ -972,14 +996,6 @@ function buildBuiltinTools(input: {
         timeoutSeconds: typeof params.timeout === 'number' ? params.timeout : undefined,
         signal,
         onUpdate: (text) => {
-          logger.info('[AgentCore] builtin tool execute update', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            toolName: 'Bash',
-            toolCallId,
-            outputChars: String(text || '').length
-          })
           onUpdate?.({
             content: [{ type: 'text', text: text || '(no output yet)' }],
             details: undefined
@@ -1240,7 +1256,6 @@ async function buildMcpTools(input: {
 
     for (const tool of listedTools) {
       const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
-      if (!matchAllowedTool(invokeContext.tools.allowedTools, namespacedName)) continue
 
       const mcpTool: PiAgentHarnessTool = {
         name: namespacedName,
@@ -1356,6 +1371,276 @@ async function buildMcpTools(input: {
   return { tools, clients }
 }
 
+function buildCodemodeTool(input: {
+  packageBridge: PiPackageBridge
+  mcpTools: PiAgentHarnessTool[]
+  invokeContext: ClaudeCodeInvokeContext
+  canUseTool?: CanUseTool
+  pendingFileChanges: Map<string, PendingFileChangeSnapshot[]>
+  emitNestedToolEvent(event: PiNestedToolEvent): Promise<void>
+}): PiAgentHarnessTool {
+  const { packageBridge, mcpTools, invokeContext, canUseTool, pendingFileChanges, emitNestedToolEvent } = input
+  const { Type } = packageBridge.piAi
+  const searchableTools: CodemodeSearchEntry[] = mcpTools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.parameters as Record<string, unknown>
+  }))
+
+  const codemodeTools: PiCodemodeTool[] = mcpTools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.parameters as Record<string, unknown>,
+    async execute(args, context) {
+      const startedAt = Date.now()
+      const nestedToolCallId = `codemode-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      const toolArgs =
+        args && typeof args === 'object' && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : {}
+      let resolvedArgs: Record<string, unknown> = toolArgs
+      logger.info('[CodemodeTiming] nested MCP tool start', {
+        traceId: invokeContext.runtime.traceId,
+        topicId: invokeContext.projection.topicId,
+        toolName: tool.name,
+        toolCallId: nestedToolCallId,
+        inputChars: summarizeValue(toolArgs).length
+      })
+      // #region debug-point A:nested-mcp-start
+      void fetch('http://127.0.0.1:7777/event', { method: 'POST', body: JSON.stringify({ sessionId: 'nested-tool-card-missing', runId: 'post-fix', hypothesisId: 'A', location: 'create-harness.ts:buildCodemodeTool.execute', msg: '[DEBUG] Nested MCP execution started', data: { traceId: invokeContext.runtime.traceId, toolName: tool.name, toolCallId: nestedToolCallId }, ts: Date.now() }) }).catch(() => {})
+      // #endregion
+
+      try {
+        await capturePendingFileChangeSnapshots({
+          toolName: tool.name,
+          toolInput: toolArgs,
+          toolCallId: nestedToolCallId,
+          cwd: invokeContext.runtime.workspacePath,
+          pendingFileChanges
+        })
+
+        if (canUseTool) {
+          const decision = await canUseTool(tool.name, toolArgs, {
+            signal: context.signal,
+            suggestions: [],
+            toolUseID: nestedToolCallId
+          })
+          if (decision.behavior === 'deny') {
+            throw new Error(decision.message || `Permission denied for ${tool.name}`)
+          }
+          if (
+            decision.behavior === 'allow' &&
+            decision.updatedInput &&
+            typeof decision.updatedInput === 'object' &&
+            !Array.isArray(decision.updatedInput)
+          ) {
+            resolvedArgs = decision.updatedInput
+          }
+        }
+
+        await emitNestedToolEvent({
+          type: 'start',
+          toolCallId: nestedToolCallId,
+          toolName: tool.name,
+          input: resolvedArgs
+        })
+        const result = await tool.execute(
+          nestedToolCallId,
+          resolvedArgs as never,
+          context.signal,
+          undefined,
+          undefined
+        )
+        const text = extractToolText(result.content)
+        logger.info('[CodemodeTiming] nested MCP tool end', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          toolName: tool.name,
+          toolCallId: nestedToolCallId,
+          elapsedMs: Date.now() - startedAt,
+          outputChars: text.length,
+          hasStructuredContent: result.details !== undefined
+        })
+        await emitNestedToolEvent({
+          type: 'success',
+          toolCallId: nestedToolCallId,
+          toolName: tool.name,
+          input: resolvedArgs,
+          result
+        })
+        if (result.details !== undefined) {
+          return {
+            text,
+            structuredContent: result.details
+          }
+        }
+        return text
+      } catch (error) {
+        logger.warn('[CodemodeTiming] nested MCP tool failed', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          toolName: tool.name,
+          toolCallId: nestedToolCallId,
+          elapsedMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        await emitNestedToolEvent({
+          type: 'error',
+          toolCallId: nestedToolCallId,
+          toolName: tool.name,
+          input: resolvedArgs,
+          error
+        })
+        throw error
+      }
+    }
+  }))
+
+  const globals: PiCodemodeTool[] = [
+    {
+      name: 'searchTools',
+      description: 'Search all available MCP tools. Prefer concise English capability keywords.',
+      spread: true,
+      signature: '(query: string, limit?: number): Promise<Array<{ name: string; description: string }>>',
+      async execute(rawArgs) {
+        const startedAt = Date.now()
+        const args = Array.isArray(rawArgs) ? rawArgs : [rawArgs]
+        const query = String(args[0] || '').trim()
+        const limit = Number(args[1] ?? 5)
+        const results = searchCodemodeTools(searchableTools, query, limit)
+        logger.info('[CodemodeTiming] searchTools completed', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          query,
+          limit,
+          catalogSize: searchableTools.length,
+          resultCount: results.length,
+          resultChars: JSON.stringify(results).length,
+          elapsedMs: Date.now() - startedAt
+        })
+        return results
+      }
+    },
+    {
+      name: 'describeTool',
+      description: 'Return the description and input schema for one exact MCP tool name.',
+      spread: true,
+      signature: '(name: string): Promise<{ name: string; description: string; inputSchema: object }>',
+      async execute(rawArgs) {
+        const startedAt = Date.now()
+        const args = Array.isArray(rawArgs) ? rawArgs : [rawArgs]
+        const requestedName = String(args[0] || '').trim()
+        const tool = searchableTools.find((entry) => entry.name === requestedName)
+        if (!tool) throw new Error(`Unknown MCP tool: ${requestedName}`)
+        logger.info('[CodemodeTiming] describeTool completed', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          toolName: requestedName,
+          schemaChars: JSON.stringify(tool.inputSchema || {}).length,
+          elapsedMs: Date.now() - startedAt
+        })
+        return tool
+      }
+    }
+  ]
+
+  return {
+    name: 'codemode',
+    label: 'Codemode',
+    description: [
+      'Run sandboxed JavaScript to discover and call MCP tools without loading their schemas into the main model context.',
+      'The script is an async function body with top-level await. It cannot access process, filesystem, network, require, fetch, or timers except through tools.',
+      'Discovery: `return await searchTools("generate video", 8)`.',
+      'Inspection: `return await describeTool("mcp__vectcut__video__generate_video")`.',
+      'Execution: `return await tools["mcp__vectcut__video__generate_video"]({ ...args })`.',
+      'Tool search returns compact candidates without schemas. Inspect only the best candidate before execution.',
+      'Use concise English keywords for discovery. Use Promise.all for independent calls. Return a JSON-serializable value; do not both text() and return the same value.'
+    ].join('\n'),
+    parameters: Type.Object({
+      code: Type.String({
+        description: 'JavaScript async function body that discovers or invokes MCP tools.'
+      })
+    }),
+    async execute(
+      _toolCallId: string,
+      rawParams: unknown,
+      signal?: AbortSignal
+    ) {
+      const startedAt = Date.now()
+      const params = (rawParams ?? {}) as Record<string, unknown>
+      const code = String(params.code || '').trim()
+      if (!code) throw new Error('codemode requires non-empty code')
+      logger.info('[CodemodeTiming] sandbox execution start', {
+        traceId: invokeContext.runtime.traceId,
+        topicId: invokeContext.projection.topicId,
+        toolCallId: _toolCallId,
+        codeChars: code.length
+      })
+
+      const sandbox = new packageBridge.piCodemode.CodemodeSandbox({
+        tools: codemodeTools,
+        globals,
+        timeoutMs: 45 * 60 * 1000,
+        memoryLimitBytes: 128 * 1024 * 1024
+      })
+
+      try {
+        const result = await sandbox.execute(code, { signal })
+        const content: Array<PiTextContent | PiImageContent> = result.output.map((item) => {
+          if (item.type === 'image') {
+            return {
+              type: 'image',
+              data: item.data,
+              mimeType: item.mimeType
+            } as PiImageContent
+          }
+          return {
+            type: 'text',
+            text: item.text
+          } as PiTextContent
+        })
+
+        if (result.ok && result.value !== undefined) {
+          content.push({
+            type: 'text',
+            text: typeof result.value === 'string' ? result.value : JSON.stringify(result.value, null, 2)
+          })
+        }
+        if (result.ok === false) {
+          throw new Error(result.error.stack || result.error.message)
+        }
+
+        logger.info('[CodemodeTiming] sandbox execution end', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          toolCallId: _toolCallId,
+          elapsedMs: Date.now() - startedAt,
+          callCount: result.calls.length,
+          outputItemCount: result.output.length,
+          outputChars: content.reduce((total, item) => total + ('text' in item ? item.text.length : 0), 0)
+        })
+        return {
+          content: content.length > 0 ? content : [{ type: 'text', text: '(codemode completed with no output)' }],
+          details: {
+            calls: result.calls
+          }
+        }
+      } catch (error) {
+        logger.warn('[CodemodeTiming] sandbox execution failed', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          toolCallId: _toolCallId,
+          elapsedMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        throw error
+      } finally {
+        await sandbox.close()
+      }
+    }
+  } as any
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
 }
@@ -1382,23 +1667,6 @@ function describePiRequestTarget(input: {
     expectedPathSuffix,
     expectedRequestUrl: normalizedBaseUrl ? `${normalizedBaseUrl}${expectedPathSuffix}` : expectedPathSuffix
   }
-}
-
-function summarizeProviderHeaders(headers: Record<string, unknown> | undefined): Record<string, unknown> {
-  if (!headers) return {}
-  const summary: Record<string, unknown> = {}
-  for (const [key, rawValue] of Object.entries(headers)) {
-    if (rawValue == null) continue
-    const value = String(rawValue)
-    const lowerKey = key.toLowerCase()
-    if (lowerKey === 'authorization') {
-      const scheme = value.split(/\s+/, 1)[0] || 'unknown'
-      summary[key] = `${scheme} <redacted>`
-      continue
-    }
-    summary[key] = value.length > 160 ? `${value.slice(0, 160)}...` : value
-  }
-  return summary
 }
 
 function normalizeProviderPayload(input: {
@@ -1429,9 +1697,12 @@ function wrapPiApiModuleWithLogging(input: {
   providerApiType: 'anthropic-messages' | 'openai-completions'
 }): PiApiModule {
   const { apiModule, invokeContext, providerApiType } = input
+  let requestSequence = 0
 
   return {
     stream(model: unknown, context: unknown, options: unknown) {
+      const requestIndex = ++requestSequence
+      const requestStartedAt = Date.now()
       const typedModel = (model ?? {}) as Record<string, unknown>
       const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
       logger.info('[AgentCore] pi provider wrapper invoked', {
@@ -1440,6 +1711,7 @@ function wrapPiApiModuleWithLogging(input: {
         piSessionId: invokeContext.projection.piSessionId,
         providerApiType,
         method: 'stream',
+        requestIndex,
         modelId: String(typedModel.id || ''),
         baseUrl: String(typedModel.baseUrl || ''),
         hasHeaders: Boolean(typedOptions.headers),
@@ -1463,10 +1735,12 @@ function wrapPiApiModuleWithLogging(input: {
             topicId: invokeContext.projection.topicId,
             piSessionId: invokeContext.projection.piSessionId,
             providerApiType,
+            method: 'stream',
+            requestIndex,
+            responseHeadersElapsedMs: Date.now() - requestStartedAt,
             modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
             baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-            status: providerResponse.status,
-            headers: summarizeProviderHeaders((providerResponse.headers as Record<string, unknown> | undefined) || undefined)
+            status: providerResponse.status
           })
           const originalOnResponse = typeof typedOptions.onResponse === "function" ? typedOptions.onResponse : undefined
           if (originalOnResponse) {
@@ -1478,6 +1752,8 @@ function wrapPiApiModuleWithLogging(input: {
       return (apiModule.stream as any)(model, context, requestOptions)
     },
     streamSimple(model: unknown, context: unknown, options: unknown) {
+      const requestIndex = ++requestSequence
+      const requestStartedAt = Date.now()
       const typedModel = (model ?? {}) as Record<string, unknown>
       const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
       logger.info('[AgentCore] pi provider wrapper invoked', {
@@ -1486,6 +1762,7 @@ function wrapPiApiModuleWithLogging(input: {
         piSessionId: invokeContext.projection.piSessionId,
         providerApiType,
         method: 'streamSimple',
+        requestIndex,
         modelId: String(typedModel.id || ''),
         baseUrl: String(typedModel.baseUrl || ''),
         hasHeaders: Boolean(typedOptions.headers),
@@ -1510,10 +1787,11 @@ function wrapPiApiModuleWithLogging(input: {
             piSessionId: invokeContext.projection.piSessionId,
             providerApiType,
             method: 'streamSimple',
+            requestIndex,
+            responseHeadersElapsedMs: Date.now() - requestStartedAt,
             modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
             baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-            status: providerResponse.status,
-            headers: summarizeProviderHeaders((providerResponse.headers as Record<string, unknown> | undefined) || undefined)
+            status: providerResponse.status
           })
           const originalOnResponse = typeof typedOptions.onResponse === 'function' ? typedOptions.onResponse : undefined
           if (originalOnResponse) {
@@ -1658,6 +1936,10 @@ async function buildPiRuntimeBridge(input: {
   }
 
   const interactiveUpdatedInputs = new Map<string, Record<string, unknown>>()
+  const nestedToolListeners = new Set<(event: PiNestedToolEvent) => void | Promise<void>>()
+  const emitNestedToolEvent = async (event: PiNestedToolEvent): Promise<void> => {
+    await Promise.allSettled(Array.from(nestedToolListeners, (listener) => listener(event)))
+  }
 
   const builtinTools = buildBuiltinTools({
     packageBridge,
@@ -1670,8 +1952,16 @@ async function buildPiRuntimeBridge(input: {
     invokeContext,
     options
   })
-  const tools = [...builtinTools, ...mcpTools.tools]
-  const activeToolNames = tools.map((tool) => tool.name)
+  const codemodeTool = buildCodemodeTool({
+    packageBridge,
+    mcpTools: mcpTools.tools,
+    invokeContext,
+    canUseTool,
+    pendingFileChanges,
+    emitNestedToolEvent
+  })
+  const tools = [...builtinTools, codemodeTool, ...mcpTools.tools]
+  const activeToolNames = [...builtinTools.map((tool) => tool.name), codemodeTool.name]
 
   const harness = new packageBridge.agentCore.AgentHarness({
     session,
@@ -1720,16 +2010,6 @@ async function buildPiRuntimeBridge(input: {
       toolUseID: context.toolCallId
     })
 
-    logger.info('[AgentCore] harness tool_call decision', {
-      traceId: invokeContext.runtime.traceId,
-      topicId: invokeContext.projection.topicId,
-      piSessionId: invokeContext.projection.piSessionId,
-      toolName: context.toolName,
-      toolCallId: context.toolCallId,
-      behavior: decision.behavior,
-      message: 'message' in decision ? decision.message : undefined
-    })
-
     if (decision.behavior === 'deny') {
       return {
         block: true,
@@ -1761,8 +2041,6 @@ async function buildPiRuntimeBridge(input: {
       tools: {
         activeToolNames: invokeContext.tools.activeToolNames,
         bridgedActiveToolNames: activeToolNames,
-        allowedTools: invokeContext.tools.allowedTools,
-        selectedCapabilities: invokeContext.tools.selectedCapabilities,
         toolLayer: invokeContext.tools.toolLayer,
         mountedMcpServers: invokeContext.tools.mountedMcpServers
       },
@@ -1781,7 +2059,13 @@ async function buildPiRuntimeBridge(input: {
     tokenLimits: runtimeEnvironment.modelTokenLimits,
     harness,
     tools,
-    mcpClients: mcpTools.clients
+    mcpClients: mcpTools.clients,
+    subscribeNestedToolEvents(listener) {
+      nestedToolListeners.add(listener)
+      return () => {
+        nestedToolListeners.delete(listener)
+      }
+    }
   }
 }
 

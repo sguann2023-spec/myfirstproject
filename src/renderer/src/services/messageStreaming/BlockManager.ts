@@ -7,16 +7,6 @@ import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage
 
 const logger = loggerService.withContext('BlockManager')
 
-function summarizeBlockChanges(changes: Partial<MessageBlock>): Record<string, unknown> {
-  return {
-    keys: Object.keys(changes || {}),
-    status: (changes as any)?.status,
-    contentChars: typeof (changes as any)?.content === 'string' ? (changes as any).content.length : 0,
-    hasMetadata: Boolean((changes as any)?.metadata),
-    hasError: Boolean((changes as any)?.error)
-  }
-}
-
 interface ActiveBlockInfo {
   id: string
   type: MessageBlockType
@@ -146,13 +136,6 @@ export class BlockManager {
    * 用于 agent 文本流这类“窗口被直接关闭也要尽量保留已到达内容”的场景。
    */
   persistBlockUpdateImmediately(blockId: string, changes: Partial<MessageBlock>, blockType: MessageBlockType) {
-    logger.info('[BlockManager] persistBlockUpdateImmediately', {
-      messageId: this.deps.assistantMsgId,
-      topicId: this.deps.topicId,
-      blockId,
-      blockType,
-      changes: summarizeBlockChanges(changes)
-    })
     this._activeBlockInfo = { id: blockId, type: blockType }
     this._lastBlockType = blockType
     this.deps.dispatch(updateOneBlock({ id: blockId, changes }))
@@ -163,14 +146,6 @@ export class BlockManager {
    * 处理块转换
    */
   async handleBlockTransition(newBlock: MessageBlock, newBlockType: MessageBlockType) {
-    logger.info('[BlockManager] handleBlockTransition', {
-      messageId: this.deps.assistantMsgId,
-      topicId: this.deps.topicId,
-      blockId: newBlock.id,
-      newBlockType,
-      status: newBlock.status,
-      contentChars: typeof (newBlock as any)?.content === 'string' ? (newBlock as any).content.length : 0
-    })
     this._lastBlockType = newBlockType
     this._activeBlockInfo = { id: newBlock.id, type: newBlockType } // 设置新的活跃块信息
 

@@ -44,6 +44,10 @@ const INSPECT_IMAGE_TOOL: Tool = {
         type: 'string',
         description: 'Alias of url.'
       },
+      image: {
+        type: 'string',
+        description: 'Alias of file_path or url.'
+      },
       question: {
         type: 'string',
         description: 'Optional question about the image.'
@@ -509,11 +513,11 @@ class ImageUnderstandServer {
   }
 
   private async inspectImage(args: Record<string, unknown>) {
-    const sourceInput = args.file_path || args.path || args.image_url || args.url
+    const sourceInput = args.file_path || args.path || args.image_url || args.url || args.image
     const question = String(args.question || args.prompt || '').trim()
 
     if (!sourceInput) {
-      throw new McpError(ErrorCode.InvalidParams, "One of 'file_path', 'path', 'image_url', or 'url' is required")
+      throw new McpError(ErrorCode.InvalidParams, "One of 'file_path', 'path', 'image_url', 'url', or 'image' is required")
     }
 
     const preparedSource = await this.prepareImageSource(sourceInput)

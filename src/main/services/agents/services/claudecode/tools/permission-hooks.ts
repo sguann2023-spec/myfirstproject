@@ -51,10 +51,6 @@ export function createToolPermissionHandlers(input: {
   } = input
 
   const canUseTool: CanUseTool = async (toolName, toolInput, options) => {
-    logger.info('Handling tool permission check', {
-      toolName,
-      suggestionCount: options.suggestions?.length ?? 0
-    })
     const normalizedToolName = normalizeToolName(toolName)
 
     if (options.signal.aborted) {
@@ -93,15 +89,10 @@ export function createToolPermissionHandlers(input: {
     }
 
     if (shouldAutoApproveTools) {
-      logger.debug('Auto-approving tool due to CHERRY_AUTO_ALLOW_TOOLS flag', { toolName })
       return { behavior: 'allow', updatedInput: toolInput }
     }
 
     if (autoAllowTools.has(toolName) || autoAllowTools.has(normalizedToolName)) {
-      logger.debug('Auto-allowing tool from allowed list', {
-        toolName,
-        normalizedToolName
-      })
       if (normalizedToolName === 'Bash') {
         logger.info('CURL_PROBE Bash canUseTool decision', {
           toolName,

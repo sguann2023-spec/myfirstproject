@@ -62,18 +62,21 @@ describe('PromptBuilder', () => {
 
     const result = await builder.buildSystemPrompt('/workspace')
 
-    expect(result).toContain('You are VectcutClaw')
-    expect(result).toContain('# System')
-    expect(result).toContain('# Doing tasks')
-    expect(result).toContain('Never write pseudo tool-call markup')
+    expect(result).toContain('You are VectCutClaw')
+    expect(result).toContain('# Rules')
+    expect(result).toContain('# Execution')
+    expect(result).toContain('never print pseudo tool-call markup')
     expect(result).toContain(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
-    expect(result).toContain('# Environment context')
-    expect(result).toContain('# Workspace root')
-    expect(result).toContain('This workspace root applies to every turn and every domain')
+    expect(result).toContain('# Environment')
+    expect(result).toContain('- Workspace: /workspace')
+    expect(result).not.toContain('# Workspace root')
+    expect(result).not.toContain('# Workspace skills')
+    expect(result).not.toContain('proactively ask')
     expect(result).not.toContain('## Bootstrap Mode')
     expect(result).not.toContain('## Memories')
     expect(result).not.toContain('<soul>')
     expect(result).not.toContain('<user>')
+    expect(result.length).toBeLessThan(1400)
   })
 
   it('loads capped workspace instruction files instead of Soul memory files', async () => {
@@ -93,19 +96,15 @@ describe('PromptBuilder', () => {
     expect(result).not.toContain('Legacy user content')
   })
 
-  it('makes the workspace root a global prompt rule instead of capability-scoped guidance', async () => {
+  it('keeps only a compact workspace environment block', async () => {
     setupFiles({})
 
     const result = await builder.buildSystemPrompt('/workspace')
 
-    expect(result).toContain('The current workspace root for this session is: /workspace')
-    expect(result).toContain('including chat, skills, web, and workspace tasks')
-    expect(result).toContain('answer with this exact path verbatim: /workspace')
-    expect(result).toContain('Do not answer workspace-location questions with a remembered path from another project or session')
-    expect(result).toContain('default generated, exported, and downloaded files to the current workspace root')
-    expect(result).toContain('prefer saving the output next to the source file')
-    expect(result).toContain('Do not default outputs to system temporary folders')
-    expect(result).toContain('Do not invent alternate roots such as app install folders')
+    expect(result).toContain('- Workspace: /workspace')
+    expect(result).not.toContain('.claude/skills')
+    expect(result).not.toContain('Desktop')
+    expect(result).not.toContain('Downloads')
   })
 
   it('resolves instruction filenames case-insensitively', async () => {
@@ -187,57 +186,5 @@ describe('PromptBuilder', () => {
       expect(result.length).toBeLessThan(700)
     })
 
-    it('adds local skill execution guidance when a workspace skill is matched', () => {
-      const result = builder.buildToolGuidance(
-        '/workspace',
-        {
-          hasSkills: true,
-          preferredLocalSkillFilename: '儿童绘本',
-          preferredLocalSkillTriggerMode: 'implicit',
-          preferredLocalSkillMatchedEvidence: ['儿童绘本', '绘本'],
-          preferredLocalSkillSdkDiscovered: true
-        },
-        {
-          activeSkillNames: ['儿童绘本']
-        }
-      )
-
-      expect(result).toContain('## Skills')
-      expect(result).toContain('read its `SKILL.md` first')
-      expect(result).toContain('Do not bypass a matched local skill with a general answer')
-      expect(result).toContain('## Tool selection for this turn')
-      expect(result).toContain('The host has already selected the target skill for this turn')
-      expect(result).toContain('implicitly matches the local workspace skill')
-      expect(result).toContain('Match evidence:')
-      expect(result).toContain('should be available to the SDK project-level skill loader')
-      expect(result).toContain('`/workspace/.claude/skills/儿童绘本/SKILL.md`')
-      expect(result).toContain('If the host already embeds a resolved local `SKILL.md` in the current turn prompt')
-      expect(result).toContain('do not search the skill directory again before execution')
-      expect(result).toContain('Execute the request according to that `SKILL.md`')
-    })
-  })
-
-  describe('buildFactsSection', () => {
-    it('returns undefined when no FACT.md exists', async () => {
-      setupFiles({})
-
-      const result = await builder.buildFactsSection('/workspace')
-
-      expect(result).toBeUndefined()
-    })
-
-    it('wraps memory/FACT.md content in a capped workspace knowledge block', async () => {
-      setupFiles({
-        '/workspace/memory/FACT.md': '- Project: VectCut\n'.repeat(400)
-      })
-
-      const result = await builder.buildFactsSection('/workspace')
-
-      expect(result).toBeDefined()
-      expect(result).toContain('## Workspace knowledge')
-      expect(result).toContain('<facts>')
-      expect(result).toContain('[truncated]')
-      expect(result!.length).toBeLessThan(4300)
-    })
   })
 })

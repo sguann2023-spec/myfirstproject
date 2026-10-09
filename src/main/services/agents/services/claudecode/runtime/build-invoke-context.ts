@@ -4,7 +4,6 @@ import { getGlobalSkillsRoot } from '@main/services/agents/skills/paths'
 
 import type { GetAgentSessionResponse } from '../..'
 import type { ToolSurface } from '../tool-surface'
-import type { WorkspaceSkillSurface } from '../skills/runtime-skills'
 import type { ClaudeRuntimeEnvironment } from './build-runtime'
 import type {
   ClaudeCodeInvokeContext,
@@ -42,7 +41,6 @@ export async function buildClaudeCodeInvokeContext(input: {
   autonomousEnabled: boolean
   runtimeEnvironment: ClaudeRuntimeEnvironment
   workspaceSkills: WorkspaceSkillEntry[]
-  workspaceSkillSurface: WorkspaceSkillSurface
   activeClaudeSkillNames: string[]
   preferredLocalSkillFilename?: string
   preferredLocalSkillSdkDiscovered: boolean
@@ -51,7 +49,6 @@ export async function buildClaudeCodeInvokeContext(input: {
   preferredLocalSkillTriggerMode?: 'explicit' | 'implicit'
   skillInvocationContext?: SkillInvocationContextInput
   toolSurface: ToolSurface
-  selectedCapabilities: string[]
   mountedRuntimeMcpServers: string[]
   promptSnapshot: {
     systemPrompt: string
@@ -61,7 +58,6 @@ export async function buildClaudeCodeInvokeContext(input: {
     piSessionId?: string
     assistantSystemPrompt?: string
     clawSystemPrompt?: string
-    factsRecall?: string
   }
 }): Promise<ClaudeCodeInvokeContext> {
   const {
@@ -83,7 +79,6 @@ export async function buildClaudeCodeInvokeContext(input: {
     preferredLocalSkillTriggerMode,
     skillInvocationContext,
     toolSurface,
-    selectedCapabilities,
     mountedRuntimeMcpServers,
     promptSnapshot
   } = input
@@ -99,7 +94,6 @@ export async function buildClaudeCodeInvokeContext(input: {
     runtimeEnvironment
   })
   const skills = buildSkillRuntimeSnapshot({
-    cwd,
     workspaceSkills,
     activeClaudeSkillNames,
     preferredLocalSkillFilename,
@@ -111,7 +105,6 @@ export async function buildClaudeCodeInvokeContext(input: {
   })
   const tools = buildToolRuntimeSnapshot({
     toolSurface,
-    selectedCapabilities,
     mountedRuntimeMcpServers
   })
   const promptRuntime = buildPromptRuntimeSnapshot({
@@ -119,8 +112,7 @@ export async function buildClaudeCodeInvokeContext(input: {
     systemPrompt: promptSnapshot.systemPrompt,
     skillInvocationContext,
     assistantSystemPrompt: promptSnapshot.assistantSystemPrompt,
-    clawSystemPrompt: promptSnapshot.clawSystemPrompt,
-    factsRecall: promptSnapshot.factsRecall
+    clawSystemPrompt: promptSnapshot.clawSystemPrompt
   })
   const projection = buildProjectionContext({
     traceId,
@@ -196,7 +188,6 @@ function buildRuntimeSnapshot(input: {
 }
 
 function buildSkillRuntimeSnapshot(input: {
-  cwd: string
   workspaceSkills: WorkspaceSkillEntry[]
   activeClaudeSkillNames: string[]
   preferredLocalSkillFilename?: string
@@ -207,7 +198,6 @@ function buildSkillRuntimeSnapshot(input: {
   skillInvocationContext?: SkillInvocationContextInput
 }): SkillRuntimeSnapshot {
   const {
-    cwd,
     workspaceSkills,
     activeClaudeSkillNames,
     preferredLocalSkillFilename,
@@ -249,16 +239,13 @@ function buildSkillRuntimeSnapshot(input: {
 
 function buildToolRuntimeSnapshot(input: {
   toolSurface: ToolSurface
-  selectedCapabilities: string[]
   mountedRuntimeMcpServers: string[]
 }): ToolRuntimeSnapshot {
-  const { toolSurface, selectedCapabilities, mountedRuntimeMcpServers } = input
+  const { toolSurface, mountedRuntimeMcpServers } = input
   return {
     allTools: [...toolSurface.builtinTools],
     activeToolNames: [...toolSurface.builtinTools],
-    allowedTools: [...toolSurface.allowedToolsOption],
     autoAllowTools: Array.from(toolSurface.autoAllowedTools).sort(),
-    selectedCapabilities,
     toolLayer: toolSurface.layer,
     mountedMcpServers: mountedRuntimeMcpServers.map((serverName) => ({
       key: serverName,
@@ -274,9 +261,8 @@ function buildPromptRuntimeSnapshot(input: {
   skillInvocationContext?: SkillInvocationContextInput
   assistantSystemPrompt?: string
   clawSystemPrompt?: string
-  factsRecall?: string
 }): PromptRuntimeSnapshot {
-  const { sdkPrompt, systemPrompt, skillInvocationContext, assistantSystemPrompt, clawSystemPrompt, factsRecall } = input
+  const { sdkPrompt, systemPrompt, skillInvocationContext, assistantSystemPrompt, clawSystemPrompt } = input
 
   const resourcesSkills = skillInvocationContext
     ? [
@@ -315,15 +301,6 @@ function buildPromptRuntimeSnapshot(input: {
                 name: 'claw-system-prompt',
                 description: 'Resolved claw system prompt snapshot',
                 content: clawSystemPrompt
-              }
-            ]
-          : []),
-        ...(factsRecall
-          ? [
-              {
-                name: 'facts-recall',
-                description: 'Resolved facts recall snapshot',
-                content: factsRecall
               }
             ]
           : [])

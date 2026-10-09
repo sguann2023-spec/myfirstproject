@@ -312,7 +312,6 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         ...toolResponse,
         arguments: enhanceImageGenerationArguments(toolResponse.tool?.name, toolResponse.arguments, state, userMessageId, assistantMsgId)
       })
-      logger.debug('onToolCallPending', nextToolResponse)
       const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
 
       if (existingBlockId) {

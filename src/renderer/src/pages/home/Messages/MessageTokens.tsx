@@ -202,11 +202,14 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
       const block = resolveMessageBlock(state, blockRef)
       if (!block || block.type !== 'tool') return details
 
-      const points = extractBillingPointsFromToolResponse(block.metadata?.rawMcpToolResponse)
-      if (points <= 0) return details
-
       const rawToolName =
         block.toolName || block.metadata?.rawMcpToolResponse?.tool?.name || block.metadata?.rawMcpToolResponse?.toolName || ''
+      // Codemode is an execution container. Its response can contain the nested
+      // MCP result, so counting it would duplicate the real tool's billing.
+      if (rawToolName.toLowerCase() === 'codemode') return details
+
+      const points = extractBillingPointsFromToolResponse(block.metadata?.rawMcpToolResponse)
+      if (points <= 0) return details
 
       const label = rawToolName
         ? getMcpToolDisplayName({

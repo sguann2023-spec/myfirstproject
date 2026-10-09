@@ -32,8 +32,6 @@ import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import { buildVectcutMcpPattern, buildVectcutMcpToolName } from '@shared/mcp'
 
 import type { GetAgentSessionResponse } from '../..'
-import type { CapabilityDecision, RuntimeCapability } from '../capability-router'
-import { addAutoAllowedTool, type ToolSurface } from '../tool-surface'
 
 const logger = loggerService.withContext('ClaudeCodeToolRegistry')
 
@@ -55,8 +53,6 @@ export async function mountRuntimeMcpServers(input: {
     apiKey: string
   }
   cwd: string
-  capabilityDecision: CapabilityDecision
-  toolSurface: ToolSurface
   autoAllowTools: Set<string>
   autonomousEnabled: boolean
   isAssistant: boolean
@@ -70,8 +66,6 @@ export async function mountRuntimeMcpServers(input: {
     session,
     apiConfig,
     cwd,
-    capabilityDecision,
-    toolSurface,
     autoAllowTools,
     autonomousEnabled,
     isAssistant,
@@ -99,22 +93,20 @@ export async function mountRuntimeMcpServers(input: {
   if (!options.mcpServers) {
     options.mcpServers = {}
   }
+  const customMcpServerKeys = Object.keys(options.mcpServers)
 
   const mountedRuntimeMcpServers: string[] = []
-  const hasActiveDomain = (domain: CapabilityDecision['activeDomains'][number]['domain']) =>
-    capabilityDecision.activeDomains.some((entry) => entry.domain === domain)
-  const hasChatTurn =
-    capabilityDecision.primaryDomain === 'chat' || capabilityDecision.activeDomains.some((entry) => entry.domain === 'chat')
-  const hasWorkspaceDomain = hasActiveDomain('workspace')
-  const hasMaterialsDomain = hasActiveDomain('materials')
-  const hasWebDomain = hasActiveDomain('web')
-  const hasAiMediaDomain = hasActiveDomain('ai_media')
-  const hasCutDomain = hasActiveDomain('cut')
-  const hasStoryDomain = hasActiveDomain('story')
-  const hasSkillsDomain = hasActiveDomain('skills')
-  const hasAuxiliaryDomain = hasActiveDomain('auxiliary')
-  const hasScraptDomain = hasActiveDomain('scrapt')
-  const shouldMountCapability = (capability: RuntimeCapability) => capabilityDecision.selected.has(capability)
+  const hasChatTurn = true
+  const hasWorkspaceDomain = true
+  const hasMaterialsDomain = true
+  const hasWebDomain = true
+  const hasAiMediaDomain = true
+  const hasCutDomain = true
+  const hasStoryDomain = true
+  const hasSkillsDomain = true
+  const hasAuxiliaryDomain = true
+  const hasScraptDomain = true
+  const shouldMountCapability = (_capability: string) => true
   const mountMcpServer = (key: string, config: RuntimeMcpServerConfig) => {
     options.mcpServers![key] = config
     mountedRuntimeMcpServers.push(key)
@@ -122,15 +114,12 @@ export async function mountRuntimeMcpServers(input: {
   const vt = (serverName: string, toolName: string) => buildVectcutMcpToolName(serverName, toolName)
   const vp = (serverName: string) => buildVectcutMcpPattern(serverName)
   const allowMcpPattern = (pattern: string) => {
-    addAutoAllowedTool(toolSurface, pattern)
-    options.allowedTools = toolSurface.allowedToolsOption
+    autoAllowTools.add(pattern)
   }
   const allowMcpTools = (toolNames: string[]) => {
     for (const toolName of toolNames) {
       autoAllowTools.add(toolName)
-      addAutoAllowedTool(toolSurface, toolName)
     }
-    options.allowedTools = toolSurface.allowedToolsOption
   }
 
   if (hasWorkspaceDomain || hasWebDomain || hasCutDomain) {
@@ -140,6 +129,7 @@ export async function mountRuntimeMcpServers(input: {
       vt('filesystem-server', 'glob'),
       vt('filesystem-server', 'ls'),
       vt('filesystem-server', 'grep'),
+      vt('filesystem-server', 'read'),
       vt('filesystem-server', 'download'),
       vt('filesystem-server', 'edit'),
       vt('filesystem-server', 'write'),
@@ -535,11 +525,7 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('assistant', { type: 'sdk', name: 'assistant', instance: assistantServer.mcpServer })
     autoAllowTools.add(vt('assistant', 'navigate'))
     autoAllowTools.add(vt('assistant', 'diagnose'))
-    if (Array.isArray(options.allowedTools) && options.allowedTools.length > 0) {
-      allowMcpPattern(vp('assistant'))
-    } else {
-      options.allowedTools = [vp('assistant')]
-    }
+    allowMcpPattern(vp('assistant'))
 
     logger.debug('Cherry Assistant: injected assistant MCP server', {
       agentId: session.agent_id,
@@ -547,7 +533,9 @@ export async function mountRuntimeMcpServers(input: {
     })
   }
 
-  options.allowedTools = Array.from(autoAllowTools).sort()
+  for (const serverKey of customMcpServerKeys) {
+    allowMcpPattern(vp(serverKey === 'filesystem' ? 'filesystem-server' : serverKey))
+  }
 
   return {
     mountedRuntimeMcpServers

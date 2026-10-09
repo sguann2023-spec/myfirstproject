@@ -32,6 +32,30 @@ const ThinkingBlock: React.FC<Props> = ({ block }) => {
     }
   }, [isThinking, thoughtAutoCollapse])
 
+  useEffect(() => {
+    // #region debug-point E:thinking-render
+    void fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'nested-tool-card-missing',
+        runId: 'post-fix-render',
+        hypothesisId: 'E',
+        location: 'ThinkingBlock.tsx:ThinkingBlock',
+        msg: '[DEBUG] Thinking block rendered',
+        data: {
+          blockId: block.id,
+          messageId: block.messageId,
+          status: block.status,
+          contentChars: block.content?.length ?? 0,
+          activeKey,
+          thoughtAutoCollapse
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
+  }, [activeKey, block.content?.length, block.id, block.messageId, block.status, thoughtAutoCollapse])
+
   const copyThought = useCallback(() => {
     if (block.content) {
       navigator.clipboard

@@ -84,12 +84,10 @@ const flushQueue = async ({ force = false, keepalive = false } = {}) => {
 
 export const trackEvent = (event, properties = {}) => {
   if (!POSTHOG_API_KEY) {
-    logger.warn('Analytics disabled: missing PostHog API key', { event });
     return;
   }
   const userId = getCurrentUserId();
   if (!userId) {
-    logger.warn('Analytics skipped: missing user id', { event });
     return;
   }
 
@@ -130,6 +128,5 @@ export const trackEvent = (event, properties = {}) => {
   }
 
   writeQueue(queue);
-  logger.info('Analytics event queued', { event, queueSize: queue.length });
   if (queue.length >= BATCH_SIZE) void flushQueue({ force: true });
 };

@@ -8,8 +8,7 @@ import type { GetAgentSessionResponse } from '../..'
 import { agentArtifactRepository } from '../../../database/repositories/agentArtifactRepository'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
 import { channelService } from '../../ChannelService'
-import { PromptBuilder } from '../../cherryclaw/prompt'
-import type { ToolGuidanceOptions } from '../capability-router'
+import { PromptBuilder, type ToolGuidanceOptions } from '../../cherryclaw/prompt'
 import { buildAssistantContext } from './assistant-context'
 import { conversationSegmentService } from '../session-architecture/ConversationSegmentService'
 import { promptViewBuilder } from '../session-architecture/PromptViewBuilder'
@@ -60,11 +59,7 @@ const composePromptViewText = (promptView: PromptView): string => {
 const getLanguageInstruction = () => {
   const lang = configManager.getLanguage()
   const resolvedLanguageName = languageEnglishNameMap[lang]
-  return `
-  IMPORTANT: You MUST use ${resolvedLanguageName} language for ALL your outputs, including:
-  (1) text responses, (2) tool call parameters like "description" fields, and (3) any user-facing content.
-  ${lang === 'en-US' ? '' : 'Never use English unless the content is code, file paths, or technical identifiers.'}
-  `
+  return `Reply in ${resolvedLanguageName}.${lang === 'en-US' ? '' : ' Use English only for code and technical identifiers.'}`
 }
 
 export type InvocationPromptState = {
@@ -74,7 +69,6 @@ export type InvocationPromptState = {
   promptEnvelope: SegmentPromptEnvelope
   composedPrompt: string
   clawSystemPrompt?: string
-  factsRecall?: string
   assistantSystemPrompt?: string
 }
 
@@ -88,7 +82,6 @@ export async function buildInvocationPromptState(input: {
   toolGuidanceOptions: ToolGuidanceOptions
   isAssistant: boolean
   agentConfig: Parameters<PromptBuilder['buildSystemPrompt']>[1]
-  activeClaudeSkillNames: string[]
   lastAgentSessionId?: string
 }): Promise<InvocationPromptState> {
   const {
@@ -101,7 +94,6 @@ export async function buildInvocationPromptState(input: {
     toolGuidanceOptions,
     isAssistant,
     agentConfig,
-    activeClaudeSkillNames,
     lastAgentSessionId
   } = input
 
@@ -119,16 +111,12 @@ export async function buildInvocationPromptState(input: {
   }
 
   const clawSystemPrompt = !isAssistant
-    ? await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions, {
-        activeSkillNames: activeClaudeSkillNames
-      })
+    ? await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)
     : undefined
-  const factsRecall =
-    !isAssistant && toolGuidanceOptions.hasMemory && cwd ? await promptBuilder.buildFactsSection(cwd) : undefined
 
   const finalSystemPrompt = assistantSystemPrompt
     ? assistantSystemPrompt
-    : [clawSystemPrompt, factsRecall, session.instructions, channelSecurityBlock, getLanguageInstruction()]
+    : [clawSystemPrompt, session.instructions, channelSecurityBlock, getLanguageInstruction()]
         .filter(Boolean)
         .join('\n\n')
 
@@ -161,11 +149,10 @@ export async function buildInvocationPromptState(input: {
     stableBasePrompt: assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || ''),
     dynamicContextPrompt: assistantSystemPrompt
       ? ''
-      : [factsRecall, session.instructions, channelSecurityBlock, getLanguageInstruction()].filter(Boolean).join('\n\n'),
+      : [session.instructions, channelSecurityBlock, getLanguageInstruction()].filter(Boolean).join('\n\n'),
     promptView,
     modelId,
-    builtinTools: toolSurface.builtinTools,
-    allowedTools: toolSurface.allowedToolsOption
+    builtinTools: toolSurface.builtinTools
   })
   const composedPrompt = composePromptViewText(promptEnvelope.promptView)
 
@@ -189,7 +176,6 @@ export async function buildInvocationPromptState(input: {
     promptEnvelope,
     composedPrompt,
     clawSystemPrompt,
-    factsRecall,
     assistantSystemPrompt
   }
 }

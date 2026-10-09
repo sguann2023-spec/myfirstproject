@@ -52,9 +52,7 @@ export type SkillRuntimeSnapshot = {
 export type ToolRuntimeSnapshot = {
   allTools: unknown[]
   activeToolNames: string[]
-  allowedTools: string[]
   autoAllowTools: string[]
-  selectedCapabilities: string[]
   toolLayer: string
   mountedMcpServers: Array<{
     key: string

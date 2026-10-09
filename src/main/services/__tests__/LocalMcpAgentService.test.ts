@@ -55,13 +55,6 @@ describe('local MCP application detection', () => {
     expect(getMacInstalledApps).toHaveBeenCalledWith(path.join(os.homedir(), 'Applications'))
     expect(result).toHaveLength(5)
     expect(result.every((agent) => agent.installed)).toBe(true)
-    expect(logger.info).toHaveBeenCalledWith('Skipped missing local MCP application directory', {
-      directory: path.join(os.homedir(), 'Applications')
-    })
-    expect(logger.info).toHaveBeenCalledWith('Scanned local MCP application directory', {
-      directory: '/Applications',
-      count: 5
-    })
   })
 
   it('continues detecting user apps when the system Applications directory is absent', async () => {
@@ -101,21 +94,11 @@ describe('local MCP application detection', () => {
     })
   })
 
-  it('logs detection results without including registration configuration', async () => {
+  it('does not log routine detection results', async () => {
     vi.mocked(getMacInstalledApps).mockResolvedValue(apps as any)
     await localMcpAgentService.detectAgents()
 
-    expect(logger.info).toHaveBeenCalledWith('Detected local MCP agents', {
-      platform: process.platform,
-      desktopAppCount: 5,
-      detected: apps.map((appInfo, index) => ({
-        id: ['workbuddy', 'claude_code', 'cursor', 'codex_cli', 'opencode'][index],
-        installed: true,
-        installType: 'app',
-        path: appInfo.installPath,
-        detectionHint: '已检测到桌面应用'
-      }))
-    })
+    expect(logger.info).not.toHaveBeenCalled()
   })
 
   it.each(['/Applications', path.join(os.homedir(), 'Applications')])(

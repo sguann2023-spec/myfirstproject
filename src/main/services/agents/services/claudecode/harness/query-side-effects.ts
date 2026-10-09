@@ -52,16 +52,6 @@ export function summarizeChunkField(value: unknown): string {
   }
 }
 
-const safeSerializedLength = (value: unknown): number => {
-  if (typeof value === 'string') return value.length
-  if (value === undefined || value === null) return 0
-  try {
-    return JSON.stringify(value).length
-  } catch {
-    return String(value).length
-  }
-}
-
 export async function handleInitSystemMessage(input: {
   message: SDKMessage & { type: 'system'; subtype: 'init'; session_id?: string; slash_commands?: string[] }
   stream: { sdkSessionId?: string }
@@ -157,12 +147,10 @@ export async function handleToolResultSideEffects(input: {
   const pendingToolCall = pendingToolCalls.get(toolCallId)
   const providerToolCallId = String(pendingToolCall?.providerToolCallId || toolCallId)
   const rawOutput = chunk.rawOutput ?? chunk.output
-  const actuallyTruncated =
-    typeof chunk.truncated === 'boolean' ? chunk.truncated : Boolean(chunk.rawOutput) && chunk.rawOutput !== chunk.output
   const outputText = summarizeToolResultForArtifact(rawOutput)
 
   if (currentTurn && currentSegment && shouldOffloadToolResult(toolName, outputText)) {
-    const artifact = await artifactStoreService.save({
+    await artifactStoreService.save({
       topicId: architectureContext.topicId,
       segmentId: currentSegment.id,
       turnId: currentTurn.id,
@@ -173,21 +161,6 @@ export async function handleToolResultSideEffects(input: {
       content: outputText,
       contentHash: buildArtifactHash(outputText),
       summary: outputText.slice(0, 500)
-    })
-    logger.info('[ArtifactStore] offload', {
-      topicId: architectureContext.topicId,
-      turnId: currentTurn.id,
-      segmentId: currentSegment.id,
-      toolCallId: providerToolCallId,
-      sourceType: artifact.sourceType,
-      toolSubtype: artifact.toolSubtype,
-      contentChars: outputText.length,
-      inlineChars: safeSerializedLength(chunk.output),
-      rawChars: outputText.length,
-      truncated: actuallyTruncated,
-      storedAsArtifact: true,
-      artifactId: artifact.id,
-      contentHash: artifact.contentHash
     })
   }
 
