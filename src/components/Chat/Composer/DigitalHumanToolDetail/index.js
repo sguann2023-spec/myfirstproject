@@ -631,6 +631,11 @@ const DigitalHumanToolDetail = ({
 
   const handlePackagingTemplateSelect = React.useCallback((nextValue) => {
     handlePackagingTemplateChange(nextValue);
+    setPackagingDropdownOpen(false);
+  }, [handlePackagingTemplateChange]);
+
+  const handleDigitalHumanTemplateSelect = React.useCallback((nextValue) => {
+    handlePackagingTemplateChange(nextValue);
     const selectedTemplate = SMART_PACKAGING_OPTIONS.find((item) => item.value === nextValue);
     if (selectedTemplate?.generationMode) {
       handleModeChange(selectedTemplate.generationMode);
@@ -645,7 +650,6 @@ const DigitalHumanToolDetail = ({
       );
     }
     onTemplateMediaChange?.(selectedTemplate);
-    setPackagingDropdownOpen(false);
     setDigitalTemplateOpen(false);
   }, [
     handleModeChange,
@@ -1250,7 +1254,7 @@ const DigitalHumanToolDetail = ({
           content={(
             <DigitalHumanTemplatePopover
               selectedTemplate={selectedPackagingTemplate}
-              onSelect={handlePackagingTemplateSelect}
+              onSelect={handleDigitalHumanTemplateSelect}
               isRemake
             />
           )}
