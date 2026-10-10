@@ -79,6 +79,20 @@ describe('PromptBuilder', () => {
     expect(result.length).toBeLessThan(1400)
   })
 
+  it('includes web verification rules even without capability-scoped guidance', async () => {
+    setupFiles({})
+
+    const result = await builder.buildSystemPrompt('/workspace', undefined, {})
+
+    expect(result).toContain('For current prices, recent releases, or uncertain external facts')
+    expect(result).toContain('searchTools("web search")')
+    expect(result).toContain('verify reliable sources before answering')
+    expect(result).toContain('Tool-catalog search is not web search')
+    expect(result).toContain('no matching tool does not mean the information is unavailable')
+    expect(result).not.toContain('## Web and browser')
+    expect(result.length).toBeLessThan(1400)
+  })
+
   it('loads capped workspace instruction files instead of Soul memory files', async () => {
     setupFiles({
       '/workspace/CLAUDE.md': 'Root project instructions',

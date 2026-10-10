@@ -10,7 +10,7 @@ import MessageHeader from '../MessageHeader/MessageHeader';
 import MessageTokens from '../../../../renderer/src/pages/home/Messages/MessageTokens';
 import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
-import { buildDigitalHumanRequestApiCurl } from '../../../../shared/digitalHumanRequest';
+import { buildDigitalHumanRequestAgentPrompt, buildDigitalHumanRequestApiCurl, buildDigitalHumanRequestTextPrompt } from '../../../../shared/digitalHumanRequest';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
 import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDigitalHumanRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData, isDigitalHumanRequestCozeSupported } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
@@ -647,10 +647,18 @@ const MessageItem = ({
   const showDraftApiFormat = draftDisplayMode === 'api';
   const showDraftCozeFormat = draftDisplayMode === 'coze';
   const displayedMessage = React.useMemo(() => {
+    if (digitalHumanRequest && draftDisplayMode === 'text') {
+      return {
+        ...message,
+        content: buildDigitalHumanRequestTextPrompt(digitalHumanRequest) || message.content
+      };
+    }
     if (showDraftAgentFormat && canShowDraftAgentAction) {
       return {
         ...message,
-        content: subtitleStoryboardRequest
+        content: digitalHumanRequest
+          ? buildDigitalHumanRequestAgentPrompt(digitalHumanRequest, message.id)
+          : subtitleStoryboardRequest
           ? `请使用本地文件读写能力完成以下字幕分镜任务，无需调用 vectcut MCP 工具。请先确认能访问指定文件，无法访问时说明原因，不要虚构修改结果。\n\n${String(message?.content || '')}`
           : buildDraftAgentPrompt(message?.content)
       };
@@ -718,6 +726,7 @@ const MessageItem = ({
     textAddRequest,
     subtitleStoryboardRequest,
     message,
+    draftDisplayMode,
     showDraftAgentFormat,
     showDraftApiFormat,
     showDraftCozeFormat

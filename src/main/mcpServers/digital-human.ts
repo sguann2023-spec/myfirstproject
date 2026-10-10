@@ -10,6 +10,9 @@ import { loggerService } from '@logger'
 import { ossUploadService } from '@main/services/OssUploadService'
 import { getResourcePath } from '@main/utils'
 import { generateSpeechAudio } from './speech-generate'
+import { BackgroundJobStore, BACKGROUND_REQUEST_ID_PROPERTY, backgroundStatusTool } from './background-job'
+import type { BackgroundJob, JobUpdate } from './background-job'
+import { getVectcutBackgroundAccountId, requestWithVectcutAuth } from './vectcut-auth'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -189,6 +192,31 @@ const GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
   }
 }
 
+const START_DIGITAL_HUMAN_TASK_TOOL: Tool = {
+  name: 'start_digital_human_task',
+  description: 'Recommended for external agents. Start a durable background digital-human task and immediately return job_id. Speech synthesis, uploads, submission and rendering run in the background. Poll get_digital_human_job with jobId. Reuse requestId after timeout to prevent duplicate generation and billing.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      requestId: BACKGROUND_REQUEST_ID_PROPERTY,
+      mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'] },
+      copywriting: { type: 'string', description: 'Original spoken script.' },
+      voiceId: { type: 'string', description: 'Selected voice ID.' },
+      videoUrl: { type: 'string', description: 'Required for lip_sync: portrait video URL or absolute local path.' },
+      imageUrl: { type: 'string', description: 'Required for omni/seedance: portrait image URL or absolute local path.' },
+      prompt: { type: 'string', description: 'Required for omni: scene/action prompt.' },
+      outputResolution: { type: 'integer', enum: [720, 1080] },
+      provider: { type: 'string', description: 'Optional selected voice provider.' }
+    },
+    required: ['requestId', 'mode', 'copywriting', 'voiceId'],
+    additionalProperties: false
+  }
+}
+const GET_DIGITAL_HUMAN_JOB_TOOL: Tool = backgroundStatusTool(
+  'get_digital_human_job',
+  'Immediately read a background digital-human job. running: wait poll_after_seconds then query again; success: use result.video_url; failed/interrupted: inspect message and task_id, never resubmit with a new requestId. Known upstream tasks resume polling after Desktop restarts.'
+)
+
 type PendingToken = {
   accessToken: string
   expiresAt: number
@@ -196,6 +224,7 @@ type PendingToken = {
 
 type ToolExecutionExtra = {
   requestId: string | number
+  jobUpdate?: JobUpdate
   _meta?: {
     progressToken?: ProgressToken
   }
@@ -296,7 +325,13 @@ class DigitalHumanServer {
         CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL,
         CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
         CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
-        CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL
+        CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL,
+        START_DIGITAL_HUMAN_TASK_TOOL,
+        GET_DIGITAL_HUMAN_JOB_TOOL,
+        GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL,
+        GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
+        GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
+        GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL
       ]
     }))
 
@@ -306,6 +341,10 @@ class DigitalHumanServer {
 
       try {
         switch (toolName) {
+          case 'start_digital_human_task':
+            return this.startBackgroundTask(args as Record<string, unknown>)
+          case 'get_digital_human_job':
+            return this.getBackgroundJob(args as Record<string, unknown>)
           case 'create_lip_sync_digital_human':
             return await this.createLipSyncDigitalHuman(args as Record<string, unknown>, extra as ToolExecutionExtra)
           case 'get_lip_sync_digital_human_status':
@@ -410,7 +449,6 @@ class DigitalHumanServer {
       query?: Record<string, string | number | boolean>
     }
   ): Promise<Response> {
-    const token = await this.ensureValidAccessToken()
     const method = options.method ?? 'POST'
 
     const buildUrl = () => {
@@ -431,12 +469,7 @@ class DigitalHumanServer {
         ...(options.body ? { body: JSON.stringify(options.body) } : {})
       })
 
-    let response = await doFetch(token)
-    if (response.status === 401) {
-      const refreshedToken = await this.ensureValidAccessToken(true)
-      response = await doFetch(refreshedToken)
-    }
-    return response
+    return requestWithVectcutAuth(this.store, (force) => this.ensureValidAccessToken(force), doFetch)
   }
 
   private formatJsonResult(payload: Record<string, unknown>) {
@@ -644,6 +677,7 @@ class DigitalHumanServer {
   }
 
   private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    extra?.jobUpdate?.({ progress, message })
     if (!extra?._meta?.progressToken || typeof extra.sendNotification !== 'function') {
       return
     }
@@ -864,6 +898,14 @@ class DigitalHumanServer {
       throw new Error(`Digital human submission returned no task ID: ${JSON.stringify(submitResult)}`)
     }
 
+    args.extra?.jobUpdate?.({
+      task_id: taskId,
+      metadata: {
+        mode: args.mode, statusEndpoint: args.statusEndpoint, submitResult,
+        outputResolution: args.outputResolution ?? null, sourceSummary: args.sourceSummary,
+        speechBillingSource: args.speechBillingSource ?? null
+      }
+    })
     await this.reportProgress(args.extra, 12, '数字人任务已提交，预计 15-30 分钟完成')
     const finalResult = await this.waitForResult(args.mode, taskId, args.statusEndpoint, args.extra, args.processingMessage)
     const videoUrl = this.extractVideoUrl(finalResult)
@@ -918,6 +960,56 @@ class DigitalHumanServer {
       submitMessage: '正在提交口型驱动数字人任务',
       speechBillingSource: speechAudio.billingSource
     })
+  }
+
+  private backgroundJobs() {
+    return new BackgroundJobStore(getVectcutBackgroundAccountId(this.store))
+  }
+
+  private startBackgroundTask(args: Record<string, unknown>) {
+    const requestId = this.getRequiredString(args, 'requestId')
+    const mode = this.getRequiredString(args, 'mode')
+    if (!['lip_sync', 'omni', 'seedance'].includes(mode)) throw new Error('Invalid digital human mode')
+    this.getRequiredString(args, 'copywriting')
+    this.getRequiredString(args, 'voiceId')
+    this.getRequiredString(args, mode === 'lip_sync' ? 'videoUrl' : 'imageUrl')
+    if (mode === 'omni') this.getRequiredString(args, 'prompt')
+    const job = this.backgroundJobs().start('digital-human', requestId, args, async (update) => {
+      const extra: ToolExecutionExtra = { requestId, jobUpdate: update }
+      const result = mode === 'lip_sync'
+        ? await this.createLipSyncDigitalHuman(args, extra)
+        : mode === 'omni'
+          ? await this.createImageDrivenDigitalHuman(args, extra)
+          : await this.createSeedanceDigitalHuman(args, extra)
+      return JSON.parse(result.content[0].text) as Record<string, unknown>
+    })
+    return this.formatBackgroundJob(job)
+  }
+
+  private getBackgroundJob(args: Record<string, unknown>) {
+    const job = this.backgroundJobs().get(this.getRequiredString(args, 'jobId'), 'digital-human', async (saved, update) => {
+      const metadata = saved.metadata!
+      const mode = metadata.mode as 'lip_sync' | 'image_driven' | 'seedance_image_driven'
+      const result = await this.waitForResult(
+        mode, saved.task_id!, String(metadata.statusEndpoint),
+        { requestId: saved.request_id, jobUpdate: update }, '正在恢复数字人任务状态'
+      )
+      const videoUrl = this.extractVideoUrl(result)
+      if (!videoUrl) throw new Error('Digital human task completed without a video URL')
+      const combined = { ...(metadata.submitResult as Record<string, unknown>), ...result }
+      const billing = this.mergeSpeechBilling(combined, metadata.speechBillingSource as Record<string, unknown> | undefined)
+      return {
+        ...combined, provider: 'vectcut', mode, task_id: saved.task_id,
+        output: { video_url: videoUrl }, video_url: videoUrl,
+        ...(billing ? { billing } : {})
+      }
+    })
+    return this.formatBackgroundJob(job)
+  }
+
+  private formatBackgroundJob(job: BackgroundJob) {
+    const { fingerprint: _fingerprint, metadata: _metadata, ...visible } = job
+    return this.formatJsonResult({ ...visible, poll_after_seconds: 10 })
   }
 
   private async getLipSyncDigitalHumanStatus(args: Record<string, unknown>) {

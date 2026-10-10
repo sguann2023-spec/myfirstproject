@@ -55,6 +55,7 @@ vi.mock('@main/services/OssUploadService', () => ({
 }))
 
 import DigitalHumanServer from '../digital-human'
+import { BackgroundJobStore } from '../background-job'
 
 type DigitalHumanServerInstance = InstanceType<typeof DigitalHumanServer>
 
@@ -98,7 +99,7 @@ describe('DigitalHumanServer', () => {
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
   })
 
-  it('should expose only create tools', async () => {
+  it('should expose background and recovery tools alongside legacy create tools', async () => {
     const server = createServer()
     const result = await listTools(server)
 
@@ -106,7 +107,13 @@ describe('DigitalHumanServer', () => {
       'create_lip_sync_digital_human',
       'create_image_driven_digital_human',
       'create_omni_image_driven_digital_human',
-      'create_seedance_digital_human'
+      'create_seedance_digital_human',
+      'start_digital_human_task',
+      'get_digital_human_job',
+      'get_lip_sync_digital_human_status',
+      'get_image_driven_digital_human_status',
+      'get_omni_image_driven_digital_human_status',
+      'get_seedance_digital_human_status'
     ])
   })
 
@@ -121,6 +128,83 @@ describe('DigitalHumanServer', () => {
     expect(isCompleted('lip_sync', {
       task_status: 1
     })).toBe(true)
+  })
+
+  it('authenticates synthesis, submission and status with an API key without OAuth', async () => {
+    mockStoreGet.mockImplementation((key: string) => key === 'auth.vectcut_api_key' ? 'external-api-key' : undefined)
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, output: { audio_url: 'https://example.com/audio.mp3' } }))
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'api-task-1' }))
+      .mockResolvedValueOnce(mockJsonResponse({ task_status: 1, digital_human_url: 'https://example.com/result.mp4' }))
+    const result = await callTool(createServer(), 'create_lip_sync_digital_human', {
+      copywriting: '文案', voiceId: 'voice-1', videoUrl: 'https://example.com/person.mp4'
+    })
+    expect(JSON.parse(result.content[0].text).video_url).toBe('https://example.com/result.mp4')
+    expect(mockNetFetch).toHaveBeenCalledTimes(3)
+    for (const [url, options] of mockNetFetch.mock.calls) {
+      expect(url).toContain('https://open.vectcut.com/')
+      expect(options.headers.Authorization).toBe('Bearer external-api-key')
+    }
+  })
+
+  it('returns a job before synthesis and resolves it through the status tool', async () => {
+    const records = new Map<string, unknown>()
+    mockStoreGet.mockImplementation((key: string) =>
+      key === 'settings.userId' ? 'test-account' : records.get(key))
+    mockStoreSet.mockImplementation((key: string, value: unknown) => records.set(key, value))
+    const server = createServer()
+    let finish!: (value: unknown) => void
+    const creation = vi.spyOn(server as any, 'createLipSyncDigitalHuman')
+      .mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const args = {
+      requestId: 'background-lips-1', mode: 'lip_sync',
+      copywriting: '文案', voiceId: 'voice-1', videoUrl: 'https://example.com/person.mp4'
+    }
+    const started = JSON.parse((await callTool(server, 'start_digital_human_task', args)).content[0].text)
+    expect(started).toMatchObject({ status: 'running', poll_after_seconds: 10 })
+    expect(creation).not.toHaveBeenCalled()
+    expect(started).not.toHaveProperty('metadata')
+    expect(started).not.toHaveProperty('fingerprint')
+    const duplicate = JSON.parse((await callTool(createServer(), 'start_digital_human_task', args)).content[0].text)
+    expect(duplicate.job_id).toBe(started.job_id)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(creation).toHaveBeenCalledOnce()
+    finish({ content: [{ type: 'text', text: JSON.stringify({ video_url: 'https://example.com/result.mp4' }) }] })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const completed = JSON.parse((await callTool(server, 'get_digital_human_job', { jobId: started.job_id })).content[0].text)
+    expect(completed).toMatchObject({ status: 'success', result: { video_url: 'https://example.com/result.mp4' } })
+  })
+
+  it('restores an interrupted upstream task with original speech billing', async () => {
+    const records = new Map<string, unknown>()
+    mockStoreGet.mockImplementation((key: string) =>
+      key === 'settings.userId' ? 'recover-account' : records.get(key))
+    mockStoreSet.mockImplementation((key: string, value: unknown) => records.set(key, value))
+    const jobs = new BackgroundJobStore('recover-account')
+    const started = jobs.start('digital-human', 'recover-1', {}, async (update) => {
+      update({
+        task_id: 'remote-1',
+        metadata: {
+          mode: 'lip_sync', statusEndpoint: '/cut_jianying/digital_human/task_status',
+          submitResult: {}, speechBillingSource: { billing: { total_consumed_points: 10 } }
+        }
+      })
+      throw new Error('transport disconnected')
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const server = createServer()
+    const query = vi.spyOn(server as any, 'queryStatus').mockResolvedValue({
+      task_status: 1, digital_human_url: 'https://example.com/recovered.mp4',
+      billing: { total_consumed_points: 90 }
+    })
+    await callTool(server, 'get_digital_human_job', { jobId: started.job_id })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const completed = JSON.parse((await callTool(server, 'get_digital_human_job', { jobId: started.job_id })).content[0].text)
+    expect(query).toHaveBeenCalledWith('/cut_jianying/digital_human/task_status', 'remote-1')
+    expect(completed).toMatchObject({
+      status: 'success',
+      result: { video_url: 'https://example.com/recovered.mp4', billing: { total_consumed_points: 100 } }
+    })
   })
 
   it('should create and wait for a lip-sync digital human result', async () => {

@@ -71,6 +71,7 @@ const DigitalHumanTemplatePopover = ({
   onSelect,
   showGenerationMode = true,
   showNoPackagingOption = false,
+  isRemake = false,
 }) => {
   const [hoveredTemplateId, setHoveredTemplateId] = React.useState('');
   const [unmutedTemplateId, setUnmutedTemplateId] = React.useState('');
@@ -230,11 +231,13 @@ const DigitalHumanTemplatePopover = ({
                   ) : null}
                   <span className="chat-panel__video-template-card-desc">{item.description || item.label}</span>
                   <span className="chat-panel__video-template-card-action chat-panel__digital-template-card-action">
-                    <span>{selectedTemplate === item.value ? '已选择' : '使用'}</span>
-                    <span className="chat-panel__digital-template-card-price">
-                      <img src={Point2Icon} alt="" aria-hidden="true" />
-                      <span>20/分钟</span>
-                    </span>
+                    <span>{isRemake ? '做同款' : (selectedTemplate === item.value ? '已选择' : '使用')}</span>
+                    {!isRemake ? (
+                      <span className="chat-panel__digital-template-card-price">
+                        <img src={Point2Icon} alt="" aria-hidden="true" />
+                        <span>20/分钟</span>
+                      </span>
+                    ) : null}
                   </span>
                 </div>
               </div>
@@ -1248,6 +1251,7 @@ const DigitalHumanToolDetail = ({
             <DigitalHumanTemplatePopover
               selectedTemplate={selectedPackagingTemplate}
               onSelect={handlePackagingTemplateSelect}
+              isRemake
             />
           )}
         >

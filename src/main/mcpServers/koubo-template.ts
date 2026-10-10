@@ -10,6 +10,9 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
+import { BackgroundJobStore, BACKGROUND_REQUEST_ID_PROPERTY, backgroundStatusTool } from './background-job'
+import type { BackgroundJob, JobUpdate } from './background-job'
+import { getVectcutBackgroundAccountId, requestWithVectcutAuth } from './vectcut-auth'
 
 const logger = loggerService.withContext('MCPServer:KouboTemplate')
 
@@ -143,6 +146,24 @@ const SUBMIT_KOUBO_TEMPLATE_TASK_TOOL: Tool = {
   }
 }
 
+const START_KOUBO_TEMPLATE_JOB_TOOL: Tool = {
+  ...SUBMIT_KOUBO_TEMPLATE_TASK_TOOL,
+  name: 'start_koubo_template_job',
+  description: 'Recommended for external agents. Immediately return job_id, then prepare, submit and wait for talking-head packaging in the background. Poll get_koubo_template_job. Reuse requestId after timeout; never restart the same packaging with a new ID.',
+  inputSchema: {
+    ...SUBMIT_KOUBO_TEMPLATE_TASK_TOOL.inputSchema,
+    properties: {
+      ...SUBMIT_KOUBO_TEMPLATE_TASK_TOOL.inputSchema.properties,
+      requestId: BACKGROUND_REQUEST_ID_PROPERTY
+    },
+    required: ['requestId']
+  }
+}
+const GET_KOUBO_TEMPLATE_JOB_TOOL: Tool = backgroundStatusTool(
+  'get_koubo_template_job',
+  'Immediately read a packaging job. running: wait poll_after_seconds and query again; success: use result.output.draft_id for export_draft; failed/interrupted: inspect message and task_id, do not resubmit. Known upstream tasks resume polling after Desktop restarts.'
+)
+
 type PendingToken = {
   accessToken: string
   expiresAt: number
@@ -150,6 +171,7 @@ type PendingToken = {
 
 type ToolExecutionExtra = {
   requestId: string | number
+  jobUpdate?: JobUpdate
   _meta?: {
     progressToken?: ProgressToken
   }
@@ -217,7 +239,7 @@ class KouboTemplateServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_KOUBO_TEMPLATE_TASK_TOOL]
+      tools: [SUBMIT_KOUBO_TEMPLATE_TASK_TOOL, START_KOUBO_TEMPLATE_JOB_TOOL, GET_KOUBO_TEMPLATE_JOB_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -226,6 +248,10 @@ class KouboTemplateServer {
 
       try {
         switch (toolName) {
+          case 'start_koubo_template_job':
+            return this.startBackgroundJob(args as Record<string, unknown>)
+          case 'get_koubo_template_job':
+            return this.getBackgroundJob(args as Record<string, unknown>)
           case 'submit_koubo_template_task':
             return await this.submitKouboTemplateTask(args as Record<string, unknown>, extra as ToolExecutionExtra)
           default:
@@ -318,7 +344,6 @@ class KouboTemplateServer {
       query?: Record<string, string | number | boolean>
     }
   ): Promise<Response> {
-    const token = await this.ensureValidAccessToken()
     const method = options.method ?? 'POST'
 
     const buildUrl = () => {
@@ -339,12 +364,7 @@ class KouboTemplateServer {
         ...(options.body ? { body: JSON.stringify(options.body) } : {})
       })
 
-    let response = await doFetch(token)
-    if (response.status === 401) {
-      const refreshedToken = await this.ensureValidAccessToken(true)
-      response = await doFetch(refreshedToken)
-    }
-    return response
+    return requestWithVectcutAuth(this.store, (force) => this.ensureValidAccessToken(force), doFetch)
   }
 
   private formatJsonResult(payload: Record<string, unknown>) {
@@ -538,6 +558,7 @@ class KouboTemplateServer {
   }
 
   private async reportProgress(extra: ToolExecutionExtra | undefined, progress: number, message: string) {
+    extra?.jobUpdate?.({ progress, message })
     if (!extra?._meta?.progressToken) {
       return
     }
@@ -647,6 +668,10 @@ class KouboTemplateServer {
       throw new Error(`Koubo template submission returned no task ID: ${JSON.stringify(result)}`)
     }
 
+    extra?.jobUpdate?.({
+      task_id: taskId,
+      metadata: { template: payload.template, agent_id: payload.body.agent_id }
+    })
     await this.reportProgress(extra, 12, '口播模版任务已提交，正在处理中')
     const finalResult = await this.waitForKouboTemplateTaskResult(taskId, extra)
 
@@ -666,6 +691,37 @@ class KouboTemplateServer {
       ...finalResult,
       task_id: undefined
     })
+  }
+
+  private backgroundJobs() {
+    return new BackgroundJobStore(getVectcutBackgroundAccountId(this.store))
+  }
+
+  private startBackgroundJob(args: Record<string, unknown>) {
+    const requestId = String(args.requestId || '').trim()
+    this.resolveTemplate(args)
+    const job = this.backgroundJobs().start('koubo-template', requestId, args, async (update) => {
+      const result = await this.submitKouboTemplateTask(args, { requestId, jobUpdate: update } as ToolExecutionExtra)
+      return JSON.parse(result.content[0].text) as Record<string, unknown>
+    })
+    return this.formatBackgroundJob(job)
+  }
+
+  private getBackgroundJob(args: Record<string, unknown>) {
+    const jobId = String(args.jobId || '').trim()
+    if (!jobId) throw new Error('jobId is required')
+    const job = this.backgroundJobs().get(jobId, 'koubo-template', async (saved, update) => {
+      const result = await this.waitForKouboTemplateTaskResult(
+        saved.task_id!, { requestId: saved.request_id, jobUpdate: update } as ToolExecutionExtra
+      )
+      return { ...saved.metadata, ...result, provider: 'vectcut', mode: 'koubo_template' }
+    })
+    return this.formatBackgroundJob(job)
+  }
+
+  private formatBackgroundJob(job: BackgroundJob) {
+    const { fingerprint: _fingerprint, metadata: _metadata, ...visible } = job
+    return this.formatJsonResult({ ...visible, poll_after_seconds: 10 })
   }
 }
 

@@ -107,7 +107,50 @@ describe('KouboTemplateServer', () => {
     const server = createServer()
     const result = await listTools(server)
 
-    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['submit_koubo_template_task'])
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      'submit_koubo_template_task', 'start_koubo_template_job', 'get_koubo_template_job'
+    ])
+  })
+
+  it('authenticates packaging submission and polling in an API-key-only environment', async () => {
+    storeState.delete('auth.refresh_token')
+    storeState.set('auth.vectcut_api_key', 'external-packaging-key')
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'api-packaging-1' }))
+      .mockResolvedValueOnce(mockJsonResponse({ status: 'success', output: { draft_id: 'draft-api-1' } }))
+    const result = await callTool(createServer(), 'submit_koubo_template_task', {
+      template: 'fisheye_ins', videoUrl: 'https://example.com/generated.mp4'
+    })
+    expect(JSON.parse(result.content[0].text).output.draft_id).toBe('draft-api-1')
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    for (const [url, options] of mockNetFetch.mock.calls) {
+      expect(url).toContain('https://open.vectcut.com/')
+      expect(options.headers.Authorization).toBe('Bearer external-packaging-key')
+    }
+  })
+
+  it('returns immediately and deduplicates asynchronous packaging across instances', async () => {
+    storeState.set('settings.userId', 'packaging-account')
+    const server = createServer()
+    let finish!: (value: unknown) => void
+    const submission = vi.spyOn(server as any, 'submitKouboTemplateTask')
+      .mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const args = {
+      requestId: 'packaging-1', template: 'intellectual_red',
+      videoUrl: 'https://example.com/generated.mp4',
+      textContent: '原文案', params: { remove_silence: false }
+    }
+    const started = JSON.parse((await callTool(server, 'start_koubo_template_job', args)).content[0].text)
+    expect(started.status).toBe('running')
+    expect(submission).not.toHaveBeenCalled()
+    const duplicate = JSON.parse((await callTool(createServer(), 'start_koubo_template_job', args)).content[0].text)
+    expect(duplicate.job_id).toBe(started.job_id)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(submission).toHaveBeenCalledOnce()
+    finish({ content: [{ type: 'text', text: JSON.stringify({ output: { draft_id: 'draft-1' } }) }] })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const completed = JSON.parse((await callTool(server, 'get_koubo_template_job', { jobId: started.job_id })).content[0].text)
+    expect(completed).toMatchObject({ status: 'success', result: { output: { draft_id: 'draft-1' } } })
   })
 
   it('should submit a built-in template task with remote video input', async () => {

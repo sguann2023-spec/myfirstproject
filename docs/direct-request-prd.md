@@ -582,7 +582,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 | 是否 direct 回复 | 是，主进程基于任务及视频结果生成固定回复 |
 | 支持展示类型 | `文字` / `Agent` / `API`；口型模式额外支持 `Coze` |
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
-| `API` 是否可展示 | 是，按模式使用下列三份 API 文档 |
+| `API` 是否可展示 | 是，按模式使用下列三份数字人 API 文档；选择智能包装时追加口播模板提交及状态查询 API |
 | `Coze` 是否可展示 | 仅 `mode=lip_sync`；使用 `workflowId=7668682150007488554`，复制创建任务及循环查询链路 |
 | 前端发送条件 | 必须有口播文案、音色 ID；口型模式必须有人物视频，图片模式必须有人物图片 |
 
@@ -591,6 +591,11 @@ API 文档：
 - 口型驱动：`https://docs.vectcut.com/404742851e0`
 - Omni 图片驱动：`https://docs.vectcut.com/468131500e0`
 - 图片驱动数字人：`https://docs.vectcut.com/475739919e0`
+- 口型驱动状态查询：`https://docs.vectcut.com/404756745e0`
+- Omni 图片驱动状态查询：`https://docs.vectcut.com/468131524e0`
+- 图片驱动数字人状态查询：`https://docs.vectcut.com/475739920e0`
+- 口播模板包装提交：`https://docs.vectcut.com/430815760e0`
+- 口播模板包装状态查询：`https://docs.vectcut.com/430815772e0`
 
 统一 payload：
 
@@ -602,12 +607,70 @@ API 文档：
   "image_url": "图片模式的人物图片",
   "video_url": "口型模式的人物视频",
   "prompt": "Omni 模式的动作提示词",
-  "output_resolution": 1080
+  "output_resolution": 1080,
+  "packaging_template": "intellectual_red"
 }
 ```
 
 `lip_sync` 和 `omni` 会在同一次数字人 MCP 调用内先合成音频，再向公开数字人 API 提交
 `audio_url`。API 展示使用 `<generated_audio_url>` 占位，不把内部临时音频写入用户消息或历史记录。
+
+默认文字提示词规则：
+
+- 发送时的原始消息也必须包含完整执行流程，不能仅列出“智能包装：模板别名”。保留文案、音色、人物素材及模式配置，明确数字人工具内置合成和等待机制。
+- 选择包装时明确生成结果视频作为包装输入、原文案作为 `textContent`、`remove_silence=false`，以及包装完成后按 `draftId` 自动导出；未选包装时只生成视频。
+- Composer 发送与文字卡片展示使用同一提示词构造函数。已有带 `digitalHumanRequest` 的历史消息按结构化参数展示完整文字提示词，不改写历史存储，不改变直连执行参数。
+
+Agent 卡片规则：
+
+- 不能只给原消息加“使用 vectcut 工具”前缀。复制内容必须独立可执行，不依赖当前对话、隐式技能或前端状态。
+- 外部 Agent 使用异步 `digital-human.start_digital_human_task`，不再调用阻塞式 `create_*`。参数为 `requestId`、`mode`、`copywriting`、`voiceId`、`videoUrl` / `imageUrl`；Omni 额外传 `prompt` 和 `outputResolution`，有音色 provider 时原样保留。
+- 启动立即返回本地 `job_id`，语音合成、上传、提交、轮询在 Desktop 后台完成。调用 `digital-human.get_digital_human_job`，传 `jobId` 短请求读取状态；`running` 按 `poll_after_seconds` 等待后查询，`success` 取 `result.video_url`。
+- `requestId` 基于消息 ID 稳定生成，切换、复制时不改变。启动超时只能复用同 ID、同参数；查询超时只能重试查询，不能重提生成。不要额外合成语音，不把服务端 `task_id` 当成本地 `jobId`。
+- 选择智能包装时，使用 `koubo-template.start_koubo_template_job`，传独立且稳定的包装 `requestId`、`template`、生成结果的 `videoUrl`、原始文案 `textContent` 和 `params: { "remove_silence": false }`。不得拿原人物视频包装，也不调用阻塞式 `submit_koubo_template_task`。
+- 包装启动返回本地 `job_id` 后，调用 `koubo-template.get_koubo_template_job`（`jobId`）。成功取 `result.output.draft_id` 或 `result.draft_id` 后调用 `draft-download.export_draft`，传 `draftId` 自动导出；未选包装时不包装、不导出。
+- 生成失败不继续包装，包装失败保留生成视频；缺少工具或素材时明确说明，不虚构执行结果。展示和复制必须使用同一份完整提示词。
+
+外部 MCP 长任务与恢复规则：
+
+- 原数字人工具一次轮询最多 35 分钟，原包装工具最多 20 分钟；外部聚合桥接未配置时 SDK 请求默认约 60 秒，外部 Agent 还可能有自己的超时。异步工具的启动和状态读取不依赖长请求超时或进度通知保活。
+- 后台记录保存在 `vectcut-background-jobs`，优先按当前登录的 `user.id` 隔离，兼容旧 `settings.userId`；纯 API Key 环境按 Key 的 SHA-256 哈希隔离，不持久化明文 Key。两者均缺失时拒绝启动。多个 MCP 实例共享同一进程任务标记，断开连接不会取消后台工作。
+- 新旧数字人及包装工具的服务端请求使用统一鉴权：优先已有 OAuth 登录态，刷新失败或缺少 refresh token 时回退到 `auth.vectcut_api_key`、用户档案 Key 或 `VECTCUT_API_KEY` / `VECTCUT_APIKEY`。鉴权覆盖语音合成、任务提交和状态查询；Key 不写入 Agent 提示词、MCP 参数或任务结果。外部 MCP 连接凭据与 VectCut 业务 API Key 不混用。
+- 任务状态为 `running` / `success` / `failed` / `interrupted`；返回 `job_id`、`request_id`、进度、消息、已知服务端 `task_id`，成功时附 `result`，不暴露内部提交元数据或去重指纹。
+- 同账户、同工具、同 `requestId` 返回原任务，改变参数会拒绝；明确要求新任务时才使用新 ID。此规则防止 MCP 超时重试导致重复生成和扣费，不等于服务端支持全局幂等。
+- 应用重启后，已保存 `task_id` 的任务在查询时恢复后台轮询，不重新合成或提交，并保留语音计费明细；准备/提交中断且没有保存 `task_id` 时标记 `interrupted`，服务端是否已提交未知，必须人工核对，不能自动重提。
+- 客户端快速请求仍使用现有阻塞工具和直连进度链路；默认文字/API/Coze 内容不因外部 Agent 异步方案改变。
+
+API 卡片的生成与智能包装规则：
+
+- 所有模式均展示数字人生成提交及状态查询；未选包装时成功后直接返回视频。选中包装时按执行顺序展示数字人提交、数字人轮询、包装提交、包装轮询四个阶段。
+- 将生成接口返回的服务端 `task_id` 替换 `<digital_human_task_id>`，不是 MCP 本地 `job_id`。按模式调用 `GET /cut_jianying/digital_human/task_status`、`GET /cut_jianying/digital_human/omni/task_status` 或 `GET /llm/digital_human/seedance/task_status`，查询参数均为 `task_id`，每 5 秒查询一次，不重复提交生成。
+- 口型取非空 `digital_human_url`；若响应含 `task_status` 必须等于 `1`，避免使用中间结果。Omni 等待成功状态及非空 `video_url` / `digital_human_url`（无状态字段时以最终视频 URL 为准）。Seedance 等待 `status=success` 且 `result.video_url` 非空。
+- 未完成则继续轮询；明确失败、取消、任务不存在或 HTTP 404 时停止并检查错误，不继续包装。数字人与包装的 `task_id` 分开，不混用。
+- `<generated_audio_url>` 需要先用所选音色合成原文案后替换；`<generated_digital_human_url>` 必须在数字人任务成功后用最终视频 URL 替换，不是原人物视频。
+- 包装使用 `POST /cut_jianying/agent/submit_agent_task`，`agent_id` 取选中模板对应的真实 ID（与 `koubo-template.ts` 一致，不能直接使用模板别名）。`params.video_url` 为单元素数组，同时携带原文案 `text_content` 和 `remove_silence: false`。
+- 提交响应的 `task_id` 替换 `<packaging_task_id>`，使用 `GET /cut_jianying/agent/task_status?task_id=...` 每 5 秒轮询。`processing` 继续等待，`failed` 停止并检查错误，`success` 后取 `output.draft_id`。
+- 包装成功只表示草稿生成完成，不等于导出视频；需要成片时再调用公开 `generate_video` 接口渲染草稿。API 模式不把本地 MCP 的 `export_draft` 伪装成 HTTP 接口。
+- 所有 curl 使用 `<token>` 占位，文案中的单引号必须按 shell 规则转义。单个 curl 的续行与 `--header` 之间不能插入空行。
+
+例如 `intellectual_red` 的包装请求（位于数字人生成请求之后）：
+
+```bash
+curl --location 'https://open.vectcut.com/cut_jianying/agent/submit_agent_task' \
+--header 'Authorization: Bearer <token>' \
+--header 'Content-Type: application/json' \
+--data '{
+    "agent_id": "koubo_f47ac10b58cc4372a5670e02b2c3d479",
+    "params": {
+        "video_url": ["<generated_digital_human_url>"],
+        "text_content": "原始口播文案",
+        "remove_silence": false
+    }
+}'
+
+curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id=<packaging_task_id>' \
+--header 'Authorization: Bearer <token>'
+```
 
 口型模式的 Coze 展示规则：
 

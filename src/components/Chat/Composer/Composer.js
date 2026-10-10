@@ -3,6 +3,7 @@ import React from 'react';
 import { buildTextStyleRanges } from '../../../shared/textTypography';
 import { buildTextEffectParams } from '../../../shared/textEffects';
 import { buildTextPlacementParams } from '../../../shared/textPlacement';
+import { buildDigitalHumanRequestTextPrompt } from '../../../shared/digitalHumanRequest';
 import { mergeAttributes, Node } from '@tiptap/core';
 import Mention from '@tiptap/extension-mention';
 import { Fragment } from '@tiptap/pm/model';
@@ -4246,11 +4247,6 @@ const Composer = ({
           || selectedVoiceLibraryItem?.provider
         )
     );
-    const digitalHumanModeLabel = isDigitalHumanLipsMode(selectedDigitalHumanMode)
-      ? '口型驱动'
-      : isSeedanceDigitalHumanMode(selectedDigitalHumanMode)
-        ? '图片驱动'
-        : '即梦图片驱动';
     const digitalHumanRequestPayload = activeTool === 'digital-human'
       ? {
         mode: isDigitalHumanLipsMode(selectedDigitalHumanMode)
@@ -4287,20 +4283,7 @@ const Composer = ({
       activeTool === 'voice-square'
         ? `将说话内容: [${combined}] 利用音色${selectedVoiceLibraryItem?.global_voice_id || '默认音色'}合成语音。`
         : activeTool === 'digital-human'
-          ? [
-            `请生成${digitalHumanModeLabel}数字人视频。`,
-            `说话内容：${text}`,
-            digitalHumanVoiceId ? `音色ID：${digitalHumanVoiceId}` : '',
-            isDigitalHumanImageDriveMode(selectedDigitalHumanMode)
-              ? `数字形象：${normalizeDigitalHumanAvatarTitle(selectedDigitalHumanAvatar?.title)}（${normalizeDigitalHumanAvatarCoverUrl(selectedDigitalHumanAvatar?.cover_url)}）`
-              : '',
-            digitalHumanVideoFile ? `人物视频：${buildAttachmentReferenceText(digitalHumanVideoFile)}` : '',
-            selectedDigitalHumanMode === 'jimeng-avatar' ? `人物动作：${DIGITAL_HUMAN_IMAGE_DRIVE_MOTION_TEXT}` : '',
-            selectedDigitalHumanMode === 'jimeng-avatar'
-              ? '数字人工具会在同一次调用中内置合成口播音频，不要单独调用语音生成工具。'
-              : '',
-            selectedDigitalHumanPackagingTemplate ? `智能包装：${selectedDigitalHumanPackagingTemplate}` : '',
-          ].filter(Boolean).join('\n')
+          ? buildDigitalHumanRequestTextPrompt(digitalHumanRequestPayload)
         : activeTool === 'draft'
           ? [
             `请创建一个新草稿，分辨率 ${selectedDraftResolution}。`,
