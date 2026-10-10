@@ -4745,6 +4745,10 @@ const Composer = ({
 
   const handleToolSelect = React.useCallback((toolId) => {
     const normalizedToolId = String(toolId || '').trim();
+    if (normalizedToolId === 'template-new') {
+      window.ipc.send('open-template-edit-window');
+      return;
+    }
     if (normalizedToolId.startsWith(AI_WRITE_TOOL_PREFIX)) {
       handleAiWritePresetSelect(normalizedToolId.slice(AI_WRITE_TOOL_PREFIX.length));
       return;

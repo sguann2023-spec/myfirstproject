@@ -23,6 +23,7 @@ const logger = loggerService.withContext('LegacyMainCompatIpc')
 let registered = false
 let authWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
+let templateEditWindow: BrowserWindow | null = null
 const pendingArtistUrlRequests = new Map<string, Worker>()
 const activeDownloadWorkers = new Map<number, {
   worker: Worker
@@ -1010,6 +1011,41 @@ function registerLegacyWindowChannels() {
     } else if (action === 'close') {
       win.close()
     }
+  })
+
+  safeOn('open-template-edit-window', () => {
+    if (templateEditWindow && !templateEditWindow.isDestroyed()) {
+      if (templateEditWindow.isMinimized()) templateEditWindow.restore()
+      templateEditWindow.focus()
+      return
+    }
+
+    templateEditWindow = new BrowserWindow({
+      title: '新模版',
+      width: 1440,
+      height: 810,
+      minWidth: 1440,
+      minHeight: 810,
+      useContentSize: true,
+      autoHideMenuBar: true,
+      backgroundColor: '#ffffff',
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/index.js'),
+        nodeIntegration: true,
+        contextIsolation: false,
+        additionalArguments: [`--app-version=${app.getVersion()}`, `--version-code=${app.getVersion()}`]
+      }
+    })
+
+    if (process.env['ELECTRON_RENDERER_URL']) {
+      void templateEditWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?view=template-edit`)
+    } else {
+      void templateEditWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?view=template-edit' })
+    }
+
+    templateEditWindow.on('closed', () => {
+      templateEditWindow = null
+    })
   })
 
   safeOn('open-settings-window', () => {

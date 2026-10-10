@@ -17,6 +17,14 @@ const root = createRoot(document.getElementById('root') as HTMLElement)
 const view = new URLSearchParams(window.location.search).get('view')
 
 async function bootstrap() {
+  if (view === 'template-edit') {
+    const { default: TemplateEditPage } = await import('../../page/TemplateEditPage/TemplateEditPage.jsx')
+    document.title = '新模版'
+    document.getElementById('spinner')?.remove()
+    root.render(<TemplateEditPage />)
+    return
+  }
+
   if (view === 'settings') {
     const { default: SettingPage } = await import('../../page/SettingPage/SettingPage.jsx');
     root.render(

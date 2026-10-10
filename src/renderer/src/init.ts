@@ -1,8 +1,9 @@
 import { loggerService } from '@logger'
 const view = new URLSearchParams(window.location.search).get('view')
 const isSettingsView = view === 'settings'
+const isTemplateEditView = view === 'template-edit'
 
-loggerService.initWindowSource(isSettingsView ? 'settingsWindow' : 'mainWindow')
+loggerService.initWindowSource(isSettingsView ? 'settingsWindow' : isTemplateEditView ? 'templateEditWindow' : 'mainWindow')
 
 async function initMainWindowServices() {
   const [{ default: KeyvStorage }, { default: store }, backup, nutstore, { default: storeSyncService }, { webTraceService }] =
@@ -33,6 +34,6 @@ async function initMainWindowServices() {
   webTraceService.init()
 }
 
-if (!isSettingsView) {
+if (!isSettingsView && !isTemplateEditView) {
   void initMainWindowServices()
 }

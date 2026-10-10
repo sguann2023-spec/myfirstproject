@@ -1,0 +1,6 @@
+.template-edit-page {
+  width: 100%;
+  min-width: 1440px;
+  min-height: max(810px, 100vh);
+  background: #ffffff;
+}

@@ -34,6 +34,7 @@
   min-width: 120px;
 }
 
+.chat-panel__tool-menu-list--draft .chat-panel__tool-menu-icon,
 .chat-panel__tool-menu-list--text .chat-panel__tool-menu-icon,
 .chat-panel__tool-menu-list--audio .chat-panel__tool-menu-icon,
 .chat-panel__tool-menu-list--video .chat-panel__tool-menu-icon {

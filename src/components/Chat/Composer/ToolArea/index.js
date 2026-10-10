@@ -3,6 +3,7 @@ import { SnippetsOutlined } from '@ant-design/icons';
 import { Popover } from 'antd';
 import {
   AudioLines,
+  Blocks,
   BookSearch,
   ChevronDown,
   ChevronUp,
@@ -41,22 +42,27 @@ const DRAFT_MENU_ITEMS = [
   {
     id: 'draft',
     label: '新草稿',
-    icon: <img className="chat-panel__tool-icon" src={DraftIcon} alt="" aria-hidden="true" />,
+    icon: <img className="chat-panel__tool-menu-icon" src={DraftIcon} alt="" aria-hidden="true" />,
   },
+  // {
+  //   id: 'template-new',
+  //   label: '新模版',
+  //   icon: <Blocks size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  // },
   {
     id: 'draft-modify',
     label: '修改草稿',
-    icon: <SquarePen size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+    icon: <SquarePen size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
   {
     id: 'draft-inspect',
     label: '查看草稿',
-    icon: <BookSearch size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+    icon: <BookSearch size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
   {
     id: 'draft-export',
     label: '导出草稿',
-    icon: <SquareArrowOutUpRight size={16} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+    icon: <SquareArrowOutUpRight size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
 ];
 
@@ -238,7 +244,7 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
         id: 'draft',
         label: '新草稿',
         icon: DraftIcon,
-        menu: renderMenu(DRAFT_MENU_ITEMS, 'draft'),
+        menu: renderMenu(DRAFT_MENU_ITEMS, 'draft', 'chat-panel__tool-menu-list--draft'),
         open: draftMenuOpen,
         setOpen: setDraftMenuOpen,
         menuName: 'draft',
