@@ -177,6 +177,97 @@ describe('processPiHarnessQuery', () => {
     vi.restoreAllMocks()
     vi.useRealTimers()
     delete process.env.PI_TERMINAL_TIMEOUT_MS
+    delete process.env.PI_IDLE_TIMEOUT_MS
+  })
+
+  it.each(['direct', 'nested', 'parallel'])('keeps silent %s tools alive past the model deadlines and restores idle detection', async (kind) => {
+    vi.useFakeTimers()
+    process.env.PI_TERMINAL_TIMEOUT_MS = '1000'
+    process.env.PI_IDLE_TIMEOUT_MS = '1000'
+    let resolvePrompt: ((value: unknown) => void) | undefined
+    const harnessStub = createHarnessStub({
+      prompt: () => new Promise((resolve) => { resolvePrompt = resolve })
+    })
+    const stream = createStreamRecorder()
+    const runPromise = processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn,
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness, prompt: 'hello'
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await harnessStub.emitAgentEvent({
+      type: 'message_start', message: { role: 'assistant', content: [] }
+    })
+    const toolName = 'mcp__slow__tool'
+    const start = async (id: string) => kind === 'direct'
+      ? harnessStub.emitAgentEvent({ type: 'tool_execution_start', toolCallId: id, toolName })
+      : harnessStub.emitNestedToolEvent({ type: 'start', toolCallId: id, toolName, input: {} })
+    const end = async (id: string) => kind === 'direct'
+      ? harnessStub.emitAgentEvent({
+          type: 'tool_execution_end', toolCallId: id, toolName, isError: true, result: 'tool timeout'
+        })
+      : harnessStub.emitNestedToolEvent({
+          type: 'success', toolCallId: id, toolName, input: {},
+          result: { content: [{ type: 'text', text: 'done' }] }
+        })
+    await start('tool-1')
+    if (kind === 'parallel') await start('tool-2')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(harnessStub.abort).not.toHaveBeenCalled()
+    if (kind !== 'direct') {
+      await harnessStub.emitNestedToolEvent({ type: 'update', toolCallId: 'tool-1', toolName })
+    }
+    await end('tool-1')
+    if (kind === 'parallel') {
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(harnessStub.abort).not.toHaveBeenCalled()
+      await end('tool-2')
+    }
+    await vi.advanceTimersByTimeAsync(999)
+    expect(harnessStub.abort).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(harnessStub.abort).toHaveBeenCalledTimes(1)
+    // Complete the stub without retrying so no pending timers survive the test.
+    resolvePrompt?.({ role: 'assistant', content: [], stopReason: 'stop', usage: {} })
+    await runPromise
+    expect(vi.getTimerCount()).toBe(0)
+    const toolResults = stream.events.filter(event =>
+      event.type === 'chunk' && ['tool-result', 'tool-error'].includes(String(event.chunk?.type))
+    )
+    expect(toolResults).toHaveLength(kind === 'parallel' ? 2 : 1)
+  })
+
+  it('still allows external cancellation while a nested tool is silent', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    let resolvePrompt: ((value: unknown) => void) | undefined
+    const harnessStub = createHarnessStub({
+      prompt: () => new Promise(resolve => { resolvePrompt = resolve }),
+      abort: async () => { resolvePrompt?.({ stopReason: 'aborted', content: [], usage: {} }) }
+    })
+    const stream = createStreamRecorder()
+    const runPromise = processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn,
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness, prompt: 'hello', abortSignal: controller.signal
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await harnessStub.emitNestedToolEvent({
+      type: 'start', toolCallId: 'tool-1', toolName: 'mcp__slow__tool', input: {}
+    })
+    await vi.advanceTimersByTimeAsync(61000)
+    expect(harnessStub.abort).not.toHaveBeenCalled()
+    controller.abort()
+    await runPromise
+    expect(harnessStub.abort).toHaveBeenCalledTimes(1)
+    expect(stream.events.map(event => event.type)).toContain('cancelled')
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('aborts the PI harness and emits cancelled when the external signal aborts', async () => {

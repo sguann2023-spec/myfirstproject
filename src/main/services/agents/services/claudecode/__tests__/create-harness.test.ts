@@ -6,6 +6,10 @@ vi.mock('electron', () => ({
   net: {}
 }))
 
+vi.mock('@main/services/WindowService', () => ({
+  windowService: { getMainWindow: vi.fn() }
+}))
+
 vi.mock('@logger', () => ({
   loggerService: {
     withContext: () => ({
@@ -61,7 +65,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { buildLimitedPiToolPayload, resolveShellExecutable } from '../harness/create-harness'
+import { buildCodemodeTool, buildLimitedPiToolPayload, resolveShellExecutable } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -75,6 +79,46 @@ beforeEach(() => {
 })
 
 describe('buildLimitedPiToolPayload', () => {
+  it('forwards nested MCP progress without changing its final result', async () => {
+    const events: unknown[] = []
+    const signal = new AbortController().signal
+    const close = vi.fn()
+    const executeTool = vi.fn(async (_id, _args, receivedSignal, onUpdate) => {
+      expect(receivedSignal).toBe(signal)
+      onUpdate({ content: [{ type: 'text', text: 'processing' }], details: { progress: 50 } })
+      return { content: [{ type: 'text', text: 'done' }], details: { draft_id: 'draft-1' } }
+    })
+    class Sandbox {
+      constructor(private options: any) {}
+      async execute(_code: string, context: any) {
+        const value = await this.options.tools[0].execute({}, context)
+        return { ok: true, output: [], calls: [], value }
+      }
+      close = close
+    }
+    const tool = buildCodemodeTool({
+      packageBridge: {
+        piAi: { Type: { Object: (value: unknown) => value, String: (value: unknown) => value } },
+        piCodemode: { CodemodeSandbox: Sandbox }
+      } as any,
+      mcpTools: [{
+        name: 'mcp__slow__tool', description: 'slow', parameters: {}, execute: executeTool
+      }] as any,
+      invokeContext: {
+        runtime: { traceId: 'trace-1', workspacePath: '/tmp' }, projection: { topicId: 'topic-1' }
+      } as any,
+      pendingFileChanges: new Map(),
+      emitNestedToolEvent: async event => { events.push(event) }
+    })
+    const result = await tool.execute('outer-1', { code: 'return await tools.slow({})' }, signal)
+    expect(events.map((event: any) => event.type)).toEqual(['start', 'update', 'success'])
+    expect((events[1] as any).toolCallId).toBe((events[0] as any).toolCallId)
+    expect(result.content).toEqual([{
+      type: 'text', text: JSON.stringify({ text: 'done', structuredContent: { draft_id: 'draft-1' } }, null, 2)
+    }])
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it('keeps small MCP payloads structured for PI harness', () => {
     const payload = buildLimitedPiToolPayload(
       {

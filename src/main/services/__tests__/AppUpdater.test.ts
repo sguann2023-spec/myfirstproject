@@ -34,8 +34,13 @@ vi.mock('../WindowService', () => ({
   }
 }))
 
+vi.mock('../CrashReportService', () => ({
+  crashReportService: { record: vi.fn() }
+}))
+
 vi.mock('@main/constant', () => ({
-  isWin: false
+  get isWin() { return process.platform === 'win32' },
+  isMac: false
 }))
 
 vi.mock('@main/utils/ipService', () => ({
@@ -57,7 +62,13 @@ vi.mock('electron', () => ({
   app: {
     isPackaged: true,
     getVersion: vi.fn(() => '1.0.0'),
-    getPath: vi.fn(() => '/test/path')
+    getPath: vi.fn(() => '/test/path'),
+    exit: vi.fn(),
+    isQuitting: false
+  },
+  autoUpdater: {
+    once: vi.fn(),
+    removeListener: vi.fn()
   },
   dialog: {
     showMessageBox: vi.fn()
@@ -94,7 +105,7 @@ vi.mock('electron-updater', () => ({
 
 // Import after mocks
 import { UpdateMirror } from '@shared/config/constant'
-import { app, net } from 'electron'
+import { app, autoUpdater as nativeAutoUpdater, net } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
 import AppUpdater from '../AppUpdater'
@@ -107,6 +118,8 @@ describe('AppUpdater', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     configStore.clear()
+    app.isQuitting = false
+    vi.mocked(configManager.getAutoUpdate).mockReturnValue(false)
     vi.mocked(app.getPath).mockReturnValue('/test/path/VectCut.exe')
     appUpdater = new AppUpdater()
     getGitHubProxyPrefixesSpy = vi.spyOn(appUpdater as any, '_getGitHubProxyPrefixes').mockResolvedValue([
@@ -389,7 +402,8 @@ describe('AppUpdater', () => {
       const firstRequest = appUpdater.checkForUpdates()
       const secondRequest = appUpdater.checkForUpdates()
 
-      expect(secondRequest).toBe(firstRequest)
+      // Async methods wrap returned promises; assert shared work rather than identity.
+      await Promise.resolve()
       expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1)
 
       resolveCheck?.({
@@ -398,6 +412,10 @@ describe('AppUpdater', () => {
       })
 
       await expect(firstRequest).resolves.toEqual({
+        currentVersion: autoUpdater.currentVersion,
+        updateInfo: null
+      })
+      await expect(secondRequest).resolves.toEqual({
         currentVersion: autoUpdater.currentVersion,
         updateInfo: null
       })
@@ -447,6 +465,49 @@ describe('AppUpdater', () => {
       vi.runAllTimers()
 
       expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
+    })
+
+    it('should force exit only after installation starts and graceful quit times out', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      appUpdater.quitAndInstall()
+      vi.advanceTimersByTime(20_000)
+      expect(app.exit).not.toHaveBeenCalled()
+
+      const listener = vi.mocked(nativeAutoUpdater.once).mock.calls[0][1] as () => void
+      listener()
+      vi.advanceTimersByTime(9_999)
+      expect(app.exit).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(app.exit).toHaveBeenCalledWith(0)
+    })
+
+    it('should reset quit state and allow retry after an updater error', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+      const listener = vi.mocked(nativeAutoUpdater.once).mock.calls[0][1] as () => void
+      listener()
+      const errorListener = vi.mocked(autoUpdater.on).mock.calls.find(([event]) => event === 'error')![1]
+      errorListener(new Error('Installer launch failed'))
+      vi.runAllTimers()
+      expect(app.exit).not.toHaveBeenCalled()
+      expect(app.isQuitting).toBe(false)
+
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(2)
+    })
+
+    it('should clear the pending quit listener after a synchronous failure', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(autoUpdater.quitAndInstall).mockImplementationOnce(() => {
+        throw new Error('Install failed')
+      })
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+      expect(app.isQuitting).toBe(false)
+      expect(nativeAutoUpdater.removeListener).toHaveBeenCalledWith('before-quit-for-update', expect.any(Function))
+      expect(app.exit).not.toHaveBeenCalled()
     })
 
     it('should keep silent installer on non-Windows platforms', () => {

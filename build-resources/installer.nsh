@@ -1,4 +1,35 @@
 !include LogicLib.nsh
+!define WINDOWS_UPDATE_PREFLIGHT_SCRIPT "${__FILEDIR__}/windows-update-preflight.ps1"
+
+!macro customCheckAppRunning
+  Push $0
+  Push $1
+  Push $2
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\windows-update-preflight.ps1 "${WINDOWS_UPDATE_PREFLIGHT_SCRIPT}"
+  System::Call 'kernel32::GetCurrentProcessId() i.r0'
+  ${Do}
+    nsExec::ExecToStack /TIMEOUT=120000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\windows-update-preflight.ps1" -InstallDirectory "$INSTDIR" -ExecutableName "${APP_EXECUTABLE_FILENAME}" -UninstallerName "${UNINSTALL_FILENAME}" -InstallerProcessId $0`
+    Pop $2
+    Pop $1
+    ${If} $2 == 0
+      ${ExitDo}
+    ${EndIf}
+    DetailPrint "Update preflight failed ($2): $1"
+    MessageBox MB_RETRYCANCEL|MB_ICONSTOP "更新前检查失败，尚未开始卸载。请关闭流光剪辑及相关后台任务，必要时以管理员身份运行安装包。$\r$\n$\r$\n$1" /SD IDCANCEL IDRETRY +2
+    Quit
+  ${Loop}
+  Pop $2
+  Pop $1
+  Pop $0
+!macroend
+
+!macro customInit
+  ; Assisted installers skip CHECK_APP_RUNNING in the elevated inner instance.
+  ${If} ${UAC_IsInnerInstance}
+    !insertmacro customCheckAppRunning
+  ${EndIf}
+!macroend
 
 !macro customInstall
   SetRegView 64

@@ -49,6 +49,11 @@ export type ClaudeCodeHarnessProjectionEvent = {
 
 export type PiNestedToolEvent =
   | {
+      type: 'update'
+      toolCallId: string
+      toolName: string
+    }
+  | {
       type: 'start'
       toolCallId: string
       toolName: string
@@ -1371,7 +1376,7 @@ async function buildMcpTools(input: {
   return { tools, clients }
 }
 
-function buildCodemodeTool(input: {
+export function buildCodemodeTool(input: {
   packageBridge: PiPackageBridge
   mcpTools: PiAgentHarnessTool[]
   invokeContext: ClaudeCodeInvokeContext
@@ -1445,7 +1450,13 @@ function buildCodemodeTool(input: {
           nestedToolCallId,
           resolvedArgs as never,
           context.signal,
-          undefined,
+          () => {
+            void emitNestedToolEvent({
+              type: 'update',
+              toolCallId: nestedToolCallId,
+              toolName: tool.name
+            })
+          },
           undefined
         )
         const text = extractToolText(result.content)

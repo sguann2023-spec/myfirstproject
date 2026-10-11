@@ -1,12 +1,11 @@
 import { loggerService } from '@logger'
 import { isMac, isWin } from '@main/constant'
-import { getIpCountry } from '@main/utils/ipService'
 import { generateUserAgent } from '@main/utils/systemInfo'
 import { APP_NAME, FeedUrl, UpdateConfigUrl, UpdateMirror, UpgradeChannel } from '@shared/config/constant'
 import { IpcChannel } from '@shared/IpcChannel'
 import type { UpdateInfo } from 'builder-util-runtime'
 import { CancellationToken } from 'builder-util-runtime'
-import { app, BrowserWindow, net } from 'electron'
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, net } from 'electron'
 import type { AppUpdater as _AppUpdater, Logger, NsisUpdater, UpdateCheckResult } from 'electron-updater'
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
@@ -15,7 +14,6 @@ import semver from 'semver'
 import { configManager } from './ConfigManager'
 import { crashReportService } from './CrashReportService'
 import MacArchUpdateProvider from './MacArchUpdateProvider'
-import { windowService } from './WindowService'
 
 const logger = loggerService.withContext('AppUpdater')
 
@@ -33,6 +31,7 @@ const LEGACY_AUTO_UPDATER_FEED_URL = 'https://player.install-ai-guider.top/clien
 const BINGO_CHANNEL_SEGMENT = 'bingo'
 const MAC_CHANNEL_SUFFIX = '-mac'
 const CHANNEL_FILE_EXTENSION = '.yml'
+const WINDOWS_UPDATE_QUIT_TIMEOUT_MS = 10 * 1000
 
 type FeedSourceName = 'github-proxy' | 'legacy-oss'
 
@@ -173,6 +172,8 @@ export default class AppUpdater {
   private updateCheckResult: UpdateCheckResult | null = null
   private checkForUpdatesPromise: Promise<CheckForUpdatesResponse> | null = null
   private isInstallingUpdate = false
+  private installQuitTimer: ReturnType<typeof setTimeout> | null = null
+  private installQuitListener: (() => void) | null = null
   private isDownloadInProgress = false
   private downloadedUpdateVersion: string | null = null
 
@@ -194,6 +195,9 @@ export default class AppUpdater {
     }
 
     autoUpdater.on('error', (error) => {
+      if (this.isInstallingUpdate) {
+        this.resetInstallState()
+      }
       logger.error('update error', error)
       this.broadcastUpdateEvent(IpcChannel.UpdateError, error)
     })
@@ -605,6 +609,20 @@ export default class AppUpdater {
 
     this.isInstallingUpdate = true
     app.isQuitting = true
+    if (isWin) {
+      // Arm only after electron-updater confirms installation was started.
+      // before-quit/unload handlers can otherwise leave the old app alive.
+      this.installQuitListener = () => {
+        this.installQuitListener = null
+        this.installQuitTimer = setTimeout(() => {
+          logger.warn('Windows update quit timed out; forcing the old app to exit')
+          crashReportService.record('update-quit-timeout')
+          app.exit(0)
+        }, WINDOWS_UPDATE_QUIT_TIMEOUT_MS)
+        this.installQuitTimer.unref()
+      }
+      nativeAutoUpdater.once('before-quit-for-update', this.installQuitListener)
+    }
     // Keep Windows updates silent too. NSIS briefly replaces the executable and
     // desktop shortcut during install; a visible installer leaves a window where
     // users can click the temporarily invalid shortcut and get a Windows error.
@@ -613,13 +631,26 @@ export default class AppUpdater {
     crashReportService.record('quit-and-install-requested', { isSilent })
     setImmediate(() => {
       try {
-        autoUpdater.quitAndInstall(isSilent, true)
+        this.autoUpdater.quitAndInstall(isSilent, true)
       } catch (error) {
-        this.isInstallingUpdate = false
+        this.resetInstallState()
         logger.error('Failed to start quitAndInstall', error as Error)
-        throw error
+        this.broadcastUpdateEvent(IpcChannel.UpdateError, error)
       }
     })
+  }
+
+  private resetInstallState() {
+    if (this.installQuitTimer) {
+      clearTimeout(this.installQuitTimer)
+      this.installQuitTimer = null
+    }
+    if (this.installQuitListener) {
+      nativeAutoUpdater.removeListener('before-quit-for-update', this.installQuitListener)
+      this.installQuitListener = null
+    }
+    this.isInstallingUpdate = false
+    app.isQuitting = false
   }
 
   /**

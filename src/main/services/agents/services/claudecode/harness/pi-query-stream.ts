@@ -344,6 +344,7 @@ export async function processPiHarnessQuery(input: {
   })
 
   const pendingToolCalls = new Map<string, PendingToolCall>()
+  const executingToolCallIds = new Set<string>()
   const blockIds = new Map<string, string>()
   const textBlockContents = new Map<string, string>()
   const providerMetadataBase: ProviderMetadata = {
@@ -395,6 +396,7 @@ export async function processPiHarnessQuery(input: {
 
   const armTerminalTimeout = () => {
     clearTerminalTimeout()
+    if (executingToolCallIds.size > 0) return
     terminalTimeoutHandle = setTimeout(() => {
       terminalTimeoutTriggered = true
       void runtimeBridge.harness.abort().catch((abortError) => {
@@ -405,6 +407,8 @@ export async function processPiHarnessQuery(input: {
 
   const armIdleTimeout = () => {
     clearIdleTimeout()
+    // Tool execution has its own deadline; silence is not an idle model stream.
+    if (executingToolCallIds.size > 0) return
     idleTimeoutHandle = setTimeout(() => {
       idleTimeoutTriggered = true
       logger.warn('[PiQuery] idle timeout reached without any chunk, aborting for retry', {
@@ -515,6 +519,15 @@ export async function processPiHarnessQuery(input: {
   }
 
   const handleNestedToolEvent = async (event: PiNestedToolEvent): Promise<void> => {
+    if (event.type === 'start') {
+      executingToolCallIds.add(event.toolCallId)
+      clearTerminalTimeout()
+    } else if (event.type !== 'update') {
+      executingToolCallIds.delete(event.toolCallId)
+    }
+    armIdleTimeout()
+    if (event.type === 'update') return
+
     const providerMetadata: ProviderMetadata = {
       ...providerMetadataBase,
       raw: {
@@ -597,6 +610,12 @@ export async function processPiHarnessQuery(input: {
 
   const unsubscribeNestedTools = runtimeBridge.subscribeNestedToolEvents(handleNestedToolEvent)
   const unsubscribe = runtimeBridge.harness.subscribe(async (event) => {
+    if (event.type === 'tool_execution_start') {
+      executingToolCallIds.add(event.toolCallId)
+      clearTerminalTimeout()
+    } else if (event.type === 'tool_execution_end') {
+      executingToolCallIds.delete(event.toolCallId)
+    }
     // 每收到任何 harness 事件都视为有活性，重置并重新武装空闲超时，
     // 确保流中途断网后 idleTimeoutMs 内无新事件即可触发重试。
     armIdleTimeout()
@@ -925,6 +944,7 @@ export async function processPiHarnessQuery(input: {
       currentAttempt += 1
       terminalTimeoutTriggered = false
       idleTimeoutTriggered = false
+      executingToolCallIds.clear()
       result = undefined
 
       try {
