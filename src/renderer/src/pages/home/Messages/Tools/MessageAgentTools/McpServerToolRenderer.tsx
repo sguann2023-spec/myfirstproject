@@ -4,6 +4,7 @@ import { Wrench } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { ToolArgsTable } from '../shared/ArgsTable'
+import { parseMcpToolName } from '../shared/mcpToolDisplay'
 import { ToolHeader } from './GenericTools'
 import { ImageUnderstandeTool } from './ImageUnderstandeToolRenderer'
 import { VideoUnderstandeTool } from './VideoUnderstandeToolRenderer'
@@ -83,7 +84,8 @@ export function McpServerToolRenderer({
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
-  const mediaGenerationBillingSummary = isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
+  const isScrapt = parseMcpToolName(toolName).serverName === 'scrapt'
+  const mediaGenerationBillingSummary = isScrapt || isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
     ? extractMediaGenerationBillingSummary(output)
     : null
 

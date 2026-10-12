@@ -142,4 +142,17 @@ describe('mediaGenerationBilling', () => {
       })
     ).toBeNull()
   })
+
+  it.each(['queued', 'consumed'])('extracts media proxy billing with status %s', (status) => {
+    const billing = { total_consumed_points: 2.5, status }
+    for (const output of [
+      { content: [{ type: 'text', text: JSON.stringify({ billing, code: 200, data: [] }) }] },
+      { content: [{ type: 'text', text: 'truncated JSON' }], details: { billing } },
+      { content: [{ type: 'text', text: 'raw response' }], structuredContent: { billing } }
+    ]) {
+      expect(extractMediaGenerationBillingSummary(output)).toEqual({
+        totalConsumedPoints: 2.5, displayText: '2.50'
+      })
+    }
+  })
 })

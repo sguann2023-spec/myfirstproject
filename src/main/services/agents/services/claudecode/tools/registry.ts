@@ -16,6 +16,7 @@ import ImageUnderstandServer from '@main/mcpServers/image-understand'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
 import RemoveBgServer from '@main/mcpServers/remove-bg'
+import ScraptToolServer from '@main/mcpServers/scrapt-tool'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
@@ -176,6 +177,16 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('search', { type: 'sdk', name: 'search', instance: zhipuSearchServer.mcpServer })
     autoAllowTools.add(vt('search', 'web_search'))
     allowMcpPattern(vp('search'))
+  }
+
+  if (hasScraptDomain) {
+    mountMcpServer('scrapt', {
+      type: 'sdk',
+      name: 'scrapt',
+      instance: new ScraptToolServer().mcpServer,
+      timeout: 150
+    })
+    allowMcpPattern(vp('scrapt'))
   }
 
   if (hasWorkspaceDomain) {

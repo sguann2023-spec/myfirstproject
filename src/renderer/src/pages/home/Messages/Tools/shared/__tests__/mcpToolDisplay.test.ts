@@ -107,4 +107,30 @@ describe('mcpToolDisplay', () => {
       })
     ).toBe('Custom Tools: Generate Or Edit Image')
   })
+
+  it.each([
+    [zhCn, 'TikTok：搜索视频'],
+    [zhTw, 'TikTok：搜索視頻'],
+    [enUs, 'TikTok: Search video']
+  ])('uses readable localized media titles without the proxy name', (locale, expected) => {
+    const translate = ((key: string, options?: { defaultValue?: string }) =>
+      key.split('.').reduce<unknown>(
+        (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
+        locale
+      ) ?? options?.defaultValue ?? key) as any
+    expect(getMcpToolDisplayName({
+      ...parseMcpToolName('mcp__vectcut__scrapt__tiktok_web_fetch_search_video'),
+      t: translate
+    })).toBe(expected)
+  })
+
+  it('has matching title coverage for all media tools in each supported primary locale', () => {
+    const names = Object.keys(zhCn.message.tools.mcp.tools.scrapt)
+    expect(names).toHaveLength(998)
+    for (const locale of [zhCn, zhTw, enUs]) {
+      const titles = locale.message.tools.mcp.tools.scrapt
+      expect(Object.keys(titles).sort()).toEqual([...names].sort())
+      expect(Object.values(titles).every((title) => title.length > 0 && !title.includes('Scrapt'))).toBe(true)
+    }
+  })
 })

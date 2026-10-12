@@ -14,6 +14,8 @@ export function buildInlineToolResultPayload(result: unknown): unknown {
 
   if ('structuredContent' in record) {
     inlinePayload.structuredContent = record.structuredContent
+  } else if ('details' in record) {
+    inlinePayload.structuredContent = record.details
   }
   if ('isError' in record) {
     inlinePayload.isError = record.isError

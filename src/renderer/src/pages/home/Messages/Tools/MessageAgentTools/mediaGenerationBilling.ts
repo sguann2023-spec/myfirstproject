@@ -181,6 +181,12 @@ function extractNestedPayload(value: unknown, depth = 0): GenericRecord | null {
       return record
     }
 
+    const structuredContent = extractNestedPayload(record.structuredContent, depth + 1)
+    if (structuredContent) return structuredContent
+
+    const details = extractNestedPayload(record.details, depth + 1)
+    if (details) return details
+
     const nestedResponseRaw = extractNestedPayload(record.responseRaw, depth + 1)
     if (nestedResponseRaw) return nestedResponseRaw
 
@@ -228,6 +234,12 @@ function extractBillingRecord(payload: unknown): BillingRecord | null {
 
   const nestedBilling = asRecord(record.billing)
   if (nestedBilling) return nestedBilling
+
+  const structuredContent = extractBillingRecord(record.structuredContent)
+  if (structuredContent) return structuredContent
+
+  const details = extractBillingRecord(record.details)
+  if (details) return details
 
   if ('total_consumed_points' in record || 'points_consumed' in record || 'deduct_points' in record || 'consume' in record) {
     return record

@@ -79,6 +79,38 @@ beforeEach(() => {
 })
 
 describe('buildLimitedPiToolPayload', () => {
+  it('returns compact search candidates through the Codemode global', async () => {
+    const schema = { type: 'object', properties: { keyword: { type: 'string' } }, required: ['keyword'] }
+    class Sandbox {
+      constructor(private options: any) {}
+      async execute() {
+        const search = this.options.globals.find((tool: any) => tool.name === 'searchTools')
+        const value = await search.execute(['search video', 5])
+        return { ok: true, output: [], calls: [], value }
+      }
+      close = vi.fn()
+    }
+    const tool = buildCodemodeTool({
+      packageBridge: {
+        piAi: { Type: { Object: (value: unknown) => value, String: (value: unknown) => value } },
+        piCodemode: { CodemodeSandbox: Sandbox }
+      } as any,
+      mcpTools: [
+        { name: 'mcp__video__search', description: 'search video', parameters: schema },
+        { name: 'mcp__audio__search', description: 'search audio', parameters: schema }
+      ] as any,
+      invokeContext: {
+        runtime: { traceId: 'trace-1', workspacePath: '/tmp' }, projection: { topicId: 'topic-1' }
+      } as any,
+      pendingFileChanges: new Map()
+    })
+    const result = await tool.execute('search-1', { code: 'return await searchTools("search video")' })
+    const results = JSON.parse((result.content[0] as any).text)
+    expect(results[0]).not.toHaveProperty('inputSchema')
+    expect(results[1]).not.toHaveProperty('inputSchema')
+    expect(tool.description).toContain('without schemas')
+  })
+
   it('forwards nested MCP progress without changing its final result', async () => {
     const events: unknown[] = []
     const signal = new AbortController().signal

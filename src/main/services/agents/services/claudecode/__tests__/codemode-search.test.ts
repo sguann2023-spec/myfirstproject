@@ -52,7 +52,8 @@ describe('rankCodemodeTools', () => {
       name: expect.any(String),
       description: expect.any(String)
     })
-    expect(results[0]).not.toHaveProperty('inputSchema')
+    expect(results.every((tool) => !('inputSchema' in tool))).toBe(true)
     expect(JSON.stringify(results).length).toBeLessThan(1000)
   })
+
 })

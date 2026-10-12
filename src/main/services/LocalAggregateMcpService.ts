@@ -37,6 +37,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: KouboTemplateServer },
       { default: MaterialsServer },
       { default: RemoveBgServer },
+      { default: ScraptToolServer },
       { default: SeedAudioServer },
       { default: SocialCopywritingServer },
       { default: SkillsServer },
@@ -67,6 +68,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/koubo-template'),
       import('@main/mcpServers/materials'),
       import('@main/mcpServers/remove-bg'),
+      import('@main/mcpServers/scrapt-tool'),
       import('@main/mcpServers/seed-audio'),
       import('@main/mcpServers/social-copywriting'),
       import('@main/mcpServers/skills'),
@@ -136,6 +138,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'voice-conversion',
         serverName: 'voice-conversion',
         createInstance: () => new VoiceConversionServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'scrapt',
+        serverName: 'scrapt',
+        createInstance: () => new ScraptToolServer().mcpServer
       },
       {
         serverId: 'seed-audio',

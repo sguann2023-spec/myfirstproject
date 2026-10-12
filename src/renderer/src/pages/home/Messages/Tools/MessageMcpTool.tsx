@@ -278,6 +278,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
         return extractVideoUnderstandeBillingSummary(toolResponse.response)
       }
       if (
+        tool?.serverName === 'scrapt' ||
         isKouboTemplateToolName(toolName) ||
         isMediaGenerationToolName(toolName) ||
         isSubtitleRecognitionToolName(toolName) ||
@@ -290,7 +291,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       }
       return null
     },
-    [tool?.name, toolResponse.response, toolResponse.responseRaw]
+    [tool?.name, tool?.serverName, toolResponse.response, toolResponse.responseRaw]
   )
 
   useEffect(() => {

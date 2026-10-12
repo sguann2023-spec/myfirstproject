@@ -27,6 +27,7 @@ import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
 import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search'
 import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { buildToolOutputPreview } from './tool-output-preview'
+import { preserveMcpResult } from './mcp-result-storage'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -1353,7 +1354,7 @@ async function buildMcpTools(input: {
             throw new Error(failedOutput)
           }
 
-          const limitedPayload = buildLimitedPiToolPayload(result, `${namespacedName} 回包`)
+          const preservedPayload = await preserveMcpResult(result, invokeContext.runtime.workspacePath)
           logger.info('[AgentCore] mcp tool execute success', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1364,8 +1365,8 @@ async function buildMcpTools(input: {
             contentPreview: extractToolText((result as { content?: unknown }).content).slice(0, 500)
           })
           return {
-            content: limitedPayload.content,
-            details: limitedPayload.details
+            content: toPiContentArray(preservedPayload.content),
+            details: preservedPayload.details
           }
         }
       } as any
@@ -1477,6 +1478,15 @@ export function buildCodemodeTool(input: {
           result
         })
         if (result.details !== undefined) {
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(text)
+          } catch {
+            // Keep non-JSON results as text.
+          }
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return { ...parsed, text, content: [{ type: 'text', text }], structuredContent: result.details }
+          }
           return {
             text,
             structuredContent: result.details
@@ -1561,6 +1571,7 @@ export function buildCodemodeTool(input: {
       'Discovery: `return await searchTools("generate video", 8)`.',
       'Inspection: `return await describeTool("mcp__vectcut__video__generate_video")`.',
       'Execution: `return await tools["mcp__vectcut__video__generate_video"]({ ...args })`.',
+      'JSON tool results are objects: access result.data directly, not JSON.parse(result). Large results include structuredContent.artifact.file_path for Read/Bash. Do not treat a truncated preview as empty or repeat a paid call to recover it.',
       'Tool search returns compact candidates without schemas. Inspect only the best candidate before execution.',
       'Use concise English keywords for discovery. Use Promise.all for independent calls. Return a JSON-serializable value; do not both text() and return the same value.'
     ].join('\n'),
@@ -1618,6 +1629,18 @@ export function buildCodemodeTool(input: {
           throw new Error(result.error.stack || result.error.message)
         }
 
+        const storedOutput = await preserveMcpResult({ content }, invokeContext.runtime.workspacePath)
+        const artifact = (storedOutput.details as { artifact?: unknown } | undefined)?.artifact
+        const modelContent = artifact
+          ? [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                truncated: true,
+                reason: 'Output exceeds the inline limit. It is not empty. Read the saved file with Read or Bash; do not repeat the API call.',
+                artifact
+              })
+            }]
+          : content
         logger.info('[CodemodeTiming] sandbox execution end', {
           traceId: invokeContext.runtime.traceId,
           topicId: invokeContext.projection.topicId,
@@ -1628,7 +1651,7 @@ export function buildCodemodeTool(input: {
           outputChars: content.reduce((total, item) => total + ('text' in item ? item.text.length : 0), 0)
         })
         return {
-          content: content.length > 0 ? content : [{ type: 'text', text: '(codemode completed with no output)' }],
+          content: modelContent.length > 0 ? modelContent : [{ type: 'text', text: '(codemode completed with no output)' }],
           details: {
             calls: result.calls
           }

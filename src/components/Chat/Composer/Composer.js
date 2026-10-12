@@ -2325,7 +2325,7 @@ const Composer = ({
           ? '选择音频/视频和音色ID后发送'
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
-            : '@技能成员，#引用，输入消息，Enter 发送，Shift+Enter 换行';
+            : '查看今天的爆款视频，例如：我想看看河北邯郸驴肉火烧店的热门引流视频，不超过30秒';
   const showVoiceSquareTextTemplates = activeTool === 'voice-square' && !String(input || '').trim();
 
   requestUploadPickerRef.current = (slotId = '') => {
