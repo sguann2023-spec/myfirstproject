@@ -81,7 +81,7 @@ const GENERATE_SEED_AUDIO_TOOL: Tool = {
       },
       voiceId: {
         type: 'string',
-        description: 'Optional voice or speaker ID. Mutually exclusive with audio_url / audio_data.'
+        description: 'Optional single voice ID. Can be combined with audio references, but not image references.'
       },
       voice_id: {
         type: 'string',
@@ -89,7 +89,7 @@ const GENERATE_SEED_AUDIO_TOOL: Tool = {
       },
       speaker: {
         type: 'string',
-        description: 'Optional speaker descriptor. Mutually exclusive with audio_url / audio_data.'
+        description: 'Optional single speaker ID. Can be combined with audio references, but not image references.'
       },
       referenceAudios: {
         type: 'array',
@@ -663,7 +663,8 @@ class SeedAudioServer {
       explicitReferencesRaw.forEach((item) => {
         if (!item || typeof item !== 'object') return
         const refItem = item as Record<string, unknown>
-        const vId = typeof refItem.voice_id === 'string' ? refItem.voice_id.trim() : ''
+        const vId = typeof refItem.voice_id === 'string' ? refItem.voice_id.trim()
+          : typeof refItem.speaker === 'string' ? refItem.speaker.trim() : ''
         if (vId) voiceIdInputs.push(vId)
         const aUrl = typeof refItem.audio_url === 'string' ? refItem.audio_url.trim() : ''
         if (aUrl) audioInputs.push(aUrl)
@@ -675,12 +676,14 @@ class SeedAudioServer {
     delete payload.voice_id
     delete (payload as Record<string, unknown>).voice_ids
     delete (payload as Record<string, unknown>).references
-    const uniqueVoiceIds = Array.from(new Set(voiceIdInputs))
+    const speakerId = typeof payload.speaker === 'string' ? payload.speaker.trim() : ''
+    const uniqueVoiceIds = Array.from(new Set([...voiceIdInputs, ...(speakerId ? [speakerId] : [])]))
+    delete payload.speaker
 
     // 图片与音频参考互斥（火山文档：image 与 audio 不能同时存在）
     const hasImageInput = imageInputs.length > 0 || Boolean(payload.image_data)
     const hasAudioInput = audioInputs.length > 0 || Boolean(payload.audio_data)
-    const hasSpeakerField = Boolean(payload.speaker && String(payload.speaker).trim())
+    const hasSpeakerField = uniqueVoiceIds.length > 0
 
     if (hasImageInput && hasAudioInput) {
       throw new McpError(
@@ -696,6 +699,9 @@ class SeedAudioServer {
     }
 
     // 数量约束
+    if (uniqueVoiceIds.length > 1) {
+      throw new McpError(ErrorCode.InvalidParams, 'At most 1 voice ID is allowed')
+    }
     if (audioInputs.length > MAX_AUDIO_REFERENCES) {
       throw new McpError(
         ErrorCode.InvalidParams,
@@ -728,11 +734,11 @@ class SeedAudioServer {
     // 构造 references 数组（火山 Seed Audio HTTP 原生字段，顺序对应 text_prompt 中 @音频N）
     //   项形态：{voice_id: 'gv_xxx'} / {audio_url: 'https://...'} / {image_url: 'https://...'}
     const references: Array<Record<string, unknown>> = []
-    uniqueVoiceIds.forEach((voiceId) => {
-      references.push({ voice_id: voiceId })
-    })
     resolvedAudioUrls.forEach((url) => {
       references.push({ audio_url: url })
+    })
+    uniqueVoiceIds.forEach((voiceId) => {
+      references.push({ voice_id: voiceId })
     })
     resolvedImageUrls.forEach((url) => {
       references.push({ image_url: url })

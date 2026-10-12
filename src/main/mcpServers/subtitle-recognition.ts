@@ -575,6 +575,8 @@ class SubtitleRecognitionServer {
       url: payload.url,
       effect_mode: payload.effect_mode,
       source_summary: sourceSummary,
+      error_code: finalResult.result?.error_code ?? finalResult.error_code
+        ?? finalResult.result?.code ?? finalResult.code,
       error: finalResult.error || finalResult.result?.error || (isError ? finalResult.message || 'Subtitle recognition task failed' : ''),
       message: finalResult.message || '',
       progress: finalResult.progress,

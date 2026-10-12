@@ -5,6 +5,16 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const storeState = new Map<string, unknown>()
+const { recognizeSpeech, closeSpeechServer } = vi.hoisted(() => ({
+  recognizeSpeech: vi.fn(), closeSpeechServer: vi.fn(),
+}))
+
+vi.mock('../subtitle-recognition', () => ({
+  default: class {
+    mcpServer = { close: closeSpeechServer }
+    executeDirectRequest = recognizeSpeech
+  },
+}))
 
 vi.mock('electron', () => ({
   net: {
@@ -77,6 +87,12 @@ describe('VideoUnderstandServer', () => {
     vi.clearAllMocks()
     storeState.clear()
     storeState.set('auth.refresh_token', 'refresh-token')
+    recognizeSpeech.mockResolvedValue({
+      content: [{ type: 'text', text: JSON.stringify({
+        content: '测试对白', result: { segments: [{ start: 0, end: 1000, text: '测试对白' }] },
+        billing: { consume: 0.25 },
+      }) }],
+    })
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'video-understand-test-'))
   })
 
@@ -142,6 +158,11 @@ describe('VideoUnderstandServer', () => {
           summary: detailText.slice(0, 200),
           details: detailText
         },
+        speech: {
+          status: 'recognized', effect_mode: 'basic', content: `${source} 的对白`,
+          segments: [{ start: 0, end: 1000, text: `${source} 的对白` }],
+          billing: { total_consumed_points: 0.25 },
+        },
         billing: {
           total_consumed_points: videoIndex === 1 ? 1.25 : 2.5
         },
@@ -196,6 +217,7 @@ describe('VideoUnderstandServer', () => {
     const indexText = await fs.readFile(payload.result_files[0].file_path, 'utf8')
     expect(indexText).toContain('# 视频理解结果文件索引')
     expect(indexText).toContain('- 视频数量：2')
+    expect(indexText).toContain('- 摘要：video-a.mp4 的理解结果')
     expect(indexText).toContain(`- 视频 1 绝对路径：${path.resolve(workspaceRoot, 'video-a.mp4')}`)
 
     const aggregateText = await fs.readFile(payload.result_files[1].file_path, 'utf8')
@@ -212,6 +234,8 @@ describe('VideoUnderstandServer', () => {
     expect(singleVideoText).toContain('## 描述')
     expect(singleVideoText).toContain('## 时间线详情')
     expect(singleVideoText).toContain('总消耗点数：1.25')
+    expect(singleVideoText).toContain('语音字幕（basic，不分句）')
+    expect(singleVideoText).toContain('0~1000 毫秒：video-a.mp4 的对白')
 
     const artifactText = await fs.readFile(payload.artifact.file_path, 'utf8')
     const artifactPayload = JSON.parse(artifactText)
@@ -220,12 +244,31 @@ describe('VideoUnderstandServer', () => {
     })
     expect(artifactPayload.videos).toHaveLength(2)
     expect(artifactPayload.videos[0]).toMatchObject({
-      absolute_video_path: path.resolve(workspaceRoot, 'video-a.mp4')
+      absolute_video_path: path.resolve(workspaceRoot, 'video-a.mp4'),
+      speech: { status: 'recognized', content: 'video-a.mp4 的对白' },
     })
     expect(artifactPayload.result_files).toHaveLength(4)
     expect(artifactPayload.result_files[2]).toMatchObject({
       absolute_video_path: path.resolve(workspaceRoot, 'video-a.mp4')
     })
+
+    const summaryResult = await callTool(server, 'submit_video_detail_task', {
+      video_urls: Array.from({ length: 100 }, (_, index) => `video-${index + 1}.mp4`),
+      includeSummaries: true,
+    })
+    const summaryPayload = JSON.parse(summaryResult.content[0].text)
+    expect(summaryPayload.total_video_count).toBe(100)
+    expect(summaryPayload.video_summaries).toHaveLength(5)
+    expect(summaryPayload.video_summaries[0]).toMatchObject({
+      video_index: 1, title: 'video-1.mp4 的理解结果',
+    })
+    expect(summaryPayload.videos).toBeUndefined()
+    expect(JSON.stringify(summaryPayload)).not.toContain('"details"')
+    const fullArtifact = JSON.parse(await fs.readFile(summaryPayload.artifact.file_path, 'utf8'))
+    expect(fullArtifact.videos).toHaveLength(100)
+    expect(fullArtifact.videos[99].analysis.details).toContain('video-100.mp4')
+    const fullIndex = await fs.readFile(summaryPayload.result_files[0].file_path, 'utf8')
+    expect(fullIndex).toContain('- 摘要：video-100.mp4')
   })
 
   it('should split a long video into batches of at most 30 frames', async () => {
@@ -241,7 +284,7 @@ describe('VideoUnderstandServer', () => {
       ffprobePath: '/mock/ffprobe',
       probe: {
         format: { duration: 41 },
-        streams: [{ codec_type: 'video' }]
+        streams: [{ codec_type: 'video' }, { codec_type: 'audio' }]
       }
     })
     vi.spyOn(server as any, 'extractFrames').mockResolvedValue(
@@ -315,10 +358,73 @@ describe('VideoUnderstandServer', () => {
     expect(result.analysis.details).toContain('第一批结果')
     expect(result.analysis.details).toContain('第二批结果')
     expect(result.analysis.details).toContain('第三批结果')
+    expect(result.speech).toMatchObject({
+      status: 'recognized', effect_mode: 'basic', content: '测试对白',
+      segments: [{ start: 0, end: 1000, text: '测试对白' }],
+    })
+    expect(recognizeSpeech.mock.calls[0][0]).toEqual({ url: '/tmp/sample.mp4', effectMode: 'basic' })
     expect(result.billing).toEqual({
-      total_consumed_points: 3.6
+      total_consumed_points: 3.85
     })
     expect(result.batches[1].retryCount).toBe(1)
+  })
+
+  it.each([20000003, '20000003'])('treats no-speech code %s as a normal speech status and retains billing', async (code) => {
+    const server = createServer(workspaceRoot)
+    recognizeSpeech.mockResolvedValue({
+      isError: true, content: [{ type: 'text', text: JSON.stringify({
+        error_code: code, error: '没有检测到人声', billing: { consume: 0.1 },
+      }) }],
+    })
+    const onBilling = vi.fn()
+    const result = await (server as any).recognizeVideoSpeech('/tmp/video.mp4', undefined, onBilling)
+    expect(result).toMatchObject({ status: 'no_speech', error_code: code, content: '', segments: [] })
+    expect(onBilling).toHaveBeenCalledWith({ total_consumed_points: 0.1 }, 'asr')
+    expect(closeSpeechServer).toHaveBeenCalled()
+    expect((server as any).renderSingleVideoMarkdownResult({
+      videoIndex: 1, sourceKind: 'local_video', fps: 3, durationSeconds: 1,
+      totalFrames: 3, totalBatches: 1, billing: { total_consumed_points: 0.1 },
+      analysis: { title: '标题', summary: '摘要', details: '画面' }, speech: result,
+    }, '')).toContain('未检测到可识别的人声')
+  })
+
+  it('does not mislabel service failures as no speech', async () => {
+    const server = createServer(workspaceRoot)
+    recognizeSpeech.mockResolvedValue({
+      isError: true, content: [{ type: 'text', text: '{"error":"认证失败","error_code":401}' }],
+    })
+    const speech = await (server as any).recognizeVideoSpeech('/tmp/video.mp4')
+    expect(speech.status).toBe('failed')
+    expect((server as any).speechStatusLabel(speech)).toContain('不能判定是否有人声')
+  })
+
+  it('skips paid ASR when the video has no audio stream', async () => {
+    const server = createServer(workspaceRoot)
+    vi.spyOn(server as any, 'prepareVideoSource').mockResolvedValue({
+      originalInput: '/tmp/silent.mp4', localPath: '/tmp/silent.mp4', sourceKind: 'local_video', cleanupDir: null,
+    })
+    vi.spyOn(server as any, 'probeMedia').mockResolvedValue({
+      probe: { format: { duration: 1 }, streams: [{ codec_type: 'video' }] },
+    })
+    vi.spyOn(server as any, 'extractFrames').mockResolvedValue([])
+    vi.spyOn(server as any, 'compressFrames').mockResolvedValue([])
+    const result = await (server as any).analyzeSingleVideo({
+      videoIndex: 1, videoCount: 1, source: '/tmp/silent.mp4', fps: 3, prompt: '', report: vi.fn(),
+    })
+    expect(result.speech.status).toBe('no_audio')
+    expect(recognizeSpeech).not.toHaveBeenCalled()
+  })
+
+  it('marks successful empty recognition as no detected speech without inventing a price', async () => {
+    const server = createServer(workspaceRoot)
+    recognizeSpeech.mockResolvedValue({
+      content: [{ type: 'text', text: '{"result":{"content":"","segments":[]}}' }],
+    })
+    const onBilling = vi.fn()
+    const speech = await (server as any).recognizeVideoSpeech('/tmp/video.mp4', undefined, onBilling)
+    expect(speech.status).toBe('no_speech')
+    expect(speech.billing).toBeUndefined()
+    expect(onBilling).toHaveBeenCalledWith(null, 'asr')
   })
 
   it('should normalize merged ranges into fixed 0.3 second slices', () => {

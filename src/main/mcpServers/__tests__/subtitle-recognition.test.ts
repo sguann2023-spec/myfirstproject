@@ -187,6 +187,22 @@ describe('SubtitleRecognitionServer', () => {
     })
   })
 
+  it('preserves a structured no-speech error code for video understanding', async () => {
+    const server = createServer(workspaceRoot)
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'no-speech' }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        status: 'failed', error: 'No speech detected',
+        result: { error_code: 20000003, billing: { consume: 0 } },
+      }))
+    const result = await server.executeDirectRequest({ url: 'https://example.com/video.mp4', effectMode: 'basic' })
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      error_code: 20000003, billing: { consume: 0 },
+    })
+  })
+
   it.each([undefined, { consume: 2 }])('preserves top-level billing without fabricating missing prices', async (billing) => {
     mockNetFetch
       .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))

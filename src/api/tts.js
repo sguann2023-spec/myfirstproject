@@ -6,7 +6,7 @@ export async function getVoiceLibrary({
   sort_type = 'recommend',
   only_active = true,
   limit = 24,
-  offset = 24,
+  offset = 0,
   provider,
   gender,
   language,

@@ -3,6 +3,7 @@ import { CloseOutlined, DownOutlined } from '@ant-design/icons';
 import { Dropdown, Tooltip } from 'antd';
 import { AudioLines, Play, Pause, Loader2 } from 'lucide-react';
 import Point2Icon from '../../../public/point2.svg';
+import { getMusicReferencesError } from '../../shared/musicGenerateReferences';
 import './index.css';
 
 const AUDIO_TEMPLATE_MANIFEST_URL = 'https://player.install-ai-guider.top/example/client_audio_template/manifest.json';
@@ -20,11 +21,12 @@ export const buildMusicGenerateRequestParams = (input = '', settings = DEFAULT_M
   };
 };
 
-export const getMusicGenerateToolSendState = ({ input = '' } = {}) => {
+export const getMusicGenerateToolSendState = ({ input = '', uploadedFiles = [] } = {}) => {
   const hasPrompt = Boolean(String(input || '').trim());
+  const referenceError = getMusicReferencesError(uploadedFiles);
   return {
-    canSend: hasPrompt,
-    disabledReason: hasPrompt ? '' : '请输入要生成的音频描述',
+    canSend: hasPrompt && !referenceError,
+    disabledReason: !hasPrompt ? '请输入要生成的音频描述' : referenceError,
   };
 };
 

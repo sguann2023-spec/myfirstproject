@@ -5,6 +5,7 @@ import { electronStore } from '../../shared/electronStore';
 import { validateTextStyleRanges } from '../../shared/textTypography';
 import { normalizeTextEffectParams } from '../../shared/textEffects';
 import { buildReversePromptBlocks, normalizeReversePromptRequest } from '../../shared/reversePrompt';
+import { buildVideoUnderstandBlocks, normalizeVideoUnderstandRequest } from '../../shared/videoUnderstand';
 import { buildSubtitleRecognitionBlocks, normalizeSubtitleRecognitionRequest } from '../../shared/subtitleRecognition';
 import LogoIcon from '../../../public/logo-circle.png';
 import VipIcon from '../../../public/vip_icon.png';
@@ -2307,6 +2308,8 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && voiceConversionRequest ? { voiceConversionRequest } : {}),
     ...(role === 'user' && digitalHumanRequest ? { digitalHumanRequest } : {}),
     ...(reversePromptRequest ? { reversePromptRequest } : {}),
+    ...(role === 'user' && sourceMessage?.videoUnderstandRequest
+      ? { videoUnderstandRequest: { ...sourceMessage.videoUnderstandRequest } } : {}),
     ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
       ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
     ...(role === 'user' && sourceMessage?.subtitleStoryboardRequest
@@ -5351,9 +5354,9 @@ const HomePage = () => {
     });
   }, []);
 
-  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request, isSubtitle = false }) => {
-    const normalizedRequest = (isSubtitle ? normalizeSubtitleRecognitionRequest : normalizeReversePromptRequest)(request);
-    const blocks = (isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
+  const executeReversePromptRequest = async ({ chatId, agentSessionId, requestId, userMessage, assistantMessageId, request, isSubtitle = false, isVideo = false }) => {
+    const normalizedRequest = (isVideo ? normalizeVideoUnderstandRequest : isSubtitle ? normalizeSubtitleRecognitionRequest : normalizeReversePromptRequest)(request);
+    const blocks = (isVideo ? buildVideoUnderstandBlocks : isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
       assistantMessageId, requestId, request: normalizedRequest, modelId: chatModel,
     });
     updateChatAssistantMessage(chatId, assistantMessageId, { blocks, content: '', error: null, aborted: false });
@@ -5365,7 +5368,7 @@ const HomePage = () => {
       const result = await invoke({
         sessionId: agentSessionId, requestId, createdAt: userMessage.createdAt,
         userMessageId: userMessage.id, assistantMessageId, userContent: userMessage.content,
-        model: chatModel, [isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: normalizedRequest,
+        model: chatModel, [isVideo ? 'videoUnderstandRequest' : isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: normalizedRequest,
       });
       // Cancellation removes this entry. A late tool response must not overwrite a stopped message.
       if (!chatPendingByRequestIdRef.current.has(requestId)) return;
@@ -5376,7 +5379,7 @@ const HomePage = () => {
       if (result?.assistantBlocks) {
         updateChatAssistantMessage(chatId, assistantMessageId, { blocks: result.assistantBlocks });
       }
-      if (!result?.ok) throw new Error(result?.error || (isSubtitle ? '字幕识别失败' : '反推提示词失败'));
+      if (!result?.ok) throw new Error(result?.error || (isVideo ? '逐帧拉片失败' : isSubtitle ? '字幕识别失败' : '反推提示词失败'));
       updateChatAssistantMessage(chatId, assistantMessageId, {
         content: result.assistantText, blocks: result.assistantBlocks,
         model: chatModelMeta, modelId: chatModel, storeAssistantMessageId: null, error: null,
@@ -5400,6 +5403,8 @@ const HomePage = () => {
 
   const handleSendChatMessage = async (inputText, options = {}) => {
     let text = String(inputText || '').trim();
+    const videoUnderstandRequest = options?.videoUnderstandRequest
+      ? normalizeVideoUnderstandRequest(options.videoUnderstandRequest) : null;
     const subtitleStoryboardRequest = options?.subtitleStoryboardRequest && typeof options.subtitleStoryboardRequest === 'object'
       ? { ...options.subtitleStoryboardRequest } : null;
     const subtitleRecognitionRequest = options?.subtitleRecognitionRequest
@@ -5518,6 +5523,7 @@ const HomePage = () => {
         content: text,
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
+        ...(videoUnderstandRequest ? { videoUnderstandRequest: { ...videoUnderstandRequest, requestId } } : {}),
         ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
         ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
@@ -5581,6 +5587,7 @@ const HomePage = () => {
         content: text,
         imageAttachments: imageAttachmentPreviews,
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
+        ...(videoUnderstandRequest ? { videoUnderstandRequest: { ...videoUnderstandRequest, requestId } } : {}),
         ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
         ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftRequest ? { draftRequest: normalizeDraftRequestPayload(draftRequest) } : {}),
@@ -5701,6 +5708,25 @@ const HomePage = () => {
         userMessage,
         images,
       });
+
+      if (videoUnderstandRequest) {
+        const request = {
+          ...videoUnderstandRequest,
+          videoUrls: videoUnderstandRequest.videoUrls.map((source) => {
+            if (!source.startsWith('local-attachment:')) return source;
+            const uid = source.slice('local-attachment:'.length);
+            const entry = persistedPendingAttachmentEntries.find((item) => item.uid === uid);
+            if (!entry) throw new Error('本地视频未能保存，请重新添加');
+            return entry.sourcePath;
+          }),
+        };
+        updateChatMessage(targetSessionId, userMessage.id, { videoUnderstandRequest: { ...request, requestId } });
+        await executeReversePromptRequest({
+          chatId: targetSessionId, agentSessionId, requestId,
+          userMessage: { ...userMessage, content: text }, assistantMessageId, request, isVideo: true,
+        });
+        return;
+      }
 
       if (digitalHumanRequest) {
         const requestWithLocalFiles = resolveDigitalHumanRequestLocalAttachmentUrls(
@@ -6602,11 +6628,12 @@ const HomePage = () => {
     const requestId = createRequestId();
     try {
       const agentSessionId = await ensureAgentSessionForChat(activeChatId);
-      if (prevUser.reversePromptRequest || prevUser.subtitleRecognitionRequest) {
+      if (prevUser.reversePromptRequest || prevUser.subtitleRecognitionRequest || prevUser.videoUnderstandRequest) {
         await executeReversePromptRequest({
           chatId: activeChatId, agentSessionId, requestId, userMessage: prevUser,
-          assistantMessageId: messageId, request: prevUser.subtitleRecognitionRequest || prevUser.reversePromptRequest,
+          assistantMessageId: messageId, request: prevUser.videoUnderstandRequest || prevUser.subtitleRecognitionRequest || prevUser.reversePromptRequest,
           isSubtitle: Boolean(prevUser.subtitleRecognitionRequest),
+          isVideo: Boolean(prevUser.videoUnderstandRequest),
         });
         return;
       }

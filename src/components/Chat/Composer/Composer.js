@@ -31,6 +31,8 @@ import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
 import VideoToolDetail from './VideoToolDetail/index';
+import VideoDetailTool from '../../VideoDetailTool/index';
+import { VIDEO_UNDERSTAND_HINT, buildVideoUnderstandRequest, getVideoUnderstandSendState } from '../../../shared/videoUnderstand';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 import VoiceLib, { useVoiceLib } from './VoiceLib/index';
 import TTSToolDetail from '../../TTSToolDetail/index';
@@ -72,6 +74,10 @@ import VoiceConversationTool, {
   VOICE_CONVERSION_VOICE_SLOT_ID,
 } from '../../VoiceConversationTool/index';
 import { normalizeMemberProvider } from '../../../constants/member';
+import {
+  MUSIC_AUDIO_ACCEPT, MUSIC_IMAGE_ACCEPT, buildMusicReferences,
+  getMusicReferenceKind, getMusicReferenceCounts, getMusicReferenceError,
+} from '../../../shared/musicGenerateReferences';
 
 const { shell } = window.require('electron');
 const MAX_UPLOAD_COUNT = 100;
@@ -92,7 +98,7 @@ const VOICE_CONVERSION_AUDIO_PROJECT_ID = '99';
 const VOICE_CONVERSION_VIDEO_PROJECT_ID = '100';
 const IMAGE_FILE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
 const VIDEO_FILE_EXTENSIONS = new Set(['avi', 'm4v', 'mov', 'mp4', 'mkv', 'webm']);
-const AUDIO_FILE_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']);
+const AUDIO_FILE_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma', 'pcm', 'opus', 'ogg_opus']);
 const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
 const isAbsoluteEntryPath = (value) => (
   value.startsWith('/') ||
@@ -380,7 +386,7 @@ const DRAFT_PLACEHOLDER_CONFIG = [
 const DRAFT_MODIFY_PLACEHOLDER_CONFIG = [
   { key: 'draft_cover', label: '新封面', kind: 'image' },
 ];
-const MUSIC_GENERATE_UPLOAD_MAX_COUNT = 3;
+const MUSIC_GENERATE_UPLOAD_MAX_COUNT = 4;
 const MUSIC_GENERATE_PLACEHOLDER_CONFIG = [
   { key: 'music_reference_image', label: '参考图片', kind: 'image' },
   { key: 'music_reference_audio', label: '参考音频', kind: 'audio' },
@@ -1133,7 +1139,7 @@ const tryGetNativeFilePath = (value) => {
     return '';
   }
 };
-const createLocalAttachmentEntry = async (rawFile = {}) => {
+const createLocalAttachmentEntry = async (rawFile = {}, { validateMusicAudio = false } = {}) => {
   const targetFile = isFileLike(rawFile) ? rawFile : rawFile?.originFileObj;
   const uid = rawFile?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   if (!targetFile) return null;
@@ -1148,11 +1154,34 @@ const createLocalAttachmentEntry = async (rawFile = {}) => {
     || rawFile?.webkitRelativePath
     || ''
   ).trim();
-  const fileType = targetFile?.type || rawFile?.type || '';
+  const fileType = getResolvedUploadFileType(rawFile);
   const kind = getFileKindFromType(fileType);
-  const mediaMetadata = localObjectUrl && (kind === 'video' || kind === 'audio')
+  let mediaMetadata = localObjectUrl && (kind === 'video' || kind === 'audio')
     ? await readMediaMetadata(localObjectUrl, kind === 'audio' ? 'audio' : 'video')
     : { durationLabel: '', durationSeconds: 0 };
+  if (validateMusicAudio && kind === 'audio' && !mediaMetadata.durationSeconds && sourcePath) {
+    try {
+      const { execFile } = window.require('child_process');
+      const ffprobePath = window.require('ffprobe-static').path.replace('app.asar/', 'app.asar.unpacked/');
+      const durationSeconds = await new Promise((resolve, reject) => {
+        execFile(ffprobePath, [
+          '-v', 'error', '-show_entries', 'format=duration',
+          '-of', 'default=noprint_wrappers=1:nokey=1', sourcePath,
+        ], { timeout: 10000 }, (error, stdout) => {
+          if (error) reject(error);
+          else resolve(normalizeMediaDurationSeconds(Number(String(stdout).trim())));
+        });
+      });
+      mediaMetadata = { durationSeconds, durationLabel: formatMediaDuration(durationSeconds) };
+    } catch (error) {
+      // Unreadable audio is rejected below instead of skipping duration validation.
+    }
+  }
+  if (validateMusicAudio && kind === 'audio' && !mediaMetadata.durationSeconds) {
+    revokeLocalObjectUrl(localObjectUrl);
+    message.error('无法读取参考音频时长，请转换为 wav/mp3 后重新上传');
+    return null;
+  }
 
   return {
     uploadItem: {
@@ -1174,6 +1203,7 @@ const createLocalAttachmentEntry = async (rawFile = {}) => {
       localPreviewUrl: localObjectUrl,
       durationLabel: mediaMetadata.durationLabel,
       durationSeconds: mediaMetadata.durationSeconds,
+      size: targetFile?.size || rawFile?.size || 0,
       sourcePath,
       sourceType: 'local',
     },
@@ -2275,6 +2305,8 @@ const Composer = ({
           ? '输入新草稿名'
         : activeTool === 'reverse-prompt'
           ? REVERT_PROMPT_HINT
+        : activeTool === 'video-understand'
+          ? VIDEO_UNDERSTAND_HINT
         : activeTool === 'text-add'
           ? ''
         : activeTool === 'preset-add'
@@ -2311,7 +2343,9 @@ const Composer = ({
         targetVoiceLib.setVoiceLibraryOpen?.(true);
         return;
       }
-      const slotAccept = slotKind === 'audio'
+      const slotAccept = activeTool === 'music-generate'
+        ? slotKind === 'audio' ? MUSIC_AUDIO_ACCEPT : MUSIC_IMAGE_ACCEPT
+        : slotKind === 'audio'
         ? 'audio/*'
         : slotKind === 'image'
           ? 'image/*'
@@ -3545,9 +3579,9 @@ const Composer = ({
   const musicGenerateUploadLimit = React.useMemo(() => ({
     maxCount: MUSIC_GENERATE_UPLOAD_MAX_COUNT,
     imageOnly: false,
-    accept: 'image/*,audio/*',
-    validateFile: null,
-    typeErrorMessage: 'AI生成音频参考仅支持上传图片或音频',
+    accept: `${MUSIC_IMAGE_ACCEPT},${MUSIC_AUDIO_ACCEPT}`,
+    validateFile: (file) => Boolean(getMusicReferenceKind(file)),
+    typeErrorMessage: '参考音频支持 wav/mp3/pcm/ogg_opus，参考图片支持 jpeg/png/webp',
   }), []);
   const voiceConversionUploadLimit = React.useMemo(() => ({
     maxCount: VOICE_CONVERSION_UPLOAD_MAX_COUNT,
@@ -3567,6 +3601,11 @@ const Composer = ({
     typeErrorMessage: '人物视频仅支持上传视频文件',
   }), []);
   const activeUploadLimit = React.useMemo(() => {
+    if (activeTool === 'video-understand') return {
+      maxCount: MAX_UPLOAD_COUNT, imageOnly: false, accept: 'video/*',
+      validateFile: (file) => isVideoFileType(getResolvedUploadFileType(file)),
+      typeErrorMessage: '逐帧拉片仅支持上传视频文件',
+    };
     if (activeTool === 'ai-video') return videoModeUploadLimit;
     if (activeTool === 'image-pan') return imagePanUploadLimit;
     if (activeTool === 'draft' || activeTool === 'draft-modify') return draftUploadLimit;
@@ -3636,16 +3675,12 @@ const Composer = ({
   }, [activeTool, normalizedSelectedVideoGenerationMode, uploadedFileMeta]);
   const musicGenerateUploadPlaceholders = React.useMemo(() => {
     if (activeTool !== 'music-generate') return [];
-    const occupiedSlotIds = new Set(
-      uploadedFileMeta
-        .map((item) => String(item?.slotId || '').trim())
-        .filter(Boolean)
-    );
-    const remaining = MUSIC_GENERATE_PLACEHOLDER_CONFIG.filter(
-      (item) => !occupiedSlotIds.has(String(item.key || '').trim())
-    );
-    if (uploadedFileMeta.length >= MUSIC_GENERATE_UPLOAD_MAX_COUNT) return [];
-    return remaining;
+    const counts = getMusicReferenceCounts(uploadedFileMeta);
+    return MUSIC_GENERATE_PLACEHOLDER_CONFIG.filter((item) => {
+      if (item.kind === 'audio') return !counts.image && counts.audio < 3;
+      if (item.kind === 'image') return !counts.audio && !counts.voice && counts.image < 1;
+      return !counts.image && counts.voice < 1;
+    });
   }, [activeTool, uploadedFileMeta]);
   const musicGeneratePriceState = React.useMemo(() => (
     buildMusicGeneratePriceState(voiceConversionPricing)
@@ -3791,6 +3826,8 @@ const Composer = ({
         return getDraftModifyToolSendState(context);
       case 'reverse-prompt':
         return getRevertPromptSendState(context);
+      case 'video-understand':
+        return getVideoUnderstandSendState(context);
       case 'voice-square':
         return getVoiceSquareToolSendState(context);
       case 'music-generate':
@@ -3912,7 +3949,9 @@ const Composer = ({
     });
 
     if (hasOverflow) {
-      message.error(activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify' || activeTool === 'voice-conversion' || activeTool === 'digital-human'
+      message.error(activeTool === 'music-generate'
+        ? '最多上传 3 条参考音频，并可同时选择 1 个音色ID；或上传 1 张参考图片'
+        : activeTool === 'ai-video' || activeTool === 'image-pan' || activeTool === 'draft' || activeTool === 'draft-modify' || activeTool === 'voice-conversion' || activeTool === 'digital-human'
         ? `当前模式最多上传 ${maxCount} 个文件`
         : `最多选择 ${MAX_UPLOAD_COUNT} 个文件`);
     }
@@ -3932,7 +3971,19 @@ const Composer = ({
     }
     if (uploadableFiles.length === 0) return;
 
-    const createdEntries = (await Promise.all(uploadableFiles.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
+    const musicValidatedFiles = [];
+    if (activeTool === 'music-generate') {
+      uploadableFiles.forEach((file) => {
+        const error = getMusicReferenceError(file, [...uploadedFileMeta, ...musicValidatedFiles]);
+        if (error) message.error(error);
+        else musicValidatedFiles.push(file);
+      });
+    }
+    const createdEntries = (await Promise.all(
+      (activeTool === 'music-generate' ? musicValidatedFiles : uploadableFiles).map((file) => createLocalAttachmentEntry(
+        file, { validateMusicAudio: activeTool === 'music-generate' }
+      ))
+    )).filter(Boolean);
     const nextEntries = isDigitalHumanPendingSlot
       ? createdEntries.filter((item) => {
         const durationSeconds = normalizeMediaDurationSeconds(item?.fileMeta?.durationSeconds);
@@ -3943,7 +3994,16 @@ const Composer = ({
         }
         return isDurationValid;
       })
-      : createdEntries;
+      : activeTool === 'music-generate'
+        ? createdEntries.filter((item) => {
+          const error = getMusicReferenceError(item.fileMeta);
+          if (error) {
+            message.error(error);
+            revokeLocalObjectUrl(item.fileMeta.localThumbUrl);
+          }
+          return !error;
+        })
+        : createdEntries;
     if (isDigitalHumanPendingSlot && nextEntries.length !== createdEntries.length) {
       message.error(`人物视频时长需在 ${DIGITAL_HUMAN_VIDEO_MIN_DURATION_SECONDS} 秒到 ${DIGITAL_HUMAN_VIDEO_MAX_DURATION_SECONDS} 秒之间`);
     }
@@ -3957,14 +4017,18 @@ const Composer = ({
         ? { ...item.uploadItem, slotId: activePendingSlotId }
         : shouldBindPendingSlot
           ? { ...item.uploadItem, slotId: activePendingSlotId }
-          : item.uploadItem
+          : activeTool === 'music-generate'
+            ? { ...item.uploadItem, slotId: getMusicReferenceKind(item.fileMeta) === 'audio' ? 'music_reference_audio' : 'music_reference_image' }
+            : item.uploadItem
     ));
     const nextFileMeta = nextEntries.map((item) => (
       isPendingVideoFrameSlot
         ? { ...item.fileMeta, slotId: activePendingSlotId, slotLabel: TEMPLATE_MEDIA_ROLE_LABELS[activePendingSlotId] || '' }
         : shouldBindPendingSlot
           ? { ...item.fileMeta, slotId: activePendingSlotId, slotLabel: activePendingPlaceholder?.label || '' }
-          : item.fileMeta
+          : activeTool === 'music-generate'
+            ? { ...item.fileMeta, slotId: getMusicReferenceKind(item.fileMeta) === 'audio' ? 'music_reference_audio' : 'music_reference_image' }
+            : item.fileMeta
     ));
 
     setUploadFileList((prev) => {
@@ -4173,28 +4237,9 @@ const Composer = ({
     const voiceConversionRequestParams = buildVoiceConversionRequestParams(uploadedFileMeta);
     const musicGenerateVoiceIds = [];
     if (musicGenerateRequestParams && activeTool === 'music-generate') {
-      // 火山 Seed Audio HTTP 接口原生接受 references 数组：
-      //   [{voice_id: 'gv_xxx'}, {audio_url: 'https://...'}, {image_url: 'https://...'}]
-      // 按附件卡片顺序生成，确保 prompt 中“参考录音N”对应 references[N-1]。
-      const referencesPayload = [];
-      (uploadedFileMeta || []).forEach((item) => {
-        const slotId = String(item?.slotId || '').trim();
-        const voiceId = String(item?.voiceId || '').trim();
-        const sourceUrl = String(item?.url || item?.sourcePath || '').trim();
-        if (String(item?.kind || '') === 'voice_id' && voiceId) {
-          referencesPayload.push({ voice_id: voiceId });
-          if (!musicGenerateVoiceIds.includes(voiceId)) {
-            musicGenerateVoiceIds.push(voiceId);
-          }
-          return;
-        }
-        if (slotId === 'music_reference_audio' && sourceUrl) {
-          referencesPayload.push({ audio_url: sourceUrl });
-          return;
-        }
-        if (slotId === 'music_reference_image' && sourceUrl) {
-          referencesPayload.push({ image_url: sourceUrl });
-        }
+      const referencesPayload = buildMusicReferences(uploadedFileMeta);
+      referencesPayload.forEach((item) => {
+        if (item.voice_id) musicGenerateVoiceIds.push(item.voice_id);
       });
       if (referencesPayload.length > 0) {
         musicGenerateRequestParams.references = referencesPayload;
@@ -4346,6 +4391,8 @@ const Composer = ({
           ? `请使用模型 ${selectedImagePanModel}，分辨率 ${selectedImagePanResolution} 生成图片：${combined}`
         : activeTool === 'reverse-prompt'
           ? `请反推以下视频的文案提示词：\n${text}`
+        : activeTool === 'video-understand'
+          ? `请逐帧拉片，按时间线理解以下视频的画面内容：\n${combined}`
           : activeTool === 'ai-video'
             ? [
               `请使用模型 ${selectedVideoModel}`,
@@ -4357,6 +4404,9 @@ const Composer = ({
         : combined;
     closeMentionPanel();
     handleSend && handleSend(nextMessage, {
+      videoUnderstandRequest: activeTool === 'video-understand'
+        ? buildVideoUnderstandRequest({ input: text, uploadedFiles: uploadedFileMeta })
+        : null,
       reversePromptRequest: activeTool === 'reverse-prompt'
         ? { shareText: text.trim() }
         : null,
@@ -4689,7 +4739,13 @@ const Composer = ({
     const nextTemplateAttachments = await createMusicGenerateTemplateAttachmentEntries(template);
     setUploadedFileMeta((prev) => {
       const retainedItems = (Array.isArray(prev) ? prev : []).filter((item) => String(item?.sourceType || '').trim() !== 'music_template');
-      return [...retainedItems, ...nextTemplateAttachments];
+      const accepted = [...retainedItems];
+      nextTemplateAttachments.forEach((item) => {
+        const error = getMusicReferenceError(item, accepted);
+        if (error) message.error(error);
+        else accepted.push(item);
+      });
+      return accepted;
     });
   }, []);
 
@@ -4697,6 +4753,13 @@ const Composer = ({
     const voiceId = String(item?.global_voice_id || item?.voice_id || '').trim();
     if (!voiceId) return;
     const voiceName = String(item?.title || item?.name || voiceId).trim() || voiceId;
+    if (activeTool === 'music-generate') {
+      const error = getMusicReferenceError({ kind: 'voice_id' }, uploadedFileMeta.filter((entry) => getMusicReferenceKind(entry) !== 'voice'));
+      if (error) {
+        message.error(error);
+        return;
+      }
+    }
     const voiceSlotId = activeTool === 'voice-conversion' ? VOICE_CONVERSION_VOICE_SLOT_ID : MUSIC_REFERENCE_VOICE_SLOT_ID;
     const virtualAttachment = {
       uid: `${activeTool === 'voice-conversion' ? 'voice-conversion' : 'music'}-voice:${voiceId}:${Date.now()}`,
@@ -4904,6 +4967,8 @@ const Composer = ({
                     />
                   ) : activeTool === 'reverse-prompt' ? (
                     <RevertPrompt disabled={sessionSending} onBack={handleToolDetailBack} />
+                  ) : activeTool === 'video-understand' ? (
+                    <VideoDetailTool disabled={sessionSending} onBack={handleToolDetailBack} />
                   ) : activeTool === 'ai-write' ? (
                     <AiWriteToolDetail
                       disabled={sessionSending}

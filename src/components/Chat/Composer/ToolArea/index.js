@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileSearch,
+  GalleryHorizontal,
   Music,
   Ribbon,
   SquareArrowOutUpRight,
@@ -132,6 +133,11 @@ const VIDEO_MENU_ITEMS = [
     id: 'preset-add',
     label: '添加预设',
     icon: <img className="chat-panel__tool-menu-icon chat-panel__tool-menu-icon--preset" src={PresetIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'video-understand',
+    label: '逐帧拉片',
+    icon: <GalleryHorizontal size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
 ];
 

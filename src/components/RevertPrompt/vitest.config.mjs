@@ -8,7 +8,7 @@ export default defineConfig({
     name: 'revert-prompt-jsx',
     enforce: 'pre',
     transform(code, id) {
-      if (!/\/(RevertPrompt\/index|MessageItem\/MessageItem)\.js$/.test(id.split('?')[0])) return null;
+      if (!/\/(RevertPrompt\/index|VideoDetailTool\/index|MessageItem\/MessageItem|Composer\/ToolArea\/index)\.js$/.test(id.split('?')[0])) return null;
       return transformWithEsbuild(code, id, { loader: 'jsx', jsx: 'automatic' });
     },
   }],

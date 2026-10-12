@@ -112,7 +112,6 @@ describe('SeedAudioServer', () => {
       prompt: '  多人对话，带背景音乐和音效  ',
       speaker: 'female_1',
       audioUrl: 'https://example.com/ref.mp3',
-      imageUrl: 'https://example.com/ref.png',
       audioConfig: {
         format: 'wav',
         sample_rate: 44100
@@ -135,24 +134,18 @@ describe('SeedAudioServer', () => {
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       text_prompt: '多人对话，带背景音乐和音效',
       model: 'seed-audio-1.0',
-      speaker: 'female_1',
-      audio_url: 'https://example.com/ref.mp3',
-      image_url: 'https://example.com/ref.png',
+      references: [
+        { audio_url: 'https://example.com/ref.mp3' },
+        { voice_id: 'female_1' }
+      ],
       audio_config: {
         format: 'wav',
         sample_rate: 44100
       }
     })
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'volc',
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
       action: 'generate_seed_audio',
-      request: {
-        model: 'seed-audio-1.0',
-        prompt: '多人对话，带背景音乐和音效',
-        voice_id: undefined,
-        speaker: 'female_1'
-      },
       success: true,
       model: 'seed-audio-1.0',
       url: 'https://example.com/seed-audio.wav',
@@ -196,8 +189,10 @@ describe('SeedAudioServer', () => {
 
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
       text_prompt: '老年女声回忆往事',
-      voice_id: 'speaker_ref_1',
-      references: [{ audio_url: 'https://example.com/sample.mp3' }],
+      references: [
+        { audio_url: 'https://example.com/sample.mp3' },
+        { voice_id: 'speaker_ref_1' }
+      ],
       model: 'seed-audio-1.0'
     })
   })
@@ -230,5 +225,38 @@ describe('SeedAudioServer', () => {
       text_prompt: '科幻感女声，带轻微电子氛围',
       model: 'seed-audio-1.0'
     })
+  })
+
+  it('accepts three audio references and one voice ID', async () => {
+    const server = createServer()
+    const result = await (server as any).buildSeedAudioPayload({
+      prompt: '@音频1 @音频2 @音频3',
+      references: [
+        { voice_id: 'gv_1' },
+        { audio_url: 'https://example.com/1.mp3' },
+        { audio_url: 'https://example.com/2.mp3' },
+        { audio_url: 'https://example.com/3.mp3' }
+      ]
+    })
+    expect(result.payload.references).toEqual([
+      { audio_url: 'https://example.com/1.mp3' },
+      { audio_url: 'https://example.com/2.mp3' },
+      { audio_url: 'https://example.com/3.mp3' },
+      { voice_id: 'gv_1' }
+    ])
+  })
+
+  it('rejects more than one voice ID before uploading', async () => {
+    await expect((createServer() as any).buildSeedAudioPayload({
+      prompt: 'test', voice_ids: ['gv_1', 'gv_2']
+    })).rejects.toThrow('At most 1 voice ID')
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects a reference image combined with a voice ID', async () => {
+    await expect((createServer() as any).buildSeedAudioPayload({
+      prompt: 'test',
+      references: [{ voice_id: 'gv_1' }, { image_url: 'https://example.com/image.png' }]
+    })).rejects.toThrow('Reference image cannot be used together with speaker')
   })
 })

@@ -20,6 +20,8 @@ import VideoGenerateServer from '@main/mcpServers/video-generate'
 import VoiceConversionServer from '@main/mcpServers/voice-conversion'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
+import VideoUnderstandServer from '@main/mcpServers/video-understand'
+import { buildVideoUnderstandBlocks, normalizeVideoUnderstandRequest, parseVideoUnderstandResult } from '../../../../../shared/videoUnderstand'
 import { loggerService } from '@logger'
 import { getDataPath } from '@main/utils'
 import { IpcChannel } from '@shared/IpcChannel'
@@ -69,6 +71,7 @@ type DirectDraftRequestPayload = {
   userContent?: string
   model?: string
   reversePromptRequest?: { shareText?: string }
+  videoUnderstandRequest?: { videoUrls?: string[]; prompt?: string }
   subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string }
   audioAddRequest?: Record<string, unknown>
   seedAudioRequest?: Record<string, unknown>
@@ -4530,7 +4533,8 @@ export function registerSessionStreamIpc(): void {
     const controller = new AbortController()
     try {
       const isSubtitle = Boolean(payload?.subtitleRecognitionRequest)
-      const request = isSubtitle
+      const isVideo = Boolean(payload?.videoUnderstandRequest)
+      const request = isVideo ? normalizeVideoUnderstandRequest(payload.videoUnderstandRequest) : isSubtitle
         ? normalizeSubtitleRecognitionRequest(payload.subtitleRecognitionRequest)
         : normalizeReversePromptRequest(payload?.reversePromptRequest)
       const session = await resolveSessionById(sessionId, payload?.agent_id)
@@ -4542,7 +4546,7 @@ export function registerSessionStreamIpc(): void {
       const createdAt = new Date(payload.createdAt || Date.now()).toISOString()
       const modelId = String(payload.model || session.model || '')
       let workspacePath: string | undefined
-      if (isSubtitle) {
+      if (isSubtitle || isVideo) {
         workspacePath = (session.configuration as any)?.selected_workspace_path || session.accessible_paths?.[0]
         if (!workspacePath) {
           workspacePath = path.join(getDefaultAgentWorkspacePath(session.agent_id), session.id)
@@ -4553,13 +4557,24 @@ export function registerSessionStreamIpc(): void {
           })
         }
       }
-      const server = isSubtitle ? new SubtitleRecognitionServer(workspacePath) : new SocialCopywritingServer()
+      const server = isVideo ? new VideoUnderstandServer(workspacePath)
+        : isSubtitle ? new SubtitleRecognitionServer(workspacePath) : new SocialCopywritingServer()
       let parsed
       let failure: string | undefined
       try {
         const callTool = (server.mcpServer.server as any)?._requestHandlers?.get('tools/call')
         if (typeof callTool !== 'function') throw new Error(isSubtitle ? '字幕识别工具未注册' : '反推提示词工具未注册')
-        const result = isSubtitle ? await (server as SubtitleRecognitionServer).executeDirectRequest(request, {
+        const result = isVideo ? await (server as VideoUnderstandServer).executeDirectRequest(request, {
+          signal: controller.signal, requestId,
+          _meta: { progressToken: `video_understand_request_${requestId}` },
+          sendNotification: async (notification) => {
+            windowService.getMainWindow()?.webContents.send(IpcChannel.Mcp_Progress, {
+              callId: `video_understand_request_${requestId}`,
+              progress: notification.params.progress / (notification.params.total || 100),
+              message: notification.params.message,
+            })
+          },
+        }) : isSubtitle ? await (server as SubtitleRecognitionServer).executeDirectRequest(request, {
           signal: controller.signal, requestId,
           _meta: { progressToken: `subtitle_recognition_request_${requestId}` },
           sendNotification: async (notification) => {
@@ -4580,18 +4595,19 @@ export function registerSessionStreamIpc(): void {
         })
         if (controller.signal.aborted) return { ok: false, aborted: true }
         try {
-          parsed = isSubtitle ? parseSubtitleRecognitionResult(result, request) : parseReversePromptResult(result)
+          parsed = isVideo ? parseVideoUnderstandResult(result)
+            : isSubtitle ? parseSubtitleRecognitionResult(result, request) : parseReversePromptResult(result)
         } catch (error) {
           const toolResponse = (error as Error & { toolResponse?: Record<string, unknown> }).toolResponse
           if (!toolResponse) throw error
           failure = error instanceof Error ? error.message : String(error)
-          parsed = { response: toolResponse, assistantText: isSubtitle ? `字幕识别失败：${failure}` : '' }
+          parsed = { response: toolResponse, assistantText: isVideo ? `逐帧拉片失败：${failure}` : isSubtitle ? `字幕识别失败：${failure}` : '' }
         }
       } finally {
         await server.mcpServer.close()
       }
       const { response, assistantText } = parsed
-      const assistantBlocks = (isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
+      const assistantBlocks = (isVideo ? buildVideoUnderstandBlocks : isSubtitle ? buildSubtitleRecognitionBlocks : buildReversePromptBlocks)({
         assistantMessageId, requestId, request, modelId, createdAt,
         status: failure ? 'error' : 'success', response, assistantText
       })
@@ -4613,7 +4629,7 @@ export function registerSessionStreamIpc(): void {
             message: {
               id: userMessageId, role: 'user', assistantId: session.agent_id, topicId,
               createdAt, status: 'success',
-              [isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: { ...request, requestId },
+              [isVideo ? 'videoUnderstandRequest' : isSubtitle ? 'subtitleRecognitionRequest' : 'reversePromptRequest']: { ...request, requestId },
               blocks: [`${userMessageId}-main`]
             },
             blocks: [{

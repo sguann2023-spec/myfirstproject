@@ -37,6 +37,8 @@ type StageCharge = {
 export class SocialCopywritingBilling {
   private stages = new Map<Stage, StageCharge>()
 
+  constructor(private readonly expectedStages: Stage[] = STAGES) {}
+
   record(stage: Stage, payload: unknown) {
     const points = findRecord(payload, (record) => {
       for (const source of [asRecord(record.billing), record]) {
@@ -68,7 +70,7 @@ export class SocialCopywritingBilling {
   }
 
   snapshot() {
-    const stages = STAGES.map((stage) => this.stages.get(stage) || { stage })
+    const stages = this.expectedStages.map((stage) => this.stages.get(stage) || { stage })
     const known = stages.filter((stage) => stage.points_consumed !== undefined)
     const missing = stages.filter((stage) => stage.points_consumed === undefined).map((stage) => stage.stage)
     const usage: Record<string, number> = {}

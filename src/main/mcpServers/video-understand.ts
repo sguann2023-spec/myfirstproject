@@ -16,6 +16,7 @@ import Store from 'electron-store'
 import { net } from 'electron'
 
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
+import { SocialCopywritingBilling } from './social-copywriting-billing'
 
 const logger = loggerService.withContext('MCPServer:VideoUnderstand')
 const execFileAsync = promisify(execFile)
@@ -78,7 +79,7 @@ class VideoTaskQueue {
 const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
   name: 'submit_video_detail_task',
   description:
-    'Understand one or more videos by sampling frames locally, compressing them to 480p, then sending frame batches to the fixed VectCut vision model gpt-5.6-luna. Each request sends at most 30 frames and results are saved into workspace files automatically.',
+    'Understand one or more videos using frame batches (at most 30 frames, compressed to 480p) with gpt-5.6-luna, plus basic speech recognition without sentence splitting. Videos without audio or detected speech are marked explicitly. Full visual analysis, spoken subtitles and timestamps are saved into workspace files.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -140,6 +141,8 @@ type PendingToken = {
 
 type ToolExecutionExtra = {
   requestId: string | number
+  signal?: AbortSignal
+  onBilling?: (billing: Record<string, unknown> | null, stage?: string) => void
   _meta?: {
     progressToken?: ProgressToken
   }
@@ -224,6 +227,16 @@ type StructuredVideoAnalysis = {
   details: string
 }
 
+type VideoSpeechResult = {
+  status: 'recognized' | 'no_speech' | 'no_audio' | 'failed'
+  effect_mode: 'basic'
+  content: string
+  segments: Array<{ start?: number; end?: number; text?: string }>
+  message?: string
+  error_code?: unknown
+  billing?: Record<string, unknown>
+}
+
 type VideoAnalysisResult = {
   videoIndex: number
   originalInput: string
@@ -234,6 +247,7 @@ type VideoAnalysisResult = {
   totalFrames: number
   totalBatches: number
   analysis: StructuredVideoAnalysis
+  speech?: VideoSpeechResult
   billing: {
     total_consumed_points: number
   }
@@ -698,6 +712,61 @@ class VideoUnderstandServer {
         }
       }
     })
+  }
+
+  public async executeDirectRequest(args: Record<string, unknown>, extra: ToolExecutionExtra) {
+    const { default: SocialCopywritingServer } = await import('./social-copywriting')
+    const parser = new SocialCopywritingServer()
+    const stages: Array<{ stage: string; points_consumed?: number }> = []
+    let response: Record<string, any> = {}
+    const snapshot = (complete: boolean) => {
+      const known = stages.filter((stage) => stage.points_consumed !== undefined)
+      return {
+        ...(known.length ? { total_consumed_points: Number(known.reduce((sum, stage) => sum + stage.points_consumed!, 0).toFixed(10)) } : {}),
+        complete: complete && stages.every((stage) => stage.points_consumed !== undefined),
+        stages,
+      }
+    }
+    try {
+      const sources = Array.isArray(args.videoUrls) ? args.videoUrls : [args.videoUrl]
+      const videoUrls: string[] = []
+      for (const source of sources) {
+        if (extra.signal?.aborted) throw new Error('任务已取消')
+        const billing = new SocialCopywritingBilling(['parse_share_link'])
+        let resolvedSource: string | undefined
+        try {
+          resolvedSource = isHttpLikeUrl(String(source))
+            ? await parser.resolveVideoShareLink(String(source), billing, extra.signal)
+            : String(source)
+          videoUrls.push(resolvedSource)
+        } finally {
+          const charge = billing.snapshot().billing.stages[0]
+          if (charge && resolvedSource !== String(source)) {
+            stages.push(charge)
+          }
+        }
+      }
+      const result = await this.submitVideoDetailTask({ ...args, videoUrls, includeSummaries: true }, {
+        ...extra,
+        onBilling: (billing, stage = 'video_understand') => {
+          const points = asFiniteNumber(billing?.total_consumed_points)
+          stages.push({ stage, ...(points !== null ? { points_consumed: points } : {}) })
+        },
+      })
+      response = JSON.parse(result.content[0].text)
+      // The tool's aggregate vision billing is already represented by its frame batches.
+      if (!stages.some((stage) => stage.stage === 'video_understand')) {
+        stages.push({ stage: 'video_understand', points_consumed: Number(response.billing?.total_consumed_points) || 0 })
+      }
+      return this.formatJsonResult({ ...response, billing: snapshot(true) })
+    } catch (error) {
+      return {
+        ...this.formatJsonResult({ ...response, error: toErrorMessage(error), billing: snapshot(false) }),
+        isError: true,
+      }
+    } finally {
+      await parser.mcpServer.close()
+    }
   }
 
   private async ensureValidAccessToken(forceRefresh = false): Promise<string> {
@@ -1271,6 +1340,44 @@ class VideoUnderstandServer {
     }
   }
 
+  private async recognizeVideoSpeech(
+    source: string, signal?: AbortSignal, onBilling?: ToolExecutionExtra['onBilling'],
+  ): Promise<VideoSpeechResult> {
+    const { default: SubtitleRecognitionServer } = await import('./subtitle-recognition')
+    const server = new SubtitleRecognitionServer(this.workspacePath)
+    try {
+      const result = await server.executeDirectRequest({ url: source, effectMode: 'basic' }, {
+        requestId: `video-speech-${Date.now()}`, signal, sendNotification: async () => {},
+      })
+      const response = JSON.parse(result.content[0].text)
+      const billing = new SocialCopywritingBilling(['asr'])
+      billing.record('asr', response)
+      const points = billing.snapshot().billing.total_consumed_points
+      onBilling?.(points !== undefined ? { total_consumed_points: points } : null, 'asr')
+      signal?.throwIfAborted()
+      const errorCode = response.error_code ?? response.result?.error_code ?? response.result?.code
+      const message = String(response.error || response.message || '')
+      const noSpeech = String(errorCode) === '20000003' || /\b20000003\b/.test(message)
+      const segments = Array.isArray(response.result?.segments) ? response.result.segments : []
+      const content = String(response.result?.content || response.content
+        || segments.map((segment: { text?: string }) => segment.text || '').join('')).trim()
+      return {
+        status: noSpeech ? 'no_speech' : result.isError || response.error || response.success === false
+          ? 'failed' : content || segments.some((segment: { text?: string }) => segment.text?.trim())
+            ? 'recognized' : 'no_speech',
+        effect_mode: 'basic', content: noSpeech ? '' : content, segments: noSpeech ? [] : segments,
+        ...(message ? { message } : {}),
+        ...(errorCode !== undefined ? { error_code: errorCode } : {}),
+        ...(points !== undefined ? { billing: { total_consumed_points: points } } : {}),
+      }
+    } catch (error) {
+      signal?.throwIfAborted()
+      return { status: 'failed', effect_mode: 'basic', content: '', segments: [], message: toErrorMessage(error) }
+    } finally {
+      await server.mcpServer.close()
+    }
+  }
+
   private async analyzeSingleVideo(options: {
     videoIndex: number
     videoCount: number
@@ -1278,10 +1385,13 @@ class VideoUnderstandServer {
     fps: number
     prompt: string
     report: (videoIndex: number, fraction: number, message: string) => Promise<void>
+    signal?: AbortSignal
+    onBilling?: ToolExecutionExtra['onBilling']
   }): Promise<VideoAnalysisResult> {
     let preparedSource: PreparedVideoSource | null = null
 
     try {
+      if (options.signal?.aborted) throw new Error('任务已取消')
       await options.report(options.videoIndex, 0.02, '进度')
       preparedSource = await this.prepareVideoSource(options.source)
       await options.report(options.videoIndex, 0.08, '进度')
@@ -1312,6 +1422,7 @@ class VideoUnderstandServer {
         const batchBillings: Array<Record<string, unknown> | null> = []
 
         for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+          if (options.signal?.aborted) throw new Error('任务已取消')
           const batchFrames = compressedFrames.slice(batchIndex * MAX_IMAGES_PER_BATCH, (batchIndex + 1) * MAX_IMAGES_PER_BATCH)
           const batchProgressBase = 0.45 + (batchIndex / Math.max(batchCount, 1)) * 0.5
           await options.report(options.videoIndex, batchProgressBase, '进度')
@@ -1333,6 +1444,7 @@ class VideoUnderstandServer {
               : null
 
           batchBillings.push(billing)
+          options.onBilling?.(billing)
           batches.push({
             batchIndex: batchIndex + 1,
             frameCount: batchFrames.length,
@@ -1354,6 +1466,10 @@ class VideoUnderstandServer {
 
         const details = batches.map((batch) => batch.answer).filter(Boolean).join('\n\n').trim()
         const analysis = buildStructuredVideoAnalysis(details)
+        await options.report(options.videoIndex, 0.96, '正在识别语音字幕')
+        const speech: VideoSpeechResult = probe.streams?.some((stream) => stream.codec_type === 'audio')
+          ? await this.recognizeVideoSpeech(preparedSource.localPath, options.signal, options.onBilling)
+          : { status: 'no_audio', effect_mode: 'basic', content: '', segments: [], message: '视频没有音轨，无对白或画外音' }
         await options.report(options.videoIndex, 1, '已完成')
 
         return {
@@ -1366,8 +1482,9 @@ class VideoUnderstandServer {
           totalFrames: compressedFrames.length,
           totalBatches: batchCount,
           analysis,
+          speech,
           billing: {
-            total_consumed_points: this.sumBillingPoints(batchBillings)
+            total_consumed_points: this.sumBillingPoints([...batchBillings, speech.billing || null])
           },
           batches
         }
@@ -1379,6 +1496,13 @@ class VideoUnderstandServer {
         await fsPromises.rm(preparedSource.cleanupDir, { recursive: true, force: true }).catch(() => undefined)
       }
     }
+  }
+
+  private speechStatusLabel(speech?: VideoSpeechResult) {
+    if (speech?.status === 'recognized') return '已识别对白或画外音'
+    if (speech?.status === 'no_audio') return '没有音轨，无对白或画外音'
+    if (speech?.status === 'no_speech') return '未检测到可识别的人声（对白或画外音）'
+    return '字幕识别失败，不能判定是否有人声'
   }
 
   private renderMarkdownResult(videos: VideoAnalysisResult[], prompt: string) {
@@ -1399,6 +1523,7 @@ class VideoUnderstandServer {
       lines.push(`- 总消耗点数：${video.billing.total_consumed_points.toFixed(2)}`)
       lines.push('', '### 标题', '', video.analysis.title || '未产出结果')
       lines.push('', '### 描述', '', video.analysis.summary || '未产出视频理解结果。')
+      lines.push(`- 语音字幕：${this.speechStatusLabel(video.speech)}`)
       lines.push('')
     }
 
@@ -1422,6 +1547,12 @@ class VideoUnderstandServer {
     lines.push('', '## 标题', '', video.analysis.title || '未产出结果')
     lines.push('', '## 描述', '', video.analysis.summary || '未产出视频理解结果。')
     lines.push('', '## 时间线详情', '', video.analysis.details || '未产出理解结果')
+    lines.push('', '## 语音字幕（basic，不分句）', '', this.speechStatusLabel(video.speech))
+    if (video.speech?.message) lines.push('', video.speech.message)
+    if (video.speech?.content) lines.push('', video.speech.content)
+    for (const segment of video.speech?.segments || []) {
+      lines.push(`${segment.start ?? '--'}~${segment.end ?? '--'} 毫秒：${segment.text || ''}`)
+    }
 
     return lines.join('\n').trim()
   }
@@ -1451,6 +1582,9 @@ class VideoUnderstandServer {
       const matchedVideo = options.videos.find((video) => video.videoIndex === resultFile.videoIndex)
       lines.push(`- 视频 ${resultFile.videoIndex} 结果文件：${resultFile.relativePath}`)
       lines.push(`- 视频 ${resultFile.videoIndex} 绝对路径：${matchedVideo?.absolutePath || '无（远端视频）'}`)
+      lines.push(`- 标题：${matchedVideo?.analysis.title || '未产出标题'}`)
+      lines.push(`- 摘要：${matchedVideo?.analysis.summary || '未产出摘要'}`, '')
+      lines.push(`- 语音字幕：${this.speechStatusLabel(matchedVideo?.speech)}`, '')
     }
 
     return lines.join('\n').trim()
@@ -1512,12 +1646,18 @@ class VideoUnderstandServer {
           source: video.source,
           fps: video.fps,
           prompt: jobConfig.prompt,
-          report
+          report,
+          signal: extra?.signal,
+          onBilling: extra?.onBilling,
         })
       )
     )
 
-    const videos = await Promise.all(videoPromises)
+    // Wait for every video before reporting a failure so parallel batch charges are retained.
+    const settledVideos = await Promise.allSettled(videoPromises)
+    const failedVideo = settledVideos.find((video) => video.status === 'rejected')
+    if (failedVideo?.status === 'rejected') throw failedVideo.reason
+    const videos = settledVideos.flatMap((video) => video.status === 'fulfilled' ? [video.value] : [])
     const totalConsumedPoints = videos.reduce((sum, video) => sum + video.billing.total_consumed_points, 0)
     const aggregateMarkdownText = this.renderMarkdownResult(videos, jobConfig.prompt)
     const aggregateResultFile = await this.persistWorkspaceTextArtifact({
@@ -1614,6 +1754,7 @@ class VideoUnderstandServer {
         total_frames: video.totalFrames,
         total_batches: video.totalBatches,
         billing: video.billing,
+        speech: video.speech,
         analysis: {
           title: video.analysis.title,
           summary: video.analysis.summary,
@@ -1663,6 +1804,15 @@ class VideoUnderstandServer {
       max_concurrent_videos: MAX_CONCURRENT_VIDEOS,
       total_video_count: videos.length,
       total_duration_seconds: totalDurationSeconds,
+      ...(args.includeSummaries === true ? {
+        video_summaries: videos.slice(0, 5).map((video) => ({
+          video_index: video.videoIndex,
+          title: video.analysis.title.slice(0, 100),
+          summary: video.analysis.summary.slice(0, 300),
+          speech_status: video.speech?.status,
+          speech_message: this.speechStatusLabel(video.speech),
+        })),
+      } : {}),
       billing: {
         total_consumed_points: totalConsumedPoints
       },

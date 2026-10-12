@@ -404,6 +404,20 @@ class SocialCopywritingServer {
     )
   }
 
+  public async resolveVideoShareLink(source: string, billing: SocialCopywritingBilling, signal?: AbortSignal) {
+    const url = new URL(source)
+    // Media CDN URLs must bypass the paid social-page parser.
+    if (/\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(url.pathname)) return source
+    if (!PLATFORM_HOST_RULES.some((rule) => rule.patterns.some((pattern) => pattern.test(url.hostname)))) return source
+    if (signal?.aborted) throw new Error('任务已取消')
+    const parsed = await this.parseSocialLink(this.detectPlatform(url.hostname, 'auto'), source, {
+      billing, signal: signal || new AbortController().signal,
+      requestId: 'video-understand', sendNotification: async () => {},
+    })
+    if (signal?.aborted) throw new Error('任务已取消')
+    return String(parsed.data?.video?.url || '').trim()
+  }
+
   private sanitizeBasename(value: string) {
     return value.replace(/[^a-zA-Z0-9._-]+/g, '_')
   }

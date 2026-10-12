@@ -21,7 +21,7 @@ import VoiceLibIcon from '../../../../../public/voice_lib.svg';
 import VoicePlaceholderIcon from '../../../../../public/voice.svg';
 
 const VOICE_LIBRARY_LIMIT = 24;
-const VOICE_LIBRARY_INITIAL_OFFSET = 24;
+const VOICE_LIBRARY_INITIAL_OFFSET = 0;
 const VOICE_FAVORITES_INITIAL_OFFSET = 0;
 const VOICE_MY_LIBRARY_INITIAL_OFFSET = 0;
 const VOICE_LIBRARY_LIST_HEIGHT = 290;
@@ -112,6 +112,20 @@ const normalizeVoiceProvider = (item) =>
     || item?.voice_provider_type
     || item?.voice_source_provider
   );
+
+const supportsVoiceProvider = (item, provider) => {
+  const sources = [
+    item?.providers,
+    item?.provider,
+    item?.voice_provider,
+    item?.voice_provider_type,
+    item?.voice_source_provider,
+  ].filter(Boolean);
+  if (sources.length === 0) sources.push(item?.price_provider);
+  return sources.some((source) =>
+    String(source || '').split(',').some((value) => normalizeMemberProvider(value) === provider)
+  );
+};
 
 const buildVoicePendingKey = (voiceId, provider) =>
   [normalizeMemberProvider(provider), String(voiceId || '').trim()].join('|');
@@ -290,7 +304,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
     : DEFAULT_VOICE_LIBRARY_FILTERS;
   const persistedSelectedVoice = getInitialSelectedVoiceLibraryItem();
   const initialSelectedVoiceLibraryItemRef = React.useRef(
-    normalizedLockedProvider && normalizeVoiceProvider(persistedSelectedVoice) !== normalizedLockedProvider
+    normalizedLockedProvider && !supportsVoiceProvider(persistedSelectedVoice, normalizedLockedProvider)
       ? null
       : persistedSelectedVoice
   );
@@ -422,7 +436,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
 
     if (
       normalizedLockedProvider
-      && normalizeVoiceProvider(nextSelectedItem || item) !== normalizedLockedProvider
+      && !supportsVoiceProvider(nextSelectedItem || item, normalizedLockedProvider)
     ) {
       return;
     }
@@ -616,7 +630,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
 
       if (normalizedLockedProvider) {
         nextItems = nextItems.filter(
-          (item) => normalizeVoiceProvider(item) === normalizedLockedProvider
+          (item) => supportsVoiceProvider(item, normalizedLockedProvider)
         );
       }
 
@@ -937,7 +951,7 @@ export const useVoiceLib = ({ onSelectedVoiceChange = null, lockedProvider = '',
   const upsertMyVoiceItem = React.useCallback((item) => {
     const normalizedId = String(item?.global_voice_id || '').trim();
     if (!normalizedId) return;
-    if (normalizedLockedProvider && normalizeVoiceProvider(item) !== normalizedLockedProvider) return;
+    if (normalizedLockedProvider && !supportsVoiceProvider(item, normalizedLockedProvider)) return;
 
     setMyVoiceState((prev) => {
       const existingIndex = prev.items.findIndex(

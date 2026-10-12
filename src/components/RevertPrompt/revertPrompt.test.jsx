@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import RevertPrompt, { REVERT_PROMPT_HINT, getRevertPromptSendState } from './index';
 import { AI_WRITE_PRESET_OPTIONS } from '../Chat/Composer/AiWriteToolDetail/presetOptions';
 import { buildReversePromptBlocks, normalizeReversePromptRequest, parseReversePromptResult, REVERSE_PROMPT_TOOL } from '../../shared/reversePrompt';
+import { buildVideoUnderstandBlocks, normalizeVideoUnderstandRequest, parseVideoUnderstandResult } from '../../shared/videoUnderstand';
 
 vi.mock('antd', () => ({ Tooltip: ({ children }) => children }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -98,11 +99,18 @@ const createHandler = (callTool = vi.fn(async () => result)) => {
   const activeAbortControllers = new Map();
   const context = {
     normalizeReversePromptRequest, parseReversePromptResult, buildReversePromptBlocks,
+    normalizeVideoUnderstandRequest, parseVideoUnderstandResult, buildVideoUnderstandBlocks,
     AbortController, Date, Error, String, randomUUID: () => 'generated-id',
-    resolveSessionById: vi.fn(async () => ({ id: 's', agent_id: 'agent' })),
+    resolveSessionById: vi.fn(async () => ({
+      id: 's', agent_id: 'agent', configuration: { selected_workspace_path: '/tmp/workspace' },
+    })),
     activeAbortControllers,
     SocialCopywritingServer: class {
       mcpServer = { server: { _requestHandlers: new Map([['tools/call', callTool]]) }, close };
+    },
+    VideoUnderstandServer: class {
+      mcpServer = { server: { _requestHandlers: new Map([['tools/call', callTool]]) }, close };
+      executeDirectRequest = callTool;
     },
     ensureDirectRequestSegment: vi.fn(async () => ({ id: 'segment' })),
     agentTurnRepository: { save },
@@ -160,6 +168,27 @@ describe('普通分镜请求元数据', () => {
   });
 });
 describe('主进程直连 MCP', () => {
+  it('逐帧拉片调用视频理解并保存专用请求和合并计费', async () => {
+    const billing = { total_consumed_points: 1.6, complete: true };
+    const h = createHandler(vi.fn(async () => ({
+      content: [{ type: 'text', text: JSON.stringify({
+        billing, total_video_count: 1,
+        video_summaries: [{ video_index: 1, title: '镜头', summary: '人物走动' }],
+        result_files: [{ kind: 'aggregate_result', file_path: '/tmp/workspace/all.md' }],
+      }) }],
+    })));
+    const output = await h.handler(null, {
+      ...payload, reversePromptRequest: null,
+      videoUnderstandRequest: { videoUrls: ['/tmp/video.mp4'], prompt: '' },
+    });
+    expect(output.ok).toBe(true);
+    expect(h.callTool.mock.calls[0][0]).toEqual({ videoUrls: ['/tmp/video.mp4'], prompt: '' });
+    expect(output.assistantBlocks[0].toolName).toContain('video-understand');
+    expect(output.assistantBlocks[0].content.billing).toEqual(billing);
+    expect(output.assistantText).toContain('/tmp/workspace/all.md');
+    expect(output.assistantText).not.toContain('0~0.3秒');
+    expect(h.persistExchange.mock.calls[0][0].user.payload.message.videoUnderstandRequest.requestId).toBe('r');
+  });
   it('传递 shareText、进度 ID，并保存结果与重试元数据', async () => {
     const h = createHandler();
     const output = await h.handler(null, payload);
@@ -234,11 +263,21 @@ describe('编辑器入口集成', () => {
       uploadedFileMeta: [], uploadFileList: [], editor: {}, buildMarkdownFileLink: vi.fn(),
       serializeEditorMessage: () => ({ text: request.shareText, referencedFileUids: new Set() }),
       selectedTextAddDraftIds: [], selectedDraftInspectIds: [], selectedDraftModifyIds: [],
+      selectedPresetAddDraftIds: [], selectedPresetAddPreset: null, presetAddSettings: {},
+      buildPresetAddRequestParams: () => ({}),
+      selectedAudioAddDraftIds: [], audioAddSettings: {}, buildAudioAddRequestParams: () => ({}),
+      buildMusicGenerateRequestParams: () => null, buildVoiceConversionRequestParams: () => null,
+      selectedVoiceLibraryItem: null, selectedDigitalHumanPackagingTemplate: '',
+      selectedDigitalHumanMode: '', selectedDigitalHumanAvatar: null,
+      isDigitalHumanImageDriveMode: () => false, normalizeMemberProvider: () => '',
       buildVideoOptionPromptSegments: () => [], activeVideoCapability: null,
       selectedVideoGenerateAudio: false, selectedVideoSeedanceOffline: false, selectedVideoSuperResolve: false,
       closeMentionPanel: vi.fn(), handleSend: vi.fn(), setActiveTool: vi.fn(),
       setSelectedDraftDownloadIds: vi.fn(), setSelectedTextAddDraftIds: vi.fn(),
       setSelectedDraftInspectIds: vi.fn(), setSelectedDraftModifyIds: vi.fn(),
+      setSelectedPresetAddDraftIds: vi.fn(), setSelectedPresetAddPreset: vi.fn(),
+      setPresetAddSettings: vi.fn(), DEFAULT_PRESET_ADD_SETTINGS: {},
+      setSelectedAudioAddDraftIds: vi.fn(), setAudioAddSettings: vi.fn(), DEFAULT_AUDIO_ADD_SETTINGS: {},
       setUploadFileList: vi.fn(), setUploadedFileMeta: vi.fn(),
     };
     runInNewContext(`${code}\nglobalThis.send = handleSendWithAttachments;`, context);
@@ -256,6 +295,7 @@ const createFrontendExecutor = (invoke) => {
   const code = source.slice(source.indexOf('  const executeReversePromptRequest ='), source.indexOf('  const handleSendChatMessage ='));
   const context = {
     normalizeReversePromptRequest, buildReversePromptBlocks, chatModel: 'model', chatModelMeta: {},
+    normalizeVideoUnderstandRequest, buildVideoUnderstandBlocks,
     updateChatAssistantMessage: vi.fn(),
     chatPendingByRequestIdRef: { current: new Map() },
     window: { electronAPI: { cherryChatStream: { createReversePromptRequest: invoke } } },
@@ -274,6 +314,14 @@ const frontendArgs = {
   userMessage: { id: 'u', content: '用户消息', createdAt: 123 },
 };
 describe('会话直连提交与重试执行器', () => {
+  it('逐帧拉片透传专用请求并显示结果', async () => {
+    const invoke = vi.fn(async () => ({ ok: true, assistantText: '逐帧内容', assistantBlocks: [] }));
+    const c = createFrontendExecutor(invoke);
+    const videoRequest = { videoUrls: ['/tmp/video.mp4'], prompt: '' };
+    await c.execute({ ...frontendArgs, isVideo: true, request: videoRequest });
+    expect(invoke.mock.calls[0][0].videoUnderstandRequest).toEqual(videoRequest);
+    expect(c.updateChatAssistantMessage).toHaveBeenLastCalledWith('chat', 'a', expect.objectContaining({ content: '逐帧内容' }));
+  });
   it('调用专用 IPC 并结束会话等待状态', async () => {
     const invoke = vi.fn(async () => ({ ok: true, assistantText: '提示词', assistantBlocks: [] }));
     const c = createFrontendExecutor(invoke);
