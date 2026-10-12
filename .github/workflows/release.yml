@@ -391,6 +391,24 @@ jobs:
           curl -fsSL "https://aka.ms/vs/17/release/vc_redist.x64.exe" -o build-resources/windows/vc_redist.x64.exe
           test -s build-resources/windows/vc_redist.x64.exe
       
+      - name: Validate NSIS source files (Windows)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Checkout commit: $(git rev-parse HEAD)"
+          foreach ($relativePath in @('build-resources\installer.nsh', 'build-resources\windows-update-preflight.ps1')) {
+            $sourcePath = Join-Path $env:GITHUB_WORKSPACE $relativePath
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+              throw "Missing NSIS source file: $sourcePath"
+            }
+            $file = Get-Item -LiteralPath $sourcePath
+            if ($file.Length -eq 0) {
+              throw "Empty NSIS source file: $sourcePath"
+            }
+            Write-Host "NSIS source: $($file.FullName) ($($file.Length) bytes)"
+            Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256 | Format-List
+          }
+
       - name: Build Windows application
         run: pnpm run build:win
         shell: bash

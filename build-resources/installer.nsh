@@ -1,12 +1,13 @@
 !include LogicLib.nsh
-!define WINDOWS_UPDATE_PREFLIGHT_SCRIPT "${__FILEDIR__}/windows-update-preflight.ps1"
+!define WINDOWS_UPDATE_PREFLIGHT_SCRIPT "${PROJECT_DIR}\build-resources\windows-update-preflight.ps1"
+!echo "Windows update preflight source: ${WINDOWS_UPDATE_PREFLIGHT_SCRIPT}"
 
 !macro customCheckAppRunning
   Push $0
   Push $1
   Push $2
   InitPluginsDir
-  File /oname=$PLUGINSDIR\windows-update-preflight.ps1 "${WINDOWS_UPDATE_PREFLIGHT_SCRIPT}"
+  File "/oname=$PLUGINSDIR\windows-update-preflight.ps1" "${WINDOWS_UPDATE_PREFLIGHT_SCRIPT}"
   System::Call 'kernel32::GetCurrentProcessId() i.r0'
   ${Do}
     nsExec::ExecToStack /TIMEOUT=120000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\windows-update-preflight.ps1" -InstallDirectory "$INSTDIR" -ExecutableName "${APP_EXECUTABLE_FILENAME}" -UninstallerName "${UNINSTALL_FILENAME}" -InstallerProcessId $0`
