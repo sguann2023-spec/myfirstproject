@@ -52,6 +52,12 @@
   color: #42454c;
 }
 .template-workflow-toggle.is-active { color: var(--template-blue); background: #f0f4ff; }
+.template-header-actions { display: flex; justify-self: end; align-items: center; gap: 10px; }
+.template-test-export { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 96px; height: 35px; padding: 0 12px; border: 1px solid var(--template-blue); border-radius: 5px; background: var(--template-blue); color: #fff; white-space: nowrap; }
+.template-test-export:hover:not(:disabled) { background: #386ee7; }
+.template-export-result { padding: 10px 18px; flex-shrink: 0; max-height: 120px; overflow: auto; color: #356845; background: #f1f8f2; font-size: 12px; }
+.template-export-result details { margin-top: 5px; }
+.template-export-result summary { cursor: pointer; }
 .template-edit-body {
   display: grid;
   grid-template-columns: var(--template-sidebar) minmax(0, 1fr);
