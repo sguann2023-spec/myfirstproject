@@ -15,6 +15,7 @@ import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileV
 import './Composer.css';
 import { getVideoGenerationCapabilities } from '../../../api/chat';
 import { getProjectPricing } from '../../../api/pricing';
+import { trackEvent } from '../../../shared/analytics';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import {
@@ -3548,6 +3549,7 @@ const Composer = ({
       })
       .filter(Boolean)
   ), [modelOptions]);
+
   const selectedModelConfig = (Array.isArray(modelOptions) ? modelOptions : []).find((item) => {
     if (!item || typeof item !== 'object') return false;
     const candidateValue = String(item?.value || item?.id || item?.name || '').trim();
@@ -5121,9 +5123,20 @@ const Composer = ({
                 options={groupedModelOptions}
                 optionLabelProp="selectedLabel"
                 loading={modelListLoading}
-                onChange={(value) => onModelChange && onModelChange(value)}
+                onChange={(value) => {
+                  if (String(value || '').trim().toLowerCase() === 'qwen3.8-flash') {
+                    trackEvent('qwen3.8-flashPC端点击', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
+                  }
+                  onModelChange && onModelChange(value);
+                }}
                 onOpenChange={(open) => {
                   setModelPickerOpen(open);
+                  if (open && availableModelOptions.some((item) => {
+                    const value = String(item?.value || '').trim().toLowerCase();
+                    return value === 'qwen3.8-flash';
+                  })) {
+                    trackEvent('qwen3.8-flashPC端曝光', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
+                  }
                   if (!open) clearHoveredModelCard();
                 }}
                 disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}
