@@ -3,6 +3,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const axios = require('axios');
 const downloader = require('./downloader');
+const { DRAFT_PATH_PLACEHOLDER, createDraftAssetPathReplacer } = require('./draftAssetPaths');
 const i18next = require('i18next');
 const logger = require('./loggerBridge').withContext('SaveDraftBackground');
 const { parentPort } = require('worker_threads'); // 新增
@@ -1173,7 +1174,12 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
 
       const draftInfoPath = path.join(draftPath, 'draft_info.json');
       const draftContentPath = path.join(draftPath, 'draft_content.json');
-      const serializedScript = JSON.stringify(script, null, 2);
+      // Keep real paths in memory for filesystem work; only persisted assets use the placeholder.
+      const serializedScript = JSON.stringify(
+        script,
+        createDraftAssetPathReplacer(draftPath),
+        2
+      );
 
       // 保存草稿信息到JSON文件
       await fs.promises.writeFile(draftInfoPath, serializedScript);
@@ -1188,7 +1194,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     // 处理文本模板路径
     if (textTemplates && textTemplates.length > 0) {
       for (const template of textTemplates) {
-        await processTextTemplatePaths(draftName, template.effect_id, draftPath, draftFolder);
+        await processTextTemplatePaths(template.effect_id, draftPath);
       }
     }
 
@@ -1284,7 +1290,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
   }
 }
 
-async function processTextTemplatePaths(draftName, effectId, draftPath, draftFolder) {
+async function processTextTemplatePaths(effectId, draftPath) {
   try {
     const processedPathsFile = path.join(draftPath, "assets", "textTemplate", effectId, "processed_paths.json");
     if (!fs.existsSync(processedPathsFile)) {
@@ -1306,13 +1312,14 @@ async function processTextTemplatePaths(draftName, effectId, draftPath, draftFol
       if (pathItem.original_path && pathItem.target_path) {
         const originalPath = pathItem.original_path;
         const targetPath = pathItem.target_path;
-        const newPath = `${draftFolder}/${draftName}/assets/textTemplate/${effectId}/${targetPath}`.replace(/\\/g, '/');
+        const newPath = `${DRAFT_PATH_PLACEHOLDER}/assets/textTemplate/${effectId}/${targetPath}`.replace(/\\/g, '/');
         const findPattern = new RegExp(originalPath.replace(/\\/g, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
         draftInfoContent = draftInfoContent.replace(findPattern, newPath);
       }
     }
 
     await fs.promises.writeFile(draftInfoPath, draftInfoContent, 'utf-8');
+    await fs.promises.writeFile(path.join(draftPath, 'draft_content.json'), draftInfoContent, 'utf-8');
     logger.info(`成功处理文本模板 ${effectId} 的路径`);
   } catch (e) {
     logger.error(`处理文本模板路径时出错: ${e.message}`, e);
