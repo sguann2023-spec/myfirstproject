@@ -401,7 +401,18 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         await ipcRenderer.invoke('app:initialize-login-services');
                         await ipcRenderer.invoke('app:register-extended-ipc');
                         await ensureReduxStoreReady();
-                        triggerBackgroundUpdateCheck();
+                        if (isWindows) {
+                            try {
+                                const result = await ipcRenderer.invoke('app:install-windows-update-on-startup');
+                                if (result?.installing) {
+                                    return { installing: true };
+                                }
+                            } catch (error) {
+                                logger.warn('[LoginPage] Startup update failed; continuing login', error);
+                            }
+                        } else {
+                            triggerBackgroundUpdateCheck();
+                        }
                         if (typeof onPrepareHomeRuntime === 'function') {
                             await onPrepareHomeRuntime();
                         }
@@ -415,9 +426,10 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                 })();
             }
 
-            await loginPreInitPromise;
+            const result = await loginPreInitPromise;
 
             if (!isMounted) return;
+            if (result?.installing) return;
 
             if (loginPreInitCachedError) {
                 setLoginPreInitError(loginPreInitCachedError);
@@ -432,7 +444,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
         return () => {
             isMounted = false;
         };
-    }, [onPrepareHomeRuntime]);
+    }, [onPrepareHomeRuntime, isWindows]);
     
     // --- Authing 登录逻辑 ---
     // 打开 Authing Guard 的封装

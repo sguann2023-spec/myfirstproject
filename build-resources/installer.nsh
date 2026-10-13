@@ -2,6 +2,39 @@
 !define WINDOWS_UPDATE_PREFLIGHT_SCRIPT "${PROJECT_DIR}\build-resources\windows-update-preflight.ps1"
 !echo "Windows update preflight source: ${WINDOWS_UPDATE_PREFLIGHT_SCRIPT}"
 
+!macro customInstallMode
+  ${If} ${isUpdated}
+    ${If} $installMode == "all"
+      StrCpy $isForceMachineInstall "1"
+    ${Else}
+      StrCpy $isForceCurrentInstall "1"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+!macro customFinishPage
+  Function StartApp
+    ${If} ${isUpdated}
+      StrCpy $1 "--updated"
+    ${Else}
+      StrCpy $1 ""
+    ${EndIf}
+    ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+  FunctionEnd
+
+  Function UpdateFinishPagePre
+    ${If} ${isUpdated}
+      Call StartApp
+      Abort
+    ${EndIf}
+  FunctionEnd
+
+  !define MUI_FINISHPAGE_RUN
+  !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE UpdateFinishPagePre
+  !insertmacro MUI_PAGE_FINISH
+!macroend
+
 !macro customCheckAppRunning
   Push $0
   Push $1

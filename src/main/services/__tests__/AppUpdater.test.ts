@@ -458,13 +458,13 @@ describe('AppUpdater', () => {
       Object.defineProperty(process, 'platform', { value: originalPlatform })
     })
 
-    it('should use silent installer on Windows', () => {
+    it('should show installer progress on Windows', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
 
       appUpdater.quitAndInstall()
       vi.runAllTimers()
 
-      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
     })
 
     it('should force exit only after installation starts and graceful quit times out', () => {
@@ -528,6 +528,73 @@ describe('AppUpdater', () => {
 
       expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1)
       expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true)
+    })
+  })
+
+  describe('Windows startup update', () => {
+    const originalPlatform = process.platform
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform })
+    })
+
+    it('should never enable install on ordinary quit on Windows', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      const updater = new AppUpdater()
+      expect(autoUpdater.autoInstallOnAppQuit).toBe(false)
+      updater.setAutoUpdate(true)
+      expect(autoUpdater.autoInstallOnAppQuit).toBe(false)
+    })
+
+    it('should preserve install on quit on macOS', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      const updater = new AppUpdater()
+      expect(autoUpdater.autoInstallOnAppQuit).toBe(true)
+    })
+
+    it('should await verified download before starting installation', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      vi.spyOn(appUpdater, 'checkForUpdates').mockResolvedValue({
+        currentVersion: '1.0.0',
+        updateInfo: { version: '1.1.0' } as UpdateInfo
+      })
+      const install = vi.spyOn(appUpdater, 'quitAndInstall').mockResolvedValue(true)
+      let finishDownload!: (files: string[]) => void
+      vi.mocked(autoUpdater.downloadUpdate).mockImplementationOnce(() => new Promise((resolve) => {
+        finishDownload = resolve
+      }))
+      const pending = appUpdater.installWindowsUpdateOnStartup()
+      await Promise.resolve()
+      expect(install).not.toHaveBeenCalled()
+      finishDownload(['installer.exe'])
+      expect(await pending).toEqual({ installing: true })
+      expect(appUpdater.checkForUpdates).toHaveBeenCalledWith(false)
+      expect(install).toHaveBeenCalledOnce()
+    })
+
+    it('should continue login without installing when download fails', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      vi.spyOn(appUpdater, 'checkForUpdates').mockResolvedValue({
+        currentVersion: '1.0.0',
+        updateInfo: { version: '1.1.0' } as UpdateInfo
+      })
+      vi.mocked(autoUpdater.downloadUpdate).mockRejectedValueOnce(new Error('Checksum mismatch'))
+      expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
+      expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled()
+    })
+
+    it('should skip startup installation on macOS or with auto update disabled', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(false)
+      expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
+      expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled()
     })
   })
 

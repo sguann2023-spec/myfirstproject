@@ -1153,6 +1153,10 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.App_ResetData, () => backupManager.resetData())
 
   // check for update
+  ipcMain.handle('app:install-windows-update-on-startup', async (event) => {
+    if (event.sender !== mainWindow.webContents) throw new Error('Startup update is only available in the main window')
+    return await appUpdater.installWindowsUpdateOnStartup()
+  })
   ipcMain.handle(IpcChannel.App_CheckForUpdate, async () => {
     return await appUpdater.checkForUpdates()
   })

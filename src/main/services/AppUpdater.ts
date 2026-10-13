@@ -187,8 +187,8 @@ export default class AppUpdater {
     autoUpdater.forceDevUpdateConfig = !app.isPackaged
     // Keep auto download under our control so we can separate "check" from "download".
     autoUpdater.autoDownload = false
-    // Restore legacy behavior: install downloaded update on app quit.
-    autoUpdater.autoInstallOnAppQuit = configManager.getAutoUpdate()
+    // Windows installs during login pre-init, never during an ordinary quit.
+    autoUpdater.autoInstallOnAppQuit = !isWin && configManager.getAutoUpdate()
     autoUpdater.requestHeaders = {
       ...autoUpdater.requestHeaders,
       ...getCommonHeaders()
@@ -237,7 +237,7 @@ export default class AppUpdater {
 
   public setAutoUpdate(isActive: boolean) {
     autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = isActive
+    autoUpdater.autoInstallOnAppQuit = !isWin && isActive
   }
 
   private _getChannelByVersion(version: string) {
@@ -543,7 +543,7 @@ export default class AppUpdater {
     this.isDownloadInProgress = false
   }
 
-  public async checkForUpdates(): Promise<CheckForUpdatesResponse> {
+  public async checkForUpdates(downloadAutomatically = true): Promise<CheckForUpdatesResponse> {
     if (isWin && 'PORTABLE_EXECUTABLE_DIR' in process.env) {
       return {
         currentVersion: app.getVersion(),
@@ -579,7 +579,7 @@ export default class AppUpdater {
           `update check result: ${this.updateCheckResult?.isUpdateAvailable}, channel: ${this.autoUpdater.channel}, currentVersion: ${this.autoUpdater.currentVersion}`
         )
 
-        if (this.updateCheckResult?.isUpdateAvailable && configManager.getAutoUpdate()) {
+        if (downloadAutomatically && this.updateCheckResult?.isUpdateAvailable && configManager.getAutoUpdate()) {
           void this._downloadAvailableUpdate(this.updateCheckResult.updateInfo)
         }
 
@@ -601,10 +601,35 @@ export default class AppUpdater {
     return this.checkForUpdatesPromise
   }
 
-  public quitAndInstall() {
+  public async installWindowsUpdateOnStartup(): Promise<{ installing: boolean }> {
+    if (!isWin || !app.isPackaged || !configManager.getAutoUpdate() || 'PORTABLE_EXECUTABLE_DIR' in process.env) {
+      return { installing: false }
+    }
+
+    const result = await this.checkForUpdates(false)
+    if (!result.updateInfo) {
+      return { installing: false }
+    }
+
+    try {
+      // Await download and checksum/signature verification before closing the app.
+      // Startup must also restore cached downloads, regardless of the hourly limit.
+      this.isDownloadInProgress = true
+      this.broadcastUpdateEvent(IpcChannel.DownloadUpdate, result.updateInfo)
+      await this.autoUpdater.downloadUpdate(this.cancellationToken)
+      this.isDownloadInProgress = false
+      return { installing: await this.quitAndInstall() }
+    } catch (error) {
+      this.isDownloadInProgress = false
+      logger.error('Windows startup update failed; continuing login', error as Error)
+      return { installing: false }
+    }
+  }
+
+  public quitAndInstall(): Promise<boolean> {
     if (this.isInstallingUpdate) {
       logger.info('Ignoring duplicate quitAndInstall request while install is already in progress')
-      return
+      return Promise.resolve(true)
     }
 
     this.isInstallingUpdate = true
@@ -623,20 +648,22 @@ export default class AppUpdater {
       }
       nativeAutoUpdater.once('before-quit-for-update', this.installQuitListener)
     }
-    // Keep Windows updates silent too. NSIS briefly replaces the executable and
-    // desktop shortcut during install; a visible installer leaves a window where
-    // users can click the temporarily invalid shortcut and get a Windows error.
-    const isSilent = true
+    // Keep the independent Windows installer progress visible after this app exits.
+    const isSilent = !isWin
     logger.info('Triggering quitAndInstall', { isSilent, isForceRunAfter: true, platform: process.platform })
     crashReportService.record('quit-and-install-requested', { isSilent })
-    setImmediate(() => {
-      try {
-        this.autoUpdater.quitAndInstall(isSilent, true)
-      } catch (error) {
-        this.resetInstallState()
-        logger.error('Failed to start quitAndInstall', error as Error)
-        this.broadcastUpdateEvent(IpcChannel.UpdateError, error)
-      }
+    return new Promise((resolve) => {
+      setImmediate(() => {
+        try {
+          this.autoUpdater.quitAndInstall(isSilent, true)
+          resolve(this.isInstallingUpdate)
+        } catch (error) {
+          this.resetInstallState()
+          logger.error('Failed to start quitAndInstall', error as Error)
+          this.broadcastUpdateEvent(IpcChannel.UpdateError, error)
+          resolve(false)
+        }
+      })
     })
   }
 
