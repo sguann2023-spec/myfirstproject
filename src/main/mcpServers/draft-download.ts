@@ -184,7 +184,7 @@ class DraftDownloadServer {
     return [this.normalizeDraft(args, toolName)]
   }
 
-  private async processDraftAction(toolName: 'download_draft' | 'export_draft', args: Record<string, unknown>) {
+  public async processDraftAction(toolName: 'download_draft' | 'export_draft', args: Record<string, unknown>) {
     const drafts = this.normalizeDrafts(args, toolName)
     const mainWindow = windowService.getMainWindow()
 

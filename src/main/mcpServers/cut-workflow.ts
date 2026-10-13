@@ -349,7 +349,7 @@ class CutWorkflowServer {
     })
   }
 
-  private async executeWorkflow(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
+  public async executeWorkflow(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
     const payload = await this.normalizeWorkflowPayload(args)
     await this.reportProgress(extra, 5, 'VectCut 剪辑工作流已提交，等待服务端执行完成')
 

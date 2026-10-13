@@ -17,6 +17,7 @@ import { registerSessionStreamIpc } from './agents/services/channels/sessionStre
 import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { mainHttpClient } from './network/MainHttpClient'
 import { windowService } from './WindowService'
+import { registerTemplateIpc } from '../template/registerTemplateIpc'
 
 const logger = loggerService.withContext('LegacyMainCompatIpc')
 
@@ -967,6 +968,7 @@ function registerLegacySettingsChannels() {
 }
 
 function registerLegacyWindowChannels() {
+  registerTemplateIpc()
   safeOn('close-window', () => {
     const win = BrowserWindow.getFocusedWindow() || getMainWindow()
     if (!win || win.isDestroyed()) return

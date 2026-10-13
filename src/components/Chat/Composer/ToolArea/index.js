@@ -45,11 +45,11 @@ const DRAFT_MENU_ITEMS = [
     label: '新草稿',
     icon: <img className="chat-panel__tool-menu-icon" src={DraftIcon} alt="" aria-hidden="true" />,
   },
-  // {
-  //   id: 'template-new',
-  //   label: '新模版',
-  //   icon: <Blocks size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
-  // },
+  {
+    id: 'template-new',
+    label: '新模版',
+    icon: <Blocks size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
+  },
   {
     id: 'draft-modify',
     label: '修改草稿',
