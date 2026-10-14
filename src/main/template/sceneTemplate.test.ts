@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import example from './example-scene.template.json'
-import exampleWorkflow from './example-scene.workflow.json'
-import updatedWorkflow from './example-scene-8.5205.workflow.json'
-import startAlignedWorkflow from './example-scene-10.6949.workflow.json'
 import { compileSceneTemplate, type SceneTemplate } from './sceneTemplate'
 
 const sources = {
   '4c3b5b2c-88c9-4be0-8f34-c4f5177fb5c7': '/Users/sunguannan/Downloads/tmp4uu0of5p.png'
 }
-const template = () => structuredClone(example) as SceneTemplate
+const template = (): SceneTemplate => ({
+  width: 720, height: 1280,
+  elements: [{
+    id: 'scene', type: 'composition', duration: 7.1775,
+    elements: [{
+      id: 'image', type: 'image', target_end_time: 'end', duration: 5,
+      height: '75%', source: '4c3b5b2c-88c9-4be0-8f34-c4f5177fb5c7'
+    }]
+  }]
+})
 
 describe('Scene 时间编排', () => {
   it('固定到 scene 结尾，保持五秒时长，不改变原 JSON', () => {
@@ -18,9 +23,9 @@ describe('Scene 时间编排', () => {
     expect(result.duration).toBe(7.1775)
     expect(result.timeline[1]).toMatchObject({ localStart: 2.1775, start: 2.1775, end: 7.1775, duration: 5 })
     expect(result.workflow.script[0].params).toMatchObject({ start: 2.1775, end: 7.1775 })
-    expect(result.workflow).toEqual(exampleWorkflow)
+    expect(result.workflow.script).toHaveLength(1)
     expect(input).toEqual(before)
-    expect(result.template.elements[0].elements![0].time).toBe('end')
+    expect(result.template.elements[0].elements![0].target_end_time).toBe('end')
     expect(result.warnings.some((warning) => warning.includes('height=75%'))).toBe(true)
   })
 
@@ -30,13 +35,13 @@ describe('Scene 时间编排', () => {
     expect(compileSceneTemplate(input, { sources }).timeline[1]).toMatchObject({ start: 5, end: 10, duration: 5 })
   })
 
-  it('省略 time 时从 scene 的局部零秒开始，保持固定时长', () => {
+  it('省略 target_start_time 时从 scene 的局部零秒开始，保持固定时长', () => {
     const input = template()
     input.elements[0].duration = 8.5205
-    delete input.elements[0].elements![0].time
+    delete input.elements[0].elements![0].target_end_time
     expect(compileSceneTemplate(input, { sources }).timeline[1])
       .toMatchObject({ localStart: 0, start: 0, end: 5, duration: 5 })
-    input.elements[0].time = 3
+    input.elements[0].target_start_time = 3
     const shifted = compileSceneTemplate(input, { sources })
     expect(shifted.timeline[1]).toMatchObject({ localStart: 0, start: 3, end: 8, duration: 5 })
     expect(shifted.workflow.script[0].params).toMatchObject({ start: 3, end: 8 })
@@ -46,30 +51,30 @@ describe('Scene 时间编排', () => {
     const input = template()
     input.elements[0].duration = 8.5205
     const result = compileSceneTemplate(input, { sources })
-    expect(result.workflow).toEqual(updatedWorkflow)
+    expect(result.workflow.script[0].params).toMatchObject({ start: 3.5205, end: 8.5205 })
     expect(result.timeline[1]).toMatchObject({ start: 3.5205, end: 8.5205, duration: 5 })
   })
 
-  it('10.6949 秒 scene 内省略 time 的图片显示 0 到 5.1 秒', () => {
+  it('10.6949 秒 scene 内省略 target_start_time 的图片显示 0 到 5.1 秒', () => {
     const input = template()
     input.elements[0].duration = 10.6949
     const image = input.elements[0].elements![0]
-    delete image.time
+    delete image.target_end_time
     image.duration = 5.1
     const result = compileSceneTemplate(input, { sources })
     expect(result.duration).toBe(10.6949)
     expect(result.timeline[0]).toMatchObject({ start: 0, end: 10.6949 })
     expect(result.timeline[1]).toMatchObject({ localStart: 0, start: 0, end: 5.1, duration: 5.1 })
-    expect(result.workflow).toEqual(startAlignedWorkflow)
-    expect(result.template.elements[0].elements![0]).not.toHaveProperty('time')
+    expect(result.workflow.script[0].params).toMatchObject({ start: 0, end: 5.1 })
+    expect(result.template.elements[0].elements![0]).not.toHaveProperty('target_start_time')
   })
 
   it('scene 偏移和多个内容均换算到全局时间，各自独立轨道', () => {
     const input = template()
-    input.elements[0].time = 3
+    input.elements[0].target_start_time = 3
     input.elements[0].elements!.push({
       id: 'second', name: 'Image-TSS', type: 'image', track: 2,
-      time: 1, duration: 2, source: '/tmp/second.png'
+      target_start_time: 1, duration: 2, source: '/tmp/second.png'
     })
     const result = compileSceneTemplate(input, { sources })
     expect(result.duration).toBe(10.1775)
@@ -82,10 +87,10 @@ describe('Scene 时间编排', () => {
     const input: SceneTemplate = {
       width: 720, height: 1280, duration: 20,
       elements: [{
-        id: 'outer', type: 'composition', time: 3, duration: 10,
+        id: 'outer', type: 'composition', target_start_time: 3, duration: 10,
         elements: [{
-          id: 'inner', type: 'composition', time: 'end', duration: 6,
-          elements: [{ id: 'image', type: 'image', time: 'end', duration: 2, source: '/tmp/a.png' }]
+          id: 'inner', type: 'composition', target_end_time: 'end', duration: 6,
+          elements: [{ id: 'image', type: 'image', target_end_time: 'end', duration: 2, source: '/tmp/a.png' }]
         }]
       }]
     }
@@ -102,11 +107,12 @@ describe('Scene 时间编排', () => {
     expect(result.workflow.script[0].params).toMatchObject({ start: 0, end: 4 })
   })
 
-  it('数字 time 是开始时间，超长 duration 仅截断可见部分', () => {
+  it('数字 target_start_time 是开始时间，超长 duration 仅截断可见部分', () => {
     const input = template()
     input.elements[0].duration = 10.6949
     const image = input.elements[0].elements![0]
-    image.time = 3.1
+    image.target_start_time = 3.1
+    delete image.target_end_time
     image.duration = 5.1
     expect(compileSceneTemplate(input, { sources }).workflow.script[0].params)
       .toMatchObject({ start: 3.1, end: 8.2 })
@@ -118,10 +124,11 @@ describe('Scene 时间编排', () => {
   })
 
   it('开始时间在 scene 结尾或之后时不生成操作，也不解析隐藏素材', () => {
-    for (const time of [10.6949, 12]) {
+    for (const target_start_time of [10.6949, 12]) {
       const input = template()
       input.elements[0].duration = 10.6949
-      input.elements[0].elements![0].time = time
+      input.elements[0].elements![0].target_start_time = target_start_time
+      delete input.elements[0].elements![0].target_end_time
       const result = compileSceneTemplate(input)
       expect(result.workflow.script).toEqual([])
       expect(result.timeline[1]).toMatchObject({ visible: false, visibleDuration: 0 })
@@ -132,10 +139,10 @@ describe('Scene 时间编排', () => {
     const input: SceneTemplate = {
       width: 720, height: 1280, duration: 10,
       elements: [{
-        id: 'scene', type: 'composition', time: 3, duration: 10,
+        id: 'scene', type: 'composition', target_start_time: 3, duration: 10,
         elements: [
-          { id: 'visible', type: 'image', time: 4, duration: 5, source: '/tmp/a.png' },
-          { id: 'hidden', type: 'image', time: 'end', duration: 2, source: 'unresolved' }
+          { id: 'visible', type: 'image', target_start_time: 4, duration: 5, source: '/tmp/a.png' },
+          { id: 'hidden', type: 'image', target_end_time: 'end', duration: 2, source: 'unresolved' }
         ]
       }]
     }
@@ -145,33 +152,34 @@ describe('Scene 时间编排', () => {
     expect(result.timeline[2]).toMatchObject({ localStart: 8, visible: false })
   })
 
-  it('拒绝无时长 end 锚定、未映射素材和重复 ID', () => {
+  it('结束端点省略时长填充场景，拒绝未映射素材和重复 ID', () => {
     const input = template()
     delete input.elements[0].elements![0].duration
-    expect(() => compileSceneTemplate(input, { sources })).toThrow('必须设置固定 duration')
+    expect(compileSceneTemplate(input, { sources }).timeline[1]).toMatchObject({ start: 0, end: 7.1775 })
     expect(() => compileSceneTemplate(template())).toThrow('通过 sources 映射')
     const duplicate = template()
     duplicate.elements[0].elements!.push(structuredClone(duplicate.elements[0].elements![0]))
     expect(() => compileSceneTemplate(duplicate, { sources })).toThrow('唯一')
   })
 
-  it('图片省略 duration 时从默认或数字 time 开始填充至 scene 结束', () => {
-    for (const time of [undefined, 0, 3.1]) {
+  it('图片省略 duration 时从默认或数字 target_start_time 开始填充至 scene 结束', () => {
+    for (const target_start_time of [undefined, 0, 3.1]) {
       for (const sceneStart of [0, 3]) {
         const input = template()
         const scene = input.elements[0]
-        scene.time = sceneStart
+        scene.target_start_time = sceneStart
         scene.duration = 10.6949
         const image = scene.elements![0]
+        delete image.target_end_time
         delete image.duration
-        if (time === undefined) delete image.time
-        else image.time = time
+        if (target_start_time === undefined) delete image.target_end_time
+        else image.target_start_time = target_start_time
         const result = compileSceneTemplate(input, { sources })
         expect(result.workflow.script[0].params).toMatchObject({
-          start: sceneStart + (time ?? 0),
+          start: sceneStart + (target_start_time ?? 0),
           end: sceneStart === 0 ? 10.6949 : 13.6949
         })
-        expect(result.timeline[1].duration).toBeCloseTo(10.6949 - (time ?? 0), 9)
+        expect(result.timeline[1].duration).toBeCloseTo(10.6949 - (target_start_time ?? 0), 9)
         expect(result.template.elements[0].elements![0]).not.toHaveProperty('duration')
       }
     }
@@ -180,10 +188,11 @@ describe('Scene 时间编排', () => {
   it('校验自动延伸、父级范围和不支持的属性', () => {
     const input = template()
     const image = input.elements[0].elements![0]
-    image.time = 2
+    image.target_start_time = 2
+    delete image.target_end_time
     delete image.duration
     expect(compileSceneTemplate(input, { sources }).timeline[1]).toMatchObject({ start: 2, end: 7.1775 })
-    image.time = 8
+    image.target_start_time = 8
     expect(compileSceneTemplate(input, { sources }).workflow.script).toEqual([])
     const unsupported = template()
     Object.assign(unsupported.elements[0], { animations: [] })

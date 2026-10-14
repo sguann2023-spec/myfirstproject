@@ -1,28 +1,134 @@
 # Scene JSON 编写规则
 
-用途：根据想要实现的效果，编写 Creatomate 风格的 sceneTemplate JSON。
-本文只讲内容如何声明，不讲如何转换为 workflow。
-规则基于目前已确认的时间语义，不是 Creatomate 全部功能的官方规范。
-实际效果写法见 [scene-json-examples.md](./scene-json-examples.md)。
+本文说明如何用当前剪映结构模版实现效果。结构为 scenes → tracks → segments，
+materials 全局共享；不再使用 Creatomate elements 或旧 time 字段。
+完整结构见 [draft-template.md](./draft-template.md)，实现边界见 [rules.md](./rules.md)。
+以下片段配置放进 Scene 的 tracks[].segments[]，时间统一整数微秒。
 
-## 基础结构
+## 固定出现与自动填充
+
+| 想要的效果 | target_timerange |
+| --- | --- |
+| 从 Scene 开头持续 5 秒 | `{ "start": 0, "duration": 5000000 }` |
+| 第 3.1 秒出现，持续 5.1 秒 | `{ "start": 3100000, "duration": 5100000 }` |
+| 第 3.1 秒出现直到 Scene 结尾 | `{ "start": 3100000 }` |
+| 覆盖整个 Scene | `{}` |
+
+省略表示不写字段，不是 null、空字符串或 0 duration。
+时间填充不等于画面铺满。超出 Scene 的部分不显示，不必手动缩短 duration。
+
+## 固定占据 Scene 最后五秒
 
 ```json
 {
-  "width": 720,
-  "height": 1280,
-  "elements": [
+  "id": "image-1",
+  "material_id": "photo-material",
+  "target_timerange": { "duration": 5000000 },
+  "auto_timing": {
+    "end": { "target": "parent", "anchor": "end" }
+  }
+}
+```
+
+Scene 为 10 秒时显示 5–10 秒；改成 8 秒后显示 3–8 秒。
+只自动 end 时，会以 duration 反推开始，原 target_timerange.start 不保留。
+
+## 文字从指定时刻一直显示到结尾
+
+最简单的写法：`"target_timerange": { "start": 1630800 }`，
+省略 duration，默认从 1.6308 秒显示到 Scene 结束。
+
+若要显式声明开始与结束锚点：
+
+```json
+{
+  "id": "text-1",
+  "material_id": "title-1",
+  "target_timerange": {},
+  "auto_timing": {
+    "start": { "target": "parent", "anchor": "start", "offset": 1630800 },
+    "end": { "target": "parent", "anchor": "end" }
+  }
+}
+```
+
+Scene 为 21.6308 秒时，显示 1.6308–21.6308 秒。
+不能只添加 auto end 并期待保留原 start，那会变成固定片尾时长。
+
+## 跟随其他片段
+
+图片完整跟随文字，给图片写：
+
+```json
+{
+  "auto_timing": {
+    "start": { "target": "text-2", "anchor": "start" },
+    "end": { "target": "text-2", "anchor": "end" }
+  }
+}
+```
+
+- target 使用片段 id，允许同 Scene 跨轨道引用。
+- 同时开始：只写 start，anchor=start，保留自身 duration。
+- 在文字结束后开始：只写 start，anchor=end。
+- 晚半秒开始：在 start 锚点增加 offset=500000。
+- 自身保持 5 秒并对齐文字结束：只写 end，target_timerange.duration=5000000。
+- 双端对齐会覆盖自身 duration。循环或跨父级关联报错。
+
+## 组合与源裁切
+
+- Scene 的 target_timerange.start=3000000，把整个组合移动到父级第 3 秒。
+- 子片段 start=2000000，则全局出现时刻是父 Scene 全局起点加 2 秒。
+- 嵌套 Scene 放在 Scene.scenes 中，各自保留 tracks。
+- 固定源第 4 秒截取、放到 Scene 第 2 秒持续 5 秒：
+  source_timerange 写 `{ "start": 4000000, "duration": 5000000 }`，
+  target_timerange 写 `{ "start": 2000000, "duration": 5000000 }`。
+- 所有父级范围共同截断内容，源区间按 1 倍速同步截断；目前媒体仅时间分析。
+
+## 贴纸、滤镜和特效
+
+| 类型 | 轨道 | 全局素材定义 |
+| --- | --- | --- |
+| 贴纸 | sticker | materials.stickers，type=sticker，sticker_id/resource_id |
+| 滤镜 | filter | materials.effects，type=filter，effect_id/resource_id、value |
+| 特效 | effect | materials.video_effects，type=video_effect，effect_id/resource_id、adjust_params |
+
+片段都通过 material_id 引用，可使用相同 target_timerange、auto_timing。
+工具栏可添加这三类配置；资源 ID 要填真实值。尚无资源选择器和 Workflow 执行。
+
+## 关键帧配置
+
+截图中的 Y Scale、Z Rotation 对应属性关键帧组。
+用剪映原生 common_keyframes，下面片段声明 Y 缩放在局部素材 0–1 秒从 1 到 1.5：
+
+```json
+{
+  "id": "image-1",
+  "material_id": "photo-material",
+  "target_timerange": { "start": 0, "duration": 5000000 },
+  "common_keyframes": [
     {
-      "id": "scene-1",
-      "name": "场景一",
-      "type": "composition",
-      "duration": 10,
-      "elements": [
+      "id": "scale-y-group",
+      "material_id": "",
+      "property_type": "KFTypeScaleY",
+      "keyframe_list": [
         {
-          "id": "image-1",
-          "type": "image",
-          "source": "/absolute/path/image.png",
-          "duration": 5
+          "id": "scale-y-0",
+          "time_offset": 0,
+          "values": [1],
+          "curveType": "Line",
+          "graphID": "",
+          "left_control": { "x": 0, "y": 0 },
+          "right_control": { "x": 0, "y": 0 }
+        },
+        {
+          "id": "scale-y-1",
+          "time_offset": 1000000,
+          "values": [1.5],
+          "curveType": "Line",
+          "graphID": "",
+          "left_control": { "x": 0, "y": 0 },
+          "right_control": { "x": 0, "y": 0 }
         }
       ]
     }
@@ -30,106 +136,21 @@
 }
 ```
 
-- 根对象描述整个模版，width/height 是画布像素尺寸。
-- 一个 scene 用 `type: "composition"` 表示，内容放在它的 elements 数组。
-- 一个 scene 可以包含多张图片，也可以包含另一个 scene。
-- 每个元素的 id 必须唯一；name 是可选的可读名称。
-- 数字都直接写 JSON 数字，不把时间写成数字字符串。
-- source 写图片 URL、绝对路径或素材 ID；使用素材 ID 时，使用模版的一方需要提供对应素材。
-
-## 按效果选择时间写法
-
-| 想要的效果 | 写法 |
+| 效果 | property_type |
 | --- | --- |
-| 从 scene 开头出现 | 不写 time，或写 `"time": 0` |
-| 到 scene 的第 3.1 秒才出现 | `"time": 3.1` |
-| 始终占据 scene 最后 5 秒 | `"time": "end", "duration": 5` |
-| 出现后持续 5.1 秒 | `"duration": 5.1` |
-| 从出现时刻一直显示到 scene 结束 | 写开始 time，不写 duration |
-| 一直覆盖整个 scene | 不写 time，也不写 duration |
-| 多个内容同时出现 | 为它们填写相同 time，或都省略 time |
-| 内容依次出现 | 显式填写各自 time；不会自动顺序排列 |
+| X / Y 位置 | KFTypePositionX / KFTypePositionY |
+| X / Y 缩放 | KFTypeScaleX / KFTypeScaleY |
+| Z 旋转 | KFTypeRotation |
+| 图片/视频透明度 | KFTypeAlpha |
+| 文字透明度 | KFTypeGlobalAlpha |
+| 音量 | KFTypeVolume |
 
-## 时间是相对父级的
+values 是数字数组，不写 "45deg" 或 "50%"；旋转示例 `[45]`，
+透明度示例 `[0.5]`。属性对具体素材的适用性仍需执行适配验证。
+time_offset 为相对素材起始点的整数微秒，非 Scene 绝对时间；
+源裁切和速度情况下不应把它直接当作片段可见开始偏移。
+自动对齐移动片段，不重写关键帧偏移；不默认拉伸动画以适应新片段时长。
 
-图片 duration 不是必填项。“为空”在 JSON 中表示省略字段，不是写空字符串、null 或 0。
-这里的“填充 scene”指时间上的持续显示，不是图片尺寸铺满画布。
-
-- duration 和 time 都省略：从 scene 的局部 0 秒显示到 scene 结束。
-- duration 省略、time 是数字：从该 time 显示到 scene 结束，时长为 `scene.duration - time`。
-- 例如 scene 共 10.6949 秒，time=3.1 且不写 duration，显示区间为 3.1–10.6949 秒。
-- time="end" 属于结束锚定，不是数字开始点；它与省略 duration 的组合目前仍未支持。
-
-- 图片 time 相对其所在 scene。
-- 子 scene 的 time 相对父 scene。
-- 顶层 scene 的 time 相对整个模版。
-- 所有时间单位都是秒，支持小数。
-- scene 起点改变时，其中内容一起移动，不需要逐个修改图片 time。
-
-例如 scene.time=3，图片.time=2，则图片从整个模版的第 5 秒开始出现。
-
-## 结束锚定
-
-```json
-{
-  "id": "image-outro",
-  "type": "image",
-  "time": "end",
-  "duration": 5,
-  "source": "/absolute/path/outro.png"
-}
-```
-
-- `"end"` 表示元素结束点对齐 scene 结束点，不是从 scene 结束点开始。
-- time=end 时填写固定 duration。
-- scene 为 8.5205 秒时，图片从局部 3.5205 秒出现。
-- scene 改成 10 秒时，图片自动改为从局部 5 秒出现。
-- 不想随 scene 时长移动，就使用数字 time。
-
-## 超出 Scene 时不显示
-
-- scene 是内容的时间边界。
-- 图片开始时间加持续时间超过 scene 时长时，仅显示 scene 内的部分。
-- 图片开始点等于 scene 结尾或更晚时，不显示。
-- time=end 且 duration 大于 scene 时长时，只显示 scene 内的部分。
-- JSON 仍保留原本的 duration，不需要为了截断手工缩短。
-- 子 scene 内的内容同样受到父 scene 和根模版时间边界限制。
-- 子 scene 被截断时，内容仍相对其原本声明起点计算，end 仍锚定其原本声明结尾。
-
-## 模版总时长
-
-- 可以在根对象写 duration，显式限制整个模版的时长。
-- 根 duration 未填写时，当前约定以顶层元素 `time + duration` 的最大值作为模版时长。
-- 为保证可推导，省略根 duration 时，顶层 scene 应填写数字 duration，time 写数字或省略。
-- 想让第二个 scene 接在第一个之后，应显式设置第二个 scene.time。
-- track 不控制时间，不会让同一 track 的 scene 自动前后衔接。
-
-## 图层与外观声明
-
-- track 表示同级图层顺序，默认 1，数值较大的内容位于较上层。
-- 多个内容可同时显示；是否重叠取决于各自 time/duration。
-- scene.fill_color 描述场景背景色。
-- 图片.height 可以用百分比描述目标高度，例如 `"75%"`。
-- width/height、背景色等空间属性与 time/duration 是不同维度，不要通过时间字段表达布局。
-
-目前客户端支持 scene、图片和文字的时间语义。背景色、图片百分比尺寸尚未完成渲染适配，
-因此可以在 JSON 中声明目标效果，但不能据此认为当前应用已能正确渲染。
-
-## 文档分工
-
-- 本文：为了实现效果，JSON 字段怎么写。
-- [scene-json-examples.md](./scene-json-examples.md)：效果对应的完整或局部 JSON。
-- [rules.md](./rules.md)：现有转换器的实现规则与支持边界。
-- [references.md](./references.md)：现有转换器的测试输入和预期结果。
-
-## 文字与独立时间关联
-
-- 文字使用 type=text，内容放在 text；时间语义与图片相同。
-- 元素间时间关联单独保存为 timing_rules，不加进 RenderScript 根对象或元素中。
-- 配置以需要定位的元素 ID 为键，start.element_id 指定参考元素。
-- anchor=start 表示对齐参考元素的声明开始点；anchor=end 表示在其声明结束后开始。
-- offset 为秒，可正可负，省略默认 0。
-- 配置优先于原元素 time；duration 仍按原元素声明，省略时延伸到 scene 结尾。
-- 按声明时间建立关联，之后统一截断，不按参考元素被截断后的可见时间建立关联。
-- 首版仅支持同一父级内的关联；不存在的 ID、循环依赖和无效配置报错。
-- 文字字体、字号、位置及锚点暂未做后端布局适配，不能宣称完整视觉一致。
+**当前支持范围：** JSON 中声明、校验、保留关键帧。时间轴属性子轨道、点编辑、
+动画预览、截断插值和 Workflow 执行尚未实现；含关键帧的测试导出会明确报错。
+这份示例定义配置格式，不表示动画已能渲染。

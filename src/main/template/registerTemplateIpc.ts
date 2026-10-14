@@ -31,8 +31,8 @@ export function registerTemplateIpc() {
   ipcMain.handle('template:editor-analyze', (_event, payload) => analyzeEditorDocument(payload))
   ipcMain.handle('template:editor-compile', (_event, payload) => compileEditorDocument(payload))
   ipcMain.handle('template:editor-add', async (event, payload, input) => {
-    if (!['text', 'image', 'video', 'audio'].includes(input?.type)) throw new Error('不支持的素材类型')
-    if (input.type === 'text') return addEditorElement(payload, input)
+    if (!['text', 'image', 'video', 'audio', 'sticker', 'filter', 'effect'].includes(input?.type)) throw new Error('不支持的素材类型')
+    if (['text', 'sticker', 'filter', 'effect'].includes(input.type)) return addEditorElement(payload, input)
     const filters = {
       image: { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] },
       video: { name: '视频', extensions: ['mp4', 'mov', 'mkv', 'webm'] },

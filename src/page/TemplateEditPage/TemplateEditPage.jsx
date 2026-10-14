@@ -3,15 +3,19 @@ import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { EditorView } from '@codemirror/view';
 import { parseTree } from 'jsonc-parser';
-import { Braces, ChevronDown, ChevronRight, Film, Image, Layers, Music2, Type } from 'lucide-react';
+import { Braces, ChevronDown, ChevronRight, Film, Image, Layers, Music2, SlidersHorizontal, Sparkles, Sticker, Type } from 'lucide-react';
 import './TemplateEditPage.css';
 
-const icons = { composition: Layers, text: Type, image: Image, video: Film, audio: Music2 };
+const icons = { composition: Layers, text: Type, image: Image, video: Film, audio: Music2,
+  sticker: Sticker, filter: SlidersHorizontal, effect: Sparkles };
 const tools = [
   { type: 'text', label: '添加文字', Icon: Type },
   { type: 'image', label: '添加图片', Icon: Image },
   { type: 'video', label: '添加视频', Icon: Film },
-  { type: 'audio', label: '添加音频', Icon: Music2 }
+  { type: 'audio', label: '添加音频', Icon: Music2 },
+  { type: 'sticker', label: '添加贴纸', Icon: Sticker },
+  { type: 'filter', label: '添加滤镜', Icon: SlidersHorizontal },
+  { type: 'effect', label: '添加特效', Icon: Sparkles }
 ];
 const extensions = [json(), EditorView.theme({
   '&': { height: '100%', fontSize: '13px' },
@@ -27,7 +31,7 @@ const invoke = (channel, ...args) => {
 
 function LayerNode({ node, depth = 0, selectedId, onSelect, collapsed, onToggle }) {
   const Icon = icons[node.type] || Layers;
-  const isScene = node.type === 'composition';
+  const isScene = node.type === 'composition' || node.type === 'track';
   const closed = collapsed.has(node.id);
   return (
     <li role="treeitem" aria-selected={selectedId === node.id} aria-expanded={isScene ? !closed : undefined}>
@@ -50,11 +54,9 @@ function LayerNode({ node, depth = 0, selectedId, onSelect, collapsed, onToggle 
 
 const TemplateEditPage = () => {
   const [templateJson, setTemplateJson] = useState('');
-  const [configJson, setConfigJson] = useState('{}');
   const [model, setModel] = useState(null);
   const [selectedId, setSelectedId] = useState('scene-1');
   const [collapsed, setCollapsed] = useState(new Set());
-  const [mode, setMode] = useState('template');
   const [workflowMode, setWorkflowMode] = useState(false);
   const [compiled, setCompiled] = useState(null);
   const [error, setError] = useState('');
@@ -73,7 +75,6 @@ const TemplateEditPage = () => {
     invoke('template:editor-defaults').then((result) => {
       if (!active) return;
       setTemplateJson(result.templateJson);
-      setConfigJson(result.configJson);
       setReady(true);
     }).catch((err) => { if (active) { setError(err.message); setPending(false); } });
     return () => { active = false; };
@@ -85,7 +86,7 @@ const TemplateEditPage = () => {
     const version = revision.current;
     setPending(true);
     const timer = setTimeout(() => {
-      invoke('template:editor-analyze', { templateJson, configJson }).then((next) => {
+      invoke('template:editor-analyze', { templateJson }).then((next) => {
         if (!active || version !== revision.current) return;
         setModel(next);
         setAnalysisError('');
@@ -95,10 +96,10 @@ const TemplateEditPage = () => {
       }).finally(() => { if (active && version === revision.current) setPending(false); });
     }, 200);
     return () => { active = false; clearTimeout(timer); };
-  }, [templateJson, configJson, ready]);
+  }, [templateJson, ready]);
 
   useEffect(() => {
-    if (workflowMode || mode !== 'template') return;
+    if (workflowMode) return;
     const view = editorRef.current?.view;
     if (!view) return;
     function locate(node) {
@@ -113,7 +114,7 @@ const TemplateEditPage = () => {
     }
     const node = locate(parseTree(view.state.doc.toString()));
     if (node) view.dispatch({ selection: { anchor: node.offset, head: node.offset + node.length }, scrollIntoView: true });
-  }, [selectedId, workflowMode, mode]);
+  }, [selectedId, workflowMode]);
 
   const edit = (value) => {
     revision.current++;
@@ -121,12 +122,10 @@ const TemplateEditPage = () => {
     setCompiled(null);
     setError('');
     setExportResult(null);
-    if (mode === 'template') setTemplateJson(value);
-    else setConfigJson(value);
+    setTemplateJson(value);
   };
   const select = (id) => {
     setSelectedId(id);
-    setMode('template');
     setWorkflowMode(false);
   };
   const add = async (type) => {
@@ -134,14 +133,14 @@ const TemplateEditPage = () => {
     setBusy(true);
     setError('');
     try {
-      const result = await invoke('template:editor-add', { templateJson, configJson }, { type, selectedId });
+      const result = await invoke('template:editor-add', { templateJson }, { type, selectedId });
       if (result) {
+        setExportResult(null);
         revision.current++;
         setPending(true);
         setTemplateJson(result.templateJson);
         setSelectedId(result.selectedId);
         setCollapsed(new Set());
-        setMode('template');
         setWorkflowMode(false);
         setCompiled(null);
       }
@@ -155,7 +154,7 @@ const TemplateEditPage = () => {
     setError('');
     setCompiled(null);
     try {
-      setCompiled(await invoke('template:editor-compile', { templateJson, configJson }));
+      setCompiled(await invoke('template:editor-compile', { templateJson }));
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   };
@@ -166,7 +165,7 @@ const TemplateEditPage = () => {
     setError('');
     setExportResult(null);
     try {
-      setExportResult(await invoke('template:editor-test-export', { templateJson, configJson }));
+      setExportResult(await invoke('template:editor-test-export', { templateJson }));
     } catch (err) { setError(err.message); }
     finally { setExporting(false); setBusy(false); }
   };
@@ -179,7 +178,7 @@ const TemplateEditPage = () => {
   const axisEnd = Math.max(5, Math.ceil((model?.duration || 5) / 5) * 5);
   const ticks = Array.from({ length: 6 }, (_, index) => axisEnd * index / 5);
   const displayedJson = workflowMode ? (compiled ? JSON.stringify(compiled.workflow, null, 2) : '')
-    : mode === 'template' ? templateJson : configJson;
+    : templateJson;
 
   return (
     <main className="template-edit-page" aria-label="模版编辑器">
@@ -212,11 +211,7 @@ const TemplateEditPage = () => {
         </aside>
         <section className="template-edit-code" aria-label="JSON 编辑区">
           <div className="template-code-heading">
-            {workflowMode ? <strong>Workflow <span className="template-muted">只读</span></strong> :
-              <div className="template-code-tabs" role="tablist" aria-label="JSON 类型">
-                <button role="tab" aria-selected={mode === 'template'} onClick={() => setMode('template')}>Template JSON</button>
-                <button role="tab" aria-selected={mode === 'config'} onClick={() => setMode('config')}>关联配置</button>
-              </div>}
+            <strong>{workflowMode ? <>Workflow <span className="template-muted">只读</span></> : 'Template JSON'}</strong>
             <span className="template-muted">{busy || pending ? <span className="template-spinner" aria-label="处理中" /> :
               workflowMode ? '未提交执行' : '仅当前窗口，未保存'}</span>
           </div>

@@ -14,9 +14,9 @@ describe('单图片模版转换', () => {
     expect(source.elements[0].source).toContain('\n')
   })
 
-  it('将起止时间映射为模版 time/duration 和 workflow start/end', () => {
+  it('将起止时间映射为模版 target_start_time/duration 和 workflow start/end', () => {
     const result = compileImageTemplate(exampleImageTemplate, { source: '/tmp/image.png', start: 2, end: 5 })
-    expect(result.template.elements[0]).toMatchObject({ time: 2, duration: 3, source: '/tmp/image.png' })
+    expect(result.template.elements[0]).toMatchObject({ target_start_time: 2, duration: 3, source: '/tmp/image.png' })
     expect(result.workflow.script[0].params).toMatchObject({ start: 2, end: 5 })
   })
 
@@ -33,5 +33,11 @@ describe('单图片模版转换', () => {
     const source = structuredClone(exampleImageTemplate)
     Object.assign(source.elements[0], { animations: [] })
     expect(() => compileImageTemplate(source)).toThrow('animations')
+  })
+
+  it('拒绝旧 time，不静默兼容', () => {
+    const source = structuredClone(exampleImageTemplate)
+    Object.assign(source.elements[0], { time: 2, target_start_time: 2 })
+    expect(() => compileImageTemplate(source)).toThrow('time 已移除')
   })
 })

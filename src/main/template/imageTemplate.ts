@@ -34,18 +34,19 @@ export function compileImageTemplate(
     throw new Error('首版仅支持一个图片元素')
   }
   const image = template.elements[0] as typeof exampleImageTemplate.elements[0] & {
-    time?: number; duration?: number
+    target_start_time?: number; duration?: number
   }
   if (image.type !== 'image') throw new Error('首版仅支持图片元素')
-  const allowed = new Set(['id', 'name', 'type', 'track', 'source', 'time', 'duration'])
+  const allowed = new Set(['id', 'name', 'type', 'track', 'source', 'target_start_time', 'duration'])
   for (const key of Object.keys(image)) {
+    if (key === 'time') throw new Error('图片 time 已移除，请使用 target_start_time')
     if (!allowed.has(key)) throw new Error(`暂不支持图片属性：${key}`)
   }
   for (const dimension of [template.width, template.height]) {
     if (!Number.isInteger(dimension) || dimension <= 0) throw new Error('画布尺寸必须是正整数')
   }
   const total = seconds(template.duration, '模版时长')
-  const start = seconds(input.start === undefined ? image.time ?? 0 : input.start, '开始时间')
+  const start = seconds(input.start === undefined ? image.target_start_time ?? 0 : input.start, '开始时间')
   const end = seconds(input.end === undefined ? (image.duration == null ? total : start + image.duration) : input.end, '结束时间')
   if (end <= start) throw new Error('结束时间必须大于开始时间')
   if (end > total) throw new Error('结束时间不能超过模版时长')
@@ -53,7 +54,7 @@ export function compileImageTemplate(
   if (!source) throw new Error('请输入或选择一张图片')
   const renderScript = {
     ...template,
-    elements: [{ ...image, source, time: start, duration: end - start }]
+    elements: [{ ...image, source, target_start_time: start, duration: end - start }]
   }
   return {
     template: renderScript,

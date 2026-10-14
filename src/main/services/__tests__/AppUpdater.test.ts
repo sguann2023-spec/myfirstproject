@@ -1,5 +1,8 @@
 import type { UpdateInfo } from 'builder-util-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { existsSync } from 'node:fs'
+
+vi.mock('node:fs', () => ({ existsSync: vi.fn((file: string) => file !== 'C:\\VectCut-update-test'), createReadStream: vi.fn() }))
 
 const configStore = new Map<string, unknown>()
 
@@ -554,9 +557,11 @@ describe('AppUpdater', () => {
       expect(autoUpdater.autoInstallOnAppQuit).toBe(true)
     })
 
-    it('should await verified download before starting installation', async () => {
+    it('should restore a previous session cache before starting installation', async () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
       vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      configStore.set('appUpdater.preparedWindowsUpdate', { version: '1.1.0', installerPath: 'installer.exe' })
+      appUpdater = new AppUpdater()
       vi.spyOn(appUpdater, 'checkForUpdates').mockResolvedValue({
         currentVersion: '1.0.0',
         updateInfo: { version: '1.1.0' } as UpdateInfo
@@ -578,11 +583,48 @@ describe('AppUpdater', () => {
     it('should continue login without installing when download fails', async () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
       vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      configStore.set('appUpdater.preparedWindowsUpdate', { version: '1.1.0', installerPath: 'installer.exe' })
+      appUpdater = new AppUpdater()
       vi.spyOn(appUpdater, 'checkForUpdates').mockResolvedValue({
         currentVersion: '1.0.0',
         updateInfo: { version: '1.1.0' } as UpdateInfo
       })
       vi.mocked(autoUpdater.downloadUpdate).mockRejectedValueOnce(new Error('Checksum mismatch'))
+      expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
+      expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled()
+    })
+
+    it('should download in the background on first launch and install only on next launch', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      appUpdater = new AppUpdater()
+      vi.mocked(autoUpdater.checkForUpdates).mockResolvedValue({
+        isUpdateAvailable: true,
+        updateInfo: { version: '1.1.0' } as UpdateInfo
+      } as any)
+      vi.mocked(autoUpdater.downloadUpdate).mockResolvedValue(['installer.exe'])
+      expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
+      await appUpdater.checkForUpdates()
+      await Promise.resolve()
+      expect(configStore.get('appUpdater.preparedWindowsUpdate')).toEqual({
+        version: '1.1.0', installerPath: 'installer.exe'
+      })
+      expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled()
+      // Even another call in this process must not install its own fresh download.
+      expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
+      const nextLaunch = new AppUpdater()
+      const install = vi.spyOn(nextLaunch, 'quitAndInstall').mockResolvedValue(true)
+      expect(await nextLaunch.installWindowsUpdateOnStartup()).toEqual({ installing: true })
+      expect(install).toHaveBeenCalledOnce()
+    })
+
+    it('should not install when the prepared file is missing', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(configManager.getAutoUpdate).mockReturnValue(true)
+      configStore.set('appUpdater.preparedWindowsUpdate', { version: '1.1.0', installerPath: 'missing.exe' })
+      appUpdater = new AppUpdater()
+      vi.mocked(existsSync).mockReturnValueOnce(false)
+      vi.spyOn(appUpdater, 'checkForUpdates').mockResolvedValue({ currentVersion: '1.0.0', updateInfo: null })
       expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
       expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled()
     })
@@ -595,6 +637,46 @@ describe('AppUpdater', () => {
       vi.mocked(configManager.getAutoUpdate).mockReturnValue(false)
       expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
       expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Local Windows update test feed', () => {
+    const originalPlatform = process.platform
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform })
+    })
+
+    it('should use only the loopback test feed without querying online configuration', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.spyOn(appUpdater as any, '_getLocalTestFeedUrl').mockResolvedValue('http://127.0.0.1:8765/')
+      vi.mocked(autoUpdater.checkForUpdates).mockResolvedValue(null)
+      await appUpdater.checkForUpdates(false)
+      expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+        provider: 'generic', url: 'http://127.0.0.1:8765/', channel: 'latest'
+      })
+      expect(autoUpdater.disableDifferentialDownload).toBe(true)
+      expect(net.fetch).not.toHaveBeenCalled()
+    })
+
+    it('should not fall back online when the local test source fails', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.spyOn(appUpdater as any, '_getLocalTestFeedUrl').mockResolvedValue('http://127.0.0.1:8765/')
+      vi.mocked(autoUpdater.checkForUpdates).mockRejectedValueOnce(new Error('Connection refused'))
+      expect((await appUpdater.checkForUpdates(false)).updateInfo).toBeNull()
+      expect(autoUpdater.checkForUpdates).toHaveBeenCalledOnce()
+      expect(autoUpdater.setFeedURL).toHaveBeenCalledOnce()
+      expect(net.fetch).not.toHaveBeenCalled()
+    })
+
+    it('should not enable the disk test source on macOS', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      expect(await (appUpdater as any)._getLocalTestFeedUrl()).toBeNull()
+    })
+
+    it('should not enable the disk test source when its directory is absent', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      expect(await (appUpdater as any)._getLocalTestFeedUrl()).toBeNull()
     })
   })
 

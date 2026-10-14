@@ -1,9 +1,13 @@
 export interface SceneElement {
   id: string
   name?: string
-  type: 'composition' | 'image' | 'text' | 'video' | 'audio'
+  type: 'composition' | 'image' | 'text' | 'video' | 'audio' | 'sticker' | 'filter' | 'effect'
   track?: number
-  time?: number | 'end'
+  track_name?: string
+  track_relative_index?: number
+  target_start_time?: number
+  target_end_time?: number | 'end'
+  source_start_time?: number
   duration?: number
   fill_color?: string
   height?: number | string
@@ -18,8 +22,15 @@ export interface SceneElement {
   font_size?: string | number
 }
 
+export interface TimingAnchor {
+  element_id: string
+  anchor: 'start' | 'end'
+  offset?: number
+}
+
 export interface TimingRule {
-  start: { element_id: string; anchor: 'start' | 'end'; offset?: number }
+  start?: TimingAnchor
+  end?: TimingAnchor
 }
 
 export interface SceneTemplate {
@@ -27,6 +38,8 @@ export interface SceneTemplate {
   height: number
   duration?: number
   elements: SceneElement[]
+  timing_rules?: Record<string, TimingRule>
+  sources?: Record<string, string>
   [key: string]: unknown
 }
 
@@ -40,6 +53,8 @@ export interface ResolvedElement {
   duration: number
   visibleDuration: number
   visible: boolean
+  sourceStart?: number
+  sourceEnd?: number
 }
 
 function seconds(value: unknown, path: string): number {
@@ -55,14 +70,24 @@ function positiveDuration(value: unknown, path: string): number {
   return duration
 }
 
+function targetStart(element: SceneElement) {
+  return element.target_start_time
+}
+
 function track(element: SceneElement): number {
   const value = element.track ?? 1
   if (!Number.isInteger(value) || value < 1) throw new Error(`${element.id}.track 必须是正整数`)
   return value
 }
 
+function relativeTrack(element: SceneElement): number {
+  const value = element.track_relative_index ?? track(element) - 1
+  if (!Number.isInteger(value)) throw new Error(`${element.id}.track_relative_index 必须是整数`)
+  return value
+}
+
 function ordered(elements: SceneElement[]): SceneElement[] {
-  return elements.map((element, index) => ({ element, index, track: track(element) }))
+  return elements.map((element, index) => ({ element, index, track: relativeTrack(element) }))
     .sort((a, b) => a.track - b.track || a.index - b.index)
     .map(({ element }) => element)
 }
@@ -95,18 +120,31 @@ function processSceneTemplate(
     throw new Error('画布尺寸必须是正整数')
   }
   const source = structuredClone(template)
+  options = {
+    sources: { ...options.sources, ...source.sources },
+    timing_rules: { ...options.timing_rules, ...source.timing_rules }
+  }
+  for (const key of ['sources', 'timing_rules'] as const) {
+    const value = source[key]
+    if (value !== undefined && (!value || typeof value !== 'object' || Array.isArray(value))) {
+      throw new Error(`${key} 必须是对象`)
+    }
+  }
+  if (Object.values(options.sources ?? {}).some((value) => typeof value !== 'string')) {
+    throw new Error('素材映射的值必须是字符串')
+  }
   const ids = new Set<string>()
   const parents = new Map<string, string | null>()
   const warnings: string[] = []
   const rootFields = new Set([
     'width', 'height', 'duration', 'elements', 'fill_color', 'output_format',
-    'gif_quality', 'gif_compression', 'snapshot_time', 'emoji_style'
+    'gif_quality', 'gif_compression', 'snapshot_time', 'emoji_style', 'timing_rules', 'sources'
   ])
   for (const key of Object.keys(source)) {
     if (!rootFields.has(key)) throw new Error(`暂不支持模版属性：${key}`)
   }
   for (const key of Object.keys(source).filter((key) =>
-    !['width', 'height', 'duration', 'elements'].includes(key))) {
+    !['width', 'height', 'duration', 'elements', 'timing_rules', 'sources'].includes(key))) {
     warnings.push(`模版.${key} 已保留，但当前 workflow 不应用该设置`)
   }
 
@@ -117,18 +155,29 @@ function processSceneTemplate(
       }
       ids.add(element.id)
       parents.set(element.id, parentId)
-      if (!['composition', 'image', 'text', ...(timelineOnly ? ['video', 'audio'] : [])].includes(element.type)) {
+      if (!['composition', 'image', 'text', ...(timelineOnly ? ['video', 'audio', 'sticker', 'filter', 'effect'] : [])].includes(element.type)) {
         throw new Error(`${element.id} 暂不支持元素类型：${element.type}`)
       }
       track(element)
-      const allowed = new Set(['id', 'name', 'type', 'track', 'time', 'duration',
+      relativeTrack(element)
+      if (element.track_name !== undefined && (typeof element.track_name !== 'string' || !element.track_name.trim())) {
+        throw new Error(`${element.id}.track_name 必须是非空字符串`)
+      }
+      const allowed = new Set(['id', 'name', 'type', 'track', 'duration',
+        'target_start_time', 'target_end_time',
+        'track_name', 'track_relative_index',
         ...(element.type === 'composition' ? ['fill_color', 'elements'] :
           element.type === 'text' ? ['text', 'fill_color', 'x', 'y', 'x_anchor', 'y_anchor', 'font_family', 'font_size'] :
-            ['source', 'height'])])
+            ['source', 'height', ...(['video', 'audio'].includes(element.type) ? ['source_start_time'] : [])])])
       for (const key of Object.keys(element)) {
+        if (key === 'time') throw new Error(`${element.id}.time 已移除，请使用 target_start_time；结束锚定请使用 target_end_time`)
         if (!allowed.has(key)) throw new Error(`${element.id} 暂不支持属性：${key}`)
       }
-      if (element.time !== undefined && element.time !== 'end') seconds(element.time, `${element.id}.time`)
+      if (element.target_start_time !== undefined) seconds(element.target_start_time, `${element.id}.target_start_time`)
+      if (element.target_end_time !== undefined && element.target_end_time !== 'end') {
+        seconds(element.target_end_time, `${element.id}.target_end_time`)
+      }
+      if (element.source_start_time !== undefined) seconds(element.source_start_time, `${element.id}.source_start_time`)
       if (element.duration !== undefined) positiveDuration(element.duration, `${element.id}.duration`)
       if (element.type === 'composition') {
         if (!Array.isArray(element.elements)) throw new Error(`${element.id}.elements 必须是数组`)
@@ -138,16 +187,24 @@ function processSceneTemplate(
   }
   validate(source.elements)
   for (const [id, rule] of Object.entries(options.timing_rules ?? {})) {
-    const start = rule?.start
-    if (!ids.has(id) || !start || !ids.has(start.element_id)) throw new Error(`timing_rules.${id} 引用了不存在的元素`)
-    if (parents.get(id) !== parents.get(start.element_id)) throw new Error('首版时间关联仅支持同一父级内的元素')
-    if (!['start', 'end'].includes(start.anchor)) throw new Error(`timing_rules.${id} anchor 必须为 start 或 end`)
-    if (start.offset !== undefined && (typeof start.offset !== 'number' || !Number.isFinite(start.offset))) {
-      throw new Error(`timing_rules.${id} offset 必须为有限秒数`)
+    if (!ids.has(id)) throw new Error(`timing_rules.${id} 引用了不存在的元素`)
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
+      throw new Error(`timing_rules.${id} 必须是包含 start 或 end 的对象`)
     }
-    if (Object.keys(rule).some((key) => key !== 'start') ||
-      Object.keys(start).some((key) => !['element_id', 'anchor', 'offset'].includes(key))) {
-      throw new Error(`timing_rules.${id} 包含不支持的字段`)
+    const unknown = Object.keys(rule).find((key) => !['start', 'end'].includes(key))
+    if (unknown) throw new Error(`timing_rules.${id}.${unknown} 不支持，请使用 start 或 end（例如 statr 应写为 start）`)
+    if (!rule.start && !rule.end) throw new Error(`timing_rules.${id} 必须包含有效的 start 或 end 关联`)
+    for (const anchor of [rule.start, rule.end]) {
+      if (anchor === undefined) continue
+      if (!anchor || !ids.has(anchor.element_id)) throw new Error(`timing_rules.${id} 引用了不存在的元素`)
+      if (parents.get(id) !== parents.get(anchor.element_id)) throw new Error('首版时间关联仅支持同一父级内的元素')
+      if (!['start', 'end'].includes(anchor.anchor)) throw new Error(`timing_rules.${id} anchor 必须为 start 或 end`)
+      if (anchor.offset !== undefined && (typeof anchor.offset !== 'number' || !Number.isFinite(anchor.offset))) {
+        throw new Error(`timing_rules.${id} offset 必须为有限秒数`)
+      }
+      if (Object.keys(anchor).some((key) => !['element_id', 'anchor', 'offset'].includes(key))) {
+        throw new Error(`timing_rules.${id} 包含不支持的字段`)
+      }
     }
   }
 
@@ -160,15 +217,44 @@ function processSceneTemplate(
     total = 0
     for (const element of source.elements) {
       if (options.timing_rules?.[element.id]) throw new Error('顶层元素关联时间时请显式设置根 duration')
-      if (element.time === 'end' || element.duration === undefined) {
-        throw new Error(`${element.id} 无法推导模版时长，请设置模版 duration 或顶层元素的数字 time/duration`)
+      if (element.target_end_time === 'end') {
+        throw new Error(`${element.id} 无法推导模版时长，请显式设置根 duration`)
       }
-      total = Math.max(total, seconds(element.time ?? 0, `${element.id}.time`) + element.duration)
+      if (typeof element.target_end_time === 'number') {
+        total = Math.max(total, element.target_end_time)
+        continue
+      }
+      if (element.duration === undefined) {
+        throw new Error(`${element.id} 无法推导模版时长，请设置模版 duration 或顶层元素的数字 target_start_time/duration`)
+      }
+      total = Math.max(total, seconds(targetStart(element) ?? 0, `${element.id}.target_start_time`) + element.duration)
     }
     positiveDuration(total, '推导的模版.duration')
   }
 
   const timeline: ResolvedElement[] = []
+  const trackIndexes = new Map<string, number>()
+  const namedTracks = new Map<string, { type: string; relativeIndex: number }>()
+  function backendTrack(element: SceneElement, parentId: string | null) {
+    if (element.track_name !== undefined) {
+      const name = element.track_name.trim()
+      const type = element.type === 'image' || element.type === 'video' ? 'video' : element.type
+      const relativeIndex = relativeTrack(element)
+      const previous = namedTracks.get(name)
+      if (previous && (previous.type !== type || previous.relativeIndex !== relativeIndex)) {
+        throw new Error(`轨道 ${name} 的素材类型或 track_relative_index 不一致`)
+      }
+      namedTracks.set(name, { type, relativeIndex })
+      return { track_name: name, relative_index: relativeIndex }
+    }
+    // Backend tracks are typed; keep scene-local track numbers and media types isolated.
+    const key = JSON.stringify([parentId, track(element), element.type])
+    if (!trackIndexes.has(key)) trackIndexes.set(key, trackIndexes.size)
+    return {
+      track_name: `template_${parentId ?? 'root'}_track_${track(element)}_${element.type}`,
+      relative_index: element.track_relative_index ?? trackIndexes.get(key)!
+    }
+  }
   const script: Array<{
     type: 'action'; id: string; index: number; action_type: 'add_image' | 'add_text'
     params: {
@@ -190,18 +276,27 @@ function processSceneTemplate(
       if (cached) return cached
       if (resolving.has(element.id)) throw new Error(`时间关联存在循环依赖：${element.id}`)
       resolving.add(element.id)
-      const rule = options.timing_rules?.[element.id]?.start
-      let localStart: number
-      if (rule) {
-        const target = resolve(siblings.get(rule.element_id)!)
-        localStart = target.localStart + (rule.anchor === 'end' ? target.duration : 0) + (rule.offset ?? 0)
-      } else if (element.time === 'end') {
-        if (element.duration === undefined) throw new Error(`${element.id} 使用 time=end 时必须设置固定 duration`)
-        localStart = parentDuration - element.duration
-      } else {
-        localStart = seconds(element.time ?? 0, `${element.id}.time`)
+      const rule = options.timing_rules?.[element.id]
+      function anchorTime(anchor: TimingAnchor): number {
+        const target = resolve(siblings.get(anchor.element_id)!)
+        return target.localStart + (anchor.anchor === 'end' ? target.duration : 0) + (anchor.offset ?? 0)
       }
-      const duration = element.duration ?? Math.max(0, parentDuration - localStart)
+      let localStart: number
+      const startSetting = targetStart(element)
+      const fixedEnd = element.target_end_time === 'end' ? parentDuration : element.target_end_time
+      const linkedEnd = rule?.end ? anchorTime(rule.end) : fixedEnd
+      if (rule?.start) {
+        localStart = anchorTime(rule.start)
+      } else if (startSetting === undefined && linkedEnd !== undefined && element.duration !== undefined) {
+        localStart = linkedEnd - element.duration
+      } else {
+        localStart = seconds(startSetting ?? 0, `${element.id}.target_start_time`)
+      }
+      const duration = linkedEnd !== undefined ? linkedEnd - localStart
+        : element.duration ?? Math.max(0, parentDuration - localStart)
+      if (!Number.isFinite(localStart) || !Number.isFinite(duration) || duration < 0) {
+        throw new Error(`${element.id} 关联后的结束时间不能早于开始时间，时间必须为有限数字`)
+      }
       const resolved = { localStart, duration }
       cache.set(element.id, resolved)
       resolving.delete(element.id)
@@ -220,7 +315,11 @@ function processSceneTemplate(
       timeline.push({
         id: element.id, parentId, type: element.type,
         localStart: Number(localStart.toFixed(9)), start, end, duration,
-        visibleDuration: Number((end - start).toFixed(9)), visible
+        visibleDuration: Number((end - start).toFixed(9)), visible,
+        ...(['video', 'audio'].includes(element.type) && visible ? {
+          sourceStart: Number(((element.source_start_time ?? 0) + start - nominalStart).toFixed(9)),
+          sourceEnd: Number(((element.source_start_time ?? 0) + end - nominalStart).toFixed(9))
+        } : {})
       })
       if (!visible) {
         warnings.push(`${element.id} 位于 scene 可见时间范围外，不生成操作`)
@@ -244,7 +343,7 @@ function processSceneTemplate(
           params: {
             text: element.text, font_color: element.fill_color ?? '#ffffff',
             start, end, width: source.width, height: source.height,
-            track_name: `template_${element.id}`, relative_index: index
+            ...backendTrack(element, parentId)
           }
         })
         warnings.push(`${element.id} 文字时间与颜色已应用；字体、字号、位置和锚点尚未适配，使用后端默认布局`)
@@ -266,9 +365,7 @@ function processSceneTemplate(
           params: {
             image_url: resolvedSource,
             start, end, width: source.width, height: source.height,
-            // Separate tracks preserve overlapping contents, even when names repeat.
-            track_name: `template_${element.id}`,
-            relative_index: index
+            ...backendTrack(element, parentId)
           }
         })
       }
