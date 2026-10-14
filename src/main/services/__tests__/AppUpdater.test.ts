@@ -2,7 +2,7 @@ import type { UpdateInfo } from 'builder-util-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync } from 'node:fs'
 
-vi.mock('node:fs', () => ({ existsSync: vi.fn((file: string) => file !== 'C:\\VectCut-update-test'), createReadStream: vi.fn() }))
+vi.mock('node:fs', () => ({ existsSync: vi.fn(() => true) }))
 
 const configStore = new Map<string, unknown>()
 
@@ -637,46 +637,6 @@ describe('AppUpdater', () => {
       vi.mocked(configManager.getAutoUpdate).mockReturnValue(false)
       expect(await appUpdater.installWindowsUpdateOnStartup()).toEqual({ installing: false })
       expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('Local Windows update test feed', () => {
-    const originalPlatform = process.platform
-
-    afterEach(() => {
-      Object.defineProperty(process, 'platform', { value: originalPlatform })
-    })
-
-    it('should use only the loopback test feed without querying online configuration', async () => {
-      Object.defineProperty(process, 'platform', { value: 'win32' })
-      vi.spyOn(appUpdater as any, '_getLocalTestFeedUrl').mockResolvedValue('http://127.0.0.1:8765/')
-      vi.mocked(autoUpdater.checkForUpdates).mockResolvedValue(null)
-      await appUpdater.checkForUpdates(false)
-      expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
-        provider: 'generic', url: 'http://127.0.0.1:8765/', channel: 'latest'
-      })
-      expect(autoUpdater.disableDifferentialDownload).toBe(true)
-      expect(net.fetch).not.toHaveBeenCalled()
-    })
-
-    it('should not fall back online when the local test source fails', async () => {
-      Object.defineProperty(process, 'platform', { value: 'win32' })
-      vi.spyOn(appUpdater as any, '_getLocalTestFeedUrl').mockResolvedValue('http://127.0.0.1:8765/')
-      vi.mocked(autoUpdater.checkForUpdates).mockRejectedValueOnce(new Error('Connection refused'))
-      expect((await appUpdater.checkForUpdates(false)).updateInfo).toBeNull()
-      expect(autoUpdater.checkForUpdates).toHaveBeenCalledOnce()
-      expect(autoUpdater.setFeedURL).toHaveBeenCalledOnce()
-      expect(net.fetch).not.toHaveBeenCalled()
-    })
-
-    it('should not enable the disk test source on macOS', async () => {
-      Object.defineProperty(process, 'platform', { value: 'darwin' })
-      expect(await (appUpdater as any)._getLocalTestFeedUrl()).toBeNull()
-    })
-
-    it('should not enable the disk test source when its directory is absent', async () => {
-      Object.defineProperty(process, 'platform', { value: 'win32' })
-      expect(await (appUpdater as any)._getLocalTestFeedUrl()).toBeNull()
     })
   })
 

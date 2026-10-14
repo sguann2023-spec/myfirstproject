@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { editorInitialTemplate } from './editorModel'
 import { prepareExecutionWorkflow, TemplateTestExporter } from './testExport'
+import { createEditorPreset } from './editorPresets'
+import { compileDraftTemplate } from './draftTemplate'
+import { workflowActions } from './workflowTestUtils'
 
 const payload = () => ({ templateJson: JSON.stringify(editorInitialTemplate), configJson: '{}' })
 const result = (data: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(data) }] })
@@ -29,6 +32,19 @@ describe('测试执行与草稿导出', () => {
     expect(prepared.inputs.template_literal_0).toBe('1 + 2 ${name}')
     expect(prepared.script[0].params.text).toBe('${template_literal_0}')
     expect(workflow.script[0].params.text).toBe('1 + 2 ${name}')
+  })
+
+  it('动态输入完整传到执行端，重复适配不把表达式包成字面量', async () => {
+    const template = createEditorPreset('sentence-image')
+    const workflow = compileDraftTemplate(template).workflow
+    const prepared = prepareExecutionWorkflow(workflow)
+    expect(prepareExecutionWorkflow(prepared)).toEqual(prepared)
+    const deps = dependencies()
+    await new TemplateTestExporter(deps).run(1, { templateJson: JSON.stringify(template) })
+    const executed = deps.execute.mock.calls[0][0]
+    expect(executed.inputs.input_text_material_1_content).toEqual({ text: '清晨，阳光洒进安静的房间。' })
+    expect(workflowActions(executed).find(({ id }) => id === 'text-1')!.params.text)
+      .toBe('${input_text_material_1_content.text}')
   })
 
   it('执行失败或缺少草稿 ID 时不提交导出', async () => {

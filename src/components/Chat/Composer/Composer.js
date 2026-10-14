@@ -27,6 +27,7 @@ import RevertPrompt, { REVERT_PROMPT_HINT, getRevertPromptSendState } from '../.
 import PartSplitToolDetail from '../../PartSplitToolDetail/index';
 import { ChatTaskContext } from '../ChatShell/ChatTaskContext';
 import ToolArea from './ToolArea/index';
+import TemplatePickerDialog from '../../../page/TemplateEditPage/TemplatePickerDialog';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
@@ -2181,6 +2182,7 @@ const Composer = ({
   const [audioAddSettings, setAudioAddSettings] = React.useState(DEFAULT_AUDIO_ADD_SETTINGS);
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
   const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
   const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
   React.useEffect(() => {
     if (!partSplitDialogOpen || !openSubtitleStoryboard) return;
@@ -4809,7 +4811,7 @@ const Composer = ({
   const handleToolSelect = React.useCallback((toolId) => {
     const normalizedToolId = String(toolId || '').trim();
     if (normalizedToolId === 'template-new') {
-      window.ipc.send('open-template-edit-window');
+      setTemplatePickerOpen(true);
       return;
     }
     if (normalizedToolId.startsWith(AI_WRITE_TOOL_PREFIX)) {
@@ -4870,6 +4872,11 @@ const Composer = ({
 
   return (
     <div className="chat-panel__composer">
+      <TemplatePickerDialog open={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)}
+        onSelect={(presetId) => {
+          window.ipc.send('open-template-edit-window', presetId);
+          setTemplatePickerOpen(false);
+        }} />
       {!openSubtitleStoryboard ? <PartSplitToolDetail
         key={primarySkillWorkdir}
         open={partSplitDialogOpen}

@@ -1,4 +1,11 @@
 import { analyzeSceneTemplate, compileSceneTemplate, type SceneElement, type SceneTemplate, type TimingRule } from './sceneTemplate'
+import { applyDynamicInputs, getDynamicInputs } from './dynamicInputs'
+import { compileDynamicWorkflow } from './dynamicWorkflow'
+import { backendTrackType, isSceneSegment, logicalTrackLayout, mapWorkflowTracks, materialElementType, validateLogicalTrackTimeline } from './draftTracks'
+
+export interface DraftDynamicFields {
+  dynamic?: string[]
+}
 
 export interface DraftRange {
   start?: number
@@ -17,7 +24,7 @@ export interface DraftTiming {
   end?: AutoAnchor
 }
 
-export interface DraftSegment {
+export interface DraftSegment extends DraftDynamicFields {
   id: string
   material_id: string
   name?: string
@@ -29,7 +36,7 @@ export interface DraftSegment {
   [key: string]: unknown
 }
 
-export interface DraftKeyframe {
+export interface DraftKeyframe extends DraftDynamicFields {
   id: string
   time_offset: number
   values: number[]
@@ -37,7 +44,7 @@ export interface DraftKeyframe {
   [key: string]: unknown
 }
 
-export interface DraftKeyframeGroup {
+export interface DraftKeyframeGroup extends DraftDynamicFields {
   id: string
   property_type: string
   keyframe_list: DraftKeyframe[]
@@ -45,26 +52,35 @@ export interface DraftKeyframeGroup {
   [key: string]: unknown
 }
 
-export interface DraftTrack {
+export interface DraftTrack extends DraftDynamicFields {
   id: string
   name?: string
-  type: string
-  segments: DraftSegment[]
+  type?: string
+  segments: DraftTrackItem[]
   track_relative_index?: number
   [key: string]: unknown
 }
 
-export interface DraftScene {
+export interface DraftScene extends DraftDynamicFields {
   id: string
   name?: string
   target_timerange: DraftRange
   auto_timing?: DraftTiming
+  auto_duration?: boolean
   tracks: DraftTrack[]
   scenes?: DraftScene[]
+  common_keyframes?: DraftKeyframeGroup[]
+  keyframe_refs?: string[]
   [key: string]: unknown
 }
 
-export interface DraftMaterial {
+export interface DraftSceneSegment extends DraftScene {
+  type: 'scene'
+}
+
+export type DraftTrackItem = DraftSegment | DraftSceneSegment
+
+export interface DraftMaterial extends DraftDynamicFields {
   id: string
   type: string
   path?: string
@@ -73,7 +89,7 @@ export interface DraftMaterial {
   [key: string]: unknown
 }
 
-export interface DraftTemplate {
+export interface DraftTemplate extends DraftDynamicFields {
   canvas_config: { width: number; height: number; [key: string]: unknown }
   duration?: number
   materials: Record<string, DraftMaterial[]>
@@ -95,6 +111,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
     throw new Error('模版需要 canvas_config、materials 和 scenes；tracks 放在 scenes 内')
   }
   if ('tracks' in draft || 'elements' in draft) throw new Error('模版顶层仅通过 scenes 管理轨道')
+  getDynamicInputs(draft)
   const materials = new Map<string, { material: DraftMaterial; bucket: string }>()
   const ids = new Set<string>()
   function unique(id: unknown) {
@@ -114,7 +131,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
   const warnings: string[] = []
   let hasKeyframes = false
   const keyframeIds = new Set<string>()
-  function validateKeyframes(segment: DraftSegment) {
+  function validateKeyframes(segment: Pick<DraftSegment, 'id' | 'common_keyframes' | 'keyframe_refs'>) {
     if (segment.keyframe_refs !== undefined) {
       if (!Array.isArray(segment.keyframe_refs) || segment.keyframe_refs.some((id) => typeof id !== 'string' || !id)) {
         throw new Error(`${segment.id}.keyframe_refs 必须是非空字符串数组`)
@@ -200,30 +217,48 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
   }
   function scene(item: DraftScene): SceneElement {
     unique(item?.id)
+    validateKeyframes(item)
+    if (item.visible === false) throw new Error(`${item.id} 暂不支持隐藏 Scene`)
+    if (item.speed !== undefined && item.speed !== 1) throw new Error(`${item.id} 暂不支持 Scene 整体变速`)
+    if ('source_timerange' in item) throw new Error(`${item.id} 的 Scene 不使用 source_timerange，请设置内部媒体的源区间`)
+    if (item.clip) warnings.push(`${item.id}.clip 已保留，当前 Workflow 尚未适配 Scene 整体变换`)
+    if (item.auto_duration !== undefined && typeof item.auto_duration !== 'boolean') {
+      throw new Error(`${item.id}.auto_duration 必须是布尔值`)
+    }
+    if (item.auto_duration && item.auto_timing?.end !== undefined) {
+      throw new Error(`${item.id} 自动内容时长不能同时设置 Scene 结束锚点`)
+    }
     if (!Array.isArray(item.tracks) || (item.scenes !== undefined && !Array.isArray(item.scenes))) {
       throw new Error(`${item.id}.tracks/scenes 必须是数组`)
     }
     const elements: SceneElement[] = []
     for (const [index, track] of item.tracks.entries()) {
       unique(track?.id)
-      if (!['video', 'audio', 'text', 'sticker', 'filter', 'effect'].includes(track.type)) throw new Error(`暂不支持轨道类型：${track.type}`)
+      if (track.type !== undefined && !['mixed', 'scene', 'video', 'audio', 'text', 'sticker', 'filter', 'effect'].includes(track.type)) {
+        throw new Error(`暂不支持轨道类型：${track.type}`)
+      }
       if (!Array.isArray(track.segments)) throw new Error(`${track.id}.segments 必须是数组`)
       const relative = track.track_relative_index ?? index
       if (!Number.isInteger(relative)) throw new Error(`${track.id}.track_relative_index 必须是整数`)
       for (const segment of track.segments) {
+        if (isSceneSegment(segment)) {
+          if (track.type && !['mixed', 'scene'].includes(track.type)) {
+            throw new Error(`${segment.id} 的 Scene 类型与轨道不一致，请使用 mixed 或 scene 轨道`)
+          }
+          if ('material_id' in segment) throw new Error(`${segment.id} 的 Scene 在轨道中直接定义，不使用 material_id`)
+          elements.push({ ...scene(segment), track_name: track.id, track_relative_index: relative })
+          continue
+        }
+        if (segment && ('tracks' in segment || 'scenes' in segment)) {
+          throw new Error(`${segment.id} 轨道中的子 Scene 必须设置 type: "scene"`)
+        }
         unique(segment?.id)
         validateKeyframes(segment)
         const found = materials.get(segment.material_id)
         if (!found) throw new Error(`${segment.id} 引用了不存在的 material_id`)
         const { material, bucket } = found
-        const type = track.type === 'video' ? (material.type === 'photo' ? 'image' : 'video') : track.type as SceneElement['type']
-        const buckets: Record<string, string> = {
-          video: 'videos', audio: 'audios', text: 'texts',
-          sticker: 'stickers', filter: 'effects', effect: 'video_effects'
-        }
-        if (bucket !== buckets[track.type] ||
-            (['sticker', 'filter', 'effect'].includes(track.type) &&
-             material.type !== (track.type === 'effect' ? 'video_effect' : track.type))) {
+        const type = materialElementType(material, bucket)
+        if (track.type && track.type !== 'mixed' && backendTrackType(type) !== track.type) {
           throw new Error(`${segment.id} 的素材类型与轨道不一致`)
         }
         const element: SceneElement = {
@@ -262,21 +297,34 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
       }
     }
     elements.push(...(item.scenes ?? []).map(scene))
-    return { id: item.id, name: item.name, type: 'composition', ...timing(item), elements }
+    const range = timing(item)
+    if (item.auto_duration) {
+      delete range.duration
+      delete range.target_end_time
+    }
+    return { id: item.id, name: item.name, type: 'composition', ...range, elements,
+      ...(item.auto_duration !== undefined ? { auto_duration: item.auto_duration } : {}) }
   }
   const template: SceneTemplate = {
     width: draft.canvas_config.width, height: draft.canvas_config.height,
     ...(draft.duration !== undefined ? { duration: micros(draft.duration, '模版.duration') } : {}),
     elements: draft.scenes.map(scene), timing_rules: rules
   }
-  return { template, warnings, hasKeyframes }
+  const analysis = analyzeSceneTemplate(template)
+  const logicalTracks = logicalTrackLayout(draft, analysis.timeline)
+  validateLogicalTrackTimeline(logicalTracks, analysis.timeline)
+  return { template, warnings, hasKeyframes, logicalTracks, analysis }
 }
 
-export function analyzeDraftTemplate(draft: DraftTemplate) {
-  return analyzeSceneTemplate(normalizeDraftTemplate(draft).template)
+export function analyzeDraftTemplate(draft: DraftTemplate, modifications: Record<string, unknown> = {}) {
+  const resolved = applyDynamicInputs(draft, modifications)
+  return { ...normalizeDraftTemplate(resolved).analysis,
+    dynamicInputs: getDynamicInputs(draft) }
 }
 
-export function compileDraftTemplate(draft: DraftTemplate) {
+export function compileDraftTemplate(draft: DraftTemplate, modifications: Record<string, unknown> = {}) {
+  const dynamicInputs = getDynamicInputs(draft)
+  draft = applyDynamicInputs(draft, modifications)
   const normalized = normalizeDraftTemplate(draft)
   if (normalized.hasKeyframes) throw new Error('模版包含关键帧，当前尚未支持关键帧 Workflow 执行，禁止丢弃动画后导出')
   function check(elements: SceneElement[]) {
@@ -288,8 +336,15 @@ export function compileDraftTemplate(draft: DraftTemplate) {
     }
   }
   check(normalized.template.elements)
-  const result = compileSceneTemplate(normalized.template)
-  return { ...result, template: structuredClone(draft), warnings: [...normalized.warnings, ...result.warnings] }
+  const backend = mapWorkflowTracks(normalized.template, normalized.logicalTracks)
+  const result = compileSceneTemplate(backend.template)
+  const dynamic = getDynamicInputs(draft).length
+    ? compileDynamicWorkflow(draft, backend.template, result.duration) : undefined
+  return { ...result, ...normalized.analysis, template: structuredClone(draft), dynamicInputs,
+    workflow: dynamic?.workflow ?? result.workflow,
+    workflowInputBindings: dynamic?.workflowInputBindings ?? [],
+    workflowTracks: backend.mappings,
+    warnings: [...normalized.warnings, ...result.warnings, ...(dynamic?.warnings ?? [])] }
 }
 
 export function wrapDraftAsTemplate(draft: {

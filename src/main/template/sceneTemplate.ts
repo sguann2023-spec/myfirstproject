@@ -1,3 +1,5 @@
+import { createSceneTimingEngine } from './sceneTiming'
+
 export interface SceneElement {
   id: string
   name?: string
@@ -9,6 +11,7 @@ export interface SceneElement {
   target_end_time?: number | 'end'
   source_start_time?: number
   duration?: number
+  auto_duration?: boolean
   fill_color?: string
   height?: number | string
   source?: string
@@ -101,8 +104,10 @@ export interface SceneCompileOptions {
   timing_rules?: Record<string, TimingRule>
 }
 
-export function compileSceneTemplate(template: SceneTemplate, options: SceneCompileOptions = {}) {
-  return processSceneTemplate(template, options, false)
+export function compileSceneTemplate(
+  template: SceneTemplate, options: SceneCompileOptions = {}, includeHidden = false
+) {
+  return processSceneTemplate(template, options, false, includeHidden)
 }
 
 export function analyzeSceneTemplate(template: SceneTemplate, options: SceneCompileOptions = {}) {
@@ -113,7 +118,8 @@ export function analyzeSceneTemplate(template: SceneTemplate, options: SceneComp
 function processSceneTemplate(
   template: SceneTemplate,
   options: SceneCompileOptions,
-  timelineOnly: boolean
+  timelineOnly: boolean,
+  includeHidden = false
 ) {
   if (!template || !Array.isArray(template.elements)) throw new Error('模版 elements 必须是数组')
   if (![template.width, template.height].every((size) => Number.isInteger(size) && size > 0)) {
@@ -166,7 +172,7 @@ function processSceneTemplate(
       const allowed = new Set(['id', 'name', 'type', 'track', 'duration',
         'target_start_time', 'target_end_time',
         'track_name', 'track_relative_index',
-        ...(element.type === 'composition' ? ['fill_color', 'elements'] :
+        ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration'] :
           element.type === 'text' ? ['text', 'fill_color', 'x', 'y', 'x_anchor', 'y_anchor', 'font_family', 'font_size'] :
             ['source', 'height', ...(['video', 'audio'].includes(element.type) ? ['source_start_time'] : [])])])
       for (const key of Object.keys(element)) {
@@ -180,6 +186,9 @@ function processSceneTemplate(
       if (element.source_start_time !== undefined) seconds(element.source_start_time, `${element.id}.source_start_time`)
       if (element.duration !== undefined) positiveDuration(element.duration, `${element.id}.duration`)
       if (element.type === 'composition') {
+        if (element.auto_duration !== undefined && typeof element.auto_duration !== 'boolean') {
+          throw new Error(`${element.id}.auto_duration 必须是布尔值`)
+        }
         if (!Array.isArray(element.elements)) throw new Error(`${element.id}.elements 必须是数组`)
         validate(element.elements, element.id)
       }
@@ -208,11 +217,45 @@ function processSceneTemplate(
     }
   }
 
+  const timingEngine = createSceneTimingEngine(options.timing_rules ?? {}, (element) => ({
+    start: element.target_start_time,
+    end: typeof element.target_end_time === 'number' ? element.target_end_time : undefined,
+    endAtParent: element.target_end_time === 'end',
+    duration: element.duration,
+    offset: (anchor) => anchor.offset ?? 0
+  }), {
+    value: (value) => value, add: (a, b) => a + b, subtract: (a, b) => a - b,
+    max: Math.max, store: (value) => value,
+    validate: (element, start, duration) => {
+      if (!Number.isFinite(start) || !Number.isFinite(duration) || duration < 0) {
+        throw new Error(`${element.id} 关联后的结束时间不能早于开始时间，时间必须为有限数字`)
+      }
+    },
+    validateContent: (element, duration) => {
+      if (element.target_end_time !== undefined || options.timing_rules?.[element.id]?.end) {
+        throw new Error(`${element.id} 自动内容时长不能同时设置 Scene 结束锚点`)
+      }
+      positiveDuration(duration, `${element.id} 推导的 Scene.duration`)
+    }
+  })
+  function hasAutoDuration(elements: SceneElement[]): boolean {
+    return elements.some((element) => element.auto_duration || hasAutoDuration(element.elements ?? []))
+  }
+
   // A root without duration is inferred only from explicitly timed children.
   // End anchoring cannot determine its own parent duration.
   let total: number
   if (source.duration !== undefined) {
     total = positiveDuration(source.duration, '模版.duration')
+  } else if (hasAutoDuration(source.elements)) {
+    total = 0
+    const root = timingEngine.scope(source.elements)
+    for (const element of source.elements) {
+      const timing = root.resolve(element)
+      if (!timing) throw new Error(`${element.id} 无法推导模版时长，请设置根 duration 或使用独立内容驱动的 Scene`)
+      total = Math.max(total, timing.localStart + timing.duration)
+    }
+    positiveDuration(total, '推导的模版.duration')
   } else {
     total = 0
     for (const element of source.elements) {
@@ -268,40 +311,8 @@ function processSceneTemplate(
     elements: SceneElement[], parentStart: number, parentDuration: number,
     parentId: string | null, clipStart: number, clipEnd: number
   ) {
-    const siblings = new Map(elements.map((element) => [element.id, element]))
-    const cache = new Map<string, { localStart: number; duration: number }>()
-    const resolving = new Set<string>()
-    function resolve(element: SceneElement): { localStart: number; duration: number } {
-      const cached = cache.get(element.id)
-      if (cached) return cached
-      if (resolving.has(element.id)) throw new Error(`时间关联存在循环依赖：${element.id}`)
-      resolving.add(element.id)
-      const rule = options.timing_rules?.[element.id]
-      function anchorTime(anchor: TimingAnchor): number {
-        const target = resolve(siblings.get(anchor.element_id)!)
-        return target.localStart + (anchor.anchor === 'end' ? target.duration : 0) + (anchor.offset ?? 0)
-      }
-      let localStart: number
-      const startSetting = targetStart(element)
-      const fixedEnd = element.target_end_time === 'end' ? parentDuration : element.target_end_time
-      const linkedEnd = rule?.end ? anchorTime(rule.end) : fixedEnd
-      if (rule?.start) {
-        localStart = anchorTime(rule.start)
-      } else if (startSetting === undefined && linkedEnd !== undefined && element.duration !== undefined) {
-        localStart = linkedEnd - element.duration
-      } else {
-        localStart = seconds(startSetting ?? 0, `${element.id}.target_start_time`)
-      }
-      const duration = linkedEnd !== undefined ? linkedEnd - localStart
-        : element.duration ?? Math.max(0, parentDuration - localStart)
-      if (!Number.isFinite(localStart) || !Number.isFinite(duration) || duration < 0) {
-        throw new Error(`${element.id} 关联后的结束时间不能早于开始时间，时间必须为有限数字`)
-      }
-      const resolved = { localStart, duration }
-      cache.set(element.id, resolved)
-      resolving.delete(element.id)
-      return resolved
-    }
+    const scope = timingEngine.scope(elements, parentDuration)
+    const resolve = (element: SceneElement) => scope.resolve(element)!
     // Validate dependencies even when a referenced element is later hidden.
     elements.forEach(resolve)
     for (const element of ordered(elements)) {
@@ -323,7 +334,7 @@ function processSceneTemplate(
       })
       if (!visible) {
         warnings.push(`${element.id} 位于 scene 可见时间范围外，不生成操作`)
-        continue
+        if (!includeHidden) continue
       }
       if (element.type === 'composition') {
         if (element.fill_color !== undefined) {

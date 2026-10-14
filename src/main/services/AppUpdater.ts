@@ -8,9 +8,7 @@ import { CancellationToken } from 'builder-util-runtime'
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, net } from 'electron'
 import type { AppUpdater as _AppUpdater, Logger, NsisUpdater, UpdateCheckResult } from 'electron-updater'
 import { autoUpdater } from 'electron-updater'
-import { createReadStream, existsSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
-import { createServer, type Server } from 'node:http'
+import { existsSync } from 'node:fs'
 import path from 'path'
 import semver from 'semver'
 
@@ -36,14 +34,13 @@ const MAC_CHANNEL_SUFFIX = '-mac'
 const CHANNEL_FILE_EXTENSION = '.yml'
 const WINDOWS_UPDATE_QUIT_TIMEOUT_MS = 10 * 1000
 const PREPARED_WINDOWS_UPDATE_KEY = 'appUpdater.preparedWindowsUpdate'
-const LOCAL_UPDATE_TEST_DIRECTORY = 'C:\\VectCut-update-test'
 
 interface PreparedWindowsUpdate {
   version: string
   installerPath: string
 }
 
-type FeedSourceName = 'github-proxy' | 'legacy-oss' | 'local-test'
+type FeedSourceName = 'github-proxy' | 'legacy-oss'
 
 interface FeedSource {
   name: FeedSourceName
@@ -187,7 +184,6 @@ export default class AppUpdater {
   private isDownloadInProgress = false
   private downloadedUpdateVersion: string | null = null
   private readonly preparedUpdateAtLaunch: PreparedWindowsUpdate | null
-  private localUpdateServer: Server | null = null
 
   private broadcastUpdateEvent(channel: string, ...args: unknown[]) {
     const windows = BrowserWindow.getAllWindows().filter((browserWindow) => !browserWindow.isDestroyed())
@@ -482,57 +478,7 @@ export default class AppUpdater {
     return false
   }
 
-  private async _getLocalTestFeedUrl(): Promise<string | null> {
-    if (!isWin || !existsSync(LOCAL_UPDATE_TEST_DIRECTORY)) return null
-    if (!this.localUpdateServer) {
-      // electron-updater requires HTTP; expose only files inside the fixed test folder.
-      const server = createServer(async (req, res) => {
-        try {
-          const filename = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname.slice(1))
-          if (!filename || filename !== path.win32.basename(filename) || filename.includes(':') ||
-              !/\.(yml|exe|blockmap)$/i.test(filename) || !['GET', 'HEAD'].includes(req.method || '')) {
-            res.writeHead(404).end()
-            return
-          }
-          const filePath = path.join(LOCAL_UPDATE_TEST_DIRECTORY, filename)
-          const file = await stat(filePath)
-          if (!file.isFile()) throw new Error('Not a file')
-          res.writeHead(200, { 'Content-Length': file.size, 'Cache-Control': 'no-store' })
-          if (req.method === 'HEAD') {
-            res.end()
-            return
-          }
-          const stream = createReadStream(filePath)
-          stream.on('error', (error) => res.destroy(error))
-          res.on('close', () => stream.destroy())
-          stream.pipe(res)
-        } catch {
-          if (!res.headersSent) res.writeHead(404)
-          res.end()
-        }
-      })
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
-        server.listen(0, '127.0.0.1', resolve)
-      })
-      server.unref()
-      this.localUpdateServer = server
-    }
-    const address = this.localUpdateServer.address()
-    if (!address || typeof address === 'string') throw new Error('Local update source unavailable')
-    return `http://127.0.0.1:${address.port}/`
-  }
-
   private async _setFeedUrl(): Promise<FeedSource> {
-    const testFeedUrl = await this._getLocalTestFeedUrl()
-    if (testFeedUrl) {
-      const source: FeedSource = { name: 'local-test', feedUrl: testFeedUrl }
-      this._applyFeedUrl(source.feedUrl, source.name)
-      this.autoUpdater.disableDifferentialDownload = true
-      logger.warn('Using local Windows update test source; online fallback disabled', source)
-      return source
-    }
-
     // Try multiple domestic GitHub proxy nodes in order, and fall back to the
     // existing OSS feed if none of them can be reached quickly enough.
     const channelKey = detectChannelKeyFromPath()

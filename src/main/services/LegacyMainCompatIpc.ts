@@ -18,13 +18,14 @@ import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { mainHttpClient } from './network/MainHttpClient'
 import { windowService } from './WindowService'
 import { registerTemplateIpc } from '../template/registerTemplateIpc'
+import { isTemplatePresetId } from '../../shared/templatePresets'
 
 const logger = loggerService.withContext('LegacyMainCompatIpc')
 
 let registered = false
 let authWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
-let templateEditWindow: BrowserWindow | null = null
+const templateEditWindows = new Set<BrowserWindow>()
 const pendingArtistUrlRequests = new Map<string, Worker>()
 const activeDownloadWorkers = new Map<number, {
   worker: Worker
@@ -1015,14 +1016,10 @@ function registerLegacyWindowChannels() {
     }
   })
 
-  safeOn('open-template-edit-window', () => {
-    if (templateEditWindow && !templateEditWindow.isDestroyed()) {
-      if (templateEditWindow.isMinimized()) templateEditWindow.restore()
-      templateEditWindow.focus()
-      return
-    }
-
-    templateEditWindow = new BrowserWindow({
+  safeOn('open-template-edit-window', (_event, presetId = 'empty') => {
+    if (!isTemplatePresetId(presetId)) return
+    const search = `?view=template-edit&preset=${encodeURIComponent(presetId)}`
+    const templateEditWindow = new BrowserWindow({
       title: '新模版',
       width: 1440,
       height: 810,
@@ -1038,15 +1035,16 @@ function registerLegacyWindowChannels() {
         additionalArguments: [`--app-version=${app.getVersion()}`, `--version-code=${app.getVersion()}`]
       }
     })
+    templateEditWindows.add(templateEditWindow)
 
     if (process.env['ELECTRON_RENDERER_URL']) {
-      void templateEditWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?view=template-edit`)
+      void templateEditWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}${search}`)
     } else {
-      void templateEditWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?view=template-edit' })
+      void templateEditWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { search })
     }
 
     templateEditWindow.on('closed', () => {
-      templateEditWindow = null
+      templateEditWindows.delete(templateEditWindow)
     })
   })
 

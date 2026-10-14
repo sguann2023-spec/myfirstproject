@@ -14,7 +14,7 @@ describe('Scene 包裹剪映草稿轨道', () => {
     expect(result.template).toEqual(before)
     expect(template).toEqual(before)
     expect(result.workflow.script.find(({ id }) => id === 'image-1')!.params)
-      .toMatchObject({ start: 9.2838, end: 21.6308, track_name: 'image_main', relative_index: 1 })
+      .toMatchObject({ start: 9.2838, end: 21.6308, track_name: 'image_main', relative_index: 15002 })
     expect(analyzeEditorDocument(payload(template)).timeline).toEqual(result.timeline)
     expect(compileEditorDocument(payload(template)).template).toEqual(template)
   })
@@ -120,13 +120,13 @@ describe('Scene 包裹剪映草稿轨道', () => {
       const draft = JSON.parse(added.templateJson) as DraftTemplate
       const track = draft.scenes[0].tracks.at(-1)!
       const segment = track.segments[0]
-      expect(track.type).toBe(type)
+      expect(track.type).toBe('mixed')
       expect(draft.materials[bucket][0]).toMatchObject({ id: segment.material_id, type: materialType, resource_id: '' })
       segment.target_timerange.duration = 5_000_000
       segment.auto_timing = { start: { target: 'text-2', anchor: 'start' }, end: { target: 'text-2', anchor: 'end' } }
       const model = analyzeEditorDocument(payload(draft))
       expect(model.timeline.find(({ id }) => id === segment.id)).toMatchObject({ type, start: 9.2838, end: 21.6308 })
-      expect(model.tree[0].children.at(-1)!.children[0]).toMatchObject({ id: segment.id, type })
+      expect(model.tree[0].children.find((node) => node.id === track.id)!.children[0]).toMatchObject({ id: segment.id, type })
       expect(model.rows.flatMap(({ clips }) => clips).find(({ id }) => id === segment.id)).toMatchObject({ type })
       expect(() => compileEditorDocument(payload(draft))).toThrow('暂未支持 Workflow 执行')
       draft.materials[bucket][0].type = 'text_effect'

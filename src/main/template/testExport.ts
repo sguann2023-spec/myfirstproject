@@ -1,4 +1,5 @@
 import { compileEditorDocument, type EditorPayload } from './editorModel'
+import type { TemplateWorkflow, WorkflowStep } from './workflowTypes'
 
 type ToolResult = { isError?: boolean; content?: Array<{ type: string; text?: string }> }
 type Dependencies = {
@@ -17,18 +18,38 @@ function readResult(result: ToolResult, stage: string): Record<string, any> {
 }
 
 // Use input-variable references at the execution boundary so literal text is not evaluated as arithmetic.
-export function prepareExecutionWorkflow(workflow: ReturnType<typeof compileEditorDocument>['workflow']) {
+export function prepareExecutionWorkflow(workflow: TemplateWorkflow): TemplateWorkflow {
   const result = structuredClone(workflow)
   const inputs: Record<string, unknown> = { ...result.inputs }
-  let index = 0
-  for (const step of result.script) {
-    for (const [key, value] of Object.entries(step.params)) {
-      if (typeof value !== 'string') continue
-      const variable = `template_literal_${index++}`
-      inputs[variable] = value
-      ;(step.params as Record<string, unknown>)[key] = `\${${variable}}`
+  const variables = new Set(Object.keys(inputs))
+  function collect(steps: WorkflowStep[]) {
+    for (const step of steps) {
+      if (step.type === 'set_var' && step.name) variables.add(step.name)
+      collect(step.then ?? [])
+      collect(step.else ?? [])
+      collect(step.loop ?? [])
     }
   }
+  collect(result.script)
+  let index = 0
+  function protect(steps: WorkflowStep[]) {
+    for (const step of steps) {
+      for (const [key, value] of Object.entries(step.params ?? {})) {
+        if (typeof value !== 'string') continue
+        const refs = [...value.matchAll(/\$\{([^}]+)\}/g)]
+        if (refs.length && refs.every((match) => variables.has(match[1].split(/[.\[]/)[0]))) continue
+        let variable = `template_literal_${index++}`
+        while (variables.has(variable)) variable = `template_literal_${index++}`
+        inputs[variable] = value
+        variables.add(variable)
+        step.params![key] = `\${${variable}}`
+      }
+      protect(step.then ?? [])
+      protect(step.else ?? [])
+      protect(step.loop ?? [])
+    }
+  }
+  protect(result.script)
   return { ...result, inputs }
 }
 
@@ -45,7 +66,9 @@ export class TemplateTestExporter {
     this.pending.add(owner)
     try {
       const compiled = compileEditorDocument(payload)
-      if (!compiled.workflow.script.length) throw new Error('模版没有可见内容，不能测试导出')
+      if (!compiled.timeline.some((item) => item.visible && item.type !== 'composition')) {
+        throw new Error('模版没有可见内容，不能测试导出')
+      }
       const fingerprint = JSON.stringify(compiled.workflow)
       let execution = this.completedExecution.get(owner)
       if (!execution || execution.fingerprint !== fingerprint) {
