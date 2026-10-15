@@ -5132,7 +5132,7 @@ const Composer = ({
                 loading={modelListLoading}
                 onChange={(value) => {
                   if (String(value || '').trim().toLowerCase() === 'qwen3.8-flash') {
-                    trackEvent('qwen3.8-flashPC端点击', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
+                    trackEvent('qwen_3_8_flash_click', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
                   }
                   onModelChange && onModelChange(value);
                 }}
@@ -5142,7 +5142,7 @@ const Composer = ({
                     const value = String(item?.value || '').trim().toLowerCase();
                     return value === 'qwen3.8-flash';
                   })) {
-                    trackEvent('qwen3.8-flashPC端曝光', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
+                    trackEvent('qwen_3_8_flash_expore', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
                   }
                   if (!open) clearHoveredModelCard();
                 }}

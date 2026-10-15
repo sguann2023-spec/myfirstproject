@@ -9,6 +9,7 @@ import ImageModelJimengBlackIcon from '../../../../../public/image_model_jimeng_
 import ImageModelNanoBananaBlackIcon from '../../../../../public/image_model_nano_banana_black.svg';
 import ImagePanSelectedIcon from '../../../../../public/image_pan_selected.svg';
 import Point2Icon from '../../../../../public/point2.svg';
+import { trackEvent } from '../../../../shared/analytics';
 
 const IMAGE_MODEL_OPTIONS = [
   { value: 'seedream-4.5', label: 'seedream-4.5' },
@@ -296,8 +297,18 @@ const ImagePanToolDetail = ({
           value={selectedModel}
           options={modelOptions}
           optionLabelProp="selectedLabel"
-          onChange={(value) => onModelChange && onModelChange(value)}
-          onOpenChange={setModelPickerOpen}
+          onChange={(value) => {
+            if (String(value || '').trim().toLowerCase() === 'nano_banana_2.1') {
+              trackEvent('nano_banana_2_1_click', { source: 'image_model_picker', model: 'nano_banana_2.1' });
+            }
+            onModelChange && onModelChange(value);
+          }}
+          onOpenChange={(open) => {
+            setModelPickerOpen(open);
+            if (open && resolvedModelOptions.some((item) => String(item?.value || '').trim().toLowerCase() === 'nano_banana_2.1')) {
+              trackEvent('nano_banana_2_1_expore', { source: 'image_model_picker', model: 'nano_banana_2.1' });
+            }
+          }}
           disabled={disabled}
           popupMatchSelectWidth={false}
           getPopupContainer={() => document.body}

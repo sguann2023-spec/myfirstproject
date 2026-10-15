@@ -1,7 +1,7 @@
 {
-  "version": "20260817105413",
-  "updatedAt": "2026-08-17T10:54:13Z",
-  "templateCount": 29,
+  "version": "20261015120000",
+  "updatedAt": "2026-10-15T04:00:00Z",
+  "templateCount": 31,
   "templates": [
     {
       "id": "client_image_template_001",
@@ -356,6 +356,72 @@
           "role": "reference_image",
           "image_url": {
             "url": "https://player.install-ai-guider.top/example/client_image_template/official/030_ref_1.jpg"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_031",
+      "index": 31,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/references/1.png",
+      "description": "女生手持饮料并佩戴浅蓝色墨镜，保留原有粉色背景与人物比例。",
+      "prompt": "图一中的女生手中拿着图三中的饮料，带着图二的墨镜，背景保持不变，人物的比例协调一点",
+      "model": "nano_banana_2.1",
+      "ratio": "9:16",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/references/1.png",
+        "https://player.install-ai-guider.top/example/client_image_template/references/2.png",
+        "https://player.install-ai-guider.top/example/client_image_template/references/3.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "图一中的女生手中拿着图三中的饮料，带着图二的墨镜，背景保持不变，人物的比例协调一点"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/references/1.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/references/2.png"
+          }
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/references/3.png"
+          }
+        }
+      ]
+    },
+    {
+      "id": "client_image_template_032",
+      "index": 32,
+      "cover": "https://player.install-ai-guider.top/example/client_image_template/references/4.png",
+      "description": "根据手绘草图添加杂志和咖啡，并自然融入原有静物场景。",
+      "prompt": "根据手绘草图对图像进行编辑。在左下角标记区域添加一叠真实的杂志或艺术画册，并在右侧标记区域添加一个带杯碟的陶瓷杯咖啡。移除所有草图线条。保持构图不变。让新添加的物体自然融入原有场景中。",
+      "model": "nano_banana_2.1",
+      "ratio": "1:1",
+      "referenceImageUrls": [
+        "https://player.install-ai-guider.top/example/client_image_template/references/4.png"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "根据手绘草图对图像进行编辑。在左下角标记区域添加一叠真实的杂志或艺术画册，并在右侧标记区域添加一个带杯碟的陶瓷杯咖啡。移除所有草图线条。保持构图不变。让新添加的物体自然融入原有场景中。"
+        },
+        {
+          "type": "image_url",
+          "role": "reference_image",
+          "image_url": {
+            "url": "https://player.install-ai-guider.top/example/client_image_template/references/4.png"
           }
         }
       ]
