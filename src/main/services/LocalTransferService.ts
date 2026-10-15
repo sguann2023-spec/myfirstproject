@@ -18,9 +18,12 @@ type StartDiscoveryOptions = {
 type BonjourLike = {
   find: (options: { type: string; protocol: 'tcp' }) => Browser
   destroy: () => void
+  // bonjour-service's mDNS transport. Guard its asynchronous interface refresh
+  // before the socket starts listening and captures update in its timer.
+  server?: { mdns?: { update: () => void; on?: (event: string, listener: (error: Error) => void) => void } }
 }
 
-type BonjourConstructor = new () => BonjourLike
+type BonjourConstructor = new (options?: object, onError?: (error: Error) => void) => BonjourLike
 
 const resolveBonjourConstructor = (): BonjourConstructor => {
   const module = BonjourModule as unknown as { default?: unknown; Bonjour?: unknown }
@@ -78,13 +81,7 @@ class LocalTransferService {
   }
 
   public stopDiscovery(): LocalTransferState {
-    if (this.browser) {
-      try {
-        this.browser.stop()
-      } catch (error) {
-        logger.warn('Failed to stop local transfer browser', error as Error)
-      }
-    }
+    this.releaseBrowser()
     this.isScanning = false
     this.lastUpdatedAt = Date.now()
     this.broadcastState()
@@ -124,7 +121,32 @@ class LocalTransferService {
   private getBonjour(): BonjourLike {
     if (!this.bonjour) {
       const BonjourCtor = resolveBonjourConstructor()
-      this.bonjour = new BonjourCtor()
+      const onError = (error: Error) => {
+        if (this.lastError === error.message) return
+        logger.warn('Local transfer network operation failed', error)
+        this.lastError = error.message
+        this.lastUpdatedAt = Date.now()
+        this.broadcastState()
+      }
+      this.bonjour = new BonjourCtor({}, onError)
+      const mdns = this.bonjour.server?.mdns
+      if (!mdns || typeof mdns.update !== 'function') {
+        // Fail this optional feature closed if an upgraded dependency changes
+        // its transport layout; never silently start an unguarded timer.
+        throw new Error('Local transfer transport does not support guarded interface refresh')
+      }
+      const update = mdns.update.bind(mdns)
+      mdns.on?.('error', onError)
+      mdns.on?.('warning', onError)
+      mdns.update = () => {
+        try {
+          update()
+        } catch (error) {
+          // networkInterfaces may fail transiently during VPN/network changes.
+          // Leave existing memberships intact and let the next refresh retry.
+          onError(error instanceof Error ? error : new Error(String(error)))
+        }
+      }
     }
     return this.bonjour
   }

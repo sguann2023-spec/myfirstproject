@@ -2436,7 +2436,27 @@ const HomePage = () => {
   const beginnerGuideDownloadPaneRef = useRef(null);
   const beginnerGuideSettingsPaneRef = useRef(null);
   const [chatHistoryAnimated, setChatHistoryAnimated] = useState(false);
-  const [chatDraftInput, setChatDraftInput] = useState('');
+  const [chatDraftInput, updateChatDraftInput] = useState(() => {
+    try {
+      return localStorage.getItem('chat-panel:unsent-draft') || '';
+    } catch {
+      return '';
+    }
+  });
+  const chatDraftInputRef = useRef(chatDraftInput);
+  const setChatDraftInput = useCallback((value) => {
+    const next = String(typeof value === 'function' ? value(chatDraftInputRef.current) : value ?? '');
+    chatDraftInputRef.current = next;
+    // Persist at the input boundary so a renderer failure does not lose a
+    // pending debounce. Clearing after send also removes the recovery copy.
+    try {
+      if (next) localStorage.setItem('chat-panel:unsent-draft', next);
+      else localStorage.removeItem('chat-panel:unsent-draft');
+    } catch (error) {
+      logger.warn('Failed to persist unsent chat draft.', error);
+    }
+    updateChatDraftInput(next);
+  }, []);
 
   const handleSkillGoChat = useCallback((skill) => {
     const name = String(skill?.name || skill?.folderName || '').trim();

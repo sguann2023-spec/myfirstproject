@@ -6,7 +6,7 @@ import { loggerService } from '@logger'
 import { isLinux, isMac, isWin } from '@main/constant'
 import { getFilesDir } from '@main/utils/file'
 import { IpcChannel } from '@shared/IpcChannel'
-import { app, BrowserWindow, nativeImage, nativeTheme, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeImage, nativeTheme, screen, shell } from 'electron'
 import windowStateKeeper from 'electron-window-state'
 import fs from 'node:fs'
 import path, { join } from 'path'
@@ -47,6 +47,7 @@ export class WindowService {
   //to restore the focus status when miniWindow hides
   private wasMainWindowFocused: boolean = false
   private lastRendererProcessCrashTime: number = 0
+  private rendererRecoveryPending = false
 
   public static getInstance(): WindowService {
     if (!WindowService.instance) {
@@ -212,7 +213,7 @@ export class WindowService {
       }
       logger.error(`Renderer process gone with context: ${JSON.stringify(crashContext)}`)
       crashReportService.record('render-process-gone', crashContext, details.reason === 'crashed' || details.reason === 'oom')
-      if (app.isQuitting || mainWindow.isDestroyed()) {
+      if (app.isQuitting || mainWindow.isDestroyed() || details.reason === 'clean-exit') {
         crashReportService.record('renderer-recovery-action', {
           action: 'skip',
           reason: app.isQuitting ? 'app-quitting' : 'window-destroyed',
@@ -223,10 +224,14 @@ export class WindowService {
         return
       }
 
+      // Chromium can report several failures while the previous renderer tears down.
+      if (this.rendererRecoveryPending) return
+
       const currentTime = Date.now()
       const lastCrashTime = this.lastRendererProcessCrashTime
       this.lastRendererProcessCrashTime = currentTime
-      if (currentTime - lastCrashTime > 60 * 1000) {
+      this.rendererRecoveryPending = true
+      if (!lastCrashTime || currentTime - lastCrashTime > 60 * 1000) {
         crashReportService.record('renderer-recovery-action', {
           action: 'reload',
           windowId: mainWindow.id,
@@ -236,20 +241,57 @@ export class WindowService {
         // asking it to create a replacement. Reloading from inside
         // `render-process-gone` can race renderer teardown on Windows.
         setTimeout(() => {
+          this.rendererRecoveryPending = false
           if (app.isQuitting || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
-          mainWindow.webContents.reload()
+          try {
+            mainWindow.webContents.reload()
+          } catch (error) {
+            logger.error('Renderer reload failed', error as Error)
+            void this.showRendererRecovery(mainWindow)
+          }
         }, 100)
       } else {
         crashReportService.record('renderer-recovery-action', {
-          action: 'exit',
-          exitCode: 1,
+          action: 'prompt',
           windowId: mainWindow.id,
           elapsedSincePreviousCrashMs: currentTime - lastCrashTime
         }, true)
-        // 如果小于1分钟，则退出应用, 可能是连续crash，需要退出应用
-        app.exit(1)
+        void this.showRendererRecovery(mainWindow)
       }
     })
+  }
+
+  private async showRendererRecovery(mainWindow: BrowserWindow) {
+    this.rendererRecoveryPending = true
+    try {
+      if (app.isQuitting || mainWindow.isDestroyed()) return
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        title: '客户端恢复',
+        message: '页面连续发生异常，请选择恢复方式。',
+        detail: '重试将重新加载页面。若仍然异常，可关闭硬件加速并重启客户端。已经提交的生成任务不会在此处重复提交。',
+        buttons: ['重新加载', '关闭硬件加速并重启', '退出客户端'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true
+      })
+      if (app.isQuitting || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return
+      crashReportService.record('renderer-recovery-action', { action: ['retry', 'restart-without-gpu', 'quit'][response] })
+      if (response === 0) {
+        this.lastRendererProcessCrashTime = 0
+        mainWindow.webContents.reload()
+      } else if (response === 1) {
+        configManager.setDisableHardwareAcceleration(true)
+        app.relaunch()
+        app.quit()
+      } else {
+        app.quit()
+      }
+    } catch (error) {
+      logger.error('Failed to show renderer recovery', error as Error)
+    } finally {
+      this.rendererRecoveryPending = false
+    }
   }
 
   private setupMaximize(mainWindow: BrowserWindow, isMaximized: boolean) {

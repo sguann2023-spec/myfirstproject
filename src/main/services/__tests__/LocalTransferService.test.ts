@@ -24,6 +24,7 @@ let mockBrowser: EventEmitter & {
 let mockBonjour: {
   find: Mock
   destroy: Mock
+  server: { mdns: { update: Mock | (() => void) } }
 }
 
 // Mock dependencies before importing the service
@@ -84,7 +85,8 @@ describe('LocalTransferService', () => {
 
     mockBonjour = {
       find: vi.fn(() => mockBrowser),
-      destroy: vi.fn()
+      destroy: vi.fn(),
+      server: { mdns: { update: vi.fn() } }
     }
   })
 
@@ -182,6 +184,19 @@ describe('LocalTransferService', () => {
   })
 
   describe('stopDiscovery', () => {
+    it('contains transient interface refresh failures and retries on the next tick', async () => {
+      const update = vi.fn().mockImplementationOnce(() => { throw new Error('networkInterfaces failed') })
+      mockBonjour.server.mdns.update = update
+      const { localTransferService } = await import('../LocalTransferService')
+      localTransferService.startDiscovery()
+      expect(() => mockBonjour.server.mdns.update()).not.toThrow()
+      expect(localTransferService.getState().lastError).toBe('networkInterfaces failed')
+      expect(() => mockBonjour.server.mdns.update()).not.toThrow()
+      expect(update).toHaveBeenCalledTimes(2)
+      localTransferService.stopDiscovery()
+      expect(mockBonjour.destroy).toHaveBeenCalledOnce()
+    })
+
     it('should set isScanning to false and stop browser', async () => {
       const { localTransferService } = await import('../LocalTransferService')
 
