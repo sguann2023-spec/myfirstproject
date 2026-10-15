@@ -17,7 +17,6 @@ export type ToolGuidanceOptions = {
 
 const logger = loggerService.withContext('PromptBuilder')
 
-export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY = '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__'
 const MAX_INSTRUCTION_FILE_CHARS = 4000
 const MAX_TOTAL_INSTRUCTION_CHARS = 12000
 
@@ -57,7 +56,7 @@ async function resolveFile(dir: string, name: string): Promise<string | undefine
 
 /**
  * PromptBuilder now mirrors the claw-code prompt shape:
- * static rules, a dynamic boundary, compact environment/project sections,
+ * static rules, compact environment/project sections,
  * capped workspace instruction files, and capability-scoped tool guidance.
  */
 export class PromptBuilder {
@@ -73,7 +72,6 @@ export class PromptBuilder {
       getIntroSection(),
       getSystemSection(),
       getExecutionSection(),
-      SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
       getEnvironmentSection(workspacePath),
       instructionFiles.length > 0 ? renderInstructionFiles(instructionFiles) : '',
       this.buildToolGuidance(workspacePath, toolGuidance)

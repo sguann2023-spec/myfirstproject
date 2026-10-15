@@ -14,7 +14,7 @@ vi.mock('node:fs/promises', () => ({
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 
-import { PromptBuilder, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '../prompt'
+import { PromptBuilder } from '../prompt'
 
 const mockedStat = vi.mocked(stat)
 const mockedReadFile = vi.mocked(readFile)
@@ -66,7 +66,7 @@ describe('PromptBuilder', () => {
     expect(result).toContain('# Rules')
     expect(result).toContain('# Execution')
     expect(result).toContain('never print pseudo tool-call markup')
-    expect(result).toContain(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
+    expect(result).not.toContain('__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__')
     expect(result).toContain('# Environment')
     expect(result).toContain('- Workspace: /workspace')
     expect(result).not.toContain('# Workspace root')

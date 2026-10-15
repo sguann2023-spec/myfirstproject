@@ -12,6 +12,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/main/services/agents/services/cherryclaw/__tests__/prompt.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/provider-payload-summary.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/codemode-search.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/create-harness.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/mcp-result-storage.test.ts',

@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -28,6 +27,7 @@ import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search
 import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { buildToolOutputPreview } from './tool-output-preview'
 import { preserveMcpResult } from './mcp-result-storage'
+import { summarizeProviderPayload } from './provider-payload-summary'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -76,6 +76,13 @@ export type PiNestedToolEvent =
     }
 
 type PiAgentCoreModule = typeof import('@earendil-works/pi-agent-core')
+type PiNodeModule = {
+  NodeExecutionEnv: new (options: {
+    cwd: string
+    shellPath?: string
+    shellEnv?: NodeJS.ProcessEnv
+  }) => import('@earendil-works/pi-agent-core').ExecutionEnv
+}
 type PiAiModule = typeof import('@earendil-works/pi-ai')
 type PiCodemodeModule = typeof import('@earendil-works/pi-codemode')
 type PiCodemodeTool = import('@earendil-works/pi-codemode').CodemodeTool
@@ -97,6 +104,7 @@ type PiAgentHarnessTool = import('@earendil-works/pi-agent-core').AgentHarnessTo
 
 type PiPackageBridge = {
   agentCore: PiAgentCoreModule
+  agentNode: PiNodeModule
   piAi: PiAiModule
   piCodemode: PiCodemodeModule
   anthropicMessagesApi: PiApiModule
@@ -190,8 +198,9 @@ const nativeDynamicImport = new Function('specifier', 'return import(specifier)'
 ) => Promise<TModule>
 
 async function tryLoadPiPackageBridge(): Promise<PiPackageBridge> {
-  const [agentCore, piAi, piCodemode, anthropicMessagesApi, openAiCompletionsApi, openAiResponsesApi, azureOpenAiResponsesApi] = await Promise.all([
+  const [agentCore, agentNode, piAi, piCodemode, anthropicMessagesApi, openAiCompletionsApi, openAiResponsesApi, azureOpenAiResponsesApi] = await Promise.all([
     nativeDynamicImport<PiAgentCoreModule>('@earendil-works/pi-agent-core'),
+    nativeDynamicImport<PiNodeModule>('@earendil-works/pi-agent-core/node'),
     nativeDynamicImport<PiAiModule>('@earendil-works/pi-ai'),
     nativeDynamicImport<PiCodemodeModule>('@earendil-works/pi-codemode'),
     nativeDynamicImport<PiApiModule>('@earendil-works/pi-ai/api/anthropic-messages'),
@@ -202,6 +211,7 @@ async function tryLoadPiPackageBridge(): Promise<PiPackageBridge> {
 
   return {
     agentCore,
+    agentNode,
     piAi,
     piCodemode,
     anthropicMessagesApi,
@@ -277,67 +287,31 @@ export function resolveShellExecutable(env: Record<string, string>): string {
   )
 }
 
-async function executeShellCommand(input: {
-  command: string
+export function buildPiBashTool(input: {
+  agentCore: PiAgentCoreModule
+  agentNode: PiNodeModule
   cwd: string
   env: Record<string, string>
-  timeoutSeconds?: number
-  signal?: AbortSignal
-  onUpdate?: (text: string) => void
-}): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  const { command, cwd, env, timeoutSeconds, signal, onUpdate } = input
-
-  return await new Promise((resolve, reject) => {
-    const shellExecutable = resolveShellExecutable(env)
-    const shellArgs = isWin && shellExecutable.toLowerCase().endsWith('cmd.exe') ? ['/d', '/s', '/c', command] : ['-lc', command]
-
-    const child = spawn(shellExecutable, shellArgs, {
-      cwd,
-      env: {
-        ...process.env,
-        ...env
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-    let timeoutHandle: NodeJS.Timeout | undefined
-
-    const finalize = (callback: () => void) => {
-      if (settled) return
-      settled = true
-      if (timeoutHandle) clearTimeout(timeoutHandle)
-      signal?.removeEventListener('abort', abortHandler)
-      callback()
+}): PiAgentHarnessTool {
+  const nativeTool = input.agentCore.createBashTool()
+  return {
+    ...nativeTool,
+    name: 'Bash',
+    label: 'Bash',
+    async execute(toolCallId, params, signal, onUpdate) {
+      // Resolve lazily so conversations without shell calls do not require Git Bash.
+      const shellPath = resolveShellExecutable(input.env)
+      const { NodeExecutionEnv } = input.agentNode
+      const env = new NodeExecutionEnv({ cwd: input.cwd, shellPath, shellEnv: input.env })
+      try {
+        return await nativeTool.execute(
+          toolCallId, params as import('@earendil-works/pi-agent-core').BashToolInput, signal, onUpdate, { env }
+        )
+      } finally {
+        await env.cleanup()
+      }
     }
-
-    const abortHandler = () => {
-      child.kill('SIGTERM')
-      finalize(() => reject(new Error('Operation aborted')))
-    }
-
-    signal?.addEventListener('abort', abortHandler, { once: true })
-
-    if (timeoutSeconds && timeoutSeconds > 0) {
-      timeoutHandle = setTimeout(() => {
-        child.kill('SIGTERM')
-        finalize(() => reject(new Error(`Command timed out after ${timeoutSeconds} seconds`)))
-      }, timeoutSeconds * 1000)
-    }
-
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += chunk.toString()
-      onUpdate?.(stdout)
-    })
-    child.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk.toString()
-      onUpdate?.([stdout, stderr].filter(Boolean).join('\n'))
-    })
-    child.on('error', (error) => finalize(() => reject(error)))
-    child.on('close', (code) => finalize(() => resolve({ stdout, stderr, exitCode: code })))
-  })
+  }
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -971,14 +945,16 @@ function buildBuiltinTools(input: {
     description: 'Apply multiple exact string replacements to a file.'
   } as any
 
+  const piBashTool = buildPiBashTool({
+    agentCore: packageBridge.agentCore,
+    agentNode: packageBridge.agentNode,
+    cwd,
+    env: runtimeEnvironment.env
+  })
   const bashTool: PiAgentHarnessTool = {
+    ...piBashTool,
     name: 'Bash',
     label: 'Bash',
-    description: 'Execute a shell command in the current workspace and return stdout/stderr.',
-    parameters: Type.Object({
-      command: Type.String(),
-      timeout: Type.Optional(Type.Number())
-    }),
     async execute(
       toolCallId: string,
       rawParams: unknown,
@@ -995,31 +971,19 @@ function buildBuiltinTools(input: {
         command: String(params.command ?? ''),
         timeout: typeof params.timeout === 'number' ? params.timeout : undefined
       })
-      const result = await executeShellCommand({
-        command: String(params.command ?? ''),
-        cwd,
-        env: runtimeEnvironment.env,
-        timeoutSeconds: typeof params.timeout === 'number' ? params.timeout : undefined,
-        signal,
-        onUpdate: (text) => {
-          onUpdate?.({
-            content: [{ type: 'text', text: text || '(no output yet)' }],
-            details: undefined
-          })
-        }
-      })
-      const output = [result.stdout, result.stderr].filter(Boolean).join(result.stdout && result.stderr ? '\n' : '')
-      if (result.exitCode && result.exitCode !== 0) {
+      let result: Awaited<ReturnType<PiAgentHarnessTool['execute']>>
+      try {
+        result = await piBashTool.execute(toolCallId, params, signal, onUpdate, undefined)
+      } catch (error) {
         logger.warn('[AgentCore] builtin tool execute failed', {
           traceId: invokeContext.runtime.traceId,
           topicId: invokeContext.projection.topicId,
           piSessionId: invokeContext.projection.piSessionId,
           toolName: 'Bash',
           toolCallId,
-          exitCode: result.exitCode,
-          outputPreview: output.slice(0, 500)
+          error: error instanceof Error ? error.message.slice(0, 500) : String(error)
         })
-        throw new Error(output || `Command exited with code ${result.exitCode}`)
+        throw error
       }
       logger.info('[AgentCore] builtin tool execute success', {
         traceId: invokeContext.runtime.traceId,
@@ -1027,24 +991,10 @@ function buildBuiltinTools(input: {
         piSessionId: invokeContext.projection.piSessionId,
         toolName: 'Bash',
         toolCallId,
-        exitCode: result.exitCode,
-        stdoutChars: result.stdout.length,
-        stderrChars: result.stderr.length
+        outputChars: extractToolText(result.content).length,
+        details: result.details
       })
-      return {
-        ...buildToolOutputPreview({
-          toolName: 'Bash',
-          sections: [
-            { label: 'stdout', text: result.stdout },
-            { label: 'stderr', text: result.stderr }
-          ],
-          emptyText: '(no output)',
-          context: {
-            command: String(params.command ?? ''),
-            exitCode: result.exitCode ?? 0
-          }
-        })
-      }
+      return result
     }
   } as any
 
@@ -1757,7 +1707,17 @@ function wrapPiApiModuleWithLogging(input: {
             invokeContext
           })
           const originalOnPayload = typeof typedOptions.onPayload === "function" ? typedOptions.onPayload : undefined
-          return originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          logger.info('[AgentCore] pi provider payload', {
+            traceId: invokeContext.runtime.traceId,
+            topicId: invokeContext.projection.topicId,
+            providerApiType,
+            method: 'stream',
+            requestIndex,
+            modelId: String(typedModel.id || ''),
+            ...summarizeProviderPayload(replacement ?? payload)
+          })
+          return replacement
         },
         onResponse: async (response: unknown, responseModel: unknown) => {
           const providerResponse = (response ?? {}) as Record<string, unknown>
@@ -1808,7 +1768,17 @@ function wrapPiApiModuleWithLogging(input: {
             invokeContext
           })
           const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
-          return originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          logger.info('[AgentCore] pi provider payload', {
+            traceId: invokeContext.runtime.traceId,
+            topicId: invokeContext.projection.topicId,
+            providerApiType,
+            method: 'streamSimple',
+            requestIndex,
+            modelId: String(typedModel.id || ''),
+            ...summarizeProviderPayload(replacement ?? payload)
+          })
+          return replacement
         },
         onResponse: async (response: unknown, responseModel: unknown) => {
           const providerResponse = (response ?? {}) as Record<string, unknown>

@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { rm } from 'node:fs/promises'
+
+import * as agentCore from '@earendil-works/pi-agent-core'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let mockIsWin = false
 
@@ -65,17 +68,116 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { buildCodemodeTool, buildLimitedPiToolPayload, resolveShellExecutable } from '../harness/create-harness'
+import { buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
 const MAX_INLINE_TOOL_PAYLOAD_BYTES = 16 * 1024
 const mockedFindGitBash = vi.mocked(findGitBash)
 const mockedValidateGitBashPath = vi.mocked(validateGitBashPath)
+let agentNode: Parameters<typeof buildPiBashTool>[0]['agentNode']
+
+beforeAll(async () => {
+  const nodePackage = '@earendil-works/pi-agent-core/node'
+  agentNode = await import(nodePackage)
+})
 
 beforeEach(() => {
   mockIsWin = false
   vi.clearAllMocks()
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+describe('buildPiBashTool', () => {
+  function createTool(env: Record<string, string> = {}) {
+    vi.stubEnv('SHELL', '/bin/bash')
+    return buildPiBashTool({ agentCore, agentNode, cwd: process.cwd(), env })
+  }
+
+  it('keeps the project tool name and reuses the native schema and description', () => {
+    const tool = createTool()
+    const nativeTool = agentCore.createBashTool()
+    expect(tool.name).toBe('Bash')
+    expect(tool.label).toBe('Bash')
+    expect(tool.parameters).toEqual(nativeTool.parameters)
+    expect(tool.description).toBe(nativeTool.description)
+  })
+
+  it('executes in the workspace with runtime environment and forwards progress', async () => {
+    const tool = createTool({ VECTCUT_BASH_TEST: 'runtime-value' })
+    const onUpdate = vi.fn()
+    const result = await tool.execute(
+      'bash-1', { command: 'printf "%s\\n" "$PWD" "$VECTCUT_BASH_TEST"; printf "stderr\\n" >&2' },
+      undefined, onUpdate, undefined
+    )
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain(process.cwd())
+    expect(text).toContain('runtime-value')
+    expect(text).toContain('stderr')
+    expect(onUpdate).toHaveBeenCalled()
+  })
+
+  it('preserves native nonzero-exit errors', async () => {
+    await expect(createTool().execute(
+      'bash-2', { command: 'printf "failed\\n" >&2; exit 7' }, undefined, undefined, undefined
+    )).rejects.toThrow('Command exited with code 7')
+  })
+
+  it('uses native timeout handling', async () => {
+    await expect(createTool().execute(
+      'bash-3', { command: 'sleep 5', timeout: 0.05 }, undefined, undefined, undefined
+    )).rejects.toThrow('Command timed out after 0.05 seconds')
+  })
+
+  it('cancels a running command through the native tool', async () => {
+    const controller = new AbortController()
+    await expect(createTool().execute(
+      'bash-4', { command: 'printf "ready\\n"; sleep 5' }, controller.signal,
+      (update) => {
+        if (update.content.some((part) => part.type === 'text' && part.text.includes('ready'))) {
+          controller.abort()
+        }
+      }, undefined
+    )).rejects.toThrow('Command aborted')
+  })
+
+  it('saves full oversized output using native truncation', async () => {
+    const result = await createTool().execute(
+      'bash-5', { command: 'for ((i=1; i<=2300; i++)); do printf "line-%s\\n" "$i"; done' },
+      undefined, undefined, undefined
+    )
+    const details = result.details as { fullOutputPath: string; truncation: { truncated: boolean } }
+    try {
+      expect(details.truncation.truncated).toBe(true)
+      expect(details.fullOutputPath).toBeTruthy()
+      expect((result.content[0] as { text: string }).text).toContain('Full output:')
+    } finally {
+      if (details.fullOutputPath) await rm(details.fullOutputPath, { force: true })
+    }
+  })
+
+  it('resolves bundled Git Bash only when executing on Windows', async () => {
+    mockIsWin = true
+    mockedValidateGitBashPath.mockReturnValue('C:\\PortableGit\\bin\\bash.exe')
+    const execute = vi.fn(async (_id, _params, _signal, _onUpdate, context) => {
+      expect(context.env.cwd).toBe(process.cwd())
+      expect(context.env.shellPath).toBe('C:\\PortableGit\\bin\\bash.exe')
+      expect(context.env.shellEnv.CLAUDE_CODE_GIT_BASH_PATH).toBe('C:\\PortableGit\\bin\\bash.exe')
+      return { content: [{ type: 'text', text: 'ok' }], details: undefined }
+    })
+    const tool = buildPiBashTool({
+      agentCore: { createBashTool: () => ({ ...agentCore.createBashTool(), execute }) } as any,
+      agentNode,
+      cwd: process.cwd(),
+      env: { CLAUDE_CODE_GIT_BASH_PATH: 'C:\\PortableGit\\bin\\bash.exe' }
+    })
+    expect(mockedValidateGitBashPath).not.toHaveBeenCalled()
+    await tool.execute('bash-win', { command: 'pwd' }, undefined, undefined, undefined)
+    expect(execute).toHaveBeenCalledOnce()
+  })
 })
 
 describe('buildLimitedPiToolPayload', () => {

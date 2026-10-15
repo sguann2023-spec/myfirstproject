@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { configManager } from '@main/services/ConfigManager'
 import { CHANNEL_SECURITY_PROMPT } from '@shared/agents/claudecode/constants'
-import { languageEnglishNameMap } from '@shared/config/languages'
 
 import type { GetAgentSessionResponse } from '../..'
 import { agentArtifactRepository } from '../../../database/repositories/agentArtifactRepository'
@@ -54,12 +52,6 @@ const composePromptViewText = (promptView: PromptView): string => {
   }
   sections.push(promptView.currentPrompt)
   return sections.filter(Boolean).join('\n\n')
-}
-
-const getLanguageInstruction = () => {
-  const lang = configManager.getLanguage()
-  const resolvedLanguageName = languageEnglishNameMap[lang]
-  return `Reply in ${resolvedLanguageName}.${lang === 'en-US' ? '' : ' Use English only for code and technical identifiers.'}`
 }
 
 export type InvocationPromptState = {
@@ -116,7 +108,7 @@ export async function buildInvocationPromptState(input: {
 
   const finalSystemPrompt = assistantSystemPrompt
     ? assistantSystemPrompt
-    : [clawSystemPrompt, session.instructions, channelSecurityBlock, getLanguageInstruction()]
+    : [clawSystemPrompt, session.instructions, channelSecurityBlock]
         .filter(Boolean)
         .join('\n\n')
 
@@ -149,7 +141,7 @@ export async function buildInvocationPromptState(input: {
     stableBasePrompt: assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || ''),
     dynamicContextPrompt: assistantSystemPrompt
       ? ''
-      : [session.instructions, channelSecurityBlock, getLanguageInstruction()].filter(Boolean).join('\n\n'),
+      : [session.instructions, channelSecurityBlock].filter(Boolean).join('\n\n'),
     promptView,
     modelId,
     builtinTools: toolSurface.builtinTools
