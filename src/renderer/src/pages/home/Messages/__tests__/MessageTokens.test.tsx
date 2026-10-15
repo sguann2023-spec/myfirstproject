@@ -48,6 +48,67 @@ vi.mock('i18next', () => ({
 
 describe('MessageTokens', () => {
   it.each([
+    { result_summary: { segment_count: 10 } },
+    JSON.stringify({ result_summary: { segment_count: 10 } }),
+    { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] },
+    { output: { result: { success: true } } },
+    { content: [{ type: 'text', text: 'not JSON' }, { type: 'image', data: 'abc' }] }
+  ])('无计费字段的工具结果正常结束解析：%j', (responseRaw) => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      const html = renderToStaticMarkup(<MessageTokens message={{
+        id: 'unbilled-tool', role: 'assistant', status: 'success',
+        blocks: [{
+          id: 'unbilled', type: 'tool', toolName: 'bash',
+          metadata: { rawMcpToolResponse: { responseRaw } }
+        }],
+        model: { pricing: {
+          precise_uncached_input_resource_points_per_unit: 1000000,
+          precise_output_resource_points_per_unit: 1000000
+        } },
+        usageSteps: [{ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }]
+      } as any} />)
+      expect(html).toContain('3.00')
+      expect(parse.mock.calls.length).toBeLessThanOrEqual(2)
+    } finally {
+      parse.mockRestore()
+    }
+  })
+
+  it('循环引用和过深的工具结果不会阻塞后续扣费解析', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const cyclic: Record<string, unknown> = {}
+    cyclic.response = cyclic
+    let deep: Record<string, unknown> = { success: true }
+    for (let i = 0; i < 1000; i++) deep = { response: deep }
+
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'guarded-billing', role: 'assistant', status: 'success',
+      blocks: [{
+        id: 'guarded', type: 'tool', toolName: 'mcp__subtitle-recognition__submit_subtitle_recognition_task',
+        metadata: { rawMcpToolResponse: { responseRaw: {
+          responseRaw: cyclic,
+          response: deep,
+          output: { success: true },
+          content: [
+            { type: 'text', text: JSON.stringify({ success: true }) },
+            { type: 'text', text: JSON.stringify({ billing: { consume: 2.75 } }) }
+          ]
+        } } }
+      }],
+      model: { pricing: {
+        precise_uncached_input_resource_points_per_unit: 1000000,
+        precise_output_resource_points_per_unit: 1000000
+      } },
+      usageSteps: [{ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }]
+    } as any} />)
+    expect(html).toContain('5.75')
+  })
+
+  it.each([
     'submit_remove_bg_text_behind_task',
     'submit_remove_bg_pip_task',
     'submit_remove_bg_task'

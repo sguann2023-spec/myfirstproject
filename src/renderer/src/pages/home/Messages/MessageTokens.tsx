@@ -1,5 +1,4 @@
 import { useAppSelector } from '@renderer/store'
-import { normalizeToCallToolResult } from './Tools/shared/callToolResult'
 import { getMcpToolDisplayName, parseMcpToolName } from './Tools/shared/mcpToolDisplay'
 // import { useRuntime } from '@renderer/hooks/useRuntime'
 import { EVENT_NAMES, EventEmitter } from '@renderer/services/EventService'
@@ -74,17 +73,24 @@ const asFiniteNumber = (value: unknown): number | null => {
   return null
 }
 
-function extractBillingPointsFromPayload(payload: unknown): number | null {
+function extractBillingPointsFromPayload(
+  payload: unknown,
+  visited = new WeakSet<object>(),
+  depth = 0
+): number | null {
+  if (depth >= 64) return null
+
   if (typeof payload === 'string' && payload.trim()) {
     try {
-      return extractBillingPointsFromPayload(JSON.parse(payload))
+      return extractBillingPointsFromPayload(JSON.parse(payload), visited, depth + 1)
     } catch {
       return null
     }
   }
 
   const record = asRecord(payload)
-  if (!record) return null
+  if (!record || visited.has(record)) return null
+  visited.add(record)
 
   const nestedBilling = asRecord(record.billing)
   if (nestedBilling) {
@@ -113,38 +119,41 @@ function extractBillingPointsFromPayload(payload: unknown): number | null {
   }
 
   if ('responseRaw' in record) {
-    const nestedResponseRawPoints = extractBillingPointsFromPayload(record.responseRaw)
+    const nestedResponseRawPoints = extractBillingPointsFromPayload(record.responseRaw, visited, depth + 1)
     if (nestedResponseRawPoints !== null) {
       return nestedResponseRawPoints
     }
   }
 
   if ('response' in record) {
-    const nestedResponsePoints = extractBillingPointsFromPayload(record.response)
+    const nestedResponsePoints = extractBillingPointsFromPayload(record.response, visited, depth + 1)
     if (nestedResponsePoints !== null) {
       return nestedResponsePoints
     }
   }
 
   if ('output' in record) {
-    const nestedOutputPoints = extractBillingPointsFromPayload(record.output)
+    const nestedOutputPoints = extractBillingPointsFromPayload(record.output, visited, depth + 1)
     if (nestedOutputPoints !== null) {
       return nestedOutputPoints
     }
   }
 
   if ('result' in record) {
-    const nestedResultPoints = extractBillingPointsFromPayload(record.result)
+    const nestedResultPoints = extractBillingPointsFromPayload(record.result, visited, depth + 1)
     if (nestedResultPoints !== null) {
       return nestedResultPoints
     }
   }
 
-  const normalized = normalizeToCallToolResult(payload)
-  for (const item of normalized.content) {
-    if (item.type !== 'text' || typeof item.text !== 'string' || !item.text.trim()) continue
+  // Only traverse actual content; normalizing a plain object serializes it back
+  // to JSON text and causes the same payload to be parsed recursively forever.
+  const content = Array.isArray(record.content) ? record.content : []
+  for (const value of content) {
+    const item = asRecord(value)
+    if (item?.type !== 'text' || typeof item.text !== 'string' || !item.text.trim()) continue
 
-    const nestedPoints = extractBillingPointsFromPayload(item.text)
+    const nestedPoints = extractBillingPointsFromPayload(item.text, visited, depth + 1)
     if (nestedPoints !== null) {
       return nestedPoints
     }
