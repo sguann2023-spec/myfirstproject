@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { net } from 'electron'
 import * as z from 'zod'
 
 import { logger, validatePath } from '../types'
@@ -39,7 +40,8 @@ export async function handleDownloadTool(args: unknown, baseDir: string) {
 
   let response: Response
   try {
-    response = await fetch(parsed.data.url, { redirect: 'follow' })
+    // Use Electron's session proxy settings, including the OS system proxy.
+    response = await net.fetch(parsed.data.url, { redirect: 'follow' })
   } catch (error: any) {
     throw new Error(`Failed to download file: ${error?.message || String(error)}`)
   }

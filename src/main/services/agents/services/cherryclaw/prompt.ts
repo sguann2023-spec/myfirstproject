@@ -72,6 +72,7 @@ export class PromptBuilder {
       getIntroSection(),
       getSystemSection(),
       getExecutionSection(),
+      getEditingSection(),
       getEnvironmentSection(workspacePath),
       instructionFiles.length > 0 ? renderInstructionFiles(instructionFiles) : '',
       this.buildToolGuidance(workspacePath, toolGuidance)
@@ -249,6 +250,15 @@ function getExecutionSection(): string {
     '# Execution',
     '- Inspect relevant state before changing it, keep changes scoped, and diagnose failures before retrying.',
     '- Require explicit user intent for publishing, deletion, shared-state changes, or actions outside the workspace.'
+  ].join('\n')
+}
+
+function getEditingSection(): string {
+  return [
+    '# Editing',
+    '- Prefer available MCP tools to incrementally build and adjust editable drafts. Render or merge a final video only when the user requests a finished video; otherwise prefer Jianying draft export.',
+    '- For talking-head edits, use source speech and transcript timestamps as the timeline. For narration-led montages, finalize the script and voiceover first, then align visuals to actual speech timestamps and meaning, not estimated text duration.',
+    '- Keep intermediate work editable for further adjustments.'
   ].join('\n')
 }
 

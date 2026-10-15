@@ -76,7 +76,7 @@ describe('PromptBuilder', () => {
     expect(result).not.toContain('## Memories')
     expect(result).not.toContain('<soul>')
     expect(result).not.toContain('<user>')
-    expect(result.length).toBeLessThan(1400)
+    expect(result.length).toBeLessThan(2000)
   })
 
   it('includes web verification rules even without capability-scoped guidance', async () => {
@@ -90,7 +90,23 @@ describe('PromptBuilder', () => {
     expect(result).toContain('Tool-catalog search is not web search')
     expect(result).toContain('no matching tool does not mean the information is unavailable')
     expect(result).not.toContain('## Web and browser')
-    expect(result.length).toBeLessThan(1400)
+    expect(result.length).toBeLessThan(2000)
+  })
+
+  it('includes compact draft-first and speech-timed editing rules without tool guidance', async () => {
+    setupFiles({})
+
+    const result = await builder.buildSystemPrompt('/workspace', undefined, {})
+
+    expect(result).toContain('# Editing')
+    expect(result).toContain('Prefer available MCP tools to incrementally build and adjust editable drafts')
+    expect(result).toContain('only when the user requests a finished video')
+    expect(result).toContain('otherwise prefer Jianying draft export')
+    expect(result).toContain('use source speech and transcript timestamps as the timeline')
+    expect(result).toContain('finalize the script and voiceover first')
+    expect(result).toContain('actual speech timestamps and meaning, not estimated text duration')
+    expect(result).toContain('Keep intermediate work editable')
+    expect(result.length).toBeLessThan(2000)
   })
 
   it('loads capped workspace instruction files instead of Soul memory files', async () => {

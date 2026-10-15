@@ -1,5 +1,9 @@
 import fsPromises from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 
 import { loggerService } from '@logger'
@@ -39,7 +43,7 @@ type SubtitleRecognitionEffectMode = (typeof SUBTITLE_RECOGNITION_EFFECT_MODES)[
 const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   name: 'submit_subtitle_recognition_task',
   description:
-    'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. Remote URLs are accepted directly. Local media is duration-checked (maximum 2 hours), converted to a compact MP3 audio track, then uploaded internally.',
+    'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft. Remote media is downloaded first. All media is duration-checked (maximum 2 hours), converted to a compact MP3 audio track, then uploaded internally for recognition using an OSS signed URL.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -352,10 +356,23 @@ class SubtitleRecognitionServer {
   private async prepareSource(input: unknown): Promise<PreparedSubtitleRecognitionSource> {
     const normalizedSource = this.normalizeSource(input)
     if (isHttpLikeUrl(normalizedSource)) {
-      return {
-        originalInput: typeof input === 'string' ? input.trim() : normalizedSource,
-        submittedUrl: normalizedSource,
-        sourceKind: 'remote_media'
+      const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'vectcut-subtitle-source-'))
+      try {
+        const response = await net.fetch(normalizedSource)
+        if (!response.ok) {
+          throw new Error(`Failed to download subtitle source (HTTP ${response.status})`)
+        }
+        if (!response.body) throw new Error('Subtitle source download returned no body')
+        const localPath = path.join(tempDir, 'source')
+        await pipeline(Readable.fromWeb(response.body as any), createWriteStream(localPath))
+        const prepared = await this.prepareSource(localPath)
+        return {
+          ...prepared,
+          originalInput: normalizedSource,
+          sourceKind: 'remote_media'
+        }
+      } finally {
+        await fsPromises.rm(tempDir, { recursive: true, force: true })
       }
     }
 

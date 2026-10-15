@@ -1,6 +1,14 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { net } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('electron', () => ({ net: { fetch: vi.fn() } }))
+vi.mock('@logger', () => ({
+  loggerService: {
+    withContext: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
+  }
+}))
 
 import { resolveFilesystemBaseDir } from '../config'
 import { handleDownloadTool } from '../tools/download'
@@ -23,6 +31,7 @@ describe('filesystem MCP security', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, { recursive: true, force: true })))
   })
 
@@ -134,16 +143,17 @@ describe('filesystem MCP security', () => {
     expect(text).not.toContain('secret.txt')
   })
 
-  it('downloads remote files into the configured workspace root', async () => {
+  it('downloads through Electron instead of Node fetch into the configured workspace root', async () => {
     const workspaceRoot = await createTempDir('download-root-')
-    const mockFetch = vi.fn().mockResolvedValue({
+    const nodeFetch = vi.fn()
+    vi.stubGlobal('fetch', nodeFetch)
+    const mockFetch = vi.spyOn(net, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
       headers: new Headers({ 'content-type': 'audio/mpeg' }),
       arrayBuffer: async () => new TextEncoder().encode('mp3-data').buffer
-    })
-    vi.stubGlobal('fetch', mockFetch)
+    } as Response)
 
     const result = await handleDownloadTool(
       {
@@ -157,6 +167,30 @@ describe('filesystem MCP security', () => {
     await expect(fs.readFile(savedPath, 'utf-8')).resolves.toBe('mp3-data')
     expect(result.content[0].text).toContain('assets/audio/test.mp3')
     expect(result.content[0].text).toContain('audio/mpeg')
+    expect(mockFetch).toHaveBeenCalledWith('https://example.com/audio.mp3', { redirect: 'follow' })
+    expect(nodeFetch).not.toHaveBeenCalled()
+  })
+
+  it('reports Electron network failures', async () => {
+    const workspaceRoot = await createTempDir('download-network-error-')
+    vi.spyOn(net, 'fetch').mockRejectedValue(new Error('net::ERR_PROXY_CONNECTION_FAILED'))
+
+    await expect(handleDownloadTool({
+      url: 'https://example.com/video.mp4',
+      file_path: 'video.mp4'
+    }, workspaceRoot)).rejects.toThrow('Failed to download file: net::ERR_PROXY_CONNECTION_FAILED')
+    await expect(fs.stat(path.join(workspaceRoot, 'video.mp4'))).rejects.toThrow()
+  })
+
+  it('reports HTTP download failures without saving a file', async () => {
+    const workspaceRoot = await createTempDir('download-http-error-')
+    vi.spyOn(net, 'fetch').mockResolvedValue(new Response(null, { status: 403, statusText: 'Forbidden' }))
+
+    await expect(handleDownloadTool({
+      url: 'https://example.com/video.mp4',
+      file_path: 'video.mp4'
+    }, workspaceRoot)).rejects.toThrow('Failed to download file: HTTP 403 Forbidden')
+    await expect(fs.stat(path.join(workspaceRoot, 'video.mp4'))).rejects.toThrow()
   })
 
   it('truncates read output to the 5 KB inline limit', async () => {

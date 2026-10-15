@@ -271,13 +271,14 @@ describe('VideoUnderstandServer', () => {
     expect(fullIndex).toContain('- 摘要：video-100.mp4')
   })
 
-  it('should split a long video into batches of at most 30 frames', async () => {
+  it.each(['local_video', 'remote_video'])('splits %s into batches and passes only its local file to speech recognition', async (sourceKind) => {
     const server = createServer(workspaceRoot)
+    const source = sourceKind === 'remote_video' ? 'https://example.com/sample.mp4' : '/tmp/sample.mp4'
 
     vi.spyOn(server as any, 'prepareVideoSource').mockResolvedValue({
-      originalInput: '/tmp/sample.mp4',
+      originalInput: source,
       localPath: '/tmp/sample.mp4',
-      sourceKind: 'local_video',
+      sourceKind,
       cleanupDir: null
     })
     vi.spyOn(server as any, 'probeMedia').mockResolvedValue({
@@ -336,7 +337,7 @@ describe('VideoUnderstandServer', () => {
     const result = await (server as any).analyzeSingleVideo({
       videoIndex: 1,
       videoCount: 1,
-      source: '/tmp/sample.mp4',
+      source,
       fps: 5,
       prompt: '按时间描述',
       report: vi.fn().mockResolvedValue(undefined)
@@ -352,6 +353,8 @@ describe('VideoUnderstandServer', () => {
     expect(thirdBatchArgs.frames).toHaveLength(5)
 
     expect(result.totalFrames).toBe(65)
+    expect(result.originalInput).toBe(source)
+    expect(result.sourceKind).toBe(sourceKind)
     expect(result.totalBatches).toBe(3)
     expect(result.analysis.title.length).toBeLessThanOrEqual(20)
     expect(result.analysis.summary.length).toBeLessThanOrEqual(200)
@@ -367,6 +370,22 @@ describe('VideoUnderstandServer', () => {
       total_consumed_points: 3.85
     })
     expect(result.batches[1].retryCount).toBe(1)
+  })
+
+  it('downloads a remote video before exposing it as a local source', async () => {
+    const server = createServer(workspaceRoot)
+    const { net } = await import('electron')
+    vi.mocked(net.fetch).mockResolvedValueOnce(new Response('downloaded-video'))
+    const source = await (server as any).prepareVideoSource('https://example.com/video.mp4')
+    try {
+      expect(net.fetch).toHaveBeenCalledWith('https://example.com/video.mp4')
+      expect(source.originalInput).toBe('https://example.com/video.mp4')
+      expect(source.sourceKind).toBe('remote_video')
+      expect(path.isAbsolute(source.localPath)).toBe(true)
+      expect(await fs.readFile(source.localPath, 'utf8')).toBe('downloaded-video')
+    } finally {
+      await fs.rm(source.cleanupDir, { recursive: true, force: true })
+    }
   })
 
   it.each([20000003, '20000003'])('treats no-speech code %s as a normal speech status and retains billing', async (code) => {

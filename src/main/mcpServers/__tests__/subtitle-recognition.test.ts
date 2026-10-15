@@ -3,8 +3,9 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile, mockPrepareSubtitleAudio, mockCleanupPreparedAudio } = vi.hoisted(() => ({
+const { mockNetFetch, mockDownloadFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile, mockPrepareSubtitleAudio, mockCleanupPreparedAudio } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
+  mockDownloadFetch: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn(),
   mockUploadLocalFile: vi.fn(),
@@ -14,7 +15,9 @@ const { mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile, mockPrepa
 
 vi.mock('electron', () => ({
   net: {
-    fetch: mockNetFetch
+    fetch: (input: string, init?: RequestInit) => input.startsWith('https://example.com/')
+      ? mockDownloadFetch(input, init)
+      : mockNetFetch(input, init)
   }
 }))
 
@@ -55,6 +58,7 @@ import SubtitleRecognitionServer from '../subtitle-recognition'
 import { extractMediaGenerationBillingSummary } from '../../../renderer/src/pages/home/Messages/Tools/MessageAgentTools/mediaGenerationBilling'
 
 type SubtitleRecognitionServerInstance = InstanceType<typeof SubtitleRecognitionServer>
+const OSS_SIGNED_URL = 'https://oss.example.com/recognition-audio.mp3?token=1'
 
 function createServer(workspaceRoot?: string) {
   return new SubtitleRecognitionServer(workspaceRoot)
@@ -91,7 +95,9 @@ describe('SubtitleRecognitionServer', () => {
   let workspaceRoot: string
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
+    mockDownloadFetch.mockImplementation(async () => new Response('downloaded-media'))
+    mockUploadLocalFile.mockResolvedValue({ signedPublicUrl: OSS_SIGNED_URL })
     mockPrepareSubtitleAudio.mockImplementation(async (sourcePath: string) => ({
       audioPath: `${sourcePath}.extracted.mp3`,
       durationSeconds: 120,
@@ -140,7 +146,7 @@ describe('SubtitleRecognitionServer', () => {
     })
     expect(result.isError).toBeUndefined()
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      url: 'https://example.com/audio.mp3', effect_mode: effectMode, language: 'en-US', content: 'Hello',
+      url: OSS_SIGNED_URL, effect_mode: effectMode, language: 'en-US', content: 'Hello',
       ...(effectMode === 'nlp' ? { max_sentence_length: 12 } : {})
     })
     const summary = JSON.parse(result.content[0].text)
@@ -294,7 +300,7 @@ describe('SubtitleRecognitionServer', () => {
     })
     expect(result.isError).toBeUndefined()
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      url: 'https://example.com/audio.mp3',
+      url: OSS_SIGNED_URL,
       effect_mode: 'nlp',
       max_sentence_length: expected,
       ...(content ? { content: content.trim() } : {})
@@ -323,7 +329,7 @@ describe('SubtitleRecognitionServer', () => {
       url: 'https://example.com/audio.mp3', effectMode, maxSentenceLength: 22
     })
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      url: 'https://example.com/audio.mp3', effect_mode: effectMode
+      url: OSS_SIGNED_URL, effect_mode: effectMode
     })
   })
 
@@ -382,7 +388,7 @@ describe('SubtitleRecognitionServer', () => {
           'Content-Type': 'application/json'
         }),
         body: JSON.stringify({
-          url: 'https://example.com/source.mp4',
+          url: OSS_SIGNED_URL,
           effect_mode: 'basic'
         })
       })
@@ -406,12 +412,12 @@ describe('SubtitleRecognitionServer', () => {
       mode: 'subtitle_recognition',
       estimated_wait_time: '15-30 minutes',
       task_mode: 'asr',
-      url: 'https://example.com/source.mp4',
+      url: OSS_SIGNED_URL,
       effect_mode: 'basic',
       source_summary: [
         {
           original_input: 'https://example.com/source.mp4',
-          submitted_url: 'https://example.com/source.mp4',
+          submitted_url: OSS_SIGNED_URL,
           source_kind: 'remote_media'
         }
       ],
@@ -447,12 +453,12 @@ describe('SubtitleRecognitionServer', () => {
       mode: 'subtitle_recognition',
       estimated_wait_time: '15-30 minutes',
       task_mode: 'asr',
-      url: 'https://example.com/source.mp4',
+      url: OSS_SIGNED_URL,
       effect_mode: 'basic',
       source_summary: [
         {
           original_input: 'https://example.com/source.mp4',
-          submitted_url: 'https://example.com/source.mp4',
+          submitted_url: OSS_SIGNED_URL,
           source_kind: 'remote_media'
         }
       ],
@@ -519,7 +525,7 @@ describe('SubtitleRecognitionServer', () => {
     })
 
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
-      url: 'https://example.com/source.mp3',
+      url: OSS_SIGNED_URL,
       effect_mode: 'llm_vad',
       content: '这是一段校对后的字幕文案'
     })
@@ -605,6 +611,51 @@ describe('SubtitleRecognitionServer', () => {
       effect_mode: 'basic',
       error: ''
     })
+  })
+
+  it('downloads remote media and reuses local audio extraction and OSS upload', async () => {
+    mockPrepareSubtitleAudio.mockImplementationOnce(async (sourcePath: string) => {
+      expect(await fs.readFile(sourcePath, 'utf8')).toBe('downloaded-media')
+      return { audioPath: `${sourcePath}.extracted.mp3`, cleanup: mockCleanupPreparedAudio }
+    })
+    const prepared = await (createServer(workspaceRoot) as any).prepareSource('https://example.com/video.mp4')
+
+    expect(mockDownloadFetch).toHaveBeenCalledWith('https://example.com/video.mp4', undefined)
+    const localPath = mockPrepareSubtitleAudio.mock.calls[0][0]
+    expect(path.isAbsolute(localPath)).toBe(true)
+    expect(mockUploadLocalFile).toHaveBeenCalledWith(`${localPath}.extracted.mp3`, expect.any(Object))
+    expect(prepared).toEqual({
+      originalInput: 'https://example.com/video.mp4',
+      submittedUrl: OSS_SIGNED_URL,
+      sourceKind: 'remote_media'
+    })
+    expect(mockCleanupPreparedAudio).toHaveBeenCalledOnce()
+    await expect(fs.stat(path.dirname(localPath))).rejects.toThrow()
+  })
+
+  it.each(['download', 'extraction', 'upload'])('cleans remote temporary files on %s failure', async (stage) => {
+    const mkdirSpy = vi.spyOn(fs, 'mkdtemp')
+    if (stage === 'download') {
+      mockDownloadFetch.mockResolvedValueOnce(new Response(null, { status: 403 }))
+    } else if (stage === 'extraction') {
+      mockPrepareSubtitleAudio.mockRejectedValueOnce(new Error('extraction failed'))
+    } else {
+      mockUploadLocalFile.mockRejectedValueOnce(new Error('upload failed'))
+    }
+    try {
+      const result = await createServer(workspaceRoot).executeDirectRequest({ url: 'https://example.com/video.mp4' })
+      expect(result.isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+      const tempDir = await mkdirSpy.mock.results[0].value
+      await expect(fs.stat(tempDir)).rejects.toThrow()
+      if (stage === 'download') {
+        expect(result.content[0].text).toContain('HTTP 403')
+        expect(mockPrepareSubtitleAudio).not.toHaveBeenCalled()
+      }
+      if (stage === 'upload') expect(mockCleanupPreparedAudio).toHaveBeenCalledOnce()
+    } finally {
+      mkdirSpy.mockRestore()
+    }
   })
 
   it('extracts local video audio before uploading it for subtitle recognition', async () => {
