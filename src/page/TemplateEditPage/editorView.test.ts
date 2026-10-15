@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { analyzeEditorDocument } from '../../main/template/editorModel'
 import { createEditorPreset } from '../../main/template/editorPresets'
-import { dragTiming, indexEditorTree, sceneTimeline, snapTime } from './editorView'
+import { dragTiming, indexEditorTree, sceneTimeline, snapTime } from '../../components/TemplateEditor/editorView'
 
 it('根层只显示顶层 Scene，子层使用局部时间而非全局时间', () => {
   const model = analyzeEditorDocument({ templateJson: JSON.stringify(createEditorPreset('sentence-image')) })

@@ -1,7 +1,14 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronRight, CornerDownLeft, GripVertical, Layers, Link2, LockKeyhole, Magnet, Maximize2, Minus, Plus, SkipBack, Trash2, UnlockKeyhole } from 'lucide-react';
-import { dragTiming, snapTime } from './editorView';
-import { elementIcons } from './LayerPanel';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronRight, CornerDownLeft, GripVertical, Layers, Link2, LockKeyhole, Minus, Plus, SkipBack, Trash2, UnlockKeyhole } from 'lucide-react';
+import { snapTime } from '../editorView';
+import { elementIcons } from '../elementIcons';
+import TimelineRuler, { rulerScale } from './TimelineRuler';
+import TimelinePlayhead from './TimelinePlayhead';
+import TimelineScrollbar from './TimelineScrollbar';
+import useTimelineViewport from './useTimelineViewport';
+import useClipDrag from './useClipDrag';
+import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from './viewport';
+import './Timeline.css';
 
 const timeLabel = value => Number(value.toFixed(3)).toString();
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -9,9 +16,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex, onSelect, onEnter, onAction, onAddScene,
   disabled, lockedTracks, onLock }) {
   const [cursor, setCursor] = useState(0);
-  const [zoom, setZoom] = useState(1);
-  const [snap, setSnap] = useState(true);
-  const [width, setWidth] = useState(700);
+  const snap = true;
   const [height, setHeight] = useState(260);
   const [preview, setPreview] = useState(null);
   const [durationOpen, setDurationOpen] = useState(false);
@@ -22,6 +27,10 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
   const gesture = useRef(null);
   const trackDrag = useRef(null);
   const suppressClick = useRef(false);
+  const { zoom, width, scrollLeft, canvasWidth, axisEnd, pixelsPerSecond: pps, setZoom, onScroll, onHorizontalScroll } =
+    useTimelineViewport(scrollRef, view.duration, sceneId, gesture);
+  const clipDrag = useClipDrag({ gesture, scrollRef, view, sceneId, pixelsPerSecond: pps,
+    cursor, snap, nativeIndex, lockedTracks, disabled, onSelect, setPreview });
   useEffect(() => {
     const cancel = event => {
       if (event.key !== 'Escape') return;
@@ -35,30 +44,23 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
     window.addEventListener('pointerdown', closeMenu);
     return () => { window.removeEventListener('keydown', cancel, true); window.removeEventListener('pointerdown', closeMenu); };
   }, [menu, durationOpen]);
-  useLayoutEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return undefined;
-    const update = () => setWidth(Math.max(240, element.clientWidth - 164));
-    update();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
   useEffect(() => {
     setCursor(0); setPreview(null); gesture.current = null; setDurationOpen(false);
-    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
   }, [sceneId]);
   useEffect(() => { setCursor(value => Math.min(value, view.duration)); }, [view.duration]);
-  const axisEnd = Math.max(5, Math.ceil(view.duration * 1.1));
-  const canvasWidth = width * zoom;
-  const pps = canvasWidth / axisEnd;
-  const rawStep = 80 / pps;
-  const power = 10 ** Math.floor(Math.log10(rawStep));
-  const step = [1, 2, 5, 10].map(value => value * power).find(value => value >= rawStep) || power * 10;
-  const ticks = Array.from({ length: Math.floor(axisEnd / step) + 1 }, (_, i) => i * step);
+  const { marks } = rulerScale(pps, axisEnd, scrollLeft / pps, (scrollLeft + width) / pps);
   const points = [0, view.duration, cursor, ...view.rows.flatMap(row => row.clips.flatMap(clip => [clip.start, clip.end]))];
   const setTime = value => setCursor(clamp(Number.isFinite(value) ? value : 0, 0, axisEnd));
+  const beginCursor = event => {
+    if (event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    const ruler = scrollRef.current.querySelector('.template-ruler');
+    ruler.focus({ preventScroll: true });
+    const left = ruler.getBoundingClientRect().left;
+    setTime(snapTime((event.clientX - left) / pps, points, pps, event, snap));
+    gesture.current = { kind: 'cursor', left, scroll: scrollRef.current.scrollLeft };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
   const finish = (event, cancel = false) => {
     const drag = gesture.current;
     gesture.current = null;
@@ -67,7 +69,10 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (cancel || !drag.moved) return;
     suppressClick.current = true;
-    if (drag.kind === 'clip') onAction({ type: 'retime', id: drag.clip.id, ...drag.value, edge: drag.edge, trackId: drag.trackId });
+    if (drag.kind === 'clip') {
+      const action = clipDrag.clipAction(drag);
+      if (action) onAction(action);
+    }
     if (drag.kind === 'duration') onAction({ type: 'duration', id: sceneId, duration: drag.value });
   };
   const move = event => {
@@ -75,9 +80,10 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
     if (!drag) return;
     if (drag.kind === 'height') { setHeight(clamp(drag.height + drag.y - event.clientY, 170, window.innerHeight - 150)); return; }
     if (drag.kind === 'cursor') {
-      setTime(snapTime((event.clientX - drag.left) / pps, points, pps, event, snap));
+      setTime(snapTime((event.clientX - drag.left + scrollRef.current.scrollLeft - drag.scroll) / pps, points, pps, event, snap));
       drag.moved = true; return;
     }
+    if (drag.kind === 'clip') { clipDrag.moveClip(event); return; }
     if (Math.abs(event.clientX - drag.x) > 2 || Math.abs(event.clientY - drag.y) > 5) drag.moved = true;
     if (!drag.moved) return;
     const scroller = scrollRef.current;
@@ -90,27 +96,11 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
       setPreview({ kind: 'duration', value: drag.value });
       return;
     }
-    const clipPoints = [0, view.duration, cursor, ...view.rows.flatMap(row =>
-      row.clips.filter(clip => clip.id !== drag.clip.id).flatMap(clip => [clip.start, clip.end]))];
-    drag.value = dragTiming(drag.clip, delta, drag.edge, clipPoints, pps, event, snap);
-    if (!drag.edge && sceneId) {
-      const row = document.elementFromPoint?.(event.clientX, event.clientY)?.closest('[data-track-id]');
-      const id = row?.dataset.trackId;
-      drag.trackId = id && !id.startsWith('__') && !lockedTracks.has(id) ? id : drag.sourceTrackId;
-    }
-    setPreview({ kind: 'clip', id: drag.clip.id, ...drag.value, trackId: drag.trackId });
   };
   const beginClip = (event, clip, row, edge) => {
-    if (event.button !== 0 || disabled || lockedTracks.has(row.id)) return;
-    event.preventDefault(); event.stopPropagation();
-    onSelect(clip.id);
     suppressClick.current = false;
-    gesture.current = { kind: 'clip', clip, edge, x: event.clientX, y: event.clientY,
-      scroll: scrollRef.current.scrollLeft, trackId: row.id.startsWith('__') ? undefined : row.id,
-      sourceTrackId: row.id.startsWith('__') ? undefined : row.id, moved: false };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    clipDrag.beginClip(event, clip, row, edge);
   };
-  const resetZoom = () => { setZoom(1); if (scrollRef.current) scrollRef.current.scrollLeft = 0; };
   const currentNative = nativeIndex.get(sceneId);
   const autoDuration = sceneId ? currentNative?.auto_duration : !nativeIndex.get('__root__')?.duration;
   return <section className="template-edit-timeline" aria-label="时间轴" style={{ height }}>
@@ -131,13 +121,10 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
         </React.Fragment>)}
       </nav>
       <span className="template-timeline-duration">总时长 {timeLabel(view.duration)} 秒</span>
-      <button className="template-timeline-button" aria-label="时间轴吸附" title="自动吸附；Ctrl 临时关闭，Alt 按 0.1 秒对齐"
-        aria-pressed={snap} onClick={() => setSnap(value => !value)}><Magnet size={15} /></button>
-      <button className="template-timeline-button" aria-label="缩小时间轴" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value / 1.4))}><Minus size={15} /></button>
-      <button className="template-timeline-button" aria-label="放大时间轴" disabled={zoom >= 16} onClick={() => setZoom(value => Math.min(16, value * 1.4))}><Plus size={15} /></button>
-      <button className="template-timeline-button" aria-label="适应全部时长" onClick={resetZoom}><Maximize2 size={14} /></button>
+      <button className="template-timeline-button" aria-label="缩小时间轴" disabled={zoom <= MIN_ZOOM} onClick={() => setZoom(zoom / ZOOM_STEP)}><Minus size={15} /></button>
+      <button className="template-timeline-button" aria-label="放大时间轴" disabled={zoom >= MAX_ZOOM} onClick={() => setZoom(zoom * ZOOM_STEP)}><Plus size={15} /></button>
     </div>
-    <div className="template-timeline-scroll" ref={scrollRef}>
+    <div className="template-timeline-scroll" ref={scrollRef} onScroll={onScroll}>
       <div className="template-timeline-inner" style={{ width: canvasWidth + 164 }}>
         <div className="template-ruler-row">
           <div className="template-time-controls">
@@ -155,16 +142,9 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
                   cursor + (event.key === 'ArrowRight' ? .1 : -.1));
               }
             }}
-            onPointerDown={event => {
-              if (event.button !== 0) return;
-              const left = event.currentTarget.getBoundingClientRect().left;
-              setTime(snapTime((event.clientX - left) / pps, points, pps, event, snap));
-              gesture.current = { kind: 'cursor', left };
-              event.currentTarget.setPointerCapture?.(event.pointerId);
-            }}
+            onPointerDown={beginCursor}
             onPointerMove={move} onPointerUp={finish} onPointerCancel={event => finish(event, true)}>
-            {ticks.map(tick => <span key={tick} style={{ left: tick * pps }}>{timeLabel(tick)} s</span>)}
-            <div className="template-ruler-playhead" style={{ left: cursor * pps }} />
+            <TimelineRuler marks={marks} pixelsPerSecond={pps} />
             <button className="template-duration-handle" style={{ left: (preview?.kind === 'duration' ? preview.value : view.duration) * pps }}
               aria-label="调整场景时长" title={autoDuration ? '自动时长；拖动改为固定时长' : '拖动调整场景时长'} disabled={disabled}
               onClick={event => {
@@ -178,12 +158,15 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
                 gesture.current = { kind: 'duration', x: event.clientX, y: event.clientY, scroll: scrollRef.current.scrollLeft };
                 event.currentTarget.setPointerCapture?.(event.pointerId);
               }}
-              onPointerMove={move} onPointerUp={finish} onPointerCancel={event => finish(event, true)}>{autoDuration ? 'Auto' : ''}</button>
+              onPointerMove={move} onPointerUp={finish} onPointerCancel={event => finish(event, true)}>
+              {autoDuration && <span className="template-duration-label">Auto</span>}
+            </button>
           </div>
         </div>
+        <div className="template-outside-scene" style={{ left: 164 + view.duration * pps }} />
         {view.rows.map(row => {
           const locked = lockedTracks.has(row.id);
-          return <div className={`template-track-row ${locked ? 'is-locked' : ''} ${dropTrack === row.id ? 'is-drop-target' : ''}`}
+          return <div className={`template-track-row ${locked ? 'is-locked' : ''} ${dropTrack === row.id ? 'is-drop-target' : ''} ${preview?.floating && preview.trackId === row.id && !preview.invalid ? 'is-clip-drop-target' : ''}`}
             data-track-id={row.id} key={row.id}
             onDragOver={event => {
               if (trackDrag.current && trackDrag.current !== row.id && !row.id.startsWith('__') && !locked) { event.preventDefault(); setDropTrack(row.id); }
@@ -204,17 +187,18 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
               <button className="template-track-lock" aria-label={`${locked ? '解锁' : '锁定'}轨道 ${row.name}`} title="仅锁定编辑，不影响导出"
                 aria-pressed={locked} onClick={() => onLock(row.id)}>{locked ? <LockKeyhole size={12} /> : <UnlockKeyhole size={12} />}</button>
             </div>
-            <div className="template-track-lane" style={{ backgroundSize: `${step * pps}px 100%` }}>
-              <div className="template-outside-scene" style={{ left: view.duration * pps }} />
+            <div className="template-track-lane">
               {row.clips.map(clip => {
                 const Icon = elementIcons[clip.type] || Layers;
                 const active = preview?.kind === 'clip' && preview.id === clip.id;
-                const start = active ? preview.start : clip.start;
-                const end = active ? preview.start + preview.duration : clip.end;
+                const shifted = preview?.trackId === row.id ? preview.shifts?.find(shift => shift.id === clip.id) : null;
+                const start = active ? preview.start : shifted?.start ?? clip.start;
+                const end = active ? preview.start + preview.duration : shifted ? shifted.start + shifted.duration : clip.end;
                 const native = nativeIndex.get(clip.id);
                 return <button key={clip.id} data-clip-id={clip.id}
-                  className={`template-clip ${clip.type === 'composition' ? 'template-clip--scene' : ''} ${selectedId === clip.id ? 'is-selected' : ''} ${active ? 'is-dragging' : ''}`}
-                  style={{ left: start * pps, width: Math.max(3, (end - start) * pps) }}
+                  className={`template-clip ${clip.type === 'composition' ? 'template-clip--scene' : ''} ${selectedId === clip.id ? 'is-selected' : ''} ${active ? 'is-dragging' : ''} ${active && preview.floating ? 'is-floating' : ''}`}
+                  style={{ left: start * pps, width: Math.max(3, (end - start) * pps),
+                    transform: active && preview.floating ? `translateY(${preview.offsetY}px)` : undefined }}
                   title={`${clip.name} · ${timeLabel(start)}–${timeLabel(end)} 秒${clip.type === 'composition' ? ' · 双击进入' : ''}`}
                   aria-label={`${clip.name}，${timeLabel(start)} 到 ${timeLabel(end)} 秒`}
                   onContextMenu={event => {
@@ -243,15 +227,18 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
                     onPointerDown={event => beginClip(event, clip, row, 'end')} />
                 </button>;
               })}
-              {preview?.kind === 'clip' && preview.trackId === row.id && !row.clips.some(clip => clip.id === preview.id) &&
-                <div className="template-clip-ghost" style={{ left: preview.start * pps, width: preview.duration * pps }} />}
-              <div className="template-playhead" style={{ left: cursor * pps }} />
             </div>
           </div>;
         })}
-        <button className="template-add-scene" disabled={disabled} onClick={onAddScene}><Plus size={14} />添加 Scene</button>
+        {preview?.floating && preview.lineTop !== undefined &&
+          <div className="template-clip-drop-line" style={{ top: preview.lineTop }} />}
+        <button className="template-add-scene" aria-label="添加 Scene" disabled={disabled} onClick={onAddScene}
+          style={{ left: 164 + view.duration * pps }}><Plus size={14} />添加 Scene</button>
+        <TimelinePlayhead left={164 + cursor * pps} hidden={cursor * pps < scrollLeft} onPointerDown={beginCursor} onPointerMove={move}
+          onPointerUp={finish} onPointerCancel={event => finish(event, true)} />
       </div>
     </div>
+    <TimelineScrollbar width={width} canvasWidth={canvasWidth} scrollLeft={scrollLeft} onScroll={onHorizontalScroll} />
     {durationOpen && <form className="template-duration-popover" onSubmit={event => {
       event.preventDefault(); onAction({ type: 'duration', id: sceneId, duration: Number(durationValue) }); setDurationOpen(false);
     }}>

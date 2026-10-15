@@ -187,7 +187,7 @@ export function compileEditorDocument(payload: EditorPayload) {
 
 export function addEditorElement(
   payload: EditorPayload,
-  input: { type: EditorAddType; selectedId?: string; source?: string; atRoot?: boolean }
+  input: { type: EditorAddType; selectedId?: string; source?: string; atRoot?: boolean; scopeId?: string | null }
 ) {
   const { template, config, draft, normalized } = parseEditorDocument(payload)
   const analysis = normalized?.analysis ?? analyzeSceneTemplate(template, config)
@@ -206,18 +206,22 @@ export function addEditorElement(
     let target: DraftScene | undefined
     function findScene(scenes: DraftScene[]) {
       for (const scene of scenes) {
-        if (scene.id === input.selectedId || scene.tracks.some((track) =>
-          track.id === input.selectedId || track.segments.some((segment) => segment.id === input.selectedId))) target = scene
+        if (typeof input.scopeId === 'string' ? scene.id === input.scopeId :
+          scene.id === input.selectedId || scene.tracks.some((track) =>
+            track.id === input.selectedId || track.segments.some((segment) => segment.id === input.selectedId))) target = scene
         findScene(nestedScenes(scene))
       }
     }
     findScene(draft.scenes)
+    if (typeof input.scopeId === 'string' && !target) throw new Error('当前 Scene 不存在')
     target ??= draft.scenes[0]
     if (!target) {
       target = { id: randomUUID(), name: 'Scene', target_timerange: { start: 0, duration: draft.duration ?? 10_000_000 }, tracks: [] }
       draft.scenes.push(target)
     }
-    const selectedTrack = target.tracks.find((track) => track.id === input.selectedId)
+    // A selected child Scene is a clip in the current scope, not an instruction to enter it.
+    const selectedTrack = target.tracks.find((track) => track.id === input.selectedId ||
+      (input.scopeId === target!.id && track.segments.some(segment => segment.id === input.selectedId)))
     let start = 0
     if (selectedTrack) {
       const byId = new Map(analysis.timeline.map((element) => [element.id, element]))
@@ -236,6 +240,11 @@ export function addEditorElement(
     }
     function insert(segment: DraftTrackItem) {
       if (selectedTrack) {
+        if (input.scopeId === target!.id && selectedTrack.segments.length) {
+          const times = new Map(analysis.timeline.map(item => [item.id, item.localStart + item.duration]))
+          const previous = [...selectedTrack.segments].sort((a, b) => (times.get(b.id) ?? 0) - (times.get(a.id) ?? 0))[0]
+          segment.auto_timing = { start: { target: previous.id, anchor: 'end' } }
+        }
         selectedTrack.type = 'mixed'
         selectedTrack.segments.push(segment)
       } else {

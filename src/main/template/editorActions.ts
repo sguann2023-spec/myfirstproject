@@ -1,8 +1,10 @@
 import { parseEditorDocument, type EditorPayload } from './editorModel'
 import { normalizeDraftTemplate, type DraftScene, type DraftSegment, type DraftTrack, type DraftTrackItem } from './draftTemplate'
 import { isSceneSegment, orderedSceneTracks } from './draftTracks'
+import { dropEditorClip, type ClipDropAction } from './editorClipDrop'
 
 export type EditorAction =
+  | ClipDropAction
   | { type: 'rename'; id: string; name: string }
   | { type: 'delete'; id: string }
   | { type: 'retime'; id: string; start: number; duration: number; edge?: 'start' | 'end'; trackId?: string }
@@ -83,6 +85,10 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
       track.scene.tracks.splice(track.scene.tracks.indexOf(track.track), 1)
       selectedId = track.scene.id
     } else throw new Error('元素不存在')
+  } else if (action.type === 'move-clip') {
+    const entry = entries.get(action.id)
+    if (!entry?.track || !entry.scene) throw new Error('跨轨移动仅限当前 Scene')
+    dropEditorClip(entry.scene, entry.track, entry.item as DraftTrackItem, times, action)
   } else if (action.type === 'retime') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)

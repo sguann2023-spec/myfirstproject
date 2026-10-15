@@ -51,12 +51,13 @@ import { IpcChannel } from '../../packages/shared/IpcChannel';
 import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
+import { useChatModelPreference } from './useChatModelPreference';
 const logger = loggerService.withContext('HomePage');
 const logPreviewWindowResizeError = (error) => logger.warn('Failed to resize window for preview.', error);
+const logChatModelPreferenceError = (message, error) => logger.warn(message, error);
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
-const CHAT_MODEL_KEY = 'capcut-helper-chat-model-v1';
 const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
@@ -1072,12 +1073,6 @@ const toModelOption = (
   description: String(description || '').trim(),
   badges: Array.isArray(badges) ? badges.map((badge) => String(badge || '').trim()).filter(Boolean) : [],
 });
-
-const isModelInOptions = (model, options = []) => {
-  const target = String(model || '').trim();
-  if (!target) return false;
-  return options.some((item) => String(item?.value || '').trim() === target);
-};
 
 const canonicalizeChatModelId = (modelId = '') => {
   const normalized = String(modelId || '').trim();
@@ -2426,9 +2421,17 @@ const HomePage = () => {
   const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
   const [chatHistoryLoadingMap, setChatHistoryLoadingMap] = useState({});
   const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
-  const [chatModel, setChatModel] = useState(() => CHAT_MODELS[0]);
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
+  const [chatModelListLoaded, setChatModelListLoaded] = useState(false);
+  const [chatDefaultModel, setChatDefaultModel] = useState('');
+  const [chatModel, setChatModel] = useChatModelPreference({
+    fallbackModel: CHAT_MODELS[0],
+    options: chatModelOptions,
+    defaultModel: chatDefaultModel,
+    listLoaded: chatModelListLoaded,
+    onError: logChatModelPreferenceError
+  });
   const [chatHistoryVisible, setChatHistoryVisible] = useState(false);
   const beginnerGuideDownloadPaneRef = useRef(null);
   const beginnerGuideSettingsPaneRef = useRef(null);
@@ -2990,20 +2993,11 @@ const HomePage = () => {
               .map((name) => toModelOption(name, name, iconMap?.[name] || '', false))
           );
         setChatModelOptions(nextOptions);
-
-        setChatModel((prev) => {
-          if (isModelInOptions(prev, nextOptions)) return prev;
-          let storedModel = '';
-          try {
-            storedModel = String(localStorage.getItem(CHAT_MODEL_KEY) || '').trim();
-          } catch {
-            storedModel = '';
-          }
-          if (isModelInOptions(storedModel, nextOptions)) return storedModel;
-          const defaultModel = String(payload?.defaultModel || '').trim();
-          if (isModelInOptions(defaultModel, nextOptions)) return defaultModel;
-          return String(nextOptions[0]?.value || CHAT_MODELS[0]);
-        });
+        setChatDefaultModel(String(payload?.defaultModel || '').trim());
+        setChatModelListLoaded(
+          nextOptions.length > 0
+          && (modelItems.length > 0 || (Array.isArray(payload?.models) && payload.models.length > 0))
+        );
       } catch (error) {
         logger.warn('Failed to load chat model list, fallback to built-in models.', error);
       } finally {
@@ -3015,17 +3009,6 @@ const HomePage = () => {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    try {
-      const storedModel = localStorage.getItem(CHAT_MODEL_KEY);
-      if (storedModel && isModelInOptions(storedModel, chatModelOptions)) {
-        setChatModel(storedModel);
-      }
-    } catch (error) {
-      logger.warn('Failed to load chat model settings.', error);
-    }
-  }, [chatModelOptions]);
 
   useEffect(() => {
     const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
@@ -3191,14 +3174,6 @@ const HomePage = () => {
     chatAgentSessionIdByChatIdRef.current = nextChatToAgent;
     chatIdByAgentSessionIdRef.current = nextAgentToChat;
   }, [chatSessions]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(CHAT_MODEL_KEY, chatModel);
-    } catch (error) {
-      logger.warn('Failed to persist chat model settings.', error);
-    }
-  }, [chatModel]);
 
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
   const activeStreamingAssistantMessageId = useMemo(() => {

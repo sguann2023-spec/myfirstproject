@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Film, Image, Layers, Music2, Type, Sparkles, Pencil, Trash2, CornerDownRight } from 'lucide-react';
-
-export const elementIcons = { composition: Layers, text: Type, image: Image, video: Film, audio: Music2 };
+import { ChevronDown, ChevronRight, Sparkles, Pencil, Trash2, CornerDownRight } from 'lucide-react';
+import { elementIcons } from '../elementIcons';
 
 export default function LayerPanel({ model, index, nativeIndex, selectedId, collapsed, onToggle, onSelect, onEnter, onReveal, onAction, disabled }) {
   const [renaming, setRenaming] = useState(null);

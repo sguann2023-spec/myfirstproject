@@ -12,6 +12,7 @@ import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
+import { SUBTITLE_RECOGNITION_LANGUAGES } from '../../shared/subtitleRecognitionLanguages'
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
 
 const logger = loggerService.withContext('MCPServer:SubtitleRecognition')
@@ -46,11 +47,17 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
         type: 'string',
         description: 'Required audio or video URL, file URL, or absolute local path.'
       },
+      language: {
+        type: 'string',
+        enum: ['', ...SUBTITLE_RECOGNITION_LANGUAGES],
+        description:
+          'Optional source recognition language, not a translation target. Use a listed language code, e.g. en-US for English, ja-JP for Japanese, or ms-MY for Malay. Omit or leave empty to recognize Chinese, English, and Chinese dialects including Shanghainese, Minnan, Sichuan, Shaanxi, Cantonese, Jilu, Lanyin, and Jianghuai Mandarin.'
+      },
       effectMode: {
         type: 'string',
         enum: [...SUBTITLE_RECOGNITION_EFFECT_MODES],
         description:
-          'Optional recognition strength. Use basic without character-based sentence splitting, nlp for sentence splitting using maxSentenceLength, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to basic.'
+          'Optional recognition strength. Use basic without length-based sentence splitting, nlp for sentence splitting using maxSentenceLength, llm for smarter splitting plus translation and keywords, and llm_vad for the llm mode with extra cleanup of pauses, repeats, and incorrect words. Defaults to basic.'
       },
       maxSentenceLength: {
         type: 'integer',
@@ -58,7 +65,7 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
         maximum: 80,
         default: 12,
         description:
-          'Maximum characters per subtitle segment in nlp mode, for both ASR and STA. Defaults to 12 when omitted. Ignored in other modes; for no sentence splitting use effectMode basic and omit this parameter.'
+          'Maximum subtitle segment length in nlp mode, for both ASR and STA: characters for Chinese, Japanese, and Korean; whitespace-separated words for Latin-script languages such as English and French. Defaults to 12 when omitted. Ignored in other modes; for no sentence splitting use effectMode basic and omit this parameter.'
       },
       content: {
         type: 'string',
@@ -381,6 +388,16 @@ class SubtitleRecognitionServer {
     }
 
     const effectMode = this.resolveEffectMode(args.effectMode)
+    if (args.language !== undefined && typeof args.language !== 'string') {
+      throw new McpError(ErrorCode.InvalidParams, "'language' must be a string")
+    }
+    const language = typeof args.language === 'string' ? args.language.trim() : ''
+    if (language && !SUBTITLE_RECOGNITION_LANGUAGES.some((supported) => supported === language)) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `'language' must be one of: ${SUBTITLE_RECOGNITION_LANGUAGES.join(', ')}; omit or leave empty for automatic recognition`
+      )
+    }
     const maxSentenceLength = args.maxSentenceLength === undefined ? 12 : args.maxSentenceLength
     if (
       effectMode === 'nlp' &&
@@ -397,6 +414,10 @@ class SubtitleRecognitionServer {
     const payload: Record<string, unknown> = {
       url: preparedSource.submittedUrl,
       effect_mode: effectMode
+    }
+
+    if (language) {
+      payload.language = language
     }
 
     if (effectMode === 'nlp') {
@@ -552,6 +573,7 @@ class SubtitleRecognitionServer {
 
     logger.info('Subtitle recognition task submitted', {
       effectMode: payload.effect_mode,
+      language: payload.language,
       taskId: result.task_id
     })
 
@@ -574,6 +596,7 @@ class SubtitleRecognitionServer {
       task_mode: typeof payload.content === 'string' ? 'sta' : 'asr',
       url: payload.url,
       effect_mode: payload.effect_mode,
+      ...(payload.language ? { language: payload.language } : {}),
       source_summary: sourceSummary,
       error_code: finalResult.result?.error_code ?? finalResult.error_code
         ?? finalResult.result?.code ?? finalResult.code,

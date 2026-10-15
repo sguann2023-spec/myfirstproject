@@ -1,9 +1,10 @@
 import React from 'react';
 import { CloseOutlined, PlusOutlined } from '@ant-design/icons';
-import { Dropdown, Input, InputNumber, Slider, Tooltip } from 'antd';
+import { Dropdown, Input, InputNumber, Select, Slider, Tooltip } from 'antd';
 import { ChevronDown, FileSearch, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { uploadToOSSWithProgress } from '../../api/sts';
 import { getSubtitleRecognitionPricing } from '../../api/pricing';
+import { normalizeSubtitleRecognitionLanguage, SUBTITLE_RECOGNITION_LANGUAGE_OPTIONS } from '../../shared/subtitleRecognitionLanguages';
 import Point2Icon from '../../../public/point2.svg';
 import MediaPreview from './MediaPreview';
 import '../TextAddDetail/index.css';
@@ -16,15 +17,20 @@ export const DEFAULT_SUBTITLE_SETTINGS = {
   referenceText: '',
   sentenceLength: 12,
   referenceEnabled: false,
+  languageEnabled: false,
+  language: '',
 };
 
-const SubtitleSection = ({ label, enabled, onEnabledChange, disabled, onReset, children }) => {
+const SubtitleSection = ({ label, enabled, onEnabledChange, disabled, onReset, expandOnEnable = false, children }) => {
   const [expanded, setExpanded] = React.useState(false);
   const contentId = React.useId();
   return <section className="chat-panel__subtitle-setting-section">
     <div className="chat-panel__text-effect-header">
       <input type="checkbox" aria-label={`启用${label}`} checked={enabled} disabled={disabled}
-        onChange={(event) => onEnabledChange(event.target.checked)} />
+        onChange={(event) => {
+          onEnabledChange(event.target.checked);
+          if (expandOnEnable && event.target.checked) setExpanded(true);
+        }} />
       <button type="button" className="chat-panel__text-settings-section-header"
         aria-label={`展开或折叠${label}`} aria-expanded={expanded} aria-controls={contentId}
         onClick={() => setExpanded((open) => !open)}>
@@ -58,10 +64,12 @@ export const getSubtitleBillingTier = (settings = DEFAULT_SUBTITLE_SETTINGS) => 
 
 export const buildSubtitleRecognitionRequest = (settings = DEFAULT_SUBTITLE_SETTINGS) => {
   const { mode, effectMode } = getSubtitleBillingTier(settings);
+  const language = settings.languageEnabled ? normalizeSubtitleRecognitionLanguage(settings.language) : '';
   return {
     url: String(settings.mediaSource || '').trim(),
     effectMode,
     ...(effectMode === 'nlp' ? { maxSentenceLength: normalizeSentenceLength(settings.sentenceLength) } : {}),
+    ...(language ? { language } : {}),
     ...(mode === 'sta' ? { content: settings.referenceText.trim() } : {}),
   };
 };
@@ -126,6 +134,9 @@ export const buildRecognizationSubtitlePrompt = (settings = DEFAULT_SUBTITLE_SET
   normalizeSentenceLength(settings.sentenceLength) === NO_SENTENCE_SPLIT
     ? '分句设置：不分句，不传 maxSentenceLength，不按字数拆分字幕，保留准确时间轴。'
     : `分句字数：${normalizeSentenceLength(settings.sentenceLength)} 字，调用 submit_subtitle_recognition_task 时传入 maxSentenceLength: ${normalizeSentenceLength(settings.sentenceLength)}，保留准确时间轴。`,
+  settings.languageEnabled && settings.language
+    ? `识别语言：language: ${normalizeSubtitleRecognitionLanguage(settings.language)}，请使用此语言识别原文，不是翻译目标语言。`
+    : '',
   settings.referenceEnabled && String(settings.referenceText || '').trim()
     ? `正确文案（使用 content 参数提交完整文案，以音视频实际内容和时间轴为准）：\n${settings.referenceText.trim()}`
     : '',
@@ -143,6 +154,8 @@ const RecognizationSubtitleToolDetail = ({
     referenceText: settings.referenceText || '',
     sentenceLength: normalizeSentenceLength(settings.sentenceLength),
     referenceEnabled: Boolean(settings.referenceEnabled),
+    languageEnabled: Boolean(settings.languageEnabled),
+    language: settings.language || '',
   }));
   const [settingsOpen, setSettingsOpen] = React.useState(true);
   const [localMedia, setLocalMedia] = React.useState(null);
@@ -322,6 +335,21 @@ const RecognizationSubtitleToolDetail = ({
                     value={draft.sentenceLength} disabled={disabled} onChange={setSentenceLength} />
                 </div>
               </section>
+              <SubtitleSection label="语言" enabled={draft.languageEnabled} disabled={disabled} expandOnEnable
+                onEnabledChange={(enabled) => setDraft((previous) => ({ ...previous, languageEnabled: enabled }))}
+                onReset={() => setDraft((previous) => ({ ...previous, languageEnabled: false, language: '' }))}>
+                  <Select aria-label="识别语言" showSearch allowClear
+                    className="chat-panel__text-settings-select chat-panel__subtitle-language-select"
+                    classNames={{ popup: { root: 'chat-panel__subtitle-language-dropdown' } }}
+                    value={draft.language || undefined} placeholder="选择语言"
+                    disabled={disabled || !draft.languageEnabled}
+                    optionFilterProp="label" options={SUBTITLE_RECOGNITION_LANGUAGE_OPTIONS}
+                    suffixIcon={<ChevronDown size={14} style={{ pointerEvents: 'none' }} />}
+                    onChange={(language) => {
+                      if (disabled || !draft.languageEnabled) return;
+                      setDraft((previous) => ({ ...previous, language: language || '' }));
+                    }} />
+              </SubtitleSection>
               <SubtitleSection label="正确文案" enabled={draft.referenceEnabled} disabled={disabled}
                 onEnabledChange={(enabled) => setDraft((previous) => ({ ...previous, referenceEnabled: enabled }))}
                 onReset={() => setDraft((previous) => ({ ...previous, referenceEnabled: false, referenceText: '' }))}>

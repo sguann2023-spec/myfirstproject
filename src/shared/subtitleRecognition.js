@@ -1,3 +1,5 @@
+import { normalizeSubtitleRecognitionLanguage } from './subtitleRecognitionLanguages';
+
 export const SUBTITLE_RECOGNITION_TOOL = 'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task';
 
 const STORYBOARD_LINK_PREFIX = '#subtitle-storyboard?file=';
@@ -30,7 +32,11 @@ export const normalizeSubtitleRecognitionRequest = (request) => {
     throw new Error('分句字数必须是 3～80 的整数');
   }
   const content = String(request?.content || '').trim();
-  return { url, effectMode, ...(effectMode === 'nlp' ? { maxSentenceLength } : {}), ...(content ? { content } : {}) };
+  const language = normalizeSubtitleRecognitionLanguage(request?.language);
+  return {
+    url, effectMode, ...(effectMode === 'nlp' ? { maxSentenceLength } : {}),
+    ...(language ? { language } : {}), ...(content ? { content } : {}),
+  };
 };
 
 export const buildSubtitleRecognitionBlocks = ({

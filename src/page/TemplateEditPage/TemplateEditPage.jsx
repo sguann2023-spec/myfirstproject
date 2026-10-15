@@ -4,9 +4,9 @@ import { json } from '@codemirror/lang-json';
 import { EditorView } from '@codemirror/view';
 import { parseTree } from 'jsonc-parser';
 import { Braces, Film, Image, Layers, Music2, Redo2, SlidersHorizontal, Sparkles, Sticker, Type, Undo2 } from 'lucide-react';
-import LayerPanel from './LayerPanel';
-import EditorTimeline from './EditorTimeline';
-import { indexEditorTree, sceneTimeline } from './editorView';
+import LayerPanel from '../../components/TemplateEditor/LayerPanel';
+import EditorTimeline from '../../components/TemplateEditor/Timeline';
+import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/editorView';
 import './TemplateEditPage.css';
 
 const tools = [
@@ -51,6 +51,7 @@ const TemplateEditPage = () => {
   const operation = useRef(false);
   const lastTyping = useRef(0);
   const editorRef = useRef(null);
+  const pendingReveal = useRef(null);
   const index = useMemo(() => indexEditorTree(model?.tree), [model]);
   const timelineView = useMemo(() => sceneTimeline(model, index, sceneId), [model, index, sceneId]);
   const nativeIndex = useMemo(() => {
@@ -95,8 +96,19 @@ const TemplateEditPage = () => {
         if (!active || version !== revision.current) return;
         setModel(next);
         setAnalysisError('');
+        if (pendingReveal.current) {
+          const node = indexEditorTree(next.tree).get(pendingReveal.current);
+          pendingReveal.current = null;
+          if (node) {
+            setSceneId(node.sceneId);
+            setCollapsed(previous => new Set([...previous].filter(id => !node.ancestors.includes(id))));
+          }
+        }
       }).catch((err) => {
-        if (active && version === revision.current) setAnalysisError(err.message);
+        if (active && version === revision.current) {
+          pendingReveal.current = null;
+          setAnalysisError(err.message);
+        }
       }).finally(() => { if (active && version === revision.current) setPending(false); });
     }, 200);
     return () => { active = false; clearTimeout(timer); };
@@ -122,6 +134,7 @@ const TemplateEditPage = () => {
 
   const applyJson = (value) => {
     revision.current++;
+    pendingReveal.current = null;
     setPending(true);
     setCompiled(null);
     setError('');
@@ -187,9 +200,12 @@ const TemplateEditPage = () => {
     setError('');
     try {
       const result = await invoke('template:editor-add', { templateJson }, { type, selectedId: targetId,
+        scopeId: sceneId,
         ...(type === 'scene' && !targetId && sceneId === null ? { atRoot: true } : {}) });
       if (result) {
         edit(result.templateJson);
+        // Reveal the actual owning Scene once the updated tree is available.
+        if (sceneId === null && !(type === 'scene' && !targetId)) pendingReveal.current = result.selectedId;
         setSelectedId(result.selectedId);
         if (targetId) setCollapsed(previous => new Set([...previous].filter(id => id !== targetId && !index.get(targetId)?.ancestors.includes(id))));
         setWorkflowMode(false);

@@ -7,6 +7,7 @@ import { applyEditorAction } from '../../main/template/editorActions';
 import { mixedTrackFixture } from '../../main/template/workflowTestUtils';
 import { createEditorPreset } from '../../main/template/editorPresets';
 import TemplateEditPage from './TemplateEditPage';
+import { wheelIntent } from '../../components/TemplateEditor/Timeline/viewport';
 
 vi.mock('@uiw/react-codemirror', () => ({
   default: React.forwardRef(function EditorMock({ value }, ref) {
@@ -79,6 +80,52 @@ it('层级树不暴露轨道节点；进入 Scene 后混排四种素材仍只占
   expect(labels[0].querySelector('b').textContent).toBe('11');
 });
 
+it('根层添加基础元素后自动进入所属 Scene，撤销恢复根层', async () => {
+  await render();
+  await act(async () => container.querySelector('[aria-label="添加文字"]').click());
+  await settle();
+  expect(container.querySelector('[aria-label="Scene 路径"] [aria-current="page"]').textContent).toBe('混排场景');
+  expect(container.querySelector('.template-clip.is-selected').textContent).toContain('Your text here');
+  expect(container.querySelector('[role="treeitem"][aria-selected="true"]').textContent).toContain('Your text here');
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelector('[aria-label="打开模版时间轴"]').getAttribute('aria-current')).toBe('page');
+  expect(container.querySelectorAll('.template-clip')).toHaveLength(1);
+});
+
+it('选中折叠的第二个根 Scene 后添加，自动展开并进入第二个 Scene', async () => {
+  await render();
+  await act(async () => container.querySelector('[aria-label="添加 Scene"]').click());
+  await settle();
+  expect(container.querySelector('[aria-label="打开模版时间轴"]').getAttribute('aria-current')).toBe('page');
+  await act(async () => container.querySelector('[aria-label="折叠 Scene"]').click());
+  await act(async () => container.querySelector('[aria-label="添加文字"]').click());
+  await settle();
+  expect(container.querySelector('[aria-label="Scene 路径"] [aria-current="page"]').textContent).toBe('Scene');
+  expect(container.querySelector('[aria-label="折叠 Scene"]')).not.toBeNull();
+  expect(container.querySelector('.template-clip.is-selected').getAttribute('aria-label')).toBe('文字，0 到 5 秒');
+  const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(draft.scenes[0].tracks).toHaveLength(2);
+  expect(draft.scenes[1].tracks).toHaveLength(1);
+});
+
+it.each(['取消', '失败'])('根层添加素材%s时不自动进入 Scene', async (result) => {
+  await render();
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  const implementation = invoke.getMockImplementation();
+  invoke.mockImplementation((channel, ...args) => {
+    if (channel === 'template:editor-add') {
+      if (result === '失败') return Promise.reject(new Error('添加失败'));
+      return Promise.resolve(null);
+    }
+    return implementation(channel, ...args);
+  });
+  await act(async () => container.querySelector('[aria-label="添加图片"]').click());
+  await settle();
+  expect(container.querySelector('[aria-label="打开模版时间轴"]').getAttribute('aria-current')).toBe('page');
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+});
+
 it('时间轴标签可选中逻辑轨道，追加时空间不足会显示错误', async () => {
   await render();
   await enterScene('scene');
@@ -87,7 +134,7 @@ it('时间轴标签可选中逻辑轨道，追加时空间不足会显示错误'
     .toBe('选择轨道 混排轨道');
   await act(async () => container.querySelector('[aria-label="添加文字"]').click());
   expect(invoke.mock.calls.find(([channel]) => channel === 'template:editor-add')[2])
-    .toEqual({ type: 'text', selectedId: 'mixed' });
+    .toEqual({ type: 'text', selectedId: 'mixed', scopeId: 'scene' });
   expect(container.querySelector('[role="alert"]').textContent).toContain('没有剩余时间');
 });
 
@@ -111,7 +158,7 @@ it('自动 Scene 时长在时间轴更新，末尾追加后继续增长', async 
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-it('一句一图的子 Scene 在父轨道显示，点击后可折叠或向其内部添加素材', async () => {
+it('一句一图的子 Scene 可折叠，双击进入后向其内部添加素材', async () => {
   const template = createEditorPreset('sentence-image');
   invoke.mockImplementation(async (channel, payload, input) => {
     if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(template) };
@@ -129,12 +176,40 @@ it('一句一图的子 Scene 在父轨道显示，点击后可折叠或向其内
   expect(container.querySelector('.template-clip--scene.is-selected').textContent).toContain('第 2 组');
   await act(async () => container.querySelector('[aria-label="折叠 第 2 组 · 一句一图"]').click());
   expect(container.querySelector('[aria-label="展开 第 2 组 · 一句一图"]')).not.toBeNull();
+  await act(async () => sceneClips[1].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
   await act(async () => container.querySelector('[aria-label="添加文字"]').click());
   await act(async () => vi.advanceTimersByTimeAsync(250));
   const document = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
   const second = document.scenes[0].tracks[0].segments[1];
   expect(second.tracks).toHaveLength(3);
   expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('Scene 内选中子 Scene 后添加文字，同轨混排且支持撤销', async () => {
+  const template = createEditorPreset('sentence-image');
+  invoke.mockImplementation(async (channel, payload, input) => {
+    if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(template) };
+    if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
+    if (channel === 'template:editor-add') return addEditorElement(payload, input);
+    if (channel === 'template:editor-edit') return applyEditorAction(payload, input);
+    throw new Error(`Unexpected IPC: ${channel}`);
+  });
+  await render();
+  await enterScene();
+  await act(async () => container.querySelectorAll('.template-clip--scene')[2].click());
+  await act(async () => container.querySelector('[aria-label="添加文字"]').click());
+  await act(async () => vi.advanceTimersByTimeAsync(250));
+  expect(container.querySelectorAll('.template-track-row')).toHaveLength(1);
+  expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(3);
+  expect(container.querySelector('.template-clip:not(.template-clip--scene)').getAttribute('aria-label')).toBe('文字，15 到 20 秒');
+  const document = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(document.tracks).toBeUndefined();
+  expect(document.scenes[0].tracks[0].segments[2].tracks).toHaveLength(2);
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 20 秒');
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await act(async () => vi.advanceTimersByTimeAsync(250));
+  expect(container.querySelector('.template-clip:not(.template-clip--scene)')).toBeNull();
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 15 秒');
 });
 
 it('添加 Scene 按钮向选中父轨道追加子 Scene，不触发文件选择', async () => {
@@ -152,7 +227,7 @@ it('添加 Scene 按钮向选中父轨道追加子 Scene，不触发文件选择
   await act(async () => container.querySelector('[aria-label="添加 Scene"]').click());
   await act(async () => vi.advanceTimersByTimeAsync(250));
   expect(invoke.mock.calls.find(([channel]) => channel === 'template:editor-add')[2])
-    .toEqual({ type: 'scene', selectedId: 'sentence-scenes' });
+    .toEqual({ type: 'scene', selectedId: 'sentence-scenes', scopeId: 'scene-1' });
   expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(4);
   expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 20 秒');
   expect(container.querySelector('[role="alert"]')).toBeNull();
@@ -210,7 +285,7 @@ it('轨道锁定阻止键盘移动和删除，解锁后可删除并撤销', asyn
   expect(container.querySelector('[data-clip-id="upper-image"]')).not.toBeNull();
 });
 
-it('拖动仅在松手时提交，同轨冲突保持原始 JSON', async () => {
+it('拖动仅在松手时提交，重叠落点插入并可撤销', async () => {
   await render();
   await enterScene('scene');
   const before = container.querySelector('[data-testid="editor"]').textContent;
@@ -219,9 +294,46 @@ it('拖动仅在松手时提交，同轨冲突保持原始 JSON', async () => {
   await act(async () => clip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 74, clientY: 100, ctrlKey: true })));
   expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit')).toHaveLength(0);
   await act(async () => clip.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 74, clientY: 100 })));
-  expect(container.querySelector('[role="alert"]').textContent).toMatch(/重叠|冲突/);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector('[data-testid="editor"]').textContent).not.toBe(before);
+  expect(invoke.mock.calls.find(([channel]) => channel === 'template:editor-edit')[2].type).toBe('move-clip');
+  expect(container.querySelector('[aria-label="撤销"]').disabled).toBe(false);
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
-  expect(container.querySelector('[aria-label="撤销"]').disabled).toBe(true);
+});
+
+it('跨轨拖动跟手浮动，显示轨道和间隙落点，松手建立新轨道', async () => {
+  await render();
+  await enterScene('scene');
+  const scroller = container.querySelector('.template-timeline-scroll');
+  scroller.getBoundingClientRect = () => ({ top: 0, bottom: 300, left: 0, right: 1000 });
+  container.querySelectorAll('[data-track-id]').forEach((row, index) => {
+    row.getBoundingClientRect = () => ({ top: 100 + index * 35, bottom: 135 + index * 35 });
+  });
+  const clip = container.querySelector('[data-clip-id="upper-image"]');
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 110, button: 0 })));
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 200, clientY: 150 })));
+  expect(clip.classList.contains('is-floating')).toBe(true);
+  expect(clip.style.transform).toBe('translateY(40px)');
+  expect(container.querySelector('.is-clip-drop-target').dataset.trackId).toBe('mixed');
+  expect(container.querySelector('.template-clip-ghost')).toBeNull();
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 200, clientY: 170 })));
+  expect(container.querySelector('.template-clip-drop-line')).not.toBeNull();
+  expect(invoke.mock.calls.some(([channel]) => channel === 'template:editor-edit')).toBe(false);
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 200, clientY: 170 })));
+  await settle();
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').map(call => call[2]))
+    .toEqual([expect.objectContaining({ type: 'move-clip', beforeTrackId: null })]);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+  expect(container.querySelectorAll('[data-track-id]')).toHaveLength(2);
+  expect(container.querySelector('[data-track-id="upper"]')).toBeNull();
+  expect(container.querySelector('.is-floating')).toBeNull();
+  expect(container.querySelector('.template-clip-drop-line')).toBeNull();
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelectorAll('[data-track-id]')).toHaveLength(2);
+  expect(container.querySelector('[data-track-id="upper"]')).not.toBeNull();
 });
 
 it('取消拖动不提交，缩放和游标只影响视图', async () => {
@@ -254,4 +366,119 @@ it('树节点键盘导航、折叠与 F2 重命名入口', async () => {
   expect(container.querySelector('[aria-label="元素名称"]')).not.toBeNull();
   await key(container.querySelector('[aria-label="元素名称"]'), 'Escape');
   expect(container.querySelector('[aria-label="元素名称"]')).toBeNull();
+});
+
+it('播放头贯穿整条时间线，刻度圆点和 Auto 标签独立显示', async () => {
+  invoke.mockImplementationOnce(async () => ({
+    templateJson: JSON.stringify(createEditorPreset('sentence-image'))
+  }));
+  await render();
+  await enterScene();
+  expect(container.querySelectorAll('.template-playhead')).toHaveLength(1);
+  const playhead = container.querySelector('.template-playhead');
+  expect(playhead.parentElement.className).toBe('template-timeline-inner');
+  expect(container.querySelector('.template-track-lane .template-playhead')).toBeNull();
+  expect(container.querySelectorAll('.template-ruler-mark > i').length).toBeGreaterThanOrEqual(5);
+  expect(container.querySelector('.template-duration-label').textContent).toBe('Auto');
+  const left = parseFloat(playhead.style.left);
+  await key(container.querySelector('[aria-label="时间轴游标"]'), 'ArrowRight');
+  expect(parseFloat(container.querySelector('.template-playhead').style.left)).toBeGreaterThan(left);
+  expect(container.querySelectorAll('.template-outside-scene')).toHaveLength(1);
+  expect(container.querySelector('.template-add-scene').style.left)
+    .toBe(container.querySelector('.template-outside-scene').style.left);
+  const scroller = container.querySelector('.template-timeline-scroll');
+  await act(async () => {
+    scroller.scrollLeft = 100;
+    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  expect(container.querySelector('.template-playhead').style.visibility).toBe('hidden');
+  await act(async () => {
+    scroller.scrollLeft = 0;
+    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  expect(container.querySelector('.template-playhead').style.visibility).toBe('');
+});
+
+it('时间线区域连续捏合缩放锁定鼠标时间，横移和 Shift 滚轮仅平移视图', async () => {
+  await render();
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  const scroller = container.querySelector('.template-timeline-scroll');
+  const clip = container.querySelector('.template-clip');
+  const clipWidth = () => parseFloat(clip.style.width);
+  const initialWidth = clipWidth();
+  const wheel = options => new WheelEvent('wheel', {
+    bubbles: true, cancelable: true, clientX: 264, ...options
+  });
+  const first = wheel({ ctrlKey: true, deltaY: -10 });
+  await act(async () => {
+    scroller.dispatchEvent(first);
+    scroller.dispatchEvent(wheel({ ctrlKey: true, deltaY: -10 }));
+  });
+  expect(first.defaultPrevented).toBe(true);
+  expect(clipWidth() / initialWidth).toBeCloseTo(wheelIntent(first, 300).factor ** 2);
+  expect((scroller.scrollLeft + 100) / clipWidth()).toBeCloseTo(100 / initialWidth);
+  const width = clipWidth();
+  const scroll = scroller.scrollLeft;
+  await act(async () => clip.dispatchEvent(wheel({ deltaX: 1 })));
+  expect(scroller.scrollLeft).toBeCloseTo(scroll + 1);
+  await act(async () => scroller.dispatchEvent(wheel({ shiftKey: true, deltaY: -.5 })));
+  expect(scroller.scrollLeft).toBeCloseTo(scroll + .5);
+  expect(clipWidth()).toBe(width);
+  await act(async () => {
+    scroller.dispatchEvent(wheel({ ctrlKey: true, deltaY: 10 }));
+    scroller.dispatchEvent(wheel({ ctrlKey: true, deltaY: 10 }));
+  });
+  expect(clipWidth()).toBeCloseTo(initialWidth);
+  expect(scroller.scrollLeft).toBeCloseTo(0);
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  expect(invoke.mock.calls.some(([channel]) => channel === 'template:editor-edit')).toBe(false);
+});
+
+it('滚轮不接管左侧时间输入，纵向滚动保留轨道滚动且缩小覆盖完整刻度', async () => {
+  await render();
+  const scroller = container.querySelector('.template-timeline-scroll');
+  const input = container.querySelector('[aria-label="当前时间（秒）"]');
+  const ignored = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100, clientX: 50 });
+  await act(async () => input.dispatchEvent(ignored));
+  expect(ignored.defaultPrevented).toBe(false);
+  await act(async () => scroller.dispatchEvent(new WheelEvent('wheel', {
+    bubbles: true, cancelable: true, deltaY: 30, clientX: 264
+  })));
+  expect(scroller.scrollTop).toBe(30);
+  const width = parseFloat(container.querySelector('.template-clip').style.width);
+  await act(async () => container.querySelector('[aria-label="缩小时间轴"]').click());
+  expect(parseFloat(container.querySelector('.template-clip').style.width)).toBeLessThan(width);
+  expect(parseFloat(container.querySelector('.template-timeline-inner').style.width)).toBe(404);
+});
+
+it('横向滚动条仅覆盖时间区域，与滚轮平移双向同步', async () => {
+  await render();
+  expect(container.querySelector('.template-timeline-horizontal-scroll')).toBeNull();
+  await act(async () => container.querySelector('[aria-label="放大时间轴"]').click());
+  const bar = container.querySelector('.template-timeline-horizontal-scroll');
+  const scroller = container.querySelector('.template-timeline-scroll');
+  expect(bar.style.marginLeft).toBe('164px');
+  expect(bar.style.width).toBe('240px');
+  expect(bar.parentElement.className).toBe('template-edit-timeline');
+  await act(async () => {
+    bar.scrollLeft = 20;
+    bar.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  expect(scroller.scrollLeft).toBe(20);
+  await act(async () => scroller.dispatchEvent(new WheelEvent('wheel', {
+    bubbles: true, cancelable: true, clientX: 264, deltaX: -5
+  })));
+  expect(bar.scrollLeft).toBe(15);
+  expect(scroller.scrollLeft).toBe(15);
+  await act(async () => container.querySelector('[aria-label="缩小时间轴"]').click());
+  expect(container.querySelector('.template-timeline-horizontal-scroll')).toBeNull();
+  expect(scroller.scrollLeft).toBe(0);
+});
+
+it('时间线仅保留加减缩放按钮，不显示吸附与适应全部时长', async () => {
+  await render();
+  expect(container.querySelector('[aria-label="时间轴吸附"]')).toBeNull();
+  expect(container.querySelector('[aria-label="适应全部时长"]')).toBeNull();
+  expect([...container.querySelectorAll('.template-timeline-heading .template-timeline-button')]
+    .map(button => button.getAttribute('aria-label'))).toEqual(['缩小时间轴', '放大时间轴']);
 });

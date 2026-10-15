@@ -26,6 +26,11 @@ vi.mock('antd', () => {
     InputNumber: ({ precision, controls, changeOnWheel, formatter, parser, value, onChange, ...props }) =>
       <input type="text" {...props} data-change-on-wheel={String(changeOnWheel)}
         value={formatter(value)} onChange={(event) => onChange(event.target.value === '' ? null : Number(parser(event.target.value)))} />,
+    Select: ({ showSearch, allowClear, optionFilterProp, options, suffixIcon, classNames, placeholder, value, onChange, ...props }) =>
+      <select {...props} value={value || ''} onChange={(event) => onChange(event.target.value || undefined)}>
+        <option value="">{placeholder}</option>
+        {options.map(({ value: code, label }) => <option key={code} value={code}>{label}</option>)}
+      </select>,
     Dropdown: ({ open, onOpenChange, children, popupRender, overlayClassName }) => <>
       <div onClick={() => onOpenChange(!open)}>{children}</div>
       <div hidden={!open} className={overlayClassName}>{popupRender()}</div>
@@ -115,6 +120,70 @@ afterEach(async () => {
 });
 
 describe('subtitle toolbar and popover', () => {
+  it('places an optional language selector above reference text and sends only enabled selections', async () => {
+    await render();
+    await chooseFile();
+    const checkbox = container.querySelector('input[aria-label="启用语言"]');
+    expect(button('展开或折叠语言').getAttribute('aria-expanded')).toBe('false');
+    expect(button('展开或折叠语言').className).toBe(button('展开或折叠正确文案').className);
+    await click('展开或折叠语言');
+    const select = container.querySelector('select[aria-label="识别语言"]');
+    const sections = [...container.querySelectorAll('.chat-panel__subtitle-setting-section')];
+    expect(sections.indexOf(select.closest('section'))).toBe(1);
+    expect(sections.indexOf(button('展开或折叠正确文案').closest('section'))).toBe(2);
+    expect(checkbox.checked).toBe(false);
+    expect(select.disabled).toBe(true);
+    expect(select.value).toBe('');
+    expect(select.classList.contains('chat-panel__text-settings-select')).toBe(true);
+    expect(select.options).toHaveLength(26);
+    expect([...select.options].find((option) => option.value === 'ms-MY').textContent).toBe('马来语');
+    expect(buildSubtitleRecognitionRequest(latestSettings())).not.toHaveProperty('language');
+    await act(async () => checkbox.click());
+    expect(select.disabled).toBe(false);
+    expect(buildSubtitleRecognitionRequest(latestSettings())).not.toHaveProperty('language');
+    await act(async () => {
+      select.value = 'ms-MY';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(buildSubtitleRecognitionRequest(latestSettings()).language).toBe('ms-MY');
+    expect(buildRecognizationSubtitlePrompt(latestSettings())).toContain('language: ms-MY');
+    await act(async () => checkbox.click());
+    expect(select.value).toBe('ms-MY');
+    expect(select.disabled).toBe(true);
+    expect(buildSubtitleRecognitionRequest(latestSettings())).not.toHaveProperty('language');
+    expect(buildRecognizationSubtitlePrompt(latestSettings())).not.toContain('language:');
+    await act(async () => checkbox.click());
+    await click('字幕设置');
+    await click('字幕设置');
+    expect(select.value).toBe('ms-MY');
+    await act(async () => {
+      select.value = '';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(buildSubtitleRecognitionRequest(latestSettings())).not.toHaveProperty('language');
+    await click('重置语言');
+    expect(latestSettings().languageEnabled).toBe(false);
+    expect(latestSettings().language).toBe('');
+  });
+
+  it('disables language selection when the tool is disabled and restores provided settings', async () => {
+    await render({ disabled: true, settings: {
+      mediaSource: '/video.mp4', languageEnabled: true, language: 'ja-JP',
+    } });
+    const checkbox = container.querySelector('input[aria-label="启用语言"]');
+    await click('展开或折叠语言');
+    const select = container.querySelector('select[aria-label="识别语言"]');
+    expect(checkbox.checked).toBe(true);
+    expect(checkbox.disabled).toBe(true);
+    expect(select.disabled).toBe(true);
+    expect(select.value).toBe('ja-JP');
+    await act(async () => {
+      select.value = 'en-US';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(latestSettings().language).toBe('ja-JP');
+  });
+
   it('opens a secondary toolbar and popover without a modal or submit button', async () => {
     await render();
     expect(container.querySelector('.chat-panel__tool-detail-area')).not.toBeNull();
@@ -174,7 +243,7 @@ describe('subtitle toolbar and popover', () => {
     await render();
     await chooseFile();
     await click('展开或折叠正确文案');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     await change('textarea', '校对文案');
     await change('input[aria-label="分句字数"]', '24');
     await click('字幕设置');
@@ -297,16 +366,16 @@ describe('subtitle toolbar and popover', () => {
     expect(fields.classList.contains('chat-panel__text-effect-fields')).toBe(true);
     await change('textarea', '禁用时的输入');
     expect(latestSettings().referenceText).toBe('');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     expect(textarea.disabled).toBe(false);
     expect(fields.disabled).toBe(false);
     await change('textarea', '参考内容');
     expect(buildRecognizationSubtitlePrompt(latestSettings())).toContain('参考内容');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     expect(textarea.disabled).toBe(true);
     expect(textarea.value).toBe('参考内容');
     expect(buildRecognizationSubtitlePrompt(latestSettings())).not.toContain('参考内容');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     expect(buildRecognizationSubtitlePrompt(latestSettings())).toContain('参考内容');
     await click('重置正确文案');
     expect(latestSettings().referenceText).toBe('');
@@ -410,11 +479,11 @@ describe('subtitle pricing', () => {
     await change('input[aria-label="分句字数"]', '81');
     expect(text()).toBe('4积分');
     await click('展开或折叠正确文案');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     await change('textarea', '校对文案');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     expect(text()).toBe('4积分');
-    await act(async () => container.querySelector('input[type="checkbox"]').click());
+    await act(async () => container.querySelector('input[aria-label="启用正确文案"]').click());
     expect(text()).toBe('8积分');
     await change('input[aria-label="分句字数"]', '12');
     expect(text()).toBe('10积分');

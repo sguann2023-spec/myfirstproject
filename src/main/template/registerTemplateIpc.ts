@@ -45,7 +45,7 @@ export function registerTemplateIpc() {
     const options = { properties: ['openFile' as const], filters: [filters[input.type as keyof typeof filters]] }
     const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
     if (result.canceled || !result.filePaths[0]) return null
-    return addEditorElement(payload, { type: input.type, selectedId: input.selectedId, source: result.filePaths[0] })
+    return addEditorElement(payload, { ...input, source: result.filePaths[0] })
   })
   ipcMain.handle('template:image-defaults', () => ({
     template: exampleImageTemplate,

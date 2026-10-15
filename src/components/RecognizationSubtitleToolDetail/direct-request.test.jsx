@@ -17,6 +17,16 @@ const response = {
 const result = { content: [{ type: 'text', text: JSON.stringify(response) }] };
 
 describe('字幕直连请求与固定回复', () => {
+  it.each(['en-US', 'ja-JP', 'ms-MY', 'yue-CN'])('保留识别语言 %s 并去除首尾空格', (language) => {
+    expect(normalizeSubtitleRecognitionRequest({ ...request, language: ` ${language} ` }))
+      .toEqual({ ...request, language });
+  });
+  it.each([undefined, '', '  '])('未指定语言 %s 时保持默认识别', (language) => {
+    expect(normalizeSubtitleRecognitionRequest({ ...request, language })).toEqual(request);
+  });
+  it.each([null, 123, true, 'en', 'auto'])('拒绝非法语言 %s', (language) => {
+    expect(() => normalizeSubtitleRecognitionRequest({ ...request, language })).toThrow();
+  });
   it('固定回复链接使用实际识别文件路径，并安全编码空格、括号和中文', () => {
     const filePath = '/workspace/测试 (一)/sre_任务.json';
     const withArtifact = { ...response, artifact: { file_path: filePath, relative_path: '测试 (一)/sre_任务.json' } };
@@ -97,6 +107,15 @@ const createHandler = (execute = vi.fn(async () => result)) => {
 const payload = { sessionId: 's', requestId: 'r', assistantMessageId: 'a', userMessageId: 'u', userContent: '识别字幕', subtitleRecognitionRequest: request };
 
 describe('字幕主进程直连', () => {
+  it('直连执行和历史记录保留选中的语言', async () => {
+    const h = createHandler();
+    const languageRequest = { ...request, language: 'ms-MY' };
+    const output = await h.handler(null, { ...payload, subtitleRecognitionRequest: languageRequest });
+    expect(output.ok).toBe(true);
+    expect(h.execute.mock.calls[0][0]).toEqual(languageRequest);
+    expect(h.persistExchange.mock.calls[0][0].user.payload.message.subtitleRecognitionRequest)
+      .toEqual({ ...languageRequest, requestId: 'r' });
+  });
   it('直接执行 MCP、保存同会话历史及固定回复、关闭资源', async () => {
     const h = createHandler();
     const output = await h.handler(null, payload);

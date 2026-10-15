@@ -72,7 +72,7 @@ type DirectDraftRequestPayload = {
   model?: string
   reversePromptRequest?: { shareText?: string }
   videoUnderstandRequest?: { videoUrls?: string[]; prompt?: string }
-  subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string }
+  subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string; language?: string }
   audioAddRequest?: Record<string, unknown>
   seedAudioRequest?: Record<string, unknown>
   voiceConversionRequest?: Record<string, unknown>

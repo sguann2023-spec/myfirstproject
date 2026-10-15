@@ -119,6 +119,69 @@ describe('SubtitleRecognitionServer', () => {
     expect(result.tools[0].inputSchema.properties.maxSentenceLength).toMatchObject({
       type: 'integer', minimum: 3, maximum: 80, default: 12
     })
+    expect(result.tools[0].inputSchema.properties.language).toMatchObject({
+      type: 'string',
+      enum: [
+        '', 'zh-CN', 'en-US', 'ja-JP', 'id-ID', 'es-MX', 'pt-BR', 'de-DE', 'fr-FR', 'ko-KR',
+        'fil-PH', 'ms-MY', 'th-TH', 'ar-SA', 'it-IT', 'bn-BD', 'el-GR', 'nl-NL', 'ru-RU',
+        'tr-TR', 'vi-VN', 'pl-PL', 'ro-RO', 'ne-NP', 'uk-UA', 'yue-CN'
+      ]
+    })
+    expect(result.tools[0].inputSchema.required).toEqual(['url'])
+  })
+
+  it.each(['basic', 'nlp', 'llm', 'llm_vad'])('passes language through in %s mode and preserves it in the artifact', async (effectMode) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-language' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success', result: { content: 'Hello', segments: [] } }))
+    const result = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: 'https://example.com/audio.mp3', effectMode, language: ' en-US ', content: 'Hello'
+    })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).toEqual({
+      url: 'https://example.com/audio.mp3', effect_mode: effectMode, language: 'en-US', content: 'Hello',
+      ...(effectMode === 'nlp' ? { max_sentence_length: 12 } : {})
+    })
+    const summary = JSON.parse(result.content[0].text)
+    expect(summary.language).toBe('en-US')
+    expect(JSON.parse(await fs.readFile(summary.artifact.file_path, 'utf8')).language).toBe('en-US')
+  })
+
+  it.each([undefined, '', '   '])('omits empty language %s to preserve automatic recognition', async (language) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-auto-language' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success' }))
+    const result = await createServer(workspaceRoot).executeDirectRequest({
+      url: 'https://example.com/audio.mp3', language
+    })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).not.toHaveProperty('language')
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty('language')
+  })
+
+  it.each([null, 123, true, {}, 'en', 'auto', 'invalid'])('rejects invalid language %s before media preparation or network requests', async (language) => {
+    const result = await callTool(createServer(workspaceRoot), 'submit_subtitle_recognition_task', {
+      url: path.join(workspaceRoot, 'not-uploaded.mp3'), language
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain("'language' must be")
+    expect(mockPrepareSubtitleAudio).not.toHaveBeenCalled()
+    expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['zh-CN', 'ja-JP', 'ms-MY', 'yue-CN'])('supports documented language %s in direct requests', async (language) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'task-direct-language' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, status: 'success' }))
+    const result = await createServer(workspaceRoot).executeDirectRequest({
+      url: 'https://example.com/audio.mp3', language
+    })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string).language).toBe(language)
   })
 
   it('returns full segments only for the direct executor, with a workspace artifact', async () => {
