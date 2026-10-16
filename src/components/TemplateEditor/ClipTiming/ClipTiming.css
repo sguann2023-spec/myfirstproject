@@ -1,0 +1,85 @@
+@font-face {
+  font-family: "Template Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./inter-latin-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Template Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./inter-latin-600.woff2") format("woff2");
+}
+.template-clip-timing {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 300px;
+  padding: 12px 14px 18px;
+  border: 0;
+  border-radius: 14px;
+  background: #fff;
+  color: #111;
+  font: 500 12px/18px "Template Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  box-shadow: 0 8px 26px #10182824, 0 2px 5px #10182812;
+  user-select: none;
+}
+.template-clip-timing * { box-sizing: border-box; }
+.template-clip-timing-section + .template-clip-timing-section { margin-top: 18px; }
+.template-clip-timing h3 { margin: 8px 0 8px 2px; font-size: 12px; line-height: 18px; font-weight: 600; }
+.template-clip-timing-options { display: flex; height: 30px; border-radius: 8px; background: #f5f5f5; }
+.template-clip-timing-options > * {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  margin: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #616161;
+  font: inherit;
+  cursor: pointer;
+}
+.template-clip-timing-options > :hover { color: #111; }
+.template-clip-timing-options > .is-active, .template-clip-timing-options > [aria-checked="true"] {
+  background: #fff;
+  color: #4980f1;
+  box-shadow: 0 1px 3px #1018281f;
+}
+.template-clip-timing-options input {
+  width: 56px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: 600 12px/18px "Template Inter", ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+  cursor: text;
+}
+.template-clip-timing-fixed:focus-within { outline: 1px solid #4980f1; outline-offset: 0; color: #111; }
+.template-clip-timing-fixed:focus-within input { color: #111; }
+.template-clip-timing-options > .template-clip-timing-fixed:focus-within { color: #111; }
+.template-clip-timing-options svg { flex-shrink: 0; }
+.template-clip-timing-options button:disabled { opacity: .35; cursor: default; }
+.template-clip-timing-options button:focus-visible { outline: 2px solid #4980f1; outline-offset: -2px; }
+.template-clip-timing-options input[aria-invalid="true"] { color: #d93832; }
+.template-clip-timing p { margin: 6px 0 0 2px; color: #616161; font-size: 12px; line-height: 17px; }
+.template-clip-timing-loop { display: flex; align-items: center; justify-content: space-between; margin: 24px 2px 2px; }
+.template-clip-timing-loop > span { display: flex; align-items: center; gap: 10px; }
+.template-clip-timing-loop svg { color: #616161; }
+.template-clip-timing-loop button { width: 30px; height: 18px; padding: 2px; border: 1px solid #bdbdbd; border-radius: 12px; background: #fff; cursor: pointer; }
+.template-clip-timing-loop button > span { display: block; width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
+.template-clip-timing-loop button[aria-checked="true"] { background: #4980f1; border-color: #4980f1; }
+.template-clip-timing-loop button[aria-checked="true"] > span { background: #fff; transform: translateX(12px); }
+.template-clip-timing-loop button:disabled { opacity: .35; cursor: default; }
+.template-clip-timing-loop button:focus-visible { outline: 2px solid #4980f1; outline-offset: 2px; }

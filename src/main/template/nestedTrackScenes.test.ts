@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { analyzeDraftTemplate, compileDraftTemplate, normalizeDraftTemplate, type DraftSceneSegment } from './draftTemplate'
-import { addEditorElement, analyzeEditorDocument } from './editorModel'
+import { addEditorElement, analyzeEditorDocument, compileEditorDocument } from './editorModel'
 import { createEditorPreset } from './editorPresets'
 import { isSceneSegment } from './draftTracks'
 import { mixedTrackFixture, workflowActions } from './workflowTestUtils'
@@ -108,7 +108,7 @@ describe('轨道中的嵌套 Scene', () => {
     expect(() => normalizeDraftTemplate(data.template)).toThrow('必须设置 type')
     data = fixture()
     data.scene.tracks[0].type = 'video'
-    expect(() => normalizeDraftTemplate(data.template)).toThrow('Scene 类型与轨道不一致')
+    expect(() => normalizeDraftTemplate(data.template)).toThrow('分镜类型与轨道不一致')
     data = fixture()
     data.child.id = 'image'
     expect(() => normalizeDraftTemplate(data.template)).toThrow('唯一')
@@ -173,5 +173,28 @@ describe('轨道中的嵌套 Scene', () => {
       const model = analyzeEditorDocument(result)
       expect(model.timeline.find(({ id }) => id === result.selectedId)!.parentId).toBe('sentence-scene-2')
     }
+  })
+
+  it('添加批量分镜到轨道，保留批量配置和动态输入', () => {
+    const template = createEditorPreset('sentence-image')
+    const payload = { templateJson: JSON.stringify(template) }
+    const added = addEditorElement(payload, { type: 'batch-scene', selectedId: 'sentence-scenes' })
+    const next = JSON.parse(added.templateJson)
+    const segment = next.scenes[0].tracks[0].segments.at(-1)
+    expect(segment).toMatchObject({
+      id: added.selectedId,
+      name: '批量分镜',
+      type: 'scene',
+      target_timerange: { start: 15_000_000, duration: 5_000_000 },
+      batch_scene: { source: 'items', mode: 'repeat', items: [{ title: '分镜文案', image: '' }] },
+      dynamic: ['batch_scene.items'],
+      tracks: []
+    })
+    const model = analyzeEditorDocument(added)
+    expect(model.duration).toBe(20)
+    expect(model.timeline.find(({ id }) => id === added.selectedId)).toMatchObject({ type: 'composition', localStart: 15, duration: 5 })
+    expect(model.dynamicInputs.find(input => input.key === `${added.selectedId}.batch_scene.items`))
+      .toMatchObject({ type: 'array', defaultValue: [{ title: '分镜文案', image: '' }] })
+    expect(() => compileEditorDocument(added)).not.toThrow()
   })
 })

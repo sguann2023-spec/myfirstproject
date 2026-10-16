@@ -4875,8 +4875,8 @@ const Composer = ({
   return (
     <div className="chat-panel__composer">
       <TemplatePickerDialog open={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)}
-        onSelect={(presetId) => {
-          window.ipc.send('open-template-edit-window', presetId);
+        onSelect={(selection) => {
+          window.ipc.send('open-template-edit-window', selection);
           setTemplatePickerOpen(false);
         }} />
       {!openSubtitleStoryboard ? <PartSplitToolDetail

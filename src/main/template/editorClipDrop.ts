@@ -10,6 +10,7 @@ export interface ClipDropAction {
   duration: number
   trackId?: string
   beforeTrackId?: string | null
+  manual?: boolean
 }
 type Time = { id: string; type: string; localStart: number; duration: number }
 
@@ -26,12 +27,12 @@ export function dropEditorClip(scene: DraftScene, source: DraftTrack, item: Draf
   let target: DraftTrack | undefined
   if (action.beforeTrackId !== undefined) {
     const index = action.beforeTrackId === null ? ordered.length : ordered.findIndex(track => track.id === action.beforeTrackId)
-    if (index < 0) throw new Error('跨轨移动仅限当前 Scene')
+    if (index < 0) throw new Error('跨轨移动仅限当前分镜')
     target = { id: randomUUID(), name: item.name ?? '轨道', type: 'mixed', segments: [] }
     ordered.splice(index, 0, target)
     scene.tracks.push(target)
   } else target = scene.tracks.find(track => track.id === (action.trackId ?? source.id))
-  if (!target) throw new Error('跨轨移动仅限当前 Scene')
+  if (!target) throw new Error('跨轨移动仅限当前分镜')
   const remaining = target.segments.filter(segment => segment.id !== item.id)
   const intervals = remaining.map(segment => {
     const value = times.get(segment.id)!
@@ -64,7 +65,7 @@ export function dropEditorClip(scene: DraftScene, source: DraftTrack, item: Draf
     range.duration = micros(duration)
     delete range.end
     delete segment.auto_timing
-    if (previous && Math.abs(previous.end - start) < 0.000001) {
+    if (!action.manual && previous && Math.abs(previous.end - start) < 0.000001) {
       segment.auto_timing = { ...segment.auto_timing, start: { target: previous.id, anchor: 'end' } }
     }
   }

@@ -48,7 +48,7 @@ export function createEditorPreset(presetId: unknown = 'empty'): DraftTemplate {
     duration: 15_000_000,
     materials: { videos: [], texts: [], audios: [] },
     scenes: [{
-      id: 'scene-1', name: presetId === 'empty' ? 'Scene 1' : '一句一图',
+      id: 'scene-1', name: presetId === 'empty' ? '分镜 1' : '一句一图',
       target_timerange: { start: 0, duration: 15_000_000 },
       tracks: []
     }]
@@ -65,9 +65,10 @@ export function createEditorPreset(presetId: unknown = 'empty'): DraftTemplate {
   ]
   const scene = template.scenes[0]
   delete template.duration
+  delete scene.target_timerange.start
   delete scene.target_timerange.duration
   scene.auto_duration = true
-  scene.tracks = [{ id: 'sentence-scenes', name: '一句一图 · 子场景', type: 'mixed', segments: [] }]
+  scene.tracks = [{ id: 'sentence-scenes', name: '一句一图 · 子分镜', type: 'mixed', segments: [] }]
   sentences.forEach(({ text, prompt }, index) => {
     const number = index + 1
     const textId = `text-${number}`

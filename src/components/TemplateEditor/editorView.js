@@ -28,10 +28,10 @@ export function sceneTimeline(model, index, sceneId) {
   });
   const rows = scene
     ? scene.children.filter(node => node.type === 'track').map(node => makeRow(node, node.trackIndex))
-    : [{ id: '__template_scenes__', name: '场景', track: 0, lanes: 1, clips: model.tree.map(clip).filter(Boolean) }];
-  // Keep older Scene.scenes documents navigable without pretending they belong to a track.
+    : [{ id: '__template_scenes__', name: '分镜', track: 0, lanes: 1, clips: model.tree.map(clip).filter(Boolean) }];
+  // Keep older nested documents navigable without pretending they belong to a track.
   const loose = scene?.children.filter(node => node.type === 'composition') ?? [];
-  if (loose.length) rows.push({ id: '__child_scenes__', name: '子场景', track: 0, lanes: 1, clips: loose.map(clip).filter(Boolean) });
+  if (loose.length) rows.push({ id: '__child_scenes__', name: '子分镜', track: 0, lanes: 1, clips: loose.map(clip).filter(Boolean) });
   const path = scene ? [...scene.ancestors, scene.id].map(id => index.get(id)).filter(node => node?.type === 'composition') : [];
   return { rows, duration, path };
 }

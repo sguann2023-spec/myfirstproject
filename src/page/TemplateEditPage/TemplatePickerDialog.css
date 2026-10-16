@@ -5,6 +5,21 @@
   padding: 12px 0 8px;
 }
 
+.template-picker-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #666666;
+  font: inherit;
+  cursor: pointer;
+}
+
+.template-picker-back:hover { color: #222222; }
+
 .template-picker-card {
   display: flex;
   flex-direction: column;
@@ -24,6 +39,8 @@
   border-color: #999999;
   outline: none;
 }
+
+.template-picker-card--new { border-color: #d8d8d8; }
 
 .template-picker-preview {
   display: flex;

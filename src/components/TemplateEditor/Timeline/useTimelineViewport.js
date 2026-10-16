@@ -50,7 +50,7 @@ export default function useTimelineViewport(scrollRef, duration, sceneId, gestur
     observer.observe(element);
     return () => observer.disconnect();
   }, [scrollRef]);
-  useEffect(() => { resetZoom(); }, [sceneId]); // Scene coordinates are local, so reset the viewport on entry.
+  useEffect(() => { resetZoom(); }, [sceneId]); // Nested coordinates are local, so reset the viewport on entry.
   useEffect(() => {
     const element = scrollRef.current;
     if (!element) return undefined;

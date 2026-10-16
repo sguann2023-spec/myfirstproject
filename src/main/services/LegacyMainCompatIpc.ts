@@ -1016,9 +1016,13 @@ function registerLegacyWindowChannels() {
     }
   })
 
-  safeOn('open-template-edit-window', (_event, presetId = 'empty') => {
-    if (!isTemplatePresetId(presetId)) return
-    const search = `?view=template-edit&preset=${encodeURIComponent(presetId)}`
+  safeOn('open-template-edit-window', (_event, input = 'empty') => {
+    const templatePath = typeof input === 'object' && input ? String((input as any).templatePath || '') : ''
+    const presetId = typeof input === 'string' ? input : String((input as any)?.presetId || 'empty')
+    if (!templatePath && !isTemplatePresetId(presetId)) return
+    const search = templatePath
+      ? `?view=template-edit&templatePath=${encodeURIComponent(templatePath)}`
+      : `?view=template-edit&preset=${encodeURIComponent(presetId)}`
     const templateEditWindow = new BrowserWindow({
       title: '新模版',
       width: 1440,

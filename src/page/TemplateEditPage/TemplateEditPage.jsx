@@ -3,14 +3,15 @@ import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { EditorView } from '@codemirror/view';
 import { parseTree } from 'jsonc-parser';
-import { Braces, Film, Image, Layers, Music2, Redo2, SlidersHorizontal, Sparkles, Sticker, Type, Undo2 } from 'lucide-react';
+import { Braces, LayersPlus, Film, Image, Layers, Music2, Redo2, SlidersHorizontal, Sparkles, Sticker, Type, Undo2 } from 'lucide-react';
 import LayerPanel from '../../components/TemplateEditor/LayerPanel';
 import EditorTimeline from '../../components/TemplateEditor/Timeline';
 import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/editorView';
 import './TemplateEditPage.css';
 
 const tools = [
-  { type: 'scene', label: '添加 Scene', Icon: Layers },
+  { type: 'batch-scene', label: '添加批量分镜', Icon: LayersPlus },
+  { type: 'scene', label: '添加分镜', Icon: Layers },
   { type: 'text', label: '添加文字', Icon: Type },
   { type: 'image', label: '添加图片', Icon: Image },
   { type: 'video', label: '添加视频', Icon: Film },
@@ -47,13 +48,18 @@ const TemplateEditPage = () => {
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState(null);
   const [ready, setReady] = useState(false);
+  const [templateStorage, setTemplateStorage] = useState(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const revision = useRef(0);
   const operation = useRef(false);
   const lastTyping = useRef(0);
+  const analyzeDelay = useRef(200);
   const editorRef = useRef(null);
   const pendingReveal = useRef(null);
   const index = useMemo(() => indexEditorTree(model?.tree), [model]);
   const timelineView = useMemo(() => sceneTimeline(model, index, sceneId), [model, index, sceneId]);
+  const templateTitle = model?.tree?.[0]?.name || '新模版';
   const nativeIndex = useMemo(() => {
     const result = new Map();
     try {
@@ -75,12 +81,18 @@ const TemplateEditPage = () => {
     }
   }, [index, model, pending, analysisError, sceneId, selectedId]);
 
+  useEffect(() => { document.title = templateTitle; }, [templateTitle]);
+  useEffect(() => { if (!editingTitle) setTitleDraft(templateTitle); }, [editingTitle, templateTitle]);
+
   useEffect(() => {
     let active = true;
-    const presetId = new URLSearchParams(window.location.search).get('preset') || 'empty';
-    invoke('template:editor-defaults', presetId).then((result) => {
+    const params = new URLSearchParams(window.location.search);
+    const templatePath = params.get('templatePath');
+    const presetId = params.get('preset') || 'empty';
+    invoke('template:editor-defaults', templatePath ? { templatePath } : { presetId }).then((result) => {
       if (!active) return;
       setTemplateJson(result.templateJson);
+      setTemplateStorage(result.templateStorage ?? null);
       setReady(true);
     }).catch((err) => { if (active) { setError(err.message); setPending(false); } });
     return () => { active = false; };
@@ -90,9 +102,10 @@ const TemplateEditPage = () => {
     if (!ready) return undefined;
     let active = true;
     const version = revision.current;
+    const delay = analyzeDelay.current;
     setPending(true);
-    const timer = setTimeout(() => {
-      invoke('template:editor-analyze', { templateJson }).then((next) => {
+    const runAnalysis = () => {
+      invoke('template:editor-analyze', editorPayload(templateJson)).then((next) => {
         if (!active || version !== revision.current) return;
         setModel(next);
         setAnalysisError('');
@@ -110,8 +123,10 @@ const TemplateEditPage = () => {
           setAnalysisError(err.message);
         }
       }).finally(() => { if (active && version === revision.current) setPending(false); });
-    }, 200);
-    return () => { active = false; clearTimeout(timer); };
+    };
+    const timer = delay > 0 ? setTimeout(runAnalysis, delay) : null;
+    if (!timer) runAnalysis();
+    return () => { active = false; if (timer) clearTimeout(timer); };
   }, [templateJson, ready]);
 
   useEffect(() => {
@@ -132,8 +147,10 @@ const TemplateEditPage = () => {
     if (node) view.dispatch({ selection: { anchor: node.offset, head: node.offset + node.length }, scrollIntoView: true });
   }, [selectedId, workflowMode]);
 
-  const applyJson = (value) => {
+  const editorPayload = (json = templateJson) => ({ templateJson: json, ...(templateStorage ? { templateStorage } : {}) });
+  const applyJson = (value, debounceAnalysis = false) => {
     revision.current++;
+    analyzeDelay.current = debounceAnalysis ? 200 : 0;
     pendingReveal.current = null;
     setPending(true);
     setCompiled(null);
@@ -148,7 +165,7 @@ const TemplateEditPage = () => {
       setHistory(previous => ({ past: [...previous.past.slice(-99), { json: templateJson, selectedId, sceneId }], future: [] }));
     } else setHistory(previous => ({ ...previous, future: [] }));
     lastTyping.current = typing ? now : 0;
-    applyJson(value);
+    applyJson(value, typing);
   };
   const restore = (redo = false) => {
     if (operation.current || busy) return;
@@ -181,15 +198,23 @@ const TemplateEditPage = () => {
       [...lockedTracks].some(track => index.get(track)?.ancestors.includes(id));
   };
   const mutate = async (action) => {
-    if (operation.current || busy || pending || analysisError) return;
+    if (operation.current || busy || pending || analysisError) return false;
     if (isLocked(action.id) || (action.trackId && isLocked(action.trackId)) ||
-      (action.beforeId && isLocked(action.beforeId))) { setError('轨道已锁定，请先解锁'); return; }
+      (action.beforeId && isLocked(action.beforeId))) { setError('轨道已锁定，请先解锁'); return false; }
     operation.current = true; setBusy(true); setError('');
     try {
-      const result = await invoke('template:editor-edit', { templateJson }, action);
+      const result = await invoke('template:editor-edit', editorPayload(), action);
       edit(result.templateJson); select(result.selectedId);
-    } catch (err) { setError(err.message); }
+      return true;
+    } catch (err) { setError(err.message); return false; }
     finally { operation.current = false; setBusy(false); }
+  };
+  const commitTitle = async () => {
+    const next = titleDraft.trim();
+    setEditingTitle(false);
+    if (!next || next === templateTitle) { setTitleDraft(templateTitle); return; }
+    const rootId = model?.tree?.[0]?.id;
+    if (!rootId || !(await mutate({ type: 'rename', id: rootId, name: next }))) setTitleDraft(templateTitle);
   };
   const add = async (type, inScope = false) => {
     if (operation.current || busy || pending || analysisError) return;
@@ -199,12 +224,12 @@ const TemplateEditPage = () => {
     setBusy(true);
     setError('');
     try {
-      const result = await invoke('template:editor-add', { templateJson }, { type, selectedId: targetId,
+      const result = await invoke('template:editor-add', editorPayload(), { type, selectedId: targetId,
         scopeId: sceneId,
         ...(type === 'scene' && !targetId && sceneId === null ? { atRoot: true } : {}) });
       if (result) {
         edit(result.templateJson);
-        // Reveal the actual owning Scene once the updated tree is available.
+        // Reveal the actual owning storyboard once the updated tree is available.
         if (sceneId === null && !(type === 'scene' && !targetId)) pendingReveal.current = result.selectedId;
         setSelectedId(result.selectedId);
         if (targetId) setCollapsed(previous => new Set([...previous].filter(id => id !== targetId && !index.get(targetId)?.ancestors.includes(id))));
@@ -220,9 +245,12 @@ const TemplateEditPage = () => {
     setError('');
     setCompiled(null);
     try {
-      setCompiled(await invoke('template:editor-compile', { templateJson }));
+      setCompiled(await invoke('template:editor-compile', editorPayload()));
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
+  };
+  const addTool = (type) => {
+    add(type);
   };
   const testExport = async () => {
     if (busy || pending || analysisError || exporting) return;
@@ -231,7 +259,7 @@ const TemplateEditPage = () => {
     setError('');
     setExportResult(null);
     try {
-      setExportResult(await invoke('template:editor-test-export', { templateJson }));
+      setExportResult(await invoke('template:editor-test-export', editorPayload()));
     } catch (err) { setError(err.message); }
     finally { setExporting(false); setBusy(false); }
   };
@@ -258,11 +286,20 @@ const TemplateEditPage = () => {
       if (event.key === 'Escape' && sceneId) enter(index.get(sceneId)?.sceneId ?? null);
     }}>
       <header className="template-edit-header">
-        <div className="template-edit-title"><Layers size={19} /><h1>新模版</h1><span>Scene 编辑器</span></div>
+        <div className="template-edit-title"><Layers size={17} />
+          <input className={`template-title-input ${editingTitle ? 'is-editing' : ''}`} aria-label="模版名称"
+            value={editingTitle ? titleDraft : templateTitle} readOnly={!editingTitle} disabled={!ready || busy}
+            onFocus={(event) => { setEditingTitle(true); requestAnimationFrame(() => event.target.select()); }}
+            onClick={() => setEditingTitle(true)} onChange={(event) => setTitleDraft(event.target.value)}
+            onBlur={commitTitle} onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') { setTitleDraft(templateTitle); setEditingTitle(false); event.currentTarget.blur(); }
+            }} />
+          </div>
         <div className="template-edit-tools" role="toolbar" aria-label="添加素材">
           {tools.map(({ type, label, Icon }) => <button key={type} className="template-icon-button"
             aria-label={label} title={label} disabled={!ready || busy || pending || Boolean(analysisError)}
-            onClick={() => add(type)}><Icon size={20} /></button>)}
+            onClick={() => addTool(type)}><Icon size={20} /></button>)}
         </div>
         <div className="template-header-actions">
         <button className="template-icon-button" aria-label="撤销" title="撤销 Ctrl/Cmd+Z" disabled={busy || !history.past.length} onClick={() => restore()}><Undo2 size={17} /></button>
@@ -309,7 +346,7 @@ const TemplateEditPage = () => {
 
       <EditorTimeline view={analysisError ? { ...timelineView, rows: [] } : timelineView} selectedId={selectedId} sceneId={sceneId}
         nativeIndex={nativeIndex} onSelect={select} onEnter={enter} onAction={mutate} disabled={disabled}
-        onAddScene={() => add('scene', true)} lockedTracks={lockedTracks}
+        rootLabel={templateTitle} onAddScene={() => add('scene', true)} lockedTracks={lockedTracks}
         onLock={id => setLockedTracks(previous => {
           const next = new Set(previous);
           if (next.has(id)) next.delete(id); else next.add(id);

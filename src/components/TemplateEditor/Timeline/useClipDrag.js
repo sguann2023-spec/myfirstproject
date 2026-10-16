@@ -62,6 +62,7 @@ export default function useClipDrag({ gesture, scrollRef, view, sceneId, pixelsP
       Math.abs(drag.value.start - drag.clip.start) < .000001) return null;
     if (!drag.edge && sceneId && drag.sourceTrackId) return {
       type: 'move-clip', id: drag.clip.id, start: drag.value.start, duration: drag.clip.end - drag.clip.start,
+      manual: true,
       ...(drag.drop?.beforeTrackId !== undefined ? { beforeTrackId: drag.drop.beforeTrackId } :
         { trackId: drag.drop?.trackId ?? drag.sourceTrackId })
     };

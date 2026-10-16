@@ -27,7 +27,33 @@
   border-bottom: 1px solid var(--template-line);
 }
 .template-edit-title, .template-edit-tools, .template-workflow-toggle { display: flex; align-items: center; gap: 12px; }
-.template-edit-title h1 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; }
+.template-title-input {
+  width: min(360px, 34vw);
+  height: 40px;
+  margin-left: -2px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  outline: none;
+  background: transparent;
+  color: #111;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.template-title-input:not(:disabled) { cursor: text; }
+.template-title-input:hover:not(:disabled) { background: #f7f7f8; }
+.template-title-input.is-editing,
+.template-title-input:focus {
+  border-color: #4b83f6;
+  background: #fff;
+  box-shadow: 0 0 0 2px #4b83f633, inset 0 0 0 1px #d7d7d7;
+}
+.template-title-input::selection { background: #b8d3ff; color: #111; }
 .template-edit-title > span, .template-muted { color: #92959c; font-size: 12px; font-weight: 400; }
 .template-edit-tools { gap: 3px; }
 .template-icon-button {
@@ -64,8 +90,15 @@
   flex: 1;
   min-height: 0;
 }
-.template-edit-layers { border-right: 1px solid var(--template-line); overflow: auto; padding-bottom: 12px; user-select: none; }
-.template-panel-heading, .template-code-heading {
+.template-edit-layers {
+  border-right: 1px solid #e1e3e7;
+  overflow: auto;
+  padding-bottom: 12px;
+  user-select: none;
+  background: #fff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+.template-code-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -75,35 +108,64 @@
   flex-shrink: 0;
   border-bottom: 1px solid #f2f2f4;
 }
-.template-panel-heading { color: #8a8d94; font-size: 12px; position: sticky; top: 0; background: #fff; z-index: 1; }
-.template-panel-heading strong { color: #52565e; font-weight: 500; }
 .template-edit-layers ul { list-style: none; padding: 0; margin: 6px 0 0; }
 .template-edit-layers ul ul { margin: 0; }
 .template-layer {
   display: flex;
   align-items: center;
-  height: 32px;
-  margin: 1px 5px;
+  height: 34px;
+  margin: 0 7px 1px 5px;
   gap: 6px;
-  border-radius: 3px;
+  border-radius: 5px;
   border: 1px solid transparent;
   cursor: default;
   position: relative;
+  color: #191b1f;
+  transition: background-color .08s ease, border-color .08s ease;
 }
-.template-layer:hover { border-color: #d5d7db; }
-.template-layer.is-selected { background: #dfe8ff; }
-.template-layer.is-selected::before { content: ''; position: absolute; width: 2px; left: -4px; top: 0; bottom: 0; background: var(--template-blue); }
-.template-layer > strong { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.template-element-text { color: #96999e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px; }
+.template-layer:hover { background: #f0f1f3; border-color: transparent; }
+.template-layer.is-selected { background: #dbe6ff; border-color: transparent; }
+.template-layer.is-selected::before { content: ''; position: absolute; width: 3px; left: -7px; top: 0; bottom: 0; background: #4c82f7; border-radius: 0 2px 2px 0; }
+.template-layer > strong { font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.01em; }
+.template-element-text { color: #a4a6aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px; font-weight: 600; line-height: 18px; }
 .template-element-tree { padding: 6px 0; }
-.template-dynamic-dot { width: 5px; height: 5px; border-radius: 50%; background: #7182ad; margin: 0 7px 0 auto; flex-shrink: 0; }
-.template-rename-input { min-width: 0; width: 100%; background: #ddd; border: none; outline: none; font: inherit; height: 25px; padding: 0 5px; border-radius: 3px; }
+.template-dynamic-dot { width: 5px; height: 5px; border-radius: 50%; background: #6f80ad; margin-left: auto; flex-shrink: 0; }
+.template-layer-reveal {
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #5f6369;
+  opacity: 0;
+}
+.template-layer:hover .template-layer-reveal,
+.template-layer:focus-within .template-layer-reveal,
+.template-layer.is-selected .template-layer-reveal { opacity: 1; }
+.template-layer-reveal:hover { color: #1f2329; background: #e4e6ea; }
+.template-rename-input {
+  min-width: 0;
+  width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  border: 2px solid #4b83f6;
+  border-radius: 7px;
+  outline: none;
+  background: #fff;
+  color: #111;
+  font: 700 12px/18px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 0 0 2px #4b83f633, inset 0 0 0 1px #d7d7d7;
+}
 .template-context-menu { position: fixed; width: 184px; padding: 4px; border: 1px solid #ddd; border-radius: 6px; background: #fff; box-shadow: 0 4px 16px #00000016; z-index: 20; }
 .template-context-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; background: none; border: none; text-align: left; border-radius: 3px; }
 .template-context-menu button:hover { background: #f1f2f4; }
 .template-context-menu small { margin-left: auto; color: #989ba2; }
 .is-drop-target { box-shadow: inset 0 2px var(--template-blue); }
-.template-disclosure { display: grid; place-items: center; flex: 0 0 20px; padding: 0; height: 24px; border: 0; background: none; }
+.template-disclosure { display: grid; place-items: center; flex: 0 0 20px; padding: 0; height: 24px; border: 0; background: none; color: #1d2024; }
 .template-layer-select {
   display: flex;
   align-items: center;

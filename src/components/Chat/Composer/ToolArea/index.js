@@ -47,7 +47,7 @@ const DRAFT_MENU_ITEMS = [
   },
   {
     id: 'template-new',
-    label: '新模版',
+    label: '使用模版',
     icon: <Blocks size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
   {

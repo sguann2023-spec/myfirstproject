@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Sparkles, Pencil, Trash2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles, Pencil, Trash2, ArrowRight } from 'lucide-react';
 import { elementIcons } from '../elementIcons';
 
 export default function LayerPanel({ model, index, nativeIndex, selectedId, collapsed, onToggle, onSelect, onEnter, onReveal, onAction, disabled }) {
@@ -48,14 +48,14 @@ export default function LayerPanel({ model, index, nativeIndex, selectedId, coll
     element?.focus();
   };
   return <aside ref={panelRef} className="template-edit-layers" aria-label="素材层级">
-    <div className="template-panel-heading"><strong>元素</strong><span>{visible.length}</span></div>
-    <div role="tree" aria-label="Scene 层级树" className="template-element-tree">
+    <div role="tree" aria-label="分镜层级树" className="template-element-tree">
       {visible.map((node, position) => {
         const Icon = elementIcons[node.type] || Sparkles;
         const scene = node.type === 'composition';
         const current = index.get(node.id);
         const native = nativeIndex.get(node.id);
         const dynamic = Boolean(native?.dynamic?.length || nativeIndex.get(native?.material_id)?.dynamic?.length);
+        const revealable = Boolean(current);
         return <div key={node.id} role="treeitem" aria-level={node.depth + 1} aria-selected={selectedId === node.id}
           aria-expanded={scene ? !collapsed.has(node.id) : undefined}
           tabIndex={selectedId === node.id || (!selectedId && position === 0) ? 0 : -1}
@@ -117,12 +117,18 @@ export default function LayerPanel({ model, index, nativeIndex, selectedId, coll
               if (event.key === 'Escape') setRenaming(null);
             }} /> : <><strong>{node.name}</strong>{node.text && <span className="template-element-text">{node.text}</span>}</>}
           {dynamic && <span className="template-dynamic-dot" title="含动态输入" />}
+          {revealable && <button type="button" className="template-layer-reveal" aria-label={`在时间轴中定位 ${node.name}`} title="在时间轴中定位"
+            onDoubleClick={event => event.stopPropagation()}
+            onPointerDown={event => event.stopPropagation()}
+            onClick={event => { event.stopPropagation(); onReveal(node.id); }}>
+            <ArrowRight size={13} />
+          </button>}
         </div>;
       })}
     </div>
     {menu && <div role="menu" className="template-context-menu" style={{ left: menu.x, top: menu.y }}
       onPointerDown={event => event.stopPropagation()}>
-      <button role="menuitem" onClick={() => { onReveal(menu.node.id); setMenu(null); }}><CornerDownRight size={14} />在时间轴中显示</button>
+      <button role="menuitem" onClick={() => { onReveal(menu.node.id); setMenu(null); }}><ArrowRight size={14} />在时间轴中显示</button>
       <button role="menuitem" disabled={disabled} onClick={() => rename(menu.node)}><Pencil size={14} />重命名 <small>F2</small></button>
       <button role="menuitem" disabled={disabled} onClick={() => { onAction({ type: 'delete', id: menu.node.id }); setMenu(null); }}><Trash2 size={14} />删除 <small>Del</small></button>
     </div>}

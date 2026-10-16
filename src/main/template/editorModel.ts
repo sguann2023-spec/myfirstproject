@@ -61,9 +61,10 @@ export interface EditorPayload {
   templateJson: string
   configJson?: string
   modifications?: Record<string, unknown>
+  templateStorage?: { directory?: string; templatePath?: string }
 }
 
-export type EditorAddType = 'scene' | 'text' | 'image' | 'video' | 'audio' | 'sticker' | 'filter' | 'effect'
+export type EditorAddType = 'scene' | 'batch-scene' | 'text' | 'image' | 'video' | 'audio' | 'sticker' | 'filter' | 'effect'
 
 export function parseEditorDocument(payload: EditorPayload) {
   const raw = JSON.parse(payload.templateJson)
@@ -191,12 +192,12 @@ export function addEditorElement(
 ) {
   const { template, config, draft, normalized } = parseEditorDocument(payload)
   const analysis = normalized?.analysis ?? analyzeSceneTemplate(template, config)
-  if (!['scene', 'text', 'image', 'video', 'audio', 'sticker', 'filter', 'effect'].includes(input.type)) throw new Error('不支持的素材类型')
+  if (!['scene', 'batch-scene', 'text', 'image', 'video', 'audio', 'sticker', 'filter', 'effect'].includes(input.type)) throw new Error('不支持的素材类型')
   if (draft) {
     if (input.type === 'scene' && input.atRoot) {
       const start = Math.round(Math.max(0, ...analysis.timeline.filter(item => item.parentId === null)
         .map(item => item.localStart + item.duration)) * 1_000_000)
-      const scene: DraftScene = { id: randomUUID(), name: 'Scene',
+      const scene: DraftScene = { id: randomUUID(), name: '分镜',
         target_timerange: { start, duration: 5_000_000 }, tracks: [] }
       draft.scenes.push(scene)
       if (draft.duration !== undefined) draft.duration = Math.max(draft.duration, start + 5_000_000)
@@ -213,10 +214,10 @@ export function addEditorElement(
       }
     }
     findScene(draft.scenes)
-    if (typeof input.scopeId === 'string' && !target) throw new Error('当前 Scene 不存在')
+    if (typeof input.scopeId === 'string' && !target) throw new Error('当前分镜不存在')
     target ??= draft.scenes[0]
     if (!target) {
-      target = { id: randomUUID(), name: 'Scene', target_timerange: { start: 0, duration: draft.duration ?? 10_000_000 }, tracks: [] }
+      target = { id: randomUUID(), name: '分镜', target_timerange: { start: 0, duration: draft.duration ?? 10_000_000 }, tracks: [] }
       draft.scenes.push(target)
     }
     // A selected child Scene is a clip in the current scope, not an instruction to enter it.
@@ -231,12 +232,12 @@ export function addEditorElement(
       })) * 1_000_000)
       const sceneDuration = byId.get(target.id)?.duration ?? 0
       if (!target.auto_duration && start >= Math.round(sceneDuration * 1_000_000)) {
-        throw new Error('选中轨道没有剩余时间，请先缩短已有片段或延长 Scene')
+        throw new Error('选中轨道没有剩余时间，请先缩短已有片段或延长分镜')
       }
     }
     const resource = ['sticker', 'filter', 'effect'].includes(input.type)
     const labels: Record<EditorAddType, string> = {
-      scene: 'Scene', text: '文字', image: '图片', video: '视频', audio: '音频', sticker: '贴纸', filter: '滤镜', effect: '特效'
+      scene: '分镜', 'batch-scene': '批量分镜', text: '文字', image: '图片', video: '视频', audio: '音频', sticker: '贴纸', filter: '滤镜', effect: '特效'
     }
     function insert(segment: DraftTrackItem) {
       if (selectedTrack) {
@@ -256,8 +257,23 @@ export function addEditorElement(
       return { templateJson: JSON.stringify(draft, null, 2), selectedId: segment.id }
     }
     if (input.type === 'scene') {
-      return insert({ id: randomUUID(), name: 'Scene', type: 'scene',
+      return insert({ id: randomUUID(), name: '分镜', type: 'scene',
         target_timerange: { start, duration: 5_000_000 }, tracks: [] })
+    }
+    if (input.type === 'batch-scene') {
+      return insert({
+        id: randomUUID(),
+        name: '批量分镜',
+        type: 'scene',
+        target_timerange: { start, duration: 5_000_000 },
+        batch_scene: {
+          source: 'items',
+          mode: 'repeat',
+          items: [{ title: '分镜文案', image: '' }]
+        },
+        dynamic: ['batch_scene.items'],
+        tracks: []
+      })
     }
     if (!resource && input.type !== 'text' && !input.source?.trim()) throw new Error('请选择素材文件')
     const material: DraftMaterial = { id: randomUUID(),
@@ -276,7 +292,7 @@ export function addEditorElement(
       ...(['video', 'audio'].includes(input.type) ? { source_timerange: { start: 0 } } : {}) }
     return insert(segment)
   }
-  if (input.type === 'scene') throw new Error('轨道内嵌套 Scene 请使用新的剪映结构模版')
+  if (input.type === 'scene' || input.type === 'batch-scene') throw new Error('轨道内嵌套分镜请使用新的剪映结构模版')
   if (['sticker', 'filter', 'effect'].includes(input.type)) throw new Error('贴纸、滤镜和特效请使用新的剪映结构模版')
   let target: SceneElement | undefined
   function find(elements: SceneElement[], parent?: SceneElement) {
@@ -288,7 +304,7 @@ export function addEditorElement(
   find(template.elements)
   target ??= template.elements.find((element) => element.type === 'composition')
   if (!target) {
-    target = { id: randomUUID(), name: 'Scene', type: 'composition', duration: template.duration ?? 10, elements: [] }
+    target = { id: randomUUID(), name: '分镜', type: 'composition', duration: template.duration ?? 10, elements: [] }
     template.elements.push(target)
   }
   if (input.type !== 'text' && !input.source?.trim()) throw new Error('请选择素材文件')

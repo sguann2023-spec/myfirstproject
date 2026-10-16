@@ -2,6 +2,7 @@ import { analyzeSceneTemplate, compileSceneTemplate, type SceneElement, type Sce
 import { applyDynamicInputs, getDynamicInputs } from './dynamicInputs'
 import { compileDynamicWorkflow } from './dynamicWorkflow'
 import { backendTrackType, isSceneSegment, logicalTrackLayout, mapWorkflowTracks, materialElementType, validateLogicalTrackTimeline } from './draftTracks'
+import { mediaDurationMicros } from '../../shared/templateMediaTiming'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -30,6 +31,8 @@ export interface DraftSegment extends DraftDynamicFields {
   name?: string
   target_timerange: DraftRange
   source_timerange?: DraftRange | null
+  duration_mode?: 'media'
+  loop?: boolean
   auto_timing?: DraftTiming
   common_keyframes?: DraftKeyframeGroup[]
   keyframe_refs?: string[]
@@ -83,6 +86,7 @@ export type DraftTrackItem = DraftSegment | DraftSceneSegment
 export interface DraftMaterial extends DraftDynamicFields {
   id: string
   type: string
+  duration?: number
   path?: string
   remote_url?: string
   content?: string
@@ -218,10 +222,10 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
   function scene(item: DraftScene): SceneElement {
     unique(item?.id)
     validateKeyframes(item)
-    if (item.visible === false) throw new Error(`${item.id} 暂不支持隐藏 Scene`)
-    if (item.speed !== undefined && item.speed !== 1) throw new Error(`${item.id} 暂不支持 Scene 整体变速`)
-    if ('source_timerange' in item) throw new Error(`${item.id} 的 Scene 不使用 source_timerange，请设置内部媒体的源区间`)
-    if (item.clip) warnings.push(`${item.id}.clip 已保留，当前 Workflow 尚未适配 Scene 整体变换`)
+    if (item.visible === false) throw new Error(`${item.id} 暂不支持隐藏分镜`)
+    if (item.speed !== undefined && item.speed !== 1) throw new Error(`${item.id} 暂不支持分镜整体变速`)
+    if ('source_timerange' in item) throw new Error(`${item.id} 的分镜不使用 source_timerange，请设置内部媒体的源区间`)
+    if (item.clip) warnings.push(`${item.id}.clip 已保留，当前 Workflow 尚未适配分镜整体变换`)
     if (item.auto_duration !== undefined && typeof item.auto_duration !== 'boolean') {
       throw new Error(`${item.id}.auto_duration 必须是布尔值`)
     }
@@ -243,14 +247,14 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
       for (const segment of track.segments) {
         if (isSceneSegment(segment)) {
           if (track.type && !['mixed', 'scene'].includes(track.type)) {
-            throw new Error(`${segment.id} 的 Scene 类型与轨道不一致，请使用 mixed 或 scene 轨道`)
+            throw new Error(`${segment.id} 的分镜类型与轨道不一致，请使用 mixed 或 scene 轨道`)
           }
-          if ('material_id' in segment) throw new Error(`${segment.id} 的 Scene 在轨道中直接定义，不使用 material_id`)
+          if ('material_id' in segment) throw new Error(`${segment.id} 的分镜在轨道中直接定义，不使用 material_id`)
           elements.push({ ...scene(segment), track_name: track.id, track_relative_index: relative })
           continue
         }
         if (segment && ('tracks' in segment || 'scenes' in segment)) {
-          throw new Error(`${segment.id} 轨道中的子 Scene 必须设置 type: "scene"`)
+          throw new Error(`${segment.id} 轨道中的子分镜必须设置 type: "scene"`)
         }
         unique(segment?.id)
         validateKeyframes(segment)
@@ -258,12 +262,25 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
         if (!found) throw new Error(`${segment.id} 引用了不存在的 material_id`)
         const { material, bucket } = found
         const type = materialElementType(material, bucket)
+        if (segment.loop !== undefined && (typeof segment.loop !== 'boolean' || !['video', 'audio'].includes(type))) {
+          throw new Error(`${segment.id}.loop 仅支持视频/音频的布尔值`)
+        }
+        if (segment.duration_mode !== undefined && (segment.duration_mode !== 'media' || !['video', 'audio'].includes(type))) {
+          throw new Error(`${segment.id}.duration_mode 仅支持视频/音频的 media 模式`)
+        }
         if (track.type && track.type !== 'mixed' && backendTrackType(type) !== track.type) {
           throw new Error(`${segment.id} 的素材类型与轨道不一致`)
         }
         const element: SceneElement = {
           id: segment.id, name: segment.name ?? String(material.material_name ?? material.name ?? segment.id),
           type, track_name: track.id, track_relative_index: relative, ...timing(segment)
+        }
+        if (segment.duration_mode === 'media') {
+          const duration = mediaDurationMicros(segment, material)
+          if (duration === undefined) throw new Error(`${segment.id} 媒体模式缺少有效源时长`)
+          if (segment.auto_timing?.start && segment.auto_timing.end) throw new Error(`${segment.id} 媒体时长不能同时使用自动结束`)
+          if (!segment.auto_timing?.end) delete element.target_end_time
+          element.duration = duration / 1_000_000
         }
         if (type === 'text') {
           let content: { text?: unknown }
@@ -326,6 +343,16 @@ export function compileDraftTemplate(draft: DraftTemplate, modifications: Record
   const dynamicInputs = getDynamicInputs(draft)
   draft = applyDynamicInputs(draft, modifications)
   const normalized = normalizeDraftTemplate(draft)
+  function checkLoops(scenes: DraftScene[]) {
+    for (const scene of scenes) {
+      for (const track of scene.tracks) for (const segment of track.segments) {
+        if (isSceneSegment(segment)) checkLoops([segment])
+        else if (segment.loop) throw new Error(`${segment.id} 媒体循环暂未支持 Workflow 导出`)
+      }
+      checkLoops(scene.scenes ?? [])
+    }
+  }
+  checkLoops(draft.scenes)
   if (normalized.hasKeyframes) throw new Error('模版包含关键帧，当前尚未支持关键帧 Workflow 执行，禁止丢弃动画后导出')
   function check(elements: SceneElement[]) {
     for (const element of elements) {
@@ -357,5 +384,5 @@ export function wrapDraftAsTemplate(draft: {
   const copy = structuredClone(draft)
   const { tracks, ...rest } = copy
   return { ...rest, canvas_config: copy.canvas_config, materials: copy.materials,
-    scenes: [{ id: 'scene-1', name: 'Scene 1', target_timerange: { start: 0, duration: copy.duration }, tracks }] }
+    scenes: [{ id: 'scene-1', name: '分镜 1', target_timerange: { start: 0, duration: copy.duration }, tracks }] }
 }

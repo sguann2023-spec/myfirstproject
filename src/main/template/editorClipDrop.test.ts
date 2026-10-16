@@ -92,6 +92,18 @@ it('同轨关联片段不会在原位落下时重叠，拖到后方可交换顺�
   expect(model.timeline.find(item => item.id === 'text')).toMatchObject({ start: 10, duration: 5 })
 })
 
+it('手动拖动贴合上一片段时也固定开始，不自动重建跟随规则', () => {
+  const draft = fixture()
+  const audio = draft.scenes[0].tracks[1].segments.pop()!
+  audio.target_timerange.start = 5_000_000
+  audio.auto_timing = { start: { target: 'text', anchor: 'end' } }
+  draft.scenes[0].tracks[0].segments.push(audio)
+  const moved = applyEditorAction(payload(draft), { type: 'move-clip', id: 'audio', start: 5, duration: 4, trackId: 'source', manual: true })
+  const segment = (JSON.parse(moved.templateJson) as DraftTemplate).scenes[0].tracks[0].segments.find(item => item.id === 'audio')!
+  expect(segment.auto_timing).toBeUndefined()
+  expect(segment.target_timerange.start).toBe(5_000_000)
+})
+
 it('错误跨 Scene、修改时长和非法坐标均回滚，根层仍只能放 Scene', () => {
   const input = payload()
   const before = input.templateJson
@@ -101,5 +113,5 @@ it('错误跨 Scene、修改时长和非法坐标均回滚，根层仍只能放 
     expect(() => applyEditorAction(input, { type: 'move-clip', id: 'text', start: 0, duration: 5, ...action })).toThrow()
     expect(input.templateJson).toBe(before)
   }
-  expect(() => applyEditorAction(input, { type: 'move-clip', id: 'parent', start: 0, duration: 7 })).toThrow(/当前 Scene/)
+  expect(() => applyEditorAction(input, { type: 'move-clip', id: 'parent', start: 0, duration: 7 })).toThrow(/当前分镜/)
 })

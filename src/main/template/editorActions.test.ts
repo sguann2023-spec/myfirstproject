@@ -51,7 +51,7 @@ describe('可撤销的编辑器操作', () => {
   })
   it('跨 Scene 移动拒绝，防止引用失效', () => {
     expect(() => apply(createEditorPreset('sentence-image'), { type: 'retime', id: 'text-1', start: 0, duration: 5, trackId: 'text_track_2' }))
-      .toThrow('跨轨移动仅限当前 Scene')
+      .toThrow('跨轨移动仅限当前分镜')
   })
   it('轨道排序只改变当前 Scene 的相对层级', () => {
     const result = apply(createEditorPreset('sentence-image'), { type: 'reorder-track', id: 'image_track_1', beforeId: 'text_track_1' })
@@ -66,6 +66,15 @@ describe('可撤销的编辑器操作', () => {
     const result = apply(createEditorPreset('sentence-image'), { type: 'delete', id: 'image-1' })
     expect(analyzeEditorDocument(result).timeline.some(item => item.id === 'image-1')).toBe(false)
     expect(JSON.parse(result.templateJson).materials.videos).toHaveLength(3)
+  })
+  it('删除 auto Scene 的最后内容时转为固定时长兜底', () => {
+    const withoutImage = apply(createEditorPreset('sentence-image'), { type: 'delete', id: 'image-3' })
+    const result = applyEditorAction(withoutImage, { type: 'delete', id: 'text-3' })
+    const draft = JSON.parse(result.templateJson)
+    const scene = draft.scenes[0].tracks[0].segments[2]
+    expect(scene.auto_duration).toBe(false)
+    expect(scene.target_timerange.duration).toBe(5_000_000)
+    expect(analyzeEditorDocument(result).timeline.some(item => item.id === 'text-3')).toBe(false)
   })
   it('Scene 手动缩放改为固定时长，仍可切回自动', () => {
     const result = apply(createEditorPreset('sentence-image'), { type: 'retime', id: 'sentence-scene-1', start: 0, duration: 6, edge: 'end' })

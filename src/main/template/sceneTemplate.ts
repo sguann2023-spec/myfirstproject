@@ -233,9 +233,9 @@ function processSceneTemplate(
     },
     validateContent: (element, duration) => {
       if (element.target_end_time !== undefined || options.timing_rules?.[element.id]?.end) {
-        throw new Error(`${element.id} 自动内容时长不能同时设置 Scene 结束锚点`)
+        throw new Error(`${element.id} 自动内容时长不能同时设置分镜结束锚点`)
       }
-      positiveDuration(duration, `${element.id} 推导的 Scene.duration`)
+      positiveDuration(duration, `${element.id} 推导的分镜.duration`)
     }
   })
   function hasAutoDuration(elements: SceneElement[]): boolean {
@@ -252,7 +252,7 @@ function processSceneTemplate(
     const root = timingEngine.scope(source.elements)
     for (const element of source.elements) {
       const timing = root.resolve(element)
-      if (!timing) throw new Error(`${element.id} 无法推导模版时长，请设置根 duration 或使用独立内容驱动的 Scene`)
+      if (!timing) throw new Error(`${element.id} 无法推导模版时长，请设置根 duration 或使用独立内容驱动的分镜`)
       total = Math.max(total, timing.localStart + timing.duration)
     }
     positiveDuration(total, '推导的模版.duration')

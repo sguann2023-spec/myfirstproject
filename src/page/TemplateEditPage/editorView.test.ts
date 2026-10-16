@@ -3,8 +3,10 @@ import { analyzeEditorDocument } from '../../main/template/editorModel'
 import { createEditorPreset } from '../../main/template/editorPresets'
 import { dragTiming, indexEditorTree, sceneTimeline, snapTime } from '../../components/TemplateEditor/editorView'
 
-it('根层只显示顶层 Scene，子层使用局部时间而非全局时间', () => {
-  const model = analyzeEditorDocument({ templateJson: JSON.stringify(createEditorPreset('sentence-image')) })
+it('根层只显示顶层分镜，子层使用局部时间而非全局时间', () => {
+  const preset = createEditorPreset('sentence-image')
+  expect(preset.scenes[0].target_timerange.start).toBeUndefined()
+  const model = analyzeEditorDocument({ templateJson: JSON.stringify(preset) })
   const index = indexEditorTree(model.tree)
   expect(sceneTimeline(model, index, null).rows[0].clips.map(clip => clip.id)).toEqual(['scene-1'])
   expect(sceneTimeline(model, index, 'scene-1').rows).toHaveLength(1)

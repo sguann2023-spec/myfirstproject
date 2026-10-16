@@ -29,7 +29,7 @@ export function mixedTrackFixture(): DraftTemplate {
       audios: [{ id: 'sound', type: 'extract_music', path: '/tmp/sound.wav' }]
     },
     scenes: [{
-      id: 'scene', name: '混排场景', target_timerange: { duration: 8_000_000 },
+      id: 'scene', name: '混排分镜', target_timerange: { duration: 8_000_000 },
       tracks: [{ id: 'mixed', name: '混排轨道', type: 'mixed', segments: [
         { id: 'image', material_id: 'photo', target_timerange: { start: 0, duration: 2_000_000 } },
         { id: 'text', material_id: 'title', target_timerange: { start: 2_000_000, duration: 2_000_000 } },
