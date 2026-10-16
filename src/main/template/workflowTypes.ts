@@ -9,8 +9,10 @@ export interface WorkflowStep {
   condition?: string
   then?: WorkflowStep[]
   else?: WorkflowStep[]
+  in?: string
   loopCount?: string | number
   loop?: WorkflowStep[]
+  loopItem?: string
 }
 
 export interface TemplateWorkflow extends Record<string, unknown> {

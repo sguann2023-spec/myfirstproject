@@ -230,10 +230,20 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
       throw new Error(`${item.id}.auto_duration 必须是布尔值`)
     }
     if (item.auto_duration && item.auto_timing?.end !== undefined) {
-      throw new Error(`${item.id} 自动内容时长不能同时设置 Scene 结束锚点`)
+      throw new Error(`${item.id} 自动内容时长不能同时设置分镜结束锚点`)
     }
     if (!Array.isArray(item.tracks) || (item.scenes !== undefined && !Array.isArray(item.scenes))) {
       throw new Error(`${item.id}.tracks/scenes 必须是数组`)
+    }
+    if (item.batch_scene !== undefined) {
+      if (!item.batch_scene || typeof item.batch_scene !== 'object' || Array.isArray(item.batch_scene)) {
+        throw new Error(`${item.id}.batch_scene 必须是对象`)
+      }
+      const directSegments = item.tracks.flatMap((track) => Array.isArray(track?.segments) ? track.segments : [])
+      const sceneChildren = directSegments.filter(isSceneSegment).length + (item.scenes?.length ?? 0)
+      if (directSegments.some(segment => !isSceneSegment(segment)) || sceneChildren !== 1) {
+        throw new Error(`${item.id} 批量分镜必须有且只有一个子分镜`)
+      }
     }
     const elements: SceneElement[] = []
     for (const [index, track] of item.tracks.entries()) {
@@ -320,6 +330,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
       delete range.target_end_time
     }
     return { id: item.id, name: item.name, type: 'composition', ...range, elements,
+      ...(item.batch_scene !== undefined ? { batch_scene: structuredClone(item.batch_scene) } : {}),
       ...(item.auto_duration !== undefined ? { auto_duration: item.auto_duration } : {}) }
   }
   const template: SceneTemplate = {

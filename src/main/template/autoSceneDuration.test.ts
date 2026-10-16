@@ -118,7 +118,7 @@ describe('Scene 按内部内容自适应时长', () => {
     expect(() => analyzeDraftTemplate(template)).toThrow('布尔值')
     template.scenes[0].auto_duration = true
     template.scenes[0].auto_timing = { end: { target: 'parent', anchor: 'end' } }
-    expect(() => analyzeDraftTemplate(template)).toThrow('不能同时设置 Scene 结束锚点')
+    expect(() => analyzeDraftTemplate(template)).toThrow('不能同时设置分镜结束锚点')
     delete template.scenes[0].auto_timing
     template.scenes[0].tracks[1].segments[0].auto_timing = { start: { target: 'mixed-text-1', anchor: 'end' } }
     expect(() => analyzeDraftTemplate(template)).toThrow('循环依赖')

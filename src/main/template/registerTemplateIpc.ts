@@ -6,6 +6,7 @@ import {
 } from './editorModel'
 import { applyEditorAction } from './editorActions'
 import { createStoredTemplateDocument, listStoredTemplates, loadStoredTemplateDocument, saveStoredTemplateDocument } from './templateStorage'
+import { hydrateMediaDurations, probeMediaDurationMicros } from './mediaProbe'
 import CutWorkflowServer from '../mcpServers/cut-workflow'
 import DraftDownloadServer from '../mcpServers/draft-download'
 import { TemplateTestExporter } from './testExport'
@@ -18,27 +19,29 @@ export function registerTemplateIpc() {
     exportDraft: (args) => draftServer.processDraftAction('export_draft', args)
   })
   const owners = new Set<number>()
-  ipcMain.handle('template:editor-test-export', (event, payload) => {
+  ipcMain.handle('template:editor-test-export', async (event, payload) => {
     const owner = event.sender.id
     if (!owners.has(owner)) {
       owners.add(owner)
       event.sender.once('destroyed', () => { owners.delete(owner); exporter.forget(owner) })
     }
-    return exporter.run(owner, payload)
+    return exporter.run(owner, (await hydrateMediaDurations(payload)).payload)
   })
   ipcMain.handle('template:editor-list', () => listStoredTemplates())
   ipcMain.handle('template:editor-defaults', (_event, input) => {
     if (input?.templatePath) return loadStoredTemplateDocument(input.templatePath)
     return createStoredTemplateDocument(input?.presetId ?? input)
   })
-  ipcMain.handle('template:editor-analyze', (_event, payload) => {
-    const result = analyzeEditorDocument(payload)
-    saveStoredTemplateDocument(payload)
-    return result
+  ipcMain.handle('template:editor-analyze', async (_event, payload) => {
+    const hydrated = await hydrateMediaDurations(payload)
+    const result = analyzeEditorDocument(hydrated.payload)
+    saveStoredTemplateDocument(hydrated.payload)
+    return hydrated.changed ? { ...result, templateJson: hydrated.payload.templateJson } : result
   })
-  ipcMain.handle('template:editor-compile', (_event, payload) => compileEditorDocument(payload))
-  ipcMain.handle('template:editor-edit', (_event, payload, action) => {
-    const result = applyEditorAction(payload, action)
+  ipcMain.handle('template:editor-compile', async (_event, payload) => compileEditorDocument((await hydrateMediaDurations(payload)).payload))
+  ipcMain.handle('template:editor-edit', async (_event, payload, action) => {
+    const hydrated = await hydrateMediaDurations(payload)
+    const result = applyEditorAction(hydrated.payload, action)
     saveStoredTemplateDocument({ ...payload, templateJson: result.templateJson })
     return result
   })
@@ -58,7 +61,9 @@ export function registerTemplateIpc() {
     const options = { properties: ['openFile' as const], filters: [filters[input.type as keyof typeof filters]] }
     const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
     if (result.canceled || !result.filePaths[0]) return null
-    const added = addEditorElement(payload, { ...input, source: result.filePaths[0] })
+    const source = result.filePaths[0]
+    const sourceDuration = ['video', 'audio'].includes(input.type) ? await probeMediaDurationMicros(source) : undefined
+    const added = addEditorElement(payload, { ...input, source, sourceDuration })
     saveStoredTemplateDocument({ ...payload, templateJson: added.templateJson })
     return added
   })

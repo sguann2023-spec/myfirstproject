@@ -56,6 +56,22 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
     const duration = Math.max(1, Math.round((times.get(scene.id)?.duration ?? 5) * 1_000_000))
     autoDurationFallbacks.push({ scene, duration })
   }
+  const repairFollowersBeforeDelete = (item: DraftScene | DraftTrackItem, siblings: Array<DraftScene | DraftTrackItem>) => {
+    const time = times.get(item.id)
+    if (!time) return
+    const predecessor = siblings.filter(sibling => sibling.id !== item.id && times.has(sibling.id))
+      .filter(sibling => times.get(sibling.id)!.localStart + times.get(sibling.id)!.duration <= time.localStart)
+      .sort((a, b) => times.get(b.id)!.localStart - times.get(a.id)!.localStart)[0]
+    const followers = siblings.filter(sibling => sibling.auto_timing?.start?.target === item.id)
+    for (const follower of followers) {
+      if (predecessor) follower.auto_timing!.start = { target: predecessor.id, anchor: 'end' }
+      else {
+        delete follower.auto_timing!.start
+        follower.target_timerange.start = 0
+      }
+      if (!follower.auto_timing!.start && !follower.auto_timing!.end) delete follower.auto_timing
+    }
+  }
   let selectedId = action.id ?? ''
   if (action.type === 'duration') {
     const duration = action.duration === 'auto' ? undefined : micros(action.duration, true)
@@ -93,7 +109,10 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
     rememberAutoDurationFallback(entry?.scene)
     if (entry && 'tracks' in entry.item) rememberAutoDurationFallback(entry.item as DraftScene)
     rememberAutoDurationFallback(track?.scene)
-    if (entry) { entry.remove(); selectedId = entry.scene?.id ?? '' }
+    if (entry) {
+      repairFollowersBeforeDelete(entry.item, entry.track?.segments ?? entry.scene?.scenes ?? draft.scenes)
+      entry.remove(); selectedId = entry.scene?.id ?? ''
+    }
     else if (track) {
       track.scene.tracks.splice(track.scene.tracks.indexOf(track.track), 1)
       selectedId = track.scene.id

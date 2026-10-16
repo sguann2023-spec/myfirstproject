@@ -12,6 +12,7 @@ export interface SceneElement {
   source_start_time?: number
   duration?: number
   auto_duration?: boolean
+  batch_scene?: unknown
   fill_color?: string
   height?: number | string
   source?: string
@@ -161,7 +162,7 @@ function processSceneTemplate(
       }
       ids.add(element.id)
       parents.set(element.id, parentId)
-      if (!['composition', 'image', 'text', ...(timelineOnly ? ['video', 'audio', 'sticker', 'filter', 'effect'] : [])].includes(element.type)) {
+      if (!['composition', 'image', 'text', 'video', 'audio', ...(timelineOnly ? ['sticker', 'filter', 'effect'] : [])].includes(element.type)) {
         throw new Error(`${element.id} 暂不支持元素类型：${element.type}`)
       }
       track(element)
@@ -172,7 +173,7 @@ function processSceneTemplate(
       const allowed = new Set(['id', 'name', 'type', 'track', 'duration',
         'target_start_time', 'target_end_time',
         'track_name', 'track_relative_index',
-        ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration'] :
+        ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration', 'batch_scene'] :
           element.type === 'text' ? ['text', 'fill_color', 'x', 'y', 'x_anchor', 'y_anchor', 'font_family', 'font_size'] :
             ['source', 'height', ...(['video', 'audio'].includes(element.type) ? ['source_start_time'] : [])])])
       for (const key of Object.keys(element)) {
@@ -299,11 +300,12 @@ function processSceneTemplate(
     }
   }
   const script: Array<{
-    type: 'action'; id: string; index: number; action_type: 'add_image' | 'add_text'
+    type: 'action'; id: string; index: number; action_type: 'add_image' | 'add_text' | 'add_video' | 'add_audio'
     params: {
-      image_url?: string; text?: string; font_color?: string
+      image_url?: string; video_url?: string; audio_url?: string; text?: string; font_color?: string
+      target_start?: number; duration?: number
       start: number; end: number; width: number; height: number
-      track_name: string; relative_index: number
+      track_name: string; relative_index?: number
     }
   }> = []
 
@@ -362,23 +364,54 @@ function processSceneTemplate(
         const originalSource = element.source
         const resolvedSource = typeof originalSource === 'string'
           ? (options.sources?.[originalSource.trim()] ?? originalSource).trim() : ''
-        if (!resolvedSource) throw new Error(`${element.id} 缺少图片 source`)
+        if (!resolvedSource) throw new Error(`${element.id} 缺少${{ image: '图片', video: '视频', audio: '音频' }[element.type] ?? '素材'} source`)
         // Creatomate asset IDs are not paths and cannot be downloaded by this backend.
         if (!/^(https?:\/\/|file:\/\/|\/|[a-zA-Z]:[\\/]|\\\\)/.test(resolvedSource)) {
-          throw new Error(`${element.id}.source 是素材 ID 或相对路径，请通过 sources 映射到实际图片 URL 或绝对路径`)
+          throw new Error(`${element.id}.source 是素材 ID 或相对路径，请通过 sources 映射到实际 URL 或绝对路径`)
         }
         if (element.height !== undefined) {
           warnings.push(`${element.id}.height=${element.height} 已保留，但当前 workflow 使用后端默认图片布局`)
         }
         const index = script.length
-        script.push({
-          type: 'action', id: element.id, index, action_type: 'add_image',
-          params: {
-            image_url: resolvedSource,
-            start, end, width: source.width, height: source.height,
-            ...backendTrack(element, parentId)
-          }
-        })
+        const trackParams = backendTrack(element, parentId)
+        const resolved = timeline[timeline.length - 1]
+        if (element.type === 'audio') {
+          const { relative_index: _relativeIndex, ...audioTrackParams } = trackParams
+          script.push({
+            type: 'action', id: element.id, index, action_type: 'add_audio',
+            params: {
+              audio_url: resolvedSource,
+              target_start: start,
+              start: resolved.sourceStart ?? 0,
+              end: resolved.sourceEnd ?? end - start,
+              duration: duration,
+              width: source.width, height: source.height,
+              ...audioTrackParams
+            }
+          })
+        } else if (element.type === 'video') {
+          script.push({
+            type: 'action', id: element.id, index, action_type: 'add_video',
+            params: {
+              video_url: resolvedSource,
+              target_start: start,
+              start: resolved.sourceStart ?? 0,
+              end: resolved.sourceEnd ?? end - start,
+              duration: Number((end - start).toFixed(9)),
+              width: source.width, height: source.height,
+              ...trackParams
+            }
+          })
+        } else {
+          script.push({
+            type: 'action', id: element.id, index, action_type: 'add_image',
+            params: {
+              image_url: resolvedSource,
+              start, end, width: source.width, height: source.height,
+              ...trackParams
+            }
+          })
+        }
       }
     }
   }

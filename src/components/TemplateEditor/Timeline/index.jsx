@@ -45,10 +45,10 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
         gesture.current = null; setPreview(null); setMenu(null); setDurationOpen(false);
       }
     };
-    const closeMenu = () => setMenu(null);
+    const closeFloating = () => { setMenu(null); setDurationOpen(false); };
     window.addEventListener('keydown', cancel, true);
-    window.addEventListener('pointerdown', closeMenu);
-    return () => { window.removeEventListener('keydown', cancel, true); window.removeEventListener('pointerdown', closeMenu); };
+    window.addEventListener('pointerdown', closeFloating);
+    return () => { window.removeEventListener('keydown', cancel, true); window.removeEventListener('pointerdown', closeFloating); };
   }, [menu, durationOpen]);
   useEffect(() => {
     pendingCommit.current = null;

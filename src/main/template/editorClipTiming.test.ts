@@ -156,3 +156,18 @@ it('缺少媒体元数据不能误用目标时长作为源时长', () => {
   expect(() => edit({ templateJson: JSON.stringify(draft) }, 'duration', 'media')).toThrow(/源时长/)
   expect(() => edit(document(), 'duration', 'media')).toThrow(/源时长/)
 })
+
+it('负的解析开始时间仍可被固定开始修复为非负值', () => {
+  const draft = createEditorPreset('empty')
+  draft.scenes[0].target_timerange.duration = 5_000_000
+  draft.materials.videos = [{ id: 'movie', type: 'video', duration: 20_000_000, path: '/tmp/video.mp4' }]
+  draft.scenes[0].tracks = [{ id: 'track', segments: [{
+    id: 'second', material_id: 'movie', target_timerange: { duration: 20_000_000 },
+    auto_timing: { end: { target: 'parent', anchor: 'end' } }, duration_mode: 'media'
+  }] }]
+  const payload = { templateJson: JSON.stringify(draft) }
+  expect(time(payload).localStart).toBe(-15)
+  const fixed = applyEditorAction(payload, { type: 'clip-timing', id: 'second', field: 'start', mode: 'fixed', value: 0 })
+  expect(time(fixed).localStart).toBe(0)
+  expect(JSON.parse(fixed.templateJson).scenes[0].tracks[0].segments[0].target_timerange.start).toBe(0)
+})

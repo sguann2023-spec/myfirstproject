@@ -107,6 +107,7 @@ const TemplateEditPage = () => {
     const runAnalysis = () => {
       invoke('template:editor-analyze', editorPayload(templateJson)).then((next) => {
         if (!active || version !== revision.current) return;
+        if (next.templateJson && next.templateJson !== templateJson) setTemplateJson(next.templateJson);
         setModel(next);
         setAnalysisError('');
         if (pendingReveal.current) {

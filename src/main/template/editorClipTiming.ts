@@ -31,7 +31,7 @@ export function setEditorClipTiming(
   if (action.mode === 'media' && (action.field !== 'duration' || scene || mediaDuration === undefined)) {
     throw new Error('媒体模式需要有效的视频或音频源时长')
   }
-  const start = micros(time.localStart)
+  const currentStart = () => micros(Math.max(0, time.localStart))
   const currentDuration = () => micros(time.duration, true)
   const endAligned = !!item.auto_timing?.end && !item.auto_timing?.start
   if (action.field === 'duration') {
@@ -83,7 +83,7 @@ export function setEditorClipTiming(
         if (item.auto_timing) delete item.auto_timing.end
       } else {
         item.auto_timing ??= {}
-        item.auto_timing.start ??= { target: 'parent', anchor: 'start', offset: start }
+        item.auto_timing.start ??= { target: 'parent', anchor: 'start', offset: currentStart() }
         item.auto_timing.end = { target: 'parent', anchor: 'end' }
       }
     }

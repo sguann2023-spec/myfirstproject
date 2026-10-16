@@ -28,6 +28,7 @@ const selected = input => input.value.slice(input.selectionStart, input.selectio
 it('支持秒、分秒和时分秒输入，校验分钟秒数进位', () => {
   expect(formatClipTime(3723.45)).toBe('01:02:03.45');
   expect(formatClipTime(59.999)).toBe('01:00.00');
+  expect(formatClipTime(-75)).toBe('00:00.00');
   expect(parseClipTime('01:02:03.45')).toBe(3723.45);
   expect(parseClipTime('12:03.45')).toBe(723.45);
   expect(parseClipTime('3.123456')).toBe(3.123456);

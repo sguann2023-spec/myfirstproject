@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef } from 'react';
 
 export const formatClipTime = seconds => {
-  const hundredths = Math.round(seconds * 100);
+  const hundredths = Math.round(Math.max(0, Number.isFinite(seconds) ? seconds : 0) * 100);
   const minutes = Math.floor(hundredths / 6000);
   const tail = `${String(minutes % 60).padStart(2, '0')}:${String(Math.floor(hundredths / 100) % 60).padStart(2, '0')}.${String(hundredths % 100).padStart(2, '0')}`;
   return minutes >= 60 ? `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${tail}` : tail;

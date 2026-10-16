@@ -150,11 +150,16 @@ export function analyzeEditorDocument(payload: EditorPayload) {
       }
     }
     collect(template.elements)
+    function directChildScenes(scene: DraftScene) {
+      return [
+        ...scene.tracks.flatMap((track) => track.segments.filter(isSceneSegment)),
+        ...(scene.scenes ?? [])
+      ]
+    }
     function sceneTree(scenes: DraftScene[]): EditorTreeNode[] {
-      return scenes.map((scene) => ({
-        id: scene.id, name: scene.name ?? scene.id, type: 'composition',
-        children: [
-          ...orderedSceneTracks(scene).map(({ track, order }): EditorTreeNode => ({
+      return scenes.map((scene) => {
+        const children: EditorTreeNode[] = [
+          ...orderedSceneTracks(scene).filter(({ track }) => track.segments.length).map(({ track, order }): EditorTreeNode => ({
             id: track.id, name: track.name ?? track.id, type: 'track',
             trackIndex: order,
             children: [...track.segments].sort((a, b) =>
@@ -166,11 +171,16 @@ export function analyzeEditorDocument(payload: EditorPayload) {
           })),
           ...sceneTree(scene.scenes ?? [])
         ]
-      }))
+        if (scene.batch_scene !== undefined) {
+          const onlyChild = directChildScenes(scene)[0]
+          if (onlyChild) return { id: scene.id, name: scene.name ?? scene.id, type: 'composition', children: sceneTree([onlyChild])[0].children }
+        }
+        return { id: scene.id, name: scene.name ?? scene.id, type: 'composition', children }
+      })
     }
     tree = sceneTree(draft.scenes)
     for (const logical of draftModel!.logicalTracks) {
-      if (!rows.some((row) => row.id === logical.track.id)) rows.push({
+      if (logical.track.segments.length && !rows.some((row) => row.id === logical.track.id)) rows.push({
         id: logical.track.id, name: logical.track.name ?? logical.track.id, track: logical.order,
         rank: logical.rank, sceneName: logical.sceneName, types: [], lanes: 1, clips: []
       })
@@ -188,7 +198,7 @@ export function compileEditorDocument(payload: EditorPayload) {
 
 export function addEditorElement(
   payload: EditorPayload,
-  input: { type: EditorAddType; selectedId?: string; source?: string; atRoot?: boolean; scopeId?: string | null }
+  input: { type: EditorAddType; selectedId?: string; source?: string; sourceDuration?: number; atRoot?: boolean; scopeId?: string | null }
 ) {
   const { template, config, draft, normalized } = parseEditorDocument(payload)
   const analysis = normalized?.analysis ?? analyzeSceneTemplate(template, config)
@@ -219,6 +229,13 @@ export function addEditorElement(
     if (!target) {
       target = { id: randomUUID(), name: '分镜', target_timerange: { start: 0, duration: draft.duration ?? 10_000_000 }, tracks: [] }
       draft.scenes.push(target)
+    }
+    if (target.batch_scene && input.type !== 'scene' && input.type !== 'batch-scene') {
+      const childScenes = [
+        ...target.tracks.flatMap((track) => track.segments.filter(isSceneSegment)),
+        ...(target.scenes ?? [])
+      ]
+      if (childScenes.length === 1) target = childScenes[0]
     }
     // A selected child Scene is a clip in the current scope, not an instruction to enter it.
     const selectedTrack = target.tracks.find((track) => track.id === input.selectedId ||
@@ -261,6 +278,7 @@ export function addEditorElement(
         target_timerange: { start, duration: 5_000_000 }, tracks: [] })
     }
     if (input.type === 'batch-scene') {
+      const childId = randomUUID()
       return insert({
         id: randomUUID(),
         name: '批量分镜',
@@ -272,16 +290,24 @@ export function addEditorElement(
           items: [{ title: '分镜文案', image: '' }]
         },
         dynamic: ['batch_scene.items'],
-        tracks: []
+        tracks: [],
+        scenes: [{
+          id: childId,
+          name: '分镜',
+          type: 'scene',
+          target_timerange: { start: 0, duration: 5_000_000 },
+          tracks: []
+        }]
       })
     }
     if (!resource && input.type !== 'text' && !input.source?.trim()) throw new Error('请选择素材文件')
     const material: DraftMaterial = { id: randomUUID(),
       type: input.type === 'image' ? 'photo' : input.type === 'effect' ? 'video_effect' : input.type,
-      ...(input.type === 'text' ? { content: JSON.stringify({ text: 'Your text here' }) } :
+      ...(input.type === 'text' ? { content: JSON.stringify({ text: 'Your text here' }), dynamic: ['content'] } :
         resource ? { name: labels[input.type], resource_id: '',
           ...(input.type === 'sticker' ? { sticker_id: '' } : { effect_id: '', value: 1 }) } :
-          { path: input.source!.trim() }) }
+          { path: input.source!.trim(), dynamic: ['path'],
+            ...(Number.isSafeInteger(input.sourceDuration) && input.sourceDuration! > 0 ? { duration: input.sourceDuration } : {}) }) }
     const bucket = ({ text: 'texts', image: 'videos', video: 'videos', audio: 'audios',
       sticker: 'stickers', filter: 'effects', effect: 'video_effects' })[input.type]
     draft.materials[bucket] ??= []

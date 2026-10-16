@@ -54,7 +54,6 @@ export default function LayerPanel({ model, index, nativeIndex, selectedId, coll
         const scene = node.type === 'composition';
         const current = index.get(node.id);
         const native = nativeIndex.get(node.id);
-        const dynamic = Boolean(native?.dynamic?.length || nativeIndex.get(native?.material_id)?.dynamic?.length);
         const revealable = Boolean(current);
         return <div key={node.id} role="treeitem" aria-level={node.depth + 1} aria-selected={selectedId === node.id}
           aria-expanded={scene ? !collapsed.has(node.id) : undefined}
@@ -116,7 +115,6 @@ export default function LayerPanel({ model, index, nativeIndex, selectedId, coll
               if (event.key === 'Enter') event.currentTarget.blur();
               if (event.key === 'Escape') setRenaming(null);
             }} /> : <><strong>{node.name}</strong>{node.text && <span className="template-element-text">{node.text}</span>}</>}
-          {dynamic && <span className="template-dynamic-dot" title="含动态输入" />}
           {revealable && <button type="button" className="template-layer-reveal" aria-label={`在时间轴中定位 ${node.name}`} title="在时间轴中定位"
             onDoubleClick={event => event.stopPropagation()}
             onPointerDown={event => event.stopPropagation()}

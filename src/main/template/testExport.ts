@@ -25,6 +25,10 @@ export function prepareExecutionWorkflow(workflow: TemplateWorkflow): TemplateWo
   function collect(steps: WorkflowStep[]) {
     for (const step of steps) {
       if (step.type === 'set_var' && step.name) variables.add(step.name)
+      if (step.type === 'for') {
+        variables.add('item')
+        variables.add('index')
+      }
       collect(step.then ?? [])
       collect(step.else ?? [])
       collect(step.loop ?? [])

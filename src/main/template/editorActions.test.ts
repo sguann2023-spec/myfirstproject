@@ -62,6 +62,17 @@ describe('可撤销的编辑器操作', () => {
   it('被其他片段引用的元素不可直接删除', () => {
     expect(() => apply(createEditorPreset('sentence-image'), { type: 'delete', id: 'text-1' })).toThrow(/引用|关联/)
   })
+  it('删除自动串联的首个分镜时，后继分镜重连到开头', () => {
+    const result = apply(createEditorPreset('sentence-image'), { type: 'delete', id: 'sentence-scene-1' })
+    const draft = JSON.parse(result.templateJson)
+    const scenes = draft.scenes[0].tracks[0].segments
+    expect(scenes.map(scene => scene.id)).toEqual(['sentence-scene-2', 'sentence-scene-3'])
+    expect(scenes[0].auto_timing).toBeUndefined()
+    expect(scenes[0].target_timerange.start).toBe(0)
+    expect(scenes[1].auto_timing.start).toEqual({ target: 'sentence-scene-2', anchor: 'end' })
+    expect(timing(result, 'sentence-scene-2').start).toBe(0)
+    expect(timing(result, 'sentence-scene-3').start).toBe(5)
+  })
   it('无依赖元素可删除，素材库仍保留', () => {
     const result = apply(createEditorPreset('sentence-image'), { type: 'delete', id: 'image-1' })
     expect(analyzeEditorDocument(result).timeline.some(item => item.id === 'image-1')).toBe(false)

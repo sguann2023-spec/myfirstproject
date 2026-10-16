@@ -53,9 +53,11 @@ describe('模版编辑器数据', () => {
       const model = analyzeEditorDocument({ ...input, templateJson: added.templateJson })
       expect(model.timeline.find(({ id }) => id === element.id)).toMatchObject({ start: 0, end: 21.6308 })
       expect(input).toEqual(document())
-      if (type === 'video' || type === 'audio') {
-        expect(() => compileEditorDocument({ ...input, templateJson: added.templateJson })).toThrow('暂不支持元素类型')
-      } else expect(compileEditorDocument({ ...input, templateJson: added.templateJson }).workflow.script).toHaveLength(4)
+      const script = compileEditorDocument({ ...input, templateJson: added.templateJson }).workflow.script
+      expect(script).toHaveLength(4)
+      const last = script[script.length - 1]
+      if (type === 'video') expect(last).toMatchObject({ action_type: 'add_video', params: { video_url: '/tmp/test.video' } })
+      if (type === 'audio') expect(last).toMatchObject({ action_type: 'add_audio', params: { audio_url: '/tmp/test.audio' } })
     }
   })
 

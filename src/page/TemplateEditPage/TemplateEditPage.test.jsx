@@ -107,7 +107,8 @@ it('批量分镜按钮向当前轨道添加批量分镜', async () => {
   expect(container.querySelector('.template-clip.is-selected').textContent).toContain('批量分镜');
   const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
   expect(draft.scenes[0].tracks.at(-1).segments[0]).toMatchObject({
-    name: '批量分镜', type: 'scene', dynamic: ['batch_scene.items'], batch_scene: { source: 'items', mode: 'repeat' }
+    name: '批量分镜', type: 'scene', dynamic: ['batch_scene.items'], batch_scene: { source: 'items', mode: 'repeat' },
+    tracks: [], scenes: [{ name: '分镜', tracks: [] }]
   });
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
@@ -219,6 +220,10 @@ it('分镜自动时长弹窗使用 Creatomate 风格的 Auto 说明', async () =
   expect(container.querySelector('[role="radio"][aria-checked="true"]').textContent).toContain('Auto');
   expect(document.activeElement).toBe(container.querySelector('[role="radio"][aria-checked="true"]'));
   expect(container.querySelector('.template-duration-popover p').textContent).toBe('As long as its longest clip.');
+  await act(async () => container.querySelector('.template-duration-popover').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+  expect(container.querySelector('.template-duration-popover')).not.toBeNull();
+  await act(async () => container.querySelector('.template-edit-code').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+  expect(container.querySelector('.template-duration-popover')).toBeNull();
 });
 
 it('一句一图的子分镜可折叠，双击进入后向其内部添加素材', async () => {
@@ -652,6 +657,32 @@ it('两端时间图标打开同一弹窗，不触发片段拖动；自动开始�
   expect(dialog()).toBeNull();
 });
 
+it('固定时间第一次点击只选中模式，第二次点击才进入输入编辑', async () => {
+  await render();
+  await enterScene('scene');
+  const clip = container.querySelector('[data-clip-id="image"]');
+  await act(async () => clip.querySelector('.template-clip-timing-trigger--start').click());
+  const dialog = () => document.querySelector('[role="dialog"]');
+  await act(async () => dialog().querySelector('[aria-label="开始规则"] [role="radio"]').click());
+  await settle();
+  const startInput = dialog().querySelector('[aria-label="片段开始时间"]');
+  await act(async () => startInput.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+  await settle();
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').map(call => call[2]).at(-1))
+    .toEqual({ type: 'clip-timing', id: 'image', field: 'start', mode: 'fixed', value: 0 });
+  expect(startInput.readOnly).toBe(true);
+  expect(document.activeElement).not.toBe(startInput);
+  await act(async () => startInput.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+  await settle();
+  expect(startInput.readOnly).toBe(false);
+  expect(document.activeElement).toBe(startInput);
+  await act(async () => clip.querySelector('.template-clip-timing-trigger--end').click());
+  await settle();
+  const durationInput = dialog().querySelector('[aria-label="片段时长"]');
+  expect(durationInput.readOnly).toBe(true);
+  expect(document.activeElement).not.toBe(durationInput);
+});
+
 it('自动开始后手动拖动左边缘会切回固定开始', async () => {
   await render();
   await enterScene('scene');
@@ -747,6 +778,7 @@ it('媒体弹窗提供三种时长和循环配置；缺少元数据禁用媒体�
   const dialog = () => document.querySelector('[role="dialog"]');
   expect(dialog().querySelector('[aria-label="时长规则"] [role="radio"]:last-child').textContent).toBe('媒体');
   expect(dialog().querySelector('[aria-label="时长规则"] [role="radio"]:last-child').disabled).toBe(true);
+  expect(dialog().textContent).not.toContain('媒体模式需要素材 duration');
   const before = container.querySelector('[data-testid="editor"]').textContent;
   await act(async () => dialog().querySelector('[role="switch"]').click());
   await settle();

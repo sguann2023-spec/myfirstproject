@@ -129,7 +129,6 @@
 .template-layer > strong { font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.01em; }
 .template-element-text { color: #a4a6aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px; font-weight: 600; line-height: 18px; }
 .template-element-tree { padding: 6px 0; }
-.template-dynamic-dot { width: 5px; height: 5px; border-radius: 50%; background: #6f80ad; margin-left: auto; flex-shrink: 0; }
 .template-layer-reveal {
   display: grid;
   place-items: center;

@@ -83,6 +83,25 @@ describe('Scene 时间编排', () => {
     expect(new Set(result.workflow.script.map((step) => step.params.track_name)).size).toBe(2)
   })
 
+  it('视频和音频生成对应 Workflow action，保留源区间和目标开始时间', () => {
+    const input: SceneTemplate = {
+      width: 720, height: 1280, duration: 10,
+      elements: [{ id: 'scene', type: 'composition', duration: 10, elements: [
+        { id: 'video', type: 'video', source: '/tmp/video.mp4', target_start_time: 2, duration: 3, source_start_time: 5 },
+        { id: 'audio', type: 'audio', source: '/tmp/audio.mp3', target_start_time: 1, duration: 4, source_start_time: 7 }
+      ] }]
+    }
+    const result = compileSceneTemplate(input)
+    expect(result.workflow.script.map(({ action_type }) => action_type)).toEqual(['add_video', 'add_audio'])
+    expect(result.workflow.script[0].params).toMatchObject({
+      video_url: '/tmp/video.mp4', target_start: 2, start: 5, end: 8, duration: 3
+    })
+    expect(result.workflow.script[1].params).toMatchObject({
+      audio_url: '/tmp/audio.mp3', target_start: 1, start: 7, end: 11, duration: 4
+    })
+    expect(result.workflow.script[1].params).not.toHaveProperty('relative_index')
+  })
+
   it('支持嵌套 scene 的结束锚定', () => {
     const input: SceneTemplate = {
       width: 720, height: 1280, duration: 20,

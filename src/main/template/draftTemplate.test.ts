@@ -61,7 +61,10 @@ describe('Scene 包裹剪映草稿轨道', () => {
     }
     expect(analyzeDraftTemplate(template).timeline.find(({ id }) => id === 'video'))
       .toMatchObject({ start: 3, end: 10, sourceStart: 6, sourceEnd: 13 })
-    expect(() => compileDraftTemplate(template)).toThrow('暂不支持元素类型')
+    expect(compileDraftTemplate(template).workflow.script[0]).toMatchObject({
+      action_type: 'add_video',
+      params: { video_url: '/tmp/video.mp4', target_start: 3, start: 6, end: 13, duration: 7 }
+    })
   })
 
   it('自动开始覆盖冗余 end，不被草稿原 end 缩短', () => {
@@ -102,12 +105,23 @@ describe('Scene 包裹剪映草稿轨道', () => {
       const input = payload()
       const added = addEditorElement(input, { type, selectedId: 'text-1', source: '/tmp/media' })
       const draft = JSON.parse(added.templateJson) as DraftTemplate
-      const track = draft.scenes[0].tracks.at(-1)!
+      const track = draft.scenes[0].tracks[draft.scenes[0].tracks.length - 1]
       expect(track.segments[0]).toMatchObject({ id: added.selectedId, target_timerange: { start: 0 } })
       expect(Object.values(draft.materials).flat().some(({ id }) => id === track.segments[0].material_id)).toBe(true)
       expect(analyzeEditorDocument({ templateJson: added.templateJson }).timeline.find(({ id }) => id === added.selectedId))
         .toMatchObject({ start: 0, end: 21.6308 })
       expect(input).toEqual(payload())
+    }
+  })
+
+  it('添加音视频素材时保留探测到的源时长，媒体模式可直接使用', () => {
+    for (const type of ['video', 'audio'] as const) {
+      const added = addEditorElement(payload(), { type, selectedId: 'text-1', source: '/tmp/media', sourceDuration: 12_345_000 })
+      const draft = JSON.parse(added.templateJson) as DraftTemplate
+      const track = draft.scenes[0].tracks[draft.scenes[0].tracks.length - 1]
+      const material = Object.values(draft.materials).flat().find(({ id }) =>
+        id === track.segments[0].material_id)
+      expect(material).toMatchObject({ duration: 12_345_000 })
     }
   })
 
@@ -118,7 +132,7 @@ describe('Scene 包裹剪映草稿轨道', () => {
       const input = payload()
       const added = addEditorElement(input, { type, selectedId: 'text-1' })
       const draft = JSON.parse(added.templateJson) as DraftTemplate
-      const track = draft.scenes[0].tracks.at(-1)!
+      const track = draft.scenes[0].tracks[draft.scenes[0].tracks.length - 1]
       const segment = track.segments[0]
       expect(track.type).toBe('mixed')
       expect(draft.materials[bucket][0]).toMatchObject({ id: segment.material_id, type: materialType, resource_id: '' })

@@ -27,8 +27,7 @@ describe('混排逻辑轨道', () => {
     expect(template).toEqual(before)
     delete template.scenes[0].tracks[0].type
     expect(analyzeDraftTemplate(template).timeline).toEqual(model.timeline)
-    // Editing support does not silently bypass existing media export boundaries.
-    expect(() => compileDraftTemplate(template)).toThrow('暂不支持元素类型')
+    expect(workflowActions(compileDraftTemplate(template).workflow)).toHaveLength(4)
   })
 
   it('同轨不允许同类型或跨类型重叠，首尾相接允许，分轨可同时显示', () => {
@@ -99,7 +98,7 @@ describe('混排逻辑轨道', () => {
     expect(children.find(({ id }) => id === 'image')!.track_name).toBe(children.find(({ id }) => id === 'video')!.track_name)
   })
 
-  it('嵌套 Scene 使用独立层级带，重名轨道不合并，空轨也保留', () => {
+  it('嵌套 Scene 使用独立层级带，重名轨道不合并，空轨不显示', () => {
     const template = visualFixture()
     template.scenes[0].scenes = [{
       id: 'child', target_timerange: { duration: 4_000_000 },
@@ -108,7 +107,8 @@ describe('混排逻辑轨道', () => {
       }] }, { id: 'empty-track', name: '空轨道', segments: [] }]
     }]
     const model = analyzeEditorDocument(payload(template))
-    expect(model.rows.map(({ id }) => id)).toEqual(['mixed', 'empty-track', 'child-track'])
+    expect(model.rows.map(({ id }) => id)).toEqual(['mixed', 'child-track'])
+    expect(JSON.stringify(model.tree)).not.toContain('empty-track')
     const mapping = compileDraftTemplate(template).workflowTracks
     expect(mapping.find(({ logicalTrackId }) => logicalTrackId === 'mixed')!.renderIndex)
       .toBeGreaterThan(mapping.find(({ logicalTrackId }) => logicalTrackId === 'child-track')!.renderIndex)
@@ -120,7 +120,7 @@ describe('混排逻辑轨道', () => {
     const added = addEditorElement(input, { selectedId: 'mixed', type: 'audio', source: '/tmp/audio.wav' })
     const model = analyzeEditorDocument(added)
     expect(model.rows).toHaveLength(1)
-    expect(model.rows[0].clips.at(-1)).toMatchObject({ id: added.selectedId, type: 'audio', start: 4, end: 8 })
+    expect(model.rows[0].clips[model.rows[0].clips.length - 1]).toMatchObject({ id: added.selectedId, type: 'audio', start: 4, end: 8 })
     expect(() => addEditorElement(added, { selectedId: 'mixed', type: 'text' })).toThrow('没有剩余时间')
     expect(input).toEqual(payload(template))
     template.scenes[0].tracks[0].track_relative_index = 99

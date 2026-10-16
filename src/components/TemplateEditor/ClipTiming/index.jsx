@@ -10,16 +10,25 @@ export { formatClipTime, parseClipTime } from './TimeInput';
 export default function ClipTiming({ clip, native, material, anchor, disabled, onAction, onClose }) {
   const ref = useRef(null);
   const [position, setPosition] = useState({ left: 0, top: 0 });
-  const [values, setValues] = useState({ start: formatClipTime(clip.start), duration: formatClipTime(clip.end - clip.start) });
+  const editableStart = Math.max(0, clip.start);
+  const clipDuration = Math.max(0, clip.end - clip.start);
+  const [values, setValues] = useState({ start: formatClipTime(editableStart), duration: formatClipTime(clipDuration) });
   const [invalid, setInvalid] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [editingField, setEditingField] = useState(null);
+  const fixedRefs = useRef({});
   const modes = clipTimingModes(native);
   const media = ['video', 'audio'].includes(clip.type);
   const sourceDuration = media ? mediaDurationMicros(native ?? {}, material) : undefined;
   useEffect(() => {
-    setValues({ start: formatClipTime(clip.start), duration: formatClipTime(clip.end - clip.start) });
+    setValues({ start: formatClipTime(Math.max(0, clip.start)), duration: formatClipTime(Math.max(0, clip.end - clip.start)) });
     setInvalid(null);
+    setEditingField(null);
   }, [clip.start, clip.end, native]);
+  useLayoutEffect(() => {
+    setEditingField(null);
+    if (ref.current?.contains(document.activeElement)) document.activeElement.blur();
+  }, [clip.id, anchor]);
   useLayoutEffect(() => {
     const place = () => {
       if (!anchor.isConnected) { onClose(); return; }
@@ -54,15 +63,24 @@ export default function ClipTiming({ clip, native, material, anchor, disabled, o
     if (mode === 'fixed' && (!Number.isFinite(value) || value < 0 || (field === 'duration' && value === 0))) {
       setInvalid(field); return;
     }
+    if (mode !== 'fixed') setEditingField(null);
     setInvalid(null); setSaving(true);
     try {
       await onAction({ type: 'clip-timing', id: clip.id, field, mode, ...(mode === 'fixed' ? { value } : {}) });
     } finally { setSaving(false); }
   };
   const inputCommit = field => {
-    const current = field === 'start' ? clip.start : clip.end - clip.start;
+    const current = field === 'start' ? editableStart : clipDuration;
     if (values[field] !== formatClipTime(current)) commit(field, 'fixed', parseClipTime(values[field]));
     else if (modes[field] !== 'fixed') commit(field, 'fixed', current);
+  };
+  const beginEdit = field => {
+    setEditingField(field);
+    requestAnimationFrame(() => {
+      const input = fixedRefs.current[field]?.querySelector('input');
+      input?.focus({ preventScroll: true });
+      input?.select();
+    });
   };
   const descriptions = {
     start: { fixed: '固定在指定时间。', auto: '跟随同轨上一片段；首段从起点开始。', end: '片段结束与所属分镜结束对齐。' },
@@ -73,31 +91,41 @@ export default function ClipTiming({ clip, native, material, anchor, disabled, o
     {['start', 'duration'].map(field => <section className="template-clip-timing-section" key={field}>
       <h3>{field === 'start' ? '开始' : '时长'}</h3>
       <div className="template-clip-timing-options" role="radiogroup" aria-label={field === 'start' ? '开始规则' : '时长规则'}>
-        <label className={`template-clip-timing-fixed ${modes[field] === 'fixed' ? 'is-active' : ''}`}
+        <label ref={node => { fixedRefs.current[field] = node; }}
+          className={`template-clip-timing-fixed ${modes[field] === 'fixed' ? 'is-active' : ''}`}
+          onPointerDownCapture={event => {
+            if (event.target.tagName !== 'INPUT' || editingField === field) return;
+            event.preventDefault();
+            if (modes[field] !== 'fixed') {
+              setEditingField(null);
+              commit(field, 'fixed', field === 'start' ? editableStart : clipDuration);
+            } else beginEdit(field);
+          }}
           onClick={event => {
             if (event.target.tagName !== 'INPUT' && modes[field] !== 'fixed') {
-              commit(field, 'fixed', field === 'start' ? clip.start : clip.end - clip.start);
+              setEditingField(null);
+              commit(field, 'fixed', field === 'start' ? editableStart : clipDuration);
             }
           }}>
           <TimingIcon mode="fixed" size={13} />
           <TimeInput aria-label={field === 'start' ? '片段开始时间' : '片段时长'} aria-invalid={invalid === field}
-            disabled={disabled || saving} value={values[field]}
+            disabled={disabled || saving} readOnly={editingField !== field} value={values[field]}
             onChange={value => setValues(previous => ({ ...previous, [field]: value }))}
             onCommit={() => inputCommit(field)} />
         </label>
         <button type="button" role="radio" aria-checked={modes[field] === 'auto'}
           disabled={disabled || saving || (field === 'duration' && modes.start === 'end')}
-          onClick={() => modes[field] !== 'auto' && commit(field, 'auto')}>
+          onClick={() => { setEditingField(null); modes[field] !== 'auto' && commit(field, 'auto'); }}>
           <TimingIcon mode={field === 'start' ? 'auto' : 'fill'} size={13} />自动
         </button>
         {field === 'start' && <button type="button" role="radio" aria-checked={modes.start === 'end'}
-          disabled={disabled || saving} onClick={() => modes.start !== 'end' && commit('start', 'end')}>
+          disabled={disabled || saving} onClick={() => { setEditingField(null); modes.start !== 'end' && commit('start', 'end'); }}>
           <TimingIcon mode="end" size={13} />结束
         </button>}
         {field === 'duration' && media && <button type="button" role="radio" aria-checked={modes.duration === 'media'}
           disabled={disabled || saving || sourceDuration === undefined}
-          title={sourceDuration === undefined ? '素材缺少源时长，请补充素材 duration 或 source_timerange。' : '播放完整源区间'}
-          onClick={() => modes.duration !== 'media' && commit('duration', 'media')}>
+          title={sourceDuration === undefined ? '正在等待媒体时长解析' : '播放完整源区间'}
+          onClick={() => { setEditingField(null); modes.duration !== 'media' && commit('duration', 'media'); }}>
           <TimingIcon mode="media" size={13} />媒体
         </button>}
       </div>
