@@ -1,4 +1,7 @@
 import { rm } from 'node:fs/promises'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 import * as agentCore from '@earendil-works/pi-agent-core'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -68,7 +71,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable } from '../harness/create-harness'
+import { buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -319,5 +322,59 @@ describe('resolveShellExecutable', () => {
     mockedFindGitBash.mockReturnValue(null)
 
     expect(() => resolveShellExecutable({})).toThrow('Git Bash is required for shell execution on Windows')
+  })
+})
+
+
+describe('MCP image inspection integration', () => {
+  it('passes the three-minute timeout and preserves the generation result on inspection failure', async () => {
+    const createServer = (name: string) => {
+      const server = new McpServer({ name, version: '1' }, { capabilities: { tools: {} } })
+      server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [{ name, inputSchema: { type: 'object' as const } }]
+      }))
+      return server
+    }
+    const imageUrl = 'https://example.com/generated.png'
+    const call = vi.spyOn(Client.prototype, 'callTool').mockImplementation(async (request) => {
+      if (request.name === 'inspect_image') {
+        throw Object.assign(new Error('Request timed out'), { code: -32001 })
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ status: 'success', output: { image_url: imageUrl } }) }] }
+    })
+    let clients: Awaited<ReturnType<typeof buildMcpTools>>['clients'] = []
+    try {
+      const built = await buildMcpTools({
+        packageBridge: {} as any,
+        invokeContext: {
+          runtime: { workspacePath: '/tmp/image-inspection-integration', traceId: 'trace-1' },
+          projection: { topicId: 'topic-1', piSessionId: 'session-1' }
+        } as any,
+        options: { mcpServers: {
+          image: { type: 'sdk', name: 'image', instance: createServer('generate_or_edit_image') },
+          'image-understand': {
+            type: 'sdk', name: 'image-understand', instance: createServer('inspect_image'), timeout: 180
+          }
+        } } as any
+      })
+      clients = built.clients
+      const generate = built.tools.find(tool => tool.name === 'mcp__vectcut__image__generate_or_edit_image')!
+      const inspect = built.tools.find(tool => tool.name === 'mcp__vectcut__image-understand__inspect_image')!
+      await generate.execute('generation-1', { action: 'submit' })
+      expect(call).toHaveBeenCalledWith(
+        { name: 'generate_or_edit_image', arguments: { action: 'submit_and_wait' } },
+        undefined, expect.any(Object)
+      )
+      await expect(inspect.execute('inspection-1', { image: imageUrl }))
+        .rejects.toThrow('图片已生成，检查超时')
+      expect(call).toHaveBeenLastCalledWith(
+        { name: 'inspect_image', arguments: { image: imageUrl } },
+        undefined, expect.objectContaining({ timeout: 180000 })
+      )
+      expect(call.mock.calls.filter(([request]) => request.name === 'generate_or_edit_image')).toHaveLength(1)
+    } finally {
+      await Promise.allSettled(clients.map(client => client.close()))
+      call.mockRestore()
+    }
   })
 })

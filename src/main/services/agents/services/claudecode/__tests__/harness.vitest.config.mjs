@@ -12,6 +12,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/main/services/agents/services/claudecode/__tests__/image-generation-action.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/image-inspection-state.test.ts',
+      'src/main/services/agents/database/repositories/__tests__/agentTurnRepository.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/cancelled-context.test.ts',
       'src/main/services/agents/services/cherryclaw/__tests__/prompt.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/provider-payload-summary.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/codemode-search.test.ts',

@@ -201,7 +201,8 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('image-understand', {
       type: 'sdk',
       name: 'image-understand',
-      instance: imageUnderstandServer.mcpServer
+      instance: imageUnderstandServer.mcpServer,
+      timeout: 3 * 60
     })
     autoAllowTools.add(vt('image-understand', 'inspect_image'))
     allowMcpPattern(vp('image-understand'))

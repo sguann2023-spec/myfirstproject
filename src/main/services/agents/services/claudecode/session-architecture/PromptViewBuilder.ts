@@ -33,6 +33,7 @@ export interface PromptViewBuilder {
 export class PromptViewBuilderImpl implements PromptViewBuilder {
   async build(input: BuildPromptViewInput): Promise<PromptView> {
     const recentTurns = input.recentTurns
+      .filter((turn) => turn.status !== 'cancelled')
       .flatMap((turn) => [
         turn.userText ? { role: 'user' as const, text: truncatePromptTurnText(turn.userText) } : null,
         turn.assistantText ? { role: 'assistant' as const, text: truncatePromptTurnText(turn.assistantText) } : null

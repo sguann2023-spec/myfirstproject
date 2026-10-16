@@ -27,6 +27,8 @@ import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search
 import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { buildToolOutputPreview } from './tool-output-preview'
 import { preserveMcpResult } from './mcp-result-storage'
+import { ImageInspectionState } from './image-inspection-state'
+import { normalizeImageGenerationArguments } from './image-generation-action'
 import { summarizeProviderPayload } from './provider-payload-summary'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
@@ -1183,7 +1185,7 @@ async function createMcpClientBridge(serverKey: string, config: NonNullable<Opti
   return null
 }
 
-async function buildMcpTools(input: {
+export async function buildMcpTools(input: {
   packageBridge: PiPackageBridge
   invokeContext: ClaudeCodeInvokeContext
   options: Options
@@ -1191,6 +1193,7 @@ async function buildMcpTools(input: {
   const { packageBridge, invokeContext, options } = input
   const tools: PiAgentHarnessTool[] = []
   const clients: PiMcpClientBridge[] = []
+  const imageInspectionState = new ImageInspectionState(invokeContext.runtime.workspacePath)
 
   for (const [serverKey, config] of Object.entries(options.mcpServers ?? {})) {
     const bridge = await createMcpClientBridge(serverKey, config)
@@ -1228,7 +1231,7 @@ async function buildMcpTools(input: {
           const params =
             namespacedName === WORKSPACE_UPLOAD_TOOL_NAME
               ? resolveWorkspaceUploadArguments(invokeContext, originalParams)
-              : originalParams
+              : normalizeImageGenerationArguments(namespacedName, originalParams)
           const requestTimeoutMs =
             namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : bridge.timeoutMs
           logger.info('[AgentCore] mcp tool execute start', {
@@ -1241,69 +1244,75 @@ async function buildMcpTools(input: {
             paramKeys: Object.keys(params),
             requestTimeoutMs
           })
-          const result = await bridge.client.callTool(
-            { name: tool.name, arguments: params },
-            undefined,
-            {
-              signal,
-              timeout: requestTimeoutMs,
-              resetTimeoutOnProgress: bridge.longRunning,
-              maxTotalTimeout: bridge.longRunning ? requestTimeoutMs : undefined,
-              onprogress(progress) {
-                logger.info('[AgentCore] mcp tool execute update', {
-                  traceId: invokeContext.runtime.traceId,
-                  topicId: invokeContext.projection.topicId,
-                  piSessionId: invokeContext.projection.piSessionId,
-                  toolName: namespacedName,
-                  toolCallId,
-                  serverKey,
-                  messageChars: typeof progress.message === 'string' ? progress.message.length : 0
-                })
-                const total = Number((progress as { total?: unknown }).total || 1)
-                const current = Number((progress as { progress?: unknown }).progress || 0)
-                const normalizedProgress = total > 0 ? current / total : 0
-                const progressTargets = resolveMcpProgressCallIds(toolCallId)
-                const mainWindow = windowService.getMainWindow()
-                if (mainWindow && progressTargets.length > 0) {
-                  for (const progressCallId of progressTargets) {
-                    mainWindow.webContents.send(IpcChannel.Mcp_Progress, {
-                      callId: progressCallId,
-                      progress: normalizedProgress,
-                      message: typeof progress.message === 'string' ? progress.message : undefined
-                    } satisfies MCPProgressEvent)
+          let result
+          try {
+            result = await bridge.client.callTool(
+              { name: tool.name, arguments: params },
+              undefined,
+              {
+                signal,
+                timeout: requestTimeoutMs,
+                resetTimeoutOnProgress: bridge.longRunning,
+                maxTotalTimeout: bridge.longRunning ? requestTimeoutMs : undefined,
+                onprogress(progress) {
+                  logger.info('[AgentCore] mcp tool execute update', {
+                    traceId: invokeContext.runtime.traceId,
+                    topicId: invokeContext.projection.topicId,
+                    piSessionId: invokeContext.projection.piSessionId,
+                    toolName: namespacedName,
+                    toolCallId,
+                    serverKey,
+                    messageChars: typeof progress.message === 'string' ? progress.message.length : 0
+                  })
+                  const total = Number((progress as { total?: unknown }).total || 1)
+                  const current = Number((progress as { progress?: unknown }).progress || 0)
+                  const normalizedProgress = total > 0 ? current / total : 0
+                  const progressTargets = resolveMcpProgressCallIds(toolCallId)
+                  const mainWindow = windowService.getMainWindow()
+                  if (mainWindow && progressTargets.length > 0) {
+                    for (const progressCallId of progressTargets) {
+                      mainWindow.webContents.send(IpcChannel.Mcp_Progress, {
+                        callId: progressCallId,
+                        progress: normalizedProgress,
+                        message: typeof progress.message === 'string' ? progress.message : undefined
+                      } satisfies MCPProgressEvent)
+                    }
+                  }
+                  if (typeof progress.message === 'string' && progress.message.trim()) {
+                    const progressPayload = buildLimitedPiToolPayload(
+                      {
+                        content: [{ type: 'text', text: progress.message }],
+                        structuredContent: progress
+                      },
+                      `${namespacedName} 进度`
+                    )
+                    onUpdate?.({
+                      content: progressPayload.content,
+                      details: progressPayload.details
+                    })
                   }
                 }
-                if (typeof progress.message === 'string' && progress.message.trim()) {
-                  const progressPayload = buildLimitedPiToolPayload(
-                    {
-                      content: [{ type: 'text', text: progress.message }],
-                      structuredContent: progress
-                    },
-                    `${namespacedName} 进度`
-                  )
-                  onUpdate?.({
-                    content: progressPayload.content,
-                    details: progressPayload.details
-                  })
-                }
               }
+            )
+
+            if ((result as { isError?: boolean }).isError) {
+              const failedOutput = extractToolText((result as { content?: unknown }).content)
+              logger.warn('[AgentCore] mcp tool execute failed', {
+                traceId: invokeContext.runtime.traceId,
+                topicId: invokeContext.projection.topicId,
+                piSessionId: invokeContext.projection.piSessionId,
+                toolName: namespacedName,
+                toolCallId,
+                serverKey,
+                outputPreview: failedOutput.slice(0, 500)
+              })
+              throw new Error(failedOutput)
             }
-          )
-
-          if ((result as { isError?: boolean }).isError) {
-            const failedOutput = extractToolText((result as { content?: unknown }).content)
-            logger.warn('[AgentCore] mcp tool execute failed', {
-              traceId: invokeContext.runtime.traceId,
-              topicId: invokeContext.projection.topicId,
-              piSessionId: invokeContext.projection.piSessionId,
-              toolName: namespacedName,
-              toolCallId,
-              serverKey,
-              outputPreview: failedOutput.slice(0, 500)
-            })
-            throw new Error(failedOutput)
+          } catch (error) {
+            if (signal?.aborted) throw error
+            throw imageInspectionState.inspectionError(namespacedName, params, error)
           }
-
+          imageInspectionState.recordSuccess(namespacedName, params, result)
           const preservedPayload = await preserveMcpResult(result, invokeContext.runtime.workspacePath)
           logger.info('[AgentCore] mcp tool execute success', {
             traceId: invokeContext.runtime.traceId,

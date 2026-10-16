@@ -34,20 +34,20 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility.',
+    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image; do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
   inputSchema: {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['submit', 'submit_and_wait', 'status'],
+        enum: ['submit_and_wait', 'status'],
         description:
-          'Optional backward-compatible override. Omit this field to submit and wait for the final result. submit returns immediately after task creation, submit_and_wait waits until completion, and status queries an existing task.'
+          'Use submit_and_wait for image generation/editing, or omit this field for the same behavior. Waits up to 10 minutes and reports progress. status only queries an existing task; do not manually submit and sleep/poll.'
       },
       prompt: {
         type: 'string',
         description:
-          'Instruction for generating or editing the image. Required when action is submit. Describe what to create, or what to change in the supplied image(s).'
+          'Instruction for generating or editing the image. Required for image generation/editing (submit_and_wait or omitted action). Describe what to create, or what to change in the supplied image(s).'
       },
       taskId: {
         type: 'string',

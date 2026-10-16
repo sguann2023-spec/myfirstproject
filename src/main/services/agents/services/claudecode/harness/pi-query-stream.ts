@@ -941,6 +941,10 @@ export async function processPiHarnessQuery(input: {
     }
 
     while (true) {
+      // Abort may arrive while the harness/turn is being initialized, before prompt starts.
+      if (externalAbortRequested || abortSignal?.aborted) {
+        throw new DOMException('Request was aborted', 'AbortError')
+      }
       currentAttempt += 1
       terminalTimeoutTriggered = false
       idleTimeoutTriggered = false

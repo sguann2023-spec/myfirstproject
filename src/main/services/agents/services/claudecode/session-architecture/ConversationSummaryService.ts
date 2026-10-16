@@ -85,21 +85,23 @@ export interface ConversationSummaryService {
 
 export class ConversationSummaryServiceImpl implements ConversationSummaryService {
   async buildRawSummary(input: BuildRawSummaryInput): Promise<string> {
-    const recentUserRequests = input.recentTurns
+    // Cancellation ends the request; it must not be revived by a continuation summary.
+    const recentTurns = input.recentTurns.filter((turn) => turn.status !== 'cancelled')
+    const recentUserRequests = recentTurns
       .map((turn) => turn.userText)
       .filter((value): value is string => Boolean(value))
       .slice(-MAX_RECENT_USER_REQUESTS)
       .map((value) => summarizeRecentUserRequest(value))
     const recentAssistantResponses = buildUniqueLines(
-      input.recentTurns
+      recentTurns
         .map((turn) => turn.assistantText)
         .filter((value): value is string => Boolean(value))
         .slice(-MAX_RECENT_ASSISTANT_RESPONSES)
         .flatMap((value) => summarizeRecentAssistantResponse(value)),
       6
     )
-    const pendingWork = input.recentTurns
-      .filter((turn) => turn.status !== 'completed')
+    const pendingWork = recentTurns
+      .filter((turn) => turn.status === 'running')
       .map((turn) => turn.userText || turn.id)
       .slice(0, MAX_PENDING_WORK_ITEMS)
       .map((value) => summarizeRecentUserRequest(value))

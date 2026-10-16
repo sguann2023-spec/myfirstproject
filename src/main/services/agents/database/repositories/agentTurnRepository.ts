@@ -19,7 +19,8 @@ export function isTurnEligibleForRecentContext(
   if (turn.status === 'completed') {
     return true
   }
-  if (turn.status !== 'cancelled' && turn.status !== 'failed') {
+  // Cancelled requests remain in history, but must not become instructions again.
+  if (turn.status !== 'failed') {
     return false
   }
   return Boolean(String(turn.userText || '').trim() || String(turn.assistantText || '').trim())
@@ -102,7 +103,7 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
     const rows = await database
       .select()
       .from(agentTurnsTable)
-      .where(and(eq(agentTurnsTable.segment_id, segmentId), inArray(agentTurnsTable.status, ['completed', 'cancelled', 'failed'])))
+      .where(and(eq(agentTurnsTable.segment_id, segmentId), inArray(agentTurnsTable.status, ['completed', 'failed'])))
       .orderBy(desc(agentTurnsTable.started_at))
     return rows
       .map((row) => this.deserialize(row)!)

@@ -29,7 +29,7 @@ vi.mock('@types', () => ({
   objectKeys: Object.keys
 }))
 
-vi.mock('/Users/sunguannan/CapCutHelper/src/main/services/agents/BaseService.ts', () => ({
+vi.mock('../../../BaseService', () => ({
   BaseService: class BaseService {}
 }))
 
@@ -46,14 +46,14 @@ describe('isTurnEligibleForRecentContext', () => {
     ).toBe(true)
   })
 
-  it('includes cancelled turns when they contain recoverable text', () => {
+  it('excludes cancelled requests even when user text or partial replies remain', () => {
     expect(
       isTurnEligibleForRecentContext({
         status: 'cancelled',
         userText: '继续',
         assistantText: ''
       })
-    ).toBe(true)
+    ).toBe(false)
 
     expect(
       isTurnEligibleForRecentContext({
@@ -61,7 +61,7 @@ describe('isTurnEligibleForRecentContext', () => {
         userText: '',
         assistantText: '部分回答'
       })
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('excludes cancelled turns without any user or assistant text', () => {

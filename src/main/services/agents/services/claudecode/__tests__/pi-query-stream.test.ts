@@ -270,6 +270,24 @@ describe('processPiHarnessQuery', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('does not start a prompt when cancelled before harness initialization finishes', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const harnessStub = createHarnessStub()
+    const stream = createStreamRecorder()
+    await processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn,
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness, prompt: 'cancelled request', abortSignal: controller.signal
+    })
+    expect(harnessStub.prompt).not.toHaveBeenCalled()
+    expect(agentTurnRepository.update).toHaveBeenCalledWith('turn-1', expect.objectContaining({ status: 'cancelled' }))
+    expect(stream.events.map(event => event.type)).toEqual(['cancelled'])
+  })
+
   it('aborts the PI harness and emits cancelled when the external signal aborts', async () => {
     const abortController = new AbortController()
     let aborted = false

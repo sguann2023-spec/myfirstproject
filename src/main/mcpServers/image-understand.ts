@@ -24,7 +24,7 @@ const INLINE_DATA_URL_PREVIEW = '<data-url-omitted>'
 const INSPECT_IMAGE_TOOL: Tool = {
   name: 'inspect_image',
   description:
-    'Inspect an image with the fixed VectCut vision model gpt-5.6-luna. Remote image URLs are sent directly without downloading, while local image paths are converted into data URLs automatically.',
+    'Inspect an image with the fixed VectCut vision model gpt-5.6-luna. Remote image URLs are sent directly without downloading, while local image paths are converted into data URLs automatically. Inspection failure or timeout does not mean image generation failed. Preserve existing generated images and do not resubmit generation solely because inspection failed.',
   inputSchema: {
     type: 'object',
     properties: {
