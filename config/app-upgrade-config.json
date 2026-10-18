@@ -1,11 +1,11 @@
 {
-  "lastUpdated": "2026-10-16T14:55:14Z",
+  "lastUpdated": "2026-10-17T20:47:07Z",
   "githubProxyPrefixes": [
-    "https://gh.monlor.com/",
-    "https://ghfast.top/",
     "https://gh.acmsz.top/",
-    "https://gh.meali.top/",
-    "https://ghproxy.felicity.land/"
+    "https://gh.monlor.com/",
+    "https://ghproxy.net/",
+    "https://ghproxy.felicity.land/",
+    "https://ghfast.top/"
   ],
   "versions": {}
 }

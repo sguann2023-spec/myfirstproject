@@ -6,6 +6,7 @@ import type { Message } from '@renderer/types/newMessage'
 import { Popover } from 'antd'
 import { t } from 'i18next'
 import React from 'react'
+import { shallowEqual } from 'react-redux'
 import styled from 'styled-components'
 import { getReversePromptAccounting, isReversePromptToolName } from '../../../../../shared/reversePrompt'
 
@@ -185,6 +186,17 @@ const formatTokenCount = (value: number) => {
 
 const POINT2_ICON_URL = new URL('../../../../../../public/point2.svg', import.meta.url).href
 
+const EMPTY_TOOL_BILLING_DETAILS: ToolBillingDetail[] = []
+
+const toolBillingDetailsEqual = (a: ToolBillingDetail[], b: ToolBillingDetail[]) => {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].label !== b[i].label || a[i].points !== b[i].points) return false
+  }
+  return true
+}
+
 const asBlockLike = (value: unknown): BlockLike | null =>
   typeof value === 'object' && value !== null ? (value as BlockLike) : null
 
@@ -212,7 +224,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const toolBillingDetails = useAppSelector((state: any) => {
-    if (!Array.isArray(currentMessage.blocks) || currentMessage.blocks.length === 0) return []
+    if (!Array.isArray(currentMessage.blocks) || currentMessage.blocks.length === 0) return EMPTY_TOOL_BILLING_DETAILS
 
     return currentMessage.blocks.reduce<ToolBillingDetail[]>((details: ToolBillingDetail[], blockRef: unknown) => {
       const block = resolveMessageBlock(state, blockRef)
@@ -234,9 +246,10 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
           })
         : 'Tool'
 
-      return [...details, { label, points }]
+      details.push({ label, points })
+      return details
     }, [])
-  })
+  }, toolBillingDetailsEqual)
 
   const toolBillingPoints = toolBillingDetails.reduce((total: number, detail: ToolBillingDetail) => total + detail.points, 0)
 
@@ -265,7 +278,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
       total.total_tokens += tokens || 0
     }
     return total
-  })
+  }, shallowEqual)
 
   const getUsageSteps = () =>
     Array.isArray(currentMessage.usageSteps) && currentMessage.usageSteps.length > 0
@@ -499,8 +512,8 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
     const tooltipContent = (
       <TooltipList>
-        {tooltipDetails.map((detail) => (
-          <TooltipRow key={`${detail.label}-${detail.points}`}>
+        {tooltipDetails.map((detail, index) => (
+          <TooltipRow key={`${index}-${detail.label}`}>
             <span>{detail.label}</span>
             <TooltipValue>
               <TooltipPointIcon src={POINT2_ICON_URL} alt="" aria-hidden="true" />
@@ -538,7 +551,8 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
           placement="top"
           trigger="hover"
           mouseEnterDelay={0}
-          mouseLeaveDelay={0}
+          mouseLeaveDelay={0.15}
+          destroyTooltipOnHide
           styles={{ root: { fontSize: 11 } }}>
           {tokensInfo}
         </Popover>
@@ -599,6 +613,8 @@ const TooltipList = styled.div`
   flex-direction: column;
   gap: 4px;
   min-width: 180px;
+  max-height: 320px;
+  overflow-y: auto;
 `
 
 const TooltipRow = styled.div`
