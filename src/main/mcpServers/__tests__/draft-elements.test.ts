@@ -106,7 +106,9 @@ describe('DraftElementsServer', () => {
       'get_text_intro_types',
       'get_text_outro_types',
       'get_text_loop_anim_types',
-      'get_font_types',
+      'get_text_intro_animation_previews',
+      'get_text_outro_animation_previews',
+      'get_text_loop_animation_previews',
       'add_image',
       'add_batch_image',
       'add_preset',
@@ -135,7 +137,10 @@ describe('DraftElementsServer', () => {
       'get_filter_types',
       'get_intro_animation_types',
       'get_outro_animation_types',
-      'get_combo_animation_types'
+      'get_combo_animation_types',
+      'get_text_position_preview',
+      'get_text_style_preview',
+      'get_font_previews'
     ])
   })
 
@@ -408,49 +413,6 @@ describe('DraftElementsServer', () => {
     expect(result.isError).toBe(true)
     expect(mockWebContentsSend).not.toHaveBeenCalled()
     expect(mockNetFetch).not.toHaveBeenCalled()
-  })
-
-  it('should list fonts through the readonly GET endpoint', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          error: '',
-          output: [
-            { name: '系统', cloud_render_supported: true },
-            { name: '挥墨体', cloud_render_supported: false }
-          ],
-          success: true
-        })
-      )
-
-    const server = createServer()
-    const result = await callTool(server, 'get_font_types', {})
-
-    expect(mockNetFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://open.vectcut.com/cut_jianying/get_font_types',
-      expect.objectContaining({
-        method: 'GET',
-        body: undefined
-      })
-    )
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'get_font_types',
-      success: true,
-      error: '',
-      output: [
-        { name: '系统', cloud_render_supported: true },
-        { name: '挥墨体', cloud_render_supported: false }
-      ],
-      count: 2
-    })
   })
 
   it('should add image and normalize marterial_id into material_id', async () => {

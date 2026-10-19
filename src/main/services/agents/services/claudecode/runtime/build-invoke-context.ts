@@ -30,6 +30,111 @@ type SkillInvocationContextInput = {
   triggerMode: 'explicit' | 'implicit'
 }
 
+const VISION_ALLOWED_MODEL_PATTERNS = [
+  'llava',
+  'moondream',
+  'minicpm',
+  'gemini-1\\.5',
+  'gemini-2\\.0',
+  'gemini-2\\.5',
+  'gemini-3(?:\\.\\d)?-(?:flash|pro)(?:-preview)?',
+  'gemini-(flash|pro|flash-lite)-latest',
+  'gemini-exp',
+  'claude-3',
+  'claude-haiku-4',
+  'claude-sonnet-4',
+  'claude-opus-4',
+  'vision',
+  'glm-4(?:\\.\\d+)?v(?:-[\\w-]+)?',
+  'qwen-vl',
+  'qwen2-vl',
+  'qwen2.5-vl',
+  'qwen3-vl',
+  'qwen3\\.[5-9](?:-[\\w-]+)?',
+  'qwen2.5-omni',
+  'qwen3-omni(?:-[\\w-]+)?',
+  'qvq',
+  'internvl2',
+  'grok-vision-beta',
+  'grok-4(?:-[\\w-]+)?',
+  'pixtral',
+  'gpt-4(?:-[\\w-]+)',
+  'gpt-4.1(?:-[\\w-]+)?',
+  'gpt-4o(?:-[\\w-]+)?',
+  'gpt-4.5(?:-[\\w-]+)',
+  'gpt-5(?:-[\\w-]+)?',
+  'chatgpt-4o(?:-[\\w-]+)?',
+  'o1(?:-[\\w-]+)?',
+  'o3(?:-[\\w-]+)?',
+  'o4(?:-[\\w-]+)?',
+  'deepseek-vl(?:[\\w-]+)?',
+  'kimi-k2.5',
+  'kimi-latest',
+  'gemma-?[3-4](?:[-.\\w]+)?',
+  'doubao-seed-1[.-][68](?:-[\\w-]+)?',
+  'doubao-seed-2[.-]0(?:-[\\w-]+)?',
+  'doubao-seed-code(?:-[\\w-]+)?',
+  'kimi-thinking-preview',
+  'gemma3(?:[-:\\w]+)?',
+  'kimi-vl-a3b-thinking(?:-[\\w-]+)?',
+  'llama-guard-4(?:-[\\w-]+)?',
+  'llama-4(?:-[\\w-]+)?',
+  'step-1o(?:.*vision)?',
+  'step-1v(?:-[\\w-]+)?',
+  'qwen-omni(?:-[\\w-]+)?',
+  'mistral-large-(2512|latest)',
+  'mistral-medium-(2508|latest)',
+  'mistral-small-(2506|latest)',
+  'mimo-v2-omni(?:-[\\w-]+)?',
+  'glm-5v-turbo'
+]
+
+const VISION_EXCLUDED_MODEL_PATTERNS = [
+  'gpt-4-\\d+-preview',
+  'gpt-4-turbo-preview',
+  'gpt-4-32k',
+  'gpt-4-\\d+',
+  'o1-mini',
+  'o3-mini',
+  'o1-preview',
+  'AIDC-AI/Marco-o1'
+]
+
+const VISION_MODEL_REGEX = new RegExp(
+  `\\b(?!(?:${VISION_EXCLUDED_MODEL_PATTERNS.join('|')})\\b)(${VISION_ALLOWED_MODEL_PATTERNS.join('|')})\\b`,
+  'i'
+)
+
+function getUserSelectedVisionCapability(model: Record<string, unknown> | undefined): boolean | undefined {
+  const capabilities = Array.isArray(model?.capabilities) ? model.capabilities : []
+  for (const capability of capabilities) {
+    if (!capability || typeof capability !== 'object') continue
+    const record = capability as Record<string, unknown>
+    if (record.type === 'vision') {
+      return typeof record.isUserSelected === 'boolean' ? record.isUserSelected : undefined
+    }
+  }
+  return undefined
+}
+
+export function modelSupportsImageInput(runtimeEnvironment: ClaudeRuntimeEnvironment): boolean {
+  const provider = runtimeEnvironment.modelInfo.provider
+  const modelId = String(runtimeEnvironment.modelInfo.modelId || '').trim()
+  const providerModels = Array.isArray(provider?.models) ? provider.models : []
+  const configuredModel = providerModels.find((model) => model?.id === modelId) as Record<string, unknown> | undefined
+
+  const explicitVision = getUserSelectedVisionCapability(configuredModel)
+  if (explicitVision !== undefined) return explicitVision
+
+  const candidates = [
+    modelId,
+    typeof configuredModel?.name === 'string' ? configuredModel.name : '',
+    typeof configuredModel?.id === 'string' ? configuredModel.id : ''
+  ]
+
+  return candidates.some((candidate) => VISION_MODEL_REGEX.test(candidate))
+}
+
 export async function buildClaudeCodeInvokeContext(input: {
   traceId: string
   prompt: string
@@ -172,6 +277,7 @@ function buildRuntimeSnapshot(input: {
       id: runtimeEnvironment.modelInfo.modelId,
       providerId: provider?.id ?? '',
       providerType: provider?.type ?? '',
+      supportsImageInput: modelSupportsImageInput(runtimeEnvironment),
       contextWindowTokens: runtimeEnvironment.modelTokenLimits?.contextWindowTokens,
       maxInputTokens: runtimeEnvironment.modelTokenLimits?.maxInputTokens,
       maxOutputTokens: runtimeEnvironment.modelTokenLimits?.maxOutputTokens,

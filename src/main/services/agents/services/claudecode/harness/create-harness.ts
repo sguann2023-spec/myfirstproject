@@ -35,6 +35,7 @@ const logger = loggerService.withContext('ClaudeCodeHarness')
 
 const MAX_RECORDED_PROJECTION_EVENTS = 200
 const WORKSPACE_UPLOAD_TOOL_NAME = buildVectcutMcpToolName('file-upload', 'upload_file_to_oss')
+const IMAGE_UNDERSTAND_TOOL_NAME = buildVectcutMcpToolName('image-understand', 'inspect_image')
 const WORKSPACE_UPLOAD_TIMEOUT_MS = 3 * 60 * 1000
 
 export type ClaudeCodeHarnessProjectionEvent = {
@@ -405,7 +406,7 @@ function resolveToolPath(filePath: string, cwd: string): string {
   return path.normalize(path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath))
 }
 
-const MAX_INSPECT_IMAGE_BYTES = 20 * 1024 * 1024
+const MAX_READ_IMAGE_AS_CONTENT_BYTES = 20 * 1024 * 1024
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -431,152 +432,23 @@ function guessImageMimeType(input: { contentType?: string; sourcePath?: string }
   return IMAGE_MIME_BY_EXTENSION[extension] || 'image/png'
 }
 
-function buildInspectImagePrompt(question: string): string {
-  const normalizedQuestion = String(question || '').trim()
-  if (normalizedQuestion) {
-    return [
-      'Inspect the image carefully and answer the user question directly.',
-      'Reply in the same language as the user question whenever possible.',
-      'If the user asks about text in the image, transcribe the visible text as accurately as possible.',
-      `Question: ${normalizedQuestion}`
-    ].join('\n')
-  }
-
-  return [
-    'Inspect the image carefully and describe the main visual content.',
-    'Reply in the same language as the surrounding conversation when it is clear from the request.',
-    'Include any clearly visible text exactly when possible.'
-  ].join('\n')
-}
-
-function extractInspectImageTextFromRecord(payload: Record<string, unknown>): string {
-  const anthropicContent = Array.isArray(payload.content) ? payload.content : []
-  const anthropicText = anthropicContent
-    .map((item) => {
-      if (!item || typeof item !== 'object') return ''
-      const record = item as Record<string, unknown>
-      return record.type === 'text' && typeof record.text === 'string' ? record.text : ''
-    })
-    .filter(Boolean)
-    .join('\n')
-    .trim()
-  if (anthropicText) return anthropicText
-
-  const choices = Array.isArray(payload.choices) ? payload.choices : []
-  const textParts: string[] = []
-  for (const choice of choices) {
-    if (!choice || typeof choice !== 'object') continue
-    const choiceRecord = choice as Record<string, unknown>
-
-    const message = choiceRecord.message && typeof choiceRecord.message === 'object'
-      ? (choiceRecord.message as Record<string, unknown>)
-      : null
-    if (message) {
-      const content = message.content
-      if (typeof content === 'string' && content.trim()) {
-        textParts.push(content.trim())
-      } else if (Array.isArray(content)) {
-        const messageText = content
-          .map((item) => {
-            if (!item || typeof item !== 'object') return ''
-            const record = item as Record<string, unknown>
-            return record.type === 'text' && typeof record.text === 'string' ? record.text : ''
-          })
-          .filter(Boolean)
-          .join('\n')
-          .trim()
-        if (messageText) {
-          textParts.push(messageText)
-        }
-      }
-    }
-
-    const delta = choiceRecord.delta && typeof choiceRecord.delta === 'object'
-      ? (choiceRecord.delta as Record<string, unknown>)
-      : null
-    if (!delta) continue
-
-    const deltaContent = delta.content
-    if (typeof deltaContent === 'string' && deltaContent.trim()) {
-      textParts.push(deltaContent)
-    } else if (Array.isArray(deltaContent)) {
-      const deltaText = deltaContent
-        .map((item) => {
-          if (!item || typeof item !== 'object') return ''
-          const record = item as Record<string, unknown>
-          return record.type === 'text' && typeof record.text === 'string' ? record.text : ''
-        })
-        .filter(Boolean)
-        .join('\n')
-        .trim()
-      if (deltaText) {
-        textParts.push(deltaText)
-      }
-    }
-  }
-
-  return textParts.join('').trim()
-}
-
-function extractInspectImageTextFromSseString(responseText: string): string {
-  const raw = String(responseText || '').trim()
-  if (!raw.includes('data:')) return raw
-
-  const chunks = raw
-    .split(/(?=data:\s*(?:\{|\[DONE\]))/g)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-
-  const textParts: string[] = []
-  for (const chunk of chunks) {
-    if (!chunk.startsWith('data:')) continue
-    const payloadText = chunk.slice(5).trim()
-    if (!payloadText || payloadText === '[DONE]') continue
-
-    try {
-      const payload = JSON.parse(payloadText) as Record<string, unknown>
-      const extracted = extractInspectImageTextFromRecord(payload)
-      if (extracted) {
-        textParts.push(extracted)
-      }
-    } catch {
-      return raw
-    }
-  }
-
-  return textParts.join('').trim() || raw
-}
-
-function extractInspectImageText(responsePayload: unknown): string {
-  if (typeof responsePayload === 'string') {
-    return extractInspectImageTextFromSseString(responsePayload)
-  }
-
-  if (!responsePayload || typeof responsePayload !== 'object') {
-    return summarizeValue(responsePayload).trim()
-  }
-
-  const extracted = extractInspectImageTextFromRecord(responsePayload as Record<string, unknown>)
-  if (extracted) return extracted
-
-  return summarizeValue(responsePayload).trim()
-}
-
-async function resolveInspectImageInput(input: {
+async function resolveReadImageAsContentInput(input: {
   source: string
   cwd: string
-}): Promise<{ mimeType: string; base64: string; sourceLabel: string }> {
+}): Promise<{ mimeType: string; base64: string; sourceLabel: string; byteLength: number }> {
   const source = String(input.source || '').trim()
   if (!source) {
-    throw new Error('InspectImage requires file_path, path, or url')
+    throw new Error('ReadImageAsContent requires file_path, path, url, or data_url')
   }
 
   const dataUrlMatch = source.match(/^data:([^;,]+);base64,(.+)$/i)
   if (dataUrlMatch) {
+    const base64 = dataUrlMatch[2]
     return {
       mimeType: guessImageMimeType({ contentType: dataUrlMatch[1] }),
-      base64: dataUrlMatch[2],
-      sourceLabel: 'data-url'
+      base64,
+      sourceLabel: 'data-url',
+      byteLength: Buffer.byteLength(base64, 'base64')
     }
   }
 
@@ -587,8 +459,8 @@ async function resolveInspectImageInput(input: {
     }
 
     const buffer = Buffer.from(await response.arrayBuffer())
-    if (buffer.length > MAX_INSPECT_IMAGE_BYTES) {
-      throw new Error(`Image is too large to inspect (${buffer.length} bytes)`)
+    if (buffer.length > MAX_READ_IMAGE_AS_CONTENT_BYTES) {
+      throw new Error(`Image is too large to load as content (${buffer.length} bytes)`)
     }
 
     return {
@@ -597,155 +469,56 @@ async function resolveInspectImageInput(input: {
         sourcePath: source
       }),
       base64: buffer.toString('base64'),
-      sourceLabel: source
+      sourceLabel: source,
+      byteLength: buffer.length
     }
   }
 
   const resolvedPath = resolveToolPath(source, input.cwd)
   const buffer = await fsp.readFile(resolvedPath)
-  if (buffer.length > MAX_INSPECT_IMAGE_BYTES) {
-    throw new Error(`Image is too large to inspect (${buffer.length} bytes)`)
+  if (buffer.length > MAX_READ_IMAGE_AS_CONTENT_BYTES) {
+    throw new Error(`Image is too large to load as content (${buffer.length} bytes)`)
   }
 
   return {
     mimeType: guessImageMimeType({ sourcePath: resolvedPath }),
     base64: buffer.toString('base64'),
-    sourceLabel: resolvedPath
+    sourceLabel: resolvedPath,
+    byteLength: buffer.length
   }
 }
 
-async function executeInspectImage(input: {
+async function executeReadImageAsContent(input: {
   params: Record<string, unknown>
   invokeContext: ClaudeCodeInvokeContext
-  runtimeEnvironment: ClaudeRuntimeEnvironment
   cwd: string
-  signal?: AbortSignal
-}): Promise<{ content: Array<PiTextContent>; details: Record<string, unknown> }> {
-  const { params, invokeContext, runtimeEnvironment, cwd, signal } = input
-  const source = String(params.file_path || params.path || params.url || '').trim()
-  const question = String(params.question || params.prompt || '').trim()
-  const image = await resolveInspectImageInput({ source, cwd })
+}): Promise<{ content: Array<PiTextContent | PiImageContent>; details: Record<string, unknown> }> {
+  const { params, invokeContext, cwd } = input
+  const source = String(params.file_path || params.path || params.url || params.data_url || '').trim()
+  const image = await resolveReadImageAsContentInput({ source, cwd })
 
-  const providerApiType = mapProviderApiType(runtimeEnvironment)
-  const providerApiHost = String(runtimeEnvironment.modelInfo.provider?.apiHost || '').trim()
-  const providerAnthropicHost = String(runtimeEnvironment.modelInfo.provider?.anthropicApiHost || '').trim()
-  const baseUrl =
-    providerApiType === 'openai-completions'
-      ? ensureOpenAiApiVersionBaseUrl(providerApiHost)
-      : String(providerAnthropicHost || providerApiHost || '').trim()
-  const requestTarget = describePiRequestTarget({ providerApiType, baseUrl })
-  const runtimeGatewayToken =
-    providerApiType === 'anthropic-messages'
-      ? String(runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
-      : String(runtimeEnvironment.modelInfo.provider?.apiKey || runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
-
-  if (!requestTarget.expectedRequestUrl) {
-    throw new Error('InspectImage could not resolve a provider request URL')
-  }
-  if (!runtimeGatewayToken) {
-    throw new Error('InspectImage could not resolve a provider auth token')
-  }
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${runtimeGatewayToken}`
-  }
-
-  const payload =
-    providerApiType === 'anthropic-messages'
-      ? {
-          model: invokeContext.runtime.model.id,
-          max_tokens: 1024,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: buildInspectImagePrompt(question) },
-                {
-                  type: 'image',
-                  source: {
-                    type: 'base64',
-                    media_type: image.mimeType,
-                    data: image.base64
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      : {
-          model: invokeContext.runtime.model.id,
-          stream: false,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: buildInspectImagePrompt(question) },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${image.mimeType};base64,${image.base64}`
-                  }
-                }
-              ]
-            }
-          ]
-        }
-
-  if (providerApiType === 'anthropic-messages') {
-    headers['anthropic-version'] = '2023-06-01'
-  }
-
-  logger.info('[AgentCore] InspectImage request start', {
+  logger.info('[AgentCore] ReadImageAsContent loaded image', {
     traceId: invokeContext.runtime.traceId,
     topicId: invokeContext.projection.topicId,
     piSessionId: invokeContext.projection.piSessionId,
     modelId: invokeContext.runtime.model.id,
-    providerApiType,
-    requestUrl: requestTarget.expectedRequestUrl,
     sourceLabel: image.sourceLabel,
     mimeType: image.mimeType,
-    hasQuestion: Boolean(question)
-  })
-
-  const response = await fetch(requestTarget.expectedRequestUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-    signal
-  })
-  const responseText = await response.text()
-  if (!response.ok) {
-    throw new Error(responseText || `InspectImage failed with HTTP ${response.status}`)
-  }
-
-  let responsePayload: unknown
-  try {
-    responsePayload = JSON.parse(responseText)
-  } catch {
-    responsePayload = responseText
-  }
-
-  const answer = extractInspectImageText(responsePayload)
-  if (!answer) {
-    throw new Error('InspectImage returned an empty response')
-  }
-
-  logger.info('[AgentCore] InspectImage request success', {
-    traceId: invokeContext.runtime.traceId,
-    topicId: invokeContext.projection.topicId,
-    piSessionId: invokeContext.projection.piSessionId,
-    modelId: invokeContext.runtime.model.id,
-    providerApiType,
-    responseChars: answer.length
+    byteLength: image.byteLength
   })
 
   return {
-    content: [{ type: 'text', text: answer }],
+    content: [
+      {
+        type: 'text',
+        text: `Loaded image content from ${image.sourceLabel}. The next model turn can inspect this image directly.`
+      },
+      { type: 'image', data: image.base64, mimeType: image.mimeType }
+    ],
     details: {
       source: image.sourceLabel,
       mimeType: image.mimeType,
-      providerApiType
+      byteLength: image.byteLength
     }
   }
 }
@@ -1000,26 +773,23 @@ function buildBuiltinTools(input: {
     }
   } as any
 
-  const inspectImageTool: PiAgentHarnessTool = {
-    name: 'InspectImage',
-    label: 'InspectImage',
+  const readImageAsContentTool: PiAgentHarnessTool = {
+    name: 'ReadImageAsContent',
+    label: 'ReadImageAsContent',
     description:
-      'Inspect an image from a local file path or URL with the current model multimodal capability. 支持查看本地图片或图片链接，并返回图片理解结果。',
+      'Load a local image file, remote image URL, or data URL into the conversation as image content for the current multimodal model. This tool does not analyze the image; it only attaches the image so the model can inspect it in the next turn.',
     parameters: Type.Object({
       file_path: Type.Optional(Type.String()),
       path: Type.Optional(Type.String()),
       url: Type.Optional(Type.String()),
-      question: Type.Optional(Type.String()),
-      prompt: Type.Optional(Type.String())
+      data_url: Type.Optional(Type.String())
     }),
-    async execute(_toolCallId: string, rawParams: unknown, signal?: AbortSignal) {
+    async execute(_toolCallId: string, rawParams: unknown) {
       const params = (rawParams ?? {}) as Record<string, unknown>
-      return await executeInspectImage({
+      return await executeReadImageAsContent({
         params,
         invokeContext,
-        runtimeEnvironment,
-        cwd,
-        signal
+        cwd
       })
     }
   } as any
@@ -1120,7 +890,7 @@ function buildBuiltinTools(input: {
     ['Edit', editTool],
     ['MultiEdit', multiEditTool],
     ['Bash', bashTool],
-    ['InspectImage', inspectImageTool],
+    ['ReadImageAsContent', readImageAsContentTool],
     ['AskUserQuestion', askUserQuestionTool],
     ['TodoWrite', todoWriteTool],
     ['Task', taskTool],
@@ -1215,6 +985,17 @@ export async function buildMcpTools(input: {
 
     for (const tool of listedTools) {
       const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
+      if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model.supportsImageInput) {
+        logger.info('[AgentCore] skipped image-understand MCP tool for multimodal model', {
+          traceId: invokeContext.runtime.traceId,
+          topicId: invokeContext.projection.topicId,
+          piSessionId: invokeContext.projection.piSessionId,
+          modelId: invokeContext.runtime.model.id,
+          serverKey,
+          toolName: namespacedName
+        })
+        continue
+      }
 
       const mcpTool: PiAgentHarnessTool = {
         name: namespacedName,

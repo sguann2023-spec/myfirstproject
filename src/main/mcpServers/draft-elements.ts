@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
 
 import { loggerService } from '@logger'
 import { windowService } from '@main/services/WindowService'
@@ -7,6 +9,10 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
+
+import { renderTextPositionPreview, renderTextStylePreview } from './preview/textStyle'
+import { renderFontSprite, type FontSpriteItem } from './preview/textFontSprite'
+import { fetchTextAnimationPreviewImages, type TextAnimationPreviewItem, type TextAnimationPreviewKind } from './preview/textAnimationPreviewImages'
 
 const logger = loggerService.withContext('MCPServer:DraftElements')
 
@@ -24,7 +30,10 @@ const ENDPOINTS = {
   get_text_intro_types: '/cut_jianying/get_text_intro_types',
   get_text_outro_types: '/cut_jianying/get_text_outro_types',
   get_text_loop_anim_types: '/cut_jianying/get_text_loop_anim_types',
-  get_font_types: '/cut_jianying/get_font_types',
+  get_text_intro_previews: '/cut_jianying/get_text_intro_previews',
+  get_text_outro_previews: '/cut_jianying/get_text_outro_previews',
+  get_text_loop_anim_previews: '/cut_jianying/get_text_loop_anim_previews',
+  get_font_previews: '/cut_jianying/get_font_previews',
   add_image: '/cut_jianying/add_image',
   add_batch_image: '/cut_jianying/add_batch_image',
   add_preset: '/cut_jianying/add_preset',
@@ -344,7 +353,36 @@ const TOOLS: Tool[] = [
     'get_text_loop_anim_types',
     'List supported text loop animations. Use this before setting loop_animation on text tools.'
   ),
-  readonlyTool('get_font_types', 'List supported font names for text and subtitle tools.'),
+  toolWithArgs(
+    'get_text_intro_animation_previews',
+    'Browse available text intro animations with visual previews. Each returned image is one animation preview_url from the backend and is already a 3x3 frame contact sheet. Do not stitch previews together. Returns inline PNG image content and saves each same PNG to the workspace when possible. Treat each rendered preview image as the source of truth for animation motion and timing; do not choose an intro_animation from name/metadata alone. Use q for keyword search and page to turn pages. Use the animation name as intro_animation in add_text/modify_text.',
+    {
+      page: { type: 'integer', description: 'Optional 1-based page index. Default 1.' },
+      page_size: { type: 'integer', description: 'Optional page size (1-4). Default 4. Hard-capped at 4 because each item is already a 3x3 preview image.' },
+      q: { type: 'string', description: 'Optional keyword search.' },
+      category: { type: 'string', description: 'Optional category filter if supported by the backend.' }
+    }
+  ),
+  toolWithArgs(
+    'get_text_outro_animation_previews',
+    'Browse available text outro animations with visual previews. Each returned image is one animation preview_url from the backend and is already a 3x3 frame contact sheet. Do not stitch previews together. Returns inline PNG image content and saves each same PNG to the workspace when possible. Treat each rendered preview image as the source of truth for animation motion and timing; do not choose an outro_animation from name/metadata alone. Use q for keyword search and page to turn pages. Use the animation name as outro_animation in add_text/modify_text.',
+    {
+      page: { type: 'integer', description: 'Optional 1-based page index. Default 1.' },
+      page_size: { type: 'integer', description: 'Optional page size (1-4). Default 4. Hard-capped at 4 because each item is already a 3x3 preview image.' },
+      q: { type: 'string', description: 'Optional keyword search.' },
+      category: { type: 'string', description: 'Optional category filter if supported by the backend.' }
+    }
+  ),
+  toolWithArgs(
+    'get_text_loop_animation_previews',
+    'Browse available text loop animations with visual previews. Each returned image is one animation preview_url from the backend and is already a 3x3 frame contact sheet. Do not stitch previews together. Returns inline PNG image content and saves each same PNG to the workspace when possible. Treat each rendered preview image as the source of truth for animation motion and timing; do not choose a loop_animation from name/metadata alone. Use q for keyword search and page to turn pages. Use the animation name as loop_animation in add_text/modify_text.',
+    {
+      page: { type: 'integer', description: 'Optional 1-based page index. Default 1.' },
+      page_size: { type: 'integer', description: 'Optional page size (1-4). Default 4. Hard-capped at 4 because each item is already a 3x3 preview image.' },
+      q: { type: 'string', description: 'Optional keyword search.' },
+      category: { type: 'string', description: 'Optional category filter if supported by the backend.' }
+    }
+  ),
   toolWithArgs(
     'add_image',
     'Add a single image layer into a VectCut draft.',
@@ -1052,6 +1090,95 @@ const TOOLS: Tool[] = [
   readonlyTool(
     'get_combo_animation_types',
     'List supported combo or loop animations shared by image and video tools. Use this before setting combo_animation on image or video tools.'
+  ),
+  toolWithArgs(
+    'get_text_position_preview',
+    'Render a visual preview of one text layer position on the draft canvas. Returns inline PNG image content and also saves the same PNG to the workspace when possible. The image shows the canvas bounding box, center guides, and the text box after applying transform_x_px/transform_y_px (center-origin, +Y up), scale_x/scale_y (percent), rotation, align, vertical, bold/italic/underline, and fixed_width_px/fixed_height_px. Treat the rendered PNG as the source of truth for every visual judgment, including size, position, scale, rotation, and layout. Parameters are generation inputs for reproducibility, not a substitute for looking at the PNG.',
+    {
+      width: { type: 'number', description: 'Required draft canvas width in pixels.' },
+      height: { type: 'number', description: 'Required draft canvas height in pixels.' },
+      transform_x_px: { type: 'number', description: 'Optional X offset from canvas center in pixels. Positive moves right.' },
+      transform_y_px: { type: 'number', description: 'Optional Y offset from canvas center in pixels. Positive moves UP (editor convention).' },
+      scale_x: { type: 'number', description: 'Optional X scale in percent (default 100).' },
+      scale_y: { type: 'number', description: 'Optional Y scale in percent (default 100).' },
+      align: { type: 'integer', description: 'Optional text alignment enum. When vertical=false use 0/1/2 for left/center/right; when vertical=true use 3/1/4 for top/center/bottom.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees (clockwise).' },
+      bold: { type: 'boolean', description: 'Optional bold flag.' },
+      italic: { type: 'boolean', description: 'Optional italic flag.' },
+      underline: { type: 'boolean', description: 'Optional underline flag.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode. false means horizontal, true means vertical.' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed box width in draft-canvas pixels. If omitted a default is used.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed box height in draft-canvas pixels. If omitted a default is used.' },
+      text: { type: 'string', description: 'Optional placeholder text content to render inside the box.' },
+      font_size: { type: 'number', description: 'Optional source text font size, matching add_text font_size. It is scaled for preview the same way as TextAddDetail.' },
+      letter_spacing: { type: 'number', description: 'Optional letter spacing, matching add_text letter_spacing. Range -100 to 100.' },
+      line_spacing: { type: 'number', description: 'Optional line spacing, matching add_text line_spacing. Range -100 to 100.' }
+    },
+    ['width', 'height']
+  ),
+  toolWithArgs(
+    'get_text_style_preview',
+    'Render a PNG snapshot for the provided text style parameters on a checkerboard color-test background. Returns inline PNG image content and also saves the same PNG to the workspace when possible. Preview the user-supplied values for font_color/font_alpha, rich text text_styles keyword runs, border, background, shadow, position, scale, and rotation. Treat the rendered PNG as the source of truth for every visual judgment, including color, opacity, stroke, background, shadow, size, position, scale, rotation, and layout. Parameters are generation inputs for reproducibility, not a substitute for looking at the PNG. For a normal request like "preview" or "see the effect", call once with the given parameters; call multiple times only when the user asks to compare variants, try alternatives, or tune the effect.',
+    {
+      width: { type: 'number', description: 'Required draft canvas width in pixels. Position and font-size preview use the same scaling as TextAddDetail.' },
+      height: { type: 'number', description: 'Required draft canvas height in pixels. Position and font-size preview use the same scaling as TextAddDetail.' },
+      transform_x_px: { type: 'number', description: 'Optional X offset from canvas center in pixels. Positive moves right.' },
+      transform_y_px: { type: 'number', description: 'Optional Y offset from canvas center in pixels. Positive moves UP (editor convention).' },
+      scale_x: { type: 'number', description: 'Optional X scale in percent (default 100).' },
+      scale_y: { type: 'number', description: 'Optional Y scale in percent (default 100).' },
+      align: { type: 'integer', description: 'Optional text alignment enum. When vertical=false use 0/1/2 for left/center/right; when vertical=true use 3/1/4 for top/center/bottom.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees (clockwise).' },
+      fixed_width_px: { type: 'number', description: 'Optional fixed text box width in draft-canvas pixels.' },
+      fixed_height_px: { type: 'number', description: 'Optional fixed text box height in draft-canvas pixels.' },
+      text: { type: 'string', description: 'Optional preview text content.' },
+      text_styles: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Optional rich text keyword style ranges, same shape as add_text text_styles. Ranges use Unicode code-point offsets: start inclusive, end exclusive. Supports per-range style.size/bold/italic/underline/color, border width/color/alpha, and shadow enabled/angle/alpha/color/distance/smoothing.'
+      },
+      font_size: { type: 'number', description: 'Optional source text font size, matching add_text font_size. Default 54.' },
+      letter_spacing: { type: 'number', description: 'Optional letter spacing, matching add_text letter_spacing. Range -100 to 100.' },
+      line_spacing: { type: 'number', description: 'Optional line spacing, matching add_text line_spacing. Range -100 to 100.' },
+      font_color: { type: 'string', description: 'Optional text color, hex #RRGGBB. Default #FFFFFF.' },
+      font_alpha: { type: 'number', description: 'Optional font opacity alpha from 0 to 1. Default 1.' },
+      bold: { type: 'boolean', description: 'Optional bold flag.' },
+      italic: { type: 'boolean', description: 'Optional italic flag.' },
+      underline: { type: 'boolean', description: 'Optional underline flag.' },
+      vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
+      border_alpha: { type: 'number', description: 'Optional border opacity alpha from 0 to 1. Defaults to font_alpha.' },
+      border_color: { type: 'string', description: 'Optional border color, hex #RRGGBB. Default #000000.' },
+      border_width: { type: 'number', description: 'Optional border width from 0 to 100, matching add_text border_width.' },
+      background_color: { type: 'string', description: 'Optional background color, hex #RRGGBB. Default #000000.' },
+      background_style: { type: 'integer', enum: [1, 2], description: 'Optional background style: 1 for whole text block, 2 for individual lines.' },
+      background_alpha: { type: 'number', description: 'Optional background alpha from 0 to 1. Default 0.' },
+      background_round_radius: { type: 'number', description: 'Optional background radius from 0 to 1.' },
+      background_height: { type: 'number', description: 'Optional background vertical padding from 0 to 1.' },
+      background_width: { type: 'number', description: 'Optional background horizontal padding from 0 to 1.' },
+      background_horizontal_offset: { type: 'number', description: 'Optional background horizontal offset from 0 to 1.' },
+      background_vertical_offset: { type: 'number', description: 'Optional background vertical offset from 0 to 1.' },
+      shadow_enabled: { type: 'boolean', description: 'Optional shadow enabled flag.' },
+      shadow_alpha: { type: 'number', description: 'Optional shadow alpha from 0 to 1. Defaults to font_alpha.' },
+      shadow_angle: { type: 'number', description: 'Optional shadow angle in degrees, -180 to 180.' },
+      shadow_color: { type: 'string', description: 'Optional shadow color, hex #RRGGBB. Default #000000.' },
+      shadow_distance: { type: 'number', description: 'Optional shadow distance from 0 to 100.' },
+      shadow_smoothing: { type: 'number', description: 'Optional shadow smoothing from 0 to 1.' }
+    },
+    ['width', 'height']
+  ),
+  toolWithArgs(
+    'get_font_previews',
+    'Browse available text fonts with a visual 3x3 sprite preview. Each page returns inline PNG image content, saves the same sprite PNG to the workspace when possible, and includes the list of font names. The sprite contains up to 9 fonts rendered as a grid. Treat the rendered sprite PNG as the source of truth for font appearance and readability; choose fonts by looking at the glyph preview, not by guessing from font names, category, or metadata alone. Supports keyword search via `q` and category filter via `category`. Use `page` to turn pages. The font name should be passed to add_text / modify_text as the `font` field. NOTE: this tool only shows which fonts exist and what each glyph looks like. It cannot preview text style effects (font color, opacity, border, background, shadow, position, scale, rotation). Use get_text_style_preview for that.',
+    {
+      page: { type: 'integer', description: 'Optional 1-based page index. Default 1.' },
+      page_size: { type: 'integer', description: 'Optional page size (1-9). Default 9. Hard-capped at 9 so the sprite stays at most 3x3.' },
+      q: { type: 'string', description: 'Optional keyword to filter fonts by name.' },
+      category: {
+        type: 'string',
+        enum: ['cn', 'jp', 'kr', 'en', 'other'],
+        description: 'Optional category filter: cn=Chinese, jp=Japanese, kr=Korean, en=English, other=Other.'
+      }
+    },
+    []
   )
 ]
 
@@ -1060,6 +1187,7 @@ const TOOL_NAMES = new Set(TOOLS.map((tool) => tool.name))
 const ARG_ALIASES: Record<string, string> = {
   draftId: 'draft_id',
   materialId: 'material_id',
+  pageSize: 'page_size',
   timeOffset: 'time_offset',
   trackName: 'track_name',
   relativeIndex: 'relative_index',
@@ -1183,7 +1311,6 @@ const READONLY_TOOL_NAMES = new Set([
   'get_text_intro_types',
   'get_text_outro_types',
   'get_text_loop_anim_types',
-  'get_font_types',
   'get_audio_effect_types',
   'get_video_character_effect_types',
   'get_video_scene_effect_types',
@@ -1212,10 +1339,12 @@ type VectCutResponse = {
 class DraftElementsServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
+  private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(workspacePath?: string) {
+    this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
         name: 'draft-elements',
@@ -1242,6 +1371,26 @@ class DraftElementsServer {
       try {
         if (!TOOL_NAMES.has(toolName)) {
           throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
+        }
+
+        if (toolName === 'get_text_position_preview') {
+          return await this.callTextPositionPreview(args as Record<string, unknown>)
+        }
+
+        if (toolName === 'get_text_style_preview') {
+          return await this.callTextStylePreview(args as Record<string, unknown>)
+        }
+
+        if (toolName === 'get_font_previews') {
+          return await this.callGetFontPreviews(args as Record<string, unknown>)
+        }
+
+        if (
+          toolName === 'get_text_intro_animation_previews' ||
+          toolName === 'get_text_outro_animation_previews' ||
+          toolName === 'get_text_loop_animation_previews'
+        ) {
+          return await this.callGetTextAnimationPreviews(toolName, args as Record<string, unknown>)
         }
 
         if (READONLY_TOOL_NAMES.has(toolName)) {
@@ -1333,12 +1482,15 @@ class DraftElementsServer {
     init: {
       method: 'GET' | 'POST'
       body?: Record<string, unknown>
+      query?: URLSearchParams
     }
   ): Promise<Response> {
     const token = await this.ensureValidAccessToken()
+    const query = init.query?.toString()
+    const url = `${API_HOST}${path}${query ? `?${query}` : ''}`
 
     const doFetch = async (accessToken: string): Promise<Response> =>
-      net.fetch(`${API_HOST}${path}`, {
+      net.fetch(url, {
         method: init.method,
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -1458,6 +1610,462 @@ class DraftElementsServer {
           type: 'text' as const,
           text: JSON.stringify(this.normalizeResponsePayload(toolName, data), null, 2)
         }
+      ]
+    }
+  }
+
+  private resolveWorkspaceRoot(): string {
+    const workspaceRoot = String(this.workspacePath || process.env.WORKSPACE_ROOT || '').trim()
+    if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) return ''
+    return path.normalize(path.resolve(workspaceRoot))
+  }
+
+  private async callTextPositionPreview(args: Record<string, unknown>) {
+    const normalized = this.normalizeArgs('get_text_position_preview', args)
+    const width = Number(normalized.width)
+    const height = Number(normalized.height)
+    if (!Number.isFinite(width) || width <= 0) {
+      throw new McpError(ErrorCode.InvalidParams, "'width' must be a positive number for get_text_position_preview")
+    }
+    if (!Number.isFinite(height) || height <= 0) {
+      throw new McpError(ErrorCode.InvalidParams, "'height' must be a positive number for get_text_position_preview")
+    }
+
+    const toOptionalNumber = (value: unknown) => {
+      if (typeof value === 'undefined' || value === null || value === '') return undefined
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : undefined
+    }
+    const toOptionalBool = (value: unknown) => (typeof value === 'boolean' ? value : undefined)
+
+    const preview = renderTextPositionPreview({
+      width,
+      height,
+      transform_x_px: toOptionalNumber(normalized.transform_x_px),
+      transform_y_px: toOptionalNumber(normalized.transform_y_px),
+      scale_x: toOptionalNumber(normalized.scale_x),
+      scale_y: toOptionalNumber(normalized.scale_y),
+      align: toOptionalNumber(normalized.align),
+      rotation: toOptionalNumber(normalized.rotation),
+      bold: toOptionalBool(normalized.bold),
+      italic: toOptionalBool(normalized.italic),
+      underline: toOptionalBool(normalized.underline),
+      vertical: toOptionalBool(normalized.vertical),
+      fixed_width_px: toOptionalNumber(normalized.fixed_width_px) ?? null,
+      fixed_height_px: toOptionalNumber(normalized.fixed_height_px) ?? null,
+      text: typeof normalized.text === 'string' ? normalized.text : undefined,
+      font_size: toOptionalNumber(normalized.font_size),
+      letter_spacing: toOptionalNumber(normalized.letter_spacing),
+      line_spacing: toOptionalNumber(normalized.line_spacing)
+    })
+
+    const summary = `Text position preview (${preview.width}x${preview.height}). Canvas is ${Math.round(width)}x${Math.round(height)}. Center-origin coords, +Y moves up. Use the rendered PNG as the source of truth for visual size, position, scale, rotation, and layout; do not infer the result from raw parameters alone.`
+    const workspaceRoot = this.resolveWorkspaceRoot()
+
+    // 预览图写到 workspace 方便复查，同时返回 ImageContent，确保 Agent 当前工具调用就能看图。
+    if (workspaceRoot) {
+      try {
+        const artifactDir = path.join(workspaceRoot, 'get_text_position_preview')
+        await fsPromises.mkdir(artifactDir, { recursive: true })
+        const fileName = `preview-${Date.now()}-${randomUUID().slice(0, 8)}.png`
+        const filePath = path.join(artifactDir, fileName)
+        await fsPromises.writeFile(filePath, Buffer.from(preview.base64, 'base64'))
+        const relativePath = path.relative(workspaceRoot, filePath) || path.basename(filePath)
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${summary}\nSaved to: ${filePath}\nRelative to workspace: ${relativePath}\nInline PNG is included below so the current model turn can inspect the rendered result directly.`
+            },
+            {
+              type: 'image' as const,
+              data: preview.base64,
+              mimeType: 'image/png'
+            }
+          ]
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn('Failed to persist text position preview to workspace, fallback to inline image', {
+          error: message
+        })
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: summary
+        },
+        {
+          type: 'image' as const,
+          data: preview.base64,
+          mimeType: 'image/png'
+        }
+      ]
+    }
+  }
+
+  private async callTextStylePreview(args: Record<string, unknown>) {
+    const normalized = this.normalizeArgs('get_text_style_preview', args)
+    const toOptionalNumber = (value: unknown) => {
+      if (typeof value === 'undefined' || value === null || value === '') return undefined
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : undefined
+    }
+    const toOptionalBool = (value: unknown) => (typeof value === 'boolean' ? value : undefined)
+    const width = Number(normalized.width)
+    const height = Number(normalized.height)
+    if (!Number.isFinite(width) || width <= 0) {
+      throw new McpError(ErrorCode.InvalidParams, "'width' must be a positive number for get_text_style_preview")
+    }
+    if (!Number.isFinite(height) || height <= 0) {
+      throw new McpError(ErrorCode.InvalidParams, "'height' must be a positive number for get_text_style_preview")
+    }
+
+    const preview = renderTextStylePreview({
+      width,
+      height,
+      transform_x_px: toOptionalNumber(normalized.transform_x_px),
+      transform_y_px: toOptionalNumber(normalized.transform_y_px),
+      scale_x: toOptionalNumber(normalized.scale_x),
+      scale_y: toOptionalNumber(normalized.scale_y),
+      align: toOptionalNumber(normalized.align),
+      rotation: toOptionalNumber(normalized.rotation),
+      fixed_width_px: toOptionalNumber(normalized.fixed_width_px) ?? null,
+      fixed_height_px: toOptionalNumber(normalized.fixed_height_px) ?? null,
+      text: typeof normalized.text === 'string' ? normalized.text : undefined,
+      text_styles: Array.isArray(normalized.text_styles) ? normalized.text_styles : undefined,
+      font_size: toOptionalNumber(normalized.font_size),
+      letter_spacing: toOptionalNumber(normalized.letter_spacing),
+      line_spacing: toOptionalNumber(normalized.line_spacing),
+      font_color: typeof normalized.font_color === 'string' ? normalized.font_color : undefined,
+      font_alpha: toOptionalNumber(normalized.font_alpha),
+      bold: toOptionalBool(normalized.bold),
+      italic: toOptionalBool(normalized.italic),
+      underline: toOptionalBool(normalized.underline),
+      vertical: toOptionalBool(normalized.vertical),
+      border_alpha: toOptionalNumber(normalized.border_alpha),
+      border_color: typeof normalized.border_color === 'string' ? normalized.border_color : undefined,
+      border_width: toOptionalNumber(normalized.border_width),
+      background_color: typeof normalized.background_color === 'string' ? normalized.background_color : undefined,
+      background_style: toOptionalNumber(normalized.background_style),
+      background_alpha: toOptionalNumber(normalized.background_alpha),
+      background_round_radius: toOptionalNumber(normalized.background_round_radius),
+      background_height: toOptionalNumber(normalized.background_height),
+      background_width: toOptionalNumber(normalized.background_width),
+      background_horizontal_offset: toOptionalNumber(normalized.background_horizontal_offset),
+      background_vertical_offset: toOptionalNumber(normalized.background_vertical_offset),
+      shadow_enabled: toOptionalBool(normalized.shadow_enabled),
+      shadow_alpha: toOptionalNumber(normalized.shadow_alpha),
+      shadow_angle: toOptionalNumber(normalized.shadow_angle),
+      shadow_color: typeof normalized.shadow_color === 'string' ? normalized.shadow_color : undefined,
+      shadow_distance: toOptionalNumber(normalized.shadow_distance),
+      shadow_smoothing: toOptionalNumber(normalized.shadow_smoothing)
+    })
+
+    const summary = `Text style preview (${preview.width}x${preview.height}). Checkerboard color-test background shows opacity, border, background, and shadow. Use the rendered PNG as the source of truth for all visual attributes; do not infer the result from raw parameters alone.`
+    const workspaceRoot = this.resolveWorkspaceRoot()
+    if (workspaceRoot) {
+      try {
+        const artifactDir = path.join(workspaceRoot, 'get_text_style_preview')
+        await fsPromises.mkdir(artifactDir, { recursive: true })
+        const fileName = `preview-${Date.now()}-${randomUUID().slice(0, 8)}.png`
+        const filePath = path.join(artifactDir, fileName)
+        await fsPromises.writeFile(filePath, Buffer.from(preview.base64, 'base64'))
+        const relativePath = path.relative(workspaceRoot, filePath) || path.basename(filePath)
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${summary}\nSaved to: ${filePath}\nRelative to workspace: ${relativePath}\nInline PNG is included below so the current model turn can inspect the rendered result directly.`
+            },
+            {
+              type: 'image' as const,
+              data: preview.base64,
+              mimeType: 'image/png'
+            }
+          ]
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn('Failed to persist text style preview to workspace, fallback to inline image', { error: message })
+      }
+    }
+
+    return {
+      content: [
+        { type: 'text' as const, text: summary },
+        { type: 'image' as const, data: preview.base64, mimeType: 'image/png' }
+      ]
+    }
+  }
+
+  private async callGetFontPreviews(args: Record<string, unknown>) {
+    const normalized = this.normalizeArgs('get_font_previews', args)
+
+    const toInt = (value: unknown, fallback: number, min: number, max: number) => {
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed)) return fallback
+      return Math.max(min, Math.min(max, Math.round(parsed)))
+    }
+
+    // 3x3 封顶：page_size 硬限制 1~9；列数、cell 大小均不开放给调用方。
+    const page = toInt(normalized.page, 1, 1, 10000)
+    const pageSize = toInt(normalized.page_size, 9, 1, 9)
+    const q = typeof normalized.q === 'string' ? normalized.q.trim() : ''
+    const category = typeof normalized.category === 'string' ? normalized.category.trim() : ''
+
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('page_size', String(pageSize))
+    if (q) params.set('q', q)
+    if (category) params.set('category', category)
+    logger.info('get_font_previews: fetching', { path: ENDPOINTS.get_font_previews, query: params.toString() })
+
+    let fontResponse: Response
+    try {
+      fontResponse = await this.requestWithAuth(ENDPOINTS.get_font_previews, { method: 'GET', query: params })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new McpError(ErrorCode.InternalError, `Failed to fetch fonts list: ${message}`)
+    }
+    if (!fontResponse.ok) {
+      throw new McpError(ErrorCode.InternalError, `Fonts list request failed: HTTP ${fontResponse.status}`)
+    }
+    const fontPayload = (await fontResponse.json()) as {
+      success?: boolean
+      error?: string
+      output?: {
+        items?: FontSpriteItem[]
+        page?: number
+        page_size?: number
+        total?: number
+        total_pages?: number
+      }
+    }
+    if (fontPayload.success === false) {
+      throw new McpError(ErrorCode.InternalError, `Fonts API error: ${fontPayload.error || 'unknown'}`)
+    }
+    const items = Array.isArray(fontPayload.output?.items) ? fontPayload.output!.items : []
+    logger.info('get_font_previews: items received', { count: items.length, page, pageSize, q, category })
+
+    if (items.length === 0) {
+      return {
+        content: [
+          { type: 'text' as const, text: `No fonts returned for page=${page} page_size=${pageSize}${q ? ` q=${q}` : ''}${category ? ` category=${category}` : ''}.` }
+        ]
+      }
+    }
+
+    // 列数自适应：N<3 时按 N 收窄，不留空格子；N>=3 固定 3 列。
+    const columns = Math.min(3, items.length)
+    const sprite = await renderFontSprite({
+      items,
+      columns,
+      cellWidth: 810,
+      cellPreviewHeight: 225
+    })
+    logger.info('get_font_previews: sprite rendered', {
+      width: sprite.width,
+      height: sprite.height,
+      rendered: sprite.rendered.length,
+      failed: sprite.failed.length
+    })
+
+    const names = items.map((it) => it.name)
+    const total = fontPayload.output?.total ?? names.length
+    const totalPages = fontPayload.output?.total_pages ?? 1
+    const summary = [
+      `Fonts page ${page}/${totalPages} (page_size=${pageSize}, total=${total}).`,
+      `Sprite layout: ${Math.ceil(items.length / columns)}x${columns}, image size ${sprite.width}x${sprite.height}.`,
+      'Use the rendered sprite PNG as the source of truth for font appearance and readability; do not choose a font from name/category/metadata alone.',
+      `Font names (use as 'font' field in add_text/modify_text): ${names.join(', ')}`
+    ]
+    if (totalPages > page) {
+      summary.push(`Call get_font_previews again with page=${page + 1} to see more fonts.`)
+    }
+    if (sprite.failed.length) {
+      summary.push(`Failed previews: ${sprite.failed.map((f) => f.name).join(', ')}`)
+    }
+
+    const workspaceRoot = this.resolveWorkspaceRoot()
+    if (workspaceRoot) {
+      try {
+        const artifactDir = path.join(workspaceRoot, 'get_font_previews')
+        await fsPromises.mkdir(artifactDir, { recursive: true })
+        const fileName = `fonts-p${page}-${Date.now()}-${randomUUID().slice(0, 8)}.png`
+        const filePath = path.join(artifactDir, fileName)
+        await fsPromises.writeFile(filePath, sprite.buffer)
+        const relativePath = path.relative(workspaceRoot, filePath) || path.basename(filePath)
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${summary.join('\n')}\nSaved to: ${filePath}\nRelative to workspace: ${relativePath}\nInline PNG is included below so the current model turn can inspect the rendered result directly.`
+            },
+            {
+              type: 'image' as const,
+              data: sprite.base64,
+              mimeType: 'image/png'
+            }
+          ]
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn('Failed to persist font sprite to workspace, fallback to inline image', { error: message })
+      }
+    }
+
+    return {
+      content: [
+        { type: 'text' as const, text: summary.join('\n') },
+        { type: 'image' as const, data: sprite.base64, mimeType: 'image/png' }
+      ]
+    }
+  }
+
+  private async callGetTextAnimationPreviews(toolName: string, args: Record<string, unknown>) {
+    const normalized = this.normalizeArgs(toolName, args)
+    const config = {
+      get_text_intro_animation_previews: {
+        kind: 'intro' as TextAnimationPreviewKind,
+        endpoint: ENDPOINTS.get_text_intro_previews,
+        targetField: 'intro_animation',
+        artifactDir: 'get_text_intro_animation_previews',
+        label: 'Text intro animations'
+      },
+      get_text_outro_animation_previews: {
+        kind: 'outro' as TextAnimationPreviewKind,
+        endpoint: ENDPOINTS.get_text_outro_previews,
+        targetField: 'outro_animation',
+        artifactDir: 'get_text_outro_animation_previews',
+        label: 'Text outro animations'
+      },
+      get_text_loop_animation_previews: {
+        kind: 'loop' as TextAnimationPreviewKind,
+        endpoint: ENDPOINTS.get_text_loop_anim_previews,
+        targetField: 'loop_animation',
+        artifactDir: 'get_text_loop_animation_previews',
+        label: 'Text loop animations'
+      }
+    }[toolName]
+
+    if (!config) {
+      throw new McpError(ErrorCode.InvalidParams, `Unsupported text animation preview tool: ${toolName}`)
+    }
+
+    const toInt = (value: unknown, fallback: number, min: number, max: number) => {
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed)) return fallback
+      return Math.max(min, Math.min(max, Math.round(parsed)))
+    }
+
+    // 每个 preview_url 本身已经是一个 3x3 动画帧图，返回多张独立图片，不再二次拼接。
+    const page = toInt(normalized.page, 1, 1, 10000)
+    const pageSize = toInt(normalized.page_size, 4, 1, 4)
+    const q = typeof normalized.q === 'string' ? normalized.q.trim() : ''
+    const category = typeof normalized.category === 'string' ? normalized.category.trim() : ''
+
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('page_size', String(pageSize))
+    if (q) params.set('q', q)
+    if (category) params.set('category', category)
+    logger.info(`${toolName}: fetching`, { path: config.endpoint, query: params.toString() })
+
+    let response: Response
+    try {
+      response = await this.requestWithAuth(config.endpoint, { method: 'GET', query: params })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new McpError(ErrorCode.InternalError, `Failed to fetch ${config.kind} text animation previews: ${message}`)
+    }
+    if (!response.ok) {
+      throw new McpError(ErrorCode.InternalError, `${config.label} request failed: HTTP ${response.status}`)
+    }
+
+    const payload = (await response.json()) as {
+      success?: boolean
+      error?: string
+      output?: {
+        items?: TextAnimationPreviewItem[]
+        page?: number
+        page_size?: number
+        total?: number
+        total_pages?: number
+      }
+    }
+    if (payload.success === false) {
+      throw new McpError(ErrorCode.InternalError, `${config.label} API error: ${payload.error || 'unknown'}`)
+    }
+
+    const items = Array.isArray(payload.output?.items) ? payload.output!.items : []
+    logger.info(`${toolName}: items received`, { count: items.length, page, pageSize, q, category })
+    if (items.length === 0) {
+      return {
+        content: [
+          { type: 'text' as const, text: `No ${config.kind} text animation previews returned for page=${page} page_size=${pageSize}${q ? ` q=${q}` : ''}${category ? ` category=${category}` : ''}.` }
+        ]
+      }
+    }
+
+    const previews = await fetchTextAnimationPreviewImages(items)
+    const names = items.map((it) => it.name)
+    const total = payload.output?.total ?? names.length
+    const totalPages = payload.output?.total_pages ?? 1
+    const summary = [
+      `${config.label} page ${page}/${totalPages} (page_size=${pageSize}, total=${total}).`,
+      'Each image below is one backend preview_url and is already a 3x3 animation frame contact sheet; previews are intentionally not stitched together.',
+      `Use the rendered preview image as the source of truth for animation motion/timing; do not choose ${config.targetField} from name/category/metadata alone.`,
+      `Animation names (use as '${config.targetField}' in add_text/modify_text): ${names.join(', ')}`
+    ]
+    if (totalPages > page) {
+      summary.push(`Call ${toolName} again with page=${page + 1} to see more animations.`)
+    }
+    if (previews.failed.length) {
+      summary.push(`Failed previews: ${previews.failed.map((f) => f.name).join(', ')}`)
+    }
+
+    const imageContents = previews.rendered.map((preview) => ({
+      type: 'image' as const,
+      data: preview.base64,
+      mimeType: preview.mimeType
+    }))
+
+    const workspaceRoot = this.resolveWorkspaceRoot()
+    if (workspaceRoot) {
+      try {
+        const artifactDir = path.join(workspaceRoot, config.artifactDir)
+        await fsPromises.mkdir(artifactDir, { recursive: true })
+        const savedLines: string[] = []
+        for (const [index, preview] of previews.rendered.entries()) {
+          const safeName = preview.item.name.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || `animation_${index + 1}`
+          const fileName = `${config.kind}-p${page}-${index + 1}-${safeName}-${Date.now()}-${randomUUID().slice(0, 8)}.png`
+          const filePath = path.join(artifactDir, fileName)
+          await fsPromises.writeFile(filePath, preview.buffer)
+          savedLines.push(`${preview.item.name}: ${filePath}`)
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${summary.join('\n')}\nSaved files:\n${savedLines.join('\n')}\nInline PNG images are included below so the current model turn can inspect each animation preview directly.`
+            },
+            ...imageContents
+          ]
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn(`Failed to persist ${toolName} previews to workspace, fallback to inline images`, { error: message })
+      }
+    }
+
+    return {
+      content: [
+        { type: 'text' as const, text: summary.join('\n') },
+        ...imageContents
       ]
     }
   }

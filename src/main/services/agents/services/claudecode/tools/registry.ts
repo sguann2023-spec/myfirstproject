@@ -301,7 +301,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasCutDomain) {
-    const draftElementsServer = new DraftElementsServer()
+    const draftElementsServer = new DraftElementsServer(cwd)
     mountMcpServer('draft-elements', {
       type: 'sdk',
       name: 'draft-elements',
@@ -312,10 +312,19 @@ export async function mountRuntimeMcpServers(input: {
     if (shouldMountCapability('textDelete')) autoAllowTools.add(vt('draft-elements', 'remove_text'))
     if (shouldMountCapability('textUpdate')) autoAllowTools.add(vt('draft-elements', 'modify_text'))
     if (shouldMountCapability('subtitleSrt')) autoAllowTools.add(vt('draft-elements', 'add_subtitle'))
-    if (shouldMountCapability('textIntroAnimationList')) autoAllowTools.add(vt('draft-elements', 'get_text_intro_types'))
-    if (shouldMountCapability('textOutroAnimationList')) autoAllowTools.add(vt('draft-elements', 'get_text_outro_types'))
-    if (shouldMountCapability('textLoopAnimationList')) autoAllowTools.add(vt('draft-elements', 'get_text_loop_anim_types'))
-    if (shouldMountCapability('fontList')) autoAllowTools.add(vt('draft-elements', 'get_font_types'))
+    if (shouldMountCapability('textIntroAnimationList')) {
+      autoAllowTools.add(vt('draft-elements', 'get_text_intro_types'))
+      autoAllowTools.add(vt('draft-elements', 'get_text_intro_animation_previews'))
+    }
+    if (shouldMountCapability('textOutroAnimationList')) {
+      autoAllowTools.add(vt('draft-elements', 'get_text_outro_types'))
+      autoAllowTools.add(vt('draft-elements', 'get_text_outro_animation_previews'))
+    }
+    if (shouldMountCapability('textLoopAnimationList')) {
+      autoAllowTools.add(vt('draft-elements', 'get_text_loop_anim_types'))
+      autoAllowTools.add(vt('draft-elements', 'get_text_loop_animation_previews'))
+    }
+    if (shouldMountCapability('fontList')) autoAllowTools.add(vt('draft-elements', 'get_font_previews'))
     if (shouldMountCapability('imageAdd')) autoAllowTools.add(vt('draft-elements', 'add_image'))
     if (shouldMountCapability('imageAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_image'))
     if (shouldMountCapability('presetAdd')) autoAllowTools.add(vt('draft-elements', 'add_preset'))

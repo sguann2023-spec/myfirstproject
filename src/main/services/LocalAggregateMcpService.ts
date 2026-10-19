@@ -167,7 +167,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'draft-elements',
         serverName: 'draft-elements',
-        createInstance: () => new DraftElementsServer().mcpServer
+        createInstance: () => new DraftElementsServer(workspacePath).mcpServer
       },
       {
         serverId: 'subtitle-recognition',

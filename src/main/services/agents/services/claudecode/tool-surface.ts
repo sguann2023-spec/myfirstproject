@@ -13,10 +13,14 @@ export function buildToolSurface(args: {
   sessionAllowedTools?: string[]
   isAssistant: boolean
   hasExplicitSkillInvocation?: boolean
+  supportsImageInput?: boolean
 }): ToolSurface {
   const builtinTools = args.hasExplicitSkillInvocation
     ? ['AskUserQuestion', 'Bash', 'Read']
     : ['AskUserQuestion', 'Bash']
+  if (args.supportsImageInput) {
+    builtinTools.push('ReadImageAsContent')
+  }
   const autoAllowedTools = new Set<string>()
 
   for (const tool of args.sessionAllowedTools ?? []) {

@@ -25,6 +25,17 @@ import { DEFAULT_TEXT_PLACEMENT, buildTextPlacementParams, resolveTextTrackPlace
 import { buildTextEffectParams, DEFAULT_TEXT_EFFECTS, getShadowPreview, getTextShadowCss, resolveTextEffects } from '../../shared/textEffects';
 import { applyTypography, selectedTypography } from '../../shared/textTypography';
 import {
+  getPreviewCanvasScale,
+  getPreviewCenterPoint,
+  getPreviewPositionScale,
+  normalizeFixedLayoutValue,
+  normalizePositionValue,
+  normalizeRotationValue,
+  normalizeScalePercent,
+  resolvePreviewDisplaySizeByBounds,
+  toCenterOriginPosition,
+} from '../../shared/textPositionGeometry';
+import {
   drawVerticalPreviewText, getPreviewEditorStyle, getPreviewEditorContentStyle, measurePreviewText, measureVerticalPreviewText,
   PREVIEW_FONT_FAMILY, PREVIEW_TEXT_PADDING, PREVIEW_BASE_LINE_HEIGHT, PreviewTextNode as HorizontalPreviewText,
 } from './previewLayout';
@@ -84,25 +95,6 @@ const NUMBER_INPUT_SHARED_PROPS = {
 };
 const PREVIEW_CANVAS_MAX_WIDTH = 168;
 const PREVIEW_CANVAS_MAX_HEIGHT = 280;
-
-const clampNumber = (value, min, max, fallback) => {
-  const resolvedValue = Number(value);
-  if (!Number.isFinite(resolvedValue)) return fallback;
-  return Math.min(max, Math.max(min, resolvedValue));
-};
-
-const normalizeScalePercent = (value, fallback = 100) => clampNumber(value, 1, 500, fallback);
-const normalizePositionValue = (value, fallback = 0) => clampNumber(value, -10000, 10000, fallback);
-const normalizeFixedLayoutValue = (value, fallback = null) => {
-  if (value === null || value === undefined || String(value).trim() === '') return fallback;
-  const resolvedValue = Number(value);
-  if (!Number.isFinite(resolvedValue) || resolvedValue < 0) return fallback;
-  return Math.round(clampNumber(resolvedValue, 0, 10000, fallback ?? 0));
-};
-const normalizeRotationValue = (value, fallback = 0) => {
-  const clampedValue = clampNumber(value, -360, 360, fallback);
-  return Math.round(clampedValue);
-};
 
 const resolvePreviewCanvasSize = (script = null) => {
   const candidates = [
@@ -355,32 +347,20 @@ const TextAddDetail = ({
   const previewEmptyText = hasSelectedDraft ? previewCanvasError : '';
   const previewCanvasWidth = Number(previewCanvasSize?.width || 0);
   const previewCanvasHeight = Number(previewCanvasSize?.height || 0);
-  const previewCanvasDisplaySize = React.useMemo(() => {
-    if (!previewCanvasSize?.width || !previewCanvasSize?.height) return null;
-    const scale = Math.min(
-      PREVIEW_CANVAS_MAX_WIDTH / previewCanvasSize.width,
-      PREVIEW_CANVAS_MAX_HEIGHT / previewCanvasSize.height,
-    );
-
-    return {
-      width: Math.max(1, Math.round(previewCanvasSize.width * scale)),
-      height: Math.max(1, Math.round(previewCanvasSize.height * scale)),
-    };
-  }, [previewCanvasSize]);
-  const previewCanvasScale = React.useMemo(() => ({
-    x: previewCanvasDisplaySize?.width && previewCanvasWidth
-      ? previewCanvasDisplaySize.width / previewCanvasWidth
-      : 1,
-    y: previewCanvasDisplaySize?.height && previewCanvasHeight
-      ? previewCanvasDisplaySize.height / previewCanvasHeight
-      : 1,
-  }), [previewCanvasDisplaySize, previewCanvasHeight, previewCanvasWidth]);
+  const previewCanvasDisplaySize = React.useMemo(
+    () => resolvePreviewDisplaySizeByBounds(previewCanvasSize, PREVIEW_CANVAS_MAX_WIDTH, PREVIEW_CANVAS_MAX_HEIGHT),
+    [previewCanvasSize],
+  );
+  const previewCanvasScale = React.useMemo(
+    () => getPreviewCanvasScale(previewCanvasDisplaySize, { width: previewCanvasWidth, height: previewCanvasHeight }),
+    [previewCanvasDisplaySize, previewCanvasHeight, previewCanvasWidth],
+  );
   // Center-origin position coordinates span -canvasSize to +canvasSize.
   // Moving by one canvas width/height reaches an edge, not a full canvas away.
-  const previewPositionScale = React.useMemo(() => ({
-    x: previewCanvasScale.x / 2,
-    y: previewCanvasScale.y / 2,
-  }), [previewCanvasScale]);
+  const previewPositionScale = React.useMemo(
+    () => getPreviewPositionScale(previewCanvasScale),
+    [previewCanvasScale],
+  );
   const previewPadding = 12;
   const previewDisplayWidth = Number(previewCanvasDisplaySize?.width || 0);
   const previewDisplayHeight = Number(previewCanvasDisplaySize?.height || 0);
@@ -441,10 +421,15 @@ const TextAddDetail = ({
     if (!previewDisplayWidth || !previewDisplayHeight || !previewMeasuredBox?.width || !previewMeasuredBox?.height) {
       return null;
     }
-
+    const center = getPreviewCenterPoint(
+      { width: previewDisplayWidth, height: previewDisplayHeight },
+      positionX,
+      positionY,
+      previewPositionScale,
+    );
     return {
-      x: previewDisplayWidth / 2 + (positionX * previewPositionScale.x),
-      y: previewDisplayHeight / 2 - (positionY * previewPositionScale.y),
+      x: center.x,
+      y: center.y,
       width: previewMeasuredBox.width,
       height: previewMeasuredBox.height,
     };
@@ -560,16 +545,19 @@ const TextAddDetail = ({
   const commitPreviewTransform = React.useCallback((event) => {
     setLiveRichTransform(null);
     const node = event.target;
-    const nextX = normalizePositionValue(Math.round((node.x() - previewDisplayWidth / 2) / previewPositionScale.x));
-    const nextY = normalizePositionValue(Math.round((previewDisplayHeight / 2 - node.y()) / previewPositionScale.y));
+    const display = { width: previewDisplayWidth, height: previewDisplayHeight };
+    const centerOrigin = toCenterOriginPosition({ x: node.x(), y: node.y() }, display, previewPositionScale);
+    const nextX = normalizePositionValue(Math.round(centerOrigin.positionX));
+    const nextY = normalizePositionValue(Math.round(centerOrigin.positionY));
     const nextScaleX = normalizeScalePercent(node.scaleX() * 100);
     const nextScaleY = uniformScale ? nextScaleX : normalizeScalePercent(node.scaleY() * 100);
     const angle = ((node.rotation() + 180) % 360 + 360) % 360 - 180;
     const nextRotation = normalizeRotationValue(angle);
+    const snapped = getPreviewCenterPoint(display, nextX, nextY, previewPositionScale);
     // React-Konva is non-strict by default; also normalize the live node at limits.
     node.setAttrs({
-      x: previewDisplayWidth / 2 + nextX * previewPositionScale.x,
-      y: previewDisplayHeight / 2 - nextY * previewPositionScale.y,
+      x: snapped.x,
+      y: snapped.y,
       scaleX: nextScaleX / 100,
       scaleY: nextScaleY / 100,
       rotation: nextRotation,

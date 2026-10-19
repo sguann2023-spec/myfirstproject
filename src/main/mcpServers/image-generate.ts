@@ -34,7 +34,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image; do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
+    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image as JSON plus inline image content when the result image is small enough to embed; treat that returned image content as the source of truth for visual judgment. Do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -280,6 +280,7 @@ const IMAGE_MODEL_ALIASES: Record<string, string[]> = {
   'gpt-image-2-all': ['gpt-image-2-all']
 }
 const INLINE_PREVIEW_MAX_BYTES = 768 * 1024
+const INLINE_RESULT_IMAGE_MAX_BYTES = 4 * 1024 * 1024
 
 const guessImageMimeType = (source: string, fallback = 'image/png'): string => {
   const normalized = String(source || '').trim().toLowerCase()
@@ -291,6 +292,11 @@ const guessImageMimeType = (source: string, fallback = 'image/png'): string => {
   if (normalized.endsWith('.avif')) return 'image/avif'
   if (normalized.endsWith('.heic')) return 'image/heic'
   return fallback
+}
+
+const normalizeMimeType = (value: string, fallback = 'image/png') => {
+  const normalized = String(value || '').split(';')[0]?.trim().toLowerCase()
+  return normalized || fallback
 }
 
 const parseBase64DataUrl = (value: string): { mediaType: string; data: string } | null => {
@@ -476,6 +482,77 @@ class ImageGenerateServer {
         }
       ]
     }
+  }
+
+  private async buildInlineResultImageContent(source: string) {
+    try {
+      const parsedDataUrl = parseBase64DataUrl(source)
+      if (parsedDataUrl) {
+        const approxBytes = Math.floor(parsedDataUrl.data.length * 0.75)
+        if (approxBytes > INLINE_RESULT_IMAGE_MAX_BYTES) {
+          logger.info('Skipped oversized generated image inline content', { bytes: approxBytes })
+          return null
+        }
+        return {
+          type: 'image' as const,
+          data: parsedDataUrl.data,
+          mimeType: normalizeMimeType(parsedDataUrl.mediaType)
+        }
+      }
+
+      if (!isHttpLikeUrl(source)) {
+        return null
+      }
+
+      const response = await net.fetch(source)
+      if (!response.ok) {
+        logger.warn('Failed to fetch generated image for inline content', { source, status: response.status })
+        return null
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const bytes = Buffer.from(arrayBuffer)
+      if (bytes.length > INLINE_RESULT_IMAGE_MAX_BYTES) {
+        logger.info('Skipped oversized generated image inline content', { source, bytes: bytes.length })
+        return null
+      }
+
+      const mimeType = normalizeMimeType(response.headers.get('content-type') || guessImageMimeType(source))
+      return {
+        type: 'image' as const,
+        data: bytes.toString('base64'),
+        mimeType
+      }
+    } catch (error) {
+      logger.warn('Failed to build inline generated image content', {
+        source,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return null
+    }
+  }
+
+  private async formatImageTaskResult(payload: Record<string, unknown>) {
+    const content: Array<
+      | { type: 'text'; text: string }
+      | { type: 'image'; data: string; mimeType: string }
+    > = [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(payload, null, 2)
+      }
+    ]
+    const output = payload.output && typeof payload.output === 'object' && !Array.isArray(payload.output)
+      ? payload.output as Record<string, unknown>
+      : null
+    const imageUrl = typeof output?.image_url === 'string' ? output.image_url.trim() : ''
+    if (imageUrl) {
+      const imageContent = await this.buildInlineResultImageContent(imageUrl)
+      if (imageContent) {
+        content.push(imageContent)
+      }
+    }
+    return { content }
   }
 
   private buildImageTaskSuccessPayload(input: {
@@ -1060,7 +1137,7 @@ class ImageGenerateServer {
       normalized.polling_hint = 'AI image tasks are asynchronous and may take around 3-5 minutes before completion.'
     }
 
-    return this.formatJsonResult(normalized)
+    return await this.formatImageTaskResult(normalized)
   }
 
   private async sleep(ms: number) {
@@ -1133,7 +1210,7 @@ class ImageGenerateServer {
       const result = await this.queryImageTaskStatus(taskId)
       if (this.isImageTaskCompleted(result)) {
         await this.reportProgress(extra, 100, result.message || '图片生成完成')
-        return this.formatJsonResult(
+        return await this.formatImageTaskResult(
           this.buildImageTaskSuccessPayload({
             referenceImages: preparedReferenceImages.map((item) => item.submittedUrl),
             result,

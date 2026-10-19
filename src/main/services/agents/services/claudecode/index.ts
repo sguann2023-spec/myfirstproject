@@ -37,7 +37,7 @@ import { buildToolSurface } from './tool-surface'
 import { createClaudeCodeHarness } from './harness/create-harness'
 import { processPiHarnessQuery } from './harness/pi-query-stream'
 import { buildInvocationPromptState } from './runtime/build-invocation-prompt'
-import { buildClaudeCodeInvokeContext } from './runtime/build-invoke-context'
+import { buildClaudeCodeInvokeContext, modelSupportsImageInput } from './runtime/build-invoke-context'
 import {
   buildClaudeRuntimeEnvironment,
   type ClaudeRuntimeEnvironment,
@@ -360,7 +360,8 @@ class ClaudeCodeService implements AgentServiceInterface {
     const toolSurface = buildToolSurface({
       sessionAllowedTools: session.allowed_tools ?? [],
       isAssistant,
-      hasExplicitSkillInvocation: Boolean(skillInvocationContext)
+      hasExplicitSkillInvocation: Boolean(skillInvocationContext),
+      supportsImageInput: modelSupportsImageInput(runtimeEnvironment)
     })
     if (skillInvocationContext) {
       logger.info('[PiSkill] activated temporary native tools', {

@@ -25,4 +25,21 @@ describe('MCP result preservation', () => {
       await rm(directory, { recursive: true, force: true })
     }
   })
+
+  it('omits image base64 from inline tool result payloads', () => {
+    const payload = buildInlineToolResultPayload({
+      content: [
+        { type: 'text', text: 'preview saved to workspace' },
+        { type: 'image', data: 'a'.repeat(40 * 1024), mimeType: 'image/png' }
+      ]
+    }) as any
+
+    expect(payload.content[1]).toMatchObject({
+      type: 'image',
+      mimeType: 'image/png',
+      inlineImage: true
+    })
+    expect(payload.content[1].data).toContain('image base64 omitted')
+    expect(payload.content[1].data).not.toContain('aaaa')
+  })
 })

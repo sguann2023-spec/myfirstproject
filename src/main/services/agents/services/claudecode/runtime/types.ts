@@ -13,6 +13,7 @@ export type RuntimeSnapshot = {
     id: string
     providerId: string
     providerType: string
+    supportsImageInput: boolean
     contextWindowTokens?: number
     maxInputTokens?: number
     maxOutputTokens?: number

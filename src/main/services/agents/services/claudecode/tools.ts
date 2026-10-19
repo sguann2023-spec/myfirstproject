@@ -24,9 +24,9 @@ export const builtinTools: Tool[] = [
     type: 'builtin'
   },
   {
-    id: 'InspectImage',
-    name: 'InspectImage',
-    description: 'Inspects a local image file or image URL with the current model. 支持查看本地图片或图片链接。',
+    id: 'ReadImageAsContent',
+    name: 'ReadImageAsContent',
+    description: 'Loads a local image file, remote image URL, or data URL as image content for multimodal models.',
     requirePermissions: false,
     type: 'builtin'
   },
