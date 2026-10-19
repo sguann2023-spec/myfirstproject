@@ -22,6 +22,7 @@ const logger = loggerService.withContext('LoginPage');
 const APP_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const REDUX_STORE_READY_CHANNEL = 'redux-store-ready';
 const APP_CHECK_FOR_UPDATE_CHANNEL = 'app:check-for-update';
+const IMAGE_REFRESH_CAPABILITIES_CHANNEL = 'image:refresh-capabilities';
 let loginPreInitPromise = null;
 let loginPreInitCachedError = '';
 
@@ -38,6 +39,12 @@ const CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE |
 
 function normalizeInviteCode(value) {
     return String(value || '').trim();
+}
+
+function refreshImageCapabilitiesInBackground() {
+    void ipcRenderer.invoke(IMAGE_REFRESH_CAPABILITIES_CHANNEL).catch((error) => {
+        logger.debug('[LoginPage] Image capabilities background refresh failed; using local defaults', error);
+    });
 }
 
 function buildDirectGuardUrl({ forcePrompt = false } = {}) {
@@ -400,6 +407,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     try {
                         await ipcRenderer.invoke('app:initialize-login-services');
                         await ipcRenderer.invoke('app:register-extended-ipc');
+                        refreshImageCapabilitiesInBackground();
                         await ensureReduxStoreReady();
                         if (isWindows) {
                             try {

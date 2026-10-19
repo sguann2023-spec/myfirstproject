@@ -11,6 +11,7 @@ import Store from 'electron-store'
 import { net } from 'electron'
 
 import { ossUploadService } from '@main/services/OssUploadService'
+import defaultImageCapabilitiesPayload from './image-capabilities.default.json'
 
 const logger = loggerService.withContext('MCPServer:ImageGenerate')
 
@@ -25,6 +26,7 @@ const PRIMARY_IMAGE_TOOL_NAME = 'generate_or_edit_image'
 const LEGACY_IMAGE_TOOL_NAME = 'generate_image'
 const IMAGE_TASK_WAIT_TIME = '3-5 minutes'
 const IMAGE_CAPABILITIES_CACHE_TTL_MS = 5 * 60 * 1000
+const IMAGE_CAPABILITIES_STORE_KEY = 'image.capabilities_payload'
 const FILE_UPLOAD_BUCKET = 'oss-hangzhou-mp4'
 const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
 const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
@@ -34,7 +36,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
-    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image as JSON plus inline image content when the result image is small enough to embed; treat that returned image content as the source of truth for visual judgment. Do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
+    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. GPT Image 2/2.5 (models gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all) supports transparent-background PNG generation; when the user asks for stickers, icons, cutouts, overlays, or any image with no background, use one of those models with transparent_background=true and outputFormat="png", and also state the transparent background requirement in the prompt. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image as JSON plus inline image content when the result image is small enough to embed; treat that returned image content as the source of truth for visual judgment. Do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -57,11 +59,28 @@ const IMAGE_GENERATE_TOOL: Tool = {
       model: {
         type: 'string',
         description:
-          'Optional image model, such as seedream-4.5 or nano_banana_2. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities.'
+          'Optional image model, such as seedream-4.5, nano_banana_2, gpt-image-2, or gpt-image-2.5. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities. Use gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all for transparent-background PNG generation.'
       },
       size: {
         type: 'string',
         description: 'Optional output size, such as 1024x1024.'
+      },
+      outputFormat: {
+        type: 'string',
+        enum: ['png', 'jpeg', 'jpg', 'webp'],
+        description:
+          'Optional output format. Use png when requesting transparent-background output, especially with gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all.'
+      },
+      transparent_background: {
+        type: 'boolean',
+        description:
+          'Backend-native flag for requesting a transparent background. Supported by GPT Image 2/2.5 (gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all) for PNG/WebP outputs; set this to true and outputFormat="png" for stickers, icons, cutouts, overlays, and background-free assets.'
+      },
+      background: {
+        type: 'string',
+        enum: ['transparent', 'opaque', 'auto'],
+        description:
+          'Optional backend-native background mode. Use background="transparent" as an alternative to transparent_background=true for transparent-background GPT Image 2/2.5 PNG/WebP outputs.'
       },
       referenceImages: {
         type: 'array',
@@ -107,34 +126,6 @@ const IMAGE_GENERATE_TOOL: Tool = {
       }
     },
     additionalProperties: true
-  }
-}
-
-const IMAGE_CAPABILITIES_TOOL: Tool = {
-  name: 'get_image_capabilities',
-  description:
-    'Get supported image creation/editing models, resolutions, reference image support for image-to-image or editing workflows, and optional pricing information from VectCut.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      model: {
-        type: 'string',
-        description: 'Optional model name to inspect, such as seedream-4.5 or nano_banana_2.'
-      },
-      tier: {
-        type: 'string',
-        description: 'Optional resolution tier filter, such as 1K, 2K, 3K, or 4K.'
-      },
-      ratio: {
-        type: 'string',
-        description: 'Optional aspect ratio filter, such as 1:1 or 16:9.'
-      },
-      includePrices: {
-        type: 'boolean',
-        description: 'Whether to include prices in the response. Defaults to true.'
-      }
-    },
-    additionalProperties: false
   }
 }
 
@@ -199,6 +190,8 @@ type ModelCapability = {
   description?: string
   badges?: string[]
   reference_supported?: boolean
+  transparent_background_supported?: boolean
+  output_formats?: string[]
   resolutions?: Record<string, ResolutionItem[]>
 }
 
@@ -211,6 +204,10 @@ type ImageCapabilitiesResponse = {
   capabilities?: Record<string, ModelCapability>
   prices?: Record<string, ModelPrice>
   [key: string]: unknown
+}
+
+type StoredImageCapabilitiesPayload = ImageCapabilitiesResponse & {
+  updatedAt?: number
 }
 
 type CachedImageCapabilities = {
@@ -266,6 +263,8 @@ const IMAGE_SUBMIT_FIELD_ALIASES: Record<string, string> = {
   maskRectWidth: 'mask_rect_width',
   maskRoundCorner: 'mask_round_corner',
   backgroundBlur: 'background_blur',
+  transparentBackground: 'transparent_background',
+  outputFormat: 'output_format',
   flipHorizontal: 'flip_horizontal',
   mixType: 'mix_type'
 }
@@ -276,9 +275,18 @@ const LOCAL_IMAGE_PATH_HINT_PATTERN =
   /^(file:\/\/|\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])|[\\/]|.+\.(png|jpe?g|webp|gif|bmp|svg|heic|tiff?)(?:[?#].*)?$/i
 const IMAGE_MODEL_ALIASES: Record<string, string[]> = {
   gptimage2: ['gpt-image-2-all'],
+  gptimage25: ['gpt-image-2.5-all'],
   'gpt-image-2': ['gpt-image-2-all'],
-  'gpt-image-2-all': ['gpt-image-2-all']
+  'gpt-image-2-all': ['gpt-image-2-all'],
+  'gpt-image-2.5': ['gpt-image-2.5-all'],
+  'gpt-image-2.5-all': ['gpt-image-2.5-all']
 }
+const GPT_IMAGE_TRANSPARENT_BACKGROUND_MODELS = new Set([
+  'gpt-image-2',
+  'gpt-image-2-all',
+  'gpt-image-2.5',
+  'gpt-image-2.5-all'
+])
 const INLINE_PREVIEW_MAX_BYTES = 768 * 1024
 const INLINE_RESULT_IMAGE_MAX_BYTES = 4 * 1024 * 1024
 
@@ -339,7 +347,7 @@ class ImageGenerateServer {
 
   private setupHandlers(mcpServer: McpServer) {
     mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [IMAGE_GENERATE_TOOL, IMAGE_CAPABILITIES_TOOL]
+      tools: [IMAGE_GENERATE_TOOL]
     }))
 
     mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -351,8 +359,6 @@ class ImageGenerateServer {
           case PRIMARY_IMAGE_TOOL_NAME:
           case LEGACY_IMAGE_TOOL_NAME:
             return await this.generateImage(args as Record<string, unknown>, extra as ToolExecutionExtra)
-          case 'get_image_capabilities':
-            return await this.getImageCapabilities(args as Record<string, unknown>)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -793,6 +799,14 @@ class ImageGenerateServer {
   }
 
   public async getImageModelList(forceRefresh = false) {
+    if (forceRefresh) {
+      const capabilitiesPayload = await this.fetchImageCapabilitiesPayload(true)
+      return {
+        models: Object.keys(capabilitiesPayload.capabilities),
+        defaultModel: ''
+      }
+    }
+
     if (!forceRefresh && this.imageModelListCache && Date.now() < this.imageModelListCache.expiresAt) {
       return {
         models: this.imageModelListCache.models,
@@ -865,6 +879,63 @@ class ImageGenerateServer {
       return this.capabilitiesCache
     }
 
+    if (!forceRefresh) {
+      return this.loadLocalImageCapabilitiesPayload()
+    }
+
+    return await this.fetchRemoteImageCapabilitiesPayload()
+  }
+
+  public async refreshImageCapabilitiesCache() {
+    try {
+      await this.fetchRemoteImageCapabilitiesPayload()
+      return { updated: true }
+    } catch (error) {
+      logger.warn('Image model capabilities refresh failed; keeping local defaults', error as Error)
+      return {
+        updated: false,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+
+  private loadLocalImageCapabilitiesPayload(): CachedImageCapabilities {
+    const storedPayload = this.parseImageCapabilitiesPayload(this.store.get(IMAGE_CAPABILITIES_STORE_KEY))
+    const payload = storedPayload || this.parseImageCapabilitiesPayload(defaultImageCapabilitiesPayload) || {}
+    return this.setImageCapabilitiesCache(payload, Number.MAX_SAFE_INTEGER)
+  }
+
+  private parseImageCapabilitiesPayload(value: unknown): ImageCapabilitiesResponse | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null
+    }
+
+    const payload = value as ImageCapabilitiesResponse
+    if (!payload.capabilities || typeof payload.capabilities !== 'object' || Array.isArray(payload.capabilities)) {
+      return null
+    }
+
+    return {
+      capabilities: payload.capabilities,
+      prices: payload.prices && typeof payload.prices === 'object' && !Array.isArray(payload.prices) ? payload.prices : {}
+    }
+  }
+
+  private setImageCapabilitiesCache(payload: ImageCapabilitiesResponse, expiresAt: number): CachedImageCapabilities {
+    this.capabilitiesCache = {
+      capabilities: payload.capabilities ?? {},
+      prices: payload.prices ?? {},
+      expiresAt
+    }
+    this.imageModelListCache = {
+      models: Object.keys(this.capabilitiesCache.capabilities),
+      expiresAt: this.capabilitiesCache.expiresAt
+    }
+
+    return this.capabilitiesCache
+  }
+
+  private async fetchRemoteImageCapabilitiesPayload(): Promise<CachedImageCapabilities> {
     const response = await this.requestWithAuth(IMAGE_MODEL_CAPABILITIES_ENDPOINT, {
       method: 'GET'
     })
@@ -875,21 +946,26 @@ class ImageGenerateServer {
     }
 
     const payload = (await response.json()) as ImageCapabilitiesResponse
-    this.capabilitiesCache = {
-      capabilities: payload.capabilities ?? {},
-      prices: payload.prices ?? {},
-      expiresAt: Date.now() + IMAGE_CAPABILITIES_CACHE_TTL_MS
-    }
-    this.imageModelListCache = {
-      models: Object.keys(this.capabilitiesCache.capabilities),
-      expiresAt: this.capabilitiesCache.expiresAt
+    const normalizedPayload = this.parseImageCapabilitiesPayload(payload)
+    if (!normalizedPayload) {
+      throw new Error('Image model capabilities query returned invalid payload')
     }
 
-    return this.capabilitiesCache
+    const storedPayload: StoredImageCapabilitiesPayload = {
+      ...normalizedPayload,
+      updatedAt: Date.now()
+    }
+    this.store.set(IMAGE_CAPABILITIES_STORE_KEY, storedPayload)
+
+    return this.setImageCapabilitiesCache(normalizedPayload, Date.now() + IMAGE_CAPABILITIES_CACHE_TTL_MS)
   }
 
   private normalizeModelName(value: string) {
     return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  }
+
+  private isGptImage2Model(model: string) {
+    return GPT_IMAGE_TRANSPARENT_BACKGROUND_MODELS.has(model.trim().toLowerCase())
   }
 
   private levenshtein(a: string, b: string): number {
@@ -1243,6 +1319,12 @@ class ImageGenerateServer {
     const tierFilter = filters.tier?.trim()
     const ratioFilter = filters.ratio?.trim()
     const resolutions = capability?.resolutions ?? {}
+    const outputFormats = Array.isArray(capability?.output_formats)
+      ? capability.output_formats.filter((format): format is string => typeof format === 'string' && format.trim().length > 0)
+      : []
+    const transparentBackgroundSupported = typeof capability?.transparent_background_supported === 'boolean'
+      ? capability.transparent_background_supported
+      : this.isGptImage2Model(model)
     const normalizedResolutions = Object.entries(resolutions).reduce<Record<string, ResolutionItem[]>>((acc, [tier, items]) => {
       if (tierFilter && tier !== tierFilter) {
         return acc
@@ -1276,44 +1358,19 @@ class ImageGenerateServer {
       resolutions: normalizedResolutions
     }
 
+    if (transparentBackgroundSupported) {
+      const transparentOutputFormats = outputFormats.includes('png') ? outputFormats : ['png', ...outputFormats]
+      normalized.transparent_background_supported = true
+      normalized.output_formats = transparentOutputFormats
+    } else if (outputFormats.length > 0) {
+      normalized.output_formats = outputFormats
+    }
+
     if (filters.includePrices && prices[model]) {
       normalized.price = prices[model]
     }
 
     return normalized
-  }
-
-  private async getImageCapabilities(args: Record<string, unknown>) {
-    const modelFilter = typeof args.model === 'string' ? args.model.trim() : ''
-    const tier = typeof args.tier === 'string' ? args.tier.trim() : ''
-    const ratio = typeof args.ratio === 'string' ? args.ratio.trim() : ''
-    const includePrices = typeof args.includePrices === 'boolean' ? args.includePrices : true
-    const { requestedModel, resolvedModel, models } = await this.listImageCapabilities({
-      model: modelFilter,
-      tier,
-      ratio,
-      includePrices
-    })
-
-    logger.info('Image model capabilities queried', {
-      model: resolvedModel ?? (requestedModel || undefined),
-      requestedModel: requestedModel || undefined,
-      tier: tier || undefined,
-      ratio: ratio || undefined,
-      count: models.length
-    })
-
-    return this.formatJsonResult({
-      provider: 'vectcut',
-      action: 'capabilities',
-      ...(requestedModel
-        ? {
-            requested_model: requestedModel,
-            resolved_model: resolvedModel
-          }
-        : {}),
-      models
-    })
   }
 
   private async generateImage(args: Record<string, unknown>, extra?: ToolExecutionExtra) {

@@ -276,6 +276,7 @@ export enum IpcChannel {
   File_StopWatcher = 'file:stopWatcher',
   Image_GetModelList = 'image:get-model-list',
   Image_GetCapabilities = 'image:get-capabilities',
+  Image_RefreshCapabilities = 'image:refresh-capabilities',
   Video_GetModelList = 'video:get-model-list',
   Video_GetCapabilities = 'video:get-capabilities',
   File_PauseWatcher = 'file:pauseWatcher',

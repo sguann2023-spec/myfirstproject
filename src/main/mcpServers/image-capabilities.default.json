@@ -1,0 +1,426 @@
+{
+  "version": 1,
+  "default_model": "seedream-4.5",
+  "capabilities": {
+    "nano_banana_2.1": {
+      "reference_supported": true,
+      "max_reference_images": 10,
+      "max_reference_image_bytes": 15728640,
+      "display_name": "Nano Banana 2.1",
+      "description": "专业编辑",
+      "badges": ["限时优惠"],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_nano_banana_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "1024x683", "ratio": "3:2" },
+          { "size": "683x1024", "ratio": "2:3" },
+          { "size": "768x1024", "ratio": "3:4" },
+          { "size": "1024x768", "ratio": "4:3" },
+          { "size": "819x1024", "ratio": "4:5" },
+          { "size": "1024x819", "ratio": "5:4" },
+          { "size": "576x1024", "ratio": "9:16" },
+          { "size": "1024x576", "ratio": "16:9" },
+          { "size": "1024x439", "ratio": "21:9" },
+          { "size": "256x1024", "ratio": "1:4" },
+          { "size": "1024x256", "ratio": "4:1" },
+          { "size": "128x1024", "ratio": "1:8" },
+          { "size": "1024x128", "ratio": "8:1" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2048x1365", "ratio": "3:2" },
+          { "size": "1365x2048", "ratio": "2:3" },
+          { "size": "1536x2048", "ratio": "3:4" },
+          { "size": "2048x1536", "ratio": "4:3" },
+          { "size": "1638x2048", "ratio": "4:5" },
+          { "size": "2048x1638", "ratio": "5:4" },
+          { "size": "1152x2048", "ratio": "9:16" },
+          { "size": "2048x1152", "ratio": "16:9" },
+          { "size": "2048x878", "ratio": "21:9" },
+          { "size": "512x2048", "ratio": "1:4" },
+          { "size": "2048x512", "ratio": "4:1" },
+          { "size": "256x2048", "ratio": "1:8" },
+          { "size": "2048x256", "ratio": "8:1" }
+        ],
+        "4K": [
+          { "size": "4096x4096", "ratio": "1:1" },
+          { "size": "4096x2731", "ratio": "3:2" },
+          { "size": "2731x4096", "ratio": "2:3" },
+          { "size": "3072x4096", "ratio": "3:4" },
+          { "size": "4096x3072", "ratio": "4:3" },
+          { "size": "3277x4096", "ratio": "4:5" },
+          { "size": "4096x3277", "ratio": "5:4" },
+          { "size": "2304x4096", "ratio": "9:16" },
+          { "size": "4096x2304", "ratio": "16:9" },
+          { "size": "4096x1757", "ratio": "21:9" },
+          { "size": "1024x4096", "ratio": "1:4" },
+          { "size": "4096x1024", "ratio": "4:1" },
+          { "size": "512x4096", "ratio": "1:8" },
+          { "size": "4096x512", "ratio": "8:1" }
+        ]
+      }
+    },
+    "nano_banana_pro": {
+      "reference_supported": true,
+      "display_name": "Nano Banana Pro",
+      "description": "专业编辑",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_nano_banana_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "848x1264", "ratio": "2:3" },
+          { "size": "1264x848", "ratio": "3:2" },
+          { "size": "896x1200", "ratio": "3:4" },
+          { "size": "1200x896", "ratio": "4:3" },
+          { "size": "928x1152", "ratio": "4:5" },
+          { "size": "1152x928", "ratio": "5:4" },
+          { "size": "768x1376", "ratio": "9:16" },
+          { "size": "1376x768", "ratio": "16:9" },
+          { "size": "1584x672", "ratio": "21:9" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "1696x2528", "ratio": "2:3" },
+          { "size": "2528x1696", "ratio": "3:2" },
+          { "size": "1792x2400", "ratio": "3:4" },
+          { "size": "2400x1792", "ratio": "4:3" },
+          { "size": "1856x2304", "ratio": "4:5" },
+          { "size": "2304x1856", "ratio": "5:4" },
+          { "size": "1536x2752", "ratio": "9:16" },
+          { "size": "2752x1536", "ratio": "16:9" },
+          { "size": "3168x1344", "ratio": "21:9" }
+        ],
+        "4K": [
+          { "size": "4096x4096", "ratio": "1:1" },
+          { "size": "3392x5056", "ratio": "2:3" },
+          { "size": "5056x3392", "ratio": "3:2" },
+          { "size": "3584x4800", "ratio": "3:4" },
+          { "size": "4800x3584", "ratio": "4:3" },
+          { "size": "3712x4608", "ratio": "4:5" },
+          { "size": "4608x3712", "ratio": "5:4" },
+          { "size": "3072x5504", "ratio": "9:16" },
+          { "size": "5504x3072", "ratio": "16:9" },
+          { "size": "6336x2688", "ratio": "21:9" }
+        ]
+      }
+    },
+    "nano_banana_2": {
+      "reference_supported": true,
+      "display_name": "Nano Banana 2",
+      "description": "创意编辑",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_nano_banana_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "848x1264", "ratio": "2:3" },
+          { "size": "1264x848", "ratio": "3:2" },
+          { "size": "896x1200", "ratio": "3:4" },
+          { "size": "1200x896", "ratio": "4:3" },
+          { "size": "928x1152", "ratio": "4:5" },
+          { "size": "1152x928", "ratio": "5:4" },
+          { "size": "768x1376", "ratio": "9:16" },
+          { "size": "1376x768", "ratio": "16:9" },
+          { "size": "1584x672", "ratio": "21:9" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "1696x2528", "ratio": "2:3" },
+          { "size": "2528x1696", "ratio": "3:2" },
+          { "size": "1792x2400", "ratio": "3:4" },
+          { "size": "2400x1792", "ratio": "4:3" },
+          { "size": "1856x2304", "ratio": "4:5" },
+          { "size": "2304x1856", "ratio": "5:4" },
+          { "size": "1536x2752", "ratio": "9:16" },
+          { "size": "2752x1536", "ratio": "16:9" },
+          { "size": "3168x1344", "ratio": "21:9" }
+        ],
+        "4K": [
+          { "size": "4096x4096", "ratio": "1:1" },
+          { "size": "3392x5056", "ratio": "2:3" },
+          { "size": "5056x3392", "ratio": "3:2" },
+          { "size": "3584x4800", "ratio": "3:4" },
+          { "size": "4800x3584", "ratio": "4:3" },
+          { "size": "3712x4608", "ratio": "4:5" },
+          { "size": "4608x3712", "ratio": "5:4" },
+          { "size": "3072x5504", "ratio": "9:16" },
+          { "size": "5504x3072", "ratio": "16:9" },
+          { "size": "6336x2688", "ratio": "21:9" }
+        ]
+      }
+    },
+    "gpt-image-2-all": {
+      "reference_supported": true,
+      "transparent_background_supported": true,
+      "output_formats": ["png", "jpeg", "webp"],
+      "display_name": "GPT Image 2",
+      "description": "写实增强",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_gpt_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1248x1248", "ratio": "1:1" },
+          { "size": "1472x1104", "ratio": "4:3" },
+          { "size": "1104x1472", "ratio": "3:4" },
+          { "size": "1792x1008", "ratio": "16:9" },
+          { "size": "1008x1792", "ratio": "9:16" },
+          { "size": "1536x1024", "ratio": "3:2" },
+          { "size": "1024x1536", "ratio": "2:3" },
+          { "size": "1904x816", "ratio": "21:9" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2048x1152", "ratio": "16:9" },
+          { "size": "1152x2048", "ratio": "9:16" }
+        ],
+        "4K": [
+          { "size": "3840x2160", "ratio": "16:9" }
+        ]
+      }
+    },
+    "gpt-image-2.5-all": {
+      "reference_supported": true,
+      "transparent_background_supported": true,
+      "output_formats": ["png", "jpeg", "webp"],
+      "display_name": "GPT Image 2.5",
+      "description": "图片创作",
+      "badges": ["限时优惠"],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_gpt_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "1344x752", "ratio": "16:9" },
+          { "size": "752x1344", "ratio": "9:16" },
+          { "size": "1152x864", "ratio": "4:3" },
+          { "size": "864x1152", "ratio": "3:4" },
+          { "size": "1248x832", "ratio": "3:2" },
+          { "size": "832x1248", "ratio": "2:3" },
+          { "size": "1152x928", "ratio": "5:4" },
+          { "size": "928x1152", "ratio": "4:5" },
+          { "size": "1440x720", "ratio": "2:1" },
+          { "size": "720x1440", "ratio": "1:2" },
+          { "size": "1536x656", "ratio": "21:9" },
+          { "size": "656x1536", "ratio": "9:21" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2688x1512", "ratio": "16:9" },
+          { "size": "1512x2688", "ratio": "9:16" },
+          { "size": "2304x1728", "ratio": "4:3" },
+          { "size": "1728x2304", "ratio": "3:4" },
+          { "size": "2496x1664", "ratio": "3:2" },
+          { "size": "1664x2496", "ratio": "2:3" },
+          { "size": "2304x1840", "ratio": "5:4" },
+          { "size": "1840x2304", "ratio": "4:5" },
+          { "size": "2880x1440", "ratio": "2:1" },
+          { "size": "1440x2880", "ratio": "1:2" },
+          { "size": "3072x1312", "ratio": "21:9" },
+          { "size": "1312x3072", "ratio": "9:21" }
+        ],
+        "4K": [
+          { "size": "2880x2880", "ratio": "1:1" },
+          { "size": "3840x2160", "ratio": "16:9" },
+          { "size": "2160x3840", "ratio": "9:16" },
+          { "size": "3312x2480", "ratio": "4:3" },
+          { "size": "2480x3312", "ratio": "3:4" },
+          { "size": "3520x2352", "ratio": "3:2" },
+          { "size": "2352x3520", "ratio": "2:3" },
+          { "size": "3200x2560", "ratio": "5:4" },
+          { "size": "2560x3200", "ratio": "4:5" },
+          { "size": "3840x1920", "ratio": "2:1" },
+          { "size": "1920x3840", "ratio": "1:2" },
+          { "size": "3696x1584", "ratio": "21:9" },
+          { "size": "1584x3696", "ratio": "9:21" }
+        ]
+      }
+    },
+    "seedream-5.0": {
+      "reference_supported": true,
+      "display_name": "Seedream 5.0",
+      "description": "快速出图",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_jimeng_black.svg",
+      "resolutions": {
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2304x1728", "ratio": "4:3" },
+          { "size": "1728x2304", "ratio": "3:4" },
+          { "size": "2848x1600", "ratio": "16:9" },
+          { "size": "1600x2848", "ratio": "9:16" },
+          { "size": "2496x1664", "ratio": "3:2" },
+          { "size": "1664x2496", "ratio": "2:3" },
+          { "size": "3136x1344", "ratio": "21:9" }
+        ],
+        "3K": [
+          { "size": "3072x3072", "ratio": "1:1" },
+          { "size": "3456x2592", "ratio": "4:3" },
+          { "size": "2592x3456", "ratio": "3:4" },
+          { "size": "4096x2304", "ratio": "16:9" },
+          { "size": "2304x4096", "ratio": "9:16" },
+          { "size": "2496x3744", "ratio": "2:3" },
+          { "size": "3744x2496", "ratio": "3:2" },
+          { "size": "4704x2016", "ratio": "21:9" }
+        ]
+      }
+    },
+    "seedream-5.0-pro": {
+      "reference_supported": true,
+      "display_name": "Seedream 5.0-pro",
+      "description": "高质量出图",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_jimeng_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "1152x864", "ratio": "4:3" },
+          { "size": "864x1152", "ratio": "3:4" },
+          { "size": "1280x720", "ratio": "16:9" },
+          { "size": "720x1280", "ratio": "9:16" },
+          { "size": "1248x832", "ratio": "3:2" },
+          { "size": "832x1248", "ratio": "2:3" },
+          { "size": "1512x648", "ratio": "21:9" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2304x1728", "ratio": "4:3" },
+          { "size": "1728x2304", "ratio": "3:4" },
+          { "size": "2848x1600", "ratio": "16:9" },
+          { "size": "1600x2848", "ratio": "9:16" },
+          { "size": "2496x1664", "ratio": "3:2" },
+          { "size": "1664x2496", "ratio": "2:3" },
+          { "size": "3136x1344", "ratio": "21:9" }
+        ],
+        "4K": [
+          { "size": "4096x4096", "ratio": "1:1" },
+          { "size": "4704x3520", "ratio": "4:3" },
+          { "size": "3520x4704", "ratio": "3:4" },
+          { "size": "5504x3040", "ratio": "16:9" },
+          { "size": "3040x5504", "ratio": "9:16" },
+          { "size": "4992x3328", "ratio": "3:2" },
+          { "size": "3328x4992", "ratio": "2:3" },
+          { "size": "6240x2656", "ratio": "21:9" }
+        ]
+      }
+    },
+    "seedream-4.5": {
+      "reference_supported": true,
+      "display_name": "Seedream 4.5",
+      "description": "日常生成",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_jimeng_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "1152x864", "ratio": "4:3" },
+          { "size": "864x1152", "ratio": "3:4" },
+          { "size": "1280x720", "ratio": "16:9" },
+          { "size": "720x1280", "ratio": "9:16" },
+          { "size": "1248x832", "ratio": "3:2" },
+          { "size": "832x1248", "ratio": "2:3" },
+          { "size": "1512x648", "ratio": "21:9" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2304x1728", "ratio": "4:3" },
+          { "size": "1728x2304", "ratio": "3:4" },
+          { "size": "2848x1600", "ratio": "16:9" },
+          { "size": "1600x2848", "ratio": "9:16" },
+          { "size": "2496x1664", "ratio": "3:2" },
+          { "size": "1664x2496", "ratio": "2:3" },
+          { "size": "3136x1344", "ratio": "21:9" }
+        ],
+        "4K": [
+          { "size": "4096x4096", "ratio": "1:1" },
+          { "size": "4704x3520", "ratio": "4:3" },
+          { "size": "3520x4704", "ratio": "3:4" },
+          { "size": "5504x3040", "ratio": "16:9" },
+          { "size": "3040x5504", "ratio": "9:16" },
+          { "size": "4992x3328", "ratio": "3:2" },
+          { "size": "3328x4992", "ratio": "2:3" },
+          { "size": "6240x2656", "ratio": "21:9" }
+        ]
+      }
+    },
+    "seedream-4.0": {
+      "reference_supported": true,
+      "display_name": "Seedream 4.0",
+      "description": "基础生图",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_jimeng_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "1152x864", "ratio": "4:3" },
+          { "size": "864x1152", "ratio": "3:4" },
+          { "size": "1280x720", "ratio": "16:9" },
+          { "size": "720x1280", "ratio": "9:16" },
+          { "size": "1248x832", "ratio": "3:2" },
+          { "size": "832x1248", "ratio": "2:3" },
+          { "size": "1512x648", "ratio": "21:9" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2304x1728", "ratio": "4:3" },
+          { "size": "1728x2304", "ratio": "3:4" },
+          { "size": "2848x1600", "ratio": "16:9" },
+          { "size": "1600x2848", "ratio": "9:16" },
+          { "size": "2496x1664", "ratio": "3:2" },
+          { "size": "1664x2496", "ratio": "2:3" },
+          { "size": "3136x1344", "ratio": "21:9" }
+        ],
+        "4K": [
+          { "size": "4096x4096", "ratio": "1:1" },
+          { "size": "4704x3520", "ratio": "4:3" },
+          { "size": "3520x4704", "ratio": "3:4" },
+          { "size": "5504x3040", "ratio": "16:9" },
+          { "size": "3040x5504", "ratio": "9:16" },
+          { "size": "4992x3328", "ratio": "3:2" },
+          { "size": "3328x4992", "ratio": "2:3" },
+          { "size": "6240x2656", "ratio": "21:9" }
+        ]
+      }
+    },
+    "seedream-3.0": {
+      "reference_supported": true,
+      "display_name": "Seedream 3.0",
+      "description": "快速出图",
+      "badges": [],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_jimeng_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "864x1152", "ratio": "4:3" },
+          { "size": "1152x864", "ratio": "3:4" },
+          { "size": "1280x720", "ratio": "16:9" },
+          { "size": "720x1280", "ratio": "9:16" },
+          { "size": "832x1248", "ratio": "3:2" },
+          { "size": "1248x832", "ratio": "2:3" },
+          { "size": "1512x648", "ratio": "21:9" }
+        ]
+      }
+    }
+  },
+  "prices": {
+    "nano_banana_2.1": {
+      "project_id": "374",
+      "project_ids": { "1K": "374", "2K": "375", "4K": "376" },
+      "resource_points_per_unit": null,
+      "resource_points_per_unit_by_resolution": {
+        "1K": { "project_id": "374", "points": null },
+        "2K": { "project_id": "375", "points": null },
+        "4K": { "project_id": "376", "points": null }
+      }
+    },
+    "nano_banana_pro": { "project_id": "24", "resource_points_per_unit": null },
+    "nano_banana_2": { "project_id": "41", "resource_points_per_unit": null },
+    "gpt-image-2-all": { "project_id": "62", "resource_points_per_unit": null },
+    "gpt-image-2.5-all": { "project_id": "361", "resource_points_per_unit": null },
+    "seedream-5.0": { "project_id": "45", "resource_points_per_unit": null },
+    "seedream-5.0-pro": { "project_id": "146", "resource_points_per_unit": null },
+    "seedream-4.5": { "project_id": "26", "resource_points_per_unit": null },
+    "seedream-4.0": { "project_id": "46", "resource_points_per_unit": null },
+    "seedream-3.0": { "project_id": "47", "resource_points_per_unit": null }
+  }
+}

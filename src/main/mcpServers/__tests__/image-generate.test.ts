@@ -115,14 +115,14 @@ describe('ImageGenerateServer', () => {
     const server = createServer()
     const result = await listTools(server)
 
-    expect(result.tools).toHaveLength(2)
-    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      'generate_or_edit_image',
-      'get_image_capabilities'
-    ])
+    expect(result.tools).toHaveLength(1)
+    expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['generate_or_edit_image'])
+    expect(result.tools[0].description).toContain('transparent-background PNG')
+    expect(result.tools[0].inputSchema.properties.transparent_background.description).toContain('gpt-image-2')
+    expect(result.tools[0].inputSchema.properties.background.enum).toContain('transparent')
   })
 
-  it('should return image capabilities with prices', async () => {
+  it('should refresh image capabilities from remote and persist them locally', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -164,11 +164,13 @@ describe('ImageGenerateServer', () => {
       )
 
     const server = createServer()
-    const result = await callTool(server, {
+    const refreshResult = await server.refreshImageCapabilitiesCache()
+    const result = await server.listImageCapabilities({
       model: 'seedream-4.5',
       ratio: '1:1'
-    }, 'get_image_capabilities')
+    })
 
+    expect(refreshResult).toEqual({ updated: true })
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
       'https://open.vectcut.com/llm/image/model_capabilities',
@@ -180,12 +182,20 @@ describe('ImageGenerateServer', () => {
         })
       })
     )
+    expect(mockStoreSet).toHaveBeenCalledWith(
+      'image.capabilities_payload',
+      expect.objectContaining({
+        capabilities: expect.objectContaining({
+          'seedream-4.5': expect.any(Object)
+        }),
+        prices: expect.any(Object),
+        updatedAt: expect.any(Number)
+      })
+    )
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'capabilities',
-      requested_model: 'seedream-4.5',
-      resolved_model: 'seedream-4.5',
+    expect(result).toEqual({
+      requestedModel: 'seedream-4.5',
+      resolvedModel: 'seedream-4.5',
       models: [
         {
           model: 'seedream-4.5',
@@ -203,44 +213,43 @@ describe('ImageGenerateServer', () => {
     })
   })
 
-  it('should cache image model list loaded from capabilities', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          capabilities: {
-            'gpt-image-2-all': {
-              reference_supported: true,
-              resolutions: {
-                '1K': [{ ratio: '1:1', size: '1024x1024' }]
-              }
-            },
-            'seedream-4.5': {
-              reference_supported: true,
-              resolutions: {
-                '2K': [{ ratio: '1:1', size: '2048x2048' }]
-              }
-            }
-          },
-          prices: {}
-        })
-      )
-
+  it('should use bundled default image model list without remote fetch', async () => {
     const server = createServer()
     const firstResult = await server.getImageModelList()
     const secondResult = await server.getImageModelList()
 
     expect(firstResult).toEqual({
-      models: ['gpt-image-2-all', 'seedream-4.5'],
+      models: [
+        'nano_banana_2.1',
+        'nano_banana_pro',
+        'nano_banana_2',
+        'gpt-image-2-all',
+        'gpt-image-2.5-all',
+        'seedream-5.0',
+        'seedream-5.0-pro',
+        'seedream-4.5',
+        'seedream-4.0',
+        'seedream-3.0'
+      ],
       defaultModel: ''
     })
     expect(secondResult).toEqual(firstResult)
-    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('should mark GPT Image 2 and 2.5 as transparent-background PNG capable in defaults', async () => {
+    const server = createServer()
+    const result = await server.listImageCapabilities({
+      includePrices: false
+    })
+    const byModel = new Map(result.models.map((item) => [item.model, item]))
+
+    for (const model of ['gpt-image-2-all', 'gpt-image-2.5-all']) {
+      expect(byModel.get(model)).toMatchObject({
+        transparent_background_supported: true,
+        output_formats: expect.arrayContaining(['png'])
+      })
+    }
   })
 
   it('should create a fresh MCP server instance for each bridge session', async () => {
@@ -255,50 +264,27 @@ describe('ImageGenerateServer', () => {
   })
 
   it('should omit prices when includePrices is false', async () => {
-    mockNetFetch
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          access_token: 'access-token',
-          expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          capabilities: {
-            'seedream-4.5': {
-              reference_supported: true,
-              resolutions: {
-                '2K': [{ ratio: '1:1', size: '2048x2048' }]
-              }
-            }
-          },
-          prices: {
-            'seedream-4.5': {
-              project_id: '26',
-              resource_points_per_unit: 30
-            }
-          }
-        })
-      )
-
     const server = createServer()
-    const result = await callTool(server, {
+    const result = await server.listImageCapabilities({
+      model: 'seedream-4.5',
+      tier: '2K',
       includePrices: false
-    }, 'get_image_capabilities')
+    })
 
-    expect(JSON.parse(result.content[0].text)).toEqual({
-      provider: 'vectcut',
-      action: 'capabilities',
+    expect(result).toMatchObject({
+      requestedModel: 'seedream-4.5',
+      resolvedModel: 'seedream-4.5',
       models: [
         {
           model: 'seedream-4.5',
-          reference_supported: true,
-          resolutions: {
-            '2K': [{ ratio: '1:1', size: '2048x2048' }]
-          }
+          reference_supported: true
         }
       ]
     })
+    expect(result.models[0].resolutions).toEqual({
+      '2K': expect.arrayContaining([{ ratio: '1:1', size: '2048x2048' }])
+    })
+    expect(result.models[0]).not.toHaveProperty('price')
   })
 
   it('should submit and wait for an image generation task by default', async () => {
@@ -308,19 +294,6 @@ describe('ImageGenerateServer', () => {
           access_token: 'access-token',
           refresh_token: 'refresh-token-next',
           expires_in: 3600
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
-          capabilities: {
-            'seedream-4.5': {
-              reference_supported: true,
-              resolutions: {
-                '1K': [{ ratio: '1:1', size: '1024x1024' }]
-              }
-            }
-          },
-          prices: {}
         })
       )
       .mockResolvedValueOnce(
@@ -366,16 +339,6 @@ describe('ImageGenerateServer', () => {
     expect(mockStoreSet).toHaveBeenCalledWith('auth.refresh_token', 'refresh-token-next')
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
-      'https://open.vectcut.com/llm/image/model_capabilities',
-      expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access-token'
-        })
-      })
-    )
-    expect(mockNetFetch).toHaveBeenNthCalledWith(
-      3,
       'https://open.vectcut.com/llm/image/submit_task/generate',
       expect.objectContaining({
         method: 'POST',
@@ -386,13 +349,13 @@ describe('ImageGenerateServer', () => {
       })
     )
     expect(mockNetFetch).toHaveBeenNthCalledWith(
-      4,
+      3,
       'https://open.vectcut.com/llm/image/submit_task/task_status?task_id=task-123',
       expect.objectContaining({
         method: 'GET'
       })
     )
-    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+    expect(JSON.parse(String(mockNetFetch.mock.calls[1]?.[1]?.body))).toEqual({
       prompt: '一只站在云上的猫',
       model: 'seedream-4.5',
       size: '1024x1024',
@@ -619,25 +582,6 @@ describe('ImageGenerateServer', () => {
       )
       .mockResolvedValueOnce(
         mockJsonResponse({
-          capabilities: {
-            'gpt-image-2-all': {
-              reference_supported: true,
-              resolutions: {
-                '1K': [{ ratio: '1:1', size: '1024x1024' }]
-              }
-            },
-            'seedream-4.5': {
-              reference_supported: true,
-              resolutions: {
-                '1K': [{ ratio: '1:1', size: '1024x1024' }]
-              }
-            }
-          },
-          prices: {}
-        })
-      )
-      .mockResolvedValueOnce(
-        mockJsonResponse({
           success: true,
           task_id: 'task-model-123',
           status: 'queued'
@@ -649,20 +593,24 @@ describe('ImageGenerateServer', () => {
       action: 'submit',
       prompt: '保留主体，把图片变成电影海报风格',
       model: 'gptimage2',
-      editImage: 'https://example.com/original.png'
+      editImage: 'https://example.com/original.png',
+      transparent_background: true,
+      outputFormat: 'png'
     })
 
     expect(mockNetFetch).toHaveBeenNthCalledWith(
-      3,
+      2,
       'https://open.vectcut.com/llm/image/submit_task/generate',
       expect.objectContaining({
         method: 'POST'
       })
     )
-    expect(JSON.parse(String(mockNetFetch.mock.calls[2]?.[1]?.body))).toEqual({
+    expect(JSON.parse(String(mockNetFetch.mock.calls[1]?.[1]?.body))).toEqual({
       prompt: '保留主体，把图片变成电影海报风格',
       model: 'gpt-image-2-all',
-      reference_images: ['https://example.com/original.png']
+      reference_images: ['https://example.com/original.png'],
+      transparent_background: true,
+      output_format: 'png'
     })
 
     expect(JSON.parse(result.content[0].text)).toMatchObject({
@@ -773,11 +721,8 @@ describe('ImageGenerateServer', () => {
       )
 
     const server = createServer()
-    const result = await callTool(server, {
+    await expect(server.listImageCapabilities({
       model: 'unknown-model'
-    }, 'get_image_capabilities')
-
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain('Unknown image model')
+    })).rejects.toThrow('Unknown image model')
   })
 })
