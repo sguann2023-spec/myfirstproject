@@ -108,6 +108,20 @@ const createFilePreviewUrl = (filePath = '') => {
   const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
   return encodeURI(`file://${normalizedPathname}`);
 };
+const normalizeWebPreviewUrl = (value = '') => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(normalized)) return normalized;
+  return `https://${normalized}`;
+};
+const isInlineWebPreviewUrl = (value = '') => {
+  try {
+    const parsed = new URL(normalizeWebPreviewUrl(value));
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:';
+  } catch (_error) {
+    return false;
+  }
+};
 const getConfigObject = (value) => (value && typeof value === 'object' ? value : {});
 const getSelectedWorkspacePath = (session) => {
   const config = getConfigObject(session?.configuration);
@@ -1137,6 +1151,20 @@ const ChatShell = ({
     setPanePreview(nextPreview);
   }, []);
 
+  const openWebUrlInPreview = React.useCallback((url, title = '') => {
+    const normalizedUrl = normalizeWebPreviewUrl(url);
+    if (!normalizedUrl || !isInlineWebPreviewUrl(normalizedUrl)) return;
+
+    const previewKeySuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    openInlinePreviewPane({
+      key: `chat-link:${normalizedUrl}:${previewKeySuffix}`,
+      url: normalizedUrl,
+      title: String(title || normalizedUrl).trim() || normalizedUrl,
+      previewType: 'web',
+      activate: true
+    });
+  }, [openInlinePreviewPane]);
+
   const handleMembersPanelResizeStart = React.useCallback((event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1621,6 +1649,7 @@ const ChatShell = ({
                 ? { ...previous, open: true }
                 : { filePath, chatSessionId, workspacePath: currentWorkspacePath, open: true }
             )),
+            openWebUrl: openWebUrlInPreview,
           }}>
             {children}
             {storyboardTarget && storyboardTarget.chatSessionId === chatSessionId

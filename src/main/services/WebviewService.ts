@@ -8,23 +8,32 @@ import { configManager } from './ConfigManager'
 import { isSafeExternalUrl } from './security'
 
 const logger = loggerService.withContext('WebviewService')
+const MOBILE_CHROME_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36'
+const CHROME_BRAND_HEADERS = {
+  'sec-ch-ua': '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
+  'sec-ch-ua-mobile': '?1',
+  'sec-ch-ua-platform': '"Android"'
+}
 
 /**
- * init the useragent of the webview session
- * remove the CherryStudio and Electron from the useragent
+ * init the useragent and request headers of the webview session
  */
 export function initSessionUserAgent() {
   const wvSession = session.fromPartition('persist:webview')
   const originUA = wvSession.getUserAgent()
-  const newUA = originUA.replace(/CherryStudio\/\S+\s/, '').replace(/Electron\/\S+\s/, '')
+  const newUA = MOBILE_CHROME_USER_AGENT
 
   wvSession.setUserAgent(newUA)
   wvSession.webRequest.onBeforeSendHeaders((details, cb) => {
     const language = configManager.getLanguage()
     const headers = {
       ...details.requestHeaders,
+      ...CHROME_BRAND_HEADERS,
       'User-Agent': details.url.includes('google.com') ? originUA : newUA,
-      'Accept-Language': `${language}, en;q=0.9, *;q=0.5`
+      Accept: details.requestHeaders.Accept || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': `${language}, en;q=0.9, *;q=0.5`,
+      'Upgrade-Insecure-Requests': details.requestHeaders['Upgrade-Insecure-Requests'] || '1'
     }
     cb({ requestHeaders: headers })
   })

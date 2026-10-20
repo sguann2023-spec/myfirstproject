@@ -18,6 +18,7 @@ const normalizeUrl = (value = '') => String(value || '').trim();
 const BLANK_TAB_URL = 'about:blank';
 const SEND_TO_MAIN_PREFIX = '__VECTCUT_SEND_TO_MAIN__:';
 const HOST_FILE_SELECT_PREFIX = '__VECTCUT_HOST_FILE_SELECT__:';
+const MOBILE_CHROME_USER_AGENT = 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36';
 const logger = loggerService.withContext('ChatShell/WebPagePreview');
 const FILE_PREVIEW_TYPE = 'file';
 const WEB_PREVIEW_TYPE = 'web';
@@ -621,6 +622,7 @@ const WebPagePreview = ({
         if (webviewId) {
           updateActiveTab({ webContentsId: Number(webviewId) });
           void window.api?.webview?.setSpellCheckEnabled?.(webviewId, false);
+          void window.api?.webview?.setOpenLinkExternal?.(webviewId, false);
         }
       } catch (_error) {
         // ignore webview setup failures
@@ -1057,6 +1059,7 @@ const WebPagePreview = ({
           className={`chat-web-preview__webview ${!isActiveWebTab ? 'is-hidden' : ''}`.trim()}
           allowpopups={'true'}
           partition="persist:webview"
+          useragent={MOBILE_CHROME_USER_AGENT}
         />
         {activeTab?.type === FILE_PREVIEW_TYPE ? (
           <div className="chat-web-preview__file-pane">

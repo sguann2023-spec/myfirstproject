@@ -35,6 +35,7 @@ import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
 import { normalizeSeedAudioRequestPayload } from '../../shared/seedAudioRequest';
 import { normalizeAiVideoRequestPayload } from '../../shared/aiVideoRequest';
+import { normalizeImageGenerateRequestPayload } from '../../shared/imageGenerateRequest';
 import { normalizeDigitalHumanRequestPayload } from '../../shared/digitalHumanRequest';
 import { buildVoiceConversionRequestProcessingBlocks, normalizeVoiceConversionRequestPayload } from '../../shared/voiceConversionRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
@@ -425,6 +426,38 @@ const resolveAiVideoRequestLocalAttachmentUrls = (aiVideoRequest = null, persist
   return {
     ...aiVideoRequest,
     content,
+  };
+};
+const resolveImageGenerateRequestLocalAttachmentUrls = (imageGenerateRequest = null, persistedEntries = []) => {
+  if (!imageGenerateRequest || typeof imageGenerateRequest !== 'object') {
+    return imageGenerateRequest;
+  }
+
+  const persistedByUid = new Map(
+    (Array.isArray(persistedEntries) ? persistedEntries : [])
+      .filter((item) => item?.uid && item?.sourcePath)
+      .map((item) => [String(item.uid).trim(), String(item.sourcePath).trim()])
+  );
+  if (persistedByUid.size === 0) return imageGenerateRequest;
+
+  const replaceLocalAttachment = (value = '') => {
+    const normalized = String(value || '').trim();
+    const uid = normalized.startsWith('local-attachment:') ? normalized.slice('local-attachment:'.length).trim() : '';
+    return uid && persistedByUid.get(uid) ? persistedByUid.get(uid) : normalized;
+  };
+  const replaceLocalAttachmentArray = (value) => (Array.isArray(value)
+    ? value.map(replaceLocalAttachment).filter(Boolean)
+    : value);
+
+  return {
+    ...imageGenerateRequest,
+    ...(imageGenerateRequest.referenceImages ? { referenceImages: replaceLocalAttachmentArray(imageGenerateRequest.referenceImages) } : {}),
+    ...(imageGenerateRequest.reference_images ? { reference_images: replaceLocalAttachmentArray(imageGenerateRequest.reference_images) } : {}),
+    ...(imageGenerateRequest.sourceImages ? { sourceImages: replaceLocalAttachmentArray(imageGenerateRequest.sourceImages) } : {}),
+    ...(imageGenerateRequest.sourceImage ? { sourceImage: replaceLocalAttachment(imageGenerateRequest.sourceImage) } : {}),
+    ...(imageGenerateRequest.baseImage ? { baseImage: replaceLocalAttachment(imageGenerateRequest.baseImage) } : {}),
+    ...(imageGenerateRequest.editImage ? { editImage: replaceLocalAttachment(imageGenerateRequest.editImage) } : {}),
+    ...(imageGenerateRequest.referenceImage ? { referenceImage: replaceLocalAttachment(imageGenerateRequest.referenceImage) } : {}),
   };
 };
 const resolveVoiceConversionRequestLocalAttachmentUrls = (voiceConversionRequest = null, persistedEntries = []) => {
@@ -974,6 +1007,41 @@ const buildAiVideoRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: aiVideoRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildImageGenerateRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  imageGenerateRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `image_generate_request_${String(requestId || '').trim() || Date.now()}`;
+  const toolName = 'mcp__vectcut__image__generate_or_edit_image';
+  return [{
+    id: `${assistantMessageId}-image-generate-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName,
+    arguments: imageGenerateRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: toolName,
+          name: toolName,
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: imageGenerateRequest,
         status: 'pending'
       }
     }
@@ -5434,6 +5502,9 @@ const HomePage = () => {
     const aiVideoRequest = options?.aiVideoRequest && typeof options.aiVideoRequest === 'object'
       ? { ...options.aiVideoRequest }
       : null;
+    const imageGenerateRequest = options?.imageGenerateRequest && typeof options.imageGenerateRequest === 'object'
+      ? { ...options.imageGenerateRequest }
+      : null;
     const digitalHumanRequest = options?.digitalHumanRequest && typeof options.digitalHumanRequest === 'object'
       ? { ...options.digitalHumanRequest }
       : null;
@@ -5530,6 +5601,7 @@ const HomePage = () => {
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
+        ...(imageGenerateRequest ? { imageGenerateRequest: normalizeImageGenerateRequestPayload(imageGenerateRequest, text) } : {}),
         ...(digitalHumanRequest ? { digitalHumanRequest: normalizeDigitalHumanRequestPayload(digitalHumanRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
@@ -5594,6 +5666,7 @@ const HomePage = () => {
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
         ...(aiVideoRequest ? { aiVideoRequest: normalizeAiVideoRequestPayload(aiVideoRequest, text) } : {}),
+        ...(imageGenerateRequest ? { imageGenerateRequest: normalizeImageGenerateRequestPayload(imageGenerateRequest, text) } : {}),
         ...(digitalHumanRequest ? { digitalHumanRequest: normalizeDigitalHumanRequestPayload(digitalHumanRequest, text) } : {}),
         ...(draftExportRequest ? { draftExportRequest: normalizeDraftExportRequestPayload(draftExportRequest) } : {}),
         ...(draftDownloadRequest ? { draftDownloadRequest: normalizeDraftDownloadRequestPayload(draftDownloadRequest) } : {}),
@@ -5947,6 +6020,64 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'ai-video-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'ai-video-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'ai-video-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (imageGenerateRequest) {
+        const imageGenerateRequestWithLocalFiles = resolveImageGenerateRequestLocalAttachmentUrls(
+          imageGenerateRequest,
+          persistedPendingAttachmentEntries
+        );
+        const resolvedImageGenerateRequest = normalizeImageGenerateRequestPayload(imageGenerateRequestWithLocalFiles, text);
+        if (!resolvedImageGenerateRequest || !String(resolvedImageGenerateRequest.prompt || '').trim()) {
+          throw new Error('image generate request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          imageGenerateRequest: resolvedImageGenerateRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildImageGenerateRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            imageGenerateRequest: resolvedImageGenerateRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directImageGenerateResult = await window.electronAPI.cherryChatStream.createImageGenerateRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          imageGenerateRequest: resolvedImageGenerateRequest,
+        });
+        if (!directImageGenerateResult?.ok) {
+          throw new Error(directImageGenerateResult?.error || 'image generate request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directImageGenerateResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directImageGenerateResult?.assistantBlocks) ? directImageGenerateResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'image-generate-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'image-generate-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'image-generate-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'image-generate-request.complete');
         setChatSending(false);
         return;
       }

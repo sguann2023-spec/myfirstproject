@@ -542,6 +542,42 @@ const buildAiVideoRequestApiCurl = (aiVideoRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildImageGenerateRequestApiCurl = (imageGenerateRequest = null) => {
+  const referenceImages = Array.isArray(imageGenerateRequest?.referenceImages)
+    ? imageGenerateRequest.referenceImages
+    : (Array.isArray(imageGenerateRequest?.reference_images) ? imageGenerateRequest.reference_images : []);
+  const normalizedReferenceImages = referenceImages.map((item) => String(item || '').trim()).filter(Boolean);
+  const payload = {
+    prompt: String(imageGenerateRequest?.prompt || '').trim(),
+    ...(String(imageGenerateRequest?.model || '').trim() ? { model: String(imageGenerateRequest.model).trim() } : {}),
+    ...(String(imageGenerateRequest?.size || imageGenerateRequest?.resolution || '').trim()
+      ? { size: String(imageGenerateRequest?.size || imageGenerateRequest?.resolution).trim() }
+      : {}),
+    ...(String(imageGenerateRequest?.outputFormat || imageGenerateRequest?.output_format || '').trim()
+      ? { output_format: String(imageGenerateRequest?.outputFormat || imageGenerateRequest?.output_format).trim() }
+      : {}),
+    ...(String(imageGenerateRequest?.background || '').trim() ? { background: String(imageGenerateRequest.background).trim() } : {}),
+    ...(normalizedReferenceImages.length ? { reference_images: normalizedReferenceImages } : {}),
+    ...(typeof imageGenerateRequest?.transparent_background === 'boolean'
+      ? { transparent_background: imageGenerateRequest.transparent_background }
+      : (typeof imageGenerateRequest?.transparentBackground === 'boolean' ? { transparent_background: imageGenerateRequest.transparentBackground } : {})),
+    ...(typeof imageGenerateRequest?.composeDraft === 'boolean'
+      ? { compose_draft: imageGenerateRequest.composeDraft }
+      : (typeof imageGenerateRequest?.compose_draft === 'boolean' ? { compose_draft: imageGenerateRequest.compose_draft } : {})),
+  };
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    '# 1. 提交图片生成任务',
+    "curl --location 'https://open.vectcut.com/llm/image/submit_task/generate' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`,
+    '',
+    '# 2. 使用上一步返回的 task_id 查询结果',
+    "curl --location 'https://open.vectcut.com/llm/image/submit_task/task_status?task_id=<task_id>' \\",
+    "--header 'Authorization: Bearer <token>'"
+  ].join('\n');
+};
 const buildDraftAgentPrompt = (content = '') => {
   const normalizedContent = String(content || '').trim();
   return normalizedContent ? `使用vectcut工具，${normalizedContent}` : '使用vectcut工具';
@@ -620,6 +656,9 @@ const MessageItem = ({
   const aiVideoRequest = message?.aiVideoRequest && typeof message.aiVideoRequest === 'object'
     ? message.aiVideoRequest
     : null;
+  const imageGenerateRequest = message?.imageGenerateRequest && typeof message.imageGenerateRequest === 'object'
+    ? message.imageGenerateRequest
+    : null;
   const digitalHumanRequest = message?.digitalHumanRequest && typeof message.digitalHumanRequest === 'object'
     ? message.digitalHumanRequest
     : null;
@@ -634,10 +673,10 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || digitalHumanRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || imageGenerateRequest || digitalHumanRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || Boolean(digitalHumanRequest));
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || Boolean(imageGenerateRequest) || Boolean(digitalHumanRequest));
   const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || isLipSyncDigitalHumanRequest);
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
@@ -689,6 +728,8 @@ const MessageItem = ({
       ? buildDigitalHumanRequestApiCurl(digitalHumanRequest)
       : (aiVideoRequest
       ? buildAiVideoRequestApiCurl(aiVideoRequest)
+      : (imageGenerateRequest
+      ? buildImageGenerateRequestApiCurl(imageGenerateRequest)
       : (audioAddRequest
       ? buildAudioAddRequestApiCurl(audioAddRequest)
       : (presetAddRequest
@@ -703,7 +744,7 @@ const MessageItem = ({
             ? buildTextAddRequestApiCurl(textAddRequest)
             : (draftModifyRequest
               ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-              : buildDraftRequestApiCurl(draftRequest, message)))))))));
+              : buildDraftRequestApiCurl(draftRequest, message))))))))));
     return {
       ...message,
       content: apiContent,
@@ -717,6 +758,7 @@ const MessageItem = ({
     draftRequest,
     audioAddRequest,
     aiVideoRequest,
+    imageGenerateRequest,
     digitalHumanRequest,
     isLipSyncDigitalHumanRequest,
     voiceConversionRequest,

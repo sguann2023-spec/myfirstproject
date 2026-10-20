@@ -276,18 +276,21 @@
   min-width: 0;
   min-height: 0;
   position: relative;
-  background: #ffffff;
+  background: #f3f4f6;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
 }
 
 .chat-web-preview__webview {
   width: 100%;
-  max-width: 100%;
-  min-width: 0;
+  max-width: 580px;
+  min-width: 380px;
   height: 100%;
   display: inline-flex;
   background: #ffffff;
   overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
 
 .chat-web-preview__webview.is-hidden {

@@ -4,6 +4,12 @@ import React from 'react';
 /** @type {React.Context<{
  * send: ((prompt: string, options: Record<string, unknown>) => boolean) | null,
  * running: boolean,
- * openSubtitleStoryboard: ((filePath: string) => void) | null
+ * openSubtitleStoryboard: ((filePath: string) => void) | null,
+ * openWebUrl: ((url: string, title?: string) => void) | null
  * }>} */
-export const ChatTaskContext = React.createContext({ send: null, running: false, openSubtitleStoryboard: null });
+export const ChatTaskContext = React.createContext({
+  send: null,
+  running: false,
+  openSubtitleStoryboard: null,
+  openWebUrl: null
+});

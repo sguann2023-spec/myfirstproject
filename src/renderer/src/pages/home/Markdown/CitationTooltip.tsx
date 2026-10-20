@@ -6,6 +6,7 @@ import { Tooltip } from 'antd'
 import React, { memo, useCallback, useMemo } from 'react'
 import styled from 'styled-components'
 import * as z from 'zod'
+import { ChatTaskContext } from '../../../../../components/Chat/ChatShell/ChatTaskContext'
 
 export const CitationSchema = z.object({
   url: z.url(),
@@ -19,6 +20,7 @@ interface CitationTooltipProps {
 }
 
 const CitationTooltip: React.FC<CitationTooltipProps> = ({ children, citation }) => {
+  const { openWebUrl } = React.useContext(ChatTaskContext)
   const hostname = useMemo(() => {
     try {
       return new URL(citation.url).hostname
@@ -48,8 +50,12 @@ const CitationTooltip: React.FC<CitationTooltipProps> = ({ children, citation })
   }, [citation.content, isXPost, oembedData])
 
   const handleClick = useCallback(() => {
+    if (typeof openWebUrl === 'function') {
+      openWebUrl(citation.url, citation.title || hostname)
+      return
+    }
     window.open(citation.url, '_blank', 'noopener,noreferrer')
-  }, [citation.url])
+  }, [citation.title, citation.url, hostname, openWebUrl])
 
   // 自定义悬浮卡片内容
   const tooltipContent = useMemo(

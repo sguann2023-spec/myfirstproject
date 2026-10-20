@@ -714,6 +714,31 @@ const buildAiVideoRequestPayload = ({
     ...(capability?.super_resolve_supported ? { super_resolve: Boolean(superResolve) } : {}),
   };
 };
+const resolveImageGenerateReferenceUrl = (file = {}) => {
+  const directUrl = String(file?.url || file?.sourcePath || '').trim();
+  if (directUrl) return directUrl;
+  const uid = String(file?.uid || '').trim();
+  return uid ? `local-attachment:${uid}` : '';
+};
+const buildImageGenerateRequestPayload = ({
+  prompt = '',
+  uploadedFiles = [],
+  model = DEFAULT_IMAGE_PAN_MODEL,
+  resolution = DEFAULT_IMAGE_PAN_RESOLUTION,
+} = {}) => {
+  const referenceImages = (Array.isArray(uploadedFiles) ? uploadedFiles : [])
+    .filter((file) => isImageFileType(file?.fileType))
+    .map(resolveImageGenerateReferenceUrl)
+    .filter(Boolean);
+
+  return {
+    prompt: String(prompt || '').trim(),
+    model: normalizeImagePanModel(model),
+    size: normalizeImagePanResolution(resolution),
+    composeDraft: false,
+    ...(referenceImages.length ? { referenceImages } : {}),
+  };
+};
 const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   uid: overrides.uid ?? file.uid ?? '',
   name: overrides.name ?? file.name ?? '',
@@ -4271,6 +4296,14 @@ const Composer = ({
         capability: activeVideoCapability,
       })
       : null;
+    const imageGenerateRequestPayload = activeTool === 'image-pan'
+      ? buildImageGenerateRequestPayload({
+        prompt: text,
+        uploadedFiles: uploadedFileMeta,
+        model: selectedImagePanModel,
+        resolution: selectedImagePanResolution,
+      })
+      : null;
     const digitalHumanVideoFile = activeTool === 'digital-human'
       ? uploadedFileMeta.find((item) => String(item?.slotId || '').trim() === DIGITAL_HUMAN_VIDEO_SLOT_ID)
       : null;
@@ -4510,6 +4543,9 @@ const Composer = ({
         : null,
       aiVideoRequest: activeTool === 'ai-video'
         ? aiVideoRequestPayload
+        : null,
+      imageGenerateRequest: activeTool === 'image-pan'
+        ? imageGenerateRequestPayload
         : null,
       digitalHumanRequest: activeTool === 'digital-human'
         ? digitalHumanRequestPayload

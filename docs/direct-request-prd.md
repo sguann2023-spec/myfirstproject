@@ -27,6 +27,7 @@
 | `seed_audio_request` | AI生成音频 | `seed-audio` | `generate_seed_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `voice_conversion_request` | 音频/视频变声 | `voice-conversion` | `submit_voice_conversion_task` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `ai_video_request` | AI生成视频 | `video` | `generate_video` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `image_generate_request` | AI生成/编辑图片 | `image` | `generate_or_edit_image` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `digital_human_request` | 生成数字人视频 | `digital-human` | 按模式选择对应创建工具 | 是 | 是 | 是 | 是 | 是 | 是 | 仅口型 |
 | `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
@@ -572,7 +573,56 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 
 ---
 
-### 4.9 `digital_human_request`
+### 4.9 `image_generate_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 根据提示词和可选参考图生成、编辑或重绘 AI 图片 |
+| 目标 MCP | `image.generate_or_edit_image` |
+| 是否 direct request | 是，跳过普通 Agent 推理，直接调用 `image-generate.ts` |
+| 是否 direct 回复 | 是，主进程基于工具返回的任务、图片和草稿信息生成固定回复 |
+| 支持展示类型 | `文字` / `Agent` / `API`；不支持 `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/443760774e0` |
+| `Coze` 是否可展示 | 否 |
+| 前端发送条件 | 必须输入提示词；参考图片可传远程 URL、绝对本地路径或前端本地附件占位，发送前会解析为本地路径 |
+| 触发工具 | `mcp__vectcut__image__generate_or_edit_image` |
+
+典型 payload：
+
+```json
+{
+  "prompt": "抽象画风，多层剪纸，国潮，剪纸，灯笼，长城，天坛，花纹线条组合而成的，层次分明。画面中央有剪纸剪着“2026”下方金色小字“Happy new year”。",
+  "model": "seedream-4.5",
+  "size": "1024x1024",
+  "composeDraft": false,
+  "referenceImages": ["/absolute/path/reference.png"]
+}
+```
+
+典型 API 展示：
+
+```bash
+# 1. 提交图片生成任务
+curl --location 'https://open.vectcut.com/llm/image/submit_task/generate' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "prompt": "抽象画风，多层剪纸，国潮，剪纸，灯笼，长城，天坛，花纹线条组合而成的，层次分明。画面中央有剪纸剪着“2026”下方金色小字“Happy new year”。",
+    "model": "seedream-4.5",
+    "size": "1024x1024",
+    "compose_draft": false,
+    "reference_images": ["https://example.com/reference.png"]
+  }'
+
+# 2. 使用上一步返回的 task_id 查询结果
+curl --location 'https://open.vectcut.com/llm/image/submit_task/task_status?task_id=<task_id>' \
+  --header 'Authorization: Bearer <token>'
+```
+
+---
+
+### 4.10 `digital_human_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -692,7 +742,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 
 ---
 
-### 4.10 `draft_download_request`
+### 4.11 `draft_download_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -718,7 +768,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 }
 ```
 
-### 4.11 `draft_export_request`
+### 4.12 `draft_export_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -744,7 +794,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 }
 ```
 
-### 4.12 `draft_inspect`
+### 4.13 `draft_inspect`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -772,7 +822,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 
 ---
 
-### 4.13 `reverse_prompt_request`
+### 4.14 `reverse_prompt_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -826,7 +876,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 
 ---
 
-### 4.14 `subtitle_recognition_request`
+### 4.15 `subtitle_recognition_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -890,7 +940,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 
 ---
 
-### 4.15 `subtitle_storyboard_request`
+### 4.16 `subtitle_storyboard_request`
 
 | 项目 | 规则 |
 | --- | --- |
@@ -953,6 +1003,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 | `seed_audio_request` | `mcp__vectcut__seed-audio__generate_seed_audio` |
 | `voice_conversion_request` | `mcp__vectcut__voice-conversion__submit_voice_conversion_task` |
 | `ai_video_request` | `mcp__vectcut__video__generate_video` |
+| `image_generate_request` | `mcp__vectcut__image__generate_or_edit_image` |
 | `digital_human_request` | 按模式使用 `mcp__vectcut__digital-human__create_lip_sync_digital_human` / `create_omni_image_driven_digital_human` / `create_seedance_digital_human` |
 | `draft_download_request` | `mcp__vectcut__draft-download__download_draft` |
 | `draft_export_request` | `mcp__vectcut__draft-download__export_draft` |

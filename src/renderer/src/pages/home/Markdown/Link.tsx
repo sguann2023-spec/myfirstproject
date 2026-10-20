@@ -14,7 +14,7 @@ interface LinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 
 const Link: React.FC<LinkProps> = (props) => {
-  const { openSubtitleStoryboard } = React.useContext(ChatTaskContext)
+  const { openSubtitleStoryboard, openWebUrl } = React.useContext(ChatTaskContext)
   const citationData = useMemo(() => {
     const raw = parseJSON(findCitationInChildren(props.children))
     const parsed = CitationSchema.safeParse(raw)
@@ -47,6 +47,25 @@ const Link: React.FC<LinkProps> = (props) => {
     }
     return false
   })
+  const isWebUrl = (() => {
+    try {
+      const protocol = new URL(props.href || '').protocol
+      return protocol === 'http:' || protocol === 'https:'
+    } catch {
+      return false
+    }
+  })()
+  const handleOpenInPreview = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (isWebUrl && typeof openWebUrl === 'function') {
+      openWebUrl(props.href || '', props.title || '')
+      return
+    }
+    if (props.href) {
+      window.open(props.href, '_blank', 'noopener,noreferrer')
+    }
+  }
 
   // 如果是引用链接并且有引用数据，则使用CitationTooltip
   if (isCitation && citationData) {
@@ -55,9 +74,9 @@ const Link: React.FC<LinkProps> = (props) => {
         <a
           {...omit(props, ['node', 'citationData'])}
           href={isEmpty(props.href) ? undefined : props.href}
-          target="_blank"
+          target={isWebUrl ? undefined : '_blank'}
           rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
+          onClick={handleOpenInPreview}
         />
       </CitationTooltip>
     )
@@ -68,9 +87,9 @@ const Link: React.FC<LinkProps> = (props) => {
     <Hyperlink href={props.href || ''}>
       <a
         {...omit(props, ['node', 'citationData'])}
-        target="_blank"
+        target={isWebUrl ? undefined : '_blank'}
         rel="noreferrer"
-        onClick={(e) => e.stopPropagation()}
+        onClick={handleOpenInPreview}
       />
     </Hyperlink>
   )
