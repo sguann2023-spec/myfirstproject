@@ -1,5 +1,5 @@
 import React from 'react';
-import { CloseOutlined, DownOutlined } from '@ant-design/icons';
+import { CloseOutlined } from '@ant-design/icons';
 import { Dropdown, InputNumber, Popover, Select, Slider, Switch } from 'antd';
 import { ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react';
 import DraftSelect from '../DraftSelect/index';
@@ -9,6 +9,7 @@ import { queryScript } from '../../api/capcut';
 import { PRESET_ANIMATION_OPTIONS } from '../../shared/textAnimations';
 import { PRESET_TRANSITION_OPTIONS as RAW_PRESET_TRANSITION_OPTIONS } from '../../shared/presetTransitions';
 import PresetCanvas from './PresetCanvas';
+import useSettingsNotification from '../../shared/useSettingsNotification';
 import PresetTimelinePanel from './PresetTimelinePanel';
 import PresetReplacementPanel from './PresetReplacementPanel';
 import { loadPresetMetadata, presetMetadata, resolvePresetTimes, resolvePresetTrack } from './presetModel';
@@ -41,6 +42,7 @@ export const DEFAULT_PRESET_ADD_SETTINGS = {
   relativeIndex: null,
   introAnimation: { enabled: false, animation: '', duration: 0.5 },
   outroAnimation: { enabled: false, animation: '', duration: 0.5 },
+  comboAnimation: { enabled: false, animation: '', duration: 0.5 },
   transition: { enabled: false, transition: '', duration: 0.5 },
   replacements: [],
 };
@@ -48,6 +50,7 @@ export const DEFAULT_PRESET_ADD_SETTINGS = {
 const PRESET_ANIMATION_GROUPS = [
   { key: 'introAnimation', label: '入场动画', options: PRESET_ANIMATION_OPTIONS.intro, paramPrefix: 'intro' },
   { key: 'outroAnimation', label: '出场动画', options: PRESET_ANIMATION_OPTIONS.outro, paramPrefix: 'outro' },
+  { key: 'comboAnimation', label: '组合动画', options: PRESET_ANIMATION_OPTIONS.group, paramPrefix: 'combo' },
 ];
 
 export const PRESET_TRANSITION_OPTIONS = RAW_PRESET_TRANSITION_OPTIONS.map((item) => ({
@@ -205,12 +208,15 @@ export const getPresetAddToolSendState = ({ selectedDraftIds = [], selectedPrese
 };
 
 const PresetPreview = ({ preset, settings, metadata, canvas, onChange, disabled = false, pickerOpen, onPickerOpenChange, onSelect }) => {
+  const onChoose = React.useCallback(() => {
+    if (!disabled) onPickerOpenChange(true);
+  }, [disabled, onPickerOpenChange]);
   return <div className={`chat-panel__preset-add-preview-stage${preset ? ' has-preset' : ''}`}>
     {preset ? (
       <PresetPickerDropdown open={pickerOpen} disabled={disabled} onOpenChange={onPickerOpenChange} onSelect={onSelect}>
         <div>
           <PresetCanvas key={preset.preset_id || preset.id} preset={preset} metadata={metadata} canvas={canvas}
-            settings={settings} onChange={onChange} disabled={disabled} onChoose={() => !disabled && onPickerOpenChange(true)} />
+            settings={settings} onChange={onChange} disabled={disabled} onChoose={onChoose} />
         </div>
       </PresetPickerDropdown>
     ) : (
@@ -331,9 +337,7 @@ const PresetAddDetail = ({
     setPresetPickerOpen(false);
   }, [selectedDraftId, settingsOpen, disabled]);
 
-  React.useEffect(() => {
-    if (typeof onSettingsChange === 'function') onSettingsChange(effectiveSettings);
-  }, [onSettingsChange, effectiveSettings]);
+  useSettingsNotification(effectiveSettings, onSettingsChange);
 
   React.useEffect(() => {
     if (!selectedDraftId) {
@@ -366,7 +370,9 @@ const PresetAddDetail = ({
   }, [selectedDraftId]);
 
   const updateSetting = React.useCallback((patch) => {
-    setSettings((prev) => ({ ...prev, ...patch }));
+    setSettings((prev) => (
+      Object.keys(patch).some((key) => !Object.is(prev[key], patch[key])) ? { ...prev, ...patch } : prev
+    ));
   }, []);
   const updateReplacements = React.useCallback((replacements) => {
     updateSetting({ replacements });
@@ -692,11 +698,23 @@ const PresetAddDetail = ({
       </button>
       <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={false} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown" menu={{ items: [] }}>
         <span className="chat-panel__tool-dropdown-trigger">
-        <button type="button" className={`chat-panel__draft-select-trigger chat-panel__text-settings-trigger ${settingsOpen ? 'is-open' : ''}`} disabled={disabled} aria-label="设置" title="设置">
-          <SlidersHorizontal className="chat-panel__text-settings-trigger-icon" aria-hidden="true" />
-          <span className="chat-panel__tool-text chat-panel__text-settings-trigger-text">设置</span>
-          <DownOutlined className="chat-panel__tool-close-icon" />
-        </button>
+          <button
+            type="button"
+            className={`chat-panel__draft-select-trigger chat-panel__text-settings-trigger ${settingsOpen ? 'is-open' : ''}`}
+            aria-label="设置"
+            title="设置"
+            disabled={disabled}
+          >
+            <SlidersHorizontal
+              className="chat-panel__draft-select-trigger-search-icon chat-panel__text-settings-trigger-icon"
+              aria-hidden="true"
+            />
+            <span className="chat-panel__draft-select-trigger-text chat-panel__text-settings-trigger-text">设置</span>
+            <ChevronDown
+              className={`chat-panel__draft-select-trigger-icon ${settingsOpen ? 'is-open' : ''}`}
+              aria-hidden="true"
+            />
+          </button>
         </span>
       </Dropdown>
     </div>

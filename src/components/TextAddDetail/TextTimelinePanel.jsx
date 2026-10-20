@@ -1,6 +1,7 @@
 import React from 'react';
-import { AutoComplete, InputNumber } from 'antd';
-import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
+import { InputNumber } from 'antd';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import TrackNameInput from '../TrackNameInput';
 import PinnedDraftTrackView from '../../renderer/src/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
 import { DEFAULT_TEXT_PLACEMENT, getLowestTextTrackRelativeIndex, getNextTextTrackRelativeIndex, getTextTrackNames, MAX_TEXT_TIME, resolveTextPlacement, resolveTextTrackPlacement } from '../../shared/textPlacement';
 
@@ -11,7 +12,10 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
   const bottomIndex = React.useMemo(() => getLowestTextTrackRelativeIndex(script), [script]);
   const plannedText = React.useMemo(() => ({ ...placement, text }), [placement, text]);
   const trackDisabled = disabled || loading || Boolean(error);
-  const updatePlacement = (patch) => onChange(resolveTextTrackPlacement({ ...placement, ...patch }, script));
+  const emitPlacement = (next) => {
+    if (JSON.stringify(next) !== JSON.stringify(value)) onChange(next);
+  };
+  const updatePlacement = (patch) => emitPlacement(resolveTextTrackPlacement({ ...placement, ...patch }, script));
   const updateTime = (key, next) => {
     if (next == null) return;
     const updated = { ...placement, [key]: next };
@@ -23,18 +27,11 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
       <div className="chat-panel__text-settings-row">
         <label htmlFor="text-track-select" className="chat-panel__text-settings-label">轨道名</label>
         <div className="chat-panel__text-track-control">
-          <AutoComplete id="text-track-select" aria-label="选择轨道"
-            className="chat-panel__text-settings-select chat-panel__text-track-select"
+          <TrackNameInput id="text-track-select" label="选择轨道"
             value={placement.trackMode === 'new' ? placement.newTrackName : placement.trackName}
-            disabled={trackDisabled} defaultActiveFirstOption={false} filterOption={false}
-            suffixIcon={<ChevronDown size={14} />}
+            disabled={trackDisabled} names={trackNames}
             placeholder="选择文字轨道或输入新名称"
-            options={[
-              ...trackNames.map((name) => ({ value: `existing:${name}`, label: name, trackName: name })),
-              { value: '__new__', label: '新建轨道', create: true },
-            ]}
-            onChange={(next, option) => {
-              if (option?.trackName || option?.create) return;
+            onChange={(next) => {
               updatePlacement({
                 trackMode: 'new', newTrackName: next.slice(0, 100),
                 ...(placement.trackMode === 'existing' ? { relativeIndex: null, relative_index: null } : {}),
@@ -46,13 +43,15 @@ export default function TextTimelinePanel({ script, loading, error, value, onCha
                   ...placement, trackMode: 'new', relativeIndex: null, relative_index: null,
                   newTrackName: placement.newTrackName ?? DEFAULT_TEXT_PLACEMENT.trackName,
                 }, script);
-                onChange({ ...created, newTrackName: created.trackName });
+                emitPlacement({ ...created, newTrackName: created.trackName });
               } else {
                 updatePlacement({ trackMode: 'existing', trackName: next.slice('existing:'.length) });
               }
             }}
             onBlur={() => {
-              if (placement.trackMode === 'new') updatePlacement({ newTrackName: placement.trackName });
+              if (placement.trackMode === 'new' && placement.newTrackName !== placement.trackName) {
+                updatePlacement({ newTrackName: placement.trackName });
+              }
             }} />
           {placement.trackMode === 'new' && <div className="chat-panel__text-track-layer" role="group" aria-label={`轨道层级：${placement.relativeIndex}`}>
             <button type="button" aria-label="置顶"

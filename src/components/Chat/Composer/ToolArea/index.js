@@ -9,6 +9,7 @@ import {
   ChevronUp,
   FileSearch,
   GalleryHorizontal,
+  ImagePlus,
   Music,
   Ribbon,
   SquareArrowOutUpRight,
@@ -28,14 +29,22 @@ import { trackEvent } from '../../../../shared/analytics';
 
 const TOOL_ITEMS = [
   {
-    id: 'image-pan',
-    label: '图片',
-    icon: ImagePanIcon,
-  },
-  {
     id: 'ai-video',
     label: '视频',
     icon: AiVideoIcon,
+  },
+];
+
+const IMAGE_MENU_ITEMS = [
+  {
+    id: 'image-pan',
+    label: 'AI图片',
+    icon: <img className="chat-panel__tool-menu-icon" src={ImagePanIcon} alt="" aria-hidden="true" />,
+  },
+  {
+    id: 'image-add',
+    label: '添加图片',
+    icon: <ImagePlus size={18} className="chat-panel__tool-menu-icon" aria-hidden="true" />,
   },
 ];
 
@@ -145,6 +154,7 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
   const [draftMenuOpen, setDraftMenuOpen] = React.useState(false);
   const [textMenuOpen, setTextMenuOpen] = React.useState(false);
   const [audioMenuOpen, setAudioMenuOpen] = React.useState(false);
+  const [imageMenuOpen, setImageMenuOpen] = React.useState(false);
   const [videoMenuOpen, setVideoMenuOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -166,6 +176,7 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
     if (activeMenu !== 'draft') setDraftMenuOpen(false);
     if (activeMenu !== 'text') setTextMenuOpen(false);
     if (activeMenu !== 'audio') setAudioMenuOpen(false);
+    if (activeMenu !== 'image') setImageMenuOpen(false);
     if (activeMenu !== 'video') setVideoMenuOpen(false);
   };
 
@@ -273,6 +284,15 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
         open: audioMenuOpen,
         setOpen: setAudioMenuOpen,
         menuName: 'audio',
+      })}
+      {renderMenuButton({
+        id: 'image-pan',
+        label: '图片',
+        icon: ImagePanIcon,
+        menu: renderMenu(IMAGE_MENU_ITEMS, 'image', 'chat-panel__tool-menu-list--image'),
+        open: imageMenuOpen,
+        setOpen: setImageMenuOpen,
+        menuName: 'image',
       })}
       {TOOL_ITEMS.map((tool) => {
         if (tool.id === 'ai-video') {

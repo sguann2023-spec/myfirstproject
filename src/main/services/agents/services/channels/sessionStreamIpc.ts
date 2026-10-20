@@ -1,6 +1,7 @@
 import { modelsService } from '@main/apiServer/services/models'
 import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import { normalizeDirectAudioAddRequest } from './audioAddRequest'
+import { normalizeDirectImageAddRequest } from './imageAddRequest'
 import { normalizeDirectAiVideoRequest } from './aiVideoRequest'
 import { normalizeDirectImageGenerateRequest } from './imageGenerateRequest'
 import {
@@ -76,6 +77,7 @@ type DirectDraftRequestPayload = {
   videoUnderstandRequest?: { videoUrls?: string[]; prompt?: string }
   subtitleRecognitionRequest?: { url?: string; effectMode?: string; maxSentenceLength?: number; content?: string; language?: string }
   audioAddRequest?: Record<string, unknown>
+  imageAddRequest?: Record<string, unknown>
   seedAudioRequest?: Record<string, unknown>
   voiceConversionRequest?: Record<string, unknown>
   aiVideoRequest?: Record<string, unknown>
@@ -927,6 +929,48 @@ function buildDirectAudioAddAssistantText(input: { draftId?: string; audioUrl?: 
   ].filter(Boolean).join(EOL)
 }
 
+function buildDirectImageAddAssistantText(input: { draftId?: string; imageUrl?: string }): string {
+  const draftId = String(input?.draftId || '').trim()
+  const imageName = path.basename(String(input?.imageUrl || '').trim())
+  return [
+    '图片添加任务已提交成功！',
+    '',
+    draftId ? `- 草稿ID：${draftId}` : '',
+    imageName ? `- 图片文件：${imageName}` : '',
+    '',
+    '请稍候，图片会添加到目标草稿中。'
+  ].filter(Boolean).join(EOL)
+}
+
+function buildDirectImageAddErrorAssistantText(input: { draftId?: string; imageUrl?: string; errorCode?: string }): string {
+  const draftId = String(input?.draftId || '').trim()
+  const imageName = path.basename(String(input?.imageUrl || '').trim())
+  const errorCode = String(input?.errorCode || '').trim()
+  const errorHint = (() => {
+    switch (errorCode) {
+      case 'SEGMENT_OVERLAP':
+        return '当前图片和草稿里已有片段发生了轨道冲突。可以调整开始/结束时间，或者换一个不同的视频轨道再试。'
+      case 'MISSING_REQUIRED_PARAM':
+        return '请求缺少必要参数。请确认草稿和图片文件都已选择，并设置了结束时间。'
+      case 'DRAFT_NOT_FOUND':
+        return '目标草稿不存在，或者当前环境拿不到这个草稿。请重新选择草稿后再试。'
+      case 'INVALID_PARAMETER':
+        return '请求参数不合法。请检查时间线、缩放、位置等设置。'
+      default:
+        return '图片添加失败，请稍后重试，或调整图片/时间线设置后再发送。'
+    }
+  })()
+  return [
+    '图片添加失败。',
+    '',
+    draftId ? `- 草稿ID：${draftId}` : '',
+    imageName ? `- 图片文件：${imageName}` : '',
+    errorCode ? `- 错误码：${errorCode}` : '',
+    '',
+    errorHint
+  ].filter(Boolean).join(EOL)
+}
+
 function buildDirectAudioAddErrorAssistantText(input: {
   draftId?: string
   audioUrl?: string
@@ -1745,6 +1789,70 @@ function buildDirectAudioAddAssistantBlocks(input: {
           tool: {
             id: 'mcp__vectcut__draft-elements__add_audio',
             name: 'mcp__vectcut__draft-elements__add_audio',
+            serverName: 'vectcut',
+            serverId: 'vectcut',
+            type: 'mcp'
+          },
+          arguments: toolArgs,
+          status: 'done',
+          response: toolResponse,
+          responseRaw: toolResponse,
+          truncated: false
+        }
+      }
+    },
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'main_text',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      modelId,
+      content: assistantText
+    }
+  ]
+}
+
+function buildDirectImageAddAssistantBlocks(input: {
+  assistantMessageId: string
+  modelId: string
+  toolCallId: string
+  toolArgs: Record<string, unknown>
+  toolResponse: Record<string, unknown>
+  assistantText: string
+  createdAtIso: string
+  status?: 'success' | 'error'
+}) {
+  const {
+    assistantMessageId,
+    modelId,
+    toolCallId,
+    toolArgs,
+    toolResponse,
+    assistantText,
+    createdAtIso,
+    status = 'success'
+  } = input
+  return [
+    {
+      id: randomUUID(),
+      messageId: assistantMessageId,
+      type: 'tool',
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+      status,
+      model: modelId,
+      toolId: toolCallId,
+      toolName: 'mcp__vectcut__draft-elements__add_image',
+      arguments: toolArgs,
+      content: toolResponse,
+      metadata: {
+        rawMcpToolResponse: {
+          id: toolCallId,
+          tool: {
+            id: 'mcp__vectcut__draft-elements__add_image',
+            name: 'mcp__vectcut__draft-elements__add_image',
             serverName: 'vectcut',
             serverId: 'vectcut',
             type: 'mcp'
@@ -3857,6 +3965,130 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleImageAddRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
+    try {
+      const sessionId = String(payload?.sessionId || '').trim()
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+
+      const session = await resolveSessionById(sessionId, payload?.agent_id as string | undefined)
+      if (!session) return { ok: false, error: 'session not found' }
+
+      const normalizedImageAddRequest = normalizeDirectImageAddRequest(
+        payload?.imageAddRequest && typeof payload.imageAddRequest === 'object'
+          ? payload.imageAddRequest as Record<string, unknown>
+          : {}
+      )
+      const draftId = String(normalizedImageAddRequest?.draft_id || '').trim()
+      const imageUrl = String(normalizedImageAddRequest?.image_url || '').trim()
+      const userContent = String(payload?.userContent || '').trim()
+      const createdAtMs =
+        typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
+          ? Math.floor(payload.createdAt)
+          : Date.now()
+      const createdAtIso = new Date(createdAtMs).toISOString()
+      const assistantMessageId = String(payload?.assistantMessageId || '').trim() || randomUUID()
+      const userMessageId = String(payload?.userMessageId || '').trim() || randomUUID()
+      const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const modelId = String(payload?.model || session?.model || '').trim()
+      const toolCallId = `image_add_request_${requestId}`
+      const toolArgs: Record<string, unknown> = { ...normalizedImageAddRequest }
+
+      const toolResult = await callDraftElementsTool('add_image', toolArgs)
+      const toolResponse = parseDraftResultText(toolResult)
+      const errorCode = String(toolResponse?.error_code || '').trim()
+      const responseSuccess = toolResponse?.success !== false && !errorCode
+      const assistantText = responseSuccess
+        ? buildDirectImageAddAssistantText({ draftId, imageUrl })
+        : buildDirectImageAddErrorAssistantText({ draftId, imageUrl, errorCode })
+      const assistantBlocks = buildDirectImageAddAssistantBlocks({
+        assistantMessageId,
+        modelId,
+        toolCallId,
+        toolArgs,
+        toolResponse,
+        assistantText,
+        createdAtIso,
+        status: responseSuccess ? 'success' : 'error'
+      })
+
+      const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
+      await agentTurnRepository.save({
+        id: turnId,
+        topicId: session.id,
+        segmentId: activeSegment.id,
+        userMessageId,
+        assistantMessageId,
+        userText: userContent,
+        assistantText,
+        startedAt: createdAtIso,
+        completedAt: createdAtIso,
+        status: responseSuccess ? 'completed' : 'failed'
+      })
+
+      const topicId = `agent-session:${session.id}`
+      const persisted = await agentMessageRepository.persistExchange({
+        sessionId: session.id,
+        agentSessionId: session.id,
+        user: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: userMessageId,
+              role: 'user',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              status: 'success',
+              imageAddRequest: normalizedImageAddRequest,
+              blocks: [`${userMessageId}-main`]
+            },
+            blocks: [
+              {
+                id: `${userMessageId}-main`,
+                messageId: userMessageId,
+                type: 'main_text',
+                createdAt: createdAtIso,
+                status: 'success',
+                content: userContent
+              }
+            ]
+          } as any
+        },
+        assistant: {
+          createdAt: createdAtIso,
+          payload: {
+            message: {
+              id: assistantMessageId,
+              role: 'assistant',
+              assistantId: session.agent_id,
+              topicId,
+              createdAt: createdAtIso,
+              updatedAt: createdAtIso,
+              status: responseSuccess ? 'success' : 'error',
+              blocks: assistantBlocks.map((block) => block.id),
+              modelId
+            },
+            blocks: assistantBlocks
+          } as any
+        }
+      })
+
+      broadcastSessionChanged(session.agent_id, session.id, true)
+
+      return {
+        ok: true,
+        requestId,
+        toolResponse,
+        assistantText,
+        assistantBlocks,
+        persisted
+      }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleSpeechRequest = async (_event: unknown, payload: DirectDraftRequestPayload = {} as DirectDraftRequestPayload) => {
     try {
       const sessionId = String(payload?.sessionId || '').trim()
@@ -4972,6 +5204,7 @@ export function registerSessionStreamIpc(): void {
   ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, handleTextAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_PresetAddRequest, handlePresetAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_AudioAddRequest, handleAudioAddRequest)
+  ipcMain.handle(IpcChannel.CherryChatStream_ImageAddRequest, handleImageAddRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SpeechRequest, handleSpeechRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_SeedAudioRequest, handleSeedAudioRequest)
   ipcMain.handle(IpcChannel.CherryChatStream_VoiceConversionRequest, handleVoiceConversionRequest)

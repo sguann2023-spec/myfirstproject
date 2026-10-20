@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDigitalHumanRequestCozeClipboardData,
+  buildImageAddRequestCozeClipboardData,
   isDigitalHumanRequestCozeSupported
 } from './cozeTransforms';
 
@@ -97,5 +98,79 @@ describe('buildDigitalHumanRequestCozeClipboardData', () => {
 
     expect(findParameter(createNode.data.inputs.inputParameters, 'audio_url').input.value.content)
       .toBe('https://example.com/speech.mp3');
+  });
+});
+
+describe('buildImageAddRequestCozeClipboardData', () => {
+  it('builds the add_image plugin node with request parameters', () => {
+    const clipboard = JSON.parse(buildImageAddRequestCozeClipboardData({
+      image_url: '/tmp/cat.png',
+      draft_id: 'dfd_cat_1790262858_ffe2180c',
+      start: 0,
+      end: 3,
+      track_name: 'image_track',
+      transform_x_px: 0,
+      transform_y_px: 0,
+      rotation: 0,
+      scale_x: 1,
+      scale_y: 1,
+      alpha: 1,
+      relative_index: 2,
+      intro_animation: '放大',
+      intro_animation_duration: 0.5,
+      outro_animation: '向下滑动',
+      outro_animation_duration: 0.5,
+      combo_animation: '叠叠乐',
+      combo_animation_duration: 0.5,
+      transition: '叠化',
+      transition_duration: 0.5
+    }));
+
+    expect(clipboard.type).toBe('coze-workflow-clipboard-data');
+    expect(clipboard.source).toMatchObject({
+      workflowId: '7668682150007488554',
+      spaceId: '7472683780642258985',
+      host: 'www.coze.cn'
+    });
+
+    const node = clipboard.json.nodes.find((item) => item.id === '152017');
+    expect(node.data.nodeMeta).toMatchObject({
+      title: 'add_image',
+      subtitle: '流光剪辑_剪映草稿助手(会员版):add_image'
+    });
+    expect(findParameter(node.data.inputs.apiParam, 'apiID').input.value.content)
+      .toBe('7579582015465406464');
+    expect(findParameter(node.data.inputs.apiParam, 'apiName').input.value.content)
+      .toBe('add_image');
+    expect(findParameter(node.data.inputs.apiParam, 'pluginAuthMode').input.value.content).toBe(0);
+
+    const parameters = node.data.inputs.inputParameters;
+    expect(findParameter(parameters, 'image_url').input.value.content).toBe('/tmp/cat.png');
+    expect(findParameter(parameters, 'draft_id').input.value.content)
+      .toBe('dfd_cat_1790262858_ffe2180c');
+    expect(findParameter(parameters, 'start').input.value.content).toBe(0);
+    expect(findParameter(parameters, 'end').input.value.content).toBe(3);
+    expect(findParameter(parameters, 'track_name').input.value.content).toBe('image_track');
+    expect(findParameter(parameters, 'transform_x_px').input.type).toBe('integer');
+    expect(findParameter(parameters, 'relative_index').input.type).toBe('integer');
+    expect(findParameter(parameters, 'combo_animation').input.value.content).toBe('叠叠乐');
+    expect(findParameter(parameters, 'combo_animation_duration').input.value.content).toBe(0.5);
+    expect(findParameter(parameters, 'transition').input.value.content).toBe('叠化');
+    expect(parameters.find((parameter) => parameter.name === 'mask_type')).toBeUndefined();
+
+    const output = node.data.outputs.find((item) => item.name === 'output');
+    expect(output.schema.map((field) => field.name)).toEqual(['draft_id', 'draft_url', 'material_id']);
+    expect(node._temp.externalData.apiName).toBe('add_image');
+    expect(clipboard.json.edges).toEqual([]);
+  });
+
+  it('omits optional parameters that are not set', () => {
+    const clipboard = JSON.parse(buildImageAddRequestCozeClipboardData({
+      image_url: '/tmp/cat.png',
+      draft_id: 'draft-1'
+    }));
+    const node = clipboard.json.nodes.find((item) => item.id === '152017');
+    const names = node.data.inputs.inputParameters.map((parameter) => parameter.name);
+    expect(names).toEqual(['image_url', 'draft_id', 'start', 'end']);
   });
 });

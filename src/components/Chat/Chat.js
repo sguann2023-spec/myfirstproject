@@ -5,8 +5,9 @@ import PinnedDraftPannel from '@renderer/pages/home/Inputbar/components/PinnedDr
 import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
 import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
 import { IpcChannel } from '@shared/IpcChannel';
-import { queryScript } from '../../api/capcut';
+import { queryScript, searchDraft } from '../../api/capcut';
 import { DownloadController } from '../../shared/DownloadController.js';
+import { applyPinnedDraftMetadata, normalizePinnedDraftFromEvent } from './pinnedDraftMetadata';
 import ChatShell from './ChatShell/ChatShell';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
@@ -68,40 +69,6 @@ const hasRegisteredExternalAgent = (agents = []) => (
 
 const buildPinnedDraftKey = (draft, index = 0) => draft?.id || draft?.draftId || `${draft?.title || draft?.name || 'draft'}-${index}`;
 
-const normalizePinnedDraftFromEvent = (payload = {}) => {
-  const draftId = String(payload?.draftId || payload?.draft_id || '').trim();
-  if (!draftId) return null;
-
-  const action = payload?.action === 'modify' ? 'modify' : 'create';
-  const draftName = String(payload?.name || payload?.title || '').trim();
-  const draftStatus = payload?.status === 'in_progress' ? 'in_progress' : 'completed';
-  const clientRequestId = String(payload?.clientRequestId || '').trim();
-  const nextDraft = {
-    id: draftId,
-    draftId,
-    clientRequestId,
-    createdAt: typeof payload?.createdAt === 'number' ? payload.createdAt : Date.now(),
-    status: draftStatus
-  };
-
-  if (draftName) {
-    nextDraft.title = draftName;
-    nextDraft.name = draftName;
-    nextDraft.activeTitle = draftName;
-  } else if (action === 'create') {
-    nextDraft.title = draftId;
-    nextDraft.name = draftId;
-    nextDraft.activeTitle = draftId;
-  }
-
-  const cover = String(payload?.cover || '').trim();
-  if (cover) {
-    nextDraft.cover = cover;
-  }
-
-  return nextDraft;
-};
-
 const parseQueryScriptOutput = (response) => {
   const output = response?.output || response?.data?.output || response?.result?.output;
   return typeof output === 'string' ? JSON.parse(output) : output;
@@ -145,6 +112,7 @@ const ChatPinnedDraftPanel = () => {
   const pendingPreviewRequestRef = React.useRef(new Set());
 
   React.useEffect(() => {
+    let disposed = false;
     const offDraftCreated = window.ipc?.on(IpcChannel.App_DraftCreated, (payload) => {
       const nextDraft = normalizePinnedDraftFromEvent(payload);
       if (!nextDraft) {
@@ -163,9 +131,26 @@ const ChatPinnedDraftPanel = () => {
         }
         return [nextDraft, ...currentDrafts];
       });
+
+      if (nextDraft.status === 'completed' && (!nextDraft.title || nextDraft.title === nextDraft.draftId)) {
+        searchDraft({ draft_id: nextDraft.draftId }).then((response) => {
+          if (disposed || !response?.draft) return;
+          setDrafts((currentDrafts) => currentDrafts.map((item) => (
+            String(item?.draftId || item?.id || '').trim() === nextDraft.draftId
+              ? applyPinnedDraftMetadata(item, response.draft)
+              : item
+          )));
+        }).catch((error) => {
+          logger.warn('[Chat] failed to resolve pinned draft name', {
+            draftId: nextDraft.draftId,
+            error: error?.message || String(error || '')
+          });
+        });
+      }
     });
 
     return () => {
+      disposed = true;
       offDraftCreated?.();
     };
   }, []);

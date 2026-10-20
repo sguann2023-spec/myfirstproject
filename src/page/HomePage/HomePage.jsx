@@ -32,6 +32,7 @@ import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
+import { normalizeImageAddRequestPayload } from '../../shared/imageAddRequest';
 import { normalizeSpeechRequestPayload } from '../../shared/speechRequest';
 import { normalizeSeedAudioRequestPayload } from '../../shared/seedAudioRequest';
 import { normalizeAiVideoRequestPayload } from '../../shared/aiVideoRequest';
@@ -905,6 +906,40 @@ const buildAudioAddRequestProcessingBlocks = ({
           type: 'mcp'
         },
         arguments: audioAddRequest,
+        status: 'pending'
+      }
+    }
+  }];
+};
+const buildImageAddRequestProcessingBlocks = ({
+  assistantMessageId,
+  requestId,
+  imageAddRequest = {},
+  modelId = '',
+}) => {
+  const toolCallId = `image_add_request_${String(requestId || '').trim() || Date.now()}`;
+  return [{
+    id: `${assistantMessageId}-image-add-tool`,
+    messageId: assistantMessageId,
+    type: 'tool',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'processing',
+    model: modelId,
+    toolId: toolCallId,
+    toolName: 'mcp__vectcut__draft-elements__add_image',
+    arguments: imageAddRequest,
+    metadata: {
+      rawMcpToolResponse: {
+        id: toolCallId,
+        tool: {
+          id: 'mcp__vectcut__draft-elements__add_image',
+          name: 'mcp__vectcut__draft-elements__add_image',
+          serverName: 'vectcut',
+          serverId: 'vectcut',
+          type: 'mcp'
+        },
+        arguments: imageAddRequest,
         status: 'pending'
       }
     }
@@ -2338,6 +2373,9 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const presetAddRequest = role === 'user' && sourceMessage?.presetAddRequest && typeof sourceMessage.presetAddRequest === 'object'
     ? { ...sourceMessage.presetAddRequest }
     : undefined;
+  const imageAddRequest = role === 'user' && sourceMessage?.imageAddRequest && typeof sourceMessage.imageAddRequest === 'object'
+    ? { ...sourceMessage.imageAddRequest }
+    : undefined;
   const seedAudioRequest = role === 'user' && sourceMessage?.seedAudioRequest && typeof sourceMessage.seedAudioRequest === 'object'
     ? { ...sourceMessage.seedAudioRequest }
     : undefined;
@@ -2366,6 +2404,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && draftModifyRequest ? { draftModifyRequest } : {}),
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && presetAddRequest ? { presetAddRequest } : {}),
+    ...(role === 'user' && imageAddRequest ? { imageAddRequest } : {}),
     ...(role === 'user' && seedAudioRequest ? { seedAudioRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(role === 'user' && voiceConversionRequest ? { voiceConversionRequest } : {}),
@@ -5490,6 +5529,9 @@ const HomePage = () => {
     const audioAddRequest = options?.audioAddRequest && typeof options.audioAddRequest === 'object'
       ? { ...options.audioAddRequest }
       : null;
+    const imageAddRequest = options?.imageAddRequest && typeof options.imageAddRequest === 'object'
+      ? { ...options.imageAddRequest }
+      : null;
     const speechRequest = options?.speechRequest && typeof options.speechRequest === 'object'
       ? { ...options.speechRequest }
       : null;
@@ -5597,6 +5639,7 @@ const HomePage = () => {
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
+        ...(imageAddRequest ? { imageAddRequest: normalizeImageAddRequestPayload(imageAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
@@ -5662,6 +5705,7 @@ const HomePage = () => {
         ...(textAddRequest ? { textAddRequest: normalizeTextAddRequestPayload(textAddRequest, text) } : {}),
         ...(presetAddRequest ? { presetAddRequest: normalizePresetAddRequestPayload(presetAddRequest) } : {}),
         ...(audioAddRequest ? { audioAddRequest: normalizeAudioAddRequestPayload(audioAddRequest) } : {}),
+        ...(imageAddRequest ? { imageAddRequest: normalizeImageAddRequestPayload(imageAddRequest) } : {}),
         ...(speechRequest ? { speechRequest: normalizeSpeechRequestPayload(speechRequest, text) } : {}),
         ...(seedAudioRequest ? { seedAudioRequest: normalizeSeedAudioRequestPayload(seedAudioRequest, text) } : {}),
         ...(voiceConversionRequest ? { voiceConversionRequest: normalizeVoiceConversionRequestPayload(voiceConversionRequest) } : {}),
@@ -6353,6 +6397,60 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'audio-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'audio-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'audio-add-request.complete');
+        setChatSending(false);
+        return;
+      }
+
+      if (imageAddRequest) {
+        const resolvedImageAddRequest = normalizeImageAddRequestPayload(imageAddRequest);
+        if (!resolvedImageAddRequest || !String(resolvedImageAddRequest.draft_id || '').trim() || !String(resolvedImageAddRequest.image_url || '').trim()) {
+          throw new Error('image add request failed');
+        }
+        updateChatMessage(targetSessionId, userMessage.id, {
+          imageAddRequest: resolvedImageAddRequest
+        });
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          blocks: buildImageAddRequestProcessingBlocks({
+            assistantMessageId,
+            requestId,
+            imageAddRequest: resolvedImageAddRequest,
+            modelId: chatModel,
+          }),
+          content: '',
+          error: null,
+        });
+        const directImageAddResult = await window.electronAPI.cherryChatStream.createImageAddRequest({
+          sessionId: agentSessionId,
+          requestId,
+          createdAt: userMessage.createdAt,
+          userMessageId: userMessage.id,
+          assistantMessageId,
+          userContent: text,
+          model: chatModel,
+          imageAddRequest: resolvedImageAddRequest,
+        });
+        if (!directImageAddResult?.ok) {
+          throw new Error(directImageAddResult?.error || 'image add request failed');
+        }
+
+        updateChatAssistantMessage(targetSessionId, assistantMessageId, {
+          content: String(directImageAddResult?.assistantText || '').trim(),
+          blocks: Array.isArray(directImageAddResult?.assistantBlocks) ? directImageAddResult.assistantBlocks : [],
+          model: chatModelMeta,
+          modelId: chatModel,
+          storeAssistantMessageId: null,
+          error: null,
+          updatedAt: Date.now(),
+        });
+        chatHistoryHydrateSettledRef.current.delete(`${targetSessionId}:${agentSessionId}`);
+        void hydratePersistedChatSessionFromHistory({
+          chatId: targetSessionId,
+          sessionId: agentSessionId,
+          reason: 'image-add-request.complete'
+        });
+        setChatSessionSending(targetSessionId, false, 'image-add-request.complete');
+        setChatSessionInFlight(targetSessionId, false, 'image-add-request.complete');
+        setChatSessionFulfilled(targetSessionId, true, 'image-add-request.complete');
         setChatSending(false);
         return;
       }

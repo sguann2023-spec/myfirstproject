@@ -1,16 +1,20 @@
 import React from 'react';
-import { AutoComplete, InputNumber, Slider } from 'antd';
-import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react';
+import { InputNumber, Slider } from 'antd';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import TrackNameInput from '../TrackNameInput';
 import PinnedDraftTrackView from '../../renderer/src/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
 import { changePresetTime, resolvePresetTimes, resolvePresetTrack, videoLayerBounds, videoTrackNames } from './presetModel';
 
 export default function PresetTimelinePanel({ script, loading, error, settings, onChange, disabled, preset, duration }) {
   const placement = resolvePresetTrack(settings, script);
   const times = resolvePresetTimes(settings, duration);
-  const names = videoTrackNames(script);
+  const names = React.useMemo(() => videoTrackNames(script), [script]);
   const bounds = videoLayerBounds(script);
   const locked = disabled || loading || Boolean(error);
-  const update = (patch) => onChange(resolvePresetTrack({ ...placement, ...patch }, script));
+  const emit = (next) => {
+    if (JSON.stringify(next) !== JSON.stringify(settings)) onChange(next);
+  };
+  const update = (patch) => emit(resolvePresetTrack({ ...placement, ...patch }, script));
   const planned = preset && duration ? { ...placement, type: 'video', text: preset.name || '预设',
     start: times.targetStart, end: times.targetEnd } : undefined;
   const sliderMax = duration ? Math.round(duration * 100) / 100 : 0;
@@ -20,22 +24,17 @@ export default function PresetTimelinePanel({ script, loading, error, settings, 
     const nextStart = Math.min(rawStart, rawEnd);
     const nextEnd = Math.max(rawStart, rawEnd);
     const patched = resolvePresetTimes({ ...times, sourceStart: nextStart, sourceEnd: nextEnd }, duration);
-    onChange({ ...placement, ...patched });
+    emit({ ...placement, ...patched });
   };
   return <div className="chat-panel__text-timeline">
     <div className="chat-panel__text-settings-form">
       <div className="chat-panel__text-settings-row">
         <label htmlFor="preset-track-select" className="chat-panel__text-settings-label">轨道名</label>
         <div className="chat-panel__text-track-control">
-          <AutoComplete id="preset-track-select" aria-label="选择视频轨道"
-            className="chat-panel__text-settings-select chat-panel__text-track-select"
+          <TrackNameInput id="preset-track-select" label="选择视频轨道"
             value={placement.trackMode === 'new' ? placement.newTrackName : placement.trackName}
-            disabled={locked} defaultActiveFirstOption={false} filterOption={false}
-            suffixIcon={<ChevronDown size={14} />} placeholder="选择视频轨道或输入新名称"
-            options={[...names.map((name) => ({ value: `existing:${name}`, label: name, trackName: name })),
-              { value: '__new__', label: '新建轨道', create: true }]}
-            onChange={(next, option) => {
-              if (option?.trackName || option?.create) return;
+            disabled={locked} names={names} placeholder="选择视频轨道或输入新名称"
+            onChange={(next) => {
               update({ trackMode: 'new', newTrackName: next.slice(0, 100),
                 ...(placement.trackMode === 'existing' ? { relativeIndex: null } : {}) });
             }}
@@ -43,7 +42,9 @@ export default function PresetTimelinePanel({ script, loading, error, settings, 
               ? { trackMode: 'new', newTrackName: 'preset_track', relativeIndex: null }
               : { trackMode: 'existing', trackName: next.slice('existing:'.length) })}
             onBlur={() => {
-              if (placement.trackMode === 'new') update({ newTrackName: placement.trackName });
+              if (placement.trackMode === 'new' && placement.newTrackName !== placement.trackName) {
+                update({ newTrackName: placement.trackName });
+              }
             }} />
           {placement.trackMode === 'new' && <div className="chat-panel__text-track-layer">
             <button type="button" aria-label="置顶"
@@ -73,7 +74,7 @@ export default function PresetTimelinePanel({ script, loading, error, settings, 
             value={duration ? times.targetStart : null} placeholder="待读取" disabled={disabled || !duration}
             min={0} max={86400}
             controls changeOnWheel step={0.01} precision={2}
-            onChange={(next) => onChange(changePresetTime(placement, 'targetStart', next, duration))} />
+            onChange={(next) => emit(changePresetTime(placement, 'targetStart', next, duration))} />
         </div>
       </div>
     </div>

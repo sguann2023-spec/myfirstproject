@@ -55,29 +55,38 @@ describe('preset settings alignment', () => {
     const selected = {
       introAnimation: { enabled: true, animation: '渐显', duration: 0.7 },
       outroAnimation: { enabled: true, animation: '渐隐', duration: 0.8 },
+      comboAnimation: { enabled: true, animation: '叠叠乐', duration: 0.6 },
       transition: { enabled: true, transition: '叠化', duration: 0.5 },
     };
     const params = buildPresetAddRequestParams(selected);
     expect(params).toMatchObject({
       intro_animation: '渐显', intro_animation_duration: 0.7,
       outro_animation: '渐隐', outro_animation_duration: 0.8,
+      combo_animation: '叠叠乐', combo_animation_duration: 0.6,
       transition: '叠化', transition_duration: 0.5,
     });
     expect(params).not.toHaveProperty('intro_duration');
     expect(params).not.toHaveProperty('group_animation');
     expect(buildPresetAddSettingsPrompt(selected)).toContain('"intro_animation_duration":0.7');
+    expect(buildPresetAddSettingsPrompt(selected)).toContain('"combo_animation_duration":0.6');
     expect(buildPresetAddRequestParams({
       ...selected,
       introAnimation: { ...selected.introAnimation, enabled: false },
       outroAnimation: { ...selected.outroAnimation, animation: '' },
+      comboAnimation: { ...selected.comboAnimation, enabled: false },
       transition: { ...selected.transition, enabled: false },
     })).not.toHaveProperty('transition');
     expect(buildPresetAddRequestParams({
       ...selected,
       introAnimation: { ...selected.introAnimation, enabled: false },
       outroAnimation: { ...selected.outroAnimation, animation: '' },
+      comboAnimation: { ...selected.comboAnimation, enabled: false },
       transition: { ...selected.transition, enabled: false },
     })).not.toHaveProperty('intro_animation');
+    expect(buildPresetAddRequestParams({
+      ...selected,
+      comboAnimation: { ...selected.comboAnimation, enabled: false },
+    })).not.toHaveProperty('combo_animation');
   });
 
   it('转场选项仅使用效果名，不包含生成数据中的注释', () => {

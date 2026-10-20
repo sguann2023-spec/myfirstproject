@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 const axios = require('axios');
 const downloader = require('./downloader');
 const { DRAFT_PATH_PLACEHOLDER, createDraftAssetPathReplacer } = require('./draftAssetPaths');
+const { preserveMediaAssetFormat } = require('./mediaAssetFormat');
 const i18next = require('i18next');
 const logger = require('./loggerBridge').withContext('SaveDraftBackground');
 const { parentPort } = require('worker_threads'); // 新增
@@ -648,6 +649,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
             return;
         }
 
+        localPath = preserveMediaAssetFormat(type, material, remoteUrl, localPath);
         const localSourcePath = resolveLocalSourcePath(remoteUrl);
         if (localSourcePath) {
             if (process.platform !== 'darwin' && !downloadOptions.forceDownload) {

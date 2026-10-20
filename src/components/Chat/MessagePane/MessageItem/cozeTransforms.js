@@ -448,6 +448,128 @@ const COZE_AI_VIDEO_STATUS_EXTERNAL_DATA = {
   mainColor: '#CA61FF'
 };
 
+const COZE_GENERATE_IMAGE_PLUGIN_META = {
+  apiID: '7629747589998739475',
+  apiName: 'generate_image_sync',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_GENERATE_IMAGE_NODE_META = {
+  title: 'generate_image_sync',
+  icon: 'https://p3-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/dc54eb2e65d4419aaf6461c015d52b31~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1795071933&x-signature=%2BQHrA2JOU2Kgrlh7suOyUkL%2BXXY%3D',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):generate_image_sync',
+  description: '提交异步生图任务\n'
+};
+
+const COZE_GENERATE_IMAGE_EXTERNAL_DATA = {
+  icon: 'https://lf9-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1795072745&x-signature=%2BMbGS743hdjAXJnJFQqCaLMtgms%3D',
+  apiName: 'generate_image_sync',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '提示词', input: {}, name: 'prompt', required: true, type: 'string' },
+    { description: '选择一个模型，从这里查看https://www.coze.cn/store/project/7580292052165443618?entity_id=1', input: {}, name: 'model', required: true, type: 'string' },
+    { description: '分辨率，不同模型支持的分辨率不同，注意查看文档。默认1024x1024', input: {}, name: 'size', required: true, type: 'string' },
+    { description: '是否将生成的图片添加进草稿，默认true。', input: {}, name: 'compose_draft', required: false, type: 'boolean' },
+    { description: '参考图片url', input: {}, name: 'reference_image', required: false, type: 'string' },
+    { description: '多图参考', input: {}, name: 'reference_images', required: false, schema: { assistType: 0, type: 'string' }, type: 'list' },
+    { description: '目标草稿的草稿id，如果不提供，或者云端不存在，则会自动创建一个新的草稿', input: {}, name: 'draft_id', required: false, type: 'string' },
+    { description: '添加的轨道名称，默认image_main。设置为main则位于主轨道', input: {}, name: 'track_name', required: false, type: 'string' },
+    { description: '在目标轨道上的开始时间，单位秒，默认0', input: {}, name: 'start', required: false, type: 'float' },
+    { description: '在目标轨道上的结束时间，单位秒', input: {}, name: 'end', required: false, type: 'float' }
+  ],
+  outputs: [
+    { input: {}, name: 'queue_name', required: false, type: 'string' },
+    { input: {}, name: 'status', required: false, type: 'string' },
+    { input: {}, name: 'success', required: false, type: 'boolean' },
+    { description: '任务ID', input: {}, name: 'task_id', required: false, type: 'string' },
+    { input: {}, name: 'error', required: false, type: 'string' },
+    { input: {}, name: 'message_id', required: false, type: 'string' }
+  ],
+  updateTime: 1792400491,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '提交异步生图任务\n',
+  title: 'generate_image_sync',
+  mainColor: '#CA61FF'
+};
+
+const COZE_IMAGE_STATUS_PLUGIN_META = {
+  apiID: '7629747589998755859',
+  apiName: 'generate_image_task_status',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_IMAGE_STATUS_NODE_META = {
+  title: 'generate_image_task_status',
+  icon: COZE_GENERATE_IMAGE_NODE_META.icon,
+  subtitle: '流光剪辑_剪映草稿助手(会员版):generate_image_task_status',
+  description: '查看异步生成图片任务的状态'
+};
+
+const COZE_IMAGE_STATUS_EXTERNAL_DATA = {
+  icon: 'https://lf6-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1795072791&x-signature=%2F8dTFoFTmrw2RkNr0wLHfX9gyBs%3D',
+  apiName: 'generate_image_task_status',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { description: '任务id', input: {}, name: 'task_id', required: true, type: 'string' }
+  ],
+  outputs: [
+    { input: {}, name: 'error', required: false, type: 'string' },
+    { input: {}, name: 'message', required: false, type: 'string' },
+    { input: {}, name: 'progress', required: false, type: 'float' },
+    { input: {}, name: 'status', required: false, type: 'string' },
+    { input: {}, name: 'task_id', required: false, type: 'string' },
+    { input: {}, name: 'id', required: false, type: 'string' },
+    { input: {}, name: 'model', required: false, type: 'string' },
+    { input: {}, name: 'prompt', required: false, type: 'string' },
+    {
+      input: {},
+      name: 'result',
+      required: false,
+      schema: [
+        { input: {}, name: 'error', required: false, type: 'string' },
+        { input: {}, name: 'image', required: false, type: 'string' },
+        { input: {}, name: 'purchase_link', required: false, type: 'string' },
+        { input: {}, name: 'reused_from_history', required: false, type: 'boolean' },
+        { input: {}, name: 'draft_id', required: false, type: 'string' },
+        { input: {}, name: 'draft_url', required: false, type: 'string' }
+      ],
+      type: 'object'
+    },
+    { input: {}, name: 'success', required: false, type: 'boolean' }
+  ],
+  updateTime: 1792400491,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '查看异步生成图片任务的状态',
+  title: 'generate_image_task_status',
+  mainColor: '#CA61FF'
+};
+
 const COZE_CREATE_DIGITAL_HUMAN_PLUGIN_META = {
   apiID: '7594783961818349611',
   apiName: 'create_digital_human',
@@ -668,6 +790,97 @@ const COZE_ADD_AUDIO_EXTERNAL_DATA = {
   versionName: '',
   description: '添加音频',
   title: 'add_audio',
+  mainColor: '#CA61FF'
+};
+
+const COZE_ADD_IMAGE_PLUGIN_META = {
+  apiID: '7579582015465406464',
+  apiName: 'add_image',
+  pluginID: '7579582015465340928',
+  pluginName: '流光剪辑_剪映草稿助手(会员版)',
+  pluginVersion: '',
+  tips: '',
+  outDocLink: '',
+  pluginAuthMode: 0
+};
+
+const COZE_ADD_IMAGE_NODE_META = {
+  title: 'add_image',
+  icon: '`https://p26-flow-product-sign.byteimg.com/tos-cn-i-13w3uml6bg/3737d249215d4ba9b7b60668366eb4c9~tplv-13w3uml6bg-resize:128:128.image?rk3s=2e2596fd&x-expires=1795093969&x-signature=NsKJQSHv%2Fnrij0lAWHIwZOlwBcI%3D`',
+  subtitle: '流光剪辑_剪映草稿助手(会员版):add_image',
+  description: '向草稿中添加图片'
+};
+
+const COZE_ADD_IMAGE_EXTERNAL_DATA = {
+  icon: '`https://lf3-appstore-sign.oceancloudapi.com/ocean-cloud-tos/plugin_icon/332473957890636_1747190144847346721_ZtIC02VX5J.png?lk3s=cd508e2b&x-expires=1795095167&x-signature=sNd1tJhV0WspzYSRuT2i%2FnAQivg%3D`',
+  apiName: 'add_image',
+  pluginID: '7579582015465340928',
+  pluginProductStatus: 1,
+  pluginProductUnlistType: 0,
+  pluginType: 1,
+  spaceID: '7579577910332457012',
+  inputs: [
+    { defaultValue: '`https://cdn.wanx.aliyuncs.com/wanx/1719234057367822001/text_to_image_v2/d6e33c84d7554146a25b1093b012838b_0.png`', description: '图片链接', input: {}, name: 'image_url', required: true, type: 'string' },
+    { defaultValue: 0, description: '开始时间，单位秒', input: {}, name: 'start', required: true, type: 'float' },
+    { defaultValue: 3, description: '结束时间，单位秒', input: {}, name: 'end', required: true, type: 'float' },
+    { description: '如果想基于已有的草稿继续编辑，这里填上次的草稿id，否则将创建新草稿', input: {}, name: 'draft_id', required: false, type: 'string' },
+    { description: '轨道名称，默认image_main。设置为main则位于主轨道', input: {}, name: 'track_name', required: false, type: 'string' },
+    { description: '草稿画布的宽度，非当前图片的宽度。如果之前已经设置过，则不能重复设置', input: {}, name: 'width', required: false, type: 'float' },
+    { description: '草稿画布的高度，非当前图片的高度。如果之前已经设置过，则不能重复设置', input: {}, name: 'height', required: false, type: 'float' },
+    { description: '水平移动，相对值。0表示位于中心，水平移动像素 = transform_x * 草稿宽度', input: {}, name: 'transform_x', required: false, type: 'float' },
+    { description: '垂直移动，相对值。0表示位于中心，垂直移动像素 = transform_y * 视频高度', input: {}, name: 'transform_y', required: false, type: 'float' },
+    { description: '水平偏移，像素值', input: {}, name: 'transform_x_px', required: false, type: 'integer' },
+    { description: '垂直偏移，像素值', input: {}, name: 'transform_y_px', required: false, type: 'integer' },
+    { description: '水平方向缩放，1.5表示放大到原始图片的1.5倍', input: {}, name: 'scale_x', required: false, type: 'float' },
+    { description: '垂直方向缩放，1.5表示放大到原始图片的1.5倍', input: {}, name: 'scale_y', required: false, type: 'float' },
+    { description: '旋转角度', input: {}, name: 'rotation', required: false, type: 'float' },
+    { description: '透明度，0-1', input: {}, name: 'alpha', required: false, type: 'float' },
+    { description: '轨道相对位置，越大越靠上', input: {}, name: 'relative_index', required: false, type: 'integer' },
+    { description: '背景高斯模糊，可选1，2，3，4四档，越大越模糊，只有当track_name=main的时候才会生效', input: {}, name: 'background_blur', required: false, type: 'integer' },
+    { description: '是否镜像翻转，默认false', input: {}, name: 'flip_horizontal', required: false, type: 'boolean' },
+    { description: '混合模式，目前只支持“正片叠底”', input: {}, name: 'mix_type', required: false, type: 'string' },
+    { description: '入场动画，用get_intro_animation_types查看支持的入场动画', input: {}, name: 'intro_animation', required: false, type: 'string' },
+    { description: '入场动画持续时间，单位秒', input: {}, name: 'intro_animation_duration', required: false, type: 'float' },
+    { description: '出场动画，用get_outro_animation_types查看支持的出场动画', input: {}, name: 'outro_animation', required: false, type: 'string' },
+    { description: '出场动画持续时间，单位秒', input: {}, name: 'outro_animation_duration', required: false, type: 'float' },
+    { description: '组合动画，用get_combo_animation_types查看支持的组合动画', input: {}, name: 'combo_animation', required: false, type: 'string' },
+    { description: '组合动画持续时间，单位秒', input: {}, name: 'combo_animation_duration', required: false, type: 'float' },
+    { description: '转场效果，使用get_transition_types工具，查看支持的转场动画', input: {}, name: 'transition', required: false, type: 'string' },
+    { description: '转场持续时间，单位秒', input: {}, name: 'transition_duration', required: false, type: 'float' },
+    { description: '蒙版类型，支持：线性、镜面、圆形、矩形、爱心、星形', input: {}, name: 'mask_type', required: false, type: 'string' },
+    { description: '蒙版中心点X坐标(以素材的像素为单位)，默认设置在素材中心，0.5表示向右移动0.5个宽度', input: {}, name: 'mask_center_x', required: false, type: 'float' },
+    { description: '蒙版中心点Y坐标(以素材的像素为单位)，默认设置在素材中心，0.5表示向下移动0.5个高度', input: {}, name: 'mask_center_y', required: false, type: 'float' },
+    { description: '蒙版的主要尺寸，以草稿高度的比例表示，默认为0.5', input: {}, name: 'mask_size', required: false, type: 'float' },
+    { description: '蒙版顺时针旋转的角度，默认不旋转', input: {}, name: 'mask_rotation', required: false, type: 'float' },
+    { description: '蒙版的羽化参数，取值范围0~100，默认无羽化', input: {}, name: 'mask_feather', required: false, type: 'float' },
+    { description: '是否反转蒙版，默认不反转', input: {}, name: 'mask_invert', required: false, type: 'boolean' },
+    { description: '矩形蒙版的宽度，仅在蒙版类型为矩形时允许设置，以占素材宽度的比例表示', input: {}, name: 'mask_rect_width', required: false, type: 'float' },
+    { description: '矩形蒙版的圆角参数，仅在蒙版类型为矩形时允许设置，取值范围0~100', input: {}, name: 'mask_round_corner', required: false, type: 'float' }
+  ],
+  outputs: [
+    { type: 'string', name: 'error', required: false },
+    { type: 'string', name: 'error_code', required: false },
+    {
+      type: 'object',
+      name: 'output',
+      schema: [
+        { type: 'string', name: 'draft_id', required: false, description: '草稿id，可以继续编辑' },
+        { type: 'string', name: 'draft_url', required: false, description: '草稿链接，可以在浏览器里预览' },
+        { type: 'string', name: 'material_id', required: false, description: '图片素材在草稿里的唯一ID' }
+      ],
+      required: false
+    },
+    { type: 'string', name: 'purchase_link', required: false },
+    { type: 'boolean', name: 'success', required: false }
+  ],
+  updateTime: 1792485185,
+  channel_id: 2,
+  commercial_setting: {},
+  latestVersionTs: '0',
+  latestVersionName: '',
+  versionName: '',
+  description: '向草稿中添加图片',
+  title: 'add_image',
   mainColor: '#CA61FF'
 };
 
@@ -1013,6 +1226,46 @@ const createAiVideoRequestInputParameters = (aiVideoRequest = {}) => {
   return parameters;
 };
 
+const createImageGenerateRequestInputParameters = (imageGenerateRequest = {}) => {
+  const parameters = [];
+  const addString = (name, value) => {
+    const normalized = String(value || '').trim();
+    if (normalized) parameters.push(createInputParameter(name, 'string', normalized));
+  };
+  const addNumber = (name, value, type = 'float') => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) parameters.push(createInputParameter(name, type, normalized));
+  };
+  const addBoolean = (name, value) => {
+    if (typeof value === 'boolean') parameters.push(createInputParameter(name, 'boolean', value));
+  };
+
+  const referenceImages = [
+    ...(Array.isArray(imageGenerateRequest?.referenceImages) ? imageGenerateRequest.referenceImages : []),
+    ...(Array.isArray(imageGenerateRequest?.reference_images) ? imageGenerateRequest.reference_images : []),
+  ].map((item) => String(item || '').trim()).filter(Boolean);
+  const composeDraft = imageGenerateRequest?.composeDraft ?? imageGenerateRequest?.compose_draft;
+
+  addString('prompt', imageGenerateRequest?.prompt || imageGenerateRequest?.text);
+  addString('model', imageGenerateRequest?.model);
+  addString('size', imageGenerateRequest?.size || imageGenerateRequest?.resolution);
+  addBoolean('compose_draft', typeof composeDraft === 'boolean' ? composeDraft : false);
+  addString('reference_image', imageGenerateRequest?.referenceImage || imageGenerateRequest?.reference_image || imageGenerateRequest?.sourceImage || imageGenerateRequest?.source_image);
+  if (referenceImages.length) parameters.push(createInputParameter('reference_images', 'list', referenceImages));
+  addString('draft_id', imageGenerateRequest?.draftId || imageGenerateRequest?.draft_id);
+  addString('track_name', imageGenerateRequest?.trackName || imageGenerateRequest?.track_name);
+  addString('background', imageGenerateRequest?.background);
+  addString('output_format', imageGenerateRequest?.outputFormat || imageGenerateRequest?.output_format);
+  parameters.push(createInputParameter('start', 'float', 0.0));
+  parameters.push(createInputParameter('end', 'float', 3.0));
+  addNumber('transform_x', imageGenerateRequest?.transformX ?? imageGenerateRequest?.transform_x);
+  addNumber('transform_y', imageGenerateRequest?.transformY ?? imageGenerateRequest?.transform_y);
+  addNumber('scale_x', imageGenerateRequest?.scaleX ?? imageGenerateRequest?.scale_x);
+  addNumber('scale_y', imageGenerateRequest?.scaleY ?? imageGenerateRequest?.scale_y);
+  addNumber('rotation', imageGenerateRequest?.rotation);
+  return parameters;
+};
+
 const createDigitalHumanRequestInputParameters = (digitalHumanRequest = {}) => {
   const audioUrl = String(
     digitalHumanRequest?.audio_url
@@ -1060,6 +1313,44 @@ const createAudioAddRequestInputParameters = (audioAddRequest = {}) => {
   addNumber('fade_out_duration', audioAddRequest?.fade_out_duration ?? audioAddRequest?.fade_out_duratioin ?? audioAddRequest?.fadeOutDuration);
   addNumber('speed', audioAddRequest?.speed);
   addNumber('volume', audioAddRequest?.volume);
+  return parameters;
+};
+
+const createImageAddRequestInputParameters = (imageAddRequest = {}) => {
+  const parameters = [];
+  const addString = (name, value) => {
+    const normalized = String(value || '').trim();
+    if (normalized) parameters.push(createInputParameter(name, 'string', normalized));
+  };
+  const addNumber = (name, value, type = 'float') => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) parameters.push(createInputParameter(name, type, normalized));
+  };
+
+  addString('image_url', imageAddRequest?.image_url || imageAddRequest?.imageUrl);
+  addString('draft_id', imageAddRequest?.draft_id || imageAddRequest?.draftId);
+  addNumber('start', imageAddRequest?.start ?? 0);
+  addNumber('end', imageAddRequest?.end ?? 3);
+  addString('track_name', imageAddRequest?.track_name || imageAddRequest?.trackName);
+  addNumber('width', imageAddRequest?.width);
+  addNumber('height', imageAddRequest?.height);
+  addNumber('transform_x', imageAddRequest?.transform_x ?? imageAddRequest?.transformX);
+  addNumber('transform_y', imageAddRequest?.transform_y ?? imageAddRequest?.transformY);
+  addNumber('transform_x_px', imageAddRequest?.transform_x_px ?? imageAddRequest?.transformXPx, 'integer');
+  addNumber('transform_y_px', imageAddRequest?.transform_y_px ?? imageAddRequest?.transformYPx, 'integer');
+  addNumber('scale_x', imageAddRequest?.scale_x ?? imageAddRequest?.scaleX);
+  addNumber('scale_y', imageAddRequest?.scale_y ?? imageAddRequest?.scaleY);
+  addNumber('rotation', imageAddRequest?.rotation);
+  addNumber('alpha', imageAddRequest?.alpha);
+  addNumber('relative_index', imageAddRequest?.relative_index ?? imageAddRequest?.relativeIndex, 'integer');
+  addString('intro_animation', imageAddRequest?.intro_animation || imageAddRequest?.introAnimation);
+  addNumber('intro_animation_duration', imageAddRequest?.intro_animation_duration ?? imageAddRequest?.introAnimationDuration);
+  addString('outro_animation', imageAddRequest?.outro_animation || imageAddRequest?.outroAnimation);
+  addNumber('outro_animation_duration', imageAddRequest?.outro_animation_duration ?? imageAddRequest?.outroAnimationDuration);
+  addString('combo_animation', imageAddRequest?.combo_animation || imageAddRequest?.comboAnimation);
+  addNumber('combo_animation_duration', imageAddRequest?.combo_animation_duration ?? imageAddRequest?.comboAnimationDuration);
+  addString('transition', imageAddRequest?.transition);
+  addNumber('transition_duration', imageAddRequest?.transition_duration ?? imageAddRequest?.transitionDuration);
   return parameters;
 };
 
@@ -1341,6 +1632,327 @@ export const buildSpeechRequestCozeClipboardData = (speechRequest = {}) => {
       x: 150.52329101247022,
       y: -378.24777121709934,
       width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const buildImageGenerateRequestCozeClipboardData = (imageGenerateRequest = {}) => {
+  const inputParameters = createImageGenerateRequestInputParameters(imageGenerateRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      ...COZE_WORKFLOW_SOURCE
+    },
+    json: {
+      nodes: [
+        {
+          id: '110594',
+          type: '4',
+          meta: {
+            position: {
+              x: -1282.4143011375581,
+              y: -26.119569099011755
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_GENERATE_IMAGE_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_GENERATE_IMAGE_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: COZE_GENERATE_IMAGE_EXTERNAL_DATA.outputs
+          },
+          _temp: {
+            bounds: {
+              x: -1462.4143011375581,
+              y: -26.119569099011755,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_GENERATE_IMAGE_EXTERNAL_DATA
+            }
+          }
+        },
+        {
+          id: '125756',
+          type: '21',
+          meta: {
+            position: {
+              x: -811.2866869705352,
+              y: -26.119569099011755
+            },
+            canvasPosition: {
+              x: -911.2866869705352,
+              y: 194.8368010871914
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_LOOP_NODE_META
+            },
+            inputs: {
+              loopType: 'count',
+              loopCount: {
+                type: 'integer',
+                value: {
+                  type: 'literal',
+                  content: 100,
+                  rawMeta: {
+                    type: 2
+                  }
+                }
+              },
+              variableParameters: [
+                {
+                  name: 'image',
+                  input: {
+                    type: 'string',
+                    value: createLiteralValue(' ')
+                  }
+                }
+              ],
+              inputParameters: []
+            },
+            outputs: [
+              createRefInputParameter('output', '125756', 'image')
+            ]
+          },
+          blocks: [
+            {
+              id: '151201',
+              type: '4',
+              meta: {
+                position: {
+                  x: 0,
+                  y: 100
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_IMAGE_STATUS_NODE_META
+                },
+                inputs: {
+                  apiParam: createApiParamEntries(COZE_IMAGE_STATUS_PLUGIN_META),
+                  inputParameters: [
+                    createRefInputParameter('task_id', '110594', 'task_id')
+                  ],
+                  settingOnError: {
+                    processType: 1,
+                    timeoutMs: 180000,
+                    retryTimes: 0
+                  }
+                },
+                outputs: COZE_IMAGE_STATUS_EXTERNAL_DATA.outputs
+              },
+              _temp: {
+                bounds: {
+                  x: -1091.2866869705354,
+                  y: 294.83680108719136,
+                  width: 360,
+                  height: 112
+                },
+                externalData: {
+                  ...COZE_IMAGE_STATUS_EXTERNAL_DATA
+                }
+              }
+            },
+            {
+              id: '134714',
+              type: '8',
+              meta: {
+                position: {
+                  x: 457.4998515039845,
+                  y: 100
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_CONDITION_NODE_META
+                },
+                inputs: {
+                  branches: [
+                    {
+                      condition: {
+                        logic: 2,
+                        conditions: [
+                          {
+                            operator: 10,
+                            left: {
+                              input: createRefValue('151201', 'result.image')
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: -633.7868354665508,
+                  y: 294.83680108719136,
+                  width: 360,
+                  height: 138
+                },
+                externalData: {
+                  icon: COZE_CONDITION_NODE_META.icon,
+                  description: COZE_CONDITION_NODE_META.description,
+                  title: COZE_CONDITION_NODE_META.title,
+                  mainColor: COZE_CONDITION_NODE_META.mainColor
+                }
+              }
+            },
+            {
+              id: '140518',
+              type: '20',
+              meta: {
+                position: {
+                  x: 860.5103652258424,
+                  y: 127.20287447659962
+                }
+              },
+              data: {
+                inputs: {
+                  inputParameters: [
+                    {
+                      left: createRefValue('125756', 'image'),
+                      right: createRefValue('151201', 'result.image')
+                    }
+                  ]
+                },
+                nodeMeta: {
+                  ...COZE_LOOP_SET_VARIABLE_NODE_META
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: -230.77632174469284,
+                  y: 322.039675563791,
+                  width: 360,
+                  height: 86
+                },
+                externalData: {
+                  icon: COZE_LOOP_SET_VARIABLE_NODE_META.icon,
+                  description: COZE_LOOP_SET_VARIABLE_NODE_META.description,
+                  title: COZE_LOOP_SET_VARIABLE_NODE_META.title,
+                  mainColor: COZE_LOOP_SET_VARIABLE_NODE_META.mainColor
+                }
+              }
+            },
+            {
+              id: '127483',
+              type: '19',
+              meta: {
+                position: {
+                  x: 1257.0727107281505,
+                  y: 134.6613324217122
+                }
+              },
+              data: {
+                nodeMeta: {
+                  title: '终止循环',
+                  icon: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/dvsmryvd_avi_dvsm/ljhwZthlaukjlkulzlp/icon/icon-Break-v2.jpg',
+                  description: '用于立即终止当前所在的循环，跳出循环体',
+                  mainColor: '#00B2B2',
+                  subTitle: '终止循环'
+                }
+              },
+              _temp: {
+                bounds: {
+                  x: 165.78602375761523,
+                  y: 329.4981335089036,
+                  width: 360,
+                  height: 66
+                },
+                externalData: {
+                  icon: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/dvsmryvd_avi_dvsm/ljhwZthlaukjlkulzlp/icon/icon-Break-v2.jpg',
+                  description: '用于立即终止当前所在的循环，跳出循环体',
+                  title: '终止循环',
+                  mainColor: '#00B2B2'
+                }
+              }
+            },
+            {
+              id: '146292',
+              type: '4',
+              meta: {
+                position: {
+                  x: 897.0727107281505,
+                  y: 303.6479210630914
+                }
+              },
+              data: {
+                nodeMeta: {
+                  ...COZE_TIME_DELAY_NODE_META
+                },
+                inputs: {
+                  apiParam: createApiParamEntries(COZE_TIME_DELAY_PLUGIN_META),
+                  inputParameters: [
+                    createInputParameter('seconds', 'integer', 20)
+                  ],
+                  settingOnError: {
+                    processType: 1,
+                    timeoutMs: 180000,
+                    retryTimes: 0
+                  }
+                },
+                outputs: COZE_TIME_DELAY_EXTERNAL_DATA.outputs
+              },
+              _temp: {
+                bounds: {
+                  x: -194.21397624238477,
+                  y: 498.4847221502828,
+                  width: 360,
+                  height: 136
+                },
+                externalData: {
+                  ...COZE_TIME_DELAY_EXTERNAL_DATA
+                }
+              }
+            }
+          ],
+          edges: [
+            { sourceNodeID: '125756', targetNodeID: '151201', sourcePortID: 'loop-function-inline-output' },
+            { sourceNodeID: '151201', targetNodeID: '134714' },
+            { sourceNodeID: '134714', targetNodeID: '140518', sourcePortID: 'true' },
+            { sourceNodeID: '134714', targetNodeID: '146292', sourcePortID: 'false' },
+            { sourceNodeID: '140518', targetNodeID: '127483' },
+            { sourceNodeID: '146292', targetNodeID: '125756', targetPortID: 'loop-function-inline-input' }
+          ],
+          _temp: {
+            bounds: {
+              x: -991.2866869705352,
+              y: -26.119569099011755,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              icon: COZE_LOOP_NODE_META.icon,
+              description: COZE_LOOP_NODE_META.description,
+              title: '循环',
+              mainColor: COZE_LOOP_NODE_META.mainColor
+            }
+          }
+        }
+      ],
+      edges: [
+        { sourceNodeID: '110594', targetNodeID: '125756' }
+      ]
+    },
+    bounds: {
+      x: -1462.4143011375581,
+      y: -26.119569099011755,
+      width: 831.1276141670229,
       height: 112
     }
   }, null, 2);
@@ -2020,6 +2632,64 @@ export const buildAudioAddRequestCozeClipboardData = (audioAddRequest = {}) => {
     bounds: {
       x: 668.2424768184158,
       y: -527.5775080344873,
+      width: 360,
+      height: 112
+    }
+  }, null, 2);
+};
+
+export const buildImageAddRequestCozeClipboardData = (imageAddRequest = {}) => {
+  const inputParameters = createImageAddRequestInputParameters(imageAddRequest);
+
+  return JSON.stringify({
+    type: 'coze-workflow-clipboard-data',
+    source: {
+      ...COZE_WORKFLOW_SOURCE
+    },
+    json: {
+      nodes: [
+        {
+          id: '152017',
+          type: '4',
+          meta: {
+            position: {
+              x: 524.411698000885,
+              y: -281.8481507072602
+            }
+          },
+          data: {
+            nodeMeta: {
+              ...COZE_ADD_IMAGE_NODE_META
+            },
+            inputs: {
+              apiParam: createApiParamEntries(COZE_ADD_IMAGE_PLUGIN_META),
+              inputParameters,
+              settingOnError: {
+                processType: 1,
+                timeoutMs: 180000,
+                retryTimes: 0
+              }
+            },
+            outputs: COZE_ADD_IMAGE_EXTERNAL_DATA.outputs
+          },
+          _temp: {
+            bounds: {
+              x: 344.41169800088505,
+              y: -281.8481507072602,
+              width: 360,
+              height: 112
+            },
+            externalData: {
+              ...COZE_ADD_IMAGE_EXTERNAL_DATA
+            }
+          }
+        }
+      ],
+      edges: []
+    },
+    bounds: {
+      x: 344.41169800088505,
+      y: -281.8481507072602,
       width: 360,
       height: 112
     }

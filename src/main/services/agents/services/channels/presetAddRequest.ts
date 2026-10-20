@@ -39,6 +39,7 @@ export function normalizeDirectPresetAddRequest(input: Record<string, unknown> =
     ['mask_round_corner', input.mask_round_corner],
     ['intro_animation_duration', input.intro_animation_duration ?? input.introAnimationDuration],
     ['outro_animation_duration', input.outro_animation_duration ?? input.outroAnimationDuration],
+    ['combo_animation_duration', input.combo_animation_duration ?? input.comboAnimationDuration],
     ['transition_duration', input.transition_duration ?? input.transitionDuration],
     ['volume', input.volume]
   ]
@@ -50,7 +51,7 @@ export function normalizeDirectPresetAddRequest(input: Record<string, unknown> =
   })
   const trackName = String(input.track_name || input.trackName || '').trim()
   if (trackName) optionalParams.track_name = trackName
-  for (const key of ['mask_type', 'intro_animation', 'outro_animation', 'transition']) {
+  for (const key of ['mask_type', 'intro_animation', 'outro_animation', 'combo_animation', 'transition']) {
     const value = input[key]
     if (typeof value === 'string' && value.trim()) optionalParams[key] = value.trim()
   }

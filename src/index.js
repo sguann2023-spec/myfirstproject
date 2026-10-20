@@ -6,6 +6,7 @@ import { ConfigProvider, message } from 'antd'; // 引入 Ant Design 配置
 import App from './App.jsx';
 import SettingPage from './page/SettingPage/SettingPage.jsx'; // 引入设置页面组件
 import { loggerService } from '@logger';
+import { createRendererRootErrorHandlers } from './shared/rendererRootErrors';
 const logger = loggerService.withContext('Index');
 installRendererHttpClient();
 // 1. 获取 URL 中的查询参数
@@ -23,7 +24,7 @@ message.config({
   getContainer: () => document.body,
 });
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById('root'), createRendererRootErrorHandlers(logger));
 
 window.addEventListener('unhandledrejection', (event) => {
   logger.error('[Renderer] unhandledrejection', {

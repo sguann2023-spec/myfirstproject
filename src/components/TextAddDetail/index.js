@@ -20,6 +20,12 @@ import { TEXT_FONT_OPTIONS } from './fontOptions';
 import RichTextPreview from './RichTextPreview';
 import TextEffectsPanel from './TextEffectsPanel';
 import TextTimelinePanel from './TextTimelinePanel';
+import useSettingsNotification from '../../shared/useSettingsNotification';
+
+// Keep the Konva root unchanged when only placement times or track names change.
+const StaticTextCanvas = React.memo(({ revision, ...props }) => <Stage {...props} />, (prev, next) => (
+  prev.revision === next.revision && prev.width === next.width && prev.height === next.height
+));
 import { PRESET_EFFECT_KEYS, snapshotPresetSettings } from './textPresets';
 import { DEFAULT_TEXT_PLACEMENT, buildTextPlacementParams, resolveTextTrackPlacement } from '../../shared/textPlacement';
 import { buildTextEffectParams, DEFAULT_TEXT_EFFECTS, getShadowPreview, getTextShadowCss, resolveTextEffects } from '../../shared/textEffects';
@@ -660,9 +666,7 @@ const TextAddDetail = ({
       : textPlacement
   ), [textPlacement, previewScript, selectedDraftId]);
 
-  React.useEffect(() => {
-    if (typeof onSettingsChange !== 'function') return;
-    onSettingsChange({
+  const emittedSettings = React.useMemo(() => ({
       font: selectedFont,
       fontSize,
       typographyRuns: textTypographyRuns,
@@ -681,8 +685,7 @@ const TextAddDetail = ({
       rotation,
       ...textEffects,
       ...effectiveTextPlacement,
-    });
-  }, [
+    }), [
     textEffects,
     effectiveTextPlacement,
     fixedHeight,
@@ -691,7 +694,6 @@ const TextAddDetail = ({
     textTypographyRuns,
     letterSpacing,
     lineSpacing,
-    onSettingsChange,
     positionX,
     positionY,
     rotation,
@@ -703,6 +705,7 @@ const TextAddDetail = ({
     textStyles,
     uniformScale,
   ]);
+  useSettingsNotification(emittedSettings, onSettingsChange);
 
   const handleStyleToggle = (styleKey) => {
     updateTypography({ [styleKey]: activeTypography[styleKey] !== true });
@@ -1205,7 +1208,14 @@ const TextAddDetail = ({
                   } : undefined}
                 >
                   {previewCanvasDisplaySize && previewCanvasWidth && previewCanvasHeight ? (
-                    <Stage
+                    <StaticTextCanvas
+                      revision={JSON.stringify([
+                        inputText, disabled, usesRichPreview, isPreviewVertical, previewMeasuredBox,
+                        previewTextBox, previewDisplayWidth, previewDisplayHeight, previewPadding,
+                        hasInputText, previewTextStyle, effectParams.font_alpha, textEffects,
+                        previewRenderFontSize, previewShadow, isPreviewEditing, isPreviewSelected,
+                        uniformScale, textTypographyRuns, typographyDefaults, textSelection,
+                      ])}
                       width={previewCanvasDisplaySize.width}
                       height={previewCanvasDisplaySize.height}
                       className="chat-panel__text-settings-preview-stage-host"
@@ -1305,7 +1315,7 @@ const TextAddDetail = ({
                           )}
                         />
                       </Layer>
-                    </Stage>
+                    </StaticTextCanvas>
                   ) : null}
                   {previewCanvasLoading ? (
                     <span className="chat-panel__text-settings-preview-loading">Loading</span>

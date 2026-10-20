@@ -1,6 +1,8 @@
 import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
-import { AutoComplete, Dropdown, InputNumber, Select, Slider, message } from 'antd';
+import { Dropdown, InputNumber, Select, Slider, message } from 'antd';
+import TrackNameInput from '../TrackNameInput';
+import useSettingsNotification from '../../shared/useSettingsNotification';
 import { ChevronDown, Clock3, Music, Plus, SlidersHorizontal } from 'lucide-react';
 import DraftSelect from '../DraftSelect/index';
 import AudioPreview from '../RecognizationSubtitleToolDetail/AudioPreview';
@@ -303,9 +305,7 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
   const musicLibraryOptions = React.useMemo(() => buildCloudAudioOptions(filterCloudAudioItems(BACKGROUND_MUSIC_LIBRARY, musicLibrarySearch)), [musicLibrarySearch]);
   const soundLibraryOptions = React.useMemo(() => buildCloudAudioOptions(filterCloudAudioItems(SOUND_EFFECT_LIBRARY, soundLibrarySearch)), [soundLibrarySearch]);
 
-  React.useEffect(() => {
-    onSettingsChange?.(effectiveSettings);
-  }, [effectiveSettings, onSettingsChange]);
+  useSettingsNotification(effectiveSettings, onSettingsChange);
 
   React.useEffect(() => () => {
     if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
@@ -341,7 +341,9 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
     return () => { cancelled = true; };
   }, [selectedDraftId]);
 
-  const updateSetting = React.useCallback((patch) => setSettings((prev) => ({ ...prev, ...patch })), []);
+  const updateSetting = React.useCallback((patch) => setSettings((prev) => (
+    Object.keys(patch).some((key) => !Object.is(prev[key], patch[key])) ? { ...prev, ...patch } : prev
+  )), []);
   const revokePreviewObjectUrl = React.useCallback(() => {
     if (!previewObjectUrlRef.current) return;
     URL.revokeObjectURL(previewObjectUrlRef.current);
@@ -655,7 +657,17 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
         <div className="chat-panel__text-settings-row">
           <label htmlFor="audio-track-select" className="chat-panel__text-settings-label">轨道名</label>
           <div className="chat-panel__text-track-control">
-            <AutoComplete id="audio-track-select" aria-label="选择音频轨道" className="chat-panel__text-settings-select chat-panel__text-track-select" value={effectiveSettings.trackMode === 'new' ? effectiveSettings.newTrackName : effectiveSettings.trackName} disabled={locked} defaultActiveFirstOption={false} filterOption={false} suffixIcon={<ChevronDown size={14} />} placeholder="选择音频轨道或输入新名称" options={[...trackNames.map((name) => ({ value: `existing:${name}`, label: name, trackName: name })), { value: '__new__', label: '新建轨道', create: true }]} onChange={(next, option) => { if (option?.trackName || option?.create) return; updateTrack({ trackMode: 'new', newTrackName: next.slice(0, 100) }); }} onSelect={(next) => updateTrack(next === '__new__' ? { trackMode: 'new', newTrackName: 'audio_track' } : { trackMode: 'existing', trackName: next.slice('existing:'.length) })} onBlur={() => { if (effectiveSettings.trackMode === 'new') updateTrack({ newTrackName: effectiveSettings.trackName }); }} />
+            <TrackNameInput id="audio-track-select" label="选择音频轨道"
+              value={effectiveSettings.trackMode === 'new' ? effectiveSettings.newTrackName : effectiveSettings.trackName}
+              disabled={locked} names={trackNames} placeholder="选择音频轨道或输入新名称"
+              onChange={(next) => updateTrack({ trackMode: 'new', newTrackName: next })}
+              onSelect={(next) => updateTrack(next === '__new__' ? { trackMode: 'new', newTrackName: 'audio_track' }
+                : { trackMode: 'existing', trackName: next.slice('existing:'.length) })}
+              onBlur={() => {
+                if (effectiveSettings.trackMode === 'new' && effectiveSettings.newTrackName !== effectiveSettings.trackName) {
+                  updateTrack({ newTrackName: effectiveSettings.trackName });
+                }
+              }} />
           </div>
         </div>
         <div className="chat-panel__text-settings-row chat-panel__preset-add-clip-row">

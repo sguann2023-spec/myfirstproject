@@ -34,6 +34,12 @@ import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
 import VideoToolDetail from './VideoToolDetail/index';
 import VideoDetailTool from '../../VideoDetailTool/index';
+import ImageAddDetailTool, {
+  buildImageAddRequestParams,
+  buildImageAddSettingsPrompt,
+  DEFAULT_IMAGE_ADD_SETTINGS,
+  getImageAddToolSendState
+} from '../../ImageAddDetailTool/index';
 import { VIDEO_UNDERSTAND_HINT, buildVideoUnderstandRequest, getVideoUnderstandSendState } from '../../../shared/videoUnderstand';
 import VoiceSquareToolDetail, { getInitialSelectedVoiceLibraryItem } from './VoiceSquareToolDetail/index';
 import VoiceLib, { useVoiceLib } from './VoiceLib/index';
@@ -2206,6 +2212,8 @@ const Composer = ({
   const [presetAddSettings, setPresetAddSettings] = React.useState(DEFAULT_PRESET_ADD_SETTINGS);
   const [selectedAudioAddDraftIds, setSelectedAudioAddDraftIds] = React.useState([]);
   const [audioAddSettings, setAudioAddSettings] = React.useState(DEFAULT_AUDIO_ADD_SETTINGS);
+  const [selectedImageAddDraftIds, setSelectedImageAddDraftIds] = React.useState([]);
+  const [imageAddSettings, setImageAddSettings] = React.useState(DEFAULT_IMAGE_ADD_SETTINGS);
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
   const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
@@ -2338,6 +2346,8 @@ const Composer = ({
         : activeTool === 'text-add'
           ? ''
         : activeTool === 'preset-add'
+          ? ''
+        : activeTool === 'image-add'
           ? ''
         : activeTool === 'draft-inspect'
           ? '输入你想查看草稿的内容，例如查看某个文案的字体或者查看图片是否是画中画'
@@ -3830,6 +3840,8 @@ const Composer = ({
           ? selectedPresetAddDraftIds
         : activeTool === 'audio-add'
           ? selectedAudioAddDraftIds
+        : activeTool === 'image-add'
+          ? selectedImageAddDraftIds
         : activeTool === 'text-add'
           ? selectedTextAddDraftIds
         : activeTool === 'draft-inspect'
@@ -3849,6 +3861,8 @@ const Composer = ({
         return getPresetAddToolSendState({ ...context, selectedPreset: selectedPresetAddPreset });
       case 'audio-add':
         return getAudioAddToolSendState({ ...context, settings: audioAddSettings });
+      case 'image-add':
+        return getImageAddToolSendState({ ...context, settings: imageAddSettings });
       case 'draft-inspect':
         return getDraftInspectToolSendState(context);
       case 'draft-modify':
@@ -3878,6 +3892,8 @@ const Composer = ({
     selectedPresetAddPreset,
     selectedAudioAddDraftIds,
     audioAddSettings,
+    selectedImageAddDraftIds,
+    imageAddSettings,
     subtitleSettings,
     selectedDraftDownloadIds,
     selectedTextAddDraftIds,
@@ -4206,7 +4222,7 @@ const Composer = ({
       console.warn('[Composer] failed to collect image payloads', error);
     }
     // The hidden chat editor is not the source of text-add/preset-add content or references.
-    const serializedMessage = activeTool === 'text-add' || activeTool === 'preset-add' || activeTool === 'audio-add'
+    const serializedMessage = activeTool === 'text-add' || activeTool === 'preset-add' || activeTool === 'audio-add' || activeTool === 'image-add'
       ? { text: textAddInput, referencedFileUids: new Set() }
       : serializeEditorMessage(editor, buildMarkdownFileLink);
     const hasMultimodalImages = selectedModelSupportsReadImage && imagePayloads.length > 0;
@@ -4255,13 +4271,15 @@ const Composer = ({
       ? serializedMessage.text || String(input || '').trim()
       : serializedMessage.text || String(input || '').trim();
     const combined = [text, ...remainingLocalReferences].filter(Boolean).join('\n');
-    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && activeTool !== 'audio-add' && activeTool !== 'voice-conversion' && !combined) return;
+    if (activeTool !== 'draft' && activeTool !== 'draft-export' && activeTool !== 'draft-inspect' && activeTool !== 'draft-modify' && activeTool !== 'text-add' && activeTool !== 'preset-add' && activeTool !== 'audio-add' && activeTool !== 'image-add' && activeTool !== 'voice-conversion' && !combined) return;
     const selectedTextAddDraftId = String(selectedTextAddDraftIds?.[0] || '').trim();
     const selectedPresetAddDraftId = String(selectedPresetAddDraftIds?.[0] || '').trim();
     const selectedPresetAddPresetId = String(selectedPresetAddPreset?.preset_id || '').trim();
     const presetAddRequestParams = buildPresetAddRequestParams(presetAddSettings);
     const selectedAudioAddDraftId = String(selectedAudioAddDraftIds?.[0] || '').trim();
     const audioAddRequestParams = buildAudioAddRequestParams(audioAddSettings);
+    const selectedImageAddDraftId = String(selectedImageAddDraftIds?.[0] || '').trim();
+    const imageAddRequestParams = buildImageAddRequestParams(imageAddSettings);
     const musicGenerateRequestParams = buildMusicGenerateRequestParams(text);
     const voiceConversionRequestParams = buildVoiceConversionRequestParams(uploadedFileMeta);
     const musicGenerateVoiceIds = [];
@@ -4399,6 +4417,12 @@ const Composer = ({
             selectedAudioAddDraftId ? `草稿ID：${selectedAudioAddDraftId}` : '',
             buildAudioAddSettingsPrompt(audioAddSettings),
           ].filter(Boolean).join('\n')
+        : activeTool === 'image-add'
+          ? [
+            '请向当前草稿添加图片。',
+            selectedImageAddDraftId ? `草稿ID：${selectedImageAddDraftId}` : '',
+            buildImageAddSettingsPrompt(imageAddSettings),
+          ].filter(Boolean).join('\n')
         : activeTool === 'music-generate'
           ? [
             `请调用 mcp__vectcut__seed-audio__generate_seed_audio 生成音频，提示词：${combined}`,
@@ -4522,6 +4546,12 @@ const Composer = ({
           ...audioAddRequestParams,
         }
         : null,
+      imageAddRequest: activeTool === 'image-add'
+        ? {
+          draftId: selectedImageAddDraftId,
+          ...imageAddRequestParams,
+        }
+        : null,
       speechRequest: activeTool === 'voice-square'
         ? {
           text,
@@ -4605,7 +4635,7 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'voice-conversion';
+    const shouldDisableInput = activeTool === 'draft-export' || activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'image-add' || activeTool === 'voice-conversion';
     editor.setEditable(!shouldDisableInput);
     if (shouldDisableInput) {
       if (activeTool === 'draft-export') {
@@ -5010,6 +5040,14 @@ const Composer = ({
                       onSelectedDraftIdsChange={setSelectedAudioAddDraftIds}
                       onSettingsChange={setAudioAddSettings}
                     />
+                  ) : activeTool === 'image-add' ? (
+                    <ImageAddDetailTool
+                      disabled={sessionSending}
+                      onBack={handleToolDetailBack}
+                      selectedDraftIds={selectedImageAddDraftIds}
+                      onSelectedDraftIdsChange={setSelectedImageAddDraftIds}
+                      onSettingsChange={setImageAddSettings}
+                    />
                   ) : activeTool === 'reverse-prompt' ? (
                     <RevertPrompt disabled={sessionSending} onBack={handleToolDetailBack} />
                   ) : activeTool === 'video-understand' ? (
@@ -5381,7 +5419,7 @@ const Composer = ({
               </div>
             </div>
           ) : null}
-          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'voice-conversion' ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
+          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'image-add' || activeTool === 'voice-conversion' ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
             {isDragActive ? (
               <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
                 <div className="chat-panel__drag-upload-card">

@@ -518,6 +518,8 @@ const TOOLS: Tool[] = [
       intro_animation_duration: { type: 'number', description: 'Optional intro animation duration in seconds.' },
       outro_animation: { type: 'string', description: 'Optional outro animation name.' },
       outro_animation_duration: { type: 'number', description: 'Optional outro animation duration in seconds.' },
+      combo_animation: { type: 'string', description: 'Optional combo animation name. Use get_combo_animation_types to list supported names.' },
+      combo_animation_duration: { type: 'number', description: 'Optional combo animation duration in seconds.' },
       transition: { type: 'string', description: 'Optional transition name.' },
       transition_duration: { type: 'number', description: 'Optional transition duration in seconds.' },
       volume: { type: 'number', description: 'Optional preset volume.' }
@@ -1320,7 +1322,7 @@ const READONLY_TOOL_NAMES = new Set([
   'get_combo_animation_types'
 ])
 
-const DRAFT_PREVIEW_TOOL_NAMES = new Set(['add_text', 'add_audio'])
+const DRAFT_PREVIEW_TOOL_NAMES = new Set(['add_text', 'add_image', 'add_audio'])
 
 type PendingToken = {
   accessToken: string

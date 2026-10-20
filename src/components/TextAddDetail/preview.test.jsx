@@ -19,6 +19,19 @@ import TextEffectsPanel from './TextEffectsPanel';
 import TextTimelinePanel from './TextTimelinePanel';
 import { buildTextPlacementParams } from '../../shared/textPlacement';
 import { getPreviewEditorStyle, getPreviewEditorContentStyle, measurePreviewText, measureVerticalPreviewText, PreviewText } from './previewLayout';
+import { KonvaRenderer } from 'react-konva';
+
+vi.mock('../TrackNameInput', () => ({ default: ({ value, onChange, onSelect, onBlur, names, disabled, label }) => (
+  <div>
+    <input aria-label={label} value={value} disabled={disabled} onBlur={onBlur}
+      onChange={(event) => onChange(event.target.value)} />
+    <select aria-label="轨道选项" value="" disabled={disabled} onChange={(event) => onSelect(event.target.value)}>
+      <option value="" />
+      {names.map((name) => <option key={name} value={`existing:${name}`}>{name}</option>)}
+      <option value="__new__">新建轨道</option>
+    </select>
+  </div>
+) }));
 
 vi.mock('./textPresetStore', () => ({
   listCustomTextPresets: vi.fn(),
@@ -149,7 +162,9 @@ const mount = async (text = 'Hello') => {
     />;
   }
   await act(async () => root.render(<Harness />));
-  await act(async () => host.querySelector('[aria-label="设置"]').click());
+  if (!host.querySelector('[role="tab"]')) {
+    await act(async () => host.querySelector('[aria-label="设置"]').click());
+  }
   const stage = Konva.stages.at(-1);
   return { stage, node: stage?.findOne('Text'), onSettingsChange, onInputTextChange };
 };
@@ -786,6 +801,20 @@ describe('mixed typography', () => {
 });
 
 describe('text timeline controls', () => {
+  it('time edits leave the real Konva root untouched while sending the latest times', async () => {
+    const { onSettingsChange } = await mount('timeline');
+    await act(async () => host.querySelector('[aria-label="时间线"]').click());
+    const updates = vi.spyOn(KonvaRenderer, 'updateContainer');
+    try {
+      for (let i = 1; i <= 60; i += 1) {
+        await editInput(host.querySelector('[aria-label="结束时间"]'), 3 + i / 100);
+      }
+      expect(updates).not.toHaveBeenCalled();
+      expect(onSettingsChange.mock.lastCall[0].end).toBe(3.6);
+    } finally {
+      updates.mockRestore();
+    }
+  });
   const click = async (label) => act(async () => host.querySelector(`[aria-label="${label}"]`).click());
   const get = (label) => host.querySelector(`[aria-label="${label}"]`);
   const selectTrack = async (value) => act(async () => {

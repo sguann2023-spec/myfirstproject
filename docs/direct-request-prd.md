@@ -22,12 +22,13 @@
 | `draft_request` | 创建草稿 | `draft-management` | `create_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_modify_request` | 修改草稿 | `draft-management` | `modify_draft` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `text_add_request` | 向草稿添加文本 | `draft-elements` | `add_text` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
+| `image_add_request` | 向草稿添加图片 | `draft-elements` | `add_image` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `preset_add_request` | 向草稿添加预设片段 | `draft-elements` | `add_preset` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `speech_request` | AI朗读/语音合成 | `speech` | `generate_speech` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `seed_audio_request` | AI生成音频 | `seed-audio` | `generate_seed_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `voice_conversion_request` | 音频/视频变声 | `voice-conversion` | `submit_voice_conversion_task` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
 | `ai_video_request` | AI生成视频 | `video` | `generate_video` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
-| `image_generate_request` | AI生成/编辑图片 | `image` | `generate_or_edit_image` | 是 | 是 | 是 | 是 | 是 | 是 | 否 |
+| `image_generate_request` | AI生成/编辑图片 | `image` | `generate_or_edit_image` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `digital_human_request` | 生成数字人视频 | `digital-human` | 按模式选择对应创建工具 | 是 | 是 | 是 | 是 | 是 | 是 | 仅口型 |
 | `audio_add_request` | 向草稿添加音频 | `draft-elements` | `add_audio` | 是 | 是 | 是 | 是 | 是 | 是 | 是 |
 | `draft_download_request` | 下载草稿 | `draft-download` | `download_draft` | 是 | 是 | 是 | 是 | 是 | 否 | 否 |
@@ -264,7 +265,7 @@ curl --request POST \
 | 前端发送条件 | 必须先选择一个草稿，且必须选择一个带 `preset_id` 的预设 |
 | 触发工具 | `mcp__vectcut__draft-elements__add_preset` |
 | 动画与转场 | 选中并启用入场/出场动画时发送 `intro_animation` / `intro_animation_duration`、`outro_animation` / `outro_animation_duration`；选中并启用转场时发送 `transition` / `transition_duration`。未启用或未选择时不发送 |
-| 组合动画 | 当前 `add_preset` 接口无组合动画入参，前端不提供该设置；不可发送 `group_animation` / `group_duration` 等未定义字段 |
+| 组合动画 | 前端提供组合动画设置，选中并启用时发送 `combo_animation` / `combo_animation_duration`；`add_preset` 公开文档暂未声明该入参，以后端实际行为为准，不可发送 `group_animation` / `group_duration` 等未定义字段 |
 
 典型 payload：
 
@@ -581,10 +582,10 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 | 目标 MCP | `image.generate_or_edit_image` |
 | 是否 direct request | 是，跳过普通 Agent 推理，直接调用 `image-generate.ts` |
 | 是否 direct 回复 | 是，主进程基于工具返回的任务、图片和草稿信息生成固定回复 |
-| 支持展示类型 | `文字` / `Agent` / `API`；不支持 `Coze` |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
 | `Agent` 是否可展示 | 外部链接已连接时可展示 |
 | `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/443760774e0` |
-| `Coze` 是否可展示 | 否 |
+| `Coze` 是否可展示 | 是，使用 `workflowId=7668682150007488554`，复制 `generate_image_sync` + 循环查询链路（`generate_image_task_status` / 选择器 / 设置变量 / 延迟）；默认发送 `compose_draft=false`，只返回图片链接不默认生成草稿；`start` / `end` 固定为 `0.0` / `3.0` |
 | 前端发送条件 | 必须输入提示词；参考图片可传远程 URL、绝对本地路径或前端本地附件占位，发送前会解析为本地路径 |
 | 触发工具 | `mcp__vectcut__image__generate_or_edit_image` |
 
@@ -973,6 +974,76 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 }
 ```
 
+### 4.17 `image_add_request`
+
+| 项目 | 规则 |
+| --- | --- |
+| 语义 | 向指定草稿添加一张图片，支持位置、缩放、旋转、透明度、入场/出场/组合动画及转场 |
+| 目标 MCP | `draft-elements.add_image` |
+| 是否 direct request | 是 |
+| 是否 direct 回复 | 是 |
+| 支持展示类型 | `文字` / `Agent` / `API` / `Coze` |
+| `Agent` 是否可展示 | 外部链接已连接时可展示 |
+| `API` 是否可展示 | 是，API 文档为 `https://docs.vectcut.com/320460206e0` |
+| `Coze` 是否可展示 | 是，使用 `workflowId=7668682150007488554`、节点 `152017`、`apiID=7579582015465406464`、`apiName=add_image` |
+| 前端发送条件 | 必须先选择一个草稿，且必须导入一张本地图片 |
+| 触发工具 | `mcp__vectcut__draft-elements__add_image` |
+| 动画与转场 | 选中并启用入场/出场动画时发送 `intro_animation` / `intro_animation_duration`、`outro_animation` / `outro_animation_duration`；启用组合动画时发送 `combo_animation` / `combo_animation_duration`；启用转场时发送 `transition` / `transition_duration`。未启用或未选择时不发送 |
+| 图片替换交互 | 图片导入后点击预览画布即可重新选择图片替换，不提供单独的替换/移除按钮；拖拽/缩放等指针位移操作不触发文件选择 |
+
+典型 payload：
+
+```json
+{
+  "image_url": "/absolute/path/image.png",
+  "draft_id": "dfd_cat_xxx",
+  "start": 0,
+  "end": 3,
+  "track_name": "image_track",
+  "transform_x_px": 0,
+  "transform_y_px": 0,
+  "rotation": 0,
+  "scale_x": 1,
+  "scale_y": 1,
+  "alpha": 1,
+  "intro_animation": "放大",
+  "intro_animation_duration": 0.5,
+  "outro_animation": "向下滑动",
+  "outro_animation_duration": 0.5,
+  "combo_animation": "叠叠乐",
+  "combo_animation_duration": 0.5
+}
+```
+
+典型 API 展示：
+
+```bash
+curl --location 'https://open.vectcut.com/cut_jianying/add_image' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "image_url": "/absolute/path/image.png",
+    "draft_id": "dfd_cat_xxx",
+    "start": 0,
+    "end": 3,
+    "track_name": "image_track",
+    "transform_x_px": 0,
+    "transform_y_px": 0,
+    "rotation": 0,
+    "scale_x": 1,
+    "scale_y": 1,
+    "alpha": 1,
+    "intro_animation": "放大",
+    "intro_animation_duration": 0.5,
+    "outro_animation": "向下滑动",
+    "outro_animation_duration": 0.5,
+    "combo_animation": "叠叠乐",
+    "combo_animation_duration": 0.5
+}'
+```
+
+典型 Coze 展示：复制 `add_image` 插件节点（`workflowId=7668682150007488554`、节点 `152017`），`inputParameters` 按当前请求填充 `image_url`、`draft_id`、`start`、`end` 及可选变换与动画字段；插件入参完整定义见扣子插件 `流光剪辑_剪映草稿助手(会员版):add_image`。
+
 ---
 
 ## 5. 固定约束
@@ -999,6 +1070,7 @@ curl --location 'https://open.vectcut.com/cut_jianying/agent/task_status?task_id
 | `draft_request` | `mcp__vectcut__draft-management__create_draft` |
 | `draft_modify_request` | `mcp__vectcut__draft-management__modify_draft` |
 | `text_add_request` | `mcp__vectcut__draft-elements__add_text` |
+| `image_add_request` | `mcp__vectcut__draft-elements__add_image` |
 | `preset_add_request` | `mcp__vectcut__draft-elements__add_preset` |
 | `seed_audio_request` | `mcp__vectcut__seed-audio__generate_seed_audio` |
 | `voice_conversion_request` | `mcp__vectcut__voice-conversion__submit_voice_conversion_task` |

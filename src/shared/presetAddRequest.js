@@ -36,6 +36,7 @@ export const normalizePresetAddRequestPayload = (presetAddRequest = {}) => {
     ['mask_round_corner', presetAddRequest.mask_round_corner],
     ['intro_animation_duration', presetAddRequest.intro_animation_duration ?? presetAddRequest.introAnimationDuration],
     ['outro_animation_duration', presetAddRequest.outro_animation_duration ?? presetAddRequest.outroAnimationDuration],
+    ['combo_animation_duration', presetAddRequest.combo_animation_duration ?? presetAddRequest.comboAnimationDuration],
     ['transition_duration', presetAddRequest.transition_duration ?? presetAddRequest.transitionDuration],
     ['volume', presetAddRequest.volume],
   ];
@@ -44,6 +45,7 @@ export const normalizePresetAddRequestPayload = (presetAddRequest = {}) => {
     ['mask_type', presetAddRequest.mask_type],
     ['intro_animation', presetAddRequest.intro_animation || presetAddRequest.introAnimation],
     ['outro_animation', presetAddRequest.outro_animation || presetAddRequest.outroAnimation],
+    ['combo_animation', presetAddRequest.combo_animation || presetAddRequest.comboAnimation],
     ['transition', presetAddRequest.transition],
   ];
   const optionalParams = {};

@@ -22,6 +22,8 @@ describe('预设添加请求提交链路', () => {
       intro_animation_duration: 0.5,
       outro_animation: '漩涡旋转',
       outro_animation_duration: 0.5,
+      combo_animation: '叠叠乐',
+      combo_animation_duration: 0.6,
       transition: '中心旋转',
       transition_duration: 0.5,
     };
@@ -30,6 +32,8 @@ describe('预设添加请求提交链路', () => {
       intro_animation_duration: 0.5,
       outro_animation: '漩涡旋转',
       outro_animation_duration: 0.5,
+      combo_animation: '叠叠乐',
+      combo_animation_duration: 0.6,
       transition: '中心旋转',
       transition_duration: 0.5,
     };

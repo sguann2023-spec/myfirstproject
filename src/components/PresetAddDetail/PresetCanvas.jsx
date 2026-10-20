@@ -2,7 +2,7 @@ import React from 'react';
 import { Stage, Layer, Group, Rect, Image as CanvasImage, Transformer } from 'react-konva';
 import { previewGeometry, transformSettings } from './presetModel';
 
-export default function PresetCanvas({ preset, metadata, canvas, settings, disabled, onChange, onChoose }) {
+function PresetCanvas({ preset, metadata, canvas, settings, disabled, onChange, onChoose }) {
   const nodeRef = React.useRef(null);
   const transformerRef = React.useRef(null);
   const [image, setImage] = React.useState(null);
@@ -19,7 +19,12 @@ export default function PresetCanvas({ preset, metadata, canvas, settings, disab
   const dimensions = metadata?.width && metadata?.height ? metadata :
     image ? { width: image.naturalWidth, height: image.naturalHeight } : metadata;
   const geometry = previewGeometry(canvas, dimensions);
-  const { width, height, ratio, presetWidth, presetHeight } = geometry;
+  const { width, height, ratio } = geometry;
+  // Match the fitted media size and normalized center offsets used by Jianying.
+  const mediaFit = Math.min(width / geometry.presetWidth, height / geometry.presetHeight);
+  const presetWidth = geometry.presetWidth * mediaFit;
+  const presetHeight = geometry.presetHeight * mediaFit;
+  const positionRatio = ratio / 2;
   React.useLayoutEffect(() => {
     transformerRef.current?.nodes(disabled || !nodeRef.current ? [] : [nodeRef.current]);
     transformerRef.current?.getLayer()?.batchDraw();
@@ -27,8 +32,8 @@ export default function PresetCanvas({ preset, metadata, canvas, settings, disab
   const commit = () => {
     const node = nodeRef.current;
     if (!node || disabled) return;
-    const patch = transformSettings(node, geometry);
-    node.position({ x: width / 2 + patch.positionX * ratio, y: height / 2 - patch.positionY * ratio });
+    const patch = transformSettings(node, { ...geometry, ratio: positionRatio });
+    node.position({ x: width / 2 + patch.positionX * positionRatio, y: height / 2 - patch.positionY * positionRatio });
     node.scale({ x: patch.scaleXPercent / 100, y: patch.scaleYPercent / 100 });
     node.rotation(patch.rotation);
     onChange(patch);
@@ -42,8 +47,8 @@ export default function PresetCanvas({ preset, metadata, canvas, settings, disab
       <Layer x={12} y={12}>
         <Rect width={width} height={height} fill="#111111" listening={false} />
         <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
-        <Group ref={nodeRef} name="preset-object" x={width / 2 + settings.positionX * ratio}
-          y={height / 2 - settings.positionY * ratio}
+        <Group ref={nodeRef} name="preset-object" x={width / 2 + settings.positionX * positionRatio}
+          y={height / 2 - settings.positionY * positionRatio}
           offsetX={presetWidth / 2} offsetY={presetHeight / 2}
           width={presetWidth} height={presetHeight}
           scaleX={settings.scaleXPercent / 100} scaleY={settings.scaleYPercent / 100}
@@ -63,3 +68,12 @@ export default function PresetCanvas({ preset, metadata, canvas, settings, disab
     </Stage>
   </div>;
 }
+
+export default React.memo(PresetCanvas, (prev, next) => (
+  prev.preset === next.preset &&
+  prev.metadata?.width === next.metadata?.width && prev.metadata?.height === next.metadata?.height &&
+  prev.canvas?.width === next.canvas?.width && prev.canvas?.height === next.canvas?.height &&
+  prev.disabled === next.disabled && prev.onChange === next.onChange && prev.onChoose === next.onChoose &&
+  ['positionX', 'positionY', 'scaleXPercent', 'scaleYPercent', 'rotation', 'uniformScale']
+    .every((key) => Object.is(prev.settings[key], next.settings[key]))
+));

@@ -70,7 +70,7 @@ const getDraftTitle = (draft: PinnedDraftPanelItem, index: number, sessionActive
     return draft.activeTitle
   }
 
-  return draft.title || draft.name || draft.draftTitle || `草稿 ${index + 1}`
+  return draft.title || draft.name || draft.draftTitle || draft.draftId || draft.id || `草稿 ${index + 1}`
 }
 
 const DraftStatusIcon = ({ status }: { status: DraftStatus }) => {

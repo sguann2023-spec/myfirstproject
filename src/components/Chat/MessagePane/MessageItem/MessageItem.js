@@ -12,7 +12,7 @@ import appStore from '../../../../renderer/src/store';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import { buildDigitalHumanRequestAgentPrompt, buildDigitalHumanRequestApiCurl, buildDigitalHumanRequestTextPrompt } from '../../../../shared/digitalHumanRequest';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
-import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDigitalHumanRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData, isDigitalHumanRequestCozeSupported } from './cozeTransforms';
+import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDigitalHumanRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildImageAddRequestCozeClipboardData, buildImageGenerateRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData, isDigitalHumanRequestCozeSupported } from './cozeTransforms';
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
@@ -164,6 +164,20 @@ const buildAudioAddRequestSignature = (audioAddRequest = null) => {
     trackName: String(audioAddRequest?.track_name || audioAddRequest?.trackName || ''),
     effectType: String(audioAddRequest?.effect_type || audioAddRequest?.effectType || ''),
     effectParams: audioAddRequest?.effect_params || audioAddRequest?.effectParams || []
+  });
+};
+const buildImageAddRequestSignature = (imageAddRequest = null) => {
+  if (!imageAddRequest || typeof imageAddRequest !== 'object') return '';
+  return JSON.stringify({
+    draftId: String(imageAddRequest?.draft_id || imageAddRequest?.draftId || ''),
+    imageUrl: String(imageAddRequest?.image_url || imageAddRequest?.imageUrl || ''),
+    start: Number(imageAddRequest?.start ?? 0),
+    end: Number(imageAddRequest?.end ?? 0),
+    trackName: String(imageAddRequest?.track_name || imageAddRequest?.trackName || ''),
+    scaleX: Number(imageAddRequest?.scale_x ?? imageAddRequest?.scaleX ?? 0),
+    scaleY: Number(imageAddRequest?.scale_y ?? imageAddRequest?.scaleY ?? 0),
+    rotation: Number(imageAddRequest?.rotation ?? 0),
+    alpha: Number(imageAddRequest?.alpha ?? 0)
   });
 };
 const buildAiVideoRequestSignature = (aiVideoRequest = null) => {
@@ -515,6 +529,51 @@ const buildAudioAddRequestApiCurl = (audioAddRequest = null) => {
     `--data '${payloadText}'`
   ].join('\n');
 };
+const buildImageAddRequestApiCurl = (imageAddRequest = null) => {
+  const numberFields = [
+    ['start', imageAddRequest?.start],
+    ['end', imageAddRequest?.end],
+    ['width', imageAddRequest?.width],
+    ['height', imageAddRequest?.height],
+    ['transform_x_px', imageAddRequest?.transform_x_px ?? imageAddRequest?.transformXPx],
+    ['transform_y_px', imageAddRequest?.transform_y_px ?? imageAddRequest?.transformYPx],
+    ['rotation', imageAddRequest?.rotation],
+    ['scale_x', imageAddRequest?.scale_x ?? imageAddRequest?.scaleX],
+    ['scale_y', imageAddRequest?.scale_y ?? imageAddRequest?.scaleY],
+    ['relative_index', imageAddRequest?.relative_index ?? imageAddRequest?.relativeIndex],
+    ['alpha', imageAddRequest?.alpha],
+    ['intro_animation_duration', imageAddRequest?.intro_animation_duration ?? imageAddRequest?.introAnimationDuration],
+    ['outro_animation_duration', imageAddRequest?.outro_animation_duration ?? imageAddRequest?.outroAnimationDuration],
+    ['combo_animation_duration', imageAddRequest?.combo_animation_duration ?? imageAddRequest?.comboAnimationDuration],
+    ['transition_duration', imageAddRequest?.transition_duration ?? imageAddRequest?.transitionDuration]
+  ];
+  const stringFields = [
+    ['track_name', imageAddRequest?.track_name || imageAddRequest?.trackName],
+    ['intro_animation', imageAddRequest?.intro_animation || imageAddRequest?.introAnimation],
+    ['outro_animation', imageAddRequest?.outro_animation || imageAddRequest?.outroAnimation],
+    ['combo_animation', imageAddRequest?.combo_animation || imageAddRequest?.comboAnimation],
+    ['transition', imageAddRequest?.transition]
+  ];
+  const payload = {
+    image_url: String(imageAddRequest?.image_url || imageAddRequest?.imageUrl || '').trim()
+  };
+  numberFields.forEach(([key, value]) => {
+    const normalized = Number(value);
+    if (Number.isFinite(normalized)) payload[key] = normalized;
+  });
+  payload.draft_id = String(imageAddRequest?.draft_id || imageAddRequest?.draftId || '').trim();
+  stringFields.forEach(([key, value]) => {
+    const normalized = String(value || '').trim();
+    if (normalized) payload[key] = normalized;
+  });
+  const payloadText = JSON.stringify(payload, null, 4);
+  return [
+    "curl --location 'https://open.vectcut.com/cut_jianying/add_image' \\",
+    "--header 'Authorization: Bearer <token>' \\",
+    "--header 'Content-Type: application/json' \\",
+    `--data '${payloadText}'`
+  ].join('\n');
+};
 const buildAiVideoRequestApiCurl = (aiVideoRequest = null) => {
   const content = Array.isArray(aiVideoRequest?.content) ? aiVideoRequest.content : [];
   const payload = {
@@ -653,6 +712,9 @@ const MessageItem = ({
   const audioAddRequest = message?.audioAddRequest && typeof message.audioAddRequest === 'object'
     ? message.audioAddRequest
     : null;
+  const imageAddRequest = message?.imageAddRequest && typeof message.imageAddRequest === 'object'
+    ? message.imageAddRequest
+    : null;
   const aiVideoRequest = message?.aiVideoRequest && typeof message.aiVideoRequest === 'object'
     ? message.aiVideoRequest
     : null;
@@ -673,11 +735,11 @@ const MessageItem = ({
     ? message.subtitleStoryboardRequest
     : null;
   const hasDraftAgentCompatibleRequest = Boolean(
-    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || aiVideoRequest || imageGenerateRequest || digitalHumanRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
+    draftRequest || draftExportRequest || draftDownloadRequest || draftModifyRequest || textAddRequest || presetAddRequest || speechRequest || seedAudioRequest || voiceConversionRequest || audioAddRequest || imageAddRequest || aiVideoRequest || imageGenerateRequest || digitalHumanRequest || draftInspectRequest || reversePromptRequest || message?.subtitleRecognitionRequest || subtitleStoryboardRequest
   );
   const canShowDraftAgentAction = isUser && hasConnectedExternalAgent && hasDraftAgentCompatibleRequest;
-  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || Boolean(imageGenerateRequest) || Boolean(digitalHumanRequest));
-  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(aiVideoRequest) || isLipSyncDigitalHumanRequest);
+  const canShowDraftApiAction = isUser && !draftExportRequest && !draftDownloadRequest && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(seedAudioRequest) || Boolean(voiceConversionRequest) || Boolean(audioAddRequest) || Boolean(imageAddRequest) || Boolean(aiVideoRequest) || Boolean(imageGenerateRequest) || Boolean(digitalHumanRequest));
+  const canShowDraftCozeAction = isUser && (Boolean(draftRequest) || Boolean(draftModifyRequest) || Boolean(textAddRequest) || Boolean(presetAddRequest) || Boolean(speechRequest) || Boolean(audioAddRequest) || Boolean(imageAddRequest) || Boolean(aiVideoRequest) || Boolean(imageGenerateRequest) || isLipSyncDigitalHumanRequest);
   const storeAssistantMessageId = String(message?.storeAssistantMessageId || '').trim();
   const canUseLiveAssistantTokens = isAssistant && Boolean(storeAssistantMessageId);
   const [copied, setCopied] = React.useState(false);
@@ -709,6 +771,10 @@ const MessageItem = ({
           ? buildDigitalHumanRequestCozeClipboardData(digitalHumanRequest)
           : (aiVideoRequest
           ? buildAiVideoRequestCozeClipboardData(aiVideoRequest)
+          : (imageGenerateRequest
+          ? buildImageGenerateRequestCozeClipboardData(imageGenerateRequest)
+          : (imageAddRequest
+          ? buildImageAddRequestCozeClipboardData(imageAddRequest)
           : (audioAddRequest
           ? buildAudioAddRequestCozeClipboardData(audioAddRequest)
           : (presetAddRequest
@@ -719,7 +785,7 @@ const MessageItem = ({
               ? buildTextAddRequestCozeClipboardData(textAddRequest)
               : (draftModifyRequest
                 ? buildDraftModifyRequestCozeClipboardData(draftModifyRequest)
-                : buildDraftRequestCozeClipboardData(draftRequest))))))),
+                : buildDraftRequestCozeClipboardData(draftRequest))))))))),
         imageAttachments: []
       };
     }
@@ -730,6 +796,8 @@ const MessageItem = ({
       ? buildAiVideoRequestApiCurl(aiVideoRequest)
       : (imageGenerateRequest
       ? buildImageGenerateRequestApiCurl(imageGenerateRequest)
+      : (imageAddRequest
+      ? buildImageAddRequestApiCurl(imageAddRequest)
       : (audioAddRequest
       ? buildAudioAddRequestApiCurl(audioAddRequest)
       : (presetAddRequest
@@ -744,7 +812,7 @@ const MessageItem = ({
             ? buildTextAddRequestApiCurl(textAddRequest)
             : (draftModifyRequest
               ? buildDraftModifyRequestApiCurl(draftModifyRequest, message)
-              : buildDraftRequestApiCurl(draftRequest, message))))))))));
+              : buildDraftRequestApiCurl(draftRequest, message)))))))))));
     return {
       ...message,
       content: apiContent,
@@ -757,6 +825,7 @@ const MessageItem = ({
     draftModifyRequest,
     draftRequest,
     audioAddRequest,
+    imageAddRequest,
     aiVideoRequest,
     imageGenerateRequest,
     digitalHumanRequest,
@@ -1041,6 +1110,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildSeedAudioRequestSignature(prevMessage.seedAudioRequest) === buildSeedAudioRequestSignature(nextMessage.seedAudioRequest)
     && buildSpeechRequestSignature(prevMessage.speechRequest) === buildSpeechRequestSignature(nextMessage.speechRequest)
     && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
+    && buildImageAddRequestSignature(prevMessage.imageAddRequest) === buildImageAddRequestSignature(nextMessage.imageAddRequest)
     && buildAiVideoRequestSignature(prevMessage.aiVideoRequest) === buildAiVideoRequestSignature(nextMessage.aiVideoRequest)
     && buildDigitalHumanRequestSignature(prevMessage.digitalHumanRequest) === buildDigitalHumanRequestSignature(nextMessage.digitalHumanRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)

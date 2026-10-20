@@ -5,6 +5,8 @@ import '@renderer/assets/styles/tailwind.css'
 import { ConfigProvider } from 'antd'
 import { createRoot } from 'react-dom/client'
 import { installRendererHttpClient } from '../../http/installFetchInterceptor'
+import { createRendererRootErrorHandlers } from '../../shared/rendererRootErrors'
+import { loggerService } from './services/LoggerService'
 
 installRendererHttpClient()
 
@@ -13,7 +15,12 @@ installRendererHttpClient()
 // document.documentElement.classList.add('tw-root-scope')
 // document.body.classList.add('tw-root-scope')
 
-const root = createRoot(document.getElementById('root') as HTMLElement)
+const logger = loggerService.withContext('RendererRoot')
+const root = createRoot(
+  document.getElementById('root') as HTMLElement,
+  createRendererRootErrorHandlers(logger)
+)
+logger.info('Renderer root error handlers installed')
 const view = new URLSearchParams(window.location.search).get('view')
 
 async function bootstrap() {
