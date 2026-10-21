@@ -14,6 +14,7 @@ export interface TimingMath<T> {
   subtract: (a: T, b: T) => T
   max: (a: T, b: T) => T
   store: (value: T) => T
+  measureDuration?: (element: SceneElement, measure: () => T | undefined) => T | undefined
   validate: (element: SceneElement, start: T, duration: T) => void
   validateContent: (element: SceneElement, duration: T) => void
 }
@@ -26,6 +27,10 @@ export function createSceneTimingEngine<T>(
 ) {
   const contentCache = new Map<string, T>()
   const measuring = new Set<string>()
+  function elementDuration(element: SceneElement): T | undefined {
+    const measure = () => element.auto_duration ? contentDuration(element) : fields(element).duration
+    return math.measureDuration ? math.measureDuration(element, measure) : measure()
+  }
   function contentDuration(element: SceneElement): T {
     if (contentCache.has(element.id)) return contentCache.get(element.id)!
     if (measuring.has(element.id)) throw new Error(`Scene 内容时长存在循环依赖：${element.id}`)
@@ -76,7 +81,7 @@ export function createSceneTimingEngine<T>(
       const linkedEnd = rule?.end ? anchorTime(rule.end, 'end')
         : settings.endAtParent ? parentDuration : settings.end
       if ((rule?.end || settings.endAtParent) && linkedEnd === undefined) return unavailable()
-      const explicitDuration = element.auto_duration ? contentDuration(element) : settings.duration
+      const explicitDuration = elementDuration(element)
       let localStart: T | undefined
       if (rule?.start) localStart = anchorTime(rule.start, 'start')
       else if (settings.start === undefined && linkedEnd !== undefined && explicitDuration !== undefined) {
@@ -95,5 +100,5 @@ export function createSceneTimingEngine<T>(
     }
     return { resolve }
   }
-  return { scope, contentDuration }
+  return { scope, contentDuration, elementDuration }
 }

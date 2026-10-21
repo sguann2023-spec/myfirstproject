@@ -1,6 +1,9 @@
 import { createSceneTimingEngine } from './sceneTiming'
+import { mediaLoopSlices } from './mediaLoop'
+import { STICKER_TRANSFORMS, stickerTransformParams, type StickerTransforms } from './stickerWorkflow'
+import { validateResource, type ResourceFields } from './resourceWorkflow'
 
-export interface SceneElement {
+export interface SceneElement extends StickerTransforms, ResourceFields {
   id: string
   name?: string
   type: 'composition' | 'image' | 'text' | 'video' | 'audio' | 'sticker' | 'filter' | 'effect'
@@ -10,6 +13,9 @@ export interface SceneElement {
   target_start_time?: number
   target_end_time?: number | 'end'
   source_start_time?: number
+  sticker_id?: string
+  source_duration?: number
+  loop?: boolean
   duration?: number
   auto_duration?: boolean
   batch_scene?: unknown
@@ -112,7 +118,8 @@ export function compileSceneTemplate(
 }
 
 export function analyzeSceneTemplate(template: SceneTemplate, options: SceneCompileOptions = {}) {
-  const { duration, timeline } = processSceneTemplate(template, options, true)
+  // Local editing still needs descendants whose ancestors are outside the visible export range.
+  const { duration, timeline } = processSceneTemplate(template, options, true, true)
   return { duration, timeline }
 }
 
@@ -162,7 +169,7 @@ function processSceneTemplate(
       }
       ids.add(element.id)
       parents.set(element.id, parentId)
-      if (!['composition', 'image', 'text', 'video', 'audio', ...(timelineOnly ? ['sticker', 'filter', 'effect'] : [])].includes(element.type)) {
+      if (!['composition', 'image', 'text', 'video', 'audio', 'sticker', 'filter', 'effect'].includes(element.type)) {
         throw new Error(`${element.id} 暂不支持元素类型：${element.type}`)
       }
       track(element)
@@ -175,7 +182,10 @@ function processSceneTemplate(
         'track_name', 'track_relative_index',
         ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration', 'batch_scene'] :
           element.type === 'text' ? ['text', 'fill_color', 'x', 'y', 'x_anchor', 'y_anchor', 'font_family', 'font_size'] :
-            ['source', 'height', ...(['video', 'audio'].includes(element.type) ? ['source_start_time'] : [])])])
+          element.type === 'sticker' ? ['sticker_id', ...STICKER_TRANSFORMS.map(([key]) => key)] :
+          element.type === 'filter' ? ['filter_type', 'intensity'] :
+          element.type === 'effect' ? ['effect_type', 'effect_category', 'params'] :
+            ['source', 'height', ...(['video', 'audio'].includes(element.type) ? ['source_start_time', 'source_duration', 'loop'] : [])])])
       for (const key of Object.keys(element)) {
         if (key === 'time') throw new Error(`${element.id}.time 已移除，请使用 target_start_time；结束锚定请使用 target_end_time`)
         if (!allowed.has(key)) throw new Error(`${element.id} 暂不支持属性：${key}`)
@@ -185,7 +195,16 @@ function processSceneTemplate(
         seconds(element.target_end_time, `${element.id}.target_end_time`)
       }
       if (element.source_start_time !== undefined) seconds(element.source_start_time, `${element.id}.source_start_time`)
+      if (element.source_duration !== undefined) positiveDuration(element.source_duration, `${element.id}.source_duration`)
+      if (element.loop !== undefined && typeof element.loop !== 'boolean') throw new Error(`${element.id}.loop 必须是布尔值`)
+      if (element.loop && !timelineOnly && element.source_duration === undefined) throw new Error(`${element.id} 媒体循环缺少有效源时长`)
       if (element.duration !== undefined) positiveDuration(element.duration, `${element.id}.duration`)
+      if (element.type === 'sticker') {
+        if (element.sticker_id !== undefined && typeof element.sticker_id !== 'string') throw new Error(`${element.id}.sticker_id 必须是字符串`)
+        if (!timelineOnly && !element.sticker_id?.trim()) throw new Error(`${element.id} 贴纸缺少 sticker_id/resource_id，请填写真实资源 ID`)
+        stickerTransformParams(element, element.id)
+      }
+      if (element.type === 'filter' || element.type === 'effect') validateResource(element, element.type, element.id, timelineOnly)
       if (element.type === 'composition') {
         if (element.auto_duration !== undefined && typeof element.auto_duration !== 'boolean') {
           throw new Error(`${element.id}.auto_duration 必须是布尔值`)
@@ -300,14 +319,16 @@ function processSceneTemplate(
     }
   }
   const script: Array<{
-    type: 'action'; id: string; index: number; action_type: 'add_image' | 'add_text' | 'add_video' | 'add_audio'
+    type: 'action'; id: string; index: number; action_type: 'add_image' | 'add_text' | 'add_video' | 'add_audio' | 'add_sticker' | 'add_filter' | 'add_effect'
     params: {
-      image_url?: string; video_url?: string; audio_url?: string; text?: string; font_color?: string
+      [key: string]: unknown
+      image_url?: string; video_url?: string; audio_url?: string; text?: string; font_color?: string; sticker_id?: string
       target_start?: number; duration?: number
       start: number; end: number; width: number; height: number
       track_name: string; relative_index?: number
     }
   }> = []
+  const actionIds = new Set(ids)
 
   function walk(
     elements: SceneElement[], parentStart: number, parentDuration: number,
@@ -325,13 +346,17 @@ function processSceneTemplate(
       const start = Number(Math.min(clipEnd, Math.max(clipStart, nominalStart)).toFixed(9))
       const end = Number(Math.max(start, Math.min(clipEnd, parentStart + localEnd)).toFixed(9))
       const visible = end > start
+      const sourceElapsed = element.loop && element.source_duration
+        ? (Math.round((start - nominalStart) * 1_000_000) % Math.round(element.source_duration * 1_000_000)) / 1_000_000
+        : start - nominalStart
       timeline.push({
         id: element.id, parentId, type: element.type,
         localStart: Number(localStart.toFixed(9)), start, end, duration,
         visibleDuration: Number((end - start).toFixed(9)), visible,
         ...(['video', 'audio'].includes(element.type) && visible ? {
-          sourceStart: Number(((element.source_start_time ?? 0) + start - nominalStart).toFixed(9)),
-          sourceEnd: Number(((element.source_start_time ?? 0) + end - nominalStart).toFixed(9))
+          sourceStart: Number(((element.source_start_time ?? 0) + sourceElapsed).toFixed(9)),
+          sourceEnd: Number(((element.source_start_time ?? 0) + sourceElapsed +
+            (element.loop && element.source_duration ? Math.min(end - start, element.source_duration - sourceElapsed) : end - start)).toFixed(9))
         } : {})
       })
       if (!visible) {
@@ -360,6 +385,25 @@ function processSceneTemplate(
           }
         })
         warnings.push(`${element.id} 文字时间与颜色已应用；字体、字号、位置和锚点尚未适配，使用后端默认布局`)
+      } else if (element.type === 'filter' || element.type === 'effect') {
+        const resource = element.type === 'filter'
+          ? { filter_type: element.filter_type!.trim(), intensity: element.intensity ?? 100 }
+          : { effect_type: element.effect_type!.trim(), effect_category: element.effect_category ?? 'scene',
+            ...(element.params !== undefined ? { params: element.params } : {}) }
+        script.push({
+          type: 'action', id: element.id, index: script.length,
+          action_type: element.type === 'filter' ? 'add_filter' : 'add_effect',
+          params: { ...resource, start, end, width: source.width, height: source.height, ...backendTrack(element, parentId) }
+        })
+      } else if (element.type === 'sticker') {
+        script.push({
+          type: 'action', id: element.id, index: script.length, action_type: 'add_sticker',
+          params: {
+            sticker_id: element.sticker_id!.trim(), start, end,
+            width: source.width, height: source.height,
+            ...backendTrack(element, parentId), ...stickerTransformParams(element, element.id)
+          }
+        })
       } else {
         const originalSource = element.source
         const resolvedSource = typeof originalSource === 'string'
@@ -375,7 +419,24 @@ function processSceneTemplate(
         const index = script.length
         const trackParams = backendTrack(element, parentId)
         const resolved = timeline[timeline.length - 1]
-        if (element.type === 'audio') {
+        if (element.loop && ['audio', 'video'].includes(element.type)) {
+          const loopTrack = element.type === 'audio'
+            ? { track_name: trackParams.track_name } : trackParams
+          const slices = mediaLoopSlices(start, end, nominalStart, element.source_start_time ?? 0, element.source_duration!)
+          slices.forEach((slice, iteration) => {
+            let id = iteration === 0 ? element.id : `${element.id}__loop_${iteration}`
+            if (iteration) while (actionIds.has(id)) id += '_'
+            actionIds.add(id)
+            script.push({
+              type: 'action', id, index: script.length,
+              action_type: element.type === 'audio' ? 'add_audio' : 'add_video',
+              params: {
+                [element.type === 'audio' ? 'audio_url' : 'video_url']: resolvedSource,
+                ...slice, width: source.width, height: source.height, ...loopTrack
+              }
+            })
+          })
+        } else if (element.type === 'audio') {
           const { relative_index: _relativeIndex, ...audioTrackParams } = trackParams
           script.push({
             type: 'action', id: element.id, index, action_type: 'add_audio',

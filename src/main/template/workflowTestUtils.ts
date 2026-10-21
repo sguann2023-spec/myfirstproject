@@ -10,7 +10,10 @@ export function flatSentenceImageFixture(): DraftTemplate {
   const children = scene.tracks[0].segments.filter(isSceneSegment)
   scene.tracks = children.flatMap((child, index) => child.tracks.map((track) => {
     track.track_relative_index = track.type === 'text' ? children.length + index : index
-    if (track.type === 'text') track.segments[0].target_timerange.start = index * 5_000_000
+    if (track.type === 'text') {
+      track.segments[0].target_timerange.start = index * 5_000_000
+      track.segments[0].dynamic = ['target_timerange.start', 'target_timerange.duration']
+    }
     return track
   }))
   scene.auto_duration = false

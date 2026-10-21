@@ -19,12 +19,15 @@ export interface TemplateWorkflow extends Record<string, unknown> {
   width: number
   height: number
   inputs: Record<string, unknown>
+  input_labels?: Array<{ path: string[]; label: string }>
   script: WorkflowStep[]
 }
 
 export interface WorkflowInputBinding {
   key: string
   variable: string
-  encoding: 'identity' | 'json'
+  // Path within the root input; "*" denotes an item in a containing batch array.
+  inputPath?: string[]
+  encoding: 'identity' | 'json' | 'text'
   runtime: boolean
 }

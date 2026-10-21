@@ -8,13 +8,13 @@ import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/
 
 const initial = () => ({ templateJson: JSON.stringify(createEditorPreset('sentence-image')) })
 const appendText = () => addEditorElement(initial(),
-  { type: 'text', selectedId: 'sentence-scene-3', scopeId: 'scene-1' })
+  { type: 'text', selectedId: 'sentence-scenes', scopeId: 'scene-1' })
 
-it('父 Scene 内选中子 Scene 添加文字，进入同轨而非子 Scene 内部', () => {
+it('父 Scene 内明确选中轨道添加文字，进入同轨而非子 Scene 内部', () => {
   const input = initial()
   const before = input.templateJson
   const added = addEditorElement(input,
-    { type: 'text', selectedId: 'sentence-scene-3', scopeId: 'scene-1' })
+    { type: 'text', selectedId: 'sentence-scenes', scopeId: 'scene-1' })
   expect(input.templateJson).toBe(before)
   const draft = JSON.parse(added.templateJson)
   expect(draft.tracks).toBeUndefined()
@@ -34,9 +34,9 @@ it('父 Scene 内选中子 Scene 添加文字，进入同轨而非子 Scene 内�
 
 it('父 Scene 同轨可依次追加文字、Scene 和图片', () => {
   const text = appendText()
-  const scene = addEditorElement(text, { type: 'scene', selectedId: text.selectedId, scopeId: 'scene-1' })
+  const scene = addEditorElement(text, { type: 'scene', selectedId: 'sentence-scenes', scopeId: 'scene-1' })
   const image = addEditorElement(scene,
-    { type: 'image', selectedId: scene.selectedId, scopeId: 'scene-1', source: '/tmp/photo.png' })
+    { type: 'image', selectedId: 'sentence-scenes', scopeId: 'scene-1', source: '/tmp/photo.png' })
   const model = analyzeEditorDocument(image)
   expect(model.duration).toBe(30)
   expect(model.timeline.find(item => item.id === image.selectedId))
@@ -49,7 +49,7 @@ it('父 Scene 同轨可依次追加文字、Scene 和图片', () => {
 it('图片、视频和音频都可与父轨道的子 Scene 混排', () => {
   for (const type of ['image', 'video', 'audio'] as const) {
     const added = addEditorElement(initial(),
-      { type, selectedId: 'sentence-scene-3', scopeId: 'scene-1', source: '/tmp/media' })
+      { type, selectedId: 'sentence-scenes', scopeId: 'scene-1', source: '/tmp/media' })
     expect(analyzeEditorDocument(added).timeline.find(item => item.id === added.selectedId))
       .toMatchObject({ parentId: 'scene-1', type, localStart: 15, duration: 5 })
   }
@@ -65,6 +65,9 @@ it('进入子 Scene 后才向它的内部添加，不影响父混排轨道', () 
 
 it('混排后时间关联、动态输入和编译保持一致', () => {
   const added = appendText()
+  const explicit = JSON.parse(added.templateJson)
+  explicit.scenes[0].tracks[0].segments[0].tracks[0].segments[0].dynamic = ['target_timerange.duration']
+  added.templateJson = JSON.stringify(explicit)
   const changed = applyEditorAction(added,
     { type: 'retime', id: 'text-1', start: 0, duration: 7, edge: 'end' })
   const model = analyzeEditorDocument(changed)
@@ -74,10 +77,25 @@ it('混排后时间关联、动态输入和编译保持一致', () => {
   expect(workflowActions(compiled.workflow).filter(item => item.action_type === 'add_text')).toHaveLength(4)
   expect(workflowActions(compiled.workflow).filter(item => item.action_type === 'add_image')).toHaveLength(3)
   expect(compiled.dynamicInputs.map(input => input.key))
-    .toEqual(compileEditorDocument(initial()).dynamicInputs.map(input => input.key))
+    .toEqual(compileEditorDocument(added).dynamicInputs.map(input => input.key))
+  const materialId = JSON.parse(added.templateJson).scenes[0].tracks[0].segments.at(-1).material_id
+  expect(compiled.dynamicInputs.find(input => input.key === `${materialId}.content`)).toBeDefined()
   expect(compiled.dynamicInputs.find(input => input.key === 'text-1.target_timerange.duration')?.defaultValue)
     .toBe(7_000_000)
 });
+
+it('普通元素选中后默认在所属分镜创建同级轨道，不使用其轨道剩余时长', () => {
+  const draft = createEditorPreset('sentence-image')
+  const added = addEditorElement({ templateJson: JSON.stringify(draft) },
+    { type: 'scene', selectedId: 'text-3', scopeId: 'sentence-scene-3' })
+  const next = JSON.parse(added.templateJson)
+  const child = next.scenes[0].tracks[0].segments[2]
+  expect(child.tracks).toHaveLength(3)
+  expect(child.tracks[0].segments).toHaveLength(1)
+  expect(child.tracks.at(-1).segments[0]).toMatchObject({ id: added.selectedId, type: 'scene' })
+  expect(analyzeEditorDocument(added).timeline.find(item => item.id === added.selectedId))
+    .toMatchObject({ parentId: 'sentence-scene-3', localStart: 0, duration: 5 })
+})
 
 it('根层仍拒绝 tracks，且旧的选中 Scene 添加方式不误入根层', () => {
   const draft = createEditorPreset('empty')

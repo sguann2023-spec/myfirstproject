@@ -2610,6 +2610,7 @@
           "video": "Video",
           "video_understand": "Video Understanding",
           "voice_conversion": "Voice Conversion",
+          "voice_library": "Voice Library",
           "zcaceres_fetch": "Web Fetch"
         },
         "tools": {
@@ -2764,6 +2765,11 @@
           "speech": {
             "generate_speech": "Generate Speech"
           },
+          "voice_library": {
+            "list_voices": "List Voices",
+            "get_voice_filter_options": "Get Voice Filters",
+            "clone_voice": "Clone Voice"
+          },
           "storyboard_editor": {
             "inspect_storyboard": "Inspect Storyboard",
             "update_part_text": "Update Part Text",
@@ -2777,6 +2783,9 @@
             "insert_blank_part": "Insert Blank Part",
             "adjust_part_bounds": "Adjust Part Bounds",
             "apply_operations": "Apply Operations"
+          },
+          "audio_understand": {
+            "submit_audio_understanding_task": "Audio Understanding"
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "Check Subtitle Recognition Task Status",

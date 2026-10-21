@@ -25,8 +25,20 @@ def main():
     if len(functions) != len(names):
         raise RuntimeError("Backend workflow contract functions changed")
     actions = []
+    signatures = {}
+    for action in ("add_sticker", "add_filter", "add_effect"):
+        path = backend.parent / f"{action}_impl.py"
+        if path.exists():
+            signatures[action] = next(node for node in ast.parse(path.read_text()).body
+                                      if isinstance(node, ast.FunctionDef) and node.name == f"{action}_impl")
 
     def execute_action(action_type, params):
+        if action_type in signatures:
+            signature = signatures[action_type]
+            names = [arg.arg for arg in signature.args.args]
+            required = names[:len(names) - len(signature.args.defaults)]
+            if set(params) - set(names) or set(required) - set(params):
+                raise RuntimeError(f"{action_type} parameters do not match backend signature")
         actions.append({"action_type": action_type, "params": copy.deepcopy(params)})
         return {"draft_id": "contract-draft"}
 

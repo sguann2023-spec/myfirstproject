@@ -3,6 +3,8 @@ import { applyDynamicInputs, getDynamicInputs } from './dynamicInputs'
 import { compileDynamicWorkflow } from './dynamicWorkflow'
 import { backendTrackType, isSceneSegment, logicalTrackLayout, mapWorkflowTracks, materialElementType, validateLogicalTrackTimeline } from './draftTracks'
 import { mediaDurationMicros } from '../../shared/templateMediaTiming'
+import { stickerClipTransforms, stickerIdentifier } from './stickerWorkflow'
+import { resourceFields } from './resourceWorkflow'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -292,12 +294,22 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
           if (!segment.auto_timing?.end) delete element.target_end_time
           element.duration = duration / 1_000_000
         }
+        if (segment.loop !== undefined) {
+          element.loop = segment.loop
+          const sourceDuration = mediaDurationMicros(segment, material)
+          if (segment.loop && sourceDuration !== undefined) element.source_duration = sourceDuration / 1_000_000
+        }
         if (type === 'text') {
           let content: { text?: unknown }
           try { content = JSON.parse(material.content ?? '') } catch { throw new Error(`${material.id}.content 必须是文字 JSON 字符串`) }
           if (!content || typeof content.text !== 'string') throw new Error(`${material.id}.content 缺少 text`)
           element.text = content.text
           warnings.push(`${segment.id} 暂仅转换文字内容，富文本样式未适配`)
+        } else if (type === 'sticker') {
+          element.sticker_id = stickerIdentifier(material)
+          Object.assign(element, stickerClipTransforms(segment.clip, segment.id))
+        } else if (type === 'filter' || type === 'effect') {
+          Object.assign(element, resourceFields(material, type, segment.id))
         } else if (['image', 'video', 'audio'].includes(type)) {
           element.source = material.remote_url || material.path
           if (type !== 'image') {
@@ -315,7 +327,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
             if (segment.speed !== undefined && segment.speed !== 1) throw new Error(`${segment.id} 暂不支持非 1 倍速`)
           }
         }
-        if (segment.clip) warnings.push(`${segment.id}.clip 已保留，当前 Workflow 尚未适配画面变换`)
+        if (segment.clip && type !== 'sticker') warnings.push(`${segment.id}.clip 已保留，当前 Workflow 尚未适配画面变换`)
         if (Array.isArray(segment.extra_material_refs) && segment.extra_material_refs.length) {
           warnings.push(`${segment.id}.extra_material_refs 已保留，当前 Workflow 尚未适配附加素材`)
         }
@@ -354,26 +366,7 @@ export function compileDraftTemplate(draft: DraftTemplate, modifications: Record
   const dynamicInputs = getDynamicInputs(draft)
   draft = applyDynamicInputs(draft, modifications)
   const normalized = normalizeDraftTemplate(draft)
-  function checkLoops(scenes: DraftScene[]) {
-    for (const scene of scenes) {
-      for (const track of scene.tracks) for (const segment of track.segments) {
-        if (isSceneSegment(segment)) checkLoops([segment])
-        else if (segment.loop) throw new Error(`${segment.id} 媒体循环暂未支持 Workflow 导出`)
-      }
-      checkLoops(scene.scenes ?? [])
-    }
-  }
-  checkLoops(draft.scenes)
   if (normalized.hasKeyframes) throw new Error('模版包含关键帧，当前尚未支持关键帧 Workflow 执行，禁止丢弃动画后导出')
-  function check(elements: SceneElement[]) {
-    for (const element of elements) {
-      if (['sticker', 'filter', 'effect'].includes(element.type)) {
-        throw new Error(`${element.id} 的${{ sticker: '贴纸', filter: '滤镜', effect: '特效' }[element.type]}轨道暂未支持 Workflow 执行`)
-      }
-      if (element.elements) check(element.elements)
-    }
-  }
-  check(normalized.template.elements)
   const backend = mapWorkflowTracks(normalized.template, normalized.logicalTracks)
   const result = compileSceneTemplate(backend.template)
   const dynamic = getDynamicInputs(draft).length

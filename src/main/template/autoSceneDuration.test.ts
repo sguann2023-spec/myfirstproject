@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { analyzeDraftTemplate, compileDraftTemplate, type DraftTemplate } from './draftTemplate'
+import { analyzeDraftTemplate, compileDraftTemplate, normalizeDraftTemplate, type DraftTemplate } from './draftTemplate'
 import { createEditorPreset } from './editorPresets'
 import { addEditorElement, analyzeEditorDocument } from './editorModel'
+import { compileSceneTemplate } from './sceneTemplate'
+import { applyEditorAction } from './editorActions'
+import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/editorView'
 
 const fixture = () => createEditorPreset('mixed-track')
 const last = (template: DraftTemplate) => template.scenes[0].tracks[1].segments[3]
@@ -131,5 +134,27 @@ describe('Scene 按内部内容自适应时长', () => {
     expect(model.duration).toBe(21)
     expect(model.timeline.find(({ id }) => id === added.selectedId)).toMatchObject({ start: 16, end: 21, duration: 5 })
     expect(JSON.parse(added.templateJson).scenes[0].auto_duration).toBe(true)
+  })
+
+  it('父级裁掉整个子分镜时，内部片段仍在局部时间轴可见并允许继续添加和编辑', () => {
+    const template = createEditorPreset('sentence-image')
+    template.scenes[0].auto_duration = false
+    template.scenes[0].target_timerange.duration = 5_000_000
+    const original = payload(template)
+    const result = analyzeEditorDocument(original)
+    const third = template.scenes[0].tracks[0].segments[2]
+    expect(result.duration).toBe(5)
+    expect(result.timeline.find(item => item.id === third.id)).toMatchObject({ localStart: 10, visible: false })
+    expect(result.timeline.find(item => item.id === 'text-3')).toMatchObject({ localStart: 0, duration: 5, visible: false })
+    const view = sceneTimeline(result, indexEditorTree(result.tree), third.id)
+    expect(view.duration).toBe(5)
+    expect(view.rows.flatMap(row => row.clips).map(clip => clip.id)).toEqual(['text-3', 'image-3'])
+    const added = addEditorElement(original, { type: 'text', scopeId: third.id, selectedId: 'text-3' })
+    expect(analyzeEditorDocument(added).timeline.find(item => item.id === added.selectedId))
+      .toMatchObject({ localStart: 0, duration: 5, visible: false })
+    const changed = applyEditorAction(added, { type: 'rename', id: added.selectedId, name: '局部文字' })
+    expect(JSON.parse(changed.templateJson).scenes[0].target_timerange.duration).toBe(5_000_000)
+    const exported = compileSceneTemplate(normalizeDraftTemplate(JSON.parse(changed.templateJson)).template)
+    expect(exported.workflow.script.some(step => step.id === added.selectedId)).toBe(false)
   })
 })

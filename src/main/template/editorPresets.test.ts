@@ -4,10 +4,45 @@ import { addEditorElement, analyzeEditorDocument, compileEditorDocument } from '
 import { TEMPLATE_PRESETS } from '../../shared/templatePresets'
 import { workflowActions } from './workflowTestUtils'
 import { isSceneSegment } from './draftTracks'
+import { inputName } from './inputNames'
+import type { TemplateWorkflow } from './workflowTypes'
 
 const document = (id: string) => ({ templateJson: JSON.stringify(createEditorPreset(id)) })
 
 describe('新模版预设', () => {
+  it.each([
+    ['text', 'text', 'content'],
+    ['audio', 'music_url', 'path'],
+    ['video', 'video_url', 'path'],
+    ['image', 'image_url', 'path']
+  ] as const)('新增 %s 默认只声明一个输入，对外字段为 %s', (type, publicField, property) => {
+    const added = addEditorElement(document('empty'), {
+      type, selectedId: 'scene-1', source: '/tmp/original.svg', sourceDuration: 5_000_000
+    })
+    const model = analyzeEditorDocument(added)
+    expect(model.dynamicInputs).toHaveLength(1)
+    expect(model.dynamicInputs[0].property).toBe(property)
+    const compiled = compileEditorDocument(added)
+    const variables = Object.keys(compiled.workflow.inputs)
+    expect(variables).toHaveLength(1)
+    const elements = (nodes: typeof model.tree): typeof model.tree => nodes.flatMap(node => [node, ...elements(node.children)])
+    const label = elements(model.tree).find(item => item.id === added.selectedId)!.name
+    expect(variables[0]).toBe(inputName(label, new Set()))
+    expect((compiled.workflow as TemplateWorkflow).input_labels).toContainEqual({ path: [variables[0]], label })
+    expect(compiled.workflow.inputs[variables[0]]).toEqual({ [publicField]: type === 'text' ? 'Your text here' : '/tmp/original.svg' })
+    expect(compiled.workflowInputBindings[0]).toMatchObject({ runtime: true, inputPath: [publicField], encoding: type === 'text' ? 'text' : 'identity' })
+  })
+
+  it.each([['sentence-image', 6], ['mixed-track', 5]] as const)('%s 每个默认素材只有内容输入，时间和样式不自动开放', (id, count) => {
+    const input = document(id)
+    const model = analyzeEditorDocument(input)
+    expect(model.dynamicInputs).toHaveLength(count)
+    expect(model.dynamicInputs.every(item => ['content', 'remote_url', 'path'].includes(item.property))).toBe(true)
+    const values = Object.values(compileEditorDocument(input).workflow.inputs)
+    expect(values).toHaveLength(count)
+    expect(values.every(value => Object.keys(value as object).length === 1 && Object.values(value as object).every(item => typeof item === 'string'))).toBe(true)
+  })
+
   it('空白模版没有素材且可继续添加', () => {
     const input = document('empty')
     const model = analyzeEditorDocument(input)
@@ -93,10 +128,10 @@ describe('新模版预设', () => {
     const segments = template.scenes[0].tracks[1].segments
     expect(segments[1]).toMatchObject({
       target_timerange: { duration: 4_000_000 },
-      auto_timing: { start: { target: 'mixed-photo-1', anchor: 'end' } },
-      dynamic: ['target_timerange.duration']
+      auto_timing: { start: { target: 'mixed-photo-1', anchor: 'end' } }
     })
     expect(segments[1].target_timerange).not.toHaveProperty('start')
+    expect(segments[1]).not.toHaveProperty('dynamic')
     segments[0].target_timerange = { start: 1_000_000, duration: 2_000_000 }
     const result = compileEditorDocument({ templateJson: JSON.stringify(template) })
     expect(result.timeline.find(({ id }) => id === 'mixed-text-1')).toMatchObject({ start: 3, end: 7, duration: 4 })

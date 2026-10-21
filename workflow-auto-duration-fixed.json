@@ -1,0 +1,1394 @@
+{
+  "width": 720,
+  "height": 1280,
+  "inputs": {
+    "__label_e99fb3e794bbe5908ce6ada5": [
+      {
+        "__label_e69687e6a188e9858de99fb3": [
+          {
+            "__label_e69687e6a188": {
+              "text": "分镜文案1"
+            },
+            "__label_e9858de99fb3": {
+              "music_url": "/Users/sunguannan/Downloads/audio_effect_072774021d80652f5adfcd3b8200d2e8_1792557315559_4236.mp3"
+            }
+          }
+        ],
+        "__label_e8838ce699afe8a786e9a291": {
+          "video_url": "/Users/sunguannan/Downloads/10_16_17_47_11_7613.mp4"
+        }
+      },
+      {
+        "__label_e69687e6a188e9858de99fb3": [
+          {
+            "__label_e69687e6a188": {
+              "text": "分镜文案2"
+            },
+            "__label_e9858de99fb3": {
+              "music_url": "/Users/sunguannan/Downloads/16986457-06ca-4226-98e2-d84e60c9444a.mp3"
+            }
+          },
+          {
+            "__label_e69687e6a188": {
+              "text": "分镜文案3"
+            },
+            "__label_e9858de99fb3": {
+              "music_url": "/Users/sunguannan/Downloads/55f87aef1c1a65dcf3acb895ad541729 (1).mp3"
+            }
+          }
+        ],
+        "__label_e8838ce699afe8a786e9a291": {
+          "video_url": "/Users/sunguannan/Downloads/dfd_00010fd8-af33-44bf-a468-6970350b79fb.mp4"
+        }
+      }
+    ]
+  },
+  "input_labels": [
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5"
+      ],
+      "label": "音画同步"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e8838ce699afe8a786e9a291"
+      ],
+      "label": "背景视频"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e69687e6a188e9858de99fb3"
+      ],
+      "label": "文案配音"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e69687e6a188e9858de99fb3",
+        "*",
+        "__label_e69687e6a188"
+      ],
+      "label": "文案"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e69687e6a188e9858de99fb3",
+        "*",
+        "__label_e9858de99fb3"
+      ],
+      "label": "配音"
+    }
+  ],
+  "script": [
+    {
+      "type": "set_var",
+      "id": "__template_time_0",
+      "index": 0,
+      "name": "__template_time_0",
+      "value": "0"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_1",
+      "index": 1,
+      "name": "__template_time_1",
+      "value": "0"
+    },
+    {
+      "type": "for",
+      "id": "__template_time_measure_20",
+      "index": 2,
+      "in": "${__label_e99fb3e794bbe5908ce6ada5}",
+      "loop": [
+        {
+          "type": "set_var",
+          "id": "__template_time_2",
+          "index": 2,
+          "name": "__template_time_2",
+          "value": "${item}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_3",
+          "index": 3,
+          "name": "__template_time_3",
+          "value": "0"
+        },
+        {
+          "type": "for",
+          "id": "__template_time_measure_12",
+          "index": 4,
+          "in": "${__template_time_2.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_4",
+              "index": 4,
+              "name": "__template_time_4",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_5",
+              "index": 5,
+              "name": "__template_time_5",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_6",
+              "index": 6,
+              "name": "__template_time_6",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_7",
+              "index": 7,
+              "name": "__template_time_7",
+              "value": "((0) if (0) > ((${__template_time_5}) + (${__template_time_6})) else ((${__template_time_5}) + (${__template_time_6})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_8",
+              "index": 8,
+              "name": "__template_time_8",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_9",
+              "index": 9,
+              "name": "__template_time_9",
+              "value": "${__template_time_7}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_10",
+              "index": 10,
+              "name": "__template_time_10",
+              "value": "((0) if (0) > ((${__template_time_8}) + (${__template_time_9})) else ((${__template_time_8}) + (${__template_time_9})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_11",
+              "index": 11,
+              "name": "__template_time_3",
+              "value": "(${__template_time_3}) + (${__template_time_10})"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_13",
+          "index": 5,
+          "name": "__template_time_13",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_14",
+          "index": 6,
+          "name": "__template_time_14",
+          "value": "${__template_time_3}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_15",
+          "index": 7,
+          "name": "__template_time_15",
+          "value": "((0) if (0) > ((${__template_time_13}) + (${__template_time_14})) else ((${__template_time_13}) + (${__template_time_14})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_16",
+          "index": 8,
+          "name": "__template_time_16",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_17",
+          "index": 9,
+          "name": "__template_time_17",
+          "value": "${__template_time_15}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_18",
+          "index": 10,
+          "name": "__template_time_18",
+          "value": "((0) if (0) > ((${__template_time_16}) + (${__template_time_17})) else ((${__template_time_16}) + (${__template_time_17})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_assign_19",
+          "index": 11,
+          "name": "__template_time_1",
+          "value": "(${__template_time_1}) + (${__template_time_18})"
+        }
+      ]
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_21",
+      "index": 3,
+      "name": "__template_time_21",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_22",
+      "index": 4,
+      "name": "__template_time_22",
+      "value": "${__template_time_1}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_23",
+      "index": 5,
+      "name": "__template_time_23",
+      "value": "((0) if (0) > ((${__template_time_21}) + (${__template_time_22})) else ((${__template_time_21}) + (${__template_time_22})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_24",
+      "index": 6,
+      "name": "__template_time_24",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_25",
+      "index": 7,
+      "name": "__template_time_25",
+      "value": "${__template_time_23}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_26",
+      "index": 8,
+      "name": "__template_time_26",
+      "value": "((${__template_time_0}) if (${__template_time_0}) > ((${__template_time_24}) + (${__template_time_25})) else ((${__template_time_24}) + (${__template_time_25})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_27",
+      "index": 9,
+      "name": "__template_time_27",
+      "value": "0"
+    },
+    {
+      "type": "for",
+      "id": "__template_time_measure_46",
+      "index": 10,
+      "in": "${__label_e99fb3e794bbe5908ce6ada5}",
+      "loop": [
+        {
+          "type": "set_var",
+          "id": "__template_time_28",
+          "index": 10,
+          "name": "__template_time_28",
+          "value": "${item}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_29",
+          "index": 11,
+          "name": "__template_time_29",
+          "value": "0"
+        },
+        {
+          "type": "for",
+          "id": "__template_time_measure_38",
+          "index": 12,
+          "in": "${__template_time_28.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_30",
+              "index": 12,
+              "name": "__template_time_30",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_31",
+              "index": 13,
+              "name": "__template_time_31",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_32",
+              "index": 14,
+              "name": "__template_time_32",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_33",
+              "index": 15,
+              "name": "__template_time_33",
+              "value": "((0) if (0) > ((${__template_time_31}) + (${__template_time_32})) else ((${__template_time_31}) + (${__template_time_32})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_34",
+              "index": 16,
+              "name": "__template_time_34",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_35",
+              "index": 17,
+              "name": "__template_time_35",
+              "value": "${__template_time_33}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_36",
+              "index": 18,
+              "name": "__template_time_36",
+              "value": "((0) if (0) > ((${__template_time_34}) + (${__template_time_35})) else ((${__template_time_34}) + (${__template_time_35})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_37",
+              "index": 19,
+              "name": "__template_time_29",
+              "value": "(${__template_time_29}) + (${__template_time_36})"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_39",
+          "index": 13,
+          "name": "__template_time_39",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_40",
+          "index": 14,
+          "name": "__template_time_40",
+          "value": "${__template_time_29}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_41",
+          "index": 15,
+          "name": "__template_time_41",
+          "value": "((0) if (0) > ((${__template_time_39}) + (${__template_time_40})) else ((${__template_time_39}) + (${__template_time_40})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_42",
+          "index": 16,
+          "name": "__template_time_42",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_43",
+          "index": 17,
+          "name": "__template_time_43",
+          "value": "${__template_time_41}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_44",
+          "index": 18,
+          "name": "__template_time_44",
+          "value": "((0) if (0) > ((${__template_time_42}) + (${__template_time_43})) else ((${__template_time_42}) + (${__template_time_43})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_assign_45",
+          "index": 19,
+          "name": "__template_time_27",
+          "value": "(${__template_time_27}) + (${__template_time_44})"
+        }
+      ]
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_47",
+      "index": 11,
+      "name": "__template_time_47",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_48",
+      "index": 12,
+      "name": "__template_time_48",
+      "value": "${__template_time_27}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_49",
+      "index": 13,
+      "name": "__template_time_49",
+      "value": "((0) if (0) > ((${__template_time_47}) + (${__template_time_48})) else ((${__template_time_47}) + (${__template_time_48})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_50",
+      "index": 14,
+      "name": "__template_time_50",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_51",
+      "index": 15,
+      "name": "__template_time_51",
+      "value": "${__template_time_49}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_52",
+      "index": 16,
+      "name": "__template_time_52",
+      "value": "(0) + (${__template_time_50})"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_53",
+      "index": 17,
+      "name": "__template_time_53",
+      "value": "((${__template_time_26}) if (${__template_time_26}) < (((0) if (0) > (${__template_time_52}) else (${__template_time_52}))) else (((0) if (0) > (${__template_time_52}) else (${__template_time_52}))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_54",
+      "index": 18,
+      "name": "__template_time_54",
+      "value": "((${__template_time_53}) if (${__template_time_53}) > (((${__template_time_26}) if (${__template_time_26}) < ((${__template_time_52}) + (${__template_time_51})) else ((${__template_time_52}) + (${__template_time_51})))) else (((${__template_time_26}) if (${__template_time_26}) < ((${__template_time_52}) + (${__template_time_51})) else ((${__template_time_52}) + (${__template_time_51})))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_55",
+      "index": 19,
+      "name": "__template_time_55",
+      "value": "0"
+    },
+    {
+      "type": "for",
+      "id": "__template_time_measure_74",
+      "index": 20,
+      "in": "${__label_e99fb3e794bbe5908ce6ada5}",
+      "loop": [
+        {
+          "type": "set_var",
+          "id": "__template_time_56",
+          "index": 20,
+          "name": "__template_time_56",
+          "value": "${item}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_57",
+          "index": 21,
+          "name": "__template_time_57",
+          "value": "0"
+        },
+        {
+          "type": "for",
+          "id": "__template_time_measure_66",
+          "index": 22,
+          "in": "${__template_time_56.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_58",
+              "index": 22,
+              "name": "__template_time_58",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_59",
+              "index": 23,
+              "name": "__template_time_59",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_60",
+              "index": 24,
+              "name": "__template_time_60",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_61",
+              "index": 25,
+              "name": "__template_time_61",
+              "value": "((0) if (0) > ((${__template_time_59}) + (${__template_time_60})) else ((${__template_time_59}) + (${__template_time_60})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_62",
+              "index": 26,
+              "name": "__template_time_62",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_63",
+              "index": 27,
+              "name": "__template_time_63",
+              "value": "${__template_time_61}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_64",
+              "index": 28,
+              "name": "__template_time_64",
+              "value": "((0) if (0) > ((${__template_time_62}) + (${__template_time_63})) else ((${__template_time_62}) + (${__template_time_63})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_65",
+              "index": 29,
+              "name": "__template_time_57",
+              "value": "(${__template_time_57}) + (${__template_time_64})"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_67",
+          "index": 23,
+          "name": "__template_time_67",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_68",
+          "index": 24,
+          "name": "__template_time_68",
+          "value": "${__template_time_57}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_69",
+          "index": 25,
+          "name": "__template_time_69",
+          "value": "((0) if (0) > ((${__template_time_67}) + (${__template_time_68})) else ((${__template_time_67}) + (${__template_time_68})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_70",
+          "index": 26,
+          "name": "__template_time_70",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_71",
+          "index": 27,
+          "name": "__template_time_71",
+          "value": "${__template_time_69}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_72",
+          "index": 28,
+          "name": "__template_time_72",
+          "value": "((0) if (0) > ((${__template_time_70}) + (${__template_time_71})) else ((${__template_time_70}) + (${__template_time_71})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_assign_73",
+          "index": 29,
+          "name": "__template_time_55",
+          "value": "(${__template_time_55}) + (${__template_time_72})"
+        }
+      ]
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_75",
+      "index": 21,
+      "name": "__template_time_75",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_76",
+      "index": 22,
+      "name": "__template_time_76",
+      "value": "${__template_time_55}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_77",
+      "index": 23,
+      "name": "__template_time_77",
+      "value": "(${__template_time_52}) + (${__template_time_75})"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_78",
+      "index": 24,
+      "name": "__template_time_78",
+      "value": "((${__template_time_54}) if (${__template_time_54}) < (((${__template_time_53}) if (${__template_time_53}) > (${__template_time_77}) else (${__template_time_77}))) else (((${__template_time_53}) if (${__template_time_53}) > (${__template_time_77}) else (${__template_time_77}))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_79",
+      "index": 25,
+      "name": "__template_time_79",
+      "value": "((${__template_time_78}) if (${__template_time_78}) > (((${__template_time_54}) if (${__template_time_54}) < ((${__template_time_77}) + (${__template_time_76})) else ((${__template_time_77}) + (${__template_time_76})))) else (((${__template_time_54}) if (${__template_time_54}) < ((${__template_time_77}) + (${__template_time_76})) else ((${__template_time_77}) + (${__template_time_76})))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_80",
+      "index": 26,
+      "name": "__template_time_80",
+      "value": "${__template_time_77}"
+    },
+    {
+      "type": "for",
+      "id": "de68291e-5798-4546-84ba-7d6d2f067619_batch_loop",
+      "index": 27,
+      "in": "${__label_e99fb3e794bbe5908ce6ada5}",
+      "loop": [
+        {
+          "type": "set_var",
+          "id": "__template_time_81",
+          "index": 27,
+          "name": "__template_time_81",
+          "value": "${item}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_82",
+          "index": 28,
+          "name": "__template_time_82",
+          "value": "0"
+        },
+        {
+          "type": "for",
+          "id": "__template_time_measure_91",
+          "index": 29,
+          "in": "${__template_time_81.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_83",
+              "index": 29,
+              "name": "__template_time_83",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_84",
+              "index": 30,
+              "name": "__template_time_84",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_85",
+              "index": 31,
+              "name": "__template_time_85",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_86",
+              "index": 32,
+              "name": "__template_time_86",
+              "value": "((0) if (0) > ((${__template_time_84}) + (${__template_time_85})) else ((${__template_time_84}) + (${__template_time_85})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_87",
+              "index": 33,
+              "name": "__template_time_87",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_88",
+              "index": 34,
+              "name": "__template_time_88",
+              "value": "${__template_time_86}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_89",
+              "index": 35,
+              "name": "__template_time_89",
+              "value": "((0) if (0) > ((${__template_time_87}) + (${__template_time_88})) else ((${__template_time_87}) + (${__template_time_88})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_90",
+              "index": 36,
+              "name": "__template_time_82",
+              "value": "(${__template_time_82}) + (${__template_time_89})"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_92",
+          "index": 30,
+          "name": "__template_time_92",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_93",
+          "index": 31,
+          "name": "__template_time_93",
+          "value": "${__template_time_82}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_94",
+          "index": 32,
+          "name": "__template_time_94",
+          "value": "((0) if (0) > ((${__template_time_92}) + (${__template_time_93})) else ((${__template_time_92}) + (${__template_time_93})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_95",
+          "index": 33,
+          "name": "__template_time_95",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_96",
+          "index": 34,
+          "name": "__template_time_96",
+          "value": "${__template_time_94}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_97",
+          "index": 35,
+          "name": "__template_time_97",
+          "value": "((0) if (0) > ((${__template_time_95}) + (${__template_time_96})) else ((${__template_time_95}) + (${__template_time_96})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_98",
+          "index": 36,
+          "name": "__template_time_98",
+          "value": "${__template_time_80}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_99",
+          "index": 37,
+          "name": "__template_time_99",
+          "value": "(${__template_time_98}) + (${__template_time_97})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_100",
+          "index": 38,
+          "name": "__template_time_100",
+          "value": "((${__template_time_79}) if (${__template_time_79}) < (((${__template_time_78}) if (${__template_time_78}) > (${__template_time_98}) else (${__template_time_98}))) else (((${__template_time_78}) if (${__template_time_78}) > (${__template_time_98}) else (${__template_time_98}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_101",
+          "index": 39,
+          "name": "__template_time_101",
+          "value": "((${__template_time_79}) if (${__template_time_79}) < (((${__template_time_78}) if (${__template_time_78}) > (${__template_time_99}) else (${__template_time_99}))) else (((${__template_time_78}) if (${__template_time_78}) > (${__template_time_99}) else (${__template_time_99}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_102",
+          "index": 40,
+          "name": "__template_time_102",
+          "value": "0"
+        },
+        {
+          "type": "for",
+          "id": "__template_time_measure_111",
+          "index": 41,
+          "in": "${__template_time_81.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_103",
+              "index": 41,
+              "name": "__template_time_103",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_104",
+              "index": 42,
+              "name": "__template_time_104",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_105",
+              "index": 43,
+              "name": "__template_time_105",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_106",
+              "index": 44,
+              "name": "__template_time_106",
+              "value": "((0) if (0) > ((${__template_time_104}) + (${__template_time_105})) else ((${__template_time_104}) + (${__template_time_105})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_107",
+              "index": 45,
+              "name": "__template_time_107",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_108",
+              "index": 46,
+              "name": "__template_time_108",
+              "value": "${__template_time_106}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_109",
+              "index": 47,
+              "name": "__template_time_109",
+              "value": "((0) if (0) > ((${__template_time_107}) + (${__template_time_108})) else ((${__template_time_107}) + (${__template_time_108})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_110",
+              "index": 48,
+              "name": "__template_time_102",
+              "value": "(${__template_time_102}) + (${__template_time_109})"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_112",
+          "index": 42,
+          "name": "__template_time_112",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_113",
+          "index": 43,
+          "name": "__template_time_113",
+          "value": "${__template_time_102}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_114",
+          "index": 44,
+          "name": "__template_time_114",
+          "value": "((0) if (0) > ((${__template_time_112}) + (${__template_time_113})) else ((${__template_time_112}) + (${__template_time_113})))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_115",
+          "index": 45,
+          "name": "__template_time_115",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_116",
+          "index": 46,
+          "name": "__template_time_116",
+          "value": "${__template_time_114}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_117",
+          "index": 47,
+          "name": "__template_time_117",
+          "value": "(${__template_time_98}) + (${__template_time_115})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_118",
+          "index": 48,
+          "name": "__template_time_118",
+          "value": "((${__template_time_101}) if (${__template_time_101}) < (((${__template_time_100}) if (${__template_time_100}) > (${__template_time_117}) else (${__template_time_117}))) else (((${__template_time_100}) if (${__template_time_100}) > (${__template_time_117}) else (${__template_time_117}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_119",
+          "index": 49,
+          "name": "__template_time_119",
+          "value": "((${__template_time_118}) if (${__template_time_118}) > (((${__template_time_101}) if (${__template_time_101}) < ((${__template_time_117}) + (${__template_time_116})) else ((${__template_time_117}) + (${__template_time_116})))) else (((${__template_time_101}) if (${__template_time_101}) < ((${__template_time_117}) + (${__template_time_116})) else ((${__template_time_117}) + (${__template_time_116})))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_120",
+          "index": 50,
+          "name": "__template_time_120",
+          "value": "0"
+        },
+        {
+          "type": "for",
+          "id": "__template_time_measure_129",
+          "index": 51,
+          "in": "${__template_time_81.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_121",
+              "index": 51,
+              "name": "__template_time_121",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_122",
+              "index": 52,
+              "name": "__template_time_122",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_123",
+              "index": 53,
+              "name": "__template_time_123",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_124",
+              "index": 54,
+              "name": "__template_time_124",
+              "value": "((0) if (0) > ((${__template_time_122}) + (${__template_time_123})) else ((${__template_time_122}) + (${__template_time_123})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_125",
+              "index": 55,
+              "name": "__template_time_125",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_126",
+              "index": 56,
+              "name": "__template_time_126",
+              "value": "${__template_time_124}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_127",
+              "index": 57,
+              "name": "__template_time_127",
+              "value": "((0) if (0) > ((${__template_time_125}) + (${__template_time_126})) else ((${__template_time_125}) + (${__template_time_126})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_128",
+              "index": 58,
+              "name": "__template_time_120",
+              "value": "(${__template_time_120}) + (${__template_time_127})"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_130",
+          "index": 52,
+          "name": "__template_time_130",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_131",
+          "index": 53,
+          "name": "__template_time_131",
+          "value": "${__template_time_120}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_132",
+          "index": 54,
+          "name": "__template_time_132",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_133",
+          "index": 55,
+          "name": "__template_time_133",
+          "value": "(${__template_time_116}) - ((0) / 1000000)"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_134",
+          "index": 56,
+          "name": "__template_time_134",
+          "value": "(${__template_time_117}) + (${__template_time_130})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_135",
+          "index": 57,
+          "name": "__template_time_135",
+          "value": "((${__template_time_119}) if (${__template_time_119}) < (((${__template_time_118}) if (${__template_time_118}) > (${__template_time_134}) else (${__template_time_134}))) else (((${__template_time_118}) if (${__template_time_118}) > (${__template_time_134}) else (${__template_time_134}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_136",
+          "index": 58,
+          "name": "__template_time_136",
+          "value": "((${__template_time_135}) if (${__template_time_135}) > (((${__template_time_119}) if (${__template_time_119}) < ((${__template_time_134}) + (${__template_time_131})) else ((${__template_time_134}) + (${__template_time_131})))) else (((${__template_time_119}) if (${__template_time_119}) < ((${__template_time_134}) + (${__template_time_131})) else ((${__template_time_134}) + (${__template_time_131})))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_137",
+          "index": 59,
+          "name": "__template_time_137",
+          "value": "${__template_time_134}"
+        },
+        {
+          "type": "for",
+          "id": "1ca5659e-e095-4310-b24d-da566d64fb64_batch_loop",
+          "index": 60,
+          "in": "${__template_time_81.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_138",
+              "index": 60,
+              "name": "__template_time_138",
+              "value": "${item}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_139",
+              "index": 61,
+              "name": "__template_time_139",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_140",
+              "index": 62,
+              "name": "__template_time_140",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_141",
+              "index": 63,
+              "name": "__template_time_141",
+              "value": "((0) if (0) > ((${__template_time_139}) + (${__template_time_140})) else ((${__template_time_139}) + (${__template_time_140})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_142",
+              "index": 64,
+              "name": "__template_time_142",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_143",
+              "index": 65,
+              "name": "__template_time_143",
+              "value": "${__template_time_141}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_144",
+              "index": 66,
+              "name": "__template_time_144",
+              "value": "((0) if (0) > ((${__template_time_142}) + (${__template_time_143})) else ((${__template_time_142}) + (${__template_time_143})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_145",
+              "index": 67,
+              "name": "__template_time_145",
+              "value": "${__template_time_137}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_146",
+              "index": 68,
+              "name": "__template_time_146",
+              "value": "(${__template_time_145}) + (${__template_time_144})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_147",
+              "index": 69,
+              "name": "__template_time_147",
+              "value": "((${__template_time_136}) if (${__template_time_136}) < (((${__template_time_135}) if (${__template_time_135}) > (${__template_time_145}) else (${__template_time_145}))) else (((${__template_time_135}) if (${__template_time_135}) > (${__template_time_145}) else (${__template_time_145}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_148",
+              "index": 70,
+              "name": "__template_time_148",
+              "value": "((${__template_time_136}) if (${__template_time_136}) < (((${__template_time_135}) if (${__template_time_135}) > (${__template_time_146}) else (${__template_time_146}))) else (((${__template_time_135}) if (${__template_time_135}) > (${__template_time_146}) else (${__template_time_146}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_149",
+              "index": 71,
+              "name": "__template_time_149",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_150",
+              "index": 72,
+              "name": "__template_time_150",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_151",
+              "index": 73,
+              "name": "__template_time_151",
+              "value": "((0) if (0) > ((${__template_time_149}) + (${__template_time_150})) else ((${__template_time_149}) + (${__template_time_150})))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_152",
+              "index": 74,
+              "name": "__template_time_152",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_153",
+              "index": 75,
+              "name": "__template_time_153",
+              "value": "${__template_time_151}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_154",
+              "index": 76,
+              "name": "__template_time_154",
+              "value": "(${__template_time_145}) + (${__template_time_152})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_155",
+              "index": 77,
+              "name": "__template_time_155",
+              "value": "((${__template_time_148}) if (${__template_time_148}) < (((${__template_time_147}) if (${__template_time_147}) > (${__template_time_154}) else (${__template_time_154}))) else (((${__template_time_147}) if (${__template_time_147}) > (${__template_time_154}) else (${__template_time_154}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_156",
+              "index": 78,
+              "name": "__template_time_156",
+              "value": "((${__template_time_155}) if (${__template_time_155}) > (((${__template_time_148}) if (${__template_time_148}) < ((${__template_time_154}) + (${__template_time_153})) else ((${__template_time_154}) + (${__template_time_153})))) else (((${__template_time_148}) if (${__template_time_148}) < ((${__template_time_154}) + (${__template_time_153})) else ((${__template_time_154}) + (${__template_time_153})))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_157",
+              "index": 79,
+              "name": "__template_time_157",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_158",
+              "index": 80,
+              "name": "__template_time_158",
+              "value": "(${__template_time_153}) - ((0) / 1000000)"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_159",
+              "index": 81,
+              "name": "__template_time_159",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_160",
+              "index": 82,
+              "name": "__template_time_160",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_161",
+              "index": 83,
+              "name": "__template_time_161",
+              "value": "(${__template_time_154}) + (${__template_time_157})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_162",
+              "index": 84,
+              "name": "__template_time_162",
+              "value": "((${__template_time_156}) if (${__template_time_156}) < (((${__template_time_155}) if (${__template_time_155}) > (${__template_time_161}) else (${__template_time_161}))) else (((${__template_time_155}) if (${__template_time_155}) > (${__template_time_161}) else (${__template_time_161}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_163",
+              "index": 85,
+              "name": "__template_time_163",
+              "value": "((${__template_time_162}) if (${__template_time_162}) > (((${__template_time_156}) if (${__template_time_156}) < ((${__template_time_161}) + (${__template_time_158})) else ((${__template_time_161}) + (${__template_time_158})))) else (((${__template_time_156}) if (${__template_time_156}) < ((${__template_time_161}) + (${__template_time_158})) else ((${__template_time_161}) + (${__template_time_158})))))"
+            },
+            {
+              "type": "if",
+              "id": "__template_time_visible_86",
+              "index": 86,
+              "condition": "(${__template_time_163}) > (${__template_time_162})",
+              "then": [
+                {
+                  "type": "action",
+                  "id": "cfcd8bca-80e3-43f2-b884-7ab6dd369a75",
+                  "index": 0,
+                  "action_type": "add_text",
+                  "params": {
+                    "text": "${__template_time_138.__label_e69687e6a188.text}",
+                    "font_color": "#ffffff",
+                    "start": "${__template_time_162}",
+                    "end": "${__template_time_163}",
+                    "width": 720,
+                    "height": 1280,
+                    "track_name": "493e6c0c-9b40-47d6-b56c-a6ea025767c7",
+                    "relative_index": 15
+                  }
+                }
+              ]
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_164",
+              "index": 87,
+              "name": "__template_time_164",
+              "value": "(${__template_time_154}) + (${__template_time_159})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_165",
+              "index": 88,
+              "name": "__template_time_165",
+              "value": "((${__template_time_156}) if (${__template_time_156}) < (((${__template_time_155}) if (${__template_time_155}) > (${__template_time_164}) else (${__template_time_164}))) else (((${__template_time_155}) if (${__template_time_155}) > (${__template_time_164}) else (${__template_time_164}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_166",
+              "index": 89,
+              "name": "__template_time_166",
+              "value": "((${__template_time_165}) if (${__template_time_165}) > (((${__template_time_156}) if (${__template_time_156}) < ((${__template_time_164}) + (${__template_time_160})) else ((${__template_time_164}) + (${__template_time_160})))) else (((${__template_time_156}) if (${__template_time_156}) < ((${__template_time_164}) + (${__template_time_160})) else ((${__template_time_164}) + (${__template_time_160})))))"
+            },
+            {
+              "type": "if",
+              "id": "__template_time_visible_90",
+              "index": 90,
+              "condition": "(${__template_time_166}) > (${__template_time_165})",
+              "then": [
+                {
+                  "type": "action",
+                  "id": "1d5baa49-3e50-4ce1-b98f-a3481dfff8d8",
+                  "index": 0,
+                  "action_type": "add_audio",
+                  "params": {
+                    "audio_url": "${__template_time_138.__label_e9858de99fb3.music_url}",
+                    "target_start": "${__template_time_165}",
+                    "start": "((0) / 1000000) + (${__template_time_165}) - (${__template_time_164})",
+                    "end": "((0) / 1000000) + (${__template_time_166}) - (${__template_time_164})",
+                    "duration": 4.572,
+                    "width": 720,
+                    "height": 1280,
+                    "track_name": "7034a514-d3c7-4385-8e2f-774401cceaab"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_assign_167",
+              "index": 91,
+              "name": "__template_time_137",
+              "value": "${__template_time_146}"
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_168",
+          "index": 61,
+          "name": "__template_time_168",
+          "value": "(${__template_time_117}) + (${__template_time_132})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_169",
+          "index": 62,
+          "name": "__template_time_169",
+          "value": "((${__template_time_119}) if (${__template_time_119}) < (((${__template_time_118}) if (${__template_time_118}) > (${__template_time_168}) else (${__template_time_168}))) else (((${__template_time_118}) if (${__template_time_118}) > (${__template_time_168}) else (${__template_time_168}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_170",
+          "index": 63,
+          "name": "__template_time_170",
+          "value": "((${__template_time_169}) if (${__template_time_169}) > (((${__template_time_119}) if (${__template_time_119}) < ((${__template_time_168}) + (${__template_time_133})) else ((${__template_time_168}) + (${__template_time_133})))) else (((${__template_time_119}) if (${__template_time_119}) < ((${__template_time_168}) + (${__template_time_133})) else ((${__template_time_168}) + (${__template_time_133})))))"
+        },
+        {
+          "type": "if",
+          "id": "__template_time_visible_64",
+          "index": 64,
+          "condition": "(${__template_time_170}) > (${__template_time_169})",
+          "then": [
+            {
+              "type": "action",
+              "id": "05f8d784-ef10-4c56-910b-983c06234520",
+              "index": 0,
+              "action_type": "add_video",
+              "params": {
+                "video_url": "${__template_time_81.__label_e8838ce699afe8a786e9a291.video_url}",
+                "target_start": "${__template_time_169}",
+                "start": "((0) / 1000000) + (${__template_time_169}) - (${__template_time_168})",
+                "end": "((0) / 1000000) + (${__template_time_170}) - (${__template_time_168})",
+                "duration": "(${__template_time_170}) - (${__template_time_169})",
+                "width": 720,
+                "height": 1280,
+                "track_name": "5cfedf1b-f215-47a9-80b6-5f75bdd43748",
+                "relative_index": 15011
+              }
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_assign_171",
+          "index": 65,
+          "name": "__template_time_80",
+          "value": "${__template_time_99}"
+        }
+      ]
+    }
+  ]
+}

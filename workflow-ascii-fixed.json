@@ -1,0 +1,627 @@
+{
+  "width": 720,
+  "height": 1280,
+  "inputs": {
+    "__label_e99fb3e794bbe5908ce6ada5": [
+      {
+        "__label_e69687e6a188e9858de99fb3": [
+          {
+            "__label_e69687e6a188": {
+              "text": "分镜文案"
+            },
+            "__label_e9858de99fb3": {
+              "music_url": "/Users/sunguannan/Downloads/audio_effect_072774021d80652f5adfcd3b8200d2e8_1792557315559_4236.mp3"
+            }
+          }
+        ],
+        "__label_e8838ce699afe8a786e9a291": {
+          "video_url": "/Users/sunguannan/Downloads/10_16_17_47_11_7613.mp4"
+        }
+      }
+    ]
+  },
+  "script": [
+    {
+      "type": "set_var",
+      "id": "__template_time_0",
+      "index": 0,
+      "name": "__template_time_0",
+      "value": "0"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_1",
+      "index": 1,
+      "name": "__template_time_1",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_2",
+      "index": 2,
+      "name": "__template_time_2",
+      "value": "(4572000) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_3",
+      "index": 3,
+      "name": "__template_time_3",
+      "value": "((0) if (0) > ((${__template_time_1}) + (${__template_time_2})) else ((${__template_time_1}) + (${__template_time_2})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_4",
+      "index": 4,
+      "name": "__template_time_4",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_5",
+      "index": 5,
+      "name": "__template_time_5",
+      "value": "${__template_time_3}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_6",
+      "index": 6,
+      "name": "__template_time_6",
+      "value": "((0) if (0) > ((${__template_time_4}) + (${__template_time_5})) else ((${__template_time_4}) + (${__template_time_5})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_7",
+      "index": 7,
+      "name": "__template_time_7",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_8",
+      "index": 8,
+      "name": "__template_time_8",
+      "value": "${__template_time_6}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_9",
+      "index": 9,
+      "name": "__template_time_9",
+      "value": "((0) if (0) > ((${__template_time_7}) + (${__template_time_8})) else ((${__template_time_7}) + (${__template_time_8})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_10",
+      "index": 10,
+      "name": "__template_time_10",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_11",
+      "index": 11,
+      "name": "__template_time_11",
+      "value": "(4572000) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_12",
+      "index": 12,
+      "name": "__template_time_12",
+      "value": "((${__template_time_9}) if (${__template_time_9}) > ((${__template_time_10}) + (${__template_time_11})) else ((${__template_time_10}) + (${__template_time_11})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_13",
+      "index": 13,
+      "name": "__template_time_13",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_14",
+      "index": 14,
+      "name": "__template_time_14",
+      "value": "${__template_time_12}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_15",
+      "index": 15,
+      "name": "__template_time_15",
+      "value": "((0) if (0) > ((${__template_time_13}) + (${__template_time_14})) else ((${__template_time_13}) + (${__template_time_14})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_16",
+      "index": 16,
+      "name": "__template_time_16",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_17",
+      "index": 17,
+      "name": "__template_time_17",
+      "value": "${__template_time_15}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_18",
+      "index": 18,
+      "name": "__template_time_18",
+      "value": "((0) if (0) > ((${__template_time_16}) + (${__template_time_17})) else ((${__template_time_16}) + (${__template_time_17})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_19",
+      "index": 19,
+      "name": "__template_time_19",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_20",
+      "index": 20,
+      "name": "__template_time_20",
+      "value": "${__template_time_18}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_21",
+      "index": 21,
+      "name": "__template_time_21",
+      "value": "((${__template_time_0}) if (${__template_time_0}) > ((${__template_time_19}) + (${__template_time_20})) else ((${__template_time_19}) + (${__template_time_20})))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_22",
+      "index": 22,
+      "name": "__template_time_22",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_23",
+      "index": 23,
+      "name": "__template_time_23",
+      "value": "${__template_time_18}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_24",
+      "index": 24,
+      "name": "__template_time_24",
+      "value": "(0) + (${__template_time_22})"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_25",
+      "index": 25,
+      "name": "__template_time_25",
+      "value": "((${__template_time_21}) if (${__template_time_21}) < (((0) if (0) > (${__template_time_24}) else (${__template_time_24}))) else (((0) if (0) > (${__template_time_24}) else (${__template_time_24}))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_26",
+      "index": 26,
+      "name": "__template_time_26",
+      "value": "((${__template_time_25}) if (${__template_time_25}) > (((${__template_time_21}) if (${__template_time_21}) < ((${__template_time_24}) + (${__template_time_23})) else ((${__template_time_24}) + (${__template_time_23})))) else (((${__template_time_21}) if (${__template_time_21}) < ((${__template_time_24}) + (${__template_time_23})) else ((${__template_time_24}) + (${__template_time_23})))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_27",
+      "index": 27,
+      "name": "__template_time_27",
+      "value": "(0) / 1000000"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_28",
+      "index": 28,
+      "name": "__template_time_28",
+      "value": "${__template_time_15}"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_29",
+      "index": 29,
+      "name": "__template_time_29",
+      "value": "(${__template_time_24}) + (${__template_time_27})"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_30",
+      "index": 30,
+      "name": "__template_time_30",
+      "value": "((${__template_time_26}) if (${__template_time_26}) < (((${__template_time_25}) if (${__template_time_25}) > (${__template_time_29}) else (${__template_time_29}))) else (((${__template_time_25}) if (${__template_time_25}) > (${__template_time_29}) else (${__template_time_29}))))"
+    },
+    {
+      "type": "set_var",
+      "id": "__template_time_31",
+      "index": 31,
+      "name": "__template_time_31",
+      "value": "((${__template_time_30}) if (${__template_time_30}) > (((${__template_time_26}) if (${__template_time_26}) < ((${__template_time_29}) + (${__template_time_28})) else ((${__template_time_29}) + (${__template_time_28})))) else (((${__template_time_26}) if (${__template_time_26}) < ((${__template_time_29}) + (${__template_time_28})) else ((${__template_time_29}) + (${__template_time_28})))))"
+    },
+    {
+      "type": "for",
+      "id": "de68291e-5798-4546-84ba-7d6d2f067619_batch_loop",
+      "index": 32,
+      "in": "${__label_e99fb3e794bbe5908ce6ada5}",
+      "loop": [
+        {
+          "type": "set_var",
+          "id": "__template_time_32",
+          "index": 32,
+          "name": "__template_time_32",
+          "value": "${item}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_33",
+          "index": 33,
+          "name": "__template_time_33",
+          "value": "(${__template_time_29}) + (${index}) * (${__template_time_28})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_34",
+          "index": 34,
+          "name": "__template_time_34",
+          "value": "(${__template_time_33}) + (${__template_time_28})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_35",
+          "index": 35,
+          "name": "__template_time_35",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_36",
+          "index": 36,
+          "name": "__template_time_36",
+          "value": "${__template_time_12}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_37",
+          "index": 37,
+          "name": "__template_time_37",
+          "value": "(${__template_time_33}) + (${__template_time_35})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_38",
+          "index": 38,
+          "name": "__template_time_38",
+          "value": "((${__template_time_34}) if (${__template_time_34}) < (((${__template_time_33}) if (${__template_time_33}) > (${__template_time_37}) else (${__template_time_37}))) else (((${__template_time_33}) if (${__template_time_33}) > (${__template_time_37}) else (${__template_time_37}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_39",
+          "index": 39,
+          "name": "__template_time_39",
+          "value": "((${__template_time_38}) if (${__template_time_38}) > (((${__template_time_34}) if (${__template_time_34}) < ((${__template_time_37}) + (${__template_time_36})) else ((${__template_time_37}) + (${__template_time_36})))) else (((${__template_time_34}) if (${__template_time_34}) < ((${__template_time_37}) + (${__template_time_36})) else ((${__template_time_37}) + (${__template_time_36})))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_40",
+          "index": 40,
+          "name": "__template_time_40",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_41",
+          "index": 41,
+          "name": "__template_time_41",
+          "value": "${__template_time_6}"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_42",
+          "index": 42,
+          "name": "__template_time_42",
+          "value": "(0) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_43",
+          "index": 43,
+          "name": "__template_time_43",
+          "value": "(4572000) / 1000000"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_44",
+          "index": 44,
+          "name": "__template_time_44",
+          "value": "(${__template_time_37}) + (${__template_time_40})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_45",
+          "index": 45,
+          "name": "__template_time_45",
+          "value": "((${__template_time_39}) if (${__template_time_39}) < (((${__template_time_38}) if (${__template_time_38}) > (${__template_time_44}) else (${__template_time_44}))) else (((${__template_time_38}) if (${__template_time_38}) > (${__template_time_44}) else (${__template_time_44}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_46",
+          "index": 46,
+          "name": "__template_time_46",
+          "value": "((${__template_time_45}) if (${__template_time_45}) > (((${__template_time_39}) if (${__template_time_39}) < ((${__template_time_44}) + (${__template_time_41})) else ((${__template_time_44}) + (${__template_time_41})))) else (((${__template_time_39}) if (${__template_time_39}) < ((${__template_time_44}) + (${__template_time_41})) else ((${__template_time_44}) + (${__template_time_41})))))"
+        },
+        {
+          "type": "for",
+          "id": "1ca5659e-e095-4310-b24d-da566d64fb64_batch_loop",
+          "index": 47,
+          "in": "${__template_time_32.__label_e69687e6a188e9858de99fb3}",
+          "loop": [
+            {
+              "type": "set_var",
+              "id": "__template_time_47",
+              "index": 47,
+              "name": "__template_time_47",
+              "value": "(${__template_time_44}) + (${index}) * (${__template_time_41})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_48",
+              "index": 48,
+              "name": "__template_time_48",
+              "value": "(${__template_time_47}) + (${__template_time_41})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_49",
+              "index": 49,
+              "name": "__template_time_49",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_50",
+              "index": 50,
+              "name": "__template_time_50",
+              "value": "${__template_time_3}"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_51",
+              "index": 51,
+              "name": "__template_time_51",
+              "value": "(${__template_time_47}) + (${__template_time_49})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_52",
+              "index": 52,
+              "name": "__template_time_52",
+              "value": "((${__template_time_48}) if (${__template_time_48}) < (((${__template_time_47}) if (${__template_time_47}) > (${__template_time_51}) else (${__template_time_51}))) else (((${__template_time_47}) if (${__template_time_47}) > (${__template_time_51}) else (${__template_time_51}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_53",
+              "index": 53,
+              "name": "__template_time_53",
+              "value": "((${__template_time_52}) if (${__template_time_52}) > (((${__template_time_48}) if (${__template_time_48}) < ((${__template_time_51}) + (${__template_time_50})) else ((${__template_time_51}) + (${__template_time_50})))) else (((${__template_time_48}) if (${__template_time_48}) < ((${__template_time_51}) + (${__template_time_50})) else ((${__template_time_51}) + (${__template_time_50})))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_54",
+              "index": 54,
+              "name": "__template_time_54",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_55",
+              "index": 55,
+              "name": "__template_time_55",
+              "value": "(${__template_time_50}) - ((0) / 1000000)"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_56",
+              "index": 56,
+              "name": "__template_time_56",
+              "value": "(0) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_57",
+              "index": 57,
+              "name": "__template_time_57",
+              "value": "(4572000) / 1000000"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_58",
+              "index": 58,
+              "name": "__template_time_58",
+              "value": "(${__template_time_51}) + (${__template_time_54})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_59",
+              "index": 59,
+              "name": "__template_time_59",
+              "value": "((${__template_time_53}) if (${__template_time_53}) < (((${__template_time_52}) if (${__template_time_52}) > (${__template_time_58}) else (${__template_time_58}))) else (((${__template_time_52}) if (${__template_time_52}) > (${__template_time_58}) else (${__template_time_58}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_60",
+              "index": 60,
+              "name": "__template_time_60",
+              "value": "((${__template_time_59}) if (${__template_time_59}) > (((${__template_time_53}) if (${__template_time_53}) < ((${__template_time_58}) + (${__template_time_55})) else ((${__template_time_58}) + (${__template_time_55})))) else (((${__template_time_53}) if (${__template_time_53}) < ((${__template_time_58}) + (${__template_time_55})) else ((${__template_time_58}) + (${__template_time_55})))))"
+            },
+            {
+              "type": "if",
+              "id": "__template_time_visible_61",
+              "index": 61,
+              "condition": "(${__template_time_60}) > (${__template_time_59})",
+              "then": [
+                {
+                  "type": "action",
+                  "id": "cfcd8bca-80e3-43f2-b884-7ab6dd369a75",
+                  "index": 0,
+                  "action_type": "add_text",
+                  "params": {
+                    "text": "${item.__label_e69687e6a188.text}",
+                    "font_color": "#ffffff",
+                    "start": "${__template_time_59}",
+                    "end": "${__template_time_60}",
+                    "width": 720,
+                    "height": 1280,
+                    "track_name": "493e6c0c-9b40-47d6-b56c-a6ea025767c7",
+                    "relative_index": 15
+                  }
+                }
+              ]
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_61",
+              "index": 62,
+              "name": "__template_time_61",
+              "value": "(${__template_time_51}) + (${__template_time_56})"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_62",
+              "index": 63,
+              "name": "__template_time_62",
+              "value": "((${__template_time_53}) if (${__template_time_53}) < (((${__template_time_52}) if (${__template_time_52}) > (${__template_time_61}) else (${__template_time_61}))) else (((${__template_time_52}) if (${__template_time_52}) > (${__template_time_61}) else (${__template_time_61}))))"
+            },
+            {
+              "type": "set_var",
+              "id": "__template_time_63",
+              "index": 64,
+              "name": "__template_time_63",
+              "value": "((${__template_time_62}) if (${__template_time_62}) > (((${__template_time_53}) if (${__template_time_53}) < ((${__template_time_61}) + (${__template_time_57})) else ((${__template_time_61}) + (${__template_time_57})))) else (((${__template_time_53}) if (${__template_time_53}) < ((${__template_time_61}) + (${__template_time_57})) else ((${__template_time_61}) + (${__template_time_57})))))"
+            },
+            {
+              "type": "if",
+              "id": "__template_time_visible_65",
+              "index": 65,
+              "condition": "(${__template_time_63}) > (${__template_time_62})",
+              "then": [
+                {
+                  "type": "action",
+                  "id": "1d5baa49-3e50-4ce1-b98f-a3481dfff8d8",
+                  "index": 0,
+                  "action_type": "add_audio",
+                  "params": {
+                    "audio_url": "${item.__label_e9858de99fb3.music_url}",
+                    "target_start": "${__template_time_62}",
+                    "start": "((0) / 1000000) + (${__template_time_62}) - (${__template_time_61})",
+                    "end": "((0) / 1000000) + (${__template_time_63}) - (${__template_time_61})",
+                    "duration": 4.572,
+                    "width": 720,
+                    "height": 1280,
+                    "track_name": "7034a514-d3c7-4385-8e2f-774401cceaab"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_64",
+          "index": 48,
+          "name": "__template_time_64",
+          "value": "(${__template_time_37}) + (${__template_time_42})"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_65",
+          "index": 49,
+          "name": "__template_time_65",
+          "value": "((${__template_time_39}) if (${__template_time_39}) < (((${__template_time_38}) if (${__template_time_38}) > (${__template_time_64}) else (${__template_time_64}))) else (((${__template_time_38}) if (${__template_time_38}) > (${__template_time_64}) else (${__template_time_64}))))"
+        },
+        {
+          "type": "set_var",
+          "id": "__template_time_66",
+          "index": 50,
+          "name": "__template_time_66",
+          "value": "((${__template_time_65}) if (${__template_time_65}) > (((${__template_time_39}) if (${__template_time_39}) < ((${__template_time_64}) + (${__template_time_43})) else ((${__template_time_64}) + (${__template_time_43})))) else (((${__template_time_39}) if (${__template_time_39}) < ((${__template_time_64}) + (${__template_time_43})) else ((${__template_time_64}) + (${__template_time_43})))))"
+        },
+        {
+          "type": "if",
+          "id": "__template_time_visible_51",
+          "index": 51,
+          "condition": "(${__template_time_66}) > (${__template_time_65})",
+          "then": [
+            {
+              "type": "action",
+              "id": "05f8d784-ef10-4c56-910b-983c06234520",
+              "index": 0,
+              "action_type": "add_video",
+              "params": {
+                "video_url": "${__template_time_32.__label_e8838ce699afe8a786e9a291.video_url}",
+                "target_start": "${__template_time_65}",
+                "start": "((0) / 1000000) + (${__template_time_65}) - (${__template_time_64})",
+                "end": "((0) / 1000000) + (${__template_time_66}) - (${__template_time_64})",
+                "duration": "(${__template_time_66}) - (${__template_time_65})",
+                "width": 720,
+                "height": 1280,
+                "track_name": "5cfedf1b-f215-47a9-80b6-5f75bdd43748",
+                "relative_index": 15011
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "input_labels": [
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5"
+      ],
+      "label": "音画同步"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e69687e6a188e9858de99fb3"
+      ],
+      "label": "文案配音"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e69687e6a188e9858de99fb3",
+        "*",
+        "__label_e69687e6a188"
+      ],
+      "label": "文案"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e69687e6a188e9858de99fb3",
+        "*",
+        "__label_e9858de99fb3"
+      ],
+      "label": "配音"
+    },
+    {
+      "path": [
+        "__label_e99fb3e794bbe5908ce6ada5",
+        "*",
+        "__label_e8838ce699afe8a786e9a291"
+      ],
+      "label": "背景视频"
+    }
+  ]
+}

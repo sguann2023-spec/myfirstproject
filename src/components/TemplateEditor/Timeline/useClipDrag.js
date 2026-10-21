@@ -7,6 +7,8 @@ export default function useClipDrag({ gesture, scrollRef, view, sceneId, pixelsP
   const beginClip = (event, clip, row, edge) => {
     if (event.button !== 0 || disabled || lockedTracks.has(row.id)) return;
     event.preventDefault(); event.stopPropagation();
+    // preventDefault suppresses native focus; restore it so keyboard shortcuts reach the clip.
+    event.currentTarget.closest('.template-clip')?.focus({ preventScroll: true });
     onSelect(clip.id);
     gesture.current = { kind: 'clip', clip, edge, x: event.clientX, y: event.clientY,
       scroll: scrollRef.current.scrollLeft, scrollTop: scrollRef.current.scrollTop,
@@ -30,6 +32,27 @@ export default function useClipDrag({ gesture, scrollRef, view, sceneId, pixelsP
     const points = [0, view.duration, cursor, ...view.rows.flatMap(row => row.clips
       .filter(clip => clip.id !== drag.clip.id).flatMap(clip => [clip.start, clip.end]))];
     drag.value = dragTiming(drag.clip, delta, drag.edge, points, pps, event, snap);
+    // Scenes are containers: hovering a composition clip moves the dragged clip into it.
+    const scenes = new Map(view.rows.flatMap(row => row.clips)
+      .filter(clip => clip.type === 'composition' && clip.id !== drag.clip.id).map(clip => [clip.id, clip]));
+    drag.sceneDrop = null;
+    if (!drag.edge && scenes.size) {
+      for (const element of scroller.querySelectorAll('[data-clip-id]')) {
+        if (!scenes.has(element.dataset.clipId)) continue;
+        const rect = element.getBoundingClientRect();
+        if (!rect.width || !rect.height) continue;
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) continue;
+        drag.sceneDrop = { sceneId: element.dataset.clipId };
+        break;
+      }
+    }
+    if (drag.sceneDrop) {
+      drag.drop = undefined;
+      setPreview({ kind: 'clip', id: drag.clip.id, ...drag.value, sceneDropId: drag.sceneDrop.sceneId,
+        floating: !drag.edge && Boolean(sceneId),
+        offsetY: !drag.edge && sceneId ? event.clientY - drag.y + scroller.scrollTop - drag.scrollTop : 0 });
+      return;
+    }
     let drop = { trackId: drag.sourceTrackId };
     let shifts = [];
     if (!drag.edge && sceneId && drag.sourceTrackId) {
@@ -58,6 +81,8 @@ export default function useClipDrag({ gesture, scrollRef, view, sceneId, pixelsP
   };
   const clipAction = drag => {
     if (drag.drop?.invalid) return null;
+    if (!drag.edge && drag.sceneDrop) return { type: 'move-into-scene', id: drag.clip.id,
+      sceneId: drag.sceneDrop.sceneId, start: drag.value.start };
     if (!drag.edge && drag.drop?.trackId === drag.sourceTrackId &&
       Math.abs(drag.value.start - drag.clip.start) < .000001) return null;
     if (!drag.edge && sceneId && drag.sourceTrackId) return {

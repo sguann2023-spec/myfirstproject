@@ -1,14 +1,19 @@
 import { parseEditorDocument, type EditorPayload } from './editorModel'
 import { normalizeDraftTemplate, type DraftScene, type DraftSegment, type DraftTrack, type DraftTrackItem } from './draftTemplate'
-import { isSceneSegment, orderedSceneTracks } from './draftTracks'
-import { dropEditorClip, type ClipDropAction } from './editorClipDrop'
+import { isSceneSegment, nestedScenes, orderedSceneTracks } from './draftTracks'
+import { dropEditorClip, dropEditorClipIntoScene, type ClipDropAction, type ClipSceneDropAction } from './editorClipDrop'
 import { setEditorClipTiming, type ClipTimingAction } from './editorClipTiming'
 import { mediaDurationMicros } from '../../shared/templateMediaTiming'
+import { pasteEditorElement, type PasteEditorAction } from './editorClipboard'
+import { dropEditorLayer, type LayerDropAction } from './editorLayerDrop'
 
 export type EditorAction =
   | ClipDropAction
+  | ClipSceneDropAction
   | ClipTimingAction
-  | { type: 'clip-loop'; id: string; loop: boolean }
+  | { type: 'clip-loop'; id: string; enabled: boolean }
+  | PasteEditorAction
+  | LayerDropAction
   | { type: 'rename'; id: string; name: string }
   | { type: 'delete'; id: string }
   | { type: 'retime'; id: string; start: number; duration: number; edge?: 'start' | 'end'; trackId?: string }
@@ -43,6 +48,15 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
   }
   collect(draft.scenes)
   const times = new Map(normalized.analysis.timeline.map(item => [item.id, item]))
+  const enableBatchContentDuration = (scene?: DraftScene) => {
+    if (!scene) return
+    const wrapper = entries.get(scene.id)?.scene
+    if (!wrapper?.auto_duration || wrapper.batch_scene === undefined) return
+    scene.auto_duration = true
+    delete scene.target_timerange.end
+    if (scene.auto_timing) delete scene.auto_timing.end
+    if (scene.auto_timing && !Object.keys(scene.auto_timing).length) delete scene.auto_timing
+  }
   const micros = (value: number, positive = false) => {
     const result = Math.round(value * 1_000_000)
     if (!Number.isFinite(value) || !Number.isSafeInteger(result) || (positive ? result <= 0 : result < 0)) {
@@ -73,7 +87,9 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
     }
   }
   let selectedId = action.id ?? ''
-  if (action.type === 'duration') {
+  if (action.type === 'paste') {
+    selectedId = pasteEditorElement(draft, normalized.analysis.timeline, action)
+  } else if (action.type === 'duration') {
     const duration = action.duration === 'auto' ? undefined : micros(action.duration, true)
     if (action.id === null) {
       if (duration === undefined) delete draft.duration
@@ -87,7 +103,12 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
       delete scene.target_timerange.end
       if (scene.auto_timing) delete scene.auto_timing.end
       if (scene.auto_timing && !Object.keys(scene.auto_timing).length) delete scene.auto_timing
+      if (duration === undefined && scene.batch_scene !== undefined) {
+        enableBatchContentDuration(nestedScenes(scene)[0])
+      }
     }
+  } else if (action.type === 'move-layer') {
+    dropEditorLayer(draft, times, action, rememberAutoDurationFallback)
   } else if (action.type === 'reorder-track') {
     const from = tracks.get(action.id)
     const to = tracks.get(action.beforeId)
@@ -120,9 +141,14 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
   } else if (action.type === 'clip-loop') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)
-    if (!entry || !time || !['video', 'audio'].includes(time.type)) throw new Error('循环仅支持视频或音频')
-    if (typeof action.loop !== 'boolean') throw new Error('循环必须是布尔值')
-    entry.item.loop = action.loop
+    if (!entry || !time || !['video', 'audio'].includes(time.type) || typeof action.enabled !== 'boolean') {
+      throw new Error('循环仅支持音频和视频')
+    }
+    const material = Object.values(draft.materials).flat().find(material => material.id === entry.item.material_id)
+    if (action.enabled && mediaDurationMicros(entry.item as DraftSegment, material) === undefined) {
+      throw new Error('媒体循环需要有效的源时长')
+    }
+    entry.item.loop = action.enabled
   } else if (action.type === 'clip-timing') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)
@@ -135,10 +161,40 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
     const mediaDuration = ['video', 'audio'].includes(time.type)
       ? mediaDurationMicros(entry.item as DraftSegment, material) : undefined
     setEditorClipTiming(entry.item, action, time, previous?.id, mediaDuration)
+    enableBatchContentDuration(entry.scene)
+    if ('tracks' in entry.item && entry.item.batch_scene !== undefined && entry.item.auto_duration) {
+      enableBatchContentDuration(nestedScenes(entry.item as DraftScene)[0])
+    }
   } else if (action.type === 'move-clip') {
     const entry = entries.get(action.id)
     if (!entry?.track || !entry.scene) throw new Error('跨轨移动仅限当前分镜')
     dropEditorClip(entry.scene, entry.track, entry.item as DraftTrackItem, times, action)
+  } else if (action.type === 'move-into-scene') {
+    const entry = entries.get(action.id)
+    const targetEntry = entries.get(action.sceneId)
+    if (!entry || !targetEntry || !('tracks' in targetEntry.item)) throw new Error('目标分镜不存在')
+    let target = targetEntry.item as DraftScene
+    let { start } = action
+    if (target.batch_scene !== undefined) {
+      // Batch scenes are wrappers whose tracks may only hold the single child scene.
+      const children = nestedScenes(target)
+      if (children.length !== 1) throw new Error('批量分镜必须有且只有一个子分镜')
+      const batchTime = times.get(target.id)
+      if (!batchTime || !times.has(children[0].id)) throw new Error('目标分镜不存在')
+      target = children[0]
+      start -= batchTime.localStart
+    }
+    if (action.id === target.id) throw new Error('不能移入分镜自身')
+    for (let ancestor = entries.get(target.id)?.scene; ancestor; ancestor = entries.get(ancestor.id)?.scene) {
+      if (ancestor.id === action.id) throw new Error('不能移入其内部嵌套的分镜')
+    }
+    rememberAutoDurationFallback(entry.scene)
+    rememberAutoDurationFallback(targetEntry.item as DraftScene)
+    rememberAutoDurationFallback(target)
+    if ('tracks' in entry.item) rememberAutoDurationFallback(entry.item as DraftScene)
+    dropEditorClipIntoScene(entry.item as DraftTrackItem,
+      { track: entry.track, scene: entry.scene, scenes: entry.scene?.scenes ?? draft.scenes }, target, times,
+      { ...action, sceneId: target.id, start })
   } else if (action.type === 'retime') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)
@@ -179,6 +235,7 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
     }
     if (action.edge) delete item.duration_mode
     if (item.auto_timing && !Object.keys(item.auto_timing).length) delete item.auto_timing
+    enableBatchContentDuration(entry.scene)
     if (action.trackId && action.trackId !== entry.track?.id) {
       const target = tracks.get(action.trackId)
       if (!entry.track || !target || target.scene !== entry.scene) throw new Error('跨轨移动仅限当前分镜')

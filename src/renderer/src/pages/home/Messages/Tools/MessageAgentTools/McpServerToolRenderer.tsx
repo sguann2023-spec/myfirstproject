@@ -85,7 +85,8 @@ export function McpServerToolRenderer({
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
   const isScrapt = parseMcpToolName(toolName).serverName === 'scrapt'
-  const mediaGenerationBillingSummary = isScrapt || isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
+  const isAudioUnderstanding = parseMcpToolName(toolName).serverName === 'audio-understand'
+  const mediaGenerationBillingSummary = isAudioUnderstanding || isScrapt || isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
     ? extractMediaGenerationBillingSummary(output)
     : null
 

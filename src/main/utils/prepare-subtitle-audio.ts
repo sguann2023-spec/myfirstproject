@@ -82,13 +82,25 @@ export async function prepareSubtitleAudio(sourcePath: string): Promise<{
   durationSeconds: number
   cleanup: () => Promise<void>
 }> {
+  return prepareAudio(sourcePath)
+}
+
+export const MAX_AUDIO_UNDERSTANDING_SECONDS = 15 * 60
+
+/** Keep environmental sounds, cap the submitted duration, and stay below the backend's 20MB limit. */
+export async function prepareAudioUnderstanding(sourcePath: string, signal?: AbortSignal) {
+  return prepareAudio(sourcePath, { maxDurationSeconds: MAX_AUDIO_UNDERSTANDING_SECONDS, signal })
+}
+
+async function prepareAudio(sourcePath: string, options?: { maxDurationSeconds: number; signal?: AbortSignal }) {
+  options?.signal?.throwIfAborted()
   const ffprobePath = resolveFfprobePath()
   let probeOutput: string
   try {
     const { stdout, stderr } = await execFileAsync(
       ffprobePath,
       ['-v', 'error', '-show_entries', 'stream=codec_type,duration:format=duration', '-of', 'json', sourcePath],
-      { windowsHide: true, timeout: 30_000, maxBuffer: PROCESS_MAX_BUFFER }
+      { windowsHide: true, timeout: 30_000, maxBuffer: PROCESS_MAX_BUFFER, signal: options?.signal }
     )
     probeOutput = `${stdout || ''}\n${stderr || ''}`
   } catch (error) {
@@ -105,22 +117,35 @@ export async function prepareSubtitleAudio(sourcePath: string): Promise<{
   }
   const durationSeconds = parseDuration(probe)
   if (durationSeconds === null) throw new Error('无法读取音视频时长')
-  if (durationSeconds > MAX_MEDIA_DURATION_SECONDS) throw new Error('音视频时长不能超过 2 小时')
+  if (!options && durationSeconds > MAX_MEDIA_DURATION_SECONDS) throw new Error('音视频时长不能超过 2 小时')
   if (!(probe.streams || []).some((stream) => stream.codec_type === 'audio')) {
     throw new Error('该视频没有可识别的音轨')
   }
 
   const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'vectcut-subtitle-audio-'))
   const audioPath = path.join(tempDir, 'recognition-audio.mp3')
+  // MP3 encoder delay/padding adds roughly two frames to container duration.
+  const analyzedDurationSeconds = options ? Math.min(durationSeconds, options.maxDurationSeconds - 0.1) : durationSeconds
   try {
     await execFileAsync(
       resolveFfmpegPath(),
-      ['-nostdin', '-y', '-i', sourcePath, '-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-q:a', '2', audioPath],
-      { windowsHide: true, timeout: PROCESS_TIMEOUT_MS, maxBuffer: PROCESS_MAX_BUFFER }
+      [
+        '-nostdin', '-y', '-i', sourcePath, '-map', '0:a:0', '-vn',
+        ...(options ? ['-t', String(analyzedDurationSeconds)] : []),
+        '-c:a', 'libmp3lame',
+        ...(options ? ['-b:a', '96k', '-ar', '44100', '-ac', '2'] : ['-q:a', '2']),
+        audioPath
+      ],
+      { windowsHide: true, timeout: PROCESS_TIMEOUT_MS, maxBuffer: PROCESS_MAX_BUFFER, signal: options?.signal }
     )
+    if (options && (await fsPromises.stat(audioPath)).size > 20 * 1024 * 1024) {
+      throw new Error('分析音频超过后台单文件 20MB 限制')
+    }
     return {
       audioPath,
       durationSeconds,
+      analyzedDurationSeconds,
+      truncated: durationSeconds > analyzedDurationSeconds,
       cleanup: () => fsPromises.rm(tempDir, { recursive: true, force: true })
     }
   } catch (error) {

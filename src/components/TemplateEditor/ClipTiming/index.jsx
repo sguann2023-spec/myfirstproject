@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Repeat2 } from 'lucide-react';
 import TimingIcon, { clipTimingModes } from './TimingIcon';
 import TimeInput, { formatClipTime, parseClipTime } from './TimeInput';
 import { mediaDurationMicros } from '../../../shared/templateMediaTiming';
@@ -74,6 +75,12 @@ export default function ClipTiming({ clip, native, material, anchor, disabled, o
     if (values[field] !== formatClipTime(current)) commit(field, 'fixed', parseClipTime(values[field]));
     else if (modes[field] !== 'fixed') commit(field, 'fixed', current);
   };
+  const toggleLoop = async () => {
+    if (disabled || saving || (!native?.loop && sourceDuration === undefined)) return;
+    setEditingField(null); setSaving(true);
+    try { await onAction({ type: 'clip-loop', id: clip.id, enabled: !native?.loop }); }
+    finally { setSaving(false); }
+  };
   const beginEdit = field => {
     setEditingField(field);
     requestAnimationFrame(() => {
@@ -132,13 +139,11 @@ export default function ClipTiming({ clip, native, material, anchor, disabled, o
       <p>{invalid === field ? '请输入有效时间，例如 00:03.36。' : descriptions[field][modes[field]]}</p>
     </section>)}
     {media && <div className="template-clip-timing-loop">
-      <span><TimingIcon mode="loop" size={16} />循环</span>
+      <span><Repeat2 size={14} />循环</span>
       <button type="button" role="switch" aria-label="循环播放" aria-checked={!!native?.loop}
-        disabled={disabled || saving} onClick={async () => {
-          setSaving(true);
-          try { await onAction({ type: 'clip-loop', id: clip.id, loop: !native?.loop }); }
-          finally { setSaving(false); }
-        }}><span /></button>
+        disabled={disabled || saving || (!native?.loop && sourceDuration === undefined)}
+        title={sourceDuration === undefined ? '正在等待媒体时长解析' : '重复源区间至目标时长，最后一轮按需裁切'}
+        onClick={toggleLoop}><span /></button>
     </div>}
   </div>, document.body);
 }

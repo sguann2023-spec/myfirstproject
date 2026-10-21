@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest'
 import { applyEditorAction } from './editorActions'
 import { analyzeEditorDocument } from './editorModel'
-import type { DraftTemplate } from './draftTemplate'
+import { isSceneSegment, nestedScenes } from './draftTracks'
+import type { DraftScene, DraftTemplate } from './draftTemplate'
 
 function fixture(): DraftTemplate {
   return {
@@ -102,6 +103,73 @@ it('手动拖动贴合上一片段时也固定开始，不自动重建跟随规�
   const segment = (JSON.parse(moved.templateJson) as DraftTemplate).scenes[0].tracks[0].segments.find(item => item.id === 'audio')!
   expect(segment.auto_timing).toBeUndefined()
   expect(segment.target_timerange.start).toBe(5_000_000)
+})
+
+it('拖入子 Scene 按局部时间落位，原空轨清理且跟随者改挂前驱', () => {
+  const draft = fixture()
+  draft.scenes[0].tracks[1].segments = [{
+    id: 'child', type: 'scene', target_timerange: { start: 8_000_000, duration: 6_000_000 },
+    tracks: [{ id: 'inner', type: 'mixed', track_relative_index: 0, segments: [] }] }]
+  draft.scenes[0].tracks[0].segments.push({
+    id: 'follower', material_id: 'ma', target_timerange: { start: 5_000_000, duration: 4_000_000 },
+    auto_timing: { start: { target: 'text', anchor: 'end' } } })
+  const moved = applyEditorAction(payload(draft), { type: 'move-into-scene', id: 'text', sceneId: 'child', start: 10 })
+  const result = JSON.parse(moved.templateJson) as DraftTemplate
+  expect(result.scenes[0].tracks).toHaveLength(2)
+  const child = result.scenes[0].tracks.find(track => track.segments.some(item => item.id === 'child'))!
+    .segments[0] as Extract<DraftTrackItem, { type: 'scene' }>
+  expect(child.tracks[0].segments[0]).toMatchObject({ id: 'text', target_timerange: { start: 2_000_000, duration: 5_000_000 } })
+  expect(child.tracks[0].segments[0].auto_timing).toBeUndefined()
+  const follower = result.scenes[0].tracks[0].segments.find(item => item.id === 'follower')!
+  expect(follower.target_timerange.start).toBe(5_000_000)
+  expect(follower.auto_timing).toBeUndefined()
+  expect(analyzeEditorDocument(moved).timeline.find(item => item.id === 'text')).toMatchObject({ parentId: 'child', localStart: 2 })
+})
+
+it('不能把分镜移入自身或其内部嵌套的分镜', () => {
+  const draft = fixture()
+  draft.scenes[0].tracks[1].segments = [{
+    id: 'child', type: 'scene', target_timerange: { start: 0, duration: 6_000_000 }, tracks: [],
+    scenes: [{ id: 'grandchild', name: '孙分镜', target_timerange: { start: 0, duration: 3_000_000 }, tracks: [] }] }]
+  expect(() => applyEditorAction(payload(draft), { type: 'move-into-scene', id: 'child', sceneId: 'child', start: 1 })).toThrow(/自身/)
+  expect(() => applyEditorAction(payload(draft), { type: 'move-into-scene', id: 'child', sceneId: 'grandchild', start: 1 })).toThrow(/内部/)
+})
+
+it('根层分镜可拖入另一个分镜成为其内部片段', () => {
+  const draft = fixture()
+  draft.scenes.push({ id: 'other', name: '顶层分镜', type: 'scene',
+    target_timerange: { start: 5_000_000, duration: 3_000_000 }, tracks: [] })
+  const moved = applyEditorAction(payload(draft), { type: 'move-into-scene', id: 'other', sceneId: 'parent', start: 4 })
+  const result = JSON.parse(moved.templateJson) as DraftTemplate
+  expect(result.scenes.map(scene => scene.id)).toEqual(['parent'])
+  expect(result.scenes[0].tracks.flatMap(track => track.segments).find(item => item.id === 'other'))
+    .toMatchObject({ target_timerange: { start: 5_000_000, duration: 3_000_000 } })
+  expect(analyzeEditorDocument(moved).timeline.find(item => item.id === 'other')).toMatchObject({ parentId: 'parent' })
+})
+
+it('拖入批量分镜重定向到唯一子分镜，包装器结构保持合法', () => {
+  const draft = fixture()
+  draft.scenes[0].tracks[1].segments = [{
+    id: 'batch', name: '批量分镜', type: 'scene', target_timerange: { start: 8_000_000, duration: 6_000_000 },
+    batch_scene: { source: 'items', mode: 'repeat', items: [{ title: '分镜文案', image: '' }] },
+    tracks: [], scenes: [{ id: 'batch-child', name: '分镜', target_timerange: { start: 0, duration: 6_000_000 }, tracks: [] }]
+  }]
+  const moved = applyEditorAction(payload(draft), { type: 'move-into-scene', id: 'text', sceneId: 'batch', start: 10 })
+  expect(analyzeEditorDocument(moved).timeline.find(item => item.id === 'text'))
+    .toMatchObject({ parentId: 'batch-child', localStart: 2 })
+  function findScene(scenes: DraftScene[]): DraftScene | undefined {
+    for (const scene of scenes) {
+      if (scene.id === 'batch') return scene
+      const nested = findScene([...(scene.scenes ?? []),
+        ...scene.tracks.flatMap(track => track.segments.filter(isSceneSegment)) as DraftScene[]])
+      if (nested) return nested
+    }
+    return undefined
+  }
+  const batch = findScene(JSON.parse(moved.templateJson).scenes)
+  expect(batch.batch_scene).toBeDefined()
+  expect(nestedScenes(batch)).toHaveLength(1)
+  expect(nestedScenes(batch)[0].tracks[0].segments[0]).toMatchObject({ id: 'text' })
 })
 
 it('错误跨 Scene、修改时长和非法坐标均回滚，根层仍只能放 Scene', () => {

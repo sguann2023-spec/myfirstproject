@@ -232,7 +232,11 @@ auto_timing 放在 Scene 或片段上，start/end 可独立设置。
 - 结束对齐加超长 duration 可产生负的声明开始，输入仍保持不变。
 - 子 Scene 被截断后，子片段仍按 Scene 原声明起点和时长定位。
 - 1 倍速媒体左截断推进源开始，右截断缩短源结束。
-- 不自动循环、拉伸、静帧补时；声明时长不保证等于最终导出草稿时长。
+- 默认不循环、拉伸或静帧补时；声明时长不保证等于最终导出草稿时长。
+- 音频/视频显式 `loop: true` 时重复源区间至目标结束，末轮裁切。源区间长度按
+  `source_timerange.duration`、`end-start` 或素材整数微秒 `duration-start` 确定，
+  缺少有效源时长时报错，不使用目标时长猜测。父级裁切保留循环相位；
+  `duration_mode: "media"` 仍只定义一轮时长，循环不会改变时间规则。
 
 ## 关键帧
 
@@ -255,9 +259,15 @@ keyframe_refs 是原生外部关键帧引用，完整解析尚未实现。
 
 ## Workflow 支持
 
-- 图片和纯文字可编译为 add_image、add_text，时间使用全局可见区间。
-- 视频、音频、贴纸、滤镜、特效目前仅编辑及时间分析；执行明确失败，不跳过轨道。
-- clip、文字富样式和 extra_material_refs 保留但未映射，编译返回警告。
+- 图片、纯文字、视频、音频及贴纸可编译为对应 add_* 动作，时间使用全局可见区间。
+- 贴纸映射为 add_sticker，资源优先 sticker_id，其次 resource_id；空 ID 可编辑但禁止导出。
+  贴纸 clip 的 transform、scale、rotation、alpha、flip 对齐后台参数，支持 dynamic 和批量逐条资源替换。
+- 滤镜/特效执行 add_filter/add_effect，素材 filter_type/effect_type 使用后台枚举名称，
+  兼容 name；数字 resource_id/effect_id 不能替代名称。空类型可编辑但导出会报错。
+  滤镜 intensity 为 0-100，原生 value 为 0-1；特效 effect_category 为 scene/character，
+  params 为后台顺序的 0-100 数值或 null 数组。原生 adjust_params 转换范围并反转，
+  动态参数使用 params，支持动态类型和批量逐条替换。
+- 非贴纸 clip、文字富样式和 extra_material_refs 保留但未映射，编译返回警告。
 - 非 1 倍速、隐藏片段目前明确拒绝；不承诺原生草稿完整视觉还原。
 - 素材地址优先 remote_url，其次 path；不自动上传或解析草稿路径占位符。
 - JSON 字符串不重复编码；执行边界使用 inputs 引用保护字面量。

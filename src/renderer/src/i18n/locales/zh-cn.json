@@ -2610,6 +2610,7 @@
           "video": "视频",
           "video_understand": "视频理解",
           "voice_conversion": "声音转换",
+          "voice_library": "音色库",
           "zcaceres_fetch": "网页抓取"
         },
         "tools": {
@@ -2764,6 +2765,11 @@
           "speech": {
             "generate_speech": "生成语音"
           },
+          "voice_library": {
+            "list_voices": "获取音色列表",
+            "get_voice_filter_options": "获取音色筛选选项",
+            "clone_voice": "克隆音色"
+          },
           "storyboard_editor": {
             "inspect_storyboard": "查看分镜",
             "update_part_text": "改写分镜文本",
@@ -2777,6 +2783,9 @@
             "insert_blank_part": "插入空分镜",
             "adjust_part_bounds": "调整分镜边界",
             "apply_operations": "批量编辑分镜"
+          },
+          "audio_understand": {
+            "submit_audio_understanding_task": "音频理解"
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "查询字幕识别任务状态",

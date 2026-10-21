@@ -4,6 +4,7 @@ import { createEditorPreset } from './editorPresets'
 import { analyzeDraftTemplate, compileDraftTemplate, normalizeDraftTemplate } from './draftTemplate'
 import { analyzeEditorDocument, compileEditorDocument } from './editorModel'
 import { flatSentenceImageFixture, workflowActions } from './workflowTestUtils'
+import { inputName } from './inputNames'
 
 const fixture = flatSentenceImageFixture
 const textSegment = (template: ReturnType<typeof fixture>) => template.scenes[0].tracks[0].segments[0]
@@ -34,13 +35,13 @@ describe('剪映字段 dynamic 输入', () => {
     const payload = { templateJson: JSON.stringify(template), modifications }
     const result = compileEditorDocument(payload)
     expect(result.workflow.inputs).toMatchObject({
-      input_text_material_1_content: { text: '价格是 ${price}，1+1="2"' },
-      input_image_material_1_remote_url: '/tmp/replacement.png',
+      [inputName('第_1_句话', new Set())]: { text: '价格是 ${price}，1+1="2"' },
+      [inputName('第_1_张图片', new Set())]: { image_url: '/tmp/replacement.png' },
       input_text_1_target_timerange_start: 1_000_000,
       input_text_1_target_timerange_duration: 2_000_000
     })
     expect(workflowActions(result.workflow).find(({ id }) => id === 'text-1')!.params.text)
-      .toBe('${input_text_material_1_content.text}')
+      .toBe(`\${${inputName('第_1_句话', new Set())}.text}`)
     for (const id of ['text-1', 'image-1']) {
       expect(result.timeline.find((item) => item.id === id)).toMatchObject({ start: 1, end: 3 })
     }

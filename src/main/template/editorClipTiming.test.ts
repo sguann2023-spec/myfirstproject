@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { applyEditorAction } from './editorActions'
-import { analyzeEditorDocument, compileEditorDocument } from './editorModel'
+import { addEditorElement, analyzeEditorDocument, compileEditorDocument } from './editorModel'
 import { createEditorPreset } from './editorPresets'
 import type { ClipTimingAction } from './editorClipTiming'
 
@@ -131,6 +131,73 @@ it('媒体时长使用源素材的剩余区间，元数据变化后重新解析'
   expect(JSON.parse(fixed.templateJson).scenes[0].tracks[0].segments[0].duration_mode).toBeUndefined()
 })
 
+const batchMediaDocument = () => {
+  const draft = createEditorPreset('empty')
+  delete draft.duration
+  draft.scenes = [{
+    id: 'batch', auto_duration: true, target_timerange: { start: 0 },
+    batch_scene: { source: 'items', mode: 'repeat', items: [{}] },
+    tracks: [], scenes: [{
+      id: 'child', target_timerange: { start: 0, duration: 5_000_000 },
+      tracks: [
+        { id: 'audio-track', type: 'audio', segments: [{
+          id: 'second', material_id: 'sound', target_timerange: { start: 0, duration: 5_000_000 },
+          source_timerange: { start: 2_000_000 }
+        }] },
+        { id: 'text-track', type: 'text', segments: [{
+          id: 'title', material_id: 'title-material', target_timerange: {}
+        }] }
+      ]
+    }]
+  }]
+  draft.materials.audios = [{ id: 'sound', type: 'audio', path: '/tmp/audio.wav', duration: 12_000_000 }]
+  draft.materials.texts = [{ id: 'title-material', type: 'text', content: JSON.stringify({ text: 'title' }) }]
+  return { templateJson: JSON.stringify(draft) }
+}
+
+it('批量分镜 Auto 跟随隐藏子分镜的媒体时长，文字和源时长变化继续联动', () => {
+  const original = batchMediaDocument()
+  expect(analyzeEditorDocument(original).duration).toBe(5)
+  const media = edit(original, 'duration', 'media')
+  const draft = JSON.parse(media.templateJson)
+  expect(draft.scenes[0].scenes[0].auto_duration).toBe(true)
+  for (const duration of [12_000_000, 20_000_000, 8_000_000]) {
+    draft.materials.audios[0].duration = duration
+    const result = analyzeEditorDocument({ templateJson: JSON.stringify(draft) })
+    const expected = duration / 1_000_000 - 2
+    expect(result.duration).toBe(expected)
+    for (const id of ['batch', 'child', 'second', 'title']) {
+      expect(result.timeline.find(item => item.id === id)).toMatchObject({ duration: expected, end: expected })
+    }
+  }
+  expect(analyzeEditorDocument(original).duration).toBe(5)
+})
+
+it('批量分镜时长的两种 Auto 入口均启用隐藏内容推导，固定分镜仍保持裁切', () => {
+  const draft = JSON.parse(batchMediaDocument().templateJson)
+  draft.scenes[0].auto_duration = false
+  draft.scenes[0].target_timerange.duration = 5_000_000
+  const fixed = edit({ templateJson: JSON.stringify(draft) }, 'duration', 'media')
+  expect(analyzeEditorDocument(fixed).duration).toBe(5)
+  for (const action of [
+    { type: 'duration', id: 'batch', duration: 'auto' },
+    { type: 'clip-timing', id: 'batch', field: 'duration', mode: 'auto' }
+  ] as const) {
+    const auto = applyEditorAction(fixed, action)
+    expect(analyzeEditorDocument(auto).duration).toBe(10)
+    expect(JSON.parse(auto.templateJson).scenes[0].scenes[0].auto_duration).toBe(true)
+  }
+})
+
+it('在 Auto 批量分镜中继续添加内容会启用隐藏子分镜联动', () => {
+  const added = addEditorElement(batchMediaDocument(), { type: 'audio', scopeId: 'batch',
+    selectedId: 'audio-track', source: '/tmp/next.wav', sourceDuration: 20_000_000 })
+  const result = analyzeEditorDocument(added)
+  expect(result.timeline.find(item => item.id === added.selectedId)).toMatchObject({ localStart: 5, duration: 5 })
+  expect(result.duration).toBe(10)
+  expect(JSON.parse(added.templateJson).scenes[0].scenes[0].auto_duration).toBe(true)
+})
+
 it('媒体时长尊重显式源区间，边缘裁切切换回固定时长', () => {
   const draft = JSON.parse(mediaDocument().templateJson)
   draft.scenes[0].tracks[0].segments[0].source_timerange.duration = 6_000_000
@@ -140,14 +207,43 @@ it('媒体时长尊重显式源区间，边缘裁切切换回固定时长', () =
   expect(time(resized).duration).toBe(5)
 })
 
-it('循环配置可切换与恢复，导出不允许悄悄丢弃循环', () => {
-  const original = mediaDocument()
-  const loop = applyEditorAction(original, { type: 'clip-loop', id: 'second', loop: true })
-  expect(JSON.parse(loop.templateJson).scenes[0].tracks[0].segments[0].loop).toBe(true)
-  expect(() => compileEditorDocument(loop)).toThrow(/循环/)
-  const off = applyEditorAction(loop, { type: 'clip-loop', id: 'second', loop: false })
-  expect(time(off).duration).toBe(4)
-  expect(() => applyEditorAction(document(), { type: 'clip-loop', id: 'second', loop: true })).toThrow()
+it('手写合法循环字段可导出，不丢弃配置', () => {
+  const draft = JSON.parse(mediaDocument().templateJson)
+  draft.scenes[0].tracks[0].segments[0].loop = true
+  const document = { templateJson: JSON.stringify(draft) }
+  expect(() => compileEditorDocument(document)).not.toThrow()
+  delete draft.scenes[0].tracks[0].segments[0].loop
+  expect(() => compileEditorDocument({ templateJson: JSON.stringify(draft) })).not.toThrow()
+})
+
+it('循环开关不改起止或源裁切，自动时长铺满父级且最后一轮裁切', () => {
+  const original = edit(mediaDocument(), 'duration', 'auto')
+  const enabled = applyEditorAction(original, { type: 'clip-loop', id: 'second', enabled: true })
+  const before = JSON.parse(original.templateJson).scenes[0].tracks[0].segments[0]
+  const after = JSON.parse(enabled.templateJson).scenes[0].tracks[0].segments[0]
+  expect(after).toEqual({ ...before, loop: true })
+  expect(time(enabled)).toMatchObject({ localStart: 1, duration: 14 })
+  const actions = compileEditorDocument(enabled).workflow.script
+  expect(actions.map(action => action.params)).toMatchObject([
+    { target_start: 1, start: 2, end: 10, duration: 8 },
+    { target_start: 9, start: 2, end: 8, duration: 6 }
+  ])
+  const disabled = applyEditorAction(enabled, { type: 'clip-loop', id: 'second', enabled: false })
+  expect(JSON.parse(disabled.templateJson).scenes[0].tracks[0].segments[0]).toEqual({ ...before, loop: false })
+})
+
+it('循环不改变媒体时长模式，缺少源时长或非媒体元素拒绝开启', () => {
+  const media = edit(mediaDocument(), 'duration', 'media')
+  const enabled = applyEditorAction(media, { type: 'clip-loop', id: 'second', enabled: true })
+  expect(time(enabled).duration).toBe(8)
+  expect(JSON.parse(enabled.templateJson).scenes[0].tracks[0].segments[0].duration_mode).toBe('media')
+  const missing = JSON.parse(mediaDocument().templateJson)
+  delete missing.materials.videos[0].duration
+  expect(() => applyEditorAction({ templateJson: JSON.stringify(missing) }, { type: 'clip-loop', id: 'second', enabled: true })).toThrow('源时长')
+  missing.scenes[0].tracks[0].segments[0].loop = true
+  const recovered = applyEditorAction({ templateJson: JSON.stringify(missing) }, { type: 'clip-loop', id: 'second', enabled: false })
+  expect(() => compileEditorDocument(recovered)).not.toThrow()
+  expect(() => applyEditorAction(document(), { type: 'clip-loop', id: 'second', enabled: true })).toThrow('循环仅支持')
 })
 
 it('缺少媒体元数据不能误用目标时长作为源时长', () => {

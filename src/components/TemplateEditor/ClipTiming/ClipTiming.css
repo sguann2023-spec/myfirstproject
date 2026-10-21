@@ -74,12 +74,12 @@
 .template-clip-timing-options button:focus-visible { outline: 2px solid #4980f1; outline-offset: -2px; }
 .template-clip-timing-options input[aria-invalid="true"] { color: #d93832; }
 .template-clip-timing p { margin: 6px 0 0 2px; color: #616161; font-size: 12px; line-height: 17px; }
-.template-clip-timing-loop { display: flex; align-items: center; justify-content: space-between; margin: 24px 2px 2px; }
-.template-clip-timing-loop > span { display: flex; align-items: center; gap: 10px; }
-.template-clip-timing-loop svg { color: #616161; }
-.template-clip-timing-loop button { width: 30px; height: 18px; padding: 2px; border: 1px solid #bdbdbd; border-radius: 12px; background: #fff; cursor: pointer; }
+.template-clip-timing-loop { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding: 12px 2px 0; border-top: 1px solid #f0f0f0; }
+.template-clip-timing-loop > span { display: flex; align-items: center; gap: 8px; }
+.template-clip-timing-loop > span svg { color: #616161; }
+.template-clip-timing-loop button { width: 30px; height: 18px; padding: 2px; border: 1px solid #b6b6b6; border-radius: 10px; background: #fff; cursor: pointer; }
 .template-clip-timing-loop button > span { display: block; width: 12px; height: 12px; border-radius: 50%; background: #ccc; }
-.template-clip-timing-loop button[aria-checked="true"] { background: #4980f1; border-color: #4980f1; }
+.template-clip-timing-loop button[aria-checked="true"] { border-color: #4980f1; background: #4980f1; }
 .template-clip-timing-loop button[aria-checked="true"] > span { background: #fff; transform: translateX(12px); }
 .template-clip-timing-loop button:disabled { opacity: .35; cursor: default; }
 .template-clip-timing-loop button:focus-visible { outline: 2px solid #4980f1; outline-offset: 2px; }

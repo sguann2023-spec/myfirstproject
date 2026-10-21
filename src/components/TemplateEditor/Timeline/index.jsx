@@ -46,9 +46,19 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
       }
     };
     const closeFloating = () => { setMenu(null); setDurationOpen(false); };
+    const remove = event => {
+      if (!['Delete', 'Backspace'].includes(event.key) || !menu) return;
+      if (event.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+      setMenu(null);
+    };
     window.addEventListener('keydown', cancel, true);
+    window.addEventListener('keydown', remove, true);
     window.addEventListener('pointerdown', closeFloating);
-    return () => { window.removeEventListener('keydown', cancel, true); window.removeEventListener('pointerdown', closeFloating); };
+    return () => {
+      window.removeEventListener('keydown', cancel, true);
+      window.removeEventListener('keydown', remove, true);
+      window.removeEventListener('pointerdown', closeFloating);
+    };
   }, [menu, durationOpen]);
   useEffect(() => {
     pendingCommit.current = null;
@@ -257,7 +267,7 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
                 const native = nativeIndex.get(clip.id);
                 const modes = clipTimingModes(native);
                 return <div key={clip.id} data-clip-id={clip.id} role="button" tabIndex={0} aria-pressed={selectedId === clip.id}
-                  className={`template-clip ${clip.type === 'composition' ? 'template-clip--scene' : ''} ${selectedId === clip.id ? 'is-selected' : ''} ${active && !preview.committing ? 'is-dragging' : ''} ${active && preview.floating ? 'is-floating' : ''}`}
+                  className={`template-clip ${clip.type === 'composition' ? 'template-clip--scene' : ''} ${selectedId === clip.id ? 'is-selected' : ''} ${active && !preview.committing ? 'is-dragging' : ''} ${active && preview.floating ? 'is-floating' : ''} ${preview?.sceneDropId === clip.id ? 'is-scene-drop-target' : ''}`}
                   style={{ left: start * pps, width: Math.max(3, (end - start) * pps),
                     transform: active && preview.floating ? `translateY(${preview.offsetY}px)` : undefined }}
                   title={`${clip.name} · ${timeLabel(start)}–${timeLabel(end)} 秒${clip.type === 'composition' ? ' · 双击进入' : ''}`}
@@ -308,8 +318,8 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
         })}
         {preview?.floating && preview.lineTop !== undefined &&
           <div className="template-clip-drop-line" style={{ top: preview.lineTop }} />}
-        <button className="template-add-scene" aria-label="添加分镜" disabled={disabled} onClick={onAddScene}
-          style={{ left: 164 + view.duration * pps }}><Plus size={14} />添加分镜</button>
+        {sceneId !== null && <button className="template-add-scene" aria-label="添加分镜" disabled={disabled} onClick={onAddScene}
+          style={{ left: 164 + view.duration * pps }}><Plus size={14} />添加分镜</button>}
         <TimelinePlayhead left={164 + cursor * pps} hidden={cursor * pps < scrollLeft} onPointerDown={beginCursor} onPointerMove={move}
           onPointerUp={finish} onPointerCancel={event => finish(event, true)} />
       </div>

@@ -3,10 +3,11 @@ import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { EditorView } from '@codemirror/view';
 import { parseTree } from 'jsonc-parser';
-import { Braces, LayersPlus, Film, Image, Layers, Music2, Redo2, SlidersHorizontal, Sparkles, Sticker, Type, Undo2 } from 'lucide-react';
+import { Braces, LayersPlus, Film, Image, Layers, Music2, Redo2, Type, Undo2 } from 'lucide-react';
 import LayerPanel from '../../components/TemplateEditor/LayerPanel';
 import EditorTimeline from '../../components/TemplateEditor/Timeline';
 import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/editorView';
+import { elementIcons } from '../../components/TemplateEditor/elementIcons';
 import './TemplateEditPage.css';
 
 const tools = [
@@ -16,9 +17,9 @@ const tools = [
   { type: 'image', label: '添加图片', Icon: Image },
   { type: 'video', label: '添加视频', Icon: Film },
   { type: 'audio', label: '添加音频', Icon: Music2 },
-  { type: 'sticker', label: '添加贴纸', Icon: Sticker },
-  { type: 'filter', label: '添加滤镜', Icon: SlidersHorizontal },
-  { type: 'effect', label: '添加特效', Icon: Sparkles }
+  { type: 'sticker', label: '添加贴纸', Icon: elementIcons.sticker },
+  { type: 'filter', label: '添加滤镜', Icon: elementIcons.filter },
+  { type: 'effect', label: '添加特效', Icon: elementIcons.effect }
 ];
 const extensions = [json(), EditorView.theme({
   '&': { height: '100%', fontSize: '13px' },
@@ -40,6 +41,7 @@ const TemplateEditPage = () => {
   const [lockedTracks, setLockedTracks] = useState(new Set());
   const [history, setHistory] = useState({ past: [], future: [] });
   const [workflowMode, setWorkflowMode] = useState(false);
+  const [workflowDraft, setWorkflowDraft] = useState(null);
   const [compiled, setCompiled] = useState(null);
   const [error, setError] = useState('');
   const [analysisError, setAnalysisError] = useState('');
@@ -155,6 +157,7 @@ const TemplateEditPage = () => {
     pendingReveal.current = null;
     setPending(true);
     setCompiled(null);
+    setWorkflowDraft(null);
     setError('');
     setExportResult(null);
     setTemplateJson(value);
@@ -201,15 +204,60 @@ const TemplateEditPage = () => {
   const mutate = async (action) => {
     if (operation.current || busy || pending || analysisError) return false;
     if (isLocked(action.id) || (action.trackId && isLocked(action.trackId)) ||
-      (action.beforeId && isLocked(action.beforeId))) { setError('轨道已锁定，请先解锁'); return false; }
+      (action.beforeId && isLocked(action.beforeId)) ||
+      (action.targetId && isLocked(action.targetId)) ||
+      (action.type === 'paste' && action.scopeId && isLocked(action.scopeId)) ||
+      (action.type === 'paste' && !action.id && !action.scopeId && lockedTracks.has('__template_scenes__'))) {
+      setError('轨道已锁定，请先解锁'); return false;
+    }
     operation.current = true; setBusy(true); setError('');
     try {
       const result = await invoke('template:editor-edit', editorPayload(), action);
-      edit(result.templateJson); select(result.selectedId);
+      edit(result.templateJson);
+      if (action.type === 'paste' || action.type === 'move-layer') pendingReveal.current = result.selectedId;
+      // Moving a clip into a scene removes it from the current view; follow it inside.
+      if (action.type === 'move-into-scene') enter(action.sceneId);
+      else select(result.selectedId);
       return true;
     } catch (err) { setError(err.message); return false; }
     finally { operation.current = false; setBusy(false); }
   };
+  useEffect(() => {
+    const clipboardKey = async event => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if (!['c', 'v'].includes(key)) return;
+      if (event.target.closest?.('input, textarea, [contenteditable="true"], .cm-editor')) return;
+      if (!event.target.closest?.('.template-edit-layers, .template-edit-timeline') &&
+          event.target !== document.body) return;
+      if (key === 'c' && !selectedId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (operation.current || busy || pending || analysisError || workflowMode) return;
+      if (key === 'v') {
+        await mutate({ type: 'paste', id: selectedId || null, scopeId: sceneId });
+        return;
+      }
+      operation.current = true;
+      setError('');
+      try { await invoke('template:editor-copy', editorPayload(), selectedId); }
+      catch (err) { setError(err.message); }
+      finally { operation.current = false; }
+    };
+    window.addEventListener('keydown', clipboardKey, true);
+    return () => window.removeEventListener('keydown', clipboardKey, true);
+  });
+  // Deleting must work even when focus fell back to <body> (e.g. after pointer gestures that preventDefault).
+  useEffect(() => {
+    const remove = event => {
+      if (!['Delete', 'Backspace'].includes(event.key) || !selectedId) return;
+      if (event.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+      event.preventDefault();
+      mutate({ type: 'delete', id: selectedId });
+    };
+    window.addEventListener('keydown', remove, true);
+    return () => window.removeEventListener('keydown', remove, true);
+  });
   const commitTitle = async () => {
     const next = titleDraft.trim();
     setEditingTitle(false);
@@ -220,18 +268,22 @@ const TemplateEditPage = () => {
   const add = async (type, inScope = false) => {
     if (operation.current || busy || pending || analysisError) return;
     const targetId = inScope ? sceneId : selectedId || sceneId || undefined;
+    const selected = !inScope && index.get(selectedId);
+    const scopeId = selected
+      ? selected.type === 'composition' ? selected.id : selected.sceneId
+      : sceneId;
     if (targetId && isLocked(targetId)) { setError('轨道已锁定，请先解锁'); return; }
     operation.current = true;
     setBusy(true);
     setError('');
     try {
       const result = await invoke('template:editor-add', editorPayload(), { type, selectedId: targetId,
-        scopeId: sceneId,
+        scopeId,
         ...(type === 'scene' && !targetId && sceneId === null ? { atRoot: true } : {}) });
       if (result) {
         edit(result.templateJson);
         // Reveal the actual owning storyboard once the updated tree is available.
-        if (sceneId === null && !(type === 'scene' && !targetId)) pendingReveal.current = result.selectedId;
+        if (!(type === 'scene' && !targetId && sceneId === null)) pendingReveal.current = result.selectedId;
         setSelectedId(result.selectedId);
         if (targetId) setCollapsed(previous => new Set([...previous].filter(id => id !== targetId && !index.get(targetId)?.ancestors.includes(id))));
         setWorkflowMode(false);
@@ -245,6 +297,7 @@ const TemplateEditPage = () => {
     setBusy(true);
     setError('');
     setCompiled(null);
+    setWorkflowDraft(null);
     try {
       setCompiled(await invoke('template:editor-compile', editorPayload()));
     } catch (err) { setError(err.message); }
@@ -260,7 +313,8 @@ const TemplateEditPage = () => {
     setError('');
     setExportResult(null);
     try {
-      setExportResult(await invoke('template:editor-test-export', editorPayload()));
+      const payload = workflowMode && workflowDraft !== null ? { ...editorPayload(), workflowJson: workflowDraft } : editorPayload();
+      setExportResult(await invoke('template:editor-test-export', payload));
     } catch (err) { setError(err.message); }
     finally { setExporting(false); setBusy(false); }
   };
@@ -270,7 +324,8 @@ const TemplateEditPage = () => {
     return next;
   });
   const disabled = !ready || busy || pending || Boolean(analysisError);
-  const displayedJson = workflowMode ? (compiled ? JSON.stringify(compiled.workflow, null, 2) : '')
+  const displayedJson = workflowMode
+    ? (workflowDraft ?? (compiled ? JSON.stringify(compiled.workflow, null, 2) : ''))
     : templateJson;
 
   return (
@@ -283,7 +338,6 @@ const TemplateEditPage = () => {
         return;
       }
       if (typing) return;
-      if (['Delete', 'Backspace'].includes(event.key) && selectedId) { event.preventDefault(); mutate({ type: 'delete', id: selectedId }); }
       if (event.key === 'Escape' && sceneId) enter(index.get(sceneId)?.sceneId ?? null);
     }}>
       <header className="template-edit-header">
@@ -303,8 +357,8 @@ const TemplateEditPage = () => {
             onClick={() => addTool(type)}><Icon size={20} /></button>)}
         </div>
         <div className="template-header-actions">
-        <button className="template-icon-button" aria-label="撤销" title="撤销 Ctrl/Cmd+Z" disabled={busy || !history.past.length} onClick={() => restore()}><Undo2 size={17} /></button>
-        <button className="template-icon-button" aria-label="重做" title="重做 Ctrl/Cmd+Shift+Z" disabled={busy || !history.future.length} onClick={() => restore(true)}><Redo2 size={17} /></button>
+        {/* <button className="template-icon-button" aria-label="撤销" title="撤销 Ctrl/Cmd+Z" disabled={busy || !history.past.length} onClick={() => restore()}><Undo2 size={17} /></button>
+        <button className="template-icon-button" aria-label="重做" title="重做 Ctrl/Cmd+Shift+Z" disabled={busy || !history.future.length} onClick={() => restore(true)}><Redo2 size={17} /></button> */}
         <button className={`template-workflow-toggle ${workflowMode ? 'is-active' : ''}`}
           aria-label={workflowMode ? '切换到模版 JSON' : '切换到 Workflow'} aria-pressed={workflowMode}
           disabled={!ready || busy || (!workflowMode && (pending || Boolean(analysisError)))}
@@ -318,12 +372,12 @@ const TemplateEditPage = () => {
 
       <div className="template-edit-body">
         <LayerPanel model={model} index={index} nativeIndex={nativeIndex} selectedId={selectedId} collapsed={collapsed} onToggle={toggleLayer}
-          onSelect={select} onEnter={enter} onReveal={reveal} onAction={mutate} disabled={disabled} />
+          onSelect={select} onEnter={enter} onReveal={reveal} onAction={mutate} isLocked={isLocked} disabled={disabled} />
         <section className="template-edit-code" aria-label="JSON 编辑区">
           <div className="template-code-heading">
-            <strong>{workflowMode ? <>Workflow <span className="template-muted">只读</span></> : 'Template JSON'}</strong>
+            <strong>{workflowMode ? 'Workflow' : 'Template JSON'}</strong>
             <span className="template-muted">{busy || pending ? <span className="template-spinner" aria-label="处理中" /> :
-              workflowMode ? '未提交执行' : '仅当前窗口，未保存'}</span>
+              workflowMode ? (workflowDraft !== null ? '已编辑，测试导出将使用当前内容' : '未提交执行') : '仅当前窗口，未保存'}</span>
           </div>
           {(analysisError || error) && <div className="template-edit-error" role="alert">{analysisError || error}</div>}
           {exportResult && <div className="template-export-result" role="status">
@@ -334,9 +388,12 @@ const TemplateEditPage = () => {
           </div>}
           <div className="template-code-container">
             <CodeMirror ref={editorRef} value={displayedJson} height="100%" extensions={extensions}
-              editable={!workflowMode && !busy} readOnly={workflowMode || busy}
+              editable={!busy} readOnly={busy}
               basicSetup={{ foldGutter: true, highlightActiveLine: true, autocompletion: false, history: false }}
-              onChange={(value) => { if (!workflowMode && !busy) edit(value, true); }} />
+              onChange={(value) => {
+                if (busy) return;
+                if (workflowMode) setWorkflowDraft(value); else edit(value, true);
+              }} />
           </div>
           {workflowMode && compiled?.warnings.length > 0 && <details className="template-compile-warnings">
             <summary>转换说明（{compiled.warnings.length}）</summary>

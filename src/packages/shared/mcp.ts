@@ -133,6 +133,7 @@ export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
   'filesystem-server',
   'image',
   'image-understand',
+  'audio-understand',
   'koubo-template',
   'materials',
   'search',

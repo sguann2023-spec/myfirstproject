@@ -125,7 +125,7 @@ describe('Scene 包裹剪映草稿轨道', () => {
     }
   })
 
-  it('贴纸滤镜特效添加、层级与跨轨对齐可用，但执行明确拒绝', () => {
+  it('贴纸滤镜特效支持添加、跨轨对齐及执行，空资源有明确提示', () => {
     for (const [type, bucket, materialType] of [
       ['sticker', 'stickers', 'sticker'], ['filter', 'effects', 'filter'], ['effect', 'video_effects', 'video_effect']
     ] as const) {
@@ -142,7 +142,15 @@ describe('Scene 包裹剪映草稿轨道', () => {
       expect(model.timeline.find(({ id }) => id === segment.id)).toMatchObject({ type, start: 9.2838, end: 21.6308 })
       expect(model.tree[0].children.find((node) => node.id === track.id)!.children[0]).toMatchObject({ id: segment.id, type })
       expect(model.rows.flatMap(({ clips }) => clips).find(({ id }) => id === segment.id)).toMatchObject({ type })
-      expect(() => compileEditorDocument(payload(draft))).toThrow('暂未支持 Workflow 执行')
+      if (type === 'sticker') {
+        expect(() => compileEditorDocument(payload(draft))).toThrow('贴纸缺少')
+        draft.materials[bucket][0].resource_id = '123456789'
+        expect(compileEditorDocument(payload(draft)).workflow.script.some(action => action.action_type === 'add_sticker')).toBe(true)
+      } else {
+        expect(() => compileEditorDocument(payload(draft))).toThrow(`${type}_type`)
+        draft.materials[bucket][0][`${type}_type`] = type === 'filter' ? '冷蓝' : '模糊'
+        expect(compileEditorDocument(payload(draft)).workflow.script.some(action => action.action_type === `add_${type}`)).toBe(true)
+      }
       draft.materials[bucket][0].type = 'text_effect'
       expect(() => analyzeEditorDocument(payload(draft))).toThrow('素材类型')
       expect(input).toEqual(payload())

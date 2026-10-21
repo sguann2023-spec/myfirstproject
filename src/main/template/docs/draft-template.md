@@ -136,9 +136,15 @@ parent 目前支持 parent.start 的非负偏移、parent.end 的零偏移。
   通过 workflowTracks 查询拆轨与实际层级，不直接透传逻辑索引。
 - 同一逻辑轨道的可见片段不能重叠，首尾相接允许；同时显示的内容放在不同逻辑轨道。
 - 保留原生 clip、extra_material_refs 和其他草稿字段，不污染原始 JSON。
-- 目前图片和纯文字内容可生成 Workflow；文字富样式、clip 和附加素材尚未映射，会返回警告。
-- 视频/音频以及贴纸/滤镜/特效支持时间分析与编辑，Workflow 编译明确失败；
-  不会跳过这些轨道输出不完整草稿。非 1 倍速及隐藏片段暂不支持。
+- 图片、纯文字、视频、音频和贴纸可生成 Workflow；文字富样式、非贴纸 clip 和附加素材尚未映射。
+- 贴纸使用 add_sticker，优先 sticker_id、其次 resource_id，必须填写非空真实资源 ID。
+  target_timerange 映射 start/end，clip 的 transform、scale、rotation、alpha、flip 按后台参数转换。
+  支持动态资源/变换及批量分镜逐条 sticker_id 输入，混排时拆分真实贴纸轨道。
+- 滤镜/特效支持 add_filter/add_effect，filter_type/effect_type 填后台枚举名称（兼容 name）。
+  intensity 为 0-100，省略时从 value 乘 100；effect_category 支持 scene/character，
+  params 按后台顺序填百分比或 null。原生 adjust_params 按索引/范围转换后反转，
+  动态调整使用 params。类型、强度、类别、数组及批量逐条类型都支持运行时输入。
+  非 1 倍速及隐藏片段暂不支持。
 - 不承诺原生草稿完整视觉还原，也未进行真实后台渲染验证。
 - wrapDraftAsTemplate 仅复制草稿，将原 tracks 放入一个 Scene，materials 和其他根字段保留。
   原草稿路径占位符不是可下载地址，执行素材优先使用 remote_url，其次 path。

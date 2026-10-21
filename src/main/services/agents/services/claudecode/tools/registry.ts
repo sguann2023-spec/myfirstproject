@@ -1,6 +1,7 @@
 import type { McpHttpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { loggerService } from '@logger'
 import AssistantServer from '@main/mcpServers/assistant'
+import AudioUnderstandServer from '@main/mcpServers/audio-understand'
 import type BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import CutWorkflowServer from '@main/mcpServers/cut-workflow'
@@ -28,6 +29,7 @@ import SystemServer from '@main/mcpServers/system'
 import type VideoGenerateServer from '@main/mcpServers/video-generate'
 import VideoUnderstandServer from '@main/mcpServers/video-understand'
 import VoiceConversionServer from '@main/mcpServers/voice-conversion'
+import VoiceLibraryServer from '@main/mcpServers/voice-library'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import { buildVectcutMcpPattern, buildVectcutMcpToolName } from '@shared/mcp'
@@ -242,6 +244,20 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
+    mountMcpServer('voice-library', {
+      type: 'sdk',
+      name: 'voice-library',
+      instance: new VoiceLibraryServer().mcpServer
+    })
+    allowMcpTools([
+      vt('voice-library', 'list_voices'),
+      vt('voice-library', 'get_voice_filter_options'),
+      vt('voice-library', 'clone_voice')
+    ])
+    allowMcpPattern(vp('voice-library'))
+  }
+
+  if (hasAiMediaDomain) {
     const voiceConversionServer = new VoiceConversionServer(cwd)
     mountMcpServer('voice-conversion', {
       type: 'sdk',
@@ -365,6 +381,18 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add(vt('draft-elements', 'get_combo_animation_types'))
     }
     allowMcpPattern(vp('draft-elements'))
+  }
+
+  if (hasCutDomain) {
+    mountMcpServer('audio-understand', {
+      type: 'sdk',
+      name: 'audio-understand',
+      instance: new AudioUnderstandServer(cwd).mcpServer,
+      longRunning: true,
+      timeout: 50 * 60
+    })
+    autoAllowTools.add(vt('audio-understand', 'submit_audio_understanding_task'))
+    allowMcpPattern(vp('audio-understand'))
   }
 
   if (hasCutDomain) {

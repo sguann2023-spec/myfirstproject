@@ -4,6 +4,8 @@ import { prepareExecutionWorkflow, TemplateTestExporter } from './testExport'
 import { createEditorPreset } from './editorPresets'
 import { compileDraftTemplate } from './draftTemplate'
 import { workflowActions } from './workflowTestUtils'
+import { encodeWorkflowInputNames, executionInputName, inputName } from './inputNames'
+import type { TemplateWorkflow } from './workflowTypes'
 
 const payload = () => ({ templateJson: JSON.stringify(editorInitialTemplate), configJson: '{}' })
 const result = (data: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(data) }] })
@@ -42,9 +44,38 @@ describe('测试执行与草稿导出', () => {
     const deps = dependencies()
     await new TemplateTestExporter(deps).run(1, { templateJson: JSON.stringify(template) })
     const executed = deps.execute.mock.calls[0][0]
-    expect(executed.inputs.input_text_material_1_content).toEqual({ text: '清晨，阳光洒进安静的房间。' })
+    expect(executed.inputs[executionInputName('第_1_句话')]).toEqual({ text: '清晨，阳光洒进安静的房间。' })
     expect(workflowActions(executed).find(({ id }) => id === 'text-1')!.params.text)
-      .toBe('${input_text_material_1_content.text}')
+      .toBe(`\${${executionInputName('第_1_句话')}.text}`)
+  })
+
+  it('中文嵌套输入在执行边界转换为 ASCII，避开已有编码名，重复转换保持不变', () => {
+    const collision = executionInputName('音画同步')
+    const workflow = {
+      inputs: {
+        音画同步: [{ 文案配音: [{ 文案: { text: '1+2 ${price}' }, 配音: { music_url: '/tmp/voice.mp3' } }],
+          背景视频: { video_url: '/tmp/background.mp4' } }],
+        [collision]: '现有变量'
+      },
+      script: [{
+        type: 'for', id: 'outer', index: 0, in: '${音画同步}', loop: [
+          { type: 'set_var', id: 'parent', index: 0, name: 'parent', value: '${item}' },
+          { type: 'for', id: 'inner', index: 1, in: '${parent.文案配音}', loop: [
+            { type: 'action', id: 'caption', index: 0, action_type: 'add_text', params: { text: '${item.文案.text}' } }
+          ] },
+          { type: 'action', id: 'video', index: 2, action_type: 'add_video', params: { video_url: '${parent.背景视频.video_url}' } }
+        ]
+      }]
+    }
+    const original = structuredClone(workflow)
+    const prepared = prepareExecutionWorkflow(workflow as any)
+    expect(prepared.inputs[collision]).toBe('现有变量')
+    expect(Object.keys(prepared.inputs).every(key => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))).toBe(true)
+    expect(prepared.script[0].in).not.toBe(`\${${collision}}`)
+    expect(JSON.stringify(prepared.script)).not.toMatch(/[音画同步文案配背景视]/u)
+    expect(prepareExecutionWorkflow(prepared)).toEqual(prepared)
+    expect(workflow).toEqual(original)
+    expect(JSON.stringify(prepared.inputs)).toContain('1+2 ${price}')
   })
 
   it('执行失败或缺少草稿 ID 时不提交导出', async () => {
@@ -54,6 +85,24 @@ describe('测试执行与草稿导出', () => {
       await expect(new TemplateTestExporter(deps).run(1, payload())).rejects.toThrow()
       expect(deps.exportDraft).not.toHaveBeenCalled()
     }
+  })
+
+  it('旧中文标签路径同步转换，保留展示名且转换幂等', () => {
+    const workflow = {
+      width: 720, height: 1280,
+      inputs: { 分镜: [{ 文案: { text: '中文内容' } }] },
+      input_labels: [{ path: ['分镜', '*', '文案'], label: '展示文案' }],
+      script: []
+    }
+    const original = structuredClone(workflow)
+    const encoded = encodeWorkflowInputNames(workflow)
+    expect(encoded.input_labels).toContainEqual({
+      path: [executionInputName('分镜'), '*', executionInputName('文案')], label: '展示文案'
+    })
+    expect(encodeWorkflowInputNames(encoded)).toEqual(encoded)
+    expect(workflow).toEqual(original)
+    const reserved = executionInputName('文案')
+    expect(inputName('文案', new Set(), new Set([reserved]))).not.toBe(reserved)
   })
 
   it('导出失败后重试只导出原草稿，成功后可执行新的测试', async () => {
@@ -86,5 +135,30 @@ describe('测试执行与草稿导出', () => {
       templateJson: JSON.stringify({ width: 720, height: 1280, duration: 5, elements: [] }), configJson: '{}'
     })).rejects.toThrow('没有可见内容')
     expect(deps.execute).not.toHaveBeenCalled()
+  })
+
+  it('传入编辑后的 workflowJson 优先于重新编译执行', async () => {
+    const template = createEditorPreset('sentence-image')
+    const compiled = compileDraftTemplate(template)
+    const edited = { ...compiled.workflow, inputs: { ...compiled.workflow.inputs, input_text_material_1_content: { text: '手工改过的文案' } } }
+    const deps = dependencies()
+    const exporter = new TemplateTestExporter(deps)
+    await exporter.run(1, { templateJson: JSON.stringify(template) }, JSON.stringify(edited))
+    expect(deps.execute.mock.calls[0][0].inputs.input_text_material_1_content).toEqual({ text: '手工改过的文案' })
+    await expect(exporter.run(1, { templateJson: JSON.stringify(template) }, '{')).rejects.toThrow('不是合法 JSON')
+    await expect(exporter.run(1, { templateJson: JSON.stringify(template) }, JSON.stringify({ width: 720 }))).rejects.toThrow('缺少 script')
+    await expect(exporter.run(1, { templateJson: JSON.stringify(template) }, JSON.stringify({ script: [], inputs: [] }))).rejects.toThrow('inputs 必须是对象')
+    expect(deps.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('数字循环次数引用随旧中文输入编码，不保留失效路径', () => {
+    const workflow: TemplateWorkflow = {
+      width: 720, height: 1280, inputs: { 循环次数: 2 },
+      script: [{ type: 'for', id: 'media-loop', index: 0, loopCount: '${循环次数}', loop: [] }]
+    }
+    const encoded = prepareExecutionWorkflow(workflow)
+    expect(encoded.script[0].loopCount).toBe(`\${${executionInputName('循环次数')}}`)
+    expect(prepareExecutionWorkflow(encoded)).toEqual(encoded)
+    expect(workflow.script[0].loopCount).toBe('${循环次数}')
   })
 })

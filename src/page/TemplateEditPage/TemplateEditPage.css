@@ -114,7 +114,7 @@
   display: flex;
   align-items: center;
   height: 34px;
-  margin: 0 7px 1px 5px;
+  margin: 0 7px 1px 12px;
   gap: 6px;
   border-radius: 5px;
   border: 1px solid transparent;
@@ -125,7 +125,21 @@
 }
 .template-layer:hover { background: #f0f1f3; border-color: transparent; }
 .template-layer.is-selected { background: #dbe6ff; border-color: transparent; }
-.template-layer.is-selected::before { content: ''; position: absolute; width: 3px; left: -7px; top: 0; bottom: 0; background: #4c82f7; border-radius: 0 2px 2px 0; }
+.template-layer.is-layer-dragging { opacity: .45; }
+.template-layer.is-layer-drop-before { box-shadow: inset 0 2px var(--template-blue); }
+.template-layer.is-layer-drop-after { box-shadow: inset 0 -2px var(--template-blue); }
+.template-layer.is-layer-drop-inside { background: #e8efff; box-shadow: inset 0 0 0 1px var(--template-blue); }
+.template-layer-track-rail {
+  position: absolute;
+  width: 3px;
+  top: -1px;
+  bottom: -2px;
+  background: #dddddd;
+  pointer-events: none;
+}
+.template-layer-track-rail.is-active { background: #4c82f7; }
+.template-layer-track-rail.is-first { top: 2px; border-top-left-radius: 2px; border-top-right-radius: 2px; }
+.template-layer-track-rail.is-last { bottom: 2px; border-bottom-left-radius: 2px; border-bottom-right-radius: 2px; }
 .template-layer > strong { font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.01em; }
 .template-element-text { color: #a4a6aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px; font-weight: 600; line-height: 18px; }
 .template-element-tree { padding: 6px 0; }
@@ -165,6 +179,7 @@
 .template-context-menu small { margin-left: auto; color: #989ba2; }
 .is-drop-target { box-shadow: inset 0 2px var(--template-blue); }
 .template-disclosure { display: grid; place-items: center; flex: 0 0 20px; padding: 0; height: 24px; border: 0; background: none; color: #1d2024; }
+.template-layer-icon { display: grid; place-items: center; flex: 0 0 14px; height: 24px; color: #1d2024; }
 .template-layer-select {
   display: flex;
   align-items: center;

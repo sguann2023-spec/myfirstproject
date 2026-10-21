@@ -2608,6 +2608,7 @@
           "subtitle_template": "字幕模板",
           "video_understand": "影片理解",
           "voice_conversion": "聲音轉換",
+          "voice_library": "音色庫",
           "zcaceres_fetch": "網頁抓取"
         },
         "tools": {
@@ -2759,6 +2760,11 @@
           "speech": {
             "generate_speech": "生成語音"
           },
+          "voice_library": {
+            "list_voices": "取得音色列表",
+            "get_voice_filter_options": "取得音色篩選選項",
+            "clone_voice": "複製音色"
+          },
           "storyboard_editor": {
             "inspect_storyboard": "查看分鏡",
             "update_part_text": "改寫分鏡文本",
@@ -2772,6 +2778,9 @@
             "insert_blank_part": "插入空分鏡",
             "adjust_part_bounds": "調整分鏡邊界",
             "apply_operations": "批次編輯分鏡"
+          },
+          "audio_understand": {
+            "submit_audio_understanding_task": "音訊理解"
           },
           "subtitle_recognition": {
             "get_subtitle_recognition_task_status": "查詢字幕識別任務狀態",

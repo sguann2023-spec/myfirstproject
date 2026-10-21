@@ -4,6 +4,7 @@ import { addEditorElement, analyzeEditorDocument, compileEditorDocument } from '
 import { createEditorPreset } from './editorPresets'
 import { isSceneSegment } from './draftTracks'
 import { mixedTrackFixture, workflowActions } from './workflowTestUtils'
+import { executionInputName } from './inputNames'
 
 function fixture() {
   const template = mixedTrackFixture()
@@ -189,7 +190,7 @@ describe('轨道中的嵌套 Scene', () => {
       name: '批量分镜',
       type: 'scene',
       target_timerange: { start: 15_000_000, duration: 5_000_000 },
-      batch_scene: { source: 'items', mode: 'repeat', items: [{ title: '分镜文案', image: '' }] },
+      batch_scene: { source: 'items', mode: 'repeat', items: [{}] },
       dynamic: ['batch_scene.items'],
       tracks: [],
       scenes: [{ name: '分镜', target_timerange: { start: 0, duration: 5_000_000 }, tracks: [] }]
@@ -200,7 +201,7 @@ describe('轨道中的嵌套 Scene', () => {
     const child = segment.scenes[0]
     expect(model.timeline.find(({ id }) => id === child.id)).toMatchObject({ parentId: added.selectedId, localStart: 0, duration: 5 })
     expect(model.dynamicInputs.find(input => input.key === `${added.selectedId}.batch_scene.items`))
-      .toMatchObject({ type: 'array', defaultValue: [{ title: '分镜文案', image: '' }] })
+      .toMatchObject({ type: 'array', defaultValue: [{}] })
     expect(() => compileEditorDocument(added)).not.toThrow()
   })
 
@@ -221,6 +222,21 @@ describe('轨道中的嵌套 Scene', () => {
     expect(JSON.stringify(batchNode.children)).not.toContain('"name":"分镜"')
   })
 
+  it('批量分镜内添加分镜同样进入唯一子分镜', () => {
+    const template = createEditorPreset('sentence-image')
+    const batch = addEditorElement({ templateJson: JSON.stringify(template) }, { type: 'batch-scene', selectedId: 'sentence-scenes' })
+    const added = addEditorElement(batch, { type: 'scene', selectedId: batch.selectedId, scopeId: batch.selectedId })
+    const draft = JSON.parse(added.templateJson)
+    const batchScene = draft.scenes[0].tracks[0].segments.at(-1)
+    expect(batchScene.tracks).toEqual([])
+    expect(batchScene.scenes).toHaveLength(1)
+    expect(batchScene.scenes[0].tracks).toHaveLength(1)
+    expect(batchScene.scenes[0].tracks[0].segments[0]).toMatchObject({ id: added.selectedId, name: '分镜', type: 'scene' })
+    const model = analyzeEditorDocument(added)
+    expect(model.timeline.find(({ id }) => id === added.selectedId))
+      .toMatchObject({ parentId: batchScene.scenes[0].id, localStart: 0, duration: 5 })
+  })
+
   it('批量分镜编译为数组输入和循环子分镜 Workflow', () => {
     const draft = {
       canvas_config: { width: 720, height: 1280 },
@@ -237,9 +253,9 @@ describe('轨道中的嵌套 Scene', () => {
             dynamic: ['batch_scene.items'],
             tracks: [{ id: 'batch-child-track', type: 'scene', segments: [{
               id: 'batch-child', name: '分镜', type: 'scene', target_timerange: { start: 0, duration: 5_000_000 }, tracks: [
-                { id: 'batch-text-track', type: 'text', segments: [{ id: 'batch-title', material_id: 'title-material', target_timerange: { start: 0, duration: 5_000_000 } }] },
-                { id: 'batch-image-track', type: 'video', segments: [{ id: 'batch-image', material_id: 'image-material', target_timerange: { start: 0, duration: 5_000_000 } }] },
-                { id: 'batch-audio-track', type: 'audio', segments: [{ id: 'batch-audio', material_id: 'audio-material', target_timerange: { start: 0, duration: 5_000_000 }, source_timerange: { start: 0 } }] }
+                { id: 'batch-text-track', type: 'text', segments: [{ id: 'batch-title', name: '文字', material_id: 'title-material', target_timerange: { start: 0, duration: 5_000_000 } }] },
+                { id: 'batch-image-track', type: 'video', segments: [{ id: 'batch-image', name: '图片', material_id: 'image-material', target_timerange: { start: 0, duration: 5_000_000 } }] },
+                { id: 'batch-audio-track', type: 'audio', segments: [{ id: 'batch-audio', name: '音频', material_id: 'audio-material', target_timerange: { start: 0, duration: 5_000_000 }, source_timerange: { start: 0 } }] }
               ]
             }] }]
           }]
@@ -247,19 +263,19 @@ describe('轨道中的嵌套 Scene', () => {
       }]
     }
     const result = compileEditorDocument({ templateJson: JSON.stringify(draft) })
-    const inputName = Object.keys(result.workflow.inputs).find(key => key.endsWith('_batch_scene_items'))!
+    const inputName = result.workflowInputBindings.find(binding => binding.key === 'batch.batch_scene.items')!.variable
     expect(Object.keys(result.workflow.inputs).filter(key => key.startsWith('template_literal_'))).toEqual([])
     expect(result.workflow.inputs[inputName]).toEqual([
-      { text: { text: '分镜 A', font_color: '#ffffff' }, image: { url: 'https://example.com/default.png' }, audio: { url: '/tmp/default.mp3' } },
-      { text: { text: '分镜 B', font_color: '#ffffff' }, image: { url: 'https://example.com/default.png' }, audio: { url: '/tmp/default.mp3' } }
+      { [executionInputName('文字')]: { text: '分镜 A' }, [executionInputName('图片')]: { image_url: 'https://example.com/default.png' }, [executionInputName('音频')]: { music_url: '/tmp/default.mp3' } },
+      { [executionInputName('文字')]: { text: '分镜 B' }, [executionInputName('图片')]: { image_url: 'https://example.com/default.png' }, [executionInputName('音频')]: { music_url: '/tmp/default.mp3' } }
     ])
     const loop = result.workflow.script.find(step => step.type === 'for' && step.id === 'batch_batch_loop')! as any
     expect(loop.in).toBe(`\${${inputName}}`)
     expect(loop.loopCount).toBeUndefined()
     expect(loop.loopItem).toBeUndefined()
-    expect(JSON.stringify(loop.loop)).toContain('\${index}')
-    expect(JSON.stringify(loop.loop)).toContain('\${item.text.text}')
-    expect(JSON.stringify(loop.loop)).toContain('\${item.image.url}')
+    expect(loop.loop.some((step: any) => step.type === 'set_var' && step.value === '${item}')).toBe(true)
+    expect(JSON.stringify(loop.loop)).toContain(`.${executionInputName('文字')}.text}`)
+    expect(JSON.stringify(loop.loop)).toContain(`.${executionInputName('图片')}.image_url}`)
     const audio = JSON.stringify(loop.loop).match(/"action_type":"add_audio"[\s\S]*?"params":\{([\s\S]*?)\}\}/)?.[1] ?? ''
     expect(audio).toContain('"target_start":"${__template_time_')
     expect(audio).not.toContain('"target_start":0')
@@ -274,7 +290,8 @@ describe('轨道中的嵌套 Scene', () => {
     const added = addEditorElement({ templateJson: JSON.stringify(draft) }, { type: 'batch-scene', selectedId: 'sentence-scenes' })
     const result = compileEditorDocument(added)
     expect(Object.keys(result.workflow.inputs).some(key => key.includes('text_material_1_content'))).toBe(false)
-    expect(Object.keys(result.workflow.inputs).some(key => key.endsWith('_batch_scene_items'))).toBe(true)
+    const batchInput = result.workflowInputBindings.find(binding => binding.key === `${added.selectedId}.batch_scene.items`)!
+    expect(Object.keys(result.workflow.inputs)).toEqual([batchInput.variable])
   })
 
   it('批量分镜和普通分镜混用时保留普通分镜新增素材输入', () => {
@@ -289,15 +306,18 @@ describe('轨道中的嵌套 Scene', () => {
     const inputKeys = Object.keys(result.workflow.inputs)
     const texts = JSON.parse(normalText.templateJson).materials.texts
     const textMaterialId = texts[texts.length - 1].id
-    expect(inputKeys.some(key => key.endsWith('_batch_scene_items'))).toBe(true)
-    expect(inputKeys.some(key => key.includes(`${textMaterialId.replace(/-/g, '_')}_content`))).toBe(true)
+    const batchInput = result.workflowInputBindings.find(binding => binding.key === `${batch.selectedId}.batch_scene.items`)!
+    const textInput = result.workflowInputBindings.find(binding => binding.key === `${textMaterialId}.content`)!
+    expect(inputKeys).toContain(batchInput.variable)
+    expect(inputKeys).toContain(textInput.variable)
     expect(result.workflowInputBindings.find(binding => binding.key === `${textMaterialId}.content`))
-      .toMatchObject({ runtime: true, encoding: 'json' })
-    expect(JSON.stringify(result.workflow.script)).toContain(`${textMaterialId.replace(/-/g, '_')}_content.text`)
+      .toMatchObject({ runtime: true, encoding: 'text', inputPath: ['text'] })
+    expect(JSON.stringify(result.workflow.script)).toContain(`${textInput.variable}.text`)
     const names: string[] = []
     function collectSetVars(steps: any[]) {
       for (const step of steps) {
-        if (step.type === 'set_var') names.push(step.name)
+        // Accumulators intentionally reassign a name; each generated step ID remains unique.
+        if (step.type === 'set_var') names.push(step.id)
         collectSetVars(step.then ?? [])
         collectSetVars(step.else ?? [])
         collectSetVars(step.loop ?? [])

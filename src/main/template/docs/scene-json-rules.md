@@ -414,7 +414,15 @@ duration=2000000 时，它在第二组开始后一秒出现，图片跟随，第
 | 特效 | effect | materials.video_effects，type=video_effect，effect_id/resource_id、adjust_params |
 
 片段都通过 material_id 引用，可使用相同 target_timerange、auto_timing。
-工具栏可添加这三类配置；资源 ID 要填真实值。尚无资源选择器和 Workflow 执行。
+工具栏可添加这三类配置；资源 ID 要填真实值，尚无资源选择器。
+贴纸支持 Workflow 的 add_sticker：优先 sticker_id，其次 resource_id，
+时间采用全局可见区间，clip 的 transform/scale/rotation/alpha/flip 对齐后台参数。
+批量分镜中每条输入可用 `{sticker_id: "资源ID"}` 替换贴纸，目录中文标签对应 ASCII 输入 key。
+滤镜和特效支持 add_filter/add_effect；素材 filter_type/effect_type 填后台枚举名称，
+兼容 name，不能用数字 resource_id 替代。滤镜 intensity 为 0-100（原生 value 乘 100），
+特效 effect_category 为 scene/character，params 为后台顺序的百分比或 null 数组。
+原生 adjust_params 按 parameterIndex、min/max 换算并反转以匹配后台；
+动态参数改用 params，批量条目可分别填写 filter_type/effect_type。
 
 ## 关键帧配置
 

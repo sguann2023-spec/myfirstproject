@@ -1,5 +1,6 @@
 import { compileEditorDocument, type EditorPayload } from './editorModel'
 import type { TemplateWorkflow, WorkflowStep } from './workflowTypes'
+import { encodeWorkflowInputNames } from './inputNames'
 
 type ToolResult = { isError?: boolean; content?: Array<{ type: string; text?: string }> }
 type Dependencies = {
@@ -54,7 +55,19 @@ export function prepareExecutionWorkflow(workflow: TemplateWorkflow): TemplateWo
     }
   }
   protect(result.script)
-  return { ...result, inputs }
+  return encodeWorkflowInputNames({ ...result, inputs })
+}
+
+// 编辑器 Workflow 视图允许直接改 JSON，测试导出时用它替代重新编译的结果。
+export function parseWorkflowOverride(workflowJson: string): TemplateWorkflow {
+  let parsed: unknown
+  try { parsed = JSON.parse(workflowJson) } catch { throw new Error('Workflow 内容不是合法 JSON') }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Workflow 内容必须是 JSON 对象')
+  const workflow = parsed as TemplateWorkflow
+  if (!Array.isArray(workflow.script)) throw new Error('Workflow 缺少 script 数组')
+  if (workflow.inputs !== undefined && (typeof workflow.inputs !== 'object' || workflow.inputs === null ||
+    Array.isArray(workflow.inputs))) throw new Error('Workflow inputs 必须是对象')
+  return { ...workflow, inputs: workflow.inputs ?? {} }
 }
 
 export class TemplateTestExporter {
@@ -65,7 +78,7 @@ export class TemplateTestExporter {
 
   forget(owner: number) { this.completedExecution.delete(owner) }
 
-  async run(owner: number, payload: EditorPayload) {
+  async run(owner: number, payload: EditorPayload, workflowJson?: string) {
     if (this.pending.has(owner)) throw new Error('测试导出正在进行，请勿重复提交')
     this.pending.add(owner)
     try {
@@ -73,11 +86,12 @@ export class TemplateTestExporter {
       if (!compiled.timeline.some((item) => item.visible && item.type !== 'composition')) {
         throw new Error('模版没有可见内容，不能测试导出')
       }
-      const fingerprint = JSON.stringify(compiled.workflow)
+      const workflow = workflowJson === undefined ? compiled.workflow : parseWorkflowOverride(workflowJson)
+      const fingerprint = JSON.stringify(workflow)
       let execution = this.completedExecution.get(owner)
       if (!execution || execution.fingerprint !== fingerprint) {
         this.completedExecution.delete(owner)
-        const response = readResult(await this.dependencies.execute(prepareExecutionWorkflow(compiled.workflow)), 'Workflow 执行')
+        const response = readResult(await this.dependencies.execute(prepareExecutionWorkflow(workflow)), 'Workflow 执行')
         let output = response.output
         if (typeof output === 'string') {
           try { output = JSON.parse(output) } catch { output = null }

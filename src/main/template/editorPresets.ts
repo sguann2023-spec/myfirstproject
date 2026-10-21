@@ -34,8 +34,7 @@ function createMixedTrackPreset(template: DraftTemplate): DraftTemplate {
         name: `${kind === 'photo' ? '图片' : '文字'} ${Math.floor(index / 2) + 1}`,
         material_id: `mixed-${kind === 'photo' ? 'photo' : 'text'}-material-${Math.floor(index / 2) + 1}`,
         target_timerange: { ...(index === 1 ? {} : { start: index * 4_000_000 }), duration: 4_000_000 },
-        ...(index === 1 ? { auto_timing: { start: { target: 'mixed-photo-1', anchor: 'end' as const } } } : {}),
-        dynamic: index === 1 ? ['target_timerange.duration'] : ['target_timerange.start', 'target_timerange.duration']
+        ...(index === 1 ? { auto_timing: { start: { target: 'mixed-photo-1', anchor: 'end' as const } } } : {})
       })) }
   ]
   return template
@@ -92,8 +91,7 @@ export function createEditorPreset(presetId: unknown = 'empty'): DraftTemplate {
       track_relative_index: 1,
       segments: [{
         id: textId, name: `第 ${number} 句话`, material_id: `text-material-${number}`,
-        target_timerange: { start: 0, duration: 5_000_000 },
-        dynamic: ['target_timerange.start', 'target_timerange.duration']
+        target_timerange: { start: 0, duration: 5_000_000 }
       }]
     })
     child.tracks.push({

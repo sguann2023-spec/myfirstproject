@@ -23,6 +23,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
     const workspacePath = getLocalAggregateWorkspacePath()
     const [
       { default: AssistantServer },
+      { default: AudioUnderstandServer },
       { default: BrowserServer },
       { default: CutWorkflowServer },
       { default: DigitalHumanServer },
@@ -49,11 +50,13 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: VideoGenerateServer },
       { default: VideoUnderstandServer },
       { default: VoiceConversionServer },
+      { default: VoiceLibraryServer },
       { default: WorkspaceMemoryServer },
       { default: ClawServer },
       { default: ZhipuSearchServer }
     ] = await Promise.all([
       import('@main/mcpServers/assistant'),
+      import('@main/mcpServers/audio-understand'),
       import('@main/mcpServers/browser/server'),
       import('@main/mcpServers/cut-workflow'),
       import('@main/mcpServers/digital-human'),
@@ -80,6 +83,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/video-generate'),
       import('@main/mcpServers/video-understand'),
       import('@main/mcpServers/voice-conversion'),
+      import('@main/mcpServers/voice-library'),
       import('@main/mcpServers/workspaceMemory'),
       import('@main/mcpServers/claw'),
       import('@main/mcpServers/zhipu-search')
@@ -135,6 +139,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         createInstance: () => new SpeechGenerateServer().mcpServer
       },
       {
+        serverId: 'voice-library',
+        serverName: 'voice-library',
+        createInstance: () => new VoiceLibraryServer().mcpServer
+      },
+      {
         serverId: 'voice-conversion',
         serverName: 'voice-conversion',
         createInstance: () => new VoiceConversionServer(workspacePath).mcpServer
@@ -168,6 +177,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'draft-elements',
         serverName: 'draft-elements',
         createInstance: () => new DraftElementsServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'audio-understand',
+        serverName: 'audio-understand',
+        createInstance: () => new AudioUnderstandServer(workspacePath).mcpServer
       },
       {
         serverId: 'subtitle-recognition',

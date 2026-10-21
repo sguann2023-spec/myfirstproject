@@ -1,10 +1,11 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { compileImageTemplate, exampleImageTemplate } from './imageTemplate'
 import {
   addEditorElement, analyzeEditorDocument, compileEditorDocument
 } from './editorModel'
 import { applyEditorAction } from './editorActions'
+import { copyEditorElement } from './editorClipboard'
 import { createStoredTemplateDocument, listStoredTemplates, loadStoredTemplateDocument, saveStoredTemplateDocument } from './templateStorage'
 import { hydrateMediaDurations, probeMediaDurationMicros } from './mediaProbe'
 import CutWorkflowServer from '../mcpServers/cut-workflow'
@@ -25,7 +26,9 @@ export function registerTemplateIpc() {
       owners.add(owner)
       event.sender.once('destroyed', () => { owners.delete(owner); exporter.forget(owner) })
     }
-    return exporter.run(owner, (await hydrateMediaDurations(payload)).payload)
+    const hydrated = await hydrateMediaDurations(payload)
+    return exporter.run(owner, hydrated.payload,
+      typeof payload?.workflowJson === 'string' ? payload.workflowJson : undefined)
   })
   ipcMain.handle('template:editor-list', () => listStoredTemplates())
   ipcMain.handle('template:editor-defaults', (_event, input) => {
@@ -39,9 +42,15 @@ export function registerTemplateIpc() {
     return hydrated.changed ? { ...result, templateJson: hydrated.payload.templateJson } : result
   })
   ipcMain.handle('template:editor-compile', async (_event, payload) => compileEditorDocument((await hydrateMediaDurations(payload)).payload))
+  ipcMain.handle('template:editor-copy', async (_event, payload, id) => {
+    const hydrated = await hydrateMediaDurations(payload)
+    clipboard.writeText(copyEditorElement(hydrated.payload, id))
+    return true
+  })
   ipcMain.handle('template:editor-edit', async (_event, payload, action) => {
     const hydrated = await hydrateMediaDurations(payload)
-    const result = applyEditorAction(hydrated.payload, action)
+    const result = applyEditorAction(hydrated.payload, action?.type === 'paste'
+      ? { ...action, clipboard: clipboard.readText() } : action)
     saveStoredTemplateDocument({ ...payload, templateJson: result.templateJson })
     return result
   })

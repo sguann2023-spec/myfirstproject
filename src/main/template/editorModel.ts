@@ -230,16 +230,27 @@ export function addEditorElement(
       target = { id: randomUUID(), name: '分镜', target_timerange: { start: 0, duration: draft.duration ?? 10_000_000 }, tracks: [] }
       draft.scenes.push(target)
     }
-    if (target.batch_scene && input.type !== 'scene' && input.type !== 'batch-scene') {
+    let scopeId = input.scopeId
+    if (target.batch_scene) {
+      // The batch wrapper's single child scene is elided in the editor view; every add lands inside it.
       const childScenes = [
         ...target.tracks.flatMap((track) => track.segments.filter(isSceneSegment)),
         ...(target.scenes ?? [])
       ]
-      if (childScenes.length === 1) target = childScenes[0]
+      if (childScenes.length === 1) {
+        const autoDuration = target.auto_duration
+        target = childScenes[0]
+        scopeId = target.id
+        if (autoDuration) {
+          target.auto_duration = true
+          delete target.target_timerange.end
+          if (target.auto_timing) delete target.auto_timing.end
+          if (target.auto_timing && !Object.keys(target.auto_timing).length) delete target.auto_timing
+        }
+      }
     }
-    // A selected child Scene is a clip in the current scope, not an instruction to enter it.
-    const selectedTrack = target.tracks.find((track) => track.id === input.selectedId ||
-      (input.scopeId === target!.id && track.segments.some(segment => segment.id === input.selectedId)))
+    // Only an explicit track selection appends; selecting a clip creates a sibling track.
+    const selectedTrack = target.tracks.find((track) => track.id === input.selectedId)
     let start = 0
     if (selectedTrack) {
       const byId = new Map(analysis.timeline.map((element) => [element.id, element]))
@@ -258,7 +269,7 @@ export function addEditorElement(
     }
     function insert(segment: DraftTrackItem) {
       if (selectedTrack) {
-        if (input.scopeId === target!.id && selectedTrack.segments.length) {
+        if (scopeId === target!.id && selectedTrack.segments.length) {
           const times = new Map(analysis.timeline.map(item => [item.id, item.localStart + item.duration]))
           const previous = [...selectedTrack.segments].sort((a, b) => (times.get(b.id) ?? 0) - (times.get(a.id) ?? 0))[0]
           segment.auto_timing = { start: { target: previous.id, anchor: 'end' } }
@@ -287,7 +298,7 @@ export function addEditorElement(
         batch_scene: {
           source: 'items',
           mode: 'repeat',
-          items: [{ title: '分镜文案', image: '' }]
+          items: [{}]
         },
         dynamic: ['batch_scene.items'],
         tracks: [],
@@ -305,7 +316,9 @@ export function addEditorElement(
       type: input.type === 'image' ? 'photo' : input.type === 'effect' ? 'video_effect' : input.type,
       ...(input.type === 'text' ? { content: JSON.stringify({ text: 'Your text here' }), dynamic: ['content'] } :
         resource ? { name: labels[input.type], resource_id: '',
-          ...(input.type === 'sticker' ? { sticker_id: '' } : { effect_id: '', value: 1 }) } :
+          ...(input.type === 'sticker' ? { sticker_id: '' } :
+            input.type === 'filter' ? { effect_id: '', filter_type: '', value: 1 } :
+              { effect_id: '', effect_type: '', effect_category: 'scene', params: [] }) } :
           { path: input.source!.trim(), dynamic: ['path'],
             ...(Number.isSafeInteger(input.sourceDuration) && input.sourceDuration! > 0 ? { duration: input.sourceDuration } : {}) }) }
     const bucket = ({ text: 'texts', image: 'videos', video: 'videos', audio: 'audios',

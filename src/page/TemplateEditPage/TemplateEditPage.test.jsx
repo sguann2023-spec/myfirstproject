@@ -4,26 +4,29 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { addEditorElement, analyzeEditorDocument } from '../../main/template/editorModel';
 import { applyEditorAction } from '../../main/template/editorActions';
+import { copyEditorElement } from '../../main/template/editorClipboard';
 import { mixedTrackFixture } from '../../main/template/workflowTestUtils';
 import { createEditorPreset } from '../../main/template/editorPresets';
 import TemplateEditPage from './TemplateEditPage';
 import { wheelIntent } from '../../components/TemplateEditor/Timeline/viewport';
 
 vi.mock('@uiw/react-codemirror', () => ({
-  default: React.forwardRef(function EditorMock({ value }, ref) {
+  default: React.forwardRef(function EditorMock({ value, onChange }, ref) {
     React.useImperativeHandle(ref, () => ({
       view: { state: { doc: { toString: () => value } }, dispatch: vi.fn() }
     }), [value]);
-    return <pre data-testid="editor">{value}</pre>;
+    return <pre data-testid="editor" onInput={(event) => onChange?.(event.currentTarget.textContent ?? '')}>{value}</pre>;
   })
 }));
 
 let root;
 let container;
 let invoke;
+let clipboardText;
 beforeEach(() => {
   vi.useFakeTimers();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  clipboardText = '';
   const template = mixedTrackFixture();
   template.scenes[0].tracks.push({
     id: 'upper', name: '上层图片', type: 'video', track_relative_index: 10,
@@ -33,7 +36,12 @@ beforeEach(() => {
     if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(template) };
     if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
     if (channel === 'template:editor-add') return addEditorElement(payload, input);
-    if (channel === 'template:editor-edit') return applyEditorAction(payload, input);
+    if (channel === 'template:editor-copy') {
+      clipboardText = copyEditorElement(payload, input);
+      return true;
+    }
+    if (channel === 'template:editor-edit') return applyEditorAction(payload,
+      input.type === 'paste' ? { ...input, clipboard: clipboardText } : input);
     throw new Error(`Unexpected IPC: ${channel}`);
   });
   window.electron = { ipcRenderer: { invoke } };
@@ -68,6 +76,121 @@ async function inputValue(element, value) {
   await act(async () => element.dispatchEvent(new Event('input', { bubbles: true })));
 }
 
+it('父级完全裁切批量分镜内子分镜时，局部片段和顶部新增元素仍可见', async () => {
+  const template = createEditorPreset('sentence-image');
+  const children = template.scenes[0].tracks[0].segments;
+  children[2].auto_duration = false;
+  children[2].target_timerange.duration = 5_000_000;
+  template.scenes[0].auto_duration = false;
+  template.scenes[0].target_timerange.duration = 5_000_000;
+  template.scenes[0].tracks = [{
+    id: 'batch-track', type: 'mixed', segments: [{
+      id: 'batch', type: 'scene', name: '批量分镜', auto_duration: true, target_timerange: { start: 0 },
+      batch_scene: { source: 'items', mode: 'repeat', items: [{}] }, tracks: [], scenes: [{
+        id: 'inner', type: 'scene', auto_duration: true, target_timerange: { start: 0 },
+        tracks: [{ id: 'children-track', type: 'scene', segments: children }]
+      }]
+    }]
+  }];
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(template) }));
+  await render();
+  await enterScene('sentence-scene-3');
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 5 秒');
+  expect(container.querySelectorAll('.template-clip')).toHaveLength(2);
+  expect(container.querySelector('[data-clip-id="text-3"]').getAttribute('aria-label')).toContain('0 到 5 秒');
+  await act(async () => container.querySelector('[data-clip-id="text-3"]').click());
+  await act(async () => container.querySelector('[aria-label="添加文字"]').click());
+  await settle();
+  expect(container.querySelectorAll('.template-clip')).toHaveLength(3);
+  expect(container.querySelector('.template-clip.is-selected').getAttribute('aria-label')).toBe('文字，0 到 5 秒');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(draft.scenes[0].target_timerange.duration).toBe(5_000_000);
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelectorAll('.template-clip')).toHaveLength(2);
+});
+
+it.each([{ ctrlKey: true }, { metaKey: true }])('层级树支持复制粘贴普通元素、自动定位副本和撤销重做 %j', async (modifier) => {
+  await render();
+  const original = container.querySelector('[data-element-id="upper-image"]');
+  const name = original.querySelector('strong').textContent;
+  await act(async () => original.click());
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  await key(original, 'c', modifier);
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  await key(original, 'v', modifier);
+  await settle();
+  const clip = container.querySelector('.template-clip.is-selected');
+  expect(clip.dataset.clipId).not.toBe('upper-image');
+  expect(clip.getAttribute('aria-label')).toBe(`${name}，0 到 8 秒`);
+  expect(container.querySelectorAll('.template-track-row')).toHaveLength(3);
+  expect(container.querySelector('[role="treeitem"][aria-selected="true"]').dataset.elementId).toBe(clip.dataset.clipId);
+  const pasted = container.querySelector('[data-testid="editor"]').textContent;
+  await key(container.querySelector('.template-edit-page'), 'z', modifier);
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  await key(container.querySelector('.template-edit-page'), 'z', { ...modifier, shiftKey: true });
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(pasted);
+});
+
+it('时间轴复制整个分镜，粘贴保留内部内容并追加根分镜', async () => {
+  await render();
+  const scene = container.querySelector('[data-clip-id="scene"]');
+  await act(async () => scene.click());
+  await key(scene, 'c', { ctrlKey: true });
+  await key(scene, 'v', { ctrlKey: true });
+  await settle();
+  expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(2);
+  const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(draft.scenes).toHaveLength(2);
+  expect(draft.scenes[1].tracks).toHaveLength(draft.scenes[0].tracks.length);
+  expect(draft.scenes[1].id).not.toBe(draft.scenes[0].id);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('复制后切换时间轴可粘贴；锁定目标时不提交，解锁后允许连续粘贴', async () => {
+  await render();
+  await enterScene('scene');
+  const clip = container.querySelector('[data-clip-id="upper-image"]');
+  await act(async () => clip.click());
+  await key(clip, 'c', { metaKey: true });
+  await act(async () => container.querySelector('[aria-label="锁定轨道 上层图片"]').click());
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  await key(document.body, 'v', { metaKey: true });
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  expect(container.querySelector('[role="alert"]').textContent).toContain('轨道已锁定');
+  await act(async () => container.querySelector('[aria-label="解锁轨道 上层图片"]').click());
+  await key(document.body, 'v', { metaKey: true });
+  await settle();
+  await key(document.body, 'v', { metaKey: true });
+  await settle();
+  expect(container.querySelectorAll('.template-track-row')).toHaveLength(4);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('输入框和 JSON 编辑区的复制粘贴不触发元素 IPC，空剪贴板失败不修改文档', async () => {
+  await render();
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());
+  const count = invoke.mock.calls.length;
+  const input = container.querySelector('[aria-label="当前时间（秒）"]');
+  await key(input, 'c', { ctrlKey: true });
+  await key(input, 'v', { ctrlKey: true });
+  const editor = container.querySelector('[data-testid="editor"]');
+  editor.classList.add('cm-editor');
+  await key(editor, 'c', { metaKey: true });
+  await key(editor, 'v', { metaKey: true });
+  expect(invoke.mock.calls).toHaveLength(count);
+  const before = editor.textContent;
+  await key(document.body, 'v', { ctrlKey: true });
+  await settle();
+  expect(editor.textContent).toBe(before);
+  expect(container.querySelector('[role="alert"]').textContent).toContain('请先复制');
+});
+
 it('层级树不暴露轨道节点；进入分镜后混排四种素材仍只占一行', async () => {
   await render();
   expect(container.querySelectorAll('.template-clip')).toHaveLength(1);
@@ -82,6 +205,35 @@ it('层级树不暴露轨道节点；进入分镜后混排四种素材仍只占�
   expect(rows).toHaveLength(2);
   expect(rows[1].querySelectorAll('.template-clip')).toHaveLength(4);
   expect(labels[0].querySelector('b').textContent).toBe('11');
+});
+
+it('根时间轴隐藏末尾添加分镜，进入分镜后显示，返回根层再次隐藏', async () => {
+  await render();
+  expect(container.querySelector('.template-add-scene')).toBeNull();
+  expect(container.querySelector('.template-edit-tools [aria-label="添加分镜"]')).not.toBeNull();
+  await enterScene('scene');
+  expect(container.querySelector('.template-add-scene')).not.toBeNull();
+  await act(async () => container.querySelector('[aria-label="打开模版时间轴"]').click());
+  expect(container.querySelector('.template-add-scene')).toBeNull();
+});
+
+it.each(['text', 'scene'])('选中铺满固定分镜的普通元素后添加 %s，在同级新建轨道而非末尾追加', async (type) => {
+  await render();
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  await act(async () => container.querySelector(`.template-edit-tools [aria-label="${type === 'text' ? '添加文字' : '添加分镜'}"]`).click());
+  await settle();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(draft.scenes[0].tracks).toHaveLength(3);
+  expect(draft.scenes[0].tracks.find(track => track.id === 'upper').segments).toHaveLength(1);
+  expect(draft.scenes[0].tracks.at(-1).segments[0].target_timerange.start).toBe(0);
+  expect(container.querySelector('.template-clip.is-selected').getAttribute('aria-label'))
+    .toBe(`${type === 'text' ? '文字' : '分镜'}，0 到 ${type === 'text' ? 8 : 5} 秒`);
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
 });
 
 it('根层添加基础元素后自动进入所属分镜，撤销恢复根层', async () => {
@@ -99,6 +251,9 @@ it('根层添加基础元素后自动进入所属分镜，撤销恢复根层', a
 
 it('批量分镜按钮向当前轨道添加批量分镜', async () => {
   await render();
+  const sceneIcon = container.querySelector('[data-element-id="scene"] .template-layer-icon[aria-label="分镜"] svg');
+  expect(sceneIcon).not.toBeNull();
+  const sceneMarkup = sceneIcon.outerHTML;
   await act(async () => container.querySelector('[aria-label="添加批量分镜"]').click());
   await settle();
   expect(invoke.mock.calls.find(([channel]) => channel === 'template:editor-add')[2])
@@ -110,6 +265,11 @@ it('批量分镜按钮向当前轨道添加批量分镜', async () => {
     name: '批量分镜', type: 'scene', dynamic: ['batch_scene.items'], batch_scene: { source: 'items', mode: 'repeat' },
     tracks: [], scenes: [{ name: '分镜', tracks: [] }]
   });
+  const batch = draft.scenes[0].tracks.at(-1).segments[0];
+  const batchIcon = container.querySelector(`[data-element-id="${batch.id}"] .template-layer-icon[aria-label="批量分镜"] svg`);
+  expect(batchIcon).not.toBeNull();
+  expect(batchIcon.outerHTML).not.toBe(sceneMarkup);
+  expect(container.querySelector(`[data-element-id="${batch.id}"] .template-disclosure`)).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
@@ -127,6 +287,64 @@ it('选中折叠的第二个根分镜后添加，自动展开并进入第二个�
   const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
   expect(draft.scenes[0].tracks).toHaveLength(2);
   expect(draft.scenes[1].tracks).toHaveLength(1);
+});
+
+it('时间轴点击选中片段后，焦点不在页面内按 Delete 也能删除', async () => {
+  await render();
+  await enterScene('scene');
+  const clip = container.querySelector('[data-clip-id="upper-image"]');
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100 })));
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })));
+  expect(clip.classList.contains('is-selected')).toBe(true);
+  expect(document.activeElement).toBe(clip);
+  await key(document.body, 'Delete');
+  await settle();
+  expect(container.querySelector('[data-clip-id="upper-image"]')).toBeNull();
+});
+
+it('选中容器分镜后按 Delete 删除整个容器并缩短总时长', async () => {
+  const template = createEditorPreset('sentence-image');
+  invoke.mockImplementation(async (channel, payload, input) => {
+    if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(template) };
+    if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
+    if (channel === 'template:editor-add') return addEditorElement(payload, input);
+    if (channel === 'template:editor-edit') return applyEditorAction(payload, input);
+    throw new Error(`Unexpected IPC: ${channel}`);
+  });
+  await render();
+  await enterScene();
+  expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(3);
+  const scene = container.querySelector('[data-clip-id="sentence-scene-2"]');
+  await act(async () => scene.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100 })));
+  await act(async () => scene.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })));
+  await key(document.body, 'Backspace');
+  await settle();
+  expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(2);
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 10 秒');
+});
+
+it('右键菜单打开时按 Delete 删除片段并关闭菜单', async () => {
+  await render();
+  await enterScene('scene');
+  const clip = container.querySelector('[data-clip-id="upper-image"]');
+  await act(async () => clip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 })));
+  expect(container.querySelector('.template-context-menu')).not.toBeNull();
+  await key(document.body, 'Delete');
+  await settle();
+  expect(container.querySelector('.template-context-menu')).toBeNull();
+  expect(container.querySelector('[data-clip-id="upper-image"]')).toBeNull();
+});
+
+it('焦点在输入框内按退格不会删除选中片段', async () => {
+  await render();
+  await enterScene('scene');
+  const clip = container.querySelector('[data-clip-id="upper-image"]');
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100 })));
+  const input = container.querySelector('[aria-label="当前时间（秒）"]');
+  await act(async () => input.focus());
+  await key(input, 'Backspace');
+  expect(invoke.mock.calls.some(([channel]) => channel === 'template:editor-edit')).toBe(false);
+  expect(container.querySelector('[data-clip-id="upper-image"]')).not.toBeNull();
 });
 
 it.each(['取消', '失败'])('根层添加素材%s时不自动进入分镜', async (result) => {
@@ -205,6 +423,47 @@ it('左侧层级树的分镜行也可通过 F2 重命名', async () => {
   expect(JSON.parse(container.querySelector('[data-testid="editor"]').textContent).scenes[0].name).toBe('分镜可编辑');
 });
 
+it.each(['scene', 'outer-batch', 'inner-batch', 'image'])('双击层级名称重命名，不进入分镜，支持取消和撤销 %s', async id => {
+  const draft = mixedTrackFixture();
+  const batch = (id, child) => ({
+    id, name: '批量分镜', type: 'scene', target_timerange: { start: 0, duration: 5_000_000 },
+    batch_scene: { source: 'items', mode: 'repeat', items: [{}] }, tracks: [],
+    scenes: [{ id: `${id}-child`, name: '分镜', target_timerange: { start: 0, duration: 5_000_000 },
+      tracks: child ? [{ id: `${id}-track`, type: 'mixed', segments: [child] }] : [] }]
+  });
+  draft.scenes[0].tracks.push({ id: 'outer-track', type: 'mixed', track_relative_index: 20,
+    segments: [batch('outer-batch', batch('inner-batch'))] });
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(draft) }));
+  await render();
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  const row = container.querySelector(`[data-element-id="${id}"]`);
+  await act(async () => row.querySelector('strong').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+  expect(container.querySelector('[aria-label="分镜路径"] [aria-current="page"]').getAttribute('aria-label')).toBe('打开模版时间轴');
+  let input = container.querySelector('[aria-label="元素名称"]');
+  expect(input).not.toBeNull();
+  await inputValue(input, '取消名称');
+  await key(input, 'Escape');
+  expect(container.querySelector('[aria-label="元素名称"]')).toBeNull();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  await act(async () => row.querySelector('strong').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+  input = container.querySelector('[aria-label="元素名称"]');
+  await inputValue(input, '新的分镜名称');
+  await key(input, 'Enter');
+  await settle();
+  expect(container.querySelector(`[data-element-id="${id}"] strong`).textContent).toBe('新的分镜名称');
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').map(call => call[2]))
+    .toEqual([{ type: 'rename', id, name: '新的分镜名称' }]);
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  if (id !== 'image') {
+    await key(container.querySelector(`[data-element-id="${id}"]`), 'Enter');
+    await settle();
+    expect(container.querySelector('[aria-label="分镜路径"] [aria-current="page"]').textContent)
+      .toBe(id === 'scene' ? draft.scenes[0].name : '批量分镜');
+  }
+});
+
 it('分镜自动时长弹窗使用 Creatomate 风格的 Auto 说明', async () => {
   invoke.mockImplementation((channel, payload, action) => {
     if (channel === 'template:editor-defaults') return Promise.resolve({ templateJson: JSON.stringify(createEditorPreset('mixed-track')), templateStorage: null });
@@ -256,7 +515,7 @@ it('一句一图的子分镜可折叠，双击进入后向其内部添加素材'
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-it('分镜内选中子分镜后添加文字，同轨混排且支持撤销', async () => {
+it('分镜内选中子分镜后添加文字，进入容器内部且支持撤销', async () => {
   const template = createEditorPreset('sentence-image');
   invoke.mockImplementation(async (channel, payload, input) => {
     if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(template) };
@@ -270,13 +529,14 @@ it('分镜内选中子分镜后添加文字，同轨混排且支持撤销', asyn
   await act(async () => container.querySelectorAll('.template-clip--scene')[2].click());
   await act(async () => container.querySelector('[aria-label="添加文字"]').click());
   await act(async () => vi.advanceTimersByTimeAsync(250));
-  expect(container.querySelectorAll('.template-track-row')).toHaveLength(1);
-  expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(3);
-  expect(container.querySelector('.template-clip:not(.template-clip--scene)').getAttribute('aria-label')).toBe('文字，15 到 20 秒');
+  expect(container.querySelectorAll('.template-track-row')).toHaveLength(3);
+  expect(container.querySelectorAll('.template-clip--scene')).toHaveLength(0);
+  expect(container.querySelector('.template-clip.is-selected').getAttribute('aria-label')).toBe('文字，0 到 5 秒');
   const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
   expect(draft.tracks).toBeUndefined();
-  expect(draft.scenes[0].tracks[0].segments[2].tracks).toHaveLength(2);
-  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 20 秒');
+  expect(draft.scenes[0].tracks[0].segments).toHaveLength(3);
+  expect(draft.scenes[0].tracks[0].segments[2].tracks).toHaveLength(3);
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 5 秒');
   await act(async () => container.querySelector('[aria-label="撤销"]').click());
   await act(async () => vi.advanceTimersByTimeAsync(250));
   expect(container.querySelector('.template-clip:not(.template-clip--scene)')).toBeNull();
@@ -476,6 +736,107 @@ it('跨轨拖动跟手浮动，显示轨道和间隙落点，松手建立新轨�
   await settle();
   expect(container.querySelectorAll('[data-track-id]')).toHaveLength(2);
   expect(container.querySelector('[data-track-id="upper"]')).not.toBeNull();
+});
+
+it('拖到子分镜片段上高亮容器，松手移入并进入该分镜', async () => {
+  const draft = mixedTrackFixture();
+  draft.scenes[0].tracks.push({
+    id: 'container', name: '容器', type: 'mixed', track_relative_index: 20,
+    segments: [{ id: 'child', name: '容器分镜', type: 'scene', target_timerange: { start: 0, duration: 5_000_000 }, tracks: [] }]
+  });
+  invoke.mockImplementation(async (channel, payload, input) => {
+    if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(draft) };
+    if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
+    if (channel === 'template:editor-add') return addEditorElement(payload, input);
+    if (channel === 'template:editor-edit') return applyEditorAction(payload, input);
+    throw new Error(`Unexpected IPC: ${channel}`);
+  });
+  await render();
+  await enterScene('scene');
+  const scroller = container.querySelector('.template-timeline-scroll');
+  scroller.getBoundingClientRect = () => ({ top: 0, bottom: 300, left: 0, right: 1000 });
+  container.querySelector('[data-clip-id="child"]').getBoundingClientRect =
+    () => ({ left: 100, right: 220, top: 135, bottom: 170, width: 120, height: 35 });
+  const clip = container.querySelector('[data-clip-id="image"]');
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 110, button: 0 })));
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 130, clientY: 150 })));
+  expect(container.querySelector('[data-clip-id="child"]').classList.contains('is-scene-drop-target')).toBe(true);
+  await act(async () => clip.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 150 })));
+  await settle();
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').map(call => call[2]))
+    .toEqual([expect.objectContaining({ type: 'move-into-scene', id: 'image', sceneId: 'child' })]);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBeUndefined();
+  expect(container.querySelector('[aria-label="分镜路径"] [aria-current="page"]').textContent).toBe('容器分镜');
+  expect(container.querySelector('[data-clip-id="image"]')).not.toBeNull();
+  expect(container.querySelectorAll('[data-track-id]')).toHaveLength(1);
+});
+
+it('批量分镜内时间轴末尾添加分镜，落入被省略显示的子分镜', async () => {
+  const draft = mixedTrackFixture();
+  draft.scenes[0].tracks.push({
+    id: 'batch-track', name: '批量', type: 'mixed', track_relative_index: 20,
+    segments: [{
+      id: 'batch', name: '批量分镜', type: 'scene', target_timerange: { start: 0, duration: 5_000_000 },
+      batch_scene: { source: 'items', mode: 'repeat', items: [{ title: '分镜文案', image: '' }] },
+      tracks: [], scenes: [{ id: 'batch-child', name: '分镜', target_timerange: { start: 0, duration: 5_000_000 }, tracks: [] }]
+    }]
+  });
+  invoke.mockImplementation(async (channel, payload, input) => {
+    if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(draft) };
+    if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
+    if (channel === 'template:editor-add') return addEditorElement(payload, input);
+    if (channel === 'template:editor-edit') return applyEditorAction(payload, input);
+    throw new Error(`Unexpected IPC: ${channel}`);
+  });
+  await render();
+  await enterScene('batch');
+  await act(async () => container.querySelector('.template-add-scene').click());
+  await settle();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(invoke.mock.calls.find(([channel]) => channel === 'template:editor-add')[2])
+    .toMatchObject({ type: 'scene', selectedId: 'batch', scopeId: 'batch' });
+  expect(container.querySelector('.template-clip--scene.is-selected')).not.toBeNull();
+  const added = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  const batchScene = added.scenes[0].tracks.find(track => track.id === 'batch-track')
+    .segments.find(segment => segment.id === 'batch');
+  expect(batchScene.tracks).toEqual([]);
+  expect(batchScene.scenes[0].tracks).toHaveLength(1);
+  expect(batchScene.scenes[0].tracks[0].segments[0]).toMatchObject({ name: '分镜', type: 'scene' });
+});
+
+it('批量分镜的默认子分镜不显示，内部内容直接透出', async () => {
+  const draft = mixedTrackFixture();
+  draft.scenes[0].tracks.push({
+    id: 'batch-track', name: '批量轨', type: 'mixed', track_relative_index: 20,
+    segments: [{
+      id: 'batch', name: '批量分镜', type: 'scene', target_timerange: { start: 2_000_000, duration: 5_000_000 },
+      batch_scene: { source: 'items', mode: 'repeat', items: [{ title: '分镜文案', image: '' }] },
+      tracks: [], scenes: [{
+        id: 'batch-child', name: '分镜', target_timerange: { start: 0, duration: 5_000_000 },
+        tracks: [{ id: 'child-text-track', name: '文字', type: 'text', track_relative_index: 0, segments: [
+          { id: 'child-text', material_id: 'title', target_timerange: { start: 0, duration: 2_000_000 } }
+        ] }]
+      }]
+    }]
+  });
+  invoke.mockImplementation(async (channel, payload, input) => {
+    if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(draft) };
+    if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
+    if (channel === 'template:editor-add') return addEditorElement(payload, input);
+    if (channel === 'template:editor-edit') return applyEditorAction(payload, input);
+    throw new Error(`Unexpected IPC: ${channel}`);
+  });
+  await render();
+  expect(container.querySelector('[data-element-id="batch-child"]')).toBeNull();
+  expect(container.querySelector('[data-element-id="child-text"]')).not.toBeNull();
+  await enterScene('batch');
+  expect(container.querySelector('[data-element-id="batch-child"]')).toBeNull();
+  expect(container.querySelector('[aria-label="分镜路径"] [aria-current="page"]').textContent).toBe('批量分镜');
+  expect(container.querySelector('[data-track-id="__child_scenes__"]')).toBeNull();
+  expect([...container.querySelectorAll('.template-track-select')].map(element => element.getAttribute('aria-label')))
+    .toEqual(['选择轨道 文字']);
+  expect(container.querySelector('[data-clip-id="child-text"]')).not.toBeNull();
+  expect(container.querySelector('.template-clip--scene')).toBeNull();
 });
 
 it('取消拖动不提交，缩放和游标只影响视图', async () => {
@@ -770,7 +1131,7 @@ it('时间输入验证格式，提交微秒值；失败保持原规则与文档'
   expect(document.querySelector('[aria-label="时长规则"] .is-active')).not.toBeNull();
 });
 
-it('媒体弹窗提供三种时长和循环配置；缺少元数据禁用媒体，循环可撤销', async () => {
+it('媒体弹窗提供循环开关，缺少源时长时禁止开启', async () => {
   await render();
   await enterScene('scene');
   const clip = container.querySelector('[data-clip-id="video"]');
@@ -779,15 +1140,9 @@ it('媒体弹窗提供三种时长和循环配置；缺少元数据禁用媒体�
   expect(dialog().querySelector('[aria-label="时长规则"] [role="radio"]:last-child').textContent).toBe('媒体');
   expect(dialog().querySelector('[aria-label="时长规则"] [role="radio"]:last-child').disabled).toBe(true);
   expect(dialog().textContent).not.toContain('媒体模式需要素材 duration');
-  const before = container.querySelector('[data-testid="editor"]').textContent;
-  await act(async () => dialog().querySelector('[role="switch"]').click());
-  await settle();
-  expect(dialog().querySelector('[role="switch"]').getAttribute('aria-checked')).toBe('true');
-  expect(JSON.parse(container.querySelector('[data-testid="editor"]').textContent).scenes[0].tracks[0].segments[3].loop).toBe(true);
-  await key(dialog(), 'Escape');
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
-  await settle();
-  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  expect(dialog().querySelector('[role="switch"]').disabled).toBe(true);
+  expect(dialog().querySelector('[role="switch"]').getAttribute('aria-checked')).toBe('false');
+  expect(dialog().textContent).toContain('循环');
 });
 
 it('有源时长时媒体选项写回模式并更新片段图标', async () => {
@@ -805,4 +1160,308 @@ it('有源时长时媒体选项写回模式并更新片段图标', async () => {
   expect(media().getAttribute('aria-checked')).toBe('true');
   expect(JSON.parse(container.querySelector('[data-testid="editor"]').textContent).scenes[0].tracks[0].segments[3].duration_mode).toBe('media');
   expect(document.querySelector('[role="dialog"]').textContent).toContain('播放素材的完整源区间。');
+});
+
+it('批量分镜音频切换媒体时长后，Auto 边界和填充文字同步延长，撤销恢复', async () => {
+  const template = createEditorPreset('empty');
+  delete template.duration;
+  template.materials.audios = [{ id: 'sound', type: 'audio', path: '/tmp/audio.wav', duration: 12_000_000 }];
+  template.materials.texts = [{ id: 'title-material', type: 'text', content: JSON.stringify({ text: 'Your text here' }) }];
+  template.scenes = [{
+    id: 'batch', name: '批量分镜', auto_duration: true, target_timerange: { start: 0 },
+    batch_scene: { source: 'items', mode: 'repeat', items: [{}] }, tracks: [],
+    scenes: [{
+      id: 'child', target_timerange: { start: 0, duration: 5_000_000 },
+      tracks: [
+        { id: 'sound-track', name: '音频', type: 'audio', segments: [{
+          id: 'sound-clip', name: '音频', material_id: 'sound',
+          target_timerange: { start: 0, duration: 5_000_000 }, source_timerange: { start: 0 }
+        }] },
+        { id: 'title-track', name: '文字', type: 'text', segments: [{
+          id: 'title', name: '文字', material_id: 'title-material', target_timerange: {}
+        }] }
+      ]
+    }]
+  }];
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(template) }));
+  await render();
+  await enterScene('batch');
+  const handle = () => container.querySelector('.template-duration-handle');
+  const oldLeft = parseFloat(handle().style.left);
+  expect(handle().textContent).toBe('Auto');
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  await act(async () => container.querySelector('[data-clip-id="sound-clip"] .template-clip-timing-trigger--end').click());
+  await act(async () => document.querySelector('[aria-label="时长规则"] [role="radio"]:last-child').click());
+  await settle();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 12 秒');
+  const audio = container.querySelector('[data-clip-id="sound-clip"]');
+  expect(parseFloat(handle().style.left)).toBeCloseTo(parseFloat(audio.style.left) + parseFloat(audio.style.width));
+  expect(parseFloat(container.querySelector('.template-outside-scene').style.left)).toBeCloseTo(164 + parseFloat(handle().style.left));
+  expect(container.querySelector('[data-clip-id="title"]').getAttribute('aria-label')).toBe('文字，0 到 12 秒');
+  await key(document.querySelector('[role="dialog"]'), 'Escape');
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 5 秒');
+  expect(parseFloat(handle().style.left)).toBeCloseTo(oldLeft);
+});
+
+it('Workflow 视图可编辑，测试导出优先使用编辑后的内容', async () => {
+  const workflow = { width: 720, height: 1280, inputs: { demo: { text: 'hi' } }, script: [] };
+  const draft = mixedTrackFixture();
+  invoke.mockImplementation(async (channel, payload) => {
+    if (channel === 'template:editor-defaults') return { templateJson: JSON.stringify(draft) };
+    if (channel === 'template:editor-analyze') return analyzeEditorDocument(payload);
+    if (channel === 'template:editor-compile') return { workflow, warnings: [], dynamicInputs: [] };
+    if (channel === 'template:editor-test-export') return { draftId: 'draft-9', warnings: [] };
+    throw new Error(`Unexpected IPC: ${channel}`);
+  });
+  await render();
+  const toggle = container.querySelector('[aria-label="切换到 Workflow"]');
+  expect(toggle.disabled).toBe(false);
+  await act(async () => toggle.click());
+  await settle();
+  const heading = container.querySelector('.template-code-heading');
+  expect(heading.textContent).toContain('Workflow');
+  expect(heading.textContent).not.toContain('只读');
+  expect(heading.textContent).toContain('未提交执行');
+  expect(JSON.parse(container.querySelector('[data-testid="editor"]').textContent)).toEqual(workflow);
+  const editor = container.querySelector('[data-testid="editor"]');
+  const edited = JSON.stringify({ ...workflow, inputs: { demo: { text: 'edited' } } }, null, 2);
+  await act(async () => {
+    editor.textContent = edited;
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(container.querySelector('.template-code-heading').textContent).toContain('已编辑');
+  await act(async () => container.querySelector('[aria-label="测试导出"]').click());
+  await settle();
+  const exportPayload = invoke.mock.calls.find(([channel]) => channel === 'template:editor-test-export')[1];
+  expect(exportPayload.workflowJson).toBe(edited);
+  expect(container.querySelector('[role="status"]').textContent).toContain('draft-9');
+});
+
+async function layerDrag(element, type, clientY = 120) {
+  element.getBoundingClientRect = () => ({ top: 100, bottom: 140, height: 40, left: 0, right: 250, width: 250 });
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
+  Object.defineProperty(event, 'dataTransfer', { value: { setData: vi.fn(), effectAllowed: '', dropEffect: '' } });
+  await act(async () => element.dispatchEvent(event));
+  return event;
+}
+
+it('目录同轨元素可拖动插入，时间不变、落下选中并支持撤销重做', async () => {
+  await render();
+  await enterScene('scene');
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  const source = container.querySelector('[data-element-id="image"]');
+  const target = container.querySelector('[data-element-id="video"]');
+  await layerDrag(source, 'dragstart');
+  expect(source.classList.contains('is-layer-dragging')).toBe(true);
+  expect((await layerDrag(target, 'dragover', 102)).defaultPrevented).toBe(true);
+  expect(target.classList.contains('is-layer-drop-before')).toBe(true);
+  await layerDrag(target, 'drop', 102);
+  await settle();
+  expect([...container.querySelectorAll('[data-element-id]')].map(row => row.dataset.elementId))
+    .toEqual(['scene', 'upper-image', 'text', 'audio', 'image', 'video']);
+  expect(container.querySelector('.template-layer[aria-selected="true"]').dataset.elementId).toBe('image');
+  expect(container.querySelector('.template-clip.is-selected').getAttribute('aria-label')).toContain('0 到 2 秒');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector('.is-layer-dragging, .is-layer-drop-before')).toBeNull();
+  const changed = container.querySelector('[data-testid="editor"]').textContent;
+  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  await act(async () => container.querySelector('[aria-label="重做"]').click());
+  await settle();
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(changed);
+});
+
+it('目录拖入分镜支持悬停展开，落下后自动显示目标内部并保留选中', async () => {
+  const draft = mixedTrackFixture();
+  draft.scenes[0].tracks.push({
+    id: 'upper', type: 'video', track_relative_index: 10,
+    segments: [{ id: 'upper-image', material_id: 'photo', target_timerange: { duration: 8_000_000 } }]
+  });
+  draft.scenes[0].scenes = [{ id: 'child', name: '子分镜', target_timerange: { duration: 8_000_000 }, tracks: [] }];
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(draft) }));
+  await render();
+  await enterScene('scene');
+  await act(async () => container.querySelector('[aria-label="折叠 子分镜"]').click());
+  const source = container.querySelector('[data-element-id="upper-image"]');
+  const target = container.querySelector('[data-element-id="child"]');
+  await layerDrag(source, 'dragstart');
+  await layerDrag(target, 'dragover');
+  expect(target.classList.contains('is-layer-drop-inside')).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(600));
+  expect(container.querySelector('[aria-label="折叠 子分镜"]')).not.toBeNull();
+  await layerDrag(target, 'drop');
+  await settle();
+  expect(container.querySelector('.template-layer[aria-selected="true"]').dataset.elementId).toBe('upper-image');
+  expect(container.querySelector('.template-layer[aria-selected="true"]').getAttribute('aria-level')).toBe('3');
+  expect(container.querySelectorAll('.template-track-row')).toHaveLength(1);
+  expect(container.querySelector('.template-clip.is-selected').dataset.clipId).toBe('upper-image');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('目录拖动取消、父子循环及锁定目标均不提交编辑', async () => {
+  await render();
+  await enterScene('scene');
+  const source = container.querySelector('[data-element-id="upper-image"]');
+  const target = container.querySelector('[data-element-id="text"]');
+  await layerDrag(source, 'dragstart');
+  await layerDrag(target, 'dragover', 138);
+  expect(target.classList.contains('is-layer-drop-after')).toBe(true);
+  await layerDrag(source, 'dragend');
+  expect(container.querySelector('.is-layer-drop-after, .is-layer-dragging')).toBeNull();
+  const parent = container.querySelector('[data-element-id="scene"]');
+  expect(parent.draggable).toBe(true);
+  await layerDrag(parent, 'dragstart');
+  expect((await layerDrag(target, 'dragover')).defaultPrevented).toBe(false);
+  await layerDrag(target, 'drop');
+  await act(async () => container.querySelector('[aria-label="锁定轨道 混排轨道"]').click());
+  await layerDrag(source, 'dragstart');
+  expect((await layerDrag(target, 'dragover')).defaultPrevented).toBe(false);
+  await layerDrag(target, 'drop');
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit')).toHaveLength(0);
+  expect(target.draggable).toBe(false);
+});
+
+const activeTrackRows = () => [...container.querySelectorAll('.template-layer-track-rail.is-active')]
+  .map(rail => rail.parentElement.dataset.elementId);
+
+it('目录选中同轨素材共用蓝线，其他轨道保持灰线且仅选中行有蓝色背景', async () => {
+  await render();
+  await act(async () => container.querySelector('[data-element-id="image"]').click());
+  expect(activeTrackRows()).toEqual(['image', 'text', 'audio', 'video']);
+  expect(container.querySelectorAll('.template-layer.is-selected')).toHaveLength(1);
+  expect(container.querySelector('[data-element-id="upper-image"] .template-layer-track-rail')
+    .classList.contains('is-active')).toBe(false);
+  const rails = [...container.querySelectorAll('.template-layer-track-rail.is-active')];
+  expect(rails[0].classList.contains('is-first')).toBe(true);
+  expect(rails.at(-1).classList.contains('is-last')).toBe(true);
+  expect(new Set(rails.map(rail => rail.style.left)).size).toBe(1);
+  await act(async () => container.querySelector('[data-element-id="text"]').click());
+  expect(activeTrackRows()).toEqual(['image', 'text', 'audio', 'video']);
+});
+
+it('同轨分镜及其展开内容归在一条蓝线下，折叠后端点跟随更新', async () => {
+  const draft = mixedTrackFixture();
+  const composition = (id, name, start) => ({
+    id, name, type: 'scene', target_timerange: { start, duration: 2_000_000 },
+    tracks: [{ id: `${id}-track`, type: 'text', segments: [{
+      id: `${id}-text`, material_id: draft.materials.texts[0].id, target_timerange: { duration: 2_000_000 }
+    }] }]
+  });
+  draft.scenes[0].tracks = [
+    { id: 'first-scene-track', type: 'scene', track_relative_index: 1,
+      segments: [composition('first', '第一分镜', 0), composition('second', '第二分镜', 2_000_000)] },
+    { id: 'other-scene-track', type: 'scene', track_relative_index: 0, segments: [composition('other', '其他分镜', 0)] }
+  ];
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(draft) }));
+  await render();
+  await act(async () => container.querySelector('[data-element-id="first"]').click());
+  expect(activeTrackRows()).toEqual(['first', 'first-text', 'second', 'second-text']);
+  expect(container.querySelector('[data-element-id="other"] .template-layer-track-rail').dataset.active).toBe('false');
+  await act(async () => container.querySelector('[aria-label="折叠 第二分镜"]').click());
+  expect(activeTrackRows()).toEqual(['first', 'first-text', 'second']);
+  expect(container.querySelector('[data-element-id="second"] .template-layer-track-rail').classList.contains('is-last')).toBe(true);
+  await act(async () => container.querySelector('[data-element-id="first-text"]').click());
+  expect(activeTrackRows()).toEqual(['first-text']);
+});
+
+it('目录拖动换轨后，蓝线不会保留在原轨道上', async () => {
+  await render();
+  const source = container.querySelector('[data-element-id="image"]');
+  const target = container.querySelector('[data-element-id="video"]');
+  await layerDrag(source, 'dragstart');
+  expect(activeTrackRows()).toEqual(['image', 'text', 'audio', 'video']);
+  await layerDrag(target, 'drop', 102);
+  await settle();
+  expect(activeTrackRows()).toEqual(['image']);
+  expect(container.querySelector('[data-element-id="text"] .template-layer-track-rail').dataset.active).toBe('false');
+});
+
+for (const type of ['audio', 'video']) {
+  it(`${type} 循环开关写回 JSON，保留时长并支持撤销重做和关闭`, async () => {
+    const draft = mixedTrackFixture();
+    const material = type === 'audio' ? draft.materials.audios[0] : draft.materials.videos[1];
+    material.duration = draft.scenes[0].tracks[0].segments.find(item => item.id === type).source_timerange.start + 1_000_000;
+    invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(draft) }));
+    await render();
+    await enterScene('scene');
+    const clip = container.querySelector(`[data-clip-id="${type}"]`);
+    const originalWidth = clip.style.width;
+    await act(async () => clip.querySelector('.template-clip-timing-trigger--end').click());
+    const loop = () => document.querySelector('[role="switch"][aria-label="循环播放"]');
+    expect(loop().disabled).toBe(false);
+    await act(async () => loop().click());
+    await settle();
+    expect(loop().getAttribute('aria-checked')).toBe('true');
+    const json = () => JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+    expect(json().scenes[0].tracks[0].segments.find(item => item.id === type).loop).toBe(true);
+    expect(container.querySelector(`[data-clip-id="${type}"]`).style.width).toBe(originalWidth);
+    await act(async () => container.querySelector('[aria-label="撤销"]').click());
+    await settle();
+    expect(loop().getAttribute('aria-checked')).toBe('false');
+    await act(async () => container.querySelector('[aria-label="重做"]').click());
+    await settle();
+    expect(loop().getAttribute('aria-checked')).toBe('true');
+    await act(async () => loop().click());
+    await settle();
+    expect(loop().getAttribute('aria-checked')).toBe('false');
+    expect(json().scenes[0].tracks[0].segments.find(item => item.id === type).loop).toBe(false);
+  });
+}
+
+it('图片和文字的时长弹窗不显示循环开关', async () => {
+  await render();
+  await enterScene('scene');
+  for (const id of ['image', 'text']) {
+    await act(async () => container.querySelector(`[data-clip-id="${id}"] .template-clip-timing-trigger--end`).click());
+    expect(document.querySelector('[role="dialog"] [role="switch"]')).toBeNull();
+  }
+});
+
+it('循环设置失败时开关恢复原状态，不改 JSON 或时间轴', async () => {
+  const draft = mixedTrackFixture();
+  draft.materials.videos[1].duration = 4_000_000;
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(draft) }));
+  await render();
+  await enterScene('scene');
+  const before = container.querySelector('[data-testid="editor"]').textContent;
+  await act(async () => container.querySelector('[data-clip-id="video"] .template-clip-timing-trigger--end').click());
+  const original = invoke.getMockImplementation();
+  invoke.mockImplementation((channel, ...args) => channel === 'template:editor-edit'
+    ? Promise.reject(new Error('循环设置失败')) : original(channel, ...args));
+  await act(async () => document.querySelector('[role="switch"]').click());
+  await settle();
+  expect(document.querySelector('[role="switch"]').getAttribute('aria-checked')).toBe('false');
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
+  expect(container.querySelector('[role="alert"]').textContent).toBe('循环设置失败');
+});
+
+it('贴纸滤镜特效的工具栏与目录统一使用指定 Lucide 图标', async () => {
+  const draft = mixedTrackFixture();
+  const resources = [
+    ['sticker', '贴纸', 'stickers', 'sticker', 'sticky-note'],
+    ['filter', '滤镜', 'effects', 'filter', 'blend'],
+    ['effect', '特效', 'video_effects', 'video_effect', 'sparkles']
+  ];
+  for (const [type, name, bucket, materialType] of resources) {
+    draft.materials[bucket] = [{ id: `${type}-material`, type: materialType, resource_id: '123' }];
+    draft.scenes[0].tracks.push({
+      id: `${type}-track`, type, segments: [{
+        id: type, name, material_id: `${type}-material`, target_timerange: { duration: 5_000_000 }
+      }]
+    });
+  }
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(draft) }));
+  await render();
+  for (const [type, name, , , icon] of resources) {
+    const toolbarIcon = container.querySelector(`[aria-label="添加${name}"] svg`);
+    const directoryIcon = container.querySelector(`[data-element-id="${type}"] .template-disclosure svg`);
+    expect(toolbarIcon.classList.contains(`lucide-${icon}`)).toBe(true);
+    expect(directoryIcon.classList.contains(`lucide-${icon}`)).toBe(true);
+    expect(directoryIcon.innerHTML).toBe(toolbarIcon.innerHTML);
+  }
 });

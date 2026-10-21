@@ -9,6 +9,7 @@ import { applyDynamicInputs } from './dynamicInputs'
 import { createEditorPreset } from './editorPresets'
 import { compileSceneTemplate } from './sceneTemplate'
 import { prepareExecutionWorkflow } from './testExport'
+import { executionInputName } from './inputNames'
 import type { TemplateWorkflow } from './workflowTypes'
 import { flatSentenceImageFixture, workflowActions } from './workflowTestUtils'
 import { isSceneSegment, mapWorkflowTracks } from './draftTracks'
@@ -16,6 +17,23 @@ import { isSceneSegment, mapWorkflowTracks } from './draftTracks'
 const fixture = flatSentenceImageFixture
 const backend = process.env.TEMPLATE_WORKFLOW_BACKEND
 const python = process.env.TEMPLATE_WORKFLOW_PYTHON ?? 'python3'
+function timingPreset(id: string) {
+  const draft = createEditorPreset(id)
+  function visit(scenes: DraftTemplate['scenes']) {
+    for (const scene of scenes) {
+      for (const track of scene.tracks) {
+        for (const item of track.segments) {
+          if (isSceneSegment(item)) visit([item])
+          else item.dynamic = ['start', 'duration'].filter(field => typeof item.target_timerange[field] === 'number')
+            .map(field => `target_timerange.${field}`)
+        }
+      }
+      visit(scene.scenes ?? [])
+    }
+  }
+  visit(draft.scenes)
+  return draft
+}
 function execute(workflow: TemplateWorkflow) {
   const directory = mkdtempSync(join(tmpdir(), 'template-workflow-contract-'))
   try {
@@ -38,10 +56,23 @@ describe('动态 Workflow 生成', () => {
     expect(result.workflow.script.some((step) => step.type === 'set_var')).toBe(true)
     expect(workflowActions(result.workflow)).toHaveLength(6)
     expect(result.workflowInputBindings.every((binding) => binding.runtime)).toBe(true)
+    function checkKeys(value: unknown) {
+      if (Array.isArray(value)) return value.forEach(checkKeys)
+      if (!value || typeof value !== 'object') return
+      for (const [key, item] of Object.entries(value)) {
+        expect(key).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/)
+        checkKeys(item)
+      }
+    }
+    checkKeys(result.workflow.inputs)
+    expect(JSON.stringify(result.workflow.script)).not.toMatch(/\$\{[^}]*[^\x00-\x7F][^}]*\}/)
+    expect((result.workflow as TemplateWorkflow).input_labels).toContainEqual({
+      path: [executionInputName('第_1_句话')], label: '第 1 句话'
+    })
     const before = structuredClone(result.workflow)
     const prepared = prepareExecutionWorkflow(result.workflow)
     expect(workflowActions(prepared).find((step) => step.id === 'text-1')!.params.text)
-      .toBe('${input_text_material_1_content.text}')
+      .toBe(`\${${executionInputName('第_1_句话')}.text}`)
     expect(result.workflow).toEqual(before)
   })
 
@@ -62,26 +93,31 @@ describe('动态 Workflow 生成', () => {
     template.materials.texts[1].id = 'a_b'
     template.scenes[0].tracks[0].segments[0].material_id = 'a-b'
     template.scenes[0].tracks[2].segments[0].material_id = 'a_b'
+    template.scenes[0].tracks[0].segments[0].name = '文案-a'
+    template.scenes[0].tracks[2].segments[0].name = '文案_a'
     const result = compileDraftTemplate(template)
     expect(new Set(result.workflowInputBindings.map(({ variable }) => variable)).size).toBe(12)
     expect(result.workflowInputBindings.filter(({ key }) => key.startsWith('a')).map(({ variable }) => variable))
-      .toEqual(['input_a_b_content', 'input_a_b_content_'])
+      .toEqual([executionInputName('文案_a'), `${executionInputName('文案_a')}_2`])
   })
 })
 
 describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模拟）', () => {
   function compare(template: DraftTemplate, modifications: Record<string, unknown> = {}) {
     const compiled = compileDraftTemplate(template)
-    const workflow = prepareExecutionWorkflow(compiled.workflow)
+    const workflow = structuredClone(compiled.workflow)
     for (const [key, value] of Object.entries(modifications)) {
       const binding = compiled.workflowInputBindings.find((item) => item.key === key)!
       expect(binding.runtime).toBe(true)
-      workflow.inputs[binding.variable] = binding.encoding === 'json' ? JSON.parse(value as string) : value
+      const encoded = binding.encoding === 'text' ? JSON.parse(value as string).text
+        : binding.encoding === 'json' ? JSON.parse(value as string) : value
+      if (binding.inputPath?.length === 1) (workflow.inputs[binding.variable] as Record<string, unknown>)[binding.inputPath[0]] = encoded
+      else workflow.inputs[binding.variable] = encoded
     }
     const resolved = applyDynamicInputs(template, modifications)
     const normalized = normalizeDraftTemplate(resolved)
     const expected = compileSceneTemplate(mapWorkflowTracks(normalized.template, normalized.logicalTracks).template).workflow.script
-    const actual = execute(workflow)
+    const actual = execute(prepareExecutionWorkflow(workflow))
     expect(actual).toHaveLength(expected.length)
     actual.forEach((step, index) => {
       expect(step.action_type).toBe(expected[index].action_type)
@@ -104,7 +140,7 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
   })
 
   it('嵌套一句一图的动态时长改变后，后续子 Scene 与图片一起联动', () => {
-    const template = createEditorPreset('sentence-image')
+    const template = timingPreset('sentence-image')
     compare(template)
     for (const duration of [7_000_000, 2_000_000]) {
       const actual = compare(template, {
@@ -119,7 +155,7 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
   })
 
   it('子 Scene 的开始输入在运行时移动整个组合，内部时间保持相对坐标', () => {
-    const template = createEditorPreset('sentence-image')
+    const template = timingPreset('sentence-image')
     const child = template.scenes[0].tracks[0].segments.filter(isSceneSegment)[0]
     child.dynamic = ['target_timerange.start']
     const actions = compare(template, { 'sentence-scene-1.target_timerange.start': 3_000_000 })
@@ -128,20 +164,20 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
   })
 
   it('轨道内 Scene 与其他片段的运行时重叠，在媒体动作前被拒绝', () => {
-    const template = createEditorPreset('sentence-image')
+    const template = timingPreset('sentence-image')
     template.scenes[0].tracks[0].segments.push({
       id: 'tail', material_id: 'text-material-1', target_timerange: { start: 15_000_000, duration: 2_000_000 },
       dynamic: ['target_timerange.start']
     })
     compare(template)
     const compiled = compileDraftTemplate(template)
-    compiled.workflow.inputs.input_tail_target_timerange_start = 14_000_000
+    ;(compiled.workflow.inputs as Record<string, unknown>).input_tail_target_timerange_start = 14_000_000
     expect(() => execute(compiled.workflow)).toThrow('时间重叠')
   })
 
   it('混排演示直接执行五个动作，动态内容和时间可替换', () => {
-    compare(createEditorPreset('mixed-track'))
-    compare(createEditorPreset('mixed-track'), {
+    compare(timingPreset('mixed-track'))
+    compare(timingPreset('mixed-track'), {
       'mixed-photo-1.target_timerange.duration': 2_000_000,
       'mixed-text-material-1.content': JSON.stringify({ text: '混排演示的新文案' }),
       'mixed-photo-material-1.remote_url': '/tmp/mixed-runtime.png'
@@ -150,7 +186,7 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
 
   it('动态片段时长改变后，自动 Scene、根时长和铺满片段一起增长或缩短', () => {
     for (const [duration, end] of [[8_000_000, 20], [2_000_000, 14]]) {
-      const actions = compare(createEditorPreset('mixed-track'), {
+      const actions = compare(timingPreset('mixed-track'), {
         'mixed-text-2.target_timerange.duration': duration
       })
       expect(actions.find(({ params }) => params.track_name === 'mixed-underlay-track')!.params.end).toBe(end)
@@ -158,7 +194,7 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
   })
 
   it('嵌套自动 Scene 逐层适应，后续 Scene 在运行时跟随前一个结束', () => {
-    const template = createEditorPreset('mixed-track')
+    const template = timingPreset('mixed-track')
     const child = template.scenes[0]
     child.target_timerange.start = 3_000_000
     template.scenes = [{
@@ -176,19 +212,19 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
   })
 
   it('自动 Scene 仍受显式根时长裁切，零内容时长在动作执行前被拒绝', () => {
-    const template = createEditorPreset('mixed-track')
+    const template = timingPreset('mixed-track')
     template.duration = 17_000_000
     const actions = compare(template, { 'mixed-text-2.target_timerange.duration': 8_000_000 })
     expect(actions.find(({ params }) => params.track_name === 'mixed-underlay-track')!.params.end).toBe(17)
     delete template.duration
     template.scenes[0].tracks[1].segments.splice(1)
     const workflow = compileDraftTemplate(template).workflow
-    workflow.inputs.input_mixed_photo_1_target_timerange_duration = 0
+    ;(workflow.inputs as Record<string, unknown>).input_mixed_photo_1_target_timerange_duration = 0
     expect(() => execute(workflow)).toThrow('推导时长必须大于 0')
   })
 
   it('自动 Scene 的 parent.end 片尾跟随推导结果，不反向决定总时长', () => {
-    const template = createEditorPreset('mixed-track')
+    const template = timingPreset('mixed-track')
     template.scenes[0].tracks.push({ id: 'footer-track', type: 'text', segments: [{
       id: 'footer', material_id: 'mixed-text-material-1',
       target_timerange: { duration: 1_000_000 },
@@ -201,7 +237,7 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
   it('直接执行编译结果也保护静态文字，不把字面变量名当表达式', () => {
     const template = fixture()
     delete template.materials.texts[0].dynamic
-    const text = '${input_text_material_2_content.text} 1+2'
+    const text = '${input_text_material_2_text} 1+2'
     template.materials.texts[0].content = JSON.stringify({ text })
     const actual = execute(compileDraftTemplate(template).workflow)
     expect(actual.find((step) => step.params.track_name === 'text_track_1')!.params.text).toBe(text)
@@ -273,7 +309,7 @@ describe.skipIf(!backend)('真实 Python Workflow 执行协议（媒体 IO 模�
     compare(template)
     const compiled = compileDraftTemplate(template)
     const workflow = structuredClone(compiled.workflow)
-    workflow.inputs.input_image_1_target_timerange_start = 4_000_000
+    ;(workflow.inputs as Record<string, unknown>).input_image_1_target_timerange_start = 4_000_000
     expect(() => execute(workflow)).toThrow('时间重叠')
     compare(template, { 'image-1.target_timerange.start': 6_000_000 })
     // Touching ends are valid and moving both clips may reverse their order.
