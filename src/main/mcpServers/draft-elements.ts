@@ -423,7 +423,7 @@ const TOOLS: Tool[] = [
       flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
       rotation: { type: 'number', description: 'Optional rotation in degrees.' },
       transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
-      transform_y_px: { type: 'string', description: 'Optional Y transform in pixels.' },
+      transform_y_px: { type: 'number', description: 'Optional Y transform in pixels.' },
       mix_type: { type: 'string', description: 'Optional blend mode.' }
     },
     ['image_url', 'end']
@@ -443,7 +443,7 @@ const TOOLS: Tool[] = [
       transform_x: { type: 'number', description: 'Optional X transform ratio.' },
       transform_x_px: { type: 'integer', description: 'Optional X transform in pixels.' },
       transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
-      transform_y_px: { type: 'string', description: 'Optional Y transform in pixels.' },
+      transform_y_px: { type: 'integer', description: 'Optional Y transform in pixels.' },
       scale_x: { type: 'number', description: 'Optional X scale.' },
       scale_y: { type: 'number', description: 'Optional Y scale.' },
       track_name: { type: 'string', description: 'Optional track name.' },
