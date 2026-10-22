@@ -1,20 +1,3 @@
-.chat-panel__image-resolution-price {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  color: #595959;
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.chat-panel__image-resolution-price-icon {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-}
-
 .chat-panel__image-resolution-popover .ant-popover-inner {
   padding: 0 !important;
   border-radius: 16px !important;
