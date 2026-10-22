@@ -596,15 +596,17 @@ export function findBundledGitBash(): string | null {
 }
 
 export function findBundledPython(): string | null {
-  if (!isWin) {
+  if (!isWin && process.platform !== 'darwin') {
     return null
   }
 
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const candidates = [
-    path.join(getResourcePath(), 'python', arch, 'python', 'python.exe'),
-    path.join(getResourcePath(), 'python', 'python', 'python.exe')
-  ]
+  const candidates = isWin
+    ? [
+        path.join(getResourcePath(), 'python', arch, 'python', 'python.exe'),
+        path.join(getResourcePath(), 'python', 'python', 'python.exe')
+      ]
+    : [path.join(getResourcePath(), 'python', 'darwin', arch, 'python', 'bin', 'python3')]
 
   for (const candidate of candidates) {
     const resolvedCandidate = path.resolve(candidate)

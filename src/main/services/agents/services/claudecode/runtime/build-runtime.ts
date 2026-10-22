@@ -184,7 +184,7 @@ export async function buildClaudeRuntimeEnvironment(input: {
 
   const loginShellEnv = await getLoginShellEnvironment()
   const customGitBashPath = isWin ? autoDiscoverGitBash() : null
-  const bundledPythonPath = isWin ? findBundledPython() : null
+  const bundledPythonPath = findBundledPython()
   const bunPath = await getBinaryPath('bun')
 
   const resolveAnthropicBaseUrl = (): string => {

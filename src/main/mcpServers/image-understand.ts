@@ -1,8 +1,15 @@
 import fs from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 
 import { loggerService } from '@logger'
+import { mainHttpClient } from '@main/services/network/MainHttpClient'
+import { ossUploadService } from '@main/services/OssUploadService'
+import { prepareVideoUnderstanding } from '@main/utils/prepare-subtitle-audio'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -19,18 +26,19 @@ const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
 const IMAGE_UNDERSTAND_MODEL = 'gpt-5.6-luna'
+const VIDEO_UNDERSTAND_MODEL = 'qwen3.8-omni-flash'
 const INLINE_DATA_URL_PREVIEW = '<data-url-omitted>'
 
 const INSPECT_IMAGE_TOOL: Tool = {
   name: 'inspect_image',
   description:
-    'Inspect an image with the fixed VectCut vision model gpt-5.6-luna. Remote image URLs are sent directly without downloading, while local image paths are converted into data URLs automatically. Inspection failure or timeout does not mean image generation failed. Preserve existing generated images and do not resubmit generation solely because inspection failed.',
+    'Without prompt, inspect an image using gpt-5.6-luna; use question for image questions. With a non-empty prompt, understand a complete video using qwen3.8-omni-flash to analyze pacing, emotion, audiovisual rhythm, beat synchronization, and events according to your instructions, rather than extracting frames and subtitles separately. Video sources must be at most 120 seconds (longer videos are rejected). Remote videos are downloaded; all videos are compressed to a temporary 720p MP4 with audio before upload, leaving the original unchanged. Use url, file_path, or path for video input. Image URLs are sent directly and local images become data URLs. Inspection failure does not imply generation failure; do not regenerate solely because inspection failed.',
   inputSchema: {
     type: 'object',
     properties: {
       file_path: {
         type: 'string',
-        description: 'Absolute or workspace-relative local image path.'
+        description: 'Absolute or workspace-relative local image path, or video path when prompt is supplied.'
       },
       path: {
         type: 'string',
@@ -38,7 +46,7 @@ const INSPECT_IMAGE_TOOL: Tool = {
       },
       url: {
         type: 'string',
-        description: 'Remote image URL, file URL, data URL, or local image path.'
+        description: 'Remote image URL, file URL, data URL, or local image path. With prompt, provide an HTTP(S) video URL, file URL, or local video path instead.'
       },
       image_url: {
         type: 'string',
@@ -54,7 +62,7 @@ const INSPECT_IMAGE_TOOL: Tool = {
       },
       prompt: {
         type: 'string',
-        description: 'Alias of question.'
+        description: 'Non-empty video analysis instructions. Supplying this switches to qwen3.8-omni-flash video mode (maximum 120 seconds, compressed to 720p before upload). Use question, not prompt, for ordinary image inspection.'
       }
     },
     additionalProperties: true
@@ -335,14 +343,14 @@ class ImageUnderstandServer {
       tools: [INSPECT_IMAGE_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
         switch (toolName) {
           case 'inspect_image':
-            return await this.inspectImage(args as Record<string, unknown>)
+            return await this.inspectImage(args as Record<string, unknown>, extra.signal)
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
         }
@@ -425,18 +433,19 @@ class ImageUnderstandServer {
     return accessToken
   }
 
-  private async requestWithAuth(pathname: string, init: { body: Record<string, unknown> }): Promise<Response> {
+  private async requestWithAuth(pathname: string, init: { body: Record<string, unknown>; signal?: AbortSignal }): Promise<Response> {
     const token = await this.ensureValidAccessToken()
     const url = new URL(`${API_HOST}${pathname}`)
 
     const doFetch = async (accessToken: string): Promise<Response> =>
-      net.fetch(url.toString(), {
+      mainHttpClient.fetch(url.toString(), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(init.body)
+        body: JSON.stringify(init.body),
+        signal: init.signal
       })
 
     let response = await doFetch(token)
@@ -512,30 +521,81 @@ class ImageUnderstandServer {
     }
   }
 
-  private async inspectImage(args: Record<string, unknown>) {
+  private async prepareVideoSource(input: unknown, signal?: AbortSignal) {
+    const source = this.normalizeSource(input)
+    if (source.startsWith('data:')) throw new McpError(ErrorCode.InvalidParams, 'Video mode requires a URL or file path, not a data URL')
+    let tempDir: string | undefined
+    try {
+      const remote = isHttpLikeUrl(source)
+      let localPath = remote ? '' : this.resolveLocalPath(source)
+      if (remote) {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vectcut-video-source-'))
+        localPath = path.join(tempDir, 'source')
+        const response = await mainHttpClient.fetch(source, { signal })
+        if (!response.ok || !response.body) throw new Error(`Video download failed (${response.status})`)
+        await pipeline(Readable.fromWeb(response.body as any), createWriteStream(localPath), { signal })
+      }
+      if (!(await fs.stat(localPath)).isFile()) throw new Error('Video source must point to a file')
+      const prepared = await prepareVideoUnderstanding(localPath, signal)
+      try {
+        signal?.throwIfAborted()
+        const uploaded = await ossUploadService.uploadLocalFile(prepared.videoPath, {
+          bucket: 'oss-hangzhou-mp4', region: 'oss-cn-hangzhou', folder: 'agent_tmp/{uid}',
+          objectKeyPrefix: 'vectcut_omni_video_', signExpiresSeconds: 60 * 60
+        })
+        return {
+          originalInput: remote ? source : localPath,
+          requestUrl: uploaded.signedPublicUrl,
+          summaryUrl: uploaded.signedPublicUrl,
+          sourceKind: remote ? 'remote_video' : 'local_video',
+          durationSeconds: prepared.durationSeconds,
+          resolution: '720p'
+        }
+      } finally {
+        await prepared.cleanup()
+      }
+    } finally {
+      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  }
+
+  private async inspectImage(args: Record<string, unknown>, signal?: AbortSignal) {
     const sourceInput = args.file_path || args.path || args.image_url || args.url || args.image
-    const question = String(args.question || args.prompt || '').trim()
+    if (args.prompt !== undefined && (typeof args.prompt !== 'string' || !args.prompt.trim())) {
+      throw new McpError(ErrorCode.InvalidParams, "'prompt' must be a non-empty string; omit it for image mode")
+    }
+    const videoMode = args.prompt !== undefined
+    const question = videoMode ? String(args.prompt).trim() : String(args.question || '').trim()
+    const model = videoMode ? VIDEO_UNDERSTAND_MODEL : IMAGE_UNDERSTAND_MODEL
+    const mode = videoMode ? 'video_understand' : 'image_understand'
 
     if (!sourceInput) {
       throw new McpError(ErrorCode.InvalidParams, "One of 'file_path', 'path', 'image_url', 'url', or 'image' is required")
     }
 
-    const preparedSource = await this.prepareImageSource(sourceInput)
+    signal?.throwIfAborted()
+    const preparedSource = videoMode ? await this.prepareVideoSource(sourceInput, signal) : await this.prepareImageSource(sourceInput)
+    const sourceSummary = [{
+      original_input: preparedSource.originalInput,
+      submitted_url: preparedSource.summaryUrl,
+      source_kind: preparedSource.sourceKind,
+      ...(videoMode && 'durationSeconds' in preparedSource ? { duration_seconds: preparedSource.durationSeconds, resolution: preparedSource.resolution } : {})
+    }]
     const requestBody = {
-      model: IMAGE_UNDERSTAND_MODEL,
+      model,
       stream: true,
-      max_tokens: 1024,
+      max_tokens: videoMode ? 4096 : 1024,
       messages: [
         {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: buildInspectImagePrompt(question)
+              text: videoMode ? question : buildInspectImagePrompt(question)
             },
             {
-              type: 'image_url',
-              image_url: {
+              type: videoMode ? 'video_url' : 'image_url',
+              [videoMode ? 'video_url' : 'image_url']: {
                 url: preparedSource.requestUrl
               }
             }
@@ -545,7 +605,8 @@ class ImageUnderstandServer {
     }
 
     const response = await this.requestWithAuth(CHAT_COMPLETIONS_ENDPOINT, {
-      body: requestBody
+      body: requestBody,
+      signal
     })
 
     if (!response.ok) {
@@ -563,19 +624,14 @@ class ImageUnderstandServer {
     const artifactPayload = {
       provider: 'vectcut',
       action: 'inspect_image',
-      mode: 'image_understand',
+      mode,
       request: {
-        model: IMAGE_UNDERSTAND_MODEL,
+        model,
         question,
+        ...(videoMode ? { prompt: question } : {}),
         source: preparedSource.summaryUrl
       },
-      source_summary: [
-        {
-          original_input: preparedSource.originalInput,
-          submitted_url: preparedSource.summaryUrl,
-          source_kind: preparedSource.sourceKind
-        }
-      ],
+      source_summary: sourceSummary,
       response: completion,
       answer
     }
@@ -590,22 +646,17 @@ class ImageUnderstandServer {
     const resultPayload = {
       provider: 'vectcut',
       action: 'inspect_image',
-      mode: 'image_understand',
-      model: IMAGE_UNDERSTAND_MODEL,
+      mode,
+      model,
       question,
+      ...(videoMode ? { prompt: question } : {}),
       answer,
       ...(completion.billing && typeof completion.billing === 'object'
         ? {
             billing: completion.billing
           }
         : {}),
-      source_summary: [
-        {
-          original_input: preparedSource.originalInput,
-          submitted_url: preparedSource.summaryUrl,
-          source_kind: preparedSource.sourceKind
-        }
-      ],
+      source_summary: sourceSummary,
       ...(artifact
         ? {
             artifact: {
@@ -617,7 +668,7 @@ class ImageUnderstandServer {
         : {}),
       response_summary: {
         id: String(completion.id || '').trim() || undefined,
-        model: String(completion.model || '').trim() || IMAGE_UNDERSTAND_MODEL,
+        model: videoMode ? model : String(completion.model || '').trim() || model,
         choice_count: Array.isArray(completion.choices) ? completion.choices.length : 0
       }
     }

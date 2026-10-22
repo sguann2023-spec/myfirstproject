@@ -408,31 +408,38 @@ function resolveToolPath(filePath: string, cwd: string): string {
 
 const MAX_READ_IMAGE_AS_CONTENT_BYTES = 20 * 1024 * 1024
 
-const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-  '.svg': 'image/svg+xml',
-  '.avif': 'image/avif'
+const IMAGE_MIME_BY_FORMAT: Record<string, string> = {
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif'
 }
 
-function guessImageMimeType(input: { contentType?: string; sourcePath?: string }): string {
-  const contentType = String(input.contentType || '')
-    .split(';')[0]
-    .trim()
-    .toLowerCase()
-  if (contentType.startsWith('image/')) {
-    return contentType
+async function validateImageBuffer(buffer: Buffer): Promise<string> {
+  if (buffer.length > MAX_READ_IMAGE_AS_CONTENT_BYTES) {
+    throw new Error(`Image is too large to load as content (${buffer.length} bytes)`)
   }
-
-  const extension = path.extname(String(input.sourcePath || '')).toLowerCase()
-  return IMAGE_MIME_BY_EXTENSION[extension] || 'image/png'
+  const { default: sharp } = await import('sharp')
+  let metadata: Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>
+  try {
+    metadata = await sharp(buffer).metadata()
+  } catch {
+    throw new Error(
+      'ReadImageAsContent requires a valid image, not a video, audio file, or damaged image. For video, use the video-understanding tool or extract a real image frame first.'
+    )
+  }
+  // HEIF containers must actually contain AV1 before being labeled as AVIF.
+  const format = metadata.format === 'heif' && metadata.compression === 'av1' ? 'avif' : metadata.format
+  const mimeType = format ? IMAGE_MIME_BY_FORMAT[format] : undefined
+  if (!mimeType || !metadata.width || !metadata.height) {
+    throw new Error(`ReadImageAsContent does not support this image format (${format || 'unknown'}).`)
+  }
+  return mimeType
 }
 
-async function resolveReadImageAsContentInput(input: {
+export async function resolveReadImageAsContentInput(input: {
   source: string
   cwd: string
 }): Promise<{ mimeType: string; base64: string; sourceLabel: string; byteLength: number }> {
@@ -441,14 +448,24 @@ async function resolveReadImageAsContentInput(input: {
     throw new Error('ReadImageAsContent requires file_path, path, url, or data_url')
   }
 
-  const dataUrlMatch = source.match(/^data:([^;,]+);base64,(.+)$/i)
+  const dataUrlMatch = source.match(/^data:([^;,]+);base64,([\s\S]*)$/i)
   if (dataUrlMatch) {
     const base64 = dataUrlMatch[2]
+    if (!base64 || base64.length > Math.ceil(MAX_READ_IMAGE_AS_CONTENT_BYTES / 3) * 4) {
+      throw new Error('Image data URL is empty or too large to load as content')
+    }
+    if (base64.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(base64)) {
+      throw new Error('Image data URL contains invalid base64')
+    }
+    const buffer = Buffer.from(base64, 'base64')
+    if (buffer.toString('base64') !== base64) {
+      throw new Error('Image data URL contains invalid base64')
+    }
     return {
-      mimeType: guessImageMimeType({ contentType: dataUrlMatch[1] }),
-      base64,
+      mimeType: await validateImageBuffer(buffer),
+      base64: buffer.toString('base64'),
       sourceLabel: 'data-url',
-      byteLength: Buffer.byteLength(base64, 'base64')
+      byteLength: buffer.length
     }
   }
 
@@ -459,15 +476,8 @@ async function resolveReadImageAsContentInput(input: {
     }
 
     const buffer = Buffer.from(await response.arrayBuffer())
-    if (buffer.length > MAX_READ_IMAGE_AS_CONTENT_BYTES) {
-      throw new Error(`Image is too large to load as content (${buffer.length} bytes)`)
-    }
-
     return {
-      mimeType: guessImageMimeType({
-        contentType: response.headers.get('content-type') || '',
-        sourcePath: source
-      }),
+      mimeType: await validateImageBuffer(buffer),
       base64: buffer.toString('base64'),
       sourceLabel: source,
       byteLength: buffer.length
@@ -476,12 +486,8 @@ async function resolveReadImageAsContentInput(input: {
 
   const resolvedPath = resolveToolPath(source, input.cwd)
   const buffer = await fsp.readFile(resolvedPath)
-  if (buffer.length > MAX_READ_IMAGE_AS_CONTENT_BYTES) {
-    throw new Error(`Image is too large to load as content (${buffer.length} bytes)`)
-  }
-
   return {
-    mimeType: guessImageMimeType({ sourcePath: resolvedPath }),
+    mimeType: await validateImageBuffer(buffer),
     base64: buffer.toString('base64'),
     sourceLabel: resolvedPath,
     byteLength: buffer.length
@@ -777,7 +783,7 @@ function buildBuiltinTools(input: {
     name: 'ReadImageAsContent',
     label: 'ReadImageAsContent',
     description:
-      'Load a local image file, remote image URL, or data URL into the conversation as image content for the current multimodal model. This tool does not analyze the image; it only attaches the image so the model can inspect it in the next turn.',
+      'Load a valid local image file, remote image URL, or base64 data URL into the conversation. Images only: never pass video or audio files. For video, use video understanding or extract a real image frame first. This tool attaches the original image without analyzing or converting it.',
     parameters: Type.Object({
       file_path: Type.Optional(Type.String()),
       path: Type.Optional(Type.String()),

@@ -48,13 +48,14 @@ const parseDuration = (probe: ProbeResult) => {
 }
 
 /** Verify a local or remote source is a video of known duration before sending it to a video-only API. */
-export async function probeVideoSource(source: string, maxDurationSeconds: number): Promise<number> {
+export async function probeVideoSource(source: string, maxDurationSeconds: number, signal?: AbortSignal): Promise<number> {
+  signal?.throwIfAborted()
   let probeOutput: string
   try {
     const { stdout } = await execFileAsync(
       resolveFfprobePath(),
       ['-v', 'error', '-rw_timeout', '15000000', '-show_entries', 'stream=codec_type,duration:format=duration', '-of', 'json', source],
-      { windowsHide: true, timeout: 30_000, maxBuffer: PROCESS_MAX_BUFFER }
+      { windowsHide: true, timeout: 30_000, maxBuffer: PROCESS_MAX_BUFFER, signal }
     )
     probeOutput = String(stdout || '')
   } catch (error) {
@@ -74,6 +75,31 @@ export async function probeVideoSource(source: string, maxDurationSeconds: numbe
   if (duration === null) throw new Error('无法读取视频时长，无法确认是否在时长限制内')
   if (duration > maxDurationSeconds) throw new Error(`视频时长不能超过 ${maxDurationSeconds / 60} 分钟`)
   return duration
+}
+
+/** Compress only a temporary analysis copy; preserve frame timing and the optional audio track. */
+export async function prepareVideoUnderstanding(sourcePath: string, signal?: AbortSignal) {
+  const durationSeconds = await probeVideoSource(sourcePath, 120, signal)
+  const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'vectcut-omni-video-'))
+  const videoPath = path.join(tempDir, 'analysis-720p.mp4')
+  try {
+    await execFileAsync(resolveFfmpegPath(), [
+      '-nostdin', '-y', '-i', sourcePath, '-map', '0:v:0', '-map', '0:a:0?',
+      // Reserve a small margin for audio encoder padding at the API's hard limit.
+      '-t', String(Math.min(durationSeconds, 119.9)),
+      '-vf', "scale=w='if(gte(iw,ih),min(1280,iw),min(720,iw))':h='if(gte(iw,ih),min(720,ih),min(1280,ih))':force_original_aspect_ratio=decrease:force_divisible_by=2",
+      '-c:v', 'libx264', '-preset', 'fast', '-b:v', '900k', '-maxrate', '1000k', '-bufsize', '2000k',
+      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', videoPath
+    ], { windowsHide: true, timeout: PROCESS_TIMEOUT_MS, maxBuffer: PROCESS_MAX_BUFFER, signal })
+    if ((await fsPromises.stat(videoPath)).size > 20 * 1024 * 1024) {
+      throw new Error('压缩视频超过后台单文件 20MB 限制')
+    }
+    await probeVideoSource(videoPath, 120, signal)
+    return { videoPath, durationSeconds, cleanup: () => fsPromises.rm(tempDir, { recursive: true, force: true }) }
+  } catch (error) {
+    await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
 }
 
 /** Probe duration, enforce the recognition limit, and transcode local media to compact MP3. */

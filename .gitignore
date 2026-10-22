@@ -34,6 +34,7 @@ dist-main/
 
 resources/ffmpeg
 resources/python/*/python/
+resources/python/darwin/
 log.txt
 .env.local
 .env.*.local

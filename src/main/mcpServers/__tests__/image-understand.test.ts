@@ -4,11 +4,18 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockPrepareVideo, mockUpload, mockCleanup } = vi.hoisted(() => ({
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
-  mockStoreSet: vi.fn()
+  mockStoreSet: vi.fn(),
+  mockPrepareVideo: vi.fn(),
+  mockUpload: vi.fn(),
+  mockCleanup: vi.fn()
 }))
+
+vi.mock('@main/services/network/MainHttpClient', () => ({ mainHttpClient: { fetch: mockNetFetch } }))
+vi.mock('@main/services/OssUploadService', () => ({ ossUploadService: { uploadLocalFile: mockUpload } }))
+vi.mock('@main/utils/prepare-subtitle-audio', () => ({ prepareVideoUnderstanding: mockPrepareVideo }))
 
 vi.mock('electron', () => ({
   net: {
@@ -78,8 +85,10 @@ describe('ImageUnderstandServer', () => {
   let workspaceRoot: string
 
   beforeEach(async () => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+    mockPrepareVideo.mockResolvedValue({ videoPath: '/tmp/compressed-720p.mp4', durationSeconds: 120, cleanup: mockCleanup })
+    mockUpload.mockResolvedValue({ signedPublicUrl: 'https://oss.example.com/video.mp4' })
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'image-understand-test-'))
   })
 
@@ -277,5 +286,72 @@ describe('ImageUnderstandServer', () => {
       total_consumed_points: 1.33
     })
     expect(payload.response_summary.id).toBe('chatcmpl-sse-1')
+  })
+
+  it('switches to Omni for prompt, uploads only compressed video, and preserves billing and artifacts', async () => {
+    const videoPath = path.join(workspaceRoot, 'video.mp4')
+    await fs.writeFile(videoPath, 'original-video')
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        model: 'qwen3.8-omni-flash', choices: [{ message: { content: '节奏逐渐加快。' } }],
+        billing: { total_consumed_points: 2 }
+      }))
+    const result = await callTool(createServer(workspaceRoot), 'inspect_image', {
+      path: 'video.mp4', prompt: '分析节奏与情绪', question: 'ignored'
+    })
+    expect(mockPrepareVideo).toHaveBeenCalledWith(videoPath, undefined)
+    expect(mockUpload).toHaveBeenCalledWith('/tmp/compressed-720p.mp4', expect.any(Object))
+    expect(mockCleanup).toHaveBeenCalledOnce()
+    expect(await fs.readFile(videoPath, 'utf8')).toBe('original-video')
+    const body = JSON.parse(mockNetFetch.mock.calls[1][1].body)
+    expect(body.model).toBe('qwen3.8-omni-flash')
+    expect(body.messages[0].content).toEqual([
+      { type: 'text', text: '分析节奏与情绪' },
+      { type: 'video_url', video_url: { url: 'https://oss.example.com/video.mp4' } }
+    ])
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload).toMatchObject({
+      mode: 'video_understand', model: 'qwen3.8-omni-flash', prompt: '分析节奏与情绪',
+      answer: '节奏逐渐加快。', billing: { total_consumed_points: 2 },
+      source_summary: [{ source_kind: 'local_video', duration_seconds: 120, resolution: '720p' }]
+    })
+    expect(JSON.parse(await fs.readFile(payload.artifact.file_path, 'utf8')).request.model).toBe('qwen3.8-omni-flash')
+  })
+
+  it('downloads remote video and deletes the downloaded temporary file', async () => {
+    mockNetFetch.mockResolvedValueOnce(new Response('downloaded'))
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ choices: [{ message: { content: 'Done' } }] }))
+    const result = await callTool(createServer(workspaceRoot), 'inspect_image', { url: 'https://example.com/video.mp4', prompt: 'Analyze' })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(result.content[0].text).source_summary[0].source_kind).toBe('remote_video')
+    await expect(fs.stat(mockPrepareVideo.mock.calls[0][0])).rejects.toThrow()
+  })
+
+  it('blocks overlong video before upload or model submission', async () => {
+    const videoPath = path.join(workspaceRoot, 'long.mp4')
+    await fs.writeFile(videoPath, 'video')
+    mockPrepareVideo.mockRejectedValue(new Error('视频时长不能超过 2 分钟'))
+    const result = await callTool(createServer(workspaceRoot), 'inspect_image', { url: videoPath, prompt: 'Analyze' })
+    expect(result.isError).toBe(true)
+    expect(mockUpload).not.toHaveBeenCalled()
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['', ' ', 123, null])('rejects invalid prompt %j', async (prompt) => {
+    const result = await callTool(createServer(workspaceRoot), 'inspect_image', { url: 'https://example.com/video.mp4', prompt })
+    expect(result.isError).toBe(true)
+    expect(mockPrepareVideo).not.toHaveBeenCalled()
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('cleans compressed copy after upload failure', async () => {
+    const videoPath = path.join(workspaceRoot, 'video.mp4')
+    await fs.writeFile(videoPath, 'video')
+    mockUpload.mockRejectedValue(new Error('upload failed'))
+    const result = await callTool(createServer(workspaceRoot), 'inspect_image', { url: videoPath, prompt: 'Analyze' })
+    expect(result.isError).toBe(true)
+    expect(mockCleanup).toHaveBeenCalledOnce()
+    expect(mockNetFetch).not.toHaveBeenCalled()
   })
 })

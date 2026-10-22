@@ -1,4 +1,8 @@
-import { rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import sharp from 'sharp'
+import { net } from 'electron'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -9,7 +13,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 let mockIsWin = false
 
 vi.mock('electron', () => ({
-  net: {}
+  net: { fetch: vi.fn() }
 }))
 
 vi.mock('@main/services/WindowService', () => ({
@@ -71,7 +75,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable } from '../harness/create-harness'
+import { buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -92,6 +96,84 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('ReadImageAsContent input validation', () => {
+  const video = Buffer.from('000000186674797069736f6d0000020069736f6d69736f32', 'hex')
+  const resolve = (source: string) => resolveReadImageAsContentInput({ source, cwd: process.cwd() })
+  const png = () => sharp({
+    create: { width: 2, height: 2, channels: 3, background: '#ffffff' }
+  }).png().toBuffer()
+
+  it('rejects local MP4 content even when named PNG', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'read-image-test-'))
+    try {
+      for (const name of ['video.mp4', 'fake.png']) {
+        const file = path.join(dir, name)
+        await writeFile(file, video)
+        await expect(resolve(file)).rejects.toThrow('requires a valid image')
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('detects the real format of a local image without changing its bytes', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'read-image-test-'))
+    try {
+      const buffer = await png()
+      const file = path.join(dir, 'image.jpg')
+      await writeFile(file, buffer)
+      const result = await resolve(file)
+      expect(result.mimeType).toBe('image/png')
+      expect(Buffer.from(result.base64, 'base64')).toEqual(buffer)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects remote video even when the server declares image/png', async () => {
+    vi.mocked(net.fetch).mockResolvedValue(new Response(new Uint8Array(video), {
+      headers: { 'content-type': 'image/png' }
+    }))
+    await expect(resolve('https://example.test/fake.png')).rejects.toThrow('requires a valid image')
+  })
+
+  it('accepts real remote images regardless of content-type or URL extension', async () => {
+    const buffer = await png()
+    vi.mocked(net.fetch).mockResolvedValue(new Response(new Uint8Array(buffer), {
+      headers: { 'content-type': 'application/octet-stream' }
+    }))
+    const result = await resolve('https://example.test/download')
+    expect(result.mimeType).toBe('image/png')
+    expect(Buffer.from(result.base64, 'base64')).toEqual(buffer)
+  })
+
+  it('rejects video disguised as a PNG data URL', async () => {
+    await expect(resolve(`data:image/png;base64,${video.toString('base64')}`))
+      .rejects.toThrow('requires a valid image')
+  })
+
+  it('detects the actual data URL image format and preserves bytes', async () => {
+    const buffer = await png()
+    const result = await resolve(`data:image/jpeg;base64,${buffer.toString('base64')}`)
+    expect(result.mimeType).toBe('image/png')
+    expect(Buffer.from(result.base64, 'base64')).toEqual(buffer)
+  })
+
+  it('rejects malformed, empty and oversized base64 data', async () => {
+    await expect(resolve('data:image/png;base64,%%%')).rejects.toThrow('invalid base64')
+    await expect(resolve('data:image/png;base64,')).rejects.toThrow('empty or too large')
+    await expect(resolve(`data:image/png;base64,${'A'.repeat(28 * 1024 * 1024)}`))
+      .rejects.toThrow('empty or too large')
+  })
+
+  it('rejects empty and damaged image bytes', async () => {
+    vi.mocked(net.fetch).mockResolvedValue(new Response(new Uint8Array(0)))
+    await expect(resolve('https://example.test/empty.png')).rejects.toThrow('requires a valid image')
+    await expect(resolve(`data:image/png;base64,${Buffer.from('not an image').toString('base64')}`))
+      .rejects.toThrow('requires a valid image')
+  })
 })
 
 describe('buildPiBashTool', () => {
