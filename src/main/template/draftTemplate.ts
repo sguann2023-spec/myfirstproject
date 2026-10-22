@@ -5,6 +5,7 @@ import { backendTrackType, isSceneSegment, logicalTrackLayout, mapWorkflowTracks
 import { mediaDurationMicros } from '../../shared/templateMediaTiming'
 import { stickerClipTransforms, stickerIdentifier } from './stickerWorkflow'
 import { resourceFields } from './resourceWorkflow'
+import { executableKeyframes } from './keyframeWorkflow'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -366,10 +367,21 @@ export function compileDraftTemplate(draft: DraftTemplate, modifications: Record
   const dynamicInputs = getDynamicInputs(draft)
   draft = applyDynamicInputs(draft, modifications)
   const normalized = normalizeDraftTemplate(draft)
-  if (normalized.hasKeyframes) throw new Error('模版包含关键帧，当前尚未支持关键帧 Workflow 执行，禁止丢弃动画后导出')
+  const animationTypes = new Map(normalized.analysis.timeline.map(element => [element.id, element.type]))
+  function validateAnimation(scene: DraftScene) {
+    executableKeyframes(scene, 'composition')
+    for (const track of scene.tracks) for (const segment of track.segments) {
+      if (isSceneSegment(segment)) validateAnimation(segment)
+      else {
+        executableKeyframes(segment, animationTypes.get(segment.id)!)
+      }
+    }
+    scene.scenes?.forEach(validateAnimation)
+  }
+  draft.scenes.forEach(validateAnimation)
   const backend = mapWorkflowTracks(normalized.template, normalized.logicalTracks)
   const result = compileSceneTemplate(backend.template)
-  const dynamic = getDynamicInputs(draft).length
+  const dynamic = getDynamicInputs(draft).length || normalized.hasKeyframes
     ? compileDynamicWorkflow(draft, backend.template, result.duration) : undefined
   return { ...result, ...normalized.analysis, template: structuredClone(draft), dynamicInputs,
     workflow: dynamic?.workflow ?? result.workflow,

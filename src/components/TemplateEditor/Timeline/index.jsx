@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronRight, GripVertical, Layers, LockKeyhole, Minus, Plus, SkipBack, Trash2, UnlockKeyhole } from 'lucide-react';
+import { ChevronRight, Circle, Diamond, GripVertical, Layers, LockKeyhole, Minus, Plus, SkipBack, Trash2, UnlockKeyhole } from 'lucide-react';
 import { snapTime } from '../editorView';
 import ClipTiming from '../ClipTiming';
 import TimingIcon, { clipTimingModes } from '../ClipTiming/TimingIcon';
@@ -9,6 +9,8 @@ import TimelinePlayhead from './TimelinePlayhead';
 import TimelineScrollbar from './TimelineScrollbar';
 import useTimelineViewport from './useTimelineViewport';
 import useClipDrag from './useClipDrag';
+import Keyframes from '../Keyframes';
+import { keyframePropertiesFor, keyframeProperty } from '../../../shared/templateKeyframes';
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from './viewport';
 import './Timeline.css';
 
@@ -28,6 +30,7 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
   const [dropTrack, setDropTrack] = useState(null);
   const [menu, setMenu] = useState(null);
   const [timingOpen, setTimingOpen] = useState(null);
+  const [keyframesOpen, setKeyframesOpen] = useState(null);
   const scrollRef = useRef(null);
   const gesture = useRef(null);
   const trackDrag = useRef(null);
@@ -63,6 +66,7 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
   useEffect(() => {
     pendingCommit.current = null;
     setCursor(0); setPreview(null); gesture.current = null; setDurationOpen(false); setTimingOpen(null);
+    setKeyframesOpen(null);
   }, [sceneId]);
   useEffect(() => {
     if (!selectedId || gesture.current?.kind === 'clip') return;
@@ -237,7 +241,10 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
         <div className="template-outside-scene" style={{ left: 164 + view.duration * pps }} />
         {view.rows.map(row => {
           const locked = lockedTracks.has(row.id);
+          const activeClip = row.clips.find(clip => clip.id === selectedId) ?? row.clips[0];
+          const keyframeGroups = nativeIndex.get(activeClip?.id)?.common_keyframes?.filter(group => group.keyframe_list.length) ?? [];
           return <div className={`template-track-row ${locked ? 'is-locked' : ''} ${row.clips.some(clip => clip.id === selectedId) ? 'has-selected-clip' : ''} ${dropTrack === row.id ? 'is-drop-target' : ''} ${preview?.floating && preview.trackId === row.id && !preview.invalid ? 'is-clip-drop-target' : ''}`}
+            style={{ minHeight: 35 + keyframeGroups.length * 26 }}
             data-track-id={row.id} key={row.id}
             onDragOver={event => {
               if (trackDrag.current && trackDrag.current !== row.id && !row.id.startsWith('__') && !locked) { event.preventDefault(); setDropTrack(row.id); }
@@ -254,9 +261,15 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
                 onDragStart={event => { trackDrag.current = row.id; event.dataTransfer.setData('text/plain', row.id); }}
                 onDragEnd={() => { trackDrag.current = null; setDropTrack(null); }}><GripVertical size={13} /></button>
               <button className="template-track-select" aria-label={`选择轨道 ${row.name}`} title={row.name}
-                onClick={() => onSelect(row.id.startsWith('__') ? '' : row.id)}><b>{row.track + 1}</b><span>{row.name}</span></button>
+                onClick={() => onSelect(row.id.startsWith('__') ? '' : row.id)}><b>{row.track + 1}</b></button>
               <button className="template-track-lock" aria-label={`${locked ? '解锁' : '锁定'}轨道 ${row.name}`} title="仅锁定编辑，不影响导出"
                 aria-pressed={locked} onClick={() => onLock(row.id)}>{locked ? <LockKeyhole size={12} /> : <UnlockKeyhole size={12} />}</button>
+              <button className="template-track-keyframes" aria-label={`设置关键帧 ${activeClip?.name ?? row.name}`}
+                disabled={disabled || locked || !activeClip || !keyframePropertiesFor(activeClip.type).length}
+                onClick={event => {
+                  event.stopPropagation(); onSelect(activeClip.id);
+                  setKeyframesOpen({ id: activeClip.id, anchor: event.currentTarget });
+                }}>{keyframeGroups.length ? <Diamond size={12} /> : <Circle size={12} />}</button>
             </div>
             <div className="template-track-lane">
               {row.clips.map(clip => {
@@ -313,6 +326,18 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
                     onPointerDown={event => beginClip(event, clip, row, 'end')} />
                 </div>;
               })}
+              {keyframeGroups.map((group, index) => <div className="template-keyframe-lane" key={group.id}
+                style={{ top: 35 + index * 26 }}>
+                <span>{keyframeProperty(group.property_type)?.label ?? group.property_type}</span>
+                {group.keyframe_list.map(frame => <button key={frame.id} className="template-keyframe-point"
+                  style={{ left: (activeClip.start + frame.time_offset / 1_000_000) * pps }}
+                  aria-label={`${keyframeProperty(group.property_type)?.label} ${frame.time_offset / 1_000_000} 秒关键帧`}
+                  disabled={disabled || locked}
+                  onClick={event => {
+                    setTime(activeClip.start + frame.time_offset / 1_000_000);
+                    setKeyframesOpen({ id: activeClip.id, anchor: event.currentTarget });
+                  }}><Diamond size={11} /></button>)}
+              </div>)}
             </div>
           </div>;
         })}
@@ -325,6 +350,11 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
       </div>
     </div>
     <TimelineScrollbar width={width} canvasWidth={canvasWidth} scrollLeft={scrollLeft} onScroll={onHorizontalScroll} />
+    {keyframesOpen && view.rows.flatMap(row => row.clips).find(clip => clip.id === keyframesOpen.id) && <Keyframes
+      key={keyframesOpen.id} clip={view.rows.flatMap(row => row.clips).find(clip => clip.id === keyframesOpen.id)}
+      native={nativeIndex.get(keyframesOpen.id)} cursor={cursor} anchor={keyframesOpen.anchor}
+      disabled={disabled || view.rows.some(row => lockedTracks.has(row.id) && row.clips.some(clip => clip.id === keyframesOpen.id))}
+      onAction={onAction} onClose={() => setKeyframesOpen(null)} />}
     {timingClip && <ClipTiming key={timingClip.id} clip={timingClip} native={nativeIndex.get(timingClip.id)}
       material={nativeIndex.get(nativeIndex.get(timingClip.id)?.material_id)}
       anchor={timingOpen.anchor} disabled={disabled || view.rows.some(row => lockedTracks.has(row.id) && row.clips.some(clip => clip.id === timingClip.id))}

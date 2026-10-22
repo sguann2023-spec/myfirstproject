@@ -205,6 +205,47 @@ it('层级树不暴露轨道节点；进入分镜后混排四种素材仍只占�
   expect(rows).toHaveLength(2);
   expect(rows[1].querySelectorAll('.template-clip')).toHaveLength(4);
   expect(labels[0].querySelector('b').textContent).toBe('11');
+  expect(labels.every(element => element.textContent === element.querySelector('b').textContent)).toBe(true);
+  expect(labels.every(element => element.querySelector('span') === null)).toBe(true);
+});
+
+it('关键帧按钮搜索属性、保存原生关键帧、显示属性行，快捷键撤销重做', async () => {
+  await render();
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-keyframes').click());
+  const dialog = () => document.querySelector('.template-keyframes');
+  expect(dialog()).not.toBeNull();
+  const search = dialog().querySelector('[aria-label="查找关键帧属性"]');
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(search, 'X Scale');
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(dialog().querySelectorAll('.template-keyframe-properties button')).toHaveLength(1);
+  await act(async () => dialog().querySelector('.template-keyframe-properties button').click());
+  await act(async () => dialog().querySelector('.template-keyframe-save').click());
+  await settle();
+  const draft = () => JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(draft().scenes[0].tracks.find(track => track.id === 'upper').segments[0].common_keyframes[0])
+    .toMatchObject({ property_type: 'KFTypeScaleX', keyframe_list: [{ time_offset: 0, values: [1] }] });
+  expect(container.querySelector('.template-keyframe-lane').textContent).toContain('X Scale');
+  await key(dialog(), 'Escape');
+  await key(container.querySelector('.template-track-keyframes'), 'z', { ctrlKey: true });
+  await settle();
+  expect(container.querySelector('.template-keyframe-lane')).toBeNull();
+  await key(container.querySelector('.template-track-keyframes'), 'z', { ctrlKey: true, shiftKey: true });
+  await settle();
+  expect(container.querySelector('.template-keyframe-point')).not.toBeNull();
+});
+
+it('分镜和批量分镜提供关键帧菜单，音频禁用；锁定后不可配置', async () => {
+  await render();
+  expect(container.querySelector('.template-track-keyframes').disabled).toBe(false);
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="audio"]').click());
+  expect(container.querySelector('[data-track-id="mixed"] .template-track-keyframes').disabled).toBe(true);
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-lock').click());
+  expect(container.querySelector('[data-track-id="upper"] .template-track-keyframes').disabled).toBe(true);
 });
 
 it('根时间轴隐藏末尾添加分镜，进入分镜后显示，返回根层再次隐藏', async () => {

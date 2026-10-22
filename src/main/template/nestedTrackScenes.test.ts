@@ -121,7 +121,7 @@ describe('轨道中的嵌套 Scene', () => {
     expect(() => normalizeDraftTemplate(data.template)).toThrow('同一父级')
   })
 
-  it('Scene 关键帧不因展开而静默丢失，保留但阻止导出', () => {
+  it('Scene 关键帧不因展开而丢失，递归生成内部素材动画', () => {
     const { template, child } = fixture()
     child.common_keyframes = [{
       id: 'scene-rotation', property_type: 'KFTypeRotation', keyframe_list: [{
@@ -129,7 +129,7 @@ describe('轨道中的嵌套 Scene', () => {
       }]
     }]
     expect(() => analyzeDraftTemplate(template)).not.toThrow()
-    expect(() => compileDraftTemplate(template)).toThrow('关键帧')
+    expect(JSON.stringify(compileDraftTemplate(template).workflow)).toContain('add_video_keyframe')
   })
 
   it('轨道内 Scene 可以继续嵌套 Scene，全局时间逐层叠加', () => {

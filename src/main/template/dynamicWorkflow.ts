@@ -8,6 +8,7 @@ import { inputName } from './inputNames'
 import { MAX_MEDIA_LOOP_ACTIONS } from './mediaLoop'
 import { STICKER_TRANSFORMS } from './stickerWorkflow'
 import { resourceType } from './resourceWorkflow'
+import { executableKeyframes, keyframeSteps, type AnimationLayer } from './keyframeWorkflow'
 
 const literal = (value: string | number | boolean) => typeof value === 'boolean'
   ? value ? 'True' : 'False' : typeof value === 'number' ? String(value) : JSON.stringify(value)
@@ -138,6 +139,7 @@ export function compileDynamicWorkflow(
     const name = variable.slice(2, -1)
     script.push({ type: 'set_var', id: `${prefix}assign_${timeVariableIndex++}`, index: script.length, name, value })
   }
+  const animationCounter = set('0')
   function createTimingEngine(
     sources: Map<string, string>, singleItem?: string
   ): ReturnType<typeof createSceneTimingEngine<string>> {
@@ -362,7 +364,8 @@ export function compileDynamicWorkflow(
   }
   function walk(
     elements: SceneElement[], parentStart: string, parentDuration: string,
-    clipStart: string, clipEnd: string, batch?: BatchContext, sources = rootSources
+    clipStart: string, clipEnd: string, batch?: BatchContext, sources = rootSources,
+    inheritedAnimations: AnimationLayer[] = []
   ) {
     const scope = createTimingEngine(sources).scope(elements, parentDuration)
     function resolve(element: SceneElement): { start: string; duration: string } {
@@ -377,6 +380,8 @@ export function compileDynamicWorkflow(
       const nominalStart = set(`(${parentStart}) + (${local.start})`)
       const start = set(min(clipEnd, max(clipStart, nominalStart)))
       const end = set(max(start, min(clipEnd, `(${nominalStart}) + (${local.duration})`)))
+      const groups = executableKeyframes(natives.get(element.id)!, element.type)
+      const animations = groups.length ? [...inheritedAnimations, { groups, origin: nominalStart }] : inheritedAnimations
       if (element.type === 'composition') {
         const native = natives.get(element.id)
         const batchBinding = native && 'batch_scene' in native ? byKey.get(`${element.id}.batch_scene.items`) : undefined
@@ -402,21 +407,37 @@ export function compileDynamicWorkflow(
           const itemEnd = set(`(${itemStart}) + (${itemDuration})`)
           const itemClipStart = set(min(end, max(start, itemStart)))
           const itemClipEnd = set(min(end, max(start, itemEnd)))
-          walk(element.elements!, itemStart, itemDuration, itemClipStart, itemClipEnd, context, nestedSources)
+          // A batch wrapper's animation starts anew for each repeated scene instance.
+          const itemAnimations = groups.length
+            ? [...inheritedAnimations, { groups, origin: itemStart }] : inheritedAnimations
+          walk(element.elements!, itemStart, itemDuration, itemClipStart, itemClipEnd, context, nestedSources, itemAnimations)
           assign(cursor, itemEnd)
           const loop = script.splice(before)
+          loop.forEach((step, index) => { step.index = index })
           const index = script.length
           script.push({
             type: 'for', id: `${element.id}_batch_loop`, index,
             in: sources.get(element.id)!, loop
           })
         } else {
-          walk(element.elements!, nominalStart, local.duration, start, end, batch, sources)
+          walk(element.elements!, nominalStart, local.duration, start, end, batch, sources, animations)
         }
         continue
       }
       const action = structuredClone(actions.get(element.id)!)
       const params: Record<string, unknown> = { ...action.params, start, end }
+      const animated = animations.length > 0 && ['image', 'video', 'text'].includes(element.type)
+      const emit = (actionParams: Record<string, unknown>, visibleStart: string, visibleEnd: string): WorkflowStep[] => {
+        if (!animated) return [{ ...action, index: 0, params: actionParams }]
+        const before = script.length
+        assign(animationCounter, `(${animationCounter}) + 1`)
+        const track = set(`${literal(`template_animation_${element.id}_%s`)} % (${animationCounter})`)
+        const emitted: WorkflowStep[] = script.splice(before)
+        emitted.push({ ...action, index: emitted.length, params: { ...actionParams, track_name: track } })
+        emitted.push(...keyframeSteps(action.id, element.type, track, animations, visibleStart, visibleEnd))
+        emitted.forEach((step, index) => { step.index = index })
+        return emitted
+      }
       const materialId = materialIds.get(element.id)!
       const material = materials.get(materialId)!
       const dynamicSource = ['image', 'video', 'audio'].includes(element.type) &&
@@ -502,16 +523,16 @@ export function compileDynamicWorkflow(
           const offset = set(`(${phase}) if \${index} == 0 else 0`)
           const consumed = set(`0 if \${index} == 0 else (${cycle}) - (${phase}) + (\${index} - 1) * (${cycle})`)
           const part = set(min(`(${visible}) - (${consumed})`, `(${cycle}) - (${offset})`))
-          script.push({
-            type: 'action', id: action.id, index: script.length, action_type: action.action_type,
-            params: { ...params,
-              target_start: `(${start}) + (${consumed}) / 1000000`,
+          const partStart = set(`(${start}) + (${consumed}) / 1000000`)
+          const partEnd = set(`(${partStart}) + (${part}) / 1000000`)
+          script.push(...emit({ ...params,
+              target_start: partStart,
               start: `(${sourceOffset}) + (${offset}) / 1000000`,
               end: `(${sourceOffset}) + ((${offset}) + (${part})) / 1000000`,
               duration: `(${part}) / 1000000`
-            }
-          })
+            }, partStart, partEnd))
           const loop = script.splice(before)
+          loop.forEach((step, index) => { step.index = index })
           script.push({
             type: 'if', id: `${prefix}media_visible_${timeVariableIndex++}`, index: script.length,
             condition: `(${end}) > (${start})`,
@@ -529,7 +550,7 @@ export function compileDynamicWorkflow(
       script.push({
         type: 'if', id: `${prefix}visible_${index}`, index,
         condition: `(${end}) > (${start})`,
-        then: [{ ...action, params }]
+        then: emit(params, start, end)
       })
     }
   }
