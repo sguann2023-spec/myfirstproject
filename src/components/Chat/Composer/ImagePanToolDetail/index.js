@@ -8,7 +8,6 @@ import ImageModelGptBlackIcon from '../../../../../public/image_model_gpt_black.
 import ImageModelJimengBlackIcon from '../../../../../public/image_model_jimeng_black.svg';
 import ImageModelNanoBananaBlackIcon from '../../../../../public/image_model_nano_banana_black.svg';
 import ImagePanSelectedIcon from '../../../../../public/image_pan_selected.svg';
-import Point2Icon from '../../../../../public/point2.svg';
 import { trackEvent } from '../../../../shared/analytics';
 
 const IMAGE_MODEL_OPTIONS = [
@@ -46,21 +45,6 @@ const normalizeModelLabel = (model) => {
   if (raw === 'nano_banana') return 'Nano Banana';
   if (raw === 'gpt-image-2-all') return 'GPT Image 2';
   return raw;
-};
-
-const formatImagePriceText = (price) => {
-  const normalizedPrice = String(price || '').trim();
-  if (!normalizedPrice) return '--/张';
-
-  const numericPrice = Number(normalizedPrice);
-  if (Number.isFinite(numericPrice)) {
-    const formattedPrice = Number.isInteger(numericPrice)
-      ? String(numericPrice)
-      : String(Number(numericPrice.toFixed(1)));
-    return `${formattedPrice}/张`;
-  }
-
-  return `${normalizedPrice}/张`;
 };
 
 const IMAGE_TEMPLATE_PREFERRED_TIERS = ['1K', '2K', '3K', '4K'];
@@ -183,7 +167,6 @@ const ImagePanToolDetail = ({
       description: String(item?.description || '').trim(),
       icon: String(item?.icon || '').trim(),
       badges: Array.isArray(item?.badges) ? item.badges.filter((badge) => typeof badge === 'string' && badge.trim()) : [],
-      priceText: formatImagePriceText(item?.price?.resource_points_per_unit),
     })).filter((item) => item.value);
   }, [capabilityModels]);
 
@@ -237,10 +220,6 @@ const ImagePanToolDetail = ({
     label: (
       <span className="chat-panel__image-pan-option-wrap">
         {renderModelContent(item.value, item.label, item.description, item.badges, item.icon)}
-        <span className="chat-panel__image-pan-option-price-wrap">
-          <img className="chat-panel__image-pan-option-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
-          <span className="chat-panel__image-pan-option-price">{item.priceText || '--/张'}</span>
-        </span>
       </span>
     ),
     selectedLabel: renderSelectedLabel(item.label, modelPickerOpen, getModelIcon(item.value, item.icon)),

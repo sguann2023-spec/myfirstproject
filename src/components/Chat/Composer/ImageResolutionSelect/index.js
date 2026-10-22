@@ -2,6 +2,7 @@ import React from 'react';
 import { DownOutlined } from '@ant-design/icons';
 import { Popover } from 'antd';
 import ImageTemplateIcon from '../../../../../public/image_template.svg';
+import Point2Icon from '../../../../../public/point2.svg';
 import ScreenRatioIcon from '../../../../../public/screen_ratio.svg';
 import ImageTemplatePopover from '../ImageTemplatePopover/index';
 import './index.css';
@@ -64,6 +65,20 @@ const pickSize = (capabilities, model, ratio, tier) => {
   return item?.size || null;
 };
 
+const formatImagePoints = (price, tier) => {
+  const tierPrices = price?.resource_points_per_unit_by_resolution;
+  const tierKey = Object.keys(tierPrices || {}).find(
+    (key) => key.toLowerCase() === String(tier || '').toLowerCase()
+  );
+  const rawPoints = tierPrices && Object.keys(tierPrices).length > 0
+    ? tierPrices[tierKey]?.points
+    : price?.resource_points_per_unit;
+  if (rawPoints == null || String(rawPoints).trim() === '') return '--积分';
+  const points = Number(rawPoints);
+  if (!Number.isFinite(points) || points < 0) return '--积分';
+  return `${Number(points.toFixed(2))}积分`;
+};
+
 const RatioIcon = ({ ratio, active = false }) => {
   const { width, height } = getRatioIconSize(ratio);
   return (
@@ -114,6 +129,7 @@ const ImageResolutionSelect = ({
 
   const [ratio, setRatio] = React.useState(initial.ratio);
   const [tier, setTier] = React.useState(initial.tier);
+  const priceText = formatImagePoints(capabilities?.[model]?.price, tier);
 
   React.useEffect(() => {
     const info = findSizeInfo(capabilities, model, value);
@@ -281,6 +297,10 @@ const ImageResolutionSelect = ({
           <span className="chat-panel__image-template-trigger-text">模版</span>
         </button>
       </Popover>
+      <span className="chat-panel__image-resolution-price" title="预计生成1张图片的消耗积分" aria-label="图片预估费用">
+        <img className="chat-panel__image-resolution-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+        <span>{priceText}</span>
+      </span>
     </div>
   );
 };
