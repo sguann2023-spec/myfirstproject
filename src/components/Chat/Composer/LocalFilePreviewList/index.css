@@ -47,6 +47,28 @@
   overflow: visible;
 }
 
+.chat-panel__local-file-preview-open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.chat-panel__local-file-preview-open:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.chat-panel__local-file-preview-open:focus-visible {
+  outline: 2px solid #4d53e8;
+  outline-offset: -2px;
+}
+
 .chat-panel__local-file-preview-remove {
   position: absolute;
   top: 50%;
@@ -62,7 +84,7 @@
   background: #171a1f;
   color: #ffffff;
   cursor: pointer;
-  z-index: 1;
+  z-index: 2;
   line-height: 0;
   transform: translateY(-50%);
   appearance: none;

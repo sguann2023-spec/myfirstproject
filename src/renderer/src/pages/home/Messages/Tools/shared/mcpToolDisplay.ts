@@ -79,8 +79,8 @@ export function getMcpToolDisplayName(
   const fallbackServer = humanizeName(args.serverName)
   const fallbackTool = humanizeName(args.toolName) || args.toolName
 
-  // Media titles already include the platform; hide the internal proxy server name.
-  if (serverKey === 'scrapt' || serverKey === 'audio_understand') {
+  // Standalone titles do not need the internal server name.
+  if (serverKey === 'scrapt' || serverKey === 'audio_understand' || serverKey === 'draft_render') {
     return args.t(`message.tools.mcp.tools.${serverKey}.${toolKey}`, { defaultValue: fallbackTool })
   }
 

@@ -22,6 +22,8 @@ const claudeCodeService = new ClaudeCodeService()
 
 const logger = loggerService.withContext('SessionMessageService')
 
+const HEADLESS_STREAMING_PERSIST_INTERVAL_MS = 2000
+
 type SessionStreamResult = {
   stream: ReadableStream<TextStreamPart<Record<string, any>>>
   streamFinished: Promise<void>
@@ -149,6 +151,27 @@ export class SessionMessageService extends BaseService {
     options?: CreateMessageOptions
   ): Promise<SessionStreamResult> {
     const agentSessionId = await this.getLastAgentSessionId(session.id)
+    const accumulator = new TextStreamAccumulator()
+    const headlessAssistantMsgId = randomUUID()
+    const headlessUserMsgId = randomUUID()
+
+    if (options?.persist) {
+      // Persist the user message as soon as the turn is accepted, so a hard
+      // kill mid-stream cannot lose the prompt. The complete-time exchange
+      // persist reuses the same message id and updates this row.
+      void this.persistHeadlessUserMessage(
+        session,
+        options?.displayContent ?? req.content,
+        agentSessionId,
+        headlessUserMsgId,
+        options?.images,
+        options?.userMessageExtras,
+        req.createdAt
+      ).catch((error) => {
+        logger.error('Failed to persist headless user message at stream start', error as Error)
+      })
+    }
+
     const claudeStream = await claudeCodeService.invoke(
       req.content,
       session,
@@ -161,8 +184,6 @@ export class SessionMessageService extends BaseService {
       req.model,
       options?.images
     )
-    const accumulator = new TextStreamAccumulator()
-    const headlessAssistantMsgId = randomUUID()
 
     let resolveCompletion!: (value: {
       userMessage?: AgentSessionMessageEntity
@@ -189,11 +210,58 @@ export class SessionMessageService extends BaseService {
 
     let finished = false
     let firstStreamEventLogged = false
+    let streamingPersistTimer: ReturnType<typeof setInterval> | null = null
+    let streamingPersistChain: Promise<void> = Promise.resolve()
+    let lastSnapshotSignature = ''
 
     const cleanup = () => {
       if (finished) return
       finished = true
+      if (streamingPersistTimer) {
+        clearInterval(streamingPersistTimer)
+        streamingPersistTimer = null
+      }
       claudeStream.removeAllListeners()
+    }
+
+    // Periodically checkpoint the in-progress assistant message so a hard kill
+    // mid-stream keeps the partial reply. The final exchange persist waits for
+    // the checkpoint chain and overwrites the same row.
+    const persistStreamingSnapshot = (): Promise<void> => {
+      if (finished) return streamingPersistChain
+      const snapshotBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
+      const snapshotSignature = `${snapshotBlocks.length}:${accumulator.getText().length}:${accumulator.getReasoningText().length}`
+      if (!snapshotBlocks.length || snapshotSignature === lastSnapshotSignature) {
+        return streamingPersistChain
+      }
+      lastSnapshotSignature = snapshotSignature
+      streamingPersistChain = streamingPersistChain
+        .then(async () => {
+          if (finished) return
+          await this.persistHeadlessAssistantSnapshot(
+            session,
+            claudeStream.sdkSessionId || agentSessionId,
+            headlessAssistantMsgId,
+            req.model,
+            snapshotBlocks,
+            accumulator.getUsage(),
+            req.createdAt
+          )
+        })
+        .catch((error) => {
+          logger.warn('Failed to persist streaming assistant snapshot', {
+            sessionId: session.id,
+            assistantMessageId: headlessAssistantMsgId,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        })
+      return streamingPersistChain
+    }
+
+    if (options?.persist) {
+      streamingPersistTimer = setInterval(() => {
+        void persistStreamingSnapshot()
+      }, HEADLESS_STREAMING_PERSIST_INTERVAL_MS)
     }
 
     const stream = new ReadableStream<TextStreamPart<Record<string, any>>>({
@@ -246,19 +314,24 @@ export class SessionMessageService extends BaseService {
                     assistantBlockCount: assistantBlocks.length,
                     assistantBlockTypes: assistantBlocks.map((block) => block.type)
                   })
-                  this.persistHeadlessExchange(
-                    session,
-                    options?.displayContent ?? req.content,
-                    assistantBlocks,
-                    resolvedSessionId,
-                    headlessAssistantMsgId,
-                    options?.images,
-                    options?.userMessageExtras,
-                    req.model,
-                    accumulator.getUsage(),
-                    accumulator.getUsageSteps(),
-                    req.createdAt
-                  )
+                  streamingPersistChain
+                    .then(() =>
+                      this.persistHeadlessExchange(
+                        session,
+                        options?.displayContent ?? req.content,
+                        assistantBlocks,
+                        resolvedSessionId,
+                        headlessAssistantMsgId,
+                        options?.images,
+                        options?.userMessageExtras,
+                        req.model,
+                        accumulator.getUsage(),
+                        accumulator.getUsageSteps(),
+                        req.createdAt,
+                        undefined,
+                        headlessUserMsgId
+                      )
+                    )
                     .then(resolveCompletion)
                     .catch((err) => {
                       logger.error('Failed to persist headless exchange', err as Error)
@@ -279,20 +352,24 @@ export class SessionMessageService extends BaseService {
                   const assistantBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
                   const usage = accumulator.getUsage()
                   if (assistantBlocks.length > 0 || usage) {
-                    this.persistHeadlessExchange(
-                      session,
-                      options?.displayContent ?? req.content,
-                      assistantBlocks,
-                      resolvedSessionId,
-                      headlessAssistantMsgId,
-                      options?.images,
-                      options?.userMessageExtras,
-                      req.model,
-                      usage,
-                      accumulator.getUsageSteps(),
-                      req.createdAt,
-                      true
-                    )
+                    streamingPersistChain
+                      .then(() =>
+                        this.persistHeadlessExchange(
+                          session,
+                          options?.displayContent ?? req.content,
+                          assistantBlocks,
+                          resolvedSessionId,
+                          headlessAssistantMsgId,
+                          options?.images,
+                          options?.userMessageExtras,
+                          req.model,
+                          usage,
+                          accumulator.getUsageSteps(),
+                          req.createdAt,
+                          true,
+                          headlessUserMsgId
+                        )
+                      )
                       .then(resolveCompletion)
                       .catch((err) => {
                         logger.error('Failed to persist cancelled exchange', err as Error)
@@ -331,31 +408,58 @@ export class SessionMessageService extends BaseService {
   }
 
   /**
-   * Persist user + assistant messages for headless callers (channels, scheduler)
-   * that have no UI to handle persistence via IPC.
+   * Persist the user message for headless callers as soon as the turn starts,
+   * so a hard kill mid-stream cannot lose the prompt. The complete-time
+   * exchange persist must reuse the same message id to update this row.
    */
-  private async persistHeadlessExchange(
+  private async persistHeadlessUserMessage(
     session: GetAgentSessionResponse,
     userContent: string,
-    assistantBlocksInput: HeadlessPersistedBlock[],
     agentSessionId: string,
-    assistantMsgId: string,
+    userMsgId: string,
     images?: Array<{ data: string; media_type: string }>,
     userMessageExtras?: Record<string, unknown>,
-    modelId?: string,
-    usage?: PersistedUsage,
-    usageSteps?: PersistedUsage[],
-    userCreatedAt?: number,
-    aborted = false
-  ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
-    const now = new Date().toISOString()
-    const normalizedUserCreatedAt =
-      typeof userCreatedAt === 'number' && Number.isFinite(userCreatedAt)
-        ? new Date(userCreatedAt).toISOString()
-        : now
-    const normalizedAssistantCreatedAt = normalizedUserCreatedAt
-    const assistantDurationMs = Math.max(0, Date.parse(now) - Date.parse(normalizedAssistantCreatedAt))
-    const userMsgId = randomUUID()
+    userCreatedAt?: number
+  ): Promise<void> {
+    const createdAtIso = SessionMessageService.toIsoCreatedAt(userCreatedAt, new Date().toISOString())
+    const userPayload = this.buildHeadlessUserPayload({
+      session,
+      userContent,
+      userMsgId,
+      createdAtIso,
+      images,
+      userMessageExtras
+    })
+
+    await agentMessageRepository.persistUserMessage({
+      sessionId: session.id,
+      agentSessionId,
+      payload: userPayload,
+      createdAt: createdAtIso
+    })
+
+    logger.info('Persisted headless user message at stream start', {
+      sessionId: session.id,
+      userMessageId: userMsgId,
+      agentSessionId: agentSessionId || ''
+    })
+  }
+
+  private static toIsoCreatedAt(userCreatedAt: number | undefined, fallbackIso: string): string {
+    return typeof userCreatedAt === 'number' && Number.isFinite(userCreatedAt)
+      ? new Date(userCreatedAt).toISOString()
+      : fallbackIso
+  }
+
+  private buildHeadlessUserPayload(params: {
+    session: GetAgentSessionResponse
+    userContent: string
+    userMsgId: string
+    createdAtIso: string
+    images?: Array<{ data: string; media_type: string }>
+    userMessageExtras?: Record<string, unknown>
+  }): AgentPersistedMessage {
+    const { session, userContent, userMsgId, createdAtIso, images, userMessageExtras } = params
     const userBlockId = randomUUID()
     const topicId = `agent-session:${session.id}`
 
@@ -374,20 +478,20 @@ export class SessionMessageService extends BaseService {
           id: randomUUID(),
           messageId: userMsgId,
           type: 'image',
-          createdAt: normalizedUserCreatedAt,
+          createdAt: createdAtIso,
           status: 'success',
           url: `data:${img.media_type};base64,${img.data}`
         })
       }
     }
 
-    const userPayload = {
+    return {
       message: {
         id: userMsgId,
         role: 'user' as const,
         assistantId: session.agent_id,
         topicId,
-        createdAt: normalizedUserCreatedAt,
+        createdAt: createdAtIso,
         status: 'success',
         blocks: [userBlockId, ...imageBlocks.map((b) => b.id)],
         ...(userMessageExtras && typeof userMessageExtras === 'object' ? userMessageExtras : {})
@@ -397,30 +501,56 @@ export class SessionMessageService extends BaseService {
           id: userBlockId,
           messageId: userMsgId,
           type: 'main_text',
-          createdAt: normalizedUserCreatedAt,
+          createdAt: createdAtIso,
           status: 'success',
           content: userContent
         },
         ...imageBlocks
       ]
     } as AgentPersistedMessage
+  }
 
-    const assistantBlocks: HeadlessPersistedBlock[] = assistantBlocksInput.map((block) => ({
+  private buildHeadlessAssistantPayload(params: {
+    session: GetAgentSessionResponse
+    assistantMsgId: string
+    blocks: HeadlessPersistedBlock[]
+    createdAtIso: string
+    updatedAtIso: string
+    modelId?: string
+    usage?: PersistedUsage
+    usageSteps?: PersistedUsage[]
+    aborted: boolean
+    status: string
+  }): AgentPersistedMessage {
+    const {
+      session,
+      assistantMsgId,
+      blocks,
+      createdAtIso,
+      updatedAtIso,
+      modelId,
+      usage,
+      usageSteps,
+      aborted,
+      status
+    } = params
+    const assistantDurationMs = Math.max(0, Date.parse(updatedAtIso) - Date.parse(createdAtIso))
+    const assistantBlocks: HeadlessPersistedBlock[] = blocks.map((block) => ({
       ...block,
       messageId: assistantMsgId,
-      createdAt: normalizedAssistantCreatedAt,
-      updatedAt: now
+      createdAt: createdAtIso,
+      updatedAt: updatedAtIso
     }))
 
-    const assistantPayload = {
+    return {
       message: {
         id: assistantMsgId,
         role: 'assistant' as const,
         assistantId: session.agent_id,
-        topicId,
-        createdAt: normalizedAssistantCreatedAt,
-        updatedAt: now,
-        status: aborted ? 'cancelled' : 'success',
+        topicId: `agent-session:${session.id}`,
+        createdAt: createdAtIso,
+        updatedAt: updatedAtIso,
+        status,
         aborted,
         blocks: assistantBlocks.map((block) => block.id),
         modelId: modelId || session.model,
@@ -433,6 +563,96 @@ export class SessionMessageService extends BaseService {
       },
       blocks: assistantBlocks
     } as AgentPersistedMessage
+  }
+
+  /**
+   * Checkpoint an in-progress assistant message during streaming so a hard
+   * kill mid-turn keeps the partial reply. The complete-time exchange persist
+   * overwrites this row with the final state.
+   */
+  private async persistHeadlessAssistantSnapshot(
+    session: GetAgentSessionResponse,
+    agentSessionId: string,
+    assistantMsgId: string,
+    modelId: string | undefined,
+    blocks: HeadlessPersistedBlock[],
+    usage: PersistedUsage | undefined,
+    userCreatedAt?: number
+  ): Promise<void> {
+    const now = new Date().toISOString()
+    const createdAtIso = SessionMessageService.toIsoCreatedAt(userCreatedAt, now)
+    const assistantPayload = this.buildHeadlessAssistantPayload({
+      session,
+      assistantMsgId,
+      blocks,
+      createdAtIso,
+      updatedAtIso: now,
+      modelId,
+      usage,
+      aborted: false,
+      status: 'streaming'
+    })
+
+    await agentMessageRepository.persistAssistantMessage({
+      sessionId: session.id,
+      agentSessionId,
+      payload: assistantPayload,
+      createdAt: createdAtIso
+    })
+
+    logger.debug('Persisted streaming assistant snapshot', {
+      sessionId: session.id,
+      assistantMessageId: assistantMsgId,
+      blockCount: blocks.length
+    })
+  }
+
+  /**
+   * Persist user + assistant messages for headless callers (channels, scheduler)
+   * that have no UI to handle persistence via IPC.
+   */
+  private async persistHeadlessExchange(
+    session: GetAgentSessionResponse,
+    userContent: string,
+    assistantBlocksInput: HeadlessPersistedBlock[],
+    agentSessionId: string,
+    assistantMsgId: string,
+    images?: Array<{ data: string; media_type: string }>,
+    userMessageExtras?: Record<string, unknown>,
+    modelId?: string,
+    usage?: PersistedUsage,
+    usageSteps?: PersistedUsage[],
+    userCreatedAt?: number,
+    aborted = false,
+    userMsgId?: string
+  ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
+    const now = new Date().toISOString()
+    const normalizedUserCreatedAt = SessionMessageService.toIsoCreatedAt(userCreatedAt, now)
+    const normalizedAssistantCreatedAt = normalizedUserCreatedAt
+    const resolvedUserMsgId = userMsgId || randomUUID()
+
+    const userPayload = this.buildHeadlessUserPayload({
+      session,
+      userContent,
+      userMsgId: resolvedUserMsgId,
+      createdAtIso: normalizedUserCreatedAt,
+      images,
+      userMessageExtras
+    })
+
+    const assistantPayload = this.buildHeadlessAssistantPayload({
+      session,
+      assistantMsgId,
+      blocks: assistantBlocksInput,
+      createdAtIso: normalizedAssistantCreatedAt,
+      updatedAtIso: now,
+      modelId,
+      usage,
+      usageSteps,
+      aborted,
+      status: aborted ? 'cancelled' : 'success'
+    })
+    const assistantBlocks: HeadlessPersistedBlock[] = assistantPayload.blocks as HeadlessPersistedBlock[]
 
     const result = await agentMessageRepository.persistExchange({
       sessionId: session.id,
@@ -443,7 +663,7 @@ export class SessionMessageService extends BaseService {
 
     logger.info('Persisted headless exchange', {
       sessionId: session.id,
-      userMessageId: userMsgId,
+      userMessageId: resolvedUserMsgId,
       assistantMessageId: assistantMsgId,
       assistantBlockCount: assistantBlocks.length,
       assistantToolBlockCount: assistantBlocks.filter((block) => block.type === 'tool').length,

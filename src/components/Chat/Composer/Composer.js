@@ -2217,7 +2217,7 @@ const Composer = ({
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
   const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
-  const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
+  const { openSubtitleStoryboard, openAttachmentPreview } = React.useContext(ChatTaskContext);
   React.useEffect(() => {
     if (!partSplitDialogOpen || !openSubtitleStoryboard) return;
     openSubtitleStoryboard('');
@@ -4963,6 +4963,7 @@ const Composer = ({
         <VoiceLib controller={voiceConversionVoiceLib} hideTrigger />
         <LocalFilePreviewList
           files={uploadedFileMeta}
+          openAttachmentPreview={openAttachmentPreview}
           placeholders={activeUploadPlaceholders}
           slotOrder={activePreviewSlotOrder}
           onRemove={(file) => removeLocalFile(file?.uid)}

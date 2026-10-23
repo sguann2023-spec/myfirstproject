@@ -38,6 +38,7 @@ import { ToolSearchTool } from './ToolSearchTool'
 import { isAgentMcpToolName, McpServerToolRenderer } from './McpServerToolRenderer'
 import { isMediaGenerationToolName } from './MediaGenerationTool'
 import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
+import { isDraftRenderToolName } from './draftRenderTool'
 import type { ToolInput, ToolOutput } from './types'
 import { AgentToolsType } from './types'
 import { UnknownToolRenderer } from './UnknownToolRenderer'
@@ -283,7 +284,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
     // Some MCP tools need both sanitized `response` and original `responseRaw`
     // to recover complete metadata such as billing when one side is truncated.
     if (
-      (isVideoUnderstandeToolName(toolName) || isMediaGenerationToolName(toolName) || isReversePromptToolName(toolName)) &&
+      (isDraftRenderToolName(toolName) || isVideoUnderstandeToolName(toolName) || isMediaGenerationToolName(toolName) || isReversePromptToolName(toolName)) &&
       response !== undefined &&
       responseRaw !== undefined
     ) {

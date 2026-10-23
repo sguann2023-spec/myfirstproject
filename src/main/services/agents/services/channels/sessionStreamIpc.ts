@@ -3,6 +3,7 @@ import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import { normalizeDirectAudioAddRequest } from './audioAddRequest'
 import { normalizeDirectImageAddRequest } from './imageAddRequest'
 import { normalizeDirectAiVideoRequest } from './aiVideoRequest'
+import { buildDirectAiVideoErrorAssistantText } from './aiVideoError'
 import { normalizeDirectImageGenerateRequest } from './imageGenerateRequest'
 import {
   buildDirectDigitalHumanPackagingArgs,
@@ -27,6 +28,7 @@ import VideoUnderstandServer from '@main/mcpServers/video-understand'
 import { buildVideoUnderstandBlocks, normalizeVideoUnderstandRequest, parseVideoUnderstandResult } from '../../../../../shared/videoUnderstand'
 import { loggerService } from '@logger'
 import { getDataPath } from '@main/utils'
+import { t } from '@main/utils/locales'
 import { IpcChannel } from '@shared/IpcChannel'
 import { validateTextStyleRanges } from '../../../../../shared/textTypography'
 import { normalizeTextEffectParams } from '../../../../../shared/textEffects'
@@ -1215,24 +1217,6 @@ function buildDirectAiVideoAssistantText(input: {
     draftUrl ? `- 草稿链接：${draftUrl}` : '',
     '',
     '你可以继续基于这个结果做剪辑、配音或添加到草稿。'
-  ].filter((line) => line !== null && line !== undefined).join(EOL)
-}
-
-function buildDirectAiVideoErrorAssistantText(input: {
-  toolArgs: Record<string, unknown>
-  errorCode?: string
-}): string {
-  const content = Array.isArray(input?.toolArgs?.content) ? input.toolArgs.content : []
-  const prompt = String((content.find((item: any) => item?.type === 'text') as any)?.text || '').trim()
-  const errorCode = String(input?.errorCode || '').trim()
-  return [
-    'AI 视频生成失败。',
-    '',
-    prompt ? `- 提示词：${prompt}` : '',
-    input?.toolArgs?.model ? `- 模型：${String(input.toolArgs.model)}` : '',
-    errorCode ? `- 错误信息：${errorCode}` : '',
-    '',
-    '请检查模型、分辨率、提示词和参考素材后重试。'
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
@@ -4495,7 +4479,7 @@ export function registerSessionStreamIpc(): void {
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
       const assistantText = responseSuccess
         ? buildDirectAiVideoAssistantText({ toolArgs, toolResponse })
-        : buildDirectAiVideoErrorAssistantText({ toolArgs, errorCode })
+        : buildDirectAiVideoErrorAssistantText({ toolArgs, errorCode }, t)
       const assistantBlocks = buildDirectAiVideoAssistantBlocks({
         assistantMessageId,
         modelId,

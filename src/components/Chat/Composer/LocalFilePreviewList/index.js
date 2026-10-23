@@ -130,11 +130,34 @@ const buildOrderedPreviewEntries = (files = [], placeholders = [], slotOrder = [
   return orderedEntries;
 };
 
-const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], onRemove, onAddFile }) => {
+const getMediaUrl = (file = {}) => (
+  file.localPreviewUrl || file.previewUrl || file.url || ''
+);
+const getFileKey = (file) => String(file.uid || file.name);
+const getPreviewKind = (file) => isVoiceIdFile(file) ? 'file' : getFileKindFromType(file.fileType);
+const getMediaPreviewUrl = (file) => getPreviewKind(file) === 'image' ? getPreviewUrl(file) : getMediaUrl(file);
+
+const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], onRemove, onAddFile, openAttachmentPreview }) => {
   const resolvedFiles = Array.isArray(files) ? files : [];
   const resolvedPlaceholders = Array.isArray(placeholders) ? placeholders : [];
-  if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0) return null;
   const previewEntries = buildOrderedPreviewEntries(resolvedFiles, resolvedPlaceholders, slotOrder);
+  // Opened sidebar tabs are independent of the composer's attachment list.
+  const selectFile = (file) => {
+    const key = `chat-attachment:${getFileKey(file)}`;
+    const name = getFileDisplayName(file);
+    openAttachmentPreview?.({
+      key,
+      tabId: key,
+      previewType: 'file',
+      activate: true,
+      title: name,
+      name,
+      kind: getPreviewKind(file),
+      status: 'ready',
+      src: getMediaPreviewUrl(file),
+    });
+  };
+  if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0) return null;
 
   return (
     <div className="chat-panel__local-file-preview-list" aria-label="文件预览">
@@ -161,12 +184,22 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], o
 
           const file = entry.value;
           const isImage = !isVoiceIdFile(file) && getFileKindFromType(file.fileType) === 'image';
+          const canPreview = ['image', 'video', 'audio'].includes(getPreviewKind(file)) && Boolean(getMediaPreviewUrl(file));
 
           return (
             <div
               key={entry.key}
               className={`chat-panel__local-file-preview-item ${isImage ? 'chat-panel__local-file-preview-item--image' : ''}`}
             >
+              {canPreview ? (
+                <button
+                  type="button"
+                  className="chat-panel__local-file-preview-open"
+                  aria-label={`预览 ${getFileDisplayName(file)}`}
+                  title={`预览 ${getFileDisplayName(file)}`}
+                  onClick={() => selectFile(file)}
+                />
+              ) : null}
               <button
                 type="button"
                 className="chat-panel__local-file-preview-remove"

@@ -74,6 +74,16 @@
         "placeholder": "Select an agent type"
       }
     },
+    "aiVideoError": {
+      "title": "AI video generation failed.",
+      "prompt_label": "Prompt: ",
+      "model_label": "Model: ",
+      "error_label": "Reason: ",
+      "insufficient_balance": "Your account balance is insufficient to generate a video.",
+      "recharge_advice": "Please top up your balance or switch to another model.",
+      "unknown_error": "An unknown error occurred while generating the video.",
+      "retry_advice": "Please try again later or contact support if the issue persists."
+    },
     "askUserQuestion": {
       "answered": "answered",
       "customPlaceholder": "Enter your answer...",
@@ -2783,6 +2793,9 @@
             "insert_blank_part": "Insert Blank Part",
             "adjust_part_bounds": "Adjust Part Bounds",
             "apply_operations": "Apply Operations"
+          },
+          "draft_render": {
+            "render_draft": "Pre-render"
           },
           "audio_understand": {
             "submit_audio_understanding_task": "Audio Understanding"

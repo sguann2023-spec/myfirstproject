@@ -53,6 +53,9 @@ describe('mcpToolDisplay', () => {
   })
 
   it.each([
+    ['mcp__vectcut__draft-render__render_draft', '预渲染', '預渲染', 'Pre-render'],
+    ['mcp__draft-render__render_draft', '预渲染', '預渲染', 'Pre-render'],
+    ['draft-render:render_draft', '预渲染', '預渲染', 'Pre-render'],
     ['mcp__vectcut__remove-bg__submit_remove_bg_text_behind_task', '人物抠像：字在人后', '人物去背：文字置於人物後方', 'Portrait Cutout: Text Behind Person'],
     ['mcp__vectcut__remove-bg__submit_remove_bg_pip_task', '人物抠像：抠像画中画', '人物去背：去背子母畫面', 'Portrait Cutout: Cutout Picture-in-Picture'],
     ['mcp__vectcut__remove-bg__submit_remove_bg_task', '人物抠像：抠人像', '人物去背：人物去背', 'Portrait Cutout: Remove Background']

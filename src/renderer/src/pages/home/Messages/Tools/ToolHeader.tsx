@@ -25,6 +25,8 @@ import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
+import { DraftRenderBillingBadge } from './MessageAgentTools/DraftRenderToolRenderer'
+import { isDraftRenderToolName } from './MessageAgentTools/draftRenderTool'
 import { renderToolChangeStats } from './MessageAgentTools/changeStats'
 import { type ToolStatus, ToolStatusIndicator } from './MessageAgentTools/GenericTools'
 import { AgentToolsType } from './MessageAgentTools/types'
@@ -264,13 +266,16 @@ const ToolHeader: FC<ToolHeaderProps> = ({
     return renderToolChangeStats(toolName, toolInput)
   }, [stats, toolName, toolResponse?.arguments, parsedPartialArgs])
 
+  const billingBadge = isDraftRenderToolName(toolName, tool?.type === 'mcp' ? (tool as MCPTool).serverName : undefined)
+    ? <DraftRenderBillingBadge output={{ response: toolResponse?.response, responseRaw: toolResponse?.responseRaw }} />
+    : null
   const Container = variant === 'standalone' ? HeaderContainer : LabelContainer
 
   if (block && tool?.type === 'mcp') {
     const mcpTool = tool as MCPTool
     const displayName = getMcpToolDisplayName({
-      serverName: mcpTool.serverName,
-      toolName: mcpTool.name,
+      serverName: isDraftRenderToolName(mcpTool.name, mcpTool.serverName) ? 'draft-render' : mcpTool.serverName,
+      toolName: isDraftRenderToolName(mcpTool.name, mcpTool.serverName) ? 'render_draft' : mcpTool.name,
       t
     })
     return (
@@ -285,6 +290,7 @@ const ToolHeader: FC<ToolHeaderProps> = ({
           )}
         </ToolName>
         {description && <Description>{description}</Description>}
+        {billingBadge}
         {derivedStats && <Stats>{derivedStats}</Stats>}
         {showStatus && status && (
           <StatusWrapper>
@@ -302,6 +308,7 @@ const ToolHeader: FC<ToolHeaderProps> = ({
         <span className="name">{getAgentToolLabel(toolName, t)}</span>
       </ToolName>
       {description && <Description>{description}</Description>}
+      {billingBadge}
       {derivedStats && <Stats>{derivedStats}</Stats>}
       {showStatus && status && (
         <StatusWrapper>

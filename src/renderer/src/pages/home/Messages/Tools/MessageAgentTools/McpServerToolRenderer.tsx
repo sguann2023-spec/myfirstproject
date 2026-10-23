@@ -8,6 +8,8 @@ import { parseMcpToolName } from '../shared/mcpToolDisplay'
 import { ToolHeader } from './GenericTools'
 import { ImageUnderstandeTool } from './ImageUnderstandeToolRenderer'
 import { VideoUnderstandeTool } from './VideoUnderstandeToolRenderer'
+import { DraftRenderToolRenderer } from './DraftRenderToolRenderer'
+import { isDraftRenderToolName } from './draftRenderTool'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
 import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl } from './mediaGenerationBilling'
 import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
@@ -143,6 +145,10 @@ export function McpServerToolRenderer({
           </span>
         )
       : undefined
+
+  if (isDraftRenderToolName(toolName)) {
+    return DraftRenderToolRenderer({ toolName, input, output, progress, isRunning })
+  }
 
   if (isImageUnderstande) {
     return ImageUnderstandeTool({

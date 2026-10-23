@@ -1650,6 +1650,7 @@ const ChatShell = ({
                 : { filePath, chatSessionId, workspacePath: currentWorkspacePath, open: true }
             )),
             openWebUrl: openWebUrlInPreview,
+            openAttachmentPreview: openInlinePreviewPane,
           }}>
             {children}
             {storyboardTarget && storyboardTarget.chatSessionId === chatSessionId

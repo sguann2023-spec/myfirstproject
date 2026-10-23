@@ -74,6 +74,16 @@
         "placeholder": "选择 Agent 类型"
       }
     },
+    "aiVideoError": {
+      "title": "AI 视频生成失败。",
+      "prompt_label": "提示词：",
+      "model_label": "模型：",
+      "error_label": "错误原因：",
+      "insufficient_balance": "账户余额不足，无法生成视频。",
+      "recharge_advice": "请充值或者切换其他模型",
+      "unknown_error": "生成视频时发生未知错误。",
+      "retry_advice": "请稍后重试；如果问题持续，请联系支持。"
+    },
     "askUserQuestion": {
       "answered": "已回答",
       "customPlaceholder": "输入您的回答...",
@@ -2783,6 +2793,9 @@
             "insert_blank_part": "插入空分镜",
             "adjust_part_bounds": "调整分镜边界",
             "apply_operations": "批量编辑分镜"
+          },
+          "draft_render": {
+            "render_draft": "预渲染"
           },
           "audio_understand": {
             "submit_audio_understanding_task": "音频理解"

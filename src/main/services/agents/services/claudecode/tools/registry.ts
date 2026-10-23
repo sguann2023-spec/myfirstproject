@@ -9,6 +9,7 @@ import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
 import DraftManagementServer from '@main/mcpServers/draft-management'
+import DraftRenderServer from '@main/mcpServers/draft-render'
 import FfmpegMediaServer from '@main/mcpServers/ffmpeg-media'
 import FileSystemServer from '@main/mcpServers/filesystem'
 import FileUploadServer from '@main/mcpServers/file-upload'
@@ -426,6 +427,19 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add(vt('remove-bg', toolName))
     }
     allowMcpPattern(vp('remove-bg'))
+  }
+
+  if (hasCutDomain) {
+    const draftRenderServer = new DraftRenderServer(cwd)
+    mountMcpServer('draft-render', {
+      type: 'sdk',
+      name: 'draft-render',
+      instance: draftRenderServer.mcpServer,
+      longRunning: true,
+      timeout: 6 * 60
+    })
+    autoAllowTools.add(vt('draft-render', 'render_draft'))
+    allowMcpPattern(vp('draft-render'))
   }
 
   if (hasCutDomain) {

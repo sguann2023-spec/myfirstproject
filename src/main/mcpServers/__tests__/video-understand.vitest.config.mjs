@@ -11,6 +11,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/main/mcpServers/__tests__/draft-render.test.ts',
       'src/main/mcpServers/__tests__/video-understand.test.ts',
       'src/main/mcpServers/__tests__/video-understand-direct.test.ts',
       'src/shared/videoUnderstand.test.js',
