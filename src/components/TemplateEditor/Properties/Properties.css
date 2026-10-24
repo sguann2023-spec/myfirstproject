@@ -12,3 +12,5 @@
 .template-property button.is-current { color: #497ef5; }
 .template-property p { margin: 6px 0; color: #d33; font-size: 11px; }
 .template-properties-empty { padding: 16px; color: #92959c; }
+.template-properties-unsupported { margin: 0; padding: 8px 14px; color: #92959c; font-size: 11px; line-height: 1.6; }
+.template-property input.template-property-slider { height: 18px; margin: 0 0 4px; padding: 0; background: transparent; accent-color: #497ef5; }

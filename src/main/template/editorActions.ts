@@ -9,6 +9,8 @@ import { dropEditorLayer, type LayerDropAction } from './editorLayerDrop'
 import { keyframeProperty, keyframePropertiesFor, validateKeyframeValue } from '../../shared/templateKeyframes'
 import { randomUUID } from 'node:crypto'
 import { templateProperty, writeStaticProperty, type PropertyAction } from '../../shared/templateProperties'
+import { configurationProperty } from '../../shared/templateConfiguration'
+import { applyConfiguration } from './configurationWorkflow'
 
 export type EditorAction =
   | PropertyAction
@@ -29,7 +31,10 @@ export type EditorAction =
 export function applyEditorAction(payload: EditorPayload, action: EditorAction) {
   if (action.type === 'property') {
     if (!['static', 'keyframe'].includes(action.mode)) throw new Error('属性模式无效')
-    if (action.mode === 'keyframe') return applyEditorAction(payload, { ...action, type: 'keyframe', time: action.time! })
+    if (action.mode === 'keyframe') {
+      if (action.value !== undefined && typeof action.value !== 'number') throw new Error('关键帧值必须是数字')
+      return applyEditorAction(payload, { ...action, value: action.value as number | undefined, type: 'keyframe', time: action.time! })
+    }
     if (action.remove || action.removeGroup || action.time !== undefined) throw new Error('静态属性不接受关键帧操作')
   }
   const { draft, normalized } = parseEditorDocument(payload)
@@ -152,7 +157,12 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
     const entry = entries.get(action.id)
     const time = times.get(action.id)
     if (!entry || !time) throw new Error('元素不存在')
-    Object.assign(entry.item, writeStaticProperty(entry.item, time.type, action.property, action.value!))
+    if (configurationProperty(time.type, action.property)) {
+      applyConfiguration(draft, entry.item as DraftSegment, time.type, action.property, action.value)
+    } else {
+      if (typeof action.value !== 'number') throw new Error('静态变换值必须是数字')
+      Object.assign(entry.item, writeStaticProperty(entry.item, time.type, action.property, action.value))
+    }
   } else if (action.type === 'keyframe') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)

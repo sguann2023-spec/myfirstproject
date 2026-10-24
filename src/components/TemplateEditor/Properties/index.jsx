@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Circle, Trash2 } from 'lucide-react';
 import { readTemplateProperty, templatePropertiesFor } from '../../../shared/templateProperties';
 import { keyframeProperty } from '../../../shared/templateKeyframes';
+import { displayPropertyValue, nativePropertyValue, propertyControl, unsupportedProperties } from './propertyControls';
 import './Properties.css';
 
 export function propertyFrames(native, key) {
@@ -20,17 +21,19 @@ function PropertyRow({ property, clip, native, time, disabled, focused, onAction
   try { sampled = readTemplateProperty(native ?? {}, clip.type, property.key, time); }
   catch (err) { readError = err.message; }
   const value = sampled?.value;
-  useEffect(() => { setDraft(value === undefined ? '' : String(Number(value.toFixed(6)))); setError(''); }, [value, time, native]);
+  const control = propertyControl(property);
+  const displayValue = displayPropertyValue(property, value);
+  useEffect(() => { setDraft(String(displayValue)); setError(''); }, [displayValue, time, native]);
   useEffect(() => { if (focused && !disabled) input.current?.focus({ preventScroll: true }); }, [focused, disabled]);
   const frames = propertyFrames(native, property.key);
   const offset = Math.round(time * 1_000_000);
   const previous = [...frames].reverse().find(frame => frame.time_offset < offset);
   const next = frames.find(frame => frame.time_offset > offset);
   const blocked = disabled || saving;
-  const commit = async options => {
+  const commit = async (options, candidate = draft) => {
     if (blocked) return;
     const mode = options?.mode ?? (sampled?.animated || !property.static ? 'keyframe' : 'static');
-    if (!options?.remove && !options?.removeGroup && (!draft.trim() || !Number.isFinite(Number(draft)))) {
+    if (!options?.remove && !options?.removeGroup && (!String(candidate).trim() || !Number.isFinite(Number(candidate)))) {
       setError('请输入有效数值'); return;
     }
     setSaving(true); setError('');
@@ -38,20 +41,24 @@ function PropertyRow({ property, clip, native, time, disabled, focused, onAction
       const accepted = await onAction({ type: 'property', id: clip.id,
         property: frames.length ? keyframeProperty(native.common_keyframes.find(group => group.keyframe_list === frames)?.property_type)?.key ?? property.key : property.key,
         mode, ...(mode === 'keyframe' && !options?.removeGroup ? { time } : {}),
-        ...(!options?.remove && !options?.removeGroup ? { value: Number(draft) } : {}), ...options });
+        ...(!options?.remove && !options?.removeGroup ? { value: nativePropertyValue(property, Number(candidate)) } : {}), ...options });
       if (accepted === false) setError('未保存，请检查页面错误提示');
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   };
   return <div className={`template-property ${focused ? 'is-focused' : ''}`} data-property={property.key}>
-    <label htmlFor={`${clip.id}-${property.key}`}>{property.label}<small>{property.unit}</small></label>
+    <label htmlFor={`${clip.id}-${property.key}`}>{property.label}<small>{control.unit}</small></label>
+    {control.slider && <input className="template-property-slider" type="range" aria-label={`${property.label} 滑块`}
+      min={control.min} max={control.max} step={control.step} value={draft === '' ? control.min : draft} disabled={blocked || !!readError}
+      onChange={event => setDraft(event.target.value)} onPointerUp={event => commit(undefined, event.currentTarget.value)}
+      onKeyUp={event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) commit(undefined, event.currentTarget.value); }} />}
     <div className="template-property-controls">
-      <input ref={input} id={`${clip.id}-${property.key}`} aria-label={property.label} type="number" step="0.01"
+      <input ref={input} id={`${clip.id}-${property.key}`} aria-label={property.label} type="number" min={control.min} max={control.max} step={control.step}
         value={draft} placeholder={readError ? '—' : undefined} disabled={blocked || !!readError} onChange={event => setDraft(event.target.value)}
-        onBlur={() => { if (draft !== '' && Number(draft) !== Number(Number(value).toFixed(6))) commit(); }}
+        onBlur={() => { if (draft !== '' && Number(draft) !== displayValue) commit(); }}
         onKeyDown={event => {
           if (event.key === 'Enter') { event.preventDefault(); input.current.blur(); }
-          if (event.key === 'Escape') { event.stopPropagation(); setDraft(value === undefined ? '' : String(Number(value.toFixed(6)))); }
+          if (event.key === 'Escape') { event.stopPropagation(); setDraft(String(displayValue)); }
         }} />
       {property.keyframe && <>
         <button aria-label={`${property.label} 上一个关键帧`} disabled={blocked || !previous}
@@ -79,6 +86,7 @@ export default function Properties({ clip, native, cursor, disabled, focusReques
     <div className="template-code-heading"><strong>Properties</strong></div>
     {clip && <div className="template-properties-heading"><strong>{clip.name}</strong><span>{Number(time.toFixed(6))} s</span></div>}
     {!properties.length && <p className="template-properties-empty">请选择支持属性编辑的元素</p>}
+    {clip && unsupportedProperties(clip.type) && <p className="template-properties-unsupported" role="note">{unsupportedProperties(clip.type)}</p>}
     {properties.map(property => <PropertyRow key={`${clip.id}:${property.key}`} property={property} clip={clip} native={native}
       time={time} disabled={disabled} focused={focusRequest?.id === clip.id && focusRequest.property === property.key ? focusRequest : null}
       onAction={onAction} onSeek={onSeek} />)}

@@ -3,6 +3,7 @@ import { mediaLoopSlices } from './mediaLoop'
 import { STICKER_TRANSFORMS, stickerTransformParams, type StickerTransforms } from './stickerWorkflow'
 import { validateResource, type ResourceFields } from './resourceWorkflow'
 import { visualParams } from './propertyWorkflow'
+import { validateWorkflowConfiguration } from './configurationWorkflow'
 
 export interface SceneElement extends StickerTransforms, ResourceFields {
   id: string
@@ -32,6 +33,7 @@ export interface SceneElement extends StickerTransforms, ResourceFields {
   font_family?: string
   font_size?: string | number
   font_alpha?: number
+  configuration?: Record<string, unknown>
 }
 
 export interface TimingAnchor {
@@ -176,11 +178,12 @@ function processSceneTemplate(
       }
       track(element)
       relativeTrack(element)
+      validateWorkflowConfiguration(element.type, element.configuration)
       if (element.track_name !== undefined && (typeof element.track_name !== 'string' || !element.track_name.trim())) {
         throw new Error(`${element.id}.track_name 必须是非空字符串`)
       }
       const allowed = new Set(['id', 'name', 'type', 'track', 'duration',
-        'target_start_time', 'target_end_time',
+        'target_start_time', 'target_end_time', 'configuration',
         'track_name', 'track_relative_index',
         ...(['image', 'video', 'text'].includes(element.type)
           ? ['transform_x', 'transform_y', 'scale_x', 'scale_y', 'rotation', element.type === 'text' ? 'font_alpha' : 'alpha'] : []),
@@ -350,9 +353,15 @@ function processSceneTemplate(
       const start = Number(Math.min(clipEnd, Math.max(clipStart, nominalStart)).toFixed(9))
       const end = Number(Math.max(start, Math.min(clipEnd, parentStart + localEnd)).toFixed(9))
       const visible = end > start
+      const speed = Number(element.configuration?.speed ?? 1)
+      const configuration = element.configuration ?? {}
+      const fades = Number(configuration.fade_in_duration ?? 0) + Number(configuration.fade_out_duration ?? 0)
+      if (fades && (element.loop || start !== nominalStart || end !== parentStart + localEnd || fades > duration)) {
+        throw new Error(`${element.id} 淡入淡出不支持循环、父级裁切或总时长超过片段`)
+      }
       const sourceElapsed = element.loop && element.source_duration
         ? (Math.round((start - nominalStart) * 1_000_000) % Math.round(element.source_duration * 1_000_000)) / 1_000_000
-        : start - nominalStart
+        : (start - nominalStart) * speed
       timeline.push({
         id: element.id, parentId, type: element.type,
         localStart: Number(localStart.toFixed(9)), start, end, duration,
@@ -360,7 +369,7 @@ function processSceneTemplate(
         ...(['video', 'audio'].includes(element.type) && visible ? {
           sourceStart: Number(((element.source_start_time ?? 0) + sourceElapsed).toFixed(9)),
           sourceEnd: Number(((element.source_start_time ?? 0) + sourceElapsed +
-            (element.loop && element.source_duration ? Math.min(end - start, element.source_duration - sourceElapsed) : end - start)).toFixed(9))
+            (element.loop && element.source_duration ? Math.min(end - start, element.source_duration - sourceElapsed) : (end - start) * speed)).toFixed(9))
         } : {})
       })
       if (!visible) {
@@ -385,10 +394,10 @@ function processSceneTemplate(
           params: {
             text: element.text, font_color: element.fill_color ?? '#ffffff',
             start, end, width: source.width, height: source.height,
-            ...backendTrack(element, parentId), ...visualParams(element)
+            ...backendTrack(element, parentId), ...configuration, ...visualParams(element)
           }
         })
-        warnings.push(`${element.id} 文字时间与颜色已应用；字体、字号、位置和锚点尚未适配，使用后端默认布局`)
+        if (element.font_family || element.x_anchor || element.y_anchor) warnings.push(`${element.id} 旧字体家族和锚点未适配，请使用原生属性配置`)
       } else if (element.type === 'filter' || element.type === 'effect') {
         const resource = element.type === 'filter'
           ? { filter_type: element.filter_type!.trim(), intensity: element.intensity ?? 100 }
@@ -436,7 +445,7 @@ function processSceneTemplate(
               action_type: element.type === 'audio' ? 'add_audio' : 'add_video',
               params: {
                 [element.type === 'audio' ? 'audio_url' : 'video_url']: resolvedSource,
-                ...slice, width: source.width, height: source.height, ...loopTrack, ...visualParams(element)
+                ...slice, width: source.width, height: source.height, ...loopTrack, ...configuration, ...visualParams(element)
               }
             })
           })
@@ -451,7 +460,7 @@ function processSceneTemplate(
               end: resolved.sourceEnd ?? end - start,
               duration: duration,
               width: source.width, height: source.height,
-              ...audioTrackParams
+              ...audioTrackParams, ...configuration
             }
           })
         } else if (element.type === 'video') {
@@ -464,7 +473,7 @@ function processSceneTemplate(
               end: resolved.sourceEnd ?? end - start,
               duration: Number((end - start).toFixed(9)),
               width: source.width, height: source.height,
-              ...trackParams, ...visualParams(element)
+              ...trackParams, ...configuration, ...visualParams(element)
             }
           })
         } else {
@@ -473,7 +482,7 @@ function processSceneTemplate(
             params: {
               image_url: resolvedSource,
               start, end, width: source.width, height: source.height,
-              ...trackParams, ...visualParams(element)
+              ...trackParams, ...configuration, ...visualParams(element)
             }
           })
         }

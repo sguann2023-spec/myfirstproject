@@ -1,4 +1,6 @@
 import { KEYFRAME_PROPERTIES, keyframePropertiesFor, keyframeProperty, validateKeyframeValue } from './templateKeyframes'
+export { templateConfigurationFor, configurationProperty, unsupportedTemplateConfiguration } from './templateConfiguration'
+export { readConfigurationProperty } from './templateConfigurationNative'
 
 export type TemplatePropertyKey = typeof KEYFRAME_PROPERTIES[number]['key']
 export type PropertyAction = {
@@ -6,7 +8,7 @@ export type PropertyAction = {
   id: string
   property: string
   mode: 'static' | 'keyframe'
-  value?: number
+  value?: number | string | boolean
   time?: number
   remove?: boolean
   removeGroup?: boolean

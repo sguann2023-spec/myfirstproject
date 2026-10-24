@@ -511,8 +511,9 @@ export function compileDynamicWorkflow(
       if (element.type === 'audio' || element.type === 'video') {
         const sourceOffset = seconds(element.id, 'source_timerange.start', element.source_start_time ?? 0)
         params.target_start = start
-        params.start = `(${sourceOffset}) + (${start}) - (${nominalStart})`
-        params.end = `(${sourceOffset}) + (${end}) - (${nominalStart})`
+        const speed = Number(element.configuration?.speed ?? 1)
+        params.start = `(${sourceOffset}) + ((${start}) - (${nominalStart})) * ${speed}`
+        params.end = `(${sourceOffset}) + ((${end}) - (${nominalStart})) * ${speed}`
         if (element.type === 'video') params.duration = `(${end}) - (${start})`
         if (element.loop) {
           const native = natives.get(element.id)!

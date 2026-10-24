@@ -7,6 +7,7 @@ import { stickerClipTransforms, stickerIdentifier } from './stickerWorkflow'
 import { resourceFields } from './resourceWorkflow'
 import { executableKeyframes } from './keyframeWorkflow'
 import { staticPropertyParams } from '../../shared/templateProperties'
+import { nativeConfigurationParams } from './configurationWorkflow'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -289,12 +290,14 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
           id: segment.id, name: segment.name ?? String(material.material_name ?? material.name ?? segment.id),
           type, track_name: track.id, track_relative_index: relative, ...timing(segment)
         }
+        element.configuration = nativeConfigurationParams(draft, segment, material, type)
+        const speed = Number(element.configuration.speed ?? 1)
         if (segment.duration_mode === 'media') {
           const duration = mediaDurationMicros(segment, material)
           if (duration === undefined) throw new Error(`${segment.id} 媒体模式缺少有效源时长`)
           if (segment.auto_timing?.start && segment.auto_timing.end) throw new Error(`${segment.id} 媒体时长不能同时使用自动结束`)
           if (!segment.auto_timing?.end) delete element.target_end_time
-          element.duration = duration / 1_000_000
+          element.duration = duration / 1_000_000 / speed
         }
         if (segment.loop !== undefined) {
           element.loop = segment.loop
@@ -306,7 +309,6 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
           try { content = JSON.parse(material.content ?? '') } catch { throw new Error(`${material.id}.content 必须是文字 JSON 字符串`) }
           if (!content || typeof content.text !== 'string') throw new Error(`${material.id}.content 缺少 text`)
           element.text = content.text
-          warnings.push(`${segment.id} 暂仅转换文字内容，富文本样式未适配`)
         } else if (type === 'sticker') {
           element.sticker_id = stickerIdentifier(material)
           Object.assign(element, stickerClipTransforms(segment.clip, segment.id))
@@ -326,7 +328,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
                 }
               }
             }
-            if (segment.speed !== undefined && segment.speed !== 1) throw new Error(`${segment.id} 暂不支持非 1 倍速`)
+            if (type !== 'audio' && segment.speed !== undefined && segment.speed !== 1) throw new Error(`${segment.id} 暂不支持视频非 1 倍速`)
           }
         }
         if (['image', 'video', 'text'].includes(type)) Object.assign(element, staticPropertyParams(segment, type))
