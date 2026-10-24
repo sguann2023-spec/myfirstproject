@@ -76,6 +76,26 @@ async function inputValue(element, value) {
   await act(async () => element.dispatchEvent(new Event('input', { bubbles: true })));
 }
 
+it('Properties 转场静态保存后从素材引用回读，撤销清理配置并遵守轨道锁定', async () => {
+  await render(); await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());
+  const select = () => container.querySelector('.template-properties [aria-label="转场"]');
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select(), '叠化');
+  await act(async () => select().dispatchEvent(new Event('change', { bubbles: true })));
+  await settle();
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
+    .toEqual({ type: 'property', id: 'upper-image', property: 'transition', mode: 'static', value: '叠化' });
+  expect(select().value).toBe('叠化');
+  const duration = () => container.querySelector('.template-properties [aria-label="转场时长"]');
+  await act(async () => duration().focus()); await inputValue(duration(), '.8'); await key(duration(), 'Enter'); await settle();
+  expect(container.querySelector('.template-properties [role="alert"]')?.textContent).toBeUndefined();
+  expect(Number(duration().value)).toBe(0.8);
+  await key(container.querySelector('main'), 'z', { ctrlKey: true }); await settle();
+  expect(duration().value).toBe('0.5');
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-lock').click());
+  expect(select().disabled).toBe(true); expect(duration().disabled).toBe(true);
+});
+
 it('父级完全裁切批量分镜内子分镜时，局部片段和顶部新增元素仍可见', async () => {
   const template = createEditorPreset('sentence-image');
   const children = template.scenes[0].tracks[0].segments;

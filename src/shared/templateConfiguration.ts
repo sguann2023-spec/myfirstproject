@@ -1,4 +1,5 @@
 import { templateAnimations, templateFonts, templateTransitions } from './templatePropertyResources'
+import { templateAudioEffects } from './templateAudioEffects'
 
 export type ConfigurationValue = string | number | boolean
 export interface ConfigurationProperty {
@@ -51,7 +52,12 @@ const audio = [
   property('volume', '音量', 'number', 1, 'volume', { scope: 'segment', unit: 'ratio', min: 0, max: 10 }),
   property('speed', '速度', 'number', 1, 'speed', { scope: 'segment', unit: 'ratio', min: 0.1, max: 10 }),
   ...['in', 'out'].map((side, index) => property(`fade_${side}_duration`, ['淡入', '淡出'][index], 'number', 0,
-    `audio_fades.fade_${side}_duration`, { scope: 'reference', unit: 'seconds', min: 0, max: 3600 }))
+    `audio_fades.fade_${side}_duration`, { scope: 'reference', unit: 'seconds', min: 0, max: 3600 })),
+  property('effect_type', '场景音效', 'enum', '', 'audio_effects', {
+    scope: 'reference', choices: ['', ...templateAudioEffects.map(item => item.value)]
+  }),
+  ...[0, 1].map(index => property(`effect_param_${index}`, `音效参数 ${index + 1}`, 'number', 0,
+    `audio_effects.audio_adjust_params.${index}.value`, { scope: 'reference', unit: 'percent', min: 0, max: 100 }))
 ]
 
 export function templateConfigurationFor(type: string): ConfigurationProperty[] {
@@ -88,6 +94,6 @@ export function validateConfigurationValue(property: ConfigurationProperty, valu
 
 export const unsupportedTemplateConfiguration = {
   text: ['局部富文本编辑', '花字加密资源 ID', '气泡资源', '固定宽高'],
-  audio: ['变速循环', '动态变速', '音效资源', '音频关键帧'],
+  audio: ['变速循环', '动态变速', '未验证音效及多音效叠加', '音频关键帧'],
   video: ['组合动画', '变速', '音频淡入淡出']
 } as const

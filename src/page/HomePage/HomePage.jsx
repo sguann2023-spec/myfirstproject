@@ -24,6 +24,12 @@ import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
+import {
+  buildSkillExampleApplyDetail,
+  dispatchSkillExampleApply,
+  loadSkillExample,
+  stashPendingSkillExample
+} from '../../components/Chat/Composer/skillExample';
 import SkillStorePage from '../../components/SkillStore';
 import { getMembershipSummary } from '../../api/membership';
 import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
@@ -2573,10 +2579,22 @@ const HomePage = () => {
     updateChatDraftInput(next);
   }, []);
 
-  const handleSkillGoChat = useCallback((skill) => {
+  const handleSkillGoChat = useCallback(async (skill) => {
     const name = String(skill?.name || skill?.folderName || '').trim();
-    setSelectedPane('chat');
+    // Skills that ship an example.json usage template fill the chat input with
+    // the example prompt and attach the example videos to the composer.
+    const example = await loadSkillExample(skill);
+    if (example) {
+      const mention = name ? `@${name}` : '';
+      setChatDraftInput([mention, example.prompt].filter(Boolean).join('\n'));
+      const detail = buildSkillExampleApplyDetail(example, name);
+      stashPendingSkillExample(detail);
+      dispatchSkillExampleApply(detail);
+      setSelectedPane('chat');
+      return;
+    }
     setChatDraftInput(name ? `@${name} ` : '');
+    setSelectedPane('chat');
   }, []);
 
   const handleOpenSkillStore = useCallback(() => {

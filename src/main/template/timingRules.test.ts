@@ -25,7 +25,18 @@ describe('独立时间关联与文字', () => {
       action_type: 'add_text', params: { start: 1.6308, end: 9.2838, text: 'Your text here', font_color: '#939393' }
     })
     expect(result.workflow.script[1].params).toMatchObject({ start: 0, end: 7.653 })
-    expect(result.warnings.some((warning) => warning.includes('字号'))).toBe(true)
+    expect(result.warnings).toContain('text.font_size=7 vmin 旧版字号未适配，请使用 configuration.font_size 原生属性配置')
+    expect(result.workflow.script[0].params).not.toHaveProperty('font_size')
+  })
+
+  it('原生字号配置正常导出，不产生旧版字号警告', () => {
+    const input = template()
+    const text = input.elements[0].elements![0]
+    delete text.font_size
+    text.configuration = { font_size: 30 }
+    const result = compileSceneTemplate(input)
+    expect(result.workflow.script[0].params.font_size).toBe(30)
+    expect(result.warnings.some(warning => warning.includes('字号'))).toBe(false)
   })
 
   it('前向引用不依赖 track 顺序，独立配置优先于 target_start_time', () => {

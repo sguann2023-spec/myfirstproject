@@ -1,4 +1,5 @@
-import { AudioLines, File, FileAudio, FileVideo, X } from 'lucide-react';
+import React from 'react';
+import { AudioLines, File, FileAudio, FileVideo, LoaderCircle, X } from 'lucide-react';
 import FirstFrameIcon from '../../../../../public/first_frame.svg';
 import './index.css';
 
@@ -10,6 +11,8 @@ const getFileExtension = (fileName = '') => {
 };
 
 const isVoiceIdFile = (file = {}) => String(file?.kind || '').trim() === 'voice_id';
+
+const isRemoteHttpUrl = (value = '') => /^https?:\/\//i.test(String(value || ''));
 
 const getFileKindFromType = (fileType = '') => {
   if (String(fileType).startsWith('image/')) return 'image';
@@ -35,6 +38,41 @@ const getPreviewUrl = (file = {}) => (
   file.localPreviewUrl || file.localThumbUrl || file.previewUrl || file.thumbnailUrl || file.url || ''
 );
 
+// Cloud-hosted videos load asynchronously; show a spinner placeholder until
+// the first frame is ready instead of a blank/black box.
+const RemoteVideoThumb = ({ src, durationLabel }) => {
+  const [status, setStatus] = React.useState('loading');
+
+  return (
+    <>
+      {status === 'loading' ? (
+        <span className="chat-panel__local-file-preview-thumb-loading" aria-hidden="true">
+          <LoaderCircle className="chat-panel__local-file-preview-thumb-loading-icon" size={16} aria-hidden="true" />
+        </span>
+      ) : null}
+      {status === 'error' ? (
+        <span className="chat-panel__local-file-preview-thumb-icon" aria-hidden="true">
+          <FileVideo size={18} />
+        </span>
+      ) : null}
+      <video
+        className="chat-panel__local-file-preview-thumb-video"
+        src={src}
+        muted
+        playsInline
+        preload="metadata"
+        style={status === 'loading' ? { position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' } : undefined}
+        onLoadedMetadata={() => setStatus((current) => (current === 'loading' ? 'ready' : current))}
+        onLoadedData={() => setStatus((current) => (current === 'loading' ? 'ready' : current))}
+        onError={() => setStatus('error')}
+      />
+      {durationLabel ? (
+        <span className="chat-panel__local-file-preview-thumb-duration">{durationLabel}</span>
+      ) : null}
+    </>
+  );
+};
+
 const renderFileThumb = (file = {}) => {
   if (isVoiceIdFile(file)) {
     return (
@@ -51,6 +89,9 @@ const renderFileThumb = (file = {}) => {
   }
 
   if (previewUrl && kind === 'video') {
+    if (isRemoteHttpUrl(previewUrl)) {
+      return <RemoteVideoThumb src={previewUrl} durationLabel={file.durationLabel} />;
+    }
     return (
       <>
         <video
@@ -137,9 +178,10 @@ const getFileKey = (file) => String(file.uid || file.name);
 const getPreviewKind = (file) => isVoiceIdFile(file) ? 'file' : getFileKindFromType(file.fileType);
 const getMediaPreviewUrl = (file) => getPreviewKind(file) === 'image' ? getPreviewUrl(file) : getMediaUrl(file);
 
-const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], onRemove, onAddFile, openAttachmentPreview }) => {
+const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], fileGroups = null, onRemove, onAddFile, openAttachmentPreview }) => {
   const resolvedFiles = Array.isArray(files) ? files : [];
   const resolvedPlaceholders = Array.isArray(placeholders) ? placeholders : [];
+  const resolvedFileGroups = Array.isArray(fileGroups) ? fileGroups : null;
   const previewEntries = buildOrderedPreviewEntries(resolvedFiles, resolvedPlaceholders, slotOrder);
   // Opened sidebar tabs are independent of the composer's attachment list.
   const selectFile = (file) => {
@@ -157,78 +199,102 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], o
       src: getMediaPreviewUrl(file),
     });
   };
-  if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0) return null;
+  if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0 && (resolvedFileGroups?.length || 0) === 0) return null;
+
+  const renderPlaceholderChip = (placeholder) => (
+    <button
+      type="button"
+      className="chat-panel__local-file-preview-placeholder"
+      onClick={() => onAddFile && onAddFile(placeholder)}
+    >
+      <span className="chat-panel__local-file-preview-placeholder-thumb">
+        {renderPlaceholderThumb()}
+        <span className="chat-panel__local-file-preview-placeholder-label">
+          {placeholder.label || '上传文件'}
+        </span>
+      </span>
+    </button>
+  );
+
+  const renderFileChip = (file) => {
+    const isImage = !isVoiceIdFile(file) && getFileKindFromType(file.fileType) === 'image';
+    const canPreview = ['image', 'video', 'audio'].includes(getPreviewKind(file)) && Boolean(getMediaPreviewUrl(file));
+
+    return (
+      <div
+        key={`file:${getFileKey(file)}`}
+        className={`chat-panel__local-file-preview-item ${isImage ? 'chat-panel__local-file-preview-item--image' : ''}`}
+      >
+        {canPreview ? (
+          <button
+            type="button"
+            className="chat-panel__local-file-preview-open"
+            aria-label={`预览 ${getFileDisplayName(file)}`}
+            title={`预览 ${getFileDisplayName(file)}`}
+            onClick={() => selectFile(file)}
+          />
+        ) : null}
+        <button
+          type="button"
+          className="chat-panel__local-file-preview-remove"
+          aria-label={`移除 ${getFileDisplayName(file)}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove && onRemove(file);
+          }}
+        >
+          <X size={12} />
+        </button>
+        <div className="chat-panel__local-file-preview-thumb">
+          {renderFileThumb(file)}
+        </div>
+        {isImage ? null : (
+          <div className="chat-panel__local-file-preview-main">
+            <div className="chat-panel__local-file-preview-name" title={getFileDisplayName(file)}>
+              {getFileDisplayName(file)}
+            </div>
+            {isVoiceIdFile(file) ? null : (
+              <div className="chat-panel__local-file-preview-meta">
+                {getFileMetaLabel(file)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderGroupSection = (group) => (
+    <div className="chat-panel__local-file-preview-group" key={`group:${group.key}`}>
+      <div
+        className="chat-panel__local-file-preview-group-header"
+        title={group.description || group.label}
+      >
+        <span className="chat-panel__local-file-preview-group-label">{group.label}</span>
+        {group.countHint ? (
+          <span className="chat-panel__local-file-preview-group-hint">{group.countHint}</span>
+        ) : null}
+      </div>
+      <div className="chat-panel__local-file-preview-group-files">
+        {group.files.map((file) => renderFileChip(file))}
+        {group.placeholder ? renderPlaceholderChip(group.placeholder) : null}
+      </div>
+    </div>
+  );
 
   return (
     <div className="chat-panel__local-file-preview-list" aria-label="文件预览">
       <div className="chat-panel__local-file-preview-scroll">
-        {previewEntries.map((entry) => {
-          if (entry.type === 'placeholder') {
-            const placeholder = entry.value;
-            return (
-              <button
-                key={entry.key}
-                type="button"
-                className="chat-panel__local-file-preview-placeholder"
-                onClick={() => onAddFile && onAddFile(placeholder)}
-              >
-                <span className="chat-panel__local-file-preview-placeholder-thumb">
-                  {renderPlaceholderThumb()}
-                  <span className="chat-panel__local-file-preview-placeholder-label">
-                    {placeholder.label || '上传文件'}
-                  </span>
-                </span>
-              </button>
-            );
-          }
-
-          const file = entry.value;
-          const isImage = !isVoiceIdFile(file) && getFileKindFromType(file.fileType) === 'image';
-          const canPreview = ['image', 'video', 'audio'].includes(getPreviewKind(file)) && Boolean(getMediaPreviewUrl(file));
-
-          return (
-            <div
-              key={entry.key}
-              className={`chat-panel__local-file-preview-item ${isImage ? 'chat-panel__local-file-preview-item--image' : ''}`}
-            >
-              {canPreview ? (
-                <button
-                  type="button"
-                  className="chat-panel__local-file-preview-open"
-                  aria-label={`预览 ${getFileDisplayName(file)}`}
-                  title={`预览 ${getFileDisplayName(file)}`}
-                  onClick={() => selectFile(file)}
-                />
-              ) : null}
-              <button
-                type="button"
-                className="chat-panel__local-file-preview-remove"
-                aria-label={`移除 ${getFileDisplayName(file)}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRemove && onRemove(file);
-                }}
-              >
-                <X size={12} />
-              </button>
-              <div className="chat-panel__local-file-preview-thumb">
-                {renderFileThumb(file)}
-              </div>
-              {isImage ? null : (
-                <div className="chat-panel__local-file-preview-main">
-                  <div className="chat-panel__local-file-preview-name" title={getFileDisplayName(file)}>
-                    {getFileDisplayName(file)}
-                  </div>
-                  {isVoiceIdFile(file) ? null : (
-                    <div className="chat-panel__local-file-preview-meta">
-                      {getFileMetaLabel(file)}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {previewEntries.map((entry) => (
+          entry.type === 'placeholder'
+            ? (
+              <React.Fragment key={`placeholder:${entry.value.key || entry.value.label}`}>
+                {renderPlaceholderChip(entry.value)}
+              </React.Fragment>
+            )
+            : renderFileChip(entry.value)
+        ))}
+        {resolvedFileGroups ? resolvedFileGroups.map((group) => renderGroupSection(group)) : null}
       </div>
     </div>
   );

@@ -245,3 +245,71 @@
   background: #f5f7ff;
   color: #4d53e8;
 }
+
+.chat-panel__local-file-preview-thumb-loading {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #7d7d7d;
+}
+
+.chat-panel__local-file-preview-thumb-loading-icon {
+  animation: chat-panel-local-file-preview-spin 0.9s linear infinite;
+}
+
+@keyframes chat-panel-local-file-preview-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-panel__local-file-preview-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid #e6e8ee;
+  border-radius: 14px;
+  background: #fafbfc;
+}
+
+.chat-panel__local-file-preview-group-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-panel__local-file-preview-group-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: #2b2b2b;
+  white-space: nowrap;
+}
+
+.chat-panel__local-file-preview-group-hint {
+  font-size: 11px;
+  line-height: 14px;
+  color: #8a8f99;
+  white-space: nowrap;
+}
+
+.chat-panel__local-file-preview-group-files {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.chat-panel__local-file-preview-group-files .chat-panel__local-file-preview-item {
+  box-shadow: none;
+  background: #ffffff;
+}

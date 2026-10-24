@@ -11,8 +11,66 @@ import { applyPinnedDraftMetadata, normalizePinnedDraftFromEvent } from './pinne
 import ChatShell from './ChatShell/ChatShell';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
+import {
+  buildSkillExampleApplyDetail,
+  dispatchSkillExampleApply,
+  loadSkillExample,
+  stashPendingSkillExample
+} from './Composer/skillExample';
 import appStore from '../../renderer/src/store';
 const logger = loggerService.withContext('Chat');
+
+// Inserts text at the chat input cursor (or appends when unfocused) and
+// restores focus/selection afterwards.
+const insertTextAtInputCursor = ({ input, setInput, inputRef, buildInsertion }) => {
+  const currentText = String(input || '');
+  const inputElement = inputRef.current;
+  const isInputFocused = typeof inputElement?.isFocused === 'function'
+    ? inputElement.isFocused()
+    : inputElement && document.activeElement === inputElement;
+  const selectionRange = typeof inputElement?.getSelectionRange === 'function'
+    ? inputElement.getSelectionRange()
+    : {
+      start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
+      end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
+    };
+  const selectionStart = selectionRange?.start ?? currentText.length;
+  const selectionEnd = selectionRange?.end ?? selectionStart;
+  const prefix = currentText.slice(0, selectionStart);
+  const suffix = currentText.slice(selectionEnd);
+  const { text, cursor } = buildInsertion(prefix, suffix);
+
+  setInput(text);
+  window.requestAnimationFrame(() => {
+    inputRef.current?.focus();
+    inputRef.current?.setSelectionRange(cursor, cursor);
+  });
+};
+
+const getSkillMentionLabel = (skill) => String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
+
+// Shared 使用 handler: skills shipping an example.json usage template fill
+// the input with the example prompt and attach its example videos instead of
+// inserting a bare @mention. Returns true when the example was applied.
+const applySkillExampleToInput = async (skill, { input, setInput, inputRef }) => {
+  const mentionLabel = getSkillMentionLabel(skill);
+  if (!mentionLabel) return false;
+
+  const example = await loadSkillExample(skill);
+  if (example) {
+    const nextText = `@${mentionLabel}\n${example.prompt}`;
+    setInput(nextText);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextText.length, nextText.length);
+    });
+    const detail = buildSkillExampleApplyDetail(example, mentionLabel);
+    stashPendingSkillExample(detail);
+    dispatchSkillExampleApply(detail);
+    return true;
+  }
+  return false;
+};
 
 const formatMessageTime = (value) => {
   if (!value) return '';
@@ -395,35 +453,27 @@ const Chat = ({
   }, [refreshLocalMcpConnectionState]);
 
   const insertSkillMention = React.useCallback((skill) => {
-    const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
+    const mentionLabel = getSkillMentionLabel(skill);
     if (!mentionLabel) return;
 
-    const currentText = String(input || '');
-    const inputElement = inputRef.current;
-    const isInputFocused = typeof inputElement?.isFocused === 'function'
-      ? inputElement.isFocused()
-      : inputElement && document.activeElement === inputElement;
-    const selectionRange = typeof inputElement?.getSelectionRange === 'function'
-      ? inputElement.getSelectionRange()
-      : {
-        start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
-        end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
-      };
-    const selectionStart = selectionRange?.start ?? currentText.length;
-    const selectionEnd = selectionRange?.end ?? selectionStart;
-    const prefix = currentText.slice(0, selectionStart);
-    const suffix = currentText.slice(selectionEnd);
-    const mentionText = `@${mentionLabel}`;
-    const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
-    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
-    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${mentionText}${needsTrailingSpace ? ' ' : ''}${suffix}`;
-    const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + mentionText.length;
+    void (async () => {
+      if (await applySkillExampleToInput(skill, { input, setInput, inputRef })) return;
 
-    setInput(nextText);
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
+      insertTextAtInputCursor({
+        input,
+        setInput,
+        inputRef,
+        buildInsertion: (prefix, suffix) => {
+          const mentionText = `@${mentionLabel}`;
+          const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
+          const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
+          return {
+            text: `${prefix}${needsLeadingBreak ? '\n' : ''}${mentionText}${needsTrailingSpace ? ' ' : ''}${suffix}`,
+            cursor: prefix.length + (needsLeadingBreak ? 1 : 0) + mentionText.length
+          };
+        }
+      });
+    })();
   }, [input, setInput]);
 
   const insertSkillModifyPrompt = React.useCallback((skill) => {
@@ -459,35 +509,27 @@ const Chat = ({
   }, [input, setInput]);
 
   const insertQuickSkillMention = React.useCallback((skill) => {
-    const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
+    const mentionLabel = getSkillMentionLabel(skill);
     if (!mentionLabel) return;
 
-    const currentText = String(input || '');
-    const inputElement = inputRef.current;
-    const isInputFocused = typeof inputElement?.isFocused === 'function'
-      ? inputElement.isFocused()
-      : inputElement && document.activeElement === inputElement;
-    const selectionRange = typeof inputElement?.getSelectionRange === 'function'
-      ? inputElement.getSelectionRange()
-      : {
-        start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
-        end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
-      };
-    const selectionStart = selectionRange?.start ?? currentText.length;
-    const selectionEnd = selectionRange?.end ?? selectionStart;
-    const prefix = currentText.slice(0, selectionStart);
-    const suffix = currentText.slice(selectionEnd);
-    const mentionText = `@${mentionLabel}`;
-    const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
-    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
-    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${mentionText}${needsTrailingSpace ? ' ' : ''}${suffix}`;
-    const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + mentionText.length;
+    void (async () => {
+      if (await applySkillExampleToInput(skill, { input, setInput, inputRef })) return;
 
-    setInput(nextText);
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
+      insertTextAtInputCursor({
+        input,
+        setInput,
+        inputRef,
+        buildInsertion: (prefix, suffix) => {
+          const mentionText = `@${mentionLabel}`;
+          const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
+          const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
+          return {
+            text: `${prefix}${needsLeadingBreak ? '\n' : ''}${mentionText}${needsTrailingSpace ? ' ' : ''}${suffix}`,
+            cursor: prefix.length + (needsLeadingBreak ? 1 : 0) + mentionText.length
+          };
+        }
+      });
+    })();
   }, [input, setInput]);
 
   const insertCreateSkillPrompt = React.useCallback(() => {

@@ -410,7 +410,7 @@ const TemplateEditPage = () => {
             {compiled.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
           </details>}
         </section>
-        <Properties clip={selectedClip} native={nativeIndex.get(selectedId)} cursor={cursor}
+        <Properties clip={selectedClip} native={nativeIndex.get(selectedId)} nativeIndex={nativeIndex} cursor={cursor}
           disabled={disabled || !!isLocked(selectedId)} focusRequest={propertyFocus} onAction={mutate} onSeek={setCursor} />
       </div>
 

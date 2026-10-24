@@ -1,4 +1,7 @@
-.template-properties { min-width: 0; overflow-y: auto; border-left: 1px solid #e9eaed; background: #fff; }
+.template-properties { min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid #e9eaed; background: #fff; }
+.template-properties *, .template-properties *::before, .template-properties *::after { box-sizing: border-box; }
+.template-property p, .template-properties-unsupported { overflow-wrap: anywhere; }
+.template-property select, .template-property textarea { min-width: 0; max-width: 100%; }
 .template-properties-heading { display: flex; justify-content: space-between; gap: 8px; padding: 14px 16px; }
 .template-properties-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .template-properties-heading span, .template-property small { color: #92959c; font-size: 10px; }
@@ -14,3 +17,15 @@
 .template-properties-empty { padding: 16px; color: #92959c; }
 .template-properties-unsupported { margin: 0; padding: 8px 14px; color: #92959c; font-size: 11px; line-height: 1.6; }
 .template-property input.template-property-slider { height: 18px; margin: 0 0 4px; padding: 0; background: transparent; accent-color: #497ef5; }
+.template-property select, .template-property textarea { width: 100%; box-sizing: border-box; min-height: 30px; padding: 6px 8px; border: 0; border-radius: 6px; outline: none; background: #ddd; color: #25262a; font: inherit; }
+.template-property textarea { min-height: 72px; resize: vertical; }
+.template-property input[type="checkbox"] { width: 30px; height: 18px; accent-color: #497ef5; }
+.template-configuration h3 { margin: 12px 14px 4px; font-size: 12px; }
+.template-text-settings { padding: 14px; min-width: 0; }
+.template-text-settings textarea { width: 100%; min-height: 64px; resize: vertical; background: #ddd; border: 0; border-radius: 6px; padding: 8px; }
+.template-text-settings .chat-panel__text-settings-control { min-width: 0; }
+.template-text-settings [role="alert"] { color: #d33; font-size: 11px; overflow-wrap: anywhere; }
+.template-text-property .template-property-controls { justify-content: flex-end; margin-top: 4px; }
+.template-text-property .template-property-controls button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; border-radius: 4px; color: #666; }
+.template-text-property .template-property-controls .is-current { color: #497ef5; }
+.template-text-property.is-focused { background: #f6f7f8; }

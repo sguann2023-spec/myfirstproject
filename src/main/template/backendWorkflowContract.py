@@ -26,11 +26,14 @@ def main():
         raise RuntimeError("Backend workflow contract functions changed")
     actions = []
     signatures = {}
-    for action in ("add_sticker", "add_filter", "add_effect", "add_video_keyframe"):
-        path = backend.parent / f"{action}_impl.py"
+    implementations = {action: f"{action}_impl" for action in
+                       ("add_sticker", "add_filter", "add_effect", "add_video_keyframe", "add_text", "add_image")}
+    implementations.update(add_audio="add_audio_track", add_video="add_video_track")
+    for action, implementation in implementations.items():
+        path = backend.parent / f"{implementation}.py"
         if path.exists():
             signatures[action] = next(node for node in ast.parse(path.read_text()).body
-                                      if isinstance(node, ast.FunctionDef) and node.name == f"{action}_impl")
+                                      if isinstance(node, ast.FunctionDef) and node.name == implementation)
 
     def execute_action(action_type, params):
         if action_type in signatures:

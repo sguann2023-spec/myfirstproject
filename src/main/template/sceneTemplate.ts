@@ -355,6 +355,14 @@ function processSceneTemplate(
       const visible = end > start
       const speed = Number(element.configuration?.speed ?? 1)
       const configuration = element.configuration ?? {}
+      if (element.loop && speed !== 1) throw new Error('变速与循环组合暂不支持')
+      const animated = Object.keys(configuration).some(key => key.endsWith('_animation') || key === 'transition')
+      if (animated && (element.loop || start !== nominalStart || end !== parentStart + localEnd)) {
+        throw new Error(`${element.id} 动画或转场不支持循环及父级裁切`)
+      }
+      for (const [key, value] of Object.entries(configuration)) {
+        if (key.endsWith('_duration') && !key.startsWith('fade_') && Number(value) > duration) throw new Error(`${element.id} 效果时长超过片段`)
+      }
       const fades = Number(configuration.fade_in_duration ?? 0) + Number(configuration.fade_out_duration ?? 0)
       if (fades && (element.loop || start !== nominalStart || end !== parentStart + localEnd || fades > duration)) {
         throw new Error(`${element.id} 淡入淡出不支持循环、父级裁切或总时长超过片段`)
@@ -397,6 +405,7 @@ function processSceneTemplate(
             ...backendTrack(element, parentId), ...configuration, ...visualParams(element)
           }
         })
+        if (element.font_size !== undefined) warnings.push(`${element.id}.font_size=${element.font_size} 旧版字号未适配，请使用 configuration.font_size 原生属性配置`)
         if (element.font_family || element.x_anchor || element.y_anchor) warnings.push(`${element.id} 旧字体家族和锚点未适配，请使用原生属性配置`)
       } else if (element.type === 'filter' || element.type === 'effect') {
         const resource = element.type === 'filter'

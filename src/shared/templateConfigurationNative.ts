@@ -1,5 +1,6 @@
 import { configurationProperty, validateConfigurationValue, type ConfigurationValue } from './templateConfiguration'
 import { templateAnimations, templateFonts, templateTransitions } from './templatePropertyResources'
+import { readAudioEffect } from './templateAudioEffects'
 
 type NativeObject = Record<string, any>
 
@@ -28,7 +29,10 @@ export function readConfigurationProperty(segment: NativeObject, material: Nativ
   let value: unknown
   if (property.scope === 'segment') value = segment[property.nativePath]
   else if (property.scope === 'reference') {
-    if (key.startsWith('fade_')) {
+    if (key.startsWith('effect_')) {
+      const effect = readAudioEffect(references)
+      value = key === 'effect_type' ? effect?.resource.value : effect?.params[Number(key.slice(-1))]
+    } else if (key.startsWith('fade_')) {
       const fades = references.filter(item => item.type === 'audio_fade')
       if (fades.length > 1) throw new Error('音频淡入淡出素材重复')
       value = fades[0]?.[key]

@@ -86,7 +86,7 @@
 .template-export-result summary { cursor: pointer; }
 .template-edit-body {
   display: grid;
-  grid-template-columns: var(--template-sidebar) minmax(0, 1fr) 280px;
+  grid-template-columns: var(--template-sidebar) minmax(0, 1fr) clamp(360px, 32vw, 440px);
   flex: 1;
   min-height: 0;
 }

@@ -1,3 +1,5 @@
+import { unsupportedTemplateConfiguration } from '../../../shared/templateProperties';
+
 export function propertyControl(property) {
   if (['scale_x', 'scale_y', 'uniform_scale'].includes(property.key)) return { min: 1, max: 500, step: 1, unit: '%', factor: 100, slider: true };
   if (property.key === 'alpha') return { min: 0, max: 100, step: 1, unit: '%', factor: 100, slider: true };
@@ -19,9 +21,8 @@ export function nativePropertyValue(property, value) {
 }
 
 export function unsupportedProperties(type) {
-  if (type === 'text') return '暂不支持：文本内容、字体字号、富文本样式、颜色、字行间距、对齐、固定宽高、描边、背景、阴影、动画资源与转场。';
-  if (type === 'audio') return '暂不支持：音频音量、变速、淡入淡出、场景音效和关键帧；时间及循环仍在时间轴编辑。';
-  if (['image', 'video'].includes(type)) return `暂不支持：像素位置、固定宽高、动画资源与转场${type === 'video' ? '、静态音量、变速及淡入淡出；视频音量仅支持关键帧，不使用 Preset 身份或替换接口' : ''}。`;
+  if (unsupportedTemplateConfiguration[type]) return `暂不支持：${unsupportedTemplateConfiguration[type].join('、')}。${type === 'video' ? '不使用 Preset 身份或替换接口。' : ''}${type !== 'audio' ? '位置为归一化值，未提供安全像素换算接口。' : ''}`;
+  if (type === 'image') return '暂不支持：固定宽高；位置为归一化值，未提供安全像素换算接口。';
   if (type === 'sticker') return '暂不支持：贴纸关键帧、动画资源与转场。';
   if (type === 'composition') return '分镜仅支持递归关键帧，不支持静态整体变换；批量分镜每项重复执行。';
   return '';

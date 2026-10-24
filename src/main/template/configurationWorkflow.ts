@@ -3,6 +3,27 @@ import { configurationProperty, templateConfigurationFor, validateConfigurationV
 import { readConfigurationProperty, textContent, writeTextConfiguration } from '../../shared/templateConfigurationNative'
 import type { DraftMaterial, DraftSegment, DraftTemplate } from './draftTemplate'
 import { templateAnimations, templateTransitions } from '../../shared/templatePropertyResources'
+import { readAudioEffect, templateAudioEffects } from '../../shared/templateAudioEffects'
+
+export function validateWorkflowConfiguration(type: string, configuration: unknown) {
+  if (configuration === undefined) return
+  if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) throw new Error('configuration 必须是配置对象')
+  for (const [key, value] of Object.entries(configuration)) {
+    if (key === 'sound_effects' && type === 'audio') {
+      if (!Array.isArray(value) || value.length !== 1) throw new Error('暂仅支持单个场景音效')
+      const pair = value[0]
+      const resource = Array.isArray(pair) && templateAudioEffects.find(item => item.value === pair[0])
+      if (!resource || pair.length !== 2 || !Array.isArray(pair[1]) || pair[1].length !== resource.params.length ||
+        pair[1].some((param: unknown) => typeof param !== 'number' || !Number.isFinite(param) || param < 0 || param > 100)) throw new Error('音效配置无效')
+      continue
+    }
+    const property = configurationProperty(type, key)
+    if (!property || key === 'text' || key.startsWith('effect_')) throw new Error(`不支持配置字段：${key}`)
+    if (key === 'volume') {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < -60 || value > 20) throw new Error('音量 dB 超出范围')
+    } else validateConfigurationValue(property, value)
+  }
+}
 
 export function configurationReferences(draft: DraftTemplate, segment: DraftSegment) {
   const ids = segment.extra_material_refs
@@ -23,6 +44,27 @@ export function applyConfiguration(draft: DraftTemplate, segment: DraftSegment, 
   } else if (property.scope === 'segment') {
     if (key === 'speed' && segment.loop) throw new Error('变速与循环组合暂不支持')
     segment[key] = validated
+  } else if (key.startsWith('effect_')) {
+    const current = readAudioEffect(configurationReferences(draft, segment))
+    const resource = key === 'effect_type' ? templateAudioEffects.find(item => item.value === validated) : current?.resource
+    if (key !== 'effect_type' && !resource) throw new Error('请先选择音效')
+    const params = resource?.params.map(meta => meta.defaultValue) ?? []
+    if (key !== 'effect_type') {
+      const index = Number(key.slice(-1))
+      if (index >= params.length) throw new Error('当前音效不存在此参数')
+      current!.params.forEach((value, index) => { params[index] = value / 100 })
+      params[index] = Number(validated) / 100
+    }
+    const effect: DraftMaterial | undefined = resource ? {
+      id: randomUUID(), type: 'audio_effect', name: resource.value, resource_id: resource.resourceId,
+      category_id: 'sound_effect', category_name: '场景音', is_ugc: false, production_path: '', speaker_id: '',
+      sub_type: 1, time_range: { start: 0, duration: 0 },
+      audio_adjust_params: resource.params.map((meta, index) => ({ name: meta.name, default_value: meta.defaultValue,
+        min_value: 0, max_value: 1, parameterIndex: index, portIndex: 0, value: params[index] }))
+    } : undefined
+    if (effect) (draft.materials.audio_effects ??= []).push(effect)
+    segment.extra_material_refs = [...(Array.isArray(segment.extra_material_refs) ? segment.extra_material_refs : [])
+      .filter(id => id !== current?.effect.id), ...(effect ? [effect.id] : [])]
   } else if (key.startsWith('fade_')) {
     const existing = configurationReferences(draft, segment).filter(item => item.type === 'audio_fade')
     if (existing.length > 1) throw new Error('音频淡入淡出素材重复')
@@ -73,12 +115,18 @@ export function applyConfiguration(draft: DraftTemplate, segment: DraftSegment, 
 }
 
 export function nativeConfigurationParams(draft: DraftTemplate, segment: DraftSegment, material: DraftMaterial, type: string) {
-  const params: Record<string, string | number | boolean> = {}
+  const params: Record<string, unknown> = {}
   const references = configurationReferences(draft, segment)
   if (type === 'text') textContent(material)
   for (const property of templateConfigurationFor(type)) {
+    if (property.key.startsWith('effect_')) continue
     const value = readConfigurationProperty(segment, material, type, property.key, references)
+    if (property.key === 'volume' && Number(value) > 0 && Number(value) <= 0.001) throw new Error('该音量低于后端非静音阈值，请设为 0 或大于 0.001')
     params[property.key] = property.key === 'volume' ? value === 0 ? -60 : 20 * Math.log10(value as number) : value
+  }
+  if (type === 'audio') {
+    const effect = readAudioEffect(references)
+    if (effect) params.sound_effects = [[effect.resource.value, effect.params]]
   }
   if (type === 'text') delete params.text
   for (const key of Object.keys(params)) {
@@ -93,6 +141,7 @@ export function nativeConfigurationParams(draft: DraftTemplate, segment: DraftSe
     throw new Error('新增配置暂不支持运行时动态绑定，请使用静态属性动作')
   }
   if (type === 'text' && material.dynamic?.some(path => path !== 'content')) throw new Error('文字样式暂不支持运行时动态绑定')
-  if (references.some(reference => reference.type === 'audio_fade' && reference.dynamic?.length)) throw new Error('淡入淡出暂不支持动态绑定')
+  if (references.some(reference => ['audio_fade', 'audio_effect', 'sticker_animation', 'transition'].includes(reference.type) && reference.dynamic?.length)) throw new Error('效果引用暂不支持动态绑定')
+  validateWorkflowConfiguration(type, params)
   return params
 }

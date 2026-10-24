@@ -75,6 +75,64 @@ describe('toolbar attachment sidebar previews', () => {
     expect(openAttachmentPreview.mock.calls[2][0]).toEqual({ ...first, src: 'blob:replacement' });
   });
 
+  it('renders skill example groups with labels, count hints and fill-in slots', async () => {
+    const onAddFile = vi.fn();
+    const groupFiles = [
+      { uid: 'g1', name: '成品特写-soup_a_01.mp4', fileType: 'video/mp4', localPreviewUrl: 'blob:g1' },
+      { uid: 'g2', name: '成品特写-soup_a_05.mp4', fileType: 'video/mp4', localPreviewUrl: 'blob:g2' }
+    ];
+    await render({
+      files: [],
+      fileGroups: [
+        {
+          key: 'skill-example-group:finished_food',
+          label: '成品特写',
+          countHint: '1-4个',
+          description: '用于开场和收尾',
+          count: 2,
+          placeholder: { key: 'skill-example-group:finished_food', label: '添加成品特写' },
+          files: groupFiles
+        },
+        {
+          key: 'skill-example-group:ingredients',
+          label: '原料展示',
+          countHint: '0-1个·可选',
+          description: '',
+          count: 0,
+          placeholder: { key: 'skill-example-group:ingredients', label: '添加原料展示' },
+          files: []
+        }
+      ],
+      onAddFile
+    });
+
+    const groups = container.querySelectorAll('.chat-panel__local-file-preview-group');
+    expect(groups).toHaveLength(2);
+    expect(groups[0].querySelector('.chat-panel__local-file-preview-group-label').textContent).toBe('成品特写');
+    expect(groups[0].querySelector('.chat-panel__local-file-preview-group-hint').textContent).toBe('1-4个');
+    expect(groups[0].querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(2);
+    expect(groups[1].querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(0);
+
+    await click(groups[1].querySelector('.chat-panel__local-file-preview-placeholder'));
+    expect(onAddFile).toHaveBeenCalledExactlyOnceWith({ key: 'skill-example-group:ingredients', label: '添加原料展示' });
+  });
+
+  it('shows a loading placeholder for remote video thumbs until metadata loads', async () => {
+    await render({
+      files: [
+        { uid: 'cloud', name: '云端视频.mp4', fileType: 'video/mp4', previewUrl: 'https://example.com/cloud.mp4', durationLabel: '00:05' }
+      ]
+    });
+
+    expect(container.querySelector('.chat-panel__local-file-preview-thumb-loading')).not.toBeNull();
+    expect(container.querySelector('.chat-panel__local-file-preview-thumb-duration').textContent).toBe('00:05');
+
+    await act(async () => {
+      container.querySelector('video').dispatchEvent(new Event('loadedmetadata'));
+    });
+    expect(container.querySelector('.chat-panel__local-file-preview-thumb-loading')).toBeNull();
+  });
+
   it('does not open previews on removal, external deletion, clearing or unmount', async () => {
     const onRemove = vi.fn();
     await render({ onRemove });
