@@ -41,6 +41,7 @@ import { normalizeDigitalHumanRequestPayload } from '../../shared/digitalHumanRe
 import { buildVoiceConversionRequestProcessingBlocks, normalizeVoiceConversionRequestPayload } from '../../shared/voiceConversionRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
+import { parseMaybeJsonToolArguments } from '../../shared/parseToolArguments';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
@@ -1756,9 +1757,16 @@ const sanitizePersistedToolResponse = (rawToolResponse = {}) => {
   const toolName = String(rawToolResponse?.tool?.name || 'tool');
   const rawResponse = rawToolResponse.responseRaw ?? rawToolResponse.response;
   const inlineResponse = limitInlineToolPayload(rawResponse, { label: `${toolName} 回包` });
+  // 流式参数可能只以 JSON 字符串形式停留在 partialArguments 上；持久化前提升为 arguments，
+  // 否则历史消息里的 AskUserQuestion 卡片会因拿不到问题内容而渲染成骨架占位。
+  const promotedArguments =
+    rawToolResponse.arguments
+    ?? (typeof rawToolResponse.partialArguments === 'string'
+      ? parseMaybeJsonToolArguments(rawToolResponse.partialArguments)
+      : undefined);
   return {
     ...rawToolResponse,
-    arguments: sanitizeInlinePayload(rawToolResponse.arguments, { label: `${toolName} 输入` }),
+    arguments: sanitizeInlinePayload(promotedArguments, { label: `${toolName} 输入` }),
     partialArguments: undefined,
     response: inlineResponse,
     responseRaw: rawResponse,

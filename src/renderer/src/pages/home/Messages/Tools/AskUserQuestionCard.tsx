@@ -7,6 +7,7 @@ import {
 } from '@renderer/store/toolPermissions'
 import type { NormalToolResponse } from '@renderer/types'
 import { cn } from '@renderer/utils'
+import { parseMaybeJsonToolArguments } from '@shared/parseToolArguments'
 import { Button, Checkbox, Input, Radio, Tag } from 'antd'
 import { CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle, Send } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -279,9 +280,13 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   // interactive state so we can render the question/options immediately.
   const isPending = !!request
 
-  // Parse from available sources - prefer request.input when pending, fall back to toolResponse.arguments
+  // Parse from available sources - prefer request.input when pending, fall back to toolResponse.arguments.
+  // 流式阶段参数可能只以 JSON 字符串形式停留在 partialArguments 上（arguments 尚未回填），
+  // 此时也要能渲染出问题，否则多会话并行时卡片只剩标题和骨架。
   const { questions, answers } = useMemo(() => {
-    const source = isPending ? request.input : toolResponse.arguments
+    const source = isPending
+      ? request?.input
+      : toolResponse.arguments ?? parseMaybeJsonToolArguments(toolResponse.partialArguments)
     const parsed = parseAskUserQuestionToolInput(source)
 
     // Debug: log data source
@@ -291,6 +296,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
         status: toolResponse.status,
         hasRequestInput: !!request?.input,
         hasArguments: !!toolResponse.arguments,
+        hasPartialArguments: !!toolResponse.partialArguments,
         source
       })
     }
@@ -299,7 +305,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
       questions: parsed?.questions ?? [],
       answers: parsed?.answers ?? {}
     }
-  }, [isPending, request?.input, toolResponse.arguments, toolResponse.status])
+  }, [isPending, request?.input, toolResponse.arguments, toolResponse.partialArguments, toolResponse.status])
 
   const [currentIndex, setCurrentIndex] = useState(0)
   // Use question index as key to avoid collision when questions have identical text

@@ -23,6 +23,9 @@ export type ToolPermissionRequestPayload = {
   toolName: string
   toolId: string
   toolCallId: string
+  // 同一次工具调用在渲染端的其它 ID（如 pi 流式合成 ID `pi_tool_...`）。
+  // 工具块持有的是合成 ID，权限请求持有的是命名空间 ID，靠别名才能精确配对。
+  toolCallIdAliases?: string[]
   description?: string
   requiresPermissions: boolean
   input: Record<string, unknown>
@@ -102,11 +105,16 @@ const toolPermissionsSlice = createSlice({
     removeByToolCallId: (state, action: PayloadAction<{ toolCallId: string }>) => {
       const { toolCallId } = action.payload
 
-      const entryId = Object.keys(state.requests).find((key) => state.requests[key]?.toolCallId === toolCallId)
-      if (entryId) {
-        delete state.requests[entryId]
+      const idsToRemove = new Set<string>([toolCallId])
+      for (const entry of Object.values(state.requests)) {
+        const matches = entry.toolCallId === toolCallId || entry.toolCallIdAliases?.includes(toolCallId)
+        if (!matches) continue
+
+        delete state.requests[entry.requestId]
+        idsToRemove.add(entry.toolCallId)
+        entry.toolCallIdAliases?.forEach((alias) => idsToRemove.add(alias))
       }
-      delete state.resolvedInputs[toolCallId]
+      idsToRemove.forEach((id) => delete state.resolvedInputs[id])
     },
     clearAll: (state) => {
       state.requests = {}
@@ -133,6 +141,9 @@ export const selectActiveToolPermission = (state: ToolPermissionsState): ToolPer
   return activeEntries[0]
 }
 
+const entryMatchesToolCallId = (entry: ToolPermissionEntry, toolCallId: string): boolean =>
+  entry.toolCallId === toolCallId || (entry.toolCallIdAliases?.includes(toolCallId) ?? false)
+
 export const selectPendingPermission = (
   state: ToolPermissionsState,
   toolCallId: string
@@ -145,7 +156,7 @@ export const selectPendingPermission = (
   }
 
   const activeEntries = Object.values(state.requests)
-    .filter((entry) => entry.toolCallId === toolCallId)
+    .filter((entry) => entryMatchesToolCallId(entry, toolCallId))
     .filter((entry) => ACTIVE_TOOL_PERMISSION_STATUSES.includes(entry.status))
 
   if (activeEntries.length === 0) return undefined
