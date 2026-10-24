@@ -1,19 +1,12 @@
-.template-keyframes { position: fixed; z-index: 1000; width: 308px; padding: 10px; border-radius: 18px; background: #fff; color: #222; box-shadow: 0 8px 30px #10182824; font: 500 13px/20px "Template Inter", system-ui, sans-serif; }
+.template-keyframes { position: fixed; z-index: 1000; box-sizing: border-box; width: 170px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px; border-radius: 14px; background: #fff; color: #222; box-shadow: 0 8px 26px #10182824; font: 500 12px/18px "Template Inter", system-ui, sans-serif; }
 .template-keyframes * { box-sizing: border-box; }
 .template-keyframes input { width: 100%; padding: 9px 10px; border: 0; outline: none; border-radius: 8px; background: #ddd; color: #222; font: inherit; }
-.template-keyframes > input { margin-bottom: 8px; }
+.template-keyframes > input { height: 38px; margin-bottom: 4px; }
 .template-keyframes button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
-.template-keyframes button:hover { background: #f6f7f8; }
+.template-keyframes button:hover, .template-keyframes button:focus-visible, .template-keyframe-properties button[aria-selected="true"] { background: #f6f7f8; outline: none; }
 .template-keyframes button:disabled { opacity: .4; cursor: default; }
 .template-keyframe-properties { max-height: 320px; overflow-y: auto; }
-.template-keyframe-properties button { min-height: 38px; }
+.template-keyframe-properties button { height: 32px; padding: 0 10px; font-size: 12px; }
 .template-keyframe-properties svg { margin-left: auto; color: #4980f1; }
-.template-keyframes label { display: block; padding: 5px 10px; color: #777; font-size: 11px; }
-.template-keyframes label input { margin-top: 4px; font-size: 13px; }
-.template-keyframes .template-keyframe-save { color: #4980f1; }
-.template-keyframe-points { max-height: 160px; overflow-y: auto; }
-.template-keyframe-points > div { display: flex; }
-.template-keyframe-points > div > button:last-child { width: 30px; flex-shrink: 0; padding: 5px; }
-.template-keyframe-points span { margin-left: auto; }
 .template-keyframes p { margin: 7px 10px; font-size: 11px; color: #888; }
 .template-keyframes p[role="alert"] { color: #d33; }

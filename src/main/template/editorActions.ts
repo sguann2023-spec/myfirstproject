@@ -8,8 +8,10 @@ import { pasteEditorElement, type PasteEditorAction } from './editorClipboard'
 import { dropEditorLayer, type LayerDropAction } from './editorLayerDrop'
 import { keyframeProperty, keyframePropertiesFor, validateKeyframeValue } from '../../shared/templateKeyframes'
 import { randomUUID } from 'node:crypto'
+import { templateProperty, writeStaticProperty, type PropertyAction } from '../../shared/templateProperties'
 
 export type EditorAction =
+  | PropertyAction
   | ClipDropAction
   | ClipSceneDropAction
   | ClipTimingAction
@@ -25,6 +27,11 @@ export type EditorAction =
 
 // All visual edits are transactional: normalize the copy before returning any JSON.
 export function applyEditorAction(payload: EditorPayload, action: EditorAction) {
+  if (action.type === 'property') {
+    if (!['static', 'keyframe'].includes(action.mode)) throw new Error('属性模式无效')
+    if (action.mode === 'keyframe') return applyEditorAction(payload, { ...action, type: 'keyframe', time: action.time! })
+    if (action.remove || action.removeGroup || action.time !== undefined) throw new Error('静态属性不接受关键帧操作')
+  }
   const { draft, normalized } = parseEditorDocument(payload)
   if (!draft || !normalized) throw new Error('交互编辑仅支持剪映结构模版')
   type Entry = { item: DraftScene | DraftTrackItem; scene?: DraftScene; track?: DraftTrack; remove: () => void }
@@ -141,6 +148,11 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
       track.scene.tracks.splice(track.scene.tracks.indexOf(track.track), 1)
       selectedId = track.scene.id
     } else throw new Error('元素不存在')
+  } else if (action.type === 'property') {
+    const entry = entries.get(action.id)
+    const time = times.get(action.id)
+    if (!entry || !time) throw new Error('元素不存在')
+    Object.assign(entry.item, writeStaticProperty(entry.item, time.type, action.property, action.value!))
   } else if (action.type === 'keyframe') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)
@@ -167,9 +179,10 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
             ? key === 'scale_x' || key === 'scale_y' : ['scale_x', 'scale_y'].includes(property.key) && key === 'uniform_scale')
         })) throw new Error('整体缩放不能与 X/Y 缩放关键帧同时使用')
         if (!group) {
-          group = { id: randomUUID(), property_type: property.native, keyframe_list: [] }
+          group = { id: randomUUID(), property_type: templateProperty(time.type, property.key).native, keyframe_list: [] }
           groups.push(group)
         }
+        group.property_type = templateProperty(time.type, property.key).native
         const frame = group.keyframe_list.find(frame => frame.time_offset === offset)
         if (frame) frame.values = [action.value!]
         else group.keyframe_list.push({ id: randomUUID(), time_offset: offset, values: [action.value!], curveType: 'Line' })

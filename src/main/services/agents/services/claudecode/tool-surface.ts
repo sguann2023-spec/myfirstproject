@@ -15,13 +15,11 @@ export function buildToolSurface(args: {
   hasExplicitSkillInvocation?: boolean
   supportsImageInput?: boolean
 }): ToolSurface {
-  const builtinTools = args.hasExplicitSkillInvocation
-    ? ['AskUserQuestion', 'Bash', 'Read']
-    : ['AskUserQuestion', 'Bash']
+  const builtinTools = ['AskUserQuestion', 'Bash', 'Read', 'Write', 'Edit']
   if (args.supportsImageInput) {
     builtinTools.push('ReadImageAsContent')
   }
-  const autoAllowedTools = new Set<string>()
+  const autoAllowedTools = new Set<string>(['Write', 'Edit'])
 
   for (const tool of args.sessionAllowedTools ?? []) {
     if (tool.startsWith('mcp__')) {

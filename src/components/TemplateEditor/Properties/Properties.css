@@ -1,0 +1,14 @@
+.template-properties { min-width: 0; overflow-y: auto; border-left: 1px solid #e9eaed; background: #fff; }
+.template-properties-heading { display: flex; justify-content: space-between; gap: 8px; padding: 14px 16px; }
+.template-properties-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-properties-heading span, .template-property small { color: #92959c; font-size: 10px; }
+.template-property { padding: 8px 14px; }
+.template-property.is-focused { background: #f6f7f8; }
+.template-property label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+.template-property-controls { display: flex; align-items: center; gap: 2px; }
+.template-property input { width: 100%; min-width: 0; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; outline: none; background: #ddd; color: #25262a; font: inherit; }
+.template-property button { display: grid; place-items: center; flex: 0 0 22px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #666; }
+.template-property button:hover:not(:disabled) { background: #edf0f4; }
+.template-property button.is-current { color: #497ef5; }
+.template-property p { margin: 6px 0; color: #d33; font-size: 11px; }
+.template-properties-empty { padding: 16px; color: #92959c; }

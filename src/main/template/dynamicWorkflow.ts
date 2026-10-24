@@ -9,6 +9,7 @@ import { MAX_MEDIA_LOOP_ACTIONS } from './mediaLoop'
 import { STICKER_TRANSFORMS } from './stickerWorkflow'
 import { resourceType } from './resourceWorkflow'
 import { executableKeyframes, keyframeSteps, type AnimationLayer } from './keyframeWorkflow'
+import { templatePropertiesFor } from '../../shared/templateProperties'
 
 const literal = (value: string | number | boolean) => typeof value === 'boolean'
   ? value ? 'True' : 'False' : typeof value === 'number' ? String(value) : JSON.stringify(value)
@@ -443,6 +444,16 @@ export function compileDynamicWorkflow(
       const dynamicSource = ['image', 'video', 'audio'].includes(element.type) &&
         (byKey.has(`${materialId}.remote_url`) || byKey.has(`${materialId}.path`))
       const batchFields = batch?.fields.get(element.id)
+      if (['image', 'video', 'text'].includes(element.type)) {
+        for (const property of templatePropertiesFor(element.type)) {
+          if (!property.static || !property.staticPath) continue
+          const path = `${element.id}.${property.staticPath}`
+          if (!byKey.has(path)) continue
+          const key = property.key === 'position_x' ? 'transform_x' : property.key === 'position_y' ? 'transform_y' :
+            property.key === 'alpha' && element.type === 'text' ? 'font_alpha' : property.key
+          params[key] = field(path, element[key] ?? property.defaultValue)
+        }
+      }
       if (element.type === 'filter' || element.type === 'effect') {
         const kind = element.type
         const name = `${kind}_type`

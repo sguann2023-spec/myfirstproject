@@ -13,14 +13,14 @@ export const builtinTools: Tool[] = [
     id: 'Edit',
     name: 'Edit',
     description: 'Makes targeted edits to specific files',
-    requirePermissions: true,
+    requirePermissions: false,
     type: 'builtin'
   },
   {
     id: 'MultiEdit',
     name: 'MultiEdit',
     description: 'Performs multiple edits on a single file atomically',
-    requirePermissions: true,
+    requirePermissions: false,
     type: 'builtin'
   },
   {
@@ -73,5 +73,5 @@ export const builtinTools: Tool[] = [
     requirePermissions: true,
     type: 'builtin'
   },
-  { id: 'Write', name: 'Write', description: 'Creates or overwrites files', requirePermissions: true, type: 'builtin' }
+  { id: 'Write', name: 'Write', description: 'Creates or overwrites files', requirePermissions: false, type: 'builtin' }
 ]

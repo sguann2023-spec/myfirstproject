@@ -6,6 +6,7 @@ import { parseTree } from 'jsonc-parser';
 import { Braces, LayersPlus, Film, Image, Layers, Music2, Redo2, Type, Undo2 } from 'lucide-react';
 import LayerPanel from '../../components/TemplateEditor/LayerPanel';
 import EditorTimeline from '../../components/TemplateEditor/Timeline';
+import Properties from '../../components/TemplateEditor/Properties';
 import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/editorView';
 import { elementIcons } from '../../components/TemplateEditor/elementIcons';
 import './TemplateEditPage.css';
@@ -36,6 +37,8 @@ const TemplateEditPage = () => {
   const [templateJson, setTemplateJson] = useState('');
   const [model, setModel] = useState(null);
   const [selectedId, setSelectedId] = useState('');
+  const [cursor, setCursor] = useState(0);
+  const [propertyFocus, setPropertyFocus] = useState(null);
   const [sceneId, setSceneId] = useState(null);
   const [collapsed, setCollapsed] = useState(new Set());
   const [lockedTracks, setLockedTracks] = useState(new Set());
@@ -61,6 +64,8 @@ const TemplateEditPage = () => {
   const pendingReveal = useRef(null);
   const index = useMemo(() => indexEditorTree(model?.tree), [model]);
   const timelineView = useMemo(() => sceneTimeline(model, index, sceneId), [model, index, sceneId]);
+  const selectedClip = timelineView.rows.flatMap(row => row.clips).find(clip => clip.id === selectedId);
+  useEffect(() => { setCursor(0); setPropertyFocus(null); }, [sceneId]);
   const templateTitle = model?.tree?.[0]?.name || '新模版';
   const nativeIndex = useMemo(() => {
     const result = new Map();
@@ -194,6 +199,11 @@ const TemplateEditPage = () => {
     if (id) setCollapsed(previous => new Set([...previous].filter(value => value !== id && !index.get(id)?.ancestors.includes(value))));
   };
   const reveal = (id) => { setSceneId(index.get(id)?.sceneId ?? null); select(id); };
+  const focusProperty = (id, property, time) => {
+    select(id);
+    setCursor(time);
+    setPropertyFocus({ id, property });
+  };
   const isLocked = (id) => {
     const node = index.get(id);
     return lockedTracks.has(id) || lockedTracks.has(node?.trackId) ||
@@ -251,7 +261,7 @@ const TemplateEditPage = () => {
   useEffect(() => {
     const remove = event => {
       if (!['Delete', 'Backspace'].includes(event.key) || !selectedId) return;
-      if (event.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (event.target.closest?.('input, textarea, [contenteditable="true"], .template-properties')) return;
       event.preventDefault();
       mutate({ type: 'delete', id: selectedId });
     };
@@ -400,10 +410,13 @@ const TemplateEditPage = () => {
             {compiled.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
           </details>}
         </section>
+        <Properties clip={selectedClip} native={nativeIndex.get(selectedId)} cursor={cursor}
+          disabled={disabled || !!isLocked(selectedId)} focusRequest={propertyFocus} onAction={mutate} onSeek={setCursor} />
       </div>
 
       <EditorTimeline view={analysisError ? { ...timelineView, rows: [] } : timelineView} selectedId={selectedId} sceneId={sceneId}
         nativeIndex={nativeIndex} onSelect={select} onEnter={enter} onAction={mutate} disabled={disabled}
+        cursor={cursor} onCursorChange={setCursor} onFocusProperty={focusProperty} isLocked={isLocked}
         rootLabel={templateTitle} onAddScene={() => add('scene', true)} lockedTracks={lockedTracks}
         onLock={id => setLockedTracks(previous => {
           const next = new Set(previous);

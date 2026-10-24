@@ -28,6 +28,7 @@
 .template-track-select svg { flex-shrink: 0; }
 .template-track-label b { display: grid; place-items: center; background: #eef0f4; border-radius: 4px; min-width: 19px; height: 19px; color: #555a65; font-weight: 500; font-size: 11px; }
 .template-track-grip, .template-track-lock, .template-track-keyframes { display: grid; place-items: center; width: 20px; height: 25px; flex-shrink: 0; border: none; background: none; color: #b6b9be; padding: 0; }
+.template-track-keyframes { height: 32px; margin-top: -3.5px; }
 .template-track-grip { cursor: grab !important; }
 .template-track-lock[aria-pressed="true"] { color: #646c7c; }
 .template-time-controls { position: sticky; left: 0; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 0 16px; background: white; color: #a5a8ae; }
@@ -63,7 +64,8 @@
 .template-track-row.is-clip-drop-target .template-track-label { background: #f6f7f8; }
 .template-keyframe-lane { position: absolute; left: 0; right: 0; height: 26px; border-top: 1px solid #eceef1; }
 .template-keyframe-lane > span { position: sticky; left: 8px; color: #777; font-size: 11px; line-height: 26px; pointer-events: none; }
-.template-keyframe-point { position: absolute; top: 5px; transform: translateX(-50%); display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; background: none; color: #4980f1; }
+.template-keyframe-point { position: absolute; top: 5px; transform: translateX(-50%); display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; background: none; color: #777; }
+.template-keyframe-point.is-current { color: #4980f1; }
 .template-clip-drop-line { position: absolute; left: 0; right: 0; height: 2px; background: #497ef5; z-index: 7; pointer-events: none; }
 .template-clip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 10px; font-size: 12px; font-weight: 500; flex: 1; }
 .template-clip-title small { color: #ffffff80; margin-left: 10px; font-size: 10px; font-weight: 500; }

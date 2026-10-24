@@ -6,6 +6,7 @@ import { mediaDurationMicros } from '../../shared/templateMediaTiming'
 import { stickerClipTransforms, stickerIdentifier } from './stickerWorkflow'
 import { resourceFields } from './resourceWorkflow'
 import { executableKeyframes } from './keyframeWorkflow'
+import { staticPropertyParams } from '../../shared/templateProperties'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -328,7 +329,8 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
             if (segment.speed !== undefined && segment.speed !== 1) throw new Error(`${segment.id} 暂不支持非 1 倍速`)
           }
         }
-        if (segment.clip && type !== 'sticker') warnings.push(`${segment.id}.clip 已保留，当前 Workflow 尚未适配画面变换`)
+        if (['image', 'video', 'text'].includes(type)) Object.assign(element, staticPropertyParams(segment, type))
+        else if (segment.clip && type !== 'sticker') warnings.push(`${segment.id}.clip 已保留，当前 Workflow 尚未适配画面变换`)
         if (Array.isArray(segment.extra_material_refs) && segment.extra_material_refs.length) {
           warnings.push(`${segment.id}.extra_material_refs 已保留，当前 Workflow 尚未适配附加素材`)
         }

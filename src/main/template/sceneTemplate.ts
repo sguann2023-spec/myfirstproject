@@ -2,6 +2,7 @@ import { createSceneTimingEngine } from './sceneTiming'
 import { mediaLoopSlices } from './mediaLoop'
 import { STICKER_TRANSFORMS, stickerTransformParams, type StickerTransforms } from './stickerWorkflow'
 import { validateResource, type ResourceFields } from './resourceWorkflow'
+import { visualParams } from './propertyWorkflow'
 
 export interface SceneElement extends StickerTransforms, ResourceFields {
   id: string
@@ -30,6 +31,7 @@ export interface SceneElement extends StickerTransforms, ResourceFields {
   y_anchor?: string
   font_family?: string
   font_size?: string | number
+  font_alpha?: number
 }
 
 export interface TimingAnchor {
@@ -180,6 +182,8 @@ function processSceneTemplate(
       const allowed = new Set(['id', 'name', 'type', 'track', 'duration',
         'target_start_time', 'target_end_time',
         'track_name', 'track_relative_index',
+        ...(['image', 'video', 'text'].includes(element.type)
+          ? ['transform_x', 'transform_y', 'scale_x', 'scale_y', 'rotation', element.type === 'text' ? 'font_alpha' : 'alpha'] : []),
         ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration', 'batch_scene'] :
           element.type === 'text' ? ['text', 'fill_color', 'x', 'y', 'x_anchor', 'y_anchor', 'font_family', 'font_size'] :
           element.type === 'sticker' ? ['sticker_id', ...STICKER_TRANSFORMS.map(([key]) => key)] :
@@ -381,7 +385,7 @@ function processSceneTemplate(
           params: {
             text: element.text, font_color: element.fill_color ?? '#ffffff',
             start, end, width: source.width, height: source.height,
-            ...backendTrack(element, parentId)
+            ...backendTrack(element, parentId), ...visualParams(element)
           }
         })
         warnings.push(`${element.id} 文字时间与颜色已应用；字体、字号、位置和锚点尚未适配，使用后端默认布局`)
@@ -432,7 +436,7 @@ function processSceneTemplate(
               action_type: element.type === 'audio' ? 'add_audio' : 'add_video',
               params: {
                 [element.type === 'audio' ? 'audio_url' : 'video_url']: resolvedSource,
-                ...slice, width: source.width, height: source.height, ...loopTrack
+                ...slice, width: source.width, height: source.height, ...loopTrack, ...visualParams(element)
               }
             })
           })
@@ -460,7 +464,7 @@ function processSceneTemplate(
               end: resolved.sourceEnd ?? end - start,
               duration: Number((end - start).toFixed(9)),
               width: source.width, height: source.height,
-              ...trackParams
+              ...trackParams, ...visualParams(element)
             }
           })
         } else {
@@ -469,7 +473,7 @@ function processSceneTemplate(
             params: {
               image_url: resolvedSource,
               start, end, width: source.width, height: source.height,
-              ...trackParams
+              ...trackParams, ...visualParams(element)
             }
           })
         }
