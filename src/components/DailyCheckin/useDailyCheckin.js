@@ -67,7 +67,7 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
     const generation = generationRef.current;
     setClaiming(true);
     try {
-      await checkinRechargeDaily();
+      await checkinRechargeDaily(reward);
       if (generation !== generationRef.current) return;
       ++requestRef.current;
       claimedRef.current = true;
