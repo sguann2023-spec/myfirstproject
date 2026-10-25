@@ -42,39 +42,8 @@
   border: 0;
   background: transparent;
   color: inherit;
-  cursor: help;
+  cursor: pointer;
 }
-.daily-checkin__rules-anchor {
-  display: none;
-  position: absolute;
-  left: 0;
-  bottom: 100%;
-  width: min(520px, calc(100vw - 24px));
-  padding-bottom: 8px;
-  z-index: 1;
-}
-.daily-checkin__rules {
-  box-sizing: border-box;
-  max-height: min(480px, calc(100dvh - 160px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 18px 20px;
-  border: 1px solid #e2e2e2;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 6px 28px #0000001f;
-  color: #444;
-  white-space: normal;
-  line-height: 1.8;
-  font-size: 12px;
-  font-weight: 400;
-}
-.daily-checkin__rules h2 { margin: 0 0 14px; font-size: 16px; line-height: 1.5; color: #111; }
-.daily-checkin__rules h3 { margin: 14px 0 6px; font-size: 13px; color: #222; }
-.daily-checkin__rules ul { margin: 0; padding-left: 18px; }
-.daily-checkin__rules li + li { margin-top: 6px; }
-.daily-checkin__info:hover .daily-checkin__rules-anchor,
-.daily-checkin__info:focus-within .daily-checkin__rules-anchor { display: block; }
 .daily-checkin__close {
   position: absolute;
   top: 9px;
