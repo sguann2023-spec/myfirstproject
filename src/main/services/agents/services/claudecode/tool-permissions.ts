@@ -6,6 +6,7 @@ import { IpcChannel } from '@shared/IpcChannel'
 import { ipcMain } from 'electron'
 
 import { windowService } from '../../../WindowService'
+import { resolveMcpProgressCallIds } from './harness/mcp-progress-call-id-map'
 import { builtinTools } from './tools'
 
 const logger = loggerService.withContext('ClaudeCodeService')
@@ -37,6 +38,8 @@ type RendererPermissionRequestPayload = {
   toolName: string
   toolId: string
   toolCallId: string
+  // 同一次工具调用在渲染端可能出现的其它 ID（如 pi 流式合成 ID），用于卡片精确匹配
+  toolCallIdAliases: string[]
   description?: string
   requiresPermissions: boolean
   input: Record<string, unknown>
@@ -230,6 +233,11 @@ type PromptForToolApprovalOptions = {
   // NOTICE: This ID is namespaced with session ID, not the raw SDK tool call ID.
   // Format: `${sessionId}:${rawToolCallId}`, e.g., `session_123:WebFetch_0`
   toolCallId: string
+
+  // Raw SDK/provider tool call ID (without the session namespace). Used to resolve
+  // the streamed synthetic tool call ID (e.g. `pi_tool_...`) so the renderer card
+  // can match this permission request to its own tool block precisely.
+  rawToolCallId?: string
 }
 
 export async function promptForToolApproval(
@@ -266,10 +274,18 @@ export async function promptForToolApproval(
 
   const requestId = randomUUID()
   const createdAt = Date.now()
+  const toolCallIdAliases = Array.from(
+    new Set(
+      (options.rawToolCallId ? resolveMcpProgressCallIds(options.rawToolCallId) : [])
+        .map((id) => String(id || '').trim())
+        .filter((id) => id && id !== options.toolCallId)
+    )
+  )
   logger.info('Requesting user approval for tool usage', {
     requestId,
     toolName,
     toolCallId: options.toolCallId,
+    toolCallIdAliases,
     description: toolMetadata?.description
   })
 
@@ -278,6 +294,7 @@ export async function promptForToolApproval(
     toolName,
     toolId: toolMetadata?.id ?? toolName,
     toolCallId: options.toolCallId,
+    toolCallIdAliases,
     description: toolMetadata?.description,
     requiresPermissions: toolMetadata?.requirePermissions ?? false,
     input: sanitizedInput,

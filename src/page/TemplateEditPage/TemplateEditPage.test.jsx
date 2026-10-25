@@ -76,6 +76,26 @@ async function inputValue(element, value) {
   await act(async () => element.dispatchEvent(new Event('input', { bubbles: true })));
 }
 
+it('Properties 转场静态保存后从素材引用回读，撤销清理配置并遵守轨道锁定', async () => {
+  await render(); await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());
+  const select = () => container.querySelector('.template-properties [aria-label="转场"]');
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select(), '叠化');
+  await act(async () => select().dispatchEvent(new Event('change', { bubbles: true })));
+  await settle();
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
+    .toEqual({ type: 'property', id: 'upper-image', property: 'transition', mode: 'static', value: '叠化' });
+  expect(select().value).toBe('叠化');
+  const duration = () => container.querySelector('.template-properties [aria-label="转场时长"]');
+  await act(async () => duration().focus()); await inputValue(duration(), '.8'); await key(duration(), 'Enter'); await settle();
+  expect(container.querySelector('.template-properties [role="alert"]')?.textContent).toBeUndefined();
+  expect(Number(duration().value)).toBe(0.8);
+  await key(container.querySelector('main'), 'z', { ctrlKey: true }); await settle();
+  expect(duration().value).toBe('0.5');
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-lock').click());
+  expect(select().disabled).toBe(true); expect(duration().disabled).toBe(true);
+});
+
 it('父级完全裁切批量分镜内子分镜时，局部片段和顶部新增元素仍可见', async () => {
   const template = createEditorPreset('sentence-image');
   const children = template.scenes[0].tracks[0].segments;
@@ -106,7 +126,7 @@ it('父级完全裁切批量分镜内子分镜时，局部片段和顶部新增�
   expect(container.querySelector('[role="alert"]')).toBeNull();
   const draft = JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
   expect(draft.scenes[0].target_timerange.duration).toBe(5_000_000);
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelectorAll('.template-clip')).toHaveLength(2);
 });
@@ -205,6 +225,91 @@ it('层级树不暴露轨道节点；进入分镜后混排四种素材仍只占�
   expect(rows).toHaveLength(2);
   expect(rows[1].querySelectorAll('.template-clip')).toHaveLength(4);
   expect(labels[0].querySelector('b').textContent).toBe('11');
+  expect(labels.every(element => element.textContent === element.querySelector('b').textContent)).toBe(true);
+  expect(labels.every(element => element.querySelector('span') === null)).toBe(true);
+});
+
+it('关键帧按钮搜索属性、保存原生关键帧、显示属性行，快捷键撤销重做', async () => {
+  await render();
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-keyframes').click());
+  const dialog = () => document.querySelector('.template-keyframes');
+  expect(dialog()).not.toBeNull();
+  const search = dialog().querySelector('[aria-label="查找关键帧属性"]');
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(search, 'X Scale');
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(dialog().querySelectorAll('.template-keyframe-properties button')).toHaveLength(1);
+  await act(async () => dialog().querySelector('.template-keyframe-properties button').click());
+  await settle();
+  const draft = () => JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
+  expect(draft().scenes[0].tracks.find(track => track.id === 'upper').segments[0].common_keyframes[0])
+    .toMatchObject({ property_type: 'KFTypeScaleX', keyframe_list: [{ time_offset: 0, values: [1] }] });
+  expect(container.querySelector('.template-keyframe-lane').textContent).toContain('X Scale');
+  expect(dialog()).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector('.template-properties [aria-label="X Scale"]'));
+  await key(container.querySelector('.template-track-keyframes'), 'z', { ctrlKey: true });
+  await settle();
+  expect(container.querySelector('.template-keyframe-lane')).toBeNull();
+  await key(container.querySelector('.template-track-keyframes'), 'z', { ctrlKey: true, shiftKey: true });
+  await settle();
+  expect(container.querySelector('.template-keyframe-point')).not.toBeNull();
+});
+
+it('分镜和批量分镜提供关键帧菜单，音频禁用；锁定后不可配置', async () => {
+  await render();
+  expect(container.querySelector('.template-track-keyframes').disabled).toBe(false);
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="audio"]').click());
+  expect(container.querySelector('[data-track-id="mixed"] .template-track-keyframes').disabled).toBe(true);
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-lock').click());
+  expect(container.querySelector('[data-track-id="upper"] .template-track-keyframes').disabled).toBe(true);
+});
+
+it('Properties 静态和动画写入与游标同步，菜单当前时间创建、圆点选中聚焦、前后跳转和锁定', async () => {
+  await render();
+  await enterScene('scene');
+  await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());
+  const panel = () => container.querySelector('.template-properties');
+  const time = () => container.querySelector('[aria-label="当前时间（秒）"]');
+  const input = () => panel().querySelector('[aria-label="X Position"]');
+  const commit = async value => {
+    await act(async () => input().focus());
+    await inputValue(input(), value);
+    await key(input(), 'Enter');
+    await settle();
+  };
+  await commit('.2');
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
+    .toEqual({ type: 'property', mode: 'static', id: 'upper-image', property: 'position_x', value: .2 });
+  await inputValue(time(), '1.25');
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-keyframes').click());
+  await inputValue(document.querySelector('[aria-label="查找关键帧属性"]'), 'X Position');
+  await act(async () => document.querySelector('.template-keyframe-properties button').click());
+  await settle();
+  expect(time().value).toBe('1.25');
+  expect(document.activeElement).toBe(input());
+  expect(container.querySelector('.template-keyframe-point.is-current svg').getAttribute('fill')).toBe('currentColor');
+  await inputValue(time(), '2.5');
+  expect(panel().querySelector('[aria-label="X Position 添加当前关键帧"]')).not.toBeNull();
+  await commit('.6');
+  expect(time().value).toBe('2.5');
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
+    .toEqual({ type: 'property', mode: 'keyframe', id: 'upper-image', property: 'position_x', time: 2.5, value: .6 });
+  await act(async () => panel().querySelector('[aria-label="X Position 上一个关键帧"]').click());
+  expect(time().value).toBe('1.25');
+  expect(input().value).toBe('0.2');
+  await act(async () => panel().querySelector('[aria-label="X Position 下一个关键帧"]').click());
+  expect(time().value).toBe('2.5');
+  await act(async () => container.querySelector('.template-keyframe-point').click());
+  expect(time().value).toBe('1.25');
+  expect(document.activeElement).toBe(input());
+  expect(document.querySelector('.template-keyframes')).toBeNull();
+  await act(async () => container.querySelector('[data-track-id="upper"] .template-track-lock').click());
+  expect([...panel().querySelectorAll('input, button')].every(element => element.disabled)).toBe(true);
+  expect([...container.querySelectorAll('.template-keyframe-point')].every(element => element.disabled)).toBe(true);
 });
 
 it('根时间轴隐藏末尾添加分镜，进入分镜后显示，返回根层再次隐藏', async () => {
@@ -231,7 +336,7 @@ it.each(['text', 'scene'])('选中铺满固定分镜的普通元素后添加 %s�
   expect(draft.scenes[0].tracks.at(-1).segments[0].target_timerange.start).toBe(0);
   expect(container.querySelector('.template-clip.is-selected').getAttribute('aria-label'))
     .toBe(`${type === 'text' ? '文字' : '分镜'}，0 到 ${type === 'text' ? 8 : 5} 秒`);
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
 });
@@ -243,7 +348,7 @@ it('根层添加基础元素后自动进入所属分镜，撤销恢复根层', a
   expect(container.querySelector('[aria-label="分镜路径"] [aria-current="page"]').textContent).toBe('混排分镜');
   expect(container.querySelector('.template-clip.is-selected').textContent).toContain('Your text here');
   expect(container.querySelector('[role="treeitem"][aria-selected="true"]').textContent).toContain('Your text here');
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[aria-label="打开模版时间轴"]').getAttribute('aria-current')).toBe('page');
   expect(container.querySelectorAll('.template-clip')).toHaveLength(1);
@@ -453,7 +558,7 @@ it.each(['scene', 'outer-batch', 'inner-batch', 'image'])('双击层级名称重
   expect(container.querySelector(`[data-element-id="${id}"] strong`).textContent).toBe('新的分镜名称');
   expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').map(call => call[2]))
     .toEqual([{ type: 'rename', id, name: '新的分镜名称' }]);
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
   if (id !== 'image') {
@@ -537,7 +642,7 @@ it('分镜内选中子分镜后添加文字，进入容器内部且支持撤销'
   expect(draft.scenes[0].tracks[0].segments).toHaveLength(3);
   expect(draft.scenes[0].tracks[0].segments[2].tracks).toHaveLength(3);
   expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 5 秒');
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await act(async () => vi.advanceTimersByTimeAsync(250));
   expect(container.querySelector('.template-clip:not(.template-clip--scene)')).toBeNull();
   expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 15 秒');
@@ -603,10 +708,10 @@ it('方向键移动片段，撤销重做与 JSON 一致', async () => {
   await settle();
   const current = () => JSON.parse(container.querySelector('[data-testid="editor"]').textContent).scenes[0].tracks[1].segments[0];
   expect(current().target_timerange.start).toBe(100_000);
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(current().target_timerange.start).toBeUndefined();
-  await act(async () => container.querySelector('[aria-label="重做"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true, shiftKey: true });
   await settle();
   expect(current().target_timerange.start).toBe(100_000);
 });
@@ -684,7 +789,9 @@ it('边缘提交失败时才恢复原位置，且不留下预览或历史', asyn
   await act(async () => rejectEdit(new Error('提交失败')));
   expect(clip.style.width).toBe(before);
   expect(container.querySelector('[role="alert"]').textContent).toBe('提交失败');
-  expect(container.querySelector('[aria-label="撤销"]').disabled).toBe(true);
+  const unchanged = container.querySelector('[data-testid="editor"]').textContent;
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
+  expect(container.querySelector('[data-testid="editor"]').textContent).toBe(unchanged);
 });
 
 it('拖动仅在松手时提交，重叠落点插入并可撤销', async () => {
@@ -699,8 +806,7 @@ it('拖动仅在松手时提交，重叠落点插入并可撤销', async () => {
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.querySelector('[data-testid="editor"]').textContent).not.toBe(before);
   expect(invoke.mock.calls.find(([channel]) => channel === 'template:editor-edit')[2].type).toBe('move-clip');
-  expect(container.querySelector('[aria-label="撤销"]').disabled).toBe(false);
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
 });
@@ -732,7 +838,7 @@ it('跨轨拖动跟手浮动，显示轨道和间隙落点，松手建立新轨�
   expect(container.querySelector('[data-track-id="upper"]')).toBeNull();
   expect(container.querySelector('.is-floating')).toBeNull();
   expect(container.querySelector('.template-clip-drop-line')).toBeNull();
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelectorAll('[data-track-id]')).toHaveLength(2);
   expect(container.querySelector('[data-track-id="upper"]')).not.toBeNull();
@@ -1009,7 +1115,7 @@ it('两端时间图标打开同一弹窗，不触发片段拖动；自动开始�
   await key(dialog().querySelector('input'), 'Escape');
   expect(dialog()).toBeNull();
   expect(document.activeElement).toBe(trigger);
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
   await act(async () => clip.querySelector('.template-clip-timing-trigger--end').click());
@@ -1200,7 +1306,7 @@ it('批量分镜音频切换媒体时长后，Auto 边界和填充文字同步�
   expect(parseFloat(container.querySelector('.template-outside-scene').style.left)).toBeCloseTo(164 + parseFloat(handle().style.left));
   expect(container.querySelector('[data-clip-id="title"]').getAttribute('aria-label')).toBe('文字，0 到 12 秒');
   await key(document.querySelector('[role="dialog"]'), 'Escape');
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
   expect(container.querySelector('.template-timeline-duration').textContent).toBe('总时长 5 秒');
@@ -1268,10 +1374,10 @@ it('目录同轨元素可拖动插入，时间不变、落下选中并支持撤�
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.querySelector('.is-layer-dragging, .is-layer-drop-before')).toBeNull();
   const changed = container.querySelector('[data-testid="editor"]').textContent;
-  await act(async () => container.querySelector('[aria-label="撤销"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
-  await act(async () => container.querySelector('[aria-label="重做"]').click());
+  await key(container.querySelector('main'), 'z', { ctrlKey: true, shiftKey: true });
   await settle();
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(changed);
 });
@@ -1400,10 +1506,10 @@ for (const type of ['audio', 'video']) {
     const json = () => JSON.parse(container.querySelector('[data-testid="editor"]').textContent);
     expect(json().scenes[0].tracks[0].segments.find(item => item.id === type).loop).toBe(true);
     expect(container.querySelector(`[data-clip-id="${type}"]`).style.width).toBe(originalWidth);
-    await act(async () => container.querySelector('[aria-label="撤销"]').click());
+    await key(container.querySelector('main'), 'z', { ctrlKey: true });
     await settle();
     expect(loop().getAttribute('aria-checked')).toBe('false');
-    await act(async () => container.querySelector('[aria-label="重做"]').click());
+    await key(container.querySelector('main'), 'z', { ctrlKey: true, shiftKey: true });
     await settle();
     expect(loop().getAttribute('aria-checked')).toBe('true');
     await act(async () => loop().click());

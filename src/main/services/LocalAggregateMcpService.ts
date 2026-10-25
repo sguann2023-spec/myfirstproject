@@ -30,6 +30,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: DraftDownloadServer },
       { default: DraftElementsServer },
       { default: DraftManagementServer },
+      { default: DraftRenderServer },
       { default: FfmpegMediaServer },
       { default: FileSystemServer },
       { default: FileUploadServer },
@@ -63,6 +64,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/draft-download'),
       import('@main/mcpServers/draft-elements'),
       import('@main/mcpServers/draft-management'),
+      import('@main/mcpServers/draft-render'),
       import('@main/mcpServers/ffmpeg-media'),
       import('@main/mcpServers/filesystem'),
       import('@main/mcpServers/file-upload'),
@@ -167,6 +169,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'draft-management',
         serverName: 'draft-management',
         createInstance: () => new DraftManagementServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'draft-render',
+        serverName: 'draft-render',
+        createInstance: () => new DraftRenderServer(workspacePath).mcpServer
       },
       {
         serverId: 'draft-download',

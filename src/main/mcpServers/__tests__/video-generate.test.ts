@@ -425,6 +425,30 @@ describe('VideoGenerateServer', () => {
     })
   })
 
+  it.each(['insufficient_balance', 'backend_timeout; task_id=video-task-failed'])(
+    'preserves raw failed-task diagnostics for %s',
+    async (error) => {
+      mockNetFetch
+        .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+        .mockResolvedValueOnce(mockJsonResponse({
+          capabilities: { 'seedance-2.0': { resolutions: {} } },
+          prices: {}
+        }))
+        .mockResolvedValueOnce(mockJsonResponse({ status: 'ok', task_id: 'video-task-failed' }))
+        .mockResolvedValueOnce(mockJsonResponse({ status: 'failed', error }))
+
+      const result = await callTool(createServer(), {
+        model: 'seedance-2.0',
+        content: [{ type: 'text', text: 'A cat driving' }]
+      })
+
+      expect(result).toEqual({
+        content: [{ type: 'text', text: `Error: Video generation task failed: ${error}` }],
+        isError: true
+      })
+    }
+  )
+
   it('should keep super_resolve in submission payload', async () => {
     mockNetFetch
       .mockResolvedValueOnce(

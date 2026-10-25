@@ -47,6 +47,28 @@
   overflow: visible;
 }
 
+.chat-panel__local-file-preview-open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.chat-panel__local-file-preview-open:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.chat-panel__local-file-preview-open:focus-visible {
+  outline: 2px solid #4d53e8;
+  outline-offset: -2px;
+}
+
 .chat-panel__local-file-preview-remove {
   position: absolute;
   top: 50%;
@@ -62,7 +84,7 @@
   background: #171a1f;
   color: #ffffff;
   cursor: pointer;
-  z-index: 1;
+  z-index: 2;
   line-height: 0;
   transform: translateY(-50%);
   appearance: none;
@@ -222,4 +244,72 @@
   border-color: #4d53e8;
   background: #f5f7ff;
   color: #4d53e8;
+}
+
+.chat-panel__local-file-preview-thumb-loading {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #7d7d7d;
+}
+
+.chat-panel__local-file-preview-thumb-loading-icon {
+  animation: chat-panel-local-file-preview-spin 0.9s linear infinite;
+}
+
+@keyframes chat-panel-local-file-preview-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-panel__local-file-preview-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid #e6e8ee;
+  border-radius: 14px;
+  background: #fafbfc;
+}
+
+.chat-panel__local-file-preview-group-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-panel__local-file-preview-group-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: #2b2b2b;
+  white-space: nowrap;
+}
+
+.chat-panel__local-file-preview-group-hint {
+  font-size: 11px;
+  line-height: 14px;
+  color: #8a8f99;
+  white-space: nowrap;
+}
+
+.chat-panel__local-file-preview-group-files {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.chat-panel__local-file-preview-group-files .chat-panel__local-file-preview-item {
+  box-shadow: none;
+  background: #ffffff;
 }

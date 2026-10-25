@@ -25,7 +25,6 @@ import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
 import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search'
 import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
-import { buildToolOutputPreview } from './tool-output-preview'
 import { preserveMcpResult } from './mcp-result-storage'
 import { ImageInspectionState } from './image-inspection-state'
 import { normalizeImageGenerationArguments } from './image-generation-action'
@@ -317,17 +316,63 @@ export function buildPiBashTool(input: {
   }
 }
 
-function countOccurrences(haystack: string, needle: string): number {
-  if (!needle) return 0
-  let count = 0
-  let fromIndex = 0
-  while (true) {
-    const index = haystack.indexOf(needle, fromIndex)
-    if (index < 0) break
-    count += 1
-    fromIndex = index + needle.length
+// Map Claude Code style arguments onto the native pi schemas before the native
+// prepareArguments runs: file_path -> path, old_string/new_string -> oldText/newText.
+// replace_all is dropped because the native edit tool only supports unique-match edits.
+function normalizePiNativeFileToolArguments(rawParams: unknown): unknown {
+  if (!rawParams || typeof rawParams !== 'object' || Array.isArray(rawParams)) return rawParams
+  const params = { ...(rawParams as Record<string, unknown>) }
+
+  if (typeof params.file_path === 'string' && params.path === undefined) params.path = params.file_path
+  delete params.file_path
+  delete params.replace_all
+
+  if (typeof params.old_string === 'string' && params.oldText === undefined) params.oldText = params.old_string
+  if (typeof params.new_string === 'string' && params.newText === undefined) params.newText = params.new_string
+  delete params.old_string
+  delete params.new_string
+
+  if (Array.isArray(params.edits)) {
+    params.edits = params.edits.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry
+      const record = { ...(entry as Record<string, unknown>) }
+      if (typeof record.old_string === 'string' && record.oldText === undefined) record.oldText = record.old_string
+      if (typeof record.new_string === 'string' && record.newText === undefined) record.newText = record.new_string
+      delete record.old_string
+      delete record.new_string
+      return record
+    })
   }
-  return count
+
+  return params
+}
+
+export function wrapPiNativeFileTool(input: {
+  nativeTool: PiAgentHarnessTool
+  name: string
+  agentNode: PiNodeModule
+  cwd: string
+}): PiAgentHarnessTool {
+  const { nativeTool, name, agentNode, cwd } = input
+  const nativePrepareArguments = nativeTool.prepareArguments?.bind(nativeTool)
+  return {
+    ...nativeTool,
+    name,
+    label: name,
+    prepareArguments: (args: unknown) => {
+      const normalized = normalizePiNativeFileToolArguments(args)
+      return nativePrepareArguments ? nativePrepareArguments(normalized) : (normalized as never)
+    },
+    async execute(toolCallId, params, signal, onUpdate) {
+      const { NodeExecutionEnv } = agentNode
+      const env = new NodeExecutionEnv({ cwd })
+      try {
+        return await nativeTool.execute(toolCallId, params as never, signal, onUpdate, { env })
+      } finally {
+        await env.cleanup()
+      }
+    }
+  }
 }
 
 function toPiContentArray(value: unknown): Array<PiTextContent | PiImageContent> {
@@ -589,142 +634,30 @@ function buildBuiltinTools(input: {
   const { Type } = packageBridge.piAi
   const cwd = invokeContext.runtime.workspacePath
 
-  const readTool: PiAgentHarnessTool = {
+  const readTool = wrapPiNativeFileTool({
+    nativeTool: packageBridge.agentCore.createReadTool(),
     name: 'Read',
-    label: 'Read',
-    description: 'Read a file from the workspace. Supports file_path or path and optional offset/limit.',
-    parameters: Type.Object({
-      file_path: Type.Optional(Type.String()),
-      path: Type.Optional(Type.String()),
-      offset: Type.Optional(Type.Number()),
-      limit: Type.Optional(Type.Number())
-    }),
-    async execute(_toolCallId: string, rawParams: unknown) {
-      const params = rawParams as Record<string, unknown>
-      const rawPath = String(params.file_path || params.path || '').trim()
-      if (!rawPath) throw new Error('Read requires file_path or path')
-      const resolvedPath = resolveToolPath(rawPath, cwd)
-      const content = await fsp.readFile(resolvedPath, 'utf8')
-      const lines = content.split('\n')
-      const offset = Math.max(0, Number(params.offset ?? 1) - 1)
-      const limit = typeof params.limit === 'number' ? Math.max(1, Number(params.limit)) : undefined
-      const selected = limit ? lines.slice(offset, offset + limit) : lines.slice(offset)
-      const selectedText = selected.join('\n')
-      return {
-        ...buildToolOutputPreview({
-          toolName: 'Read',
-          sections: [
-            {
-              label: '文件内容',
-              text: selectedText,
-              startLine: offset + 1
-            }
-          ],
-          emptyText: '(no content)',
-          context: {
-            filePath: resolvedPath,
-            startLine: offset + 1,
-            endLine: offset + selected.length,
-            ...(typeof limit === 'number' ? { requestedLimit: limit } : {})
-          }
-        })
-      }
-    }
-  } as any
-
-  const writeTool: PiAgentHarnessTool = {
-    name: 'Write',
-    label: 'Write',
-    description: 'Write content to a file. Creates parent directories automatically.',
-    parameters: Type.Object({
-      file_path: Type.Optional(Type.String()),
-      path: Type.Optional(Type.String()),
-      content: Type.String()
-    }),
-    async execute(_toolCallId: string, rawParams: unknown) {
-      const params = rawParams as Record<string, unknown>
-      const rawPath = String(params.file_path || params.path || '').trim()
-      if (!rawPath) throw new Error('Write requires file_path or path')
-      const resolvedPath = resolveToolPath(rawPath, cwd)
-      await fsp.mkdir(path.dirname(resolvedPath), { recursive: true })
-      await fsp.writeFile(resolvedPath, String(params.content ?? ''), 'utf8')
-      return {
-        content: [{ type: 'text', text: `Successfully wrote ${resolvedPath}` }],
-        details: undefined
-      }
-    }
-  } as any
-
-  const editSchema = Type.Object({
-    file_path: Type.Optional(Type.String()),
-    path: Type.Optional(Type.String()),
-    old_string: Type.Optional(Type.String()),
-    new_string: Type.Optional(Type.String()),
-    replace_all: Type.Optional(Type.Boolean()),
-    edits: Type.Optional(
-      Type.Array(
-        Type.Object({
-          old_string: Type.Optional(Type.String()),
-          new_string: Type.Optional(Type.String()),
-          oldText: Type.Optional(Type.String()),
-          newText: Type.Optional(Type.String())
-        })
-      )
-    )
+    agentNode: packageBridge.agentNode,
+    cwd
   })
-
-  const editTool: PiAgentHarnessTool = {
+  const writeTool = wrapPiNativeFileTool({
+    nativeTool: packageBridge.agentCore.createWriteTool(),
+    name: 'Write',
+    agentNode: packageBridge.agentNode,
+    cwd
+  })
+  const editTool = wrapPiNativeFileTool({
+    nativeTool: packageBridge.agentCore.createEditTool(),
     name: 'Edit',
-    label: 'Edit',
-    description: 'Edit a file using exact string replacement.',
-    parameters: editSchema,
-    async execute(_toolCallId: string, rawParams: unknown) {
-      const params = rawParams as Record<string, unknown>
-      const rawPath = String(params.file_path || params.path || '').trim()
-      if (!rawPath) throw new Error('Edit requires file_path or path')
-      const resolvedPath = resolveToolPath(rawPath, cwd)
-      let content = await fsp.readFile(resolvedPath, 'utf8')
-
-      const edits = Array.isArray(params.edits)
-        ? params.edits.map((entry) => {
-            const record = (entry ?? {}) as Record<string, unknown>
-            return {
-              oldText: String(record.old_string ?? record.oldText ?? ''),
-              newText: String(record.new_string ?? record.newText ?? '')
-            }
-          })
-        : [
-            {
-              oldText: String(params.old_string ?? ''),
-              newText: String(params.new_string ?? '')
-            }
-          ]
-
-      const replaceAll = Boolean(params.replace_all)
-
-      for (const edit of edits) {
-        if (!edit.oldText) throw new Error('Edit requires old_string/oldText')
-        const occurrenceCount = countOccurrences(content, edit.oldText)
-        if (!replaceAll && occurrenceCount !== 1) {
-          throw new Error(`Edit expected exactly one match for target text, received ${occurrenceCount}`)
-        }
-        content = replaceAll ? content.split(edit.oldText).join(edit.newText) : content.replace(edit.oldText, edit.newText)
-      }
-
-      await fsp.writeFile(resolvedPath, content, 'utf8')
-      return {
-        content: [{ type: 'text', text: `Successfully edited ${resolvedPath}` }],
-        details: undefined
-      }
-    }
-  } as any
-
-  const multiEditTool: PiAgentHarnessTool = {
-    ...editTool,
+    agentNode: packageBridge.agentNode,
+    cwd
+  })
+  const multiEditTool = wrapPiNativeFileTool({
+    nativeTool: packageBridge.agentCore.createEditTool(),
     name: 'MultiEdit',
-    label: 'MultiEdit',
-    description: 'Apply multiple exact string replacements to a file.'
-  } as any
+    agentNode: packageBridge.agentNode,
+    cwd
+  })
 
   const piBashTool = buildPiBashTool({
     agentCore: packageBridge.agentCore,

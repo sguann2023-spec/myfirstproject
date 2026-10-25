@@ -1,6 +1,6 @@
 import React from 'react';
 import { CloseOutlined, DownOutlined } from '@ant-design/icons';
-import { ColorPicker, Dropdown, InputNumber, Select, Slider, Switch, Tooltip } from 'antd';
+import { ColorPicker, Dropdown, InputNumber, Slider, Switch, Tooltip } from 'antd';
 import {
   AlignCenter,
   AlignLeft,
@@ -19,6 +19,7 @@ import { queryScript } from '../../api/capcut';
 import { TEXT_FONT_OPTIONS } from './fontOptions';
 import RichTextPreview from './RichTextPreview';
 import TextEffectsPanel from './TextEffectsPanel';
+import TextSettingsPanel, { TextSettingSection } from './TextSettingsPanel';
 import TextTimelinePanel from './TextTimelinePanel';
 import useSettingsNotification from '../../shared/useSettingsNotification';
 
@@ -307,7 +308,6 @@ const TextAddDetail = ({
   const [fixedHeight, setFixedHeight] = React.useState(null);
   const [rotation, setRotation] = React.useState(0);
   const [isRotationDragging, setIsRotationDragging] = React.useState(false);
-  const [isTransformSectionExpanded, setIsTransformSectionExpanded] = React.useState(true);
   const [previewCanvasSize, setPreviewCanvasSize] = React.useState(null);
   const [previewCanvasLoading, setPreviewCanvasLoading] = React.useState(false);
   const [previewCanvasError, setPreviewCanvasError] = React.useState('');
@@ -707,10 +707,6 @@ const TextAddDetail = ({
   ]);
   useSettingsNotification(emittedSettings, onSettingsChange);
 
-  const handleStyleToggle = (styleKey) => {
-    updateTypography({ [styleKey]: activeTypography[styleKey] !== true });
-  };
-
   const handleTextColorChange = (colorValue) => {
     updateTypography({ color: colorValue.toUpperCase() });
   };
@@ -829,77 +825,10 @@ const TextAddDetail = ({
   ), [disabled]);
 
   const basicPanelContent = (
-    <div className="chat-panel__text-settings-form">
-      <div className="chat-panel__text-settings-row">
-        <div className="chat-panel__text-settings-label">字体</div>
-        <div className="chat-panel__text-settings-control">
-          <Select
-            showSearch
-            value={activeTypography.font}
-            disabled={disabled}
-            className="chat-panel__text-settings-select"
-            placeholder={activeTypography.font === null ? '多个值' : '选择字体'}
-            optionFilterProp="label"
-            options={fontOptions.map((fontName) => ({
-              label: fontName,
-              value: fontName,
-            }))}
-            onChange={(font) => updateTypography({ font })}
-          />
-        </div>
-      </div>
-
-      <div className="chat-panel__text-settings-row">
-        <div className="chat-panel__text-settings-label">字号</div>
-        <div className="chat-panel__text-settings-control chat-panel__text-settings-control--size">
-          <Slider
-            min={5}
-            max={300}
-            value={activeTypography.fontSize ?? fontSize}
-            disabled={disabled}
-            className="chat-panel__text-settings-slider"
-            tooltip={{ open: false }}
-            styles={{
-              rail: { backgroundColor: '#f5f5f5' },
-              track: { backgroundColor: '#888888' }
-            }}
-            onChange={(value) => updateTypography({ fontSize: value })}
-          />
-          <InputNumber
-            min={5}
-            max={300}
-            value={activeTypography.fontSize}
-            placeholder="多个值"
-            disabled={disabled}
-            className="chat-panel__text-settings-number"
-            {...NUMBER_INPUT_SHARED_PROPS}
-            onChange={(value) => { if (value != null) updateTypography({ fontSize: clampNumber(value, 5, 300, 24) }); }}
-          />
-        </div>
-      </div>
-
-      <div className="chat-panel__text-settings-row">
-        <div className="chat-panel__text-settings-label">样式</div>
-        <div className="chat-panel__text-settings-control">
-          <div className="chat-panel__text-settings-toggle-group">
-            {STYLE_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={`chat-panel__text-settings-toggle ${activeTypography[option.key] === true ? 'is-active' : ''}`}
-                disabled={disabled}
-                aria-label={option.label}
-                aria-pressed={activeTypography[option.key] === null ? 'mixed' : Boolean(activeTypography[option.key])}
-                title={activeTypography[option.key] === null ? '多个值' : option.label}
-                onClick={() => handleStyleToggle(option.key)}
-              >
-                <option.icon className="chat-panel__text-settings-toggle-icon" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
+    <TextSettingsPanel typography={activeTypography} fontSizeFallback={fontSize} fontOptions={fontOptions}
+      disabled={disabled} onTypographyChange={updateTypography} letterSpacing={letterSpacing} lineSpacing={lineSpacing}
+      onLetterSpacingChange={setLetterSpacing} onLineSpacingChange={setLineSpacing} align={textAlign} onAlignChange={setTextAlign}
+      colorControl={
       <div className="chat-panel__text-settings-row">
         <div className="chat-panel__text-settings-label">颜色</div>
         <div className="chat-panel__text-settings-control">
@@ -956,74 +885,8 @@ const TextAddDetail = ({
         </div>
       </div>
 
-      <div className="chat-panel__text-settings-row chat-panel__text-settings-row--spacing">
-        <div className="chat-panel__text-settings-spacing-row">
-          <span className="chat-panel__text-settings-spacing-letter-label">字间距</span>
-          <InputNumber
-            min={-100}
-            max={100}
-            value={letterSpacing}
-            disabled={disabled}
-            className="chat-panel__text-settings-number chat-panel__text-settings-spacing-letter-input"
-            {...NUMBER_INPUT_SHARED_PROPS}
-            onChange={(value) => setLetterSpacing(Number(value) || 0)}
-          />
-          <span className="chat-panel__text-settings-spacing-line-label">行间距</span>
-          <InputNumber
-            min={-100}
-            max={100}
-            value={lineSpacing}
-            disabled={disabled}
-            className="chat-panel__text-settings-number chat-panel__text-settings-spacing-line-input"
-            {...NUMBER_INPUT_SHARED_PROPS}
-            onChange={(value) => setLineSpacing(Number(value) || 0)}
-          />
-        </div>
-      </div>
-
-      <div className="chat-panel__text-settings-row">
-        <div className="chat-panel__text-settings-label">对齐方式</div>
-        <div className="chat-panel__text-settings-control">
-          <div className="chat-panel__text-settings-align-group">
-            {ALIGN_OPTIONS.map((option, index) => (
-              <React.Fragment key={option.key}>
-                {index === 3 ? <span className="chat-panel__text-settings-align-divider" aria-hidden="true" /> : null}
-                <button
-                  type="button"
-                  className={`chat-panel__text-settings-align ${textAlign === option.key ? 'is-active' : ''}`}
-                  disabled={disabled}
-                  aria-label={option.label}
-                  aria-pressed={textAlign === option.key}
-                  title={`${index < 3 ? '横排' : '竖排'}：${option.label}`}
-                  onClick={() => setTextAlign(option.key)}
-                >
-                  <option.icon
-                    className={`chat-panel__text-settings-align-icon ${option.iconClassName || ''}`.trim()}
-                    aria-hidden="true"
-                  />
-                </button>
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="chat-panel__text-settings-divider" aria-hidden="true" />
-
-      <button
-        type="button"
-        className="chat-panel__text-settings-section-header"
-        aria-expanded={isTransformSectionExpanded}
-        onClick={() => setIsTransformSectionExpanded((prev) => !prev)}
-      >
-        <span className="chat-panel__text-settings-section-title">位置大小</span>
-        <ChevronDown
-          className={`chat-panel__text-settings-section-icon ${isTransformSectionExpanded ? 'is-expanded' : ''}`}
-          aria-hidden="true"
-        />
-      </button>
-
-      {isTransformSectionExpanded ? (
+      }>
+      <TextSettingSection label="位置大小" defaultExpanded>
         <>
           <div className="chat-panel__text-settings-row">
             <div className="chat-panel__text-settings-label">{uniformScale ? '缩放' : '缩放宽度'}</div>
@@ -1145,11 +1008,11 @@ const TextAddDetail = ({
             </div>
           </div>
         </>
-      ) : null}
+      </TextSettingSection>
       <TextEffectsPanel key={effectsPanelSession} effects={{ ...textEffects, border: activeTypography.border, shadow: activeTypography.shadow }}
         disabled={disabled} onChange={updateTextEffect} typography={activeTypography}
         presetSettings={presetSettings} onPresetSelect={applyTextPreset} />
-    </div>
+    </TextSettingsPanel>
   );
 
   const settingsPopupContent = (

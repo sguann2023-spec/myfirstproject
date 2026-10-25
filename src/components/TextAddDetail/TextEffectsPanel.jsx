@@ -6,7 +6,7 @@ import { clampAnimationDuration, clampEffectPercent, clampShadowAngle, DEFAULT_T
 import { TEXT_ANIMATION_OPTIONS } from '../../shared/textAnimations';
 import TextPresetPanel from './TextPresetPanel';
 
-function EffectSection({ name, label, value, disabled, onChange, children, resettable = true, defaultExpanded = false }) {
+export function EffectSection({ name, label, value, disabled, onChange, children, resettable = true, defaultExpanded = false }) {
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   return <section className="chat-panel__text-effect-section" aria-label={`${label}设置`}>
     <div className="chat-panel__text-settings-divider" />
@@ -29,7 +29,7 @@ function EffectSection({ name, label, value, disabled, onChange, children, reset
   </section>;
 }
 
-function NumberControl({ label, name, value, disabled, percent = true, angle = false, onChange }) {
+export function NumberControl({ label, name, value, disabled, percent = true, angle = false, onChange }) {
   const change = (next) => {
     if (next == null || next === '') return;
     onChange(angle ? clampShadowAngle(next, value) : clampEffectPercent(next, value));
@@ -50,7 +50,7 @@ function NumberControl({ label, name, value, disabled, percent = true, angle = f
   </div>;
 }
 
-function ColorControl({ label, color, disabled, onChange }) {
+export function ColorControl({ label, color, disabled, onChange }) {
   return <div className="chat-panel__text-settings-row">
     <div className="chat-panel__text-settings-label">颜色</div>
     <div className="chat-panel__text-settings-control">

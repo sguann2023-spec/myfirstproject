@@ -129,7 +129,7 @@ parent 目前支持 parent.start 的非负偏移、parent.end 的零偏移。
 ## 轨道与执行
 
 - 现行完整规则见 [rules.md](./rules.md)，效果与关键帧配置见 [scene-json-rules.md](./scene-json-rules.md)。
-- 关键帧使用片段 common_keyframes；当前校验与保留配置，含关键帧或外部引用时阻止 Workflow 编译。
+- 关键帧使用片段/Scene common_keyframes；支持线性关键点编辑和递归 Workflow 导出，外部引用与曲线拒绝执行。
 - track.id 是逻辑轨道 ID，name 只负责展示；混排时由编译器生成不同类型的 track_name。
 - 排序默认使用 Scene 内 tracks 数组索引；可用 track_relative_index 显式覆盖，
   数值越大越靠上。层级树与时间轴同序，转换按后端类型基础值补偿 relative_index，

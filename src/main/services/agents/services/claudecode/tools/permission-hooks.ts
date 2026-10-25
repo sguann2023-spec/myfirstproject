@@ -84,7 +84,8 @@ export function createToolPermissionHandlers(input: {
       })
       return promptForToolApproval(toolName, toolInput, {
         ...options,
-        toolCallId: namespacedToolCallId
+        toolCallId: namespacedToolCallId,
+        rawToolCallId: options.toolUseID
       })
     }
 
@@ -113,7 +114,8 @@ export function createToolPermissionHandlers(input: {
 
     return promptForToolApproval(toolName, toolInput, {
       ...options,
-      toolCallId: buildNamespacedToolCallId(sessionId, options.toolUseID)
+      toolCallId: buildNamespacedToolCallId(sessionId, options.toolUseID),
+      rawToolCallId: options.toolUseID
     })
   }
 
@@ -200,7 +202,8 @@ export function createToolPermissionHandlers(input: {
         )
         const approval = await promptForToolApproval(toolName, updatedToolInput, {
           ...options,
-          toolCallId: namespacedToolCallId
+          toolCallId: namespacedToolCallId,
+          rawToolCallId: toolUseID
         })
 
         if (approval.behavior === 'allow') {
@@ -247,6 +250,7 @@ export function createToolPermissionHandlers(input: {
         await promptForToolApproval(toolName, updatedToolInput, {
           ...options,
           toolCallId: namespacedToolCallId,
+          rawToolCallId: toolUseID,
           autoApprove: true
         })
         return {

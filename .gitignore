@@ -31,6 +31,7 @@ cherry-studio-main/
 dist-main/
 .claw/
 .sandbox
+ZCode-main/
 
 resources/ffmpeg
 resources/python/*/python/

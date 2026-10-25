@@ -7,6 +7,7 @@ import type { FileMessageBlock, ImageMessageBlock, Message, ToolMessageBlock } f
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { createCitationBlock, createToolBlock } from '@renderer/utils/messageUtils/create'
 import { sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
+import { parseMaybeJsonToolArguments } from '@shared/parseToolArguments'
 import { isPlainObject } from 'lodash'
 
 import type { BlockManager } from '../BlockManager'
@@ -466,11 +467,14 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         const existingBlock = state.messageBlocks.entities[existingBlockId] as ToolMessageBlock | undefined
 
         const existingResponse = existingBlock?.metadata?.rawMcpToolResponse
-        // Merge order: toolResponse.arguments (base) -> existingResponse?.arguments -> resolvedInput (user answers take precedence)
+        // 流式阶段参数可能只落在 partialArguments（JSON 字符串）上，完成合并时兜底提升，避免卡片丢问题内容
+        const existingArguments =
+          existingResponse?.arguments ?? parseMaybeJsonToolArguments(existingResponse?.partialArguments)
+        // Merge order: toolResponse.arguments (base) -> existingResponse arguments (incl. streamed partials) -> resolvedInput (user answers take precedence)
         const mergedArguments = Object.assign(
           {},
           isPlainObject(nextToolResponse.arguments) ? nextToolResponse.arguments : null,
-          isPlainObject(existingResponse?.arguments) ? existingResponse?.arguments : null,
+          isPlainObject(existingArguments) ? existingArguments : null,
           isPlainObject(resolvedInput) ? resolvedInput : null
         )
 

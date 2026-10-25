@@ -25,6 +25,12 @@ import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
+import {
+  buildSkillExampleApplyDetail,
+  dispatchSkillExampleApply,
+  loadSkillExample,
+  stashPendingSkillExample
+} from '../../components/Chat/Composer/skillExample';
 import SkillStorePage from '../../components/SkillStore';
 import { getMembershipSummary } from '../../api/membership';
 import { getRechargeBalance } from '../../api/recharge';
@@ -42,6 +48,7 @@ import { normalizeDigitalHumanRequestPayload } from '../../shared/digitalHumanRe
 import { buildVoiceConversionRequestProcessingBlocks, normalizeVoiceConversionRequestPayload } from '../../shared/voiceConversionRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
+import { parseMaybeJsonToolArguments } from '../../shared/parseToolArguments';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
@@ -1757,9 +1764,16 @@ const sanitizePersistedToolResponse = (rawToolResponse = {}) => {
   const toolName = String(rawToolResponse?.tool?.name || 'tool');
   const rawResponse = rawToolResponse.responseRaw ?? rawToolResponse.response;
   const inlineResponse = limitInlineToolPayload(rawResponse, { label: `${toolName} 回包` });
+  // 流式参数可能只以 JSON 字符串形式停留在 partialArguments 上；持久化前提升为 arguments，
+  // 否则历史消息里的 AskUserQuestion 卡片会因拿不到问题内容而渲染成骨架占位。
+  const promotedArguments =
+    rawToolResponse.arguments
+    ?? (typeof rawToolResponse.partialArguments === 'string'
+      ? parseMaybeJsonToolArguments(rawToolResponse.partialArguments)
+      : undefined);
   return {
     ...rawToolResponse,
-    arguments: sanitizeInlinePayload(rawToolResponse.arguments, { label: `${toolName} 输入` }),
+    arguments: sanitizeInlinePayload(promotedArguments, { label: `${toolName} 输入` }),
     partialArguments: undefined,
     response: inlineResponse,
     responseRaw: rawResponse,
@@ -2566,10 +2580,22 @@ const HomePage = () => {
     updateChatDraftInput(next);
   }, []);
 
-  const handleSkillGoChat = useCallback((skill) => {
+  const handleSkillGoChat = useCallback(async (skill) => {
     const name = String(skill?.name || skill?.folderName || '').trim();
-    setSelectedPane('chat');
+    // Skills that ship an example.json usage template fill the chat input with
+    // the example prompt and attach the example videos to the composer.
+    const example = await loadSkillExample(skill);
+    if (example) {
+      const mention = name ? `@${name}` : '';
+      setChatDraftInput([mention, example.prompt].filter(Boolean).join('\n'));
+      const detail = buildSkillExampleApplyDetail(example, name);
+      stashPendingSkillExample(detail);
+      dispatchSkillExampleApply(detail);
+      setSelectedPane('chat');
+      return;
+    }
     setChatDraftInput(name ? `@${name} ` : '');
+    setSelectedPane('chat');
   }, []);
 
   const handleOpenSkillStore = useCallback(() => {
@@ -2601,6 +2627,7 @@ const HomePage = () => {
   const chatWorkspaceHydrationSuppressedRef = useRef(new Set());
   const chatDeferredSessionChangeHydrateRef = useRef(new Map());
   const chatPersistTimerRef = useRef(null);
+  const lastPersistedRuntimeSessionIdsRef = useRef(new Set());
   const creditsBalanceMountedRef = useRef(true);
   const [chatTitleRenamingSessionIds, setChatTitleRenamingSessionIds] = useState([]);
   const [chatTitleNewlyRenamedSessionIds, setChatTitleNewlyRenamedSessionIds] = useState([]);
@@ -2717,7 +2744,17 @@ const HomePage = () => {
           || Number(message?.metrics?.completion_tokens || 0) > 0
         )
       ));
-      if (!hasAssistantContentOrUsage) {
+      // A kill mid-turn can leave history with the user message but no assistant
+      // reply. Still apply it when the in-memory chat has no assistant message
+      // (e.g. right after a restart), so the persisted prompt is not dropped.
+      const currentHasAssistantMessage = (Array.isArray(currentSessionAtHydrateStart?.messages)
+        ? currentSessionAtHydrateStart.messages
+        : []
+      ).some((message) => String(message?.role || '').toLowerCase() === 'assistant');
+      const hydratedHasUserContent = hydratedMessages.some((message) => (
+        message.role === 'user' && String(message?.content || '').trim()
+      ));
+      if (!hasAssistantContentOrUsage && (currentHasAssistantMessage || !hydratedHasUserContent)) {
         logger.warn('[HomePage][HistoryHydrate] skipped persisted sync without assistant content', {
           chatId: normalizedChatId,
           sessionId: normalizedSessionId,
@@ -3220,6 +3257,14 @@ const HomePage = () => {
             setChatHistoryVisible(false);
           }
 
+          // Seed the immediate-persist guard so restored sessions don't trigger
+          // a redundant store rewrite on mount.
+          nextSessions.forEach((session) => {
+            const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+            if (runtimeSessionId) {
+              lastPersistedRuntimeSessionIdsRef.current.add(runtimeSessionId);
+            }
+          });
           setChatSessions(nextSessions);
           setActiveChatId(nextActiveChatId);
           return;
@@ -3257,7 +3302,7 @@ const HomePage = () => {
       clearTimeout(chatPersistTimerRef.current);
     }
 
-    chatPersistTimerRef.current = setTimeout(() => {
+    const writeChatSessionsToStore = () => {
       try {
         const persistedSessions = serializeChatSessionsForPersistence(chatSessions, chatModelOptions);
         electronStore.set(CHAT_STORAGE_KEY, persistedSessions);
@@ -3266,12 +3311,32 @@ const HomePage = () => {
         }
         localStorage.removeItem(CHAT_STORAGE_KEY);
         localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
+        lastPersistedRuntimeSessionIdsRef.current = new Set(
+          chatSessions
+            .map((session) => String(session?.runtimeSessionId || '').trim())
+            .filter(Boolean)
+        );
       } catch (error) {
         logger.warn('Failed to persist chat sessions to electronStore.', error);
       } finally {
         chatPersistTimerRef.current = null;
       }
-    }, CHAT_PERSIST_DEBOUNCE_MS);
+    };
+
+    // runtimeSessionId is the only link between a chat entry and its persisted
+    // history in the backend; losing it to a hard kill orphans the whole
+    // conversation, so write it through immediately instead of debouncing.
+    const hasNewRuntimeSessionId = chatSessions.some((session) => {
+      const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
+      return Boolean(runtimeSessionId) && !lastPersistedRuntimeSessionIdsRef.current.has(runtimeSessionId);
+    });
+
+    if (hasNewRuntimeSessionId) {
+      writeChatSessionsToStore();
+      return undefined;
+    }
+
+    chatPersistTimerRef.current = setTimeout(writeChatSessionsToStore, CHAT_PERSIST_DEBOUNCE_MS);
 
     return () => {
       if (chatPersistTimerRef.current) {
@@ -3520,7 +3585,16 @@ const HomePage = () => {
             || Number(message?.metrics?.completion_tokens || 0) > 0
           )
         ));
-        if (!hasAssistantContentOrUsage) {
+        // Same rule as hydratePersistedChatSessionFromHistory: allow user-only
+        // history to hydrate when memory has no assistant message (restart case).
+        const currentHasAssistantMessage = (Array.isArray(activeChatSession.messages)
+          ? activeChatSession.messages
+          : []
+        ).some((message) => String(message?.role || '').toLowerCase() === 'assistant');
+        const hydratedHasUserContent = hydratedMessages.some((message) => (
+          message.role === 'user' && String(message?.content || '').trim()
+        ));
+        if (!hasAssistantContentOrUsage && (currentHasAssistantMessage || !hydratedHasUserContent)) {
           chatHistoryHydrateSettledRef.current.add(hydrateKey);
           logger.warn('[HomePage][HistoryHydrate] skipped missing assistant content', {
             chatId: activeChatSession.id,

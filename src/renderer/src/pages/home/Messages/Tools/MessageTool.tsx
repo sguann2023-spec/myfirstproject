@@ -4,6 +4,7 @@ import React from 'react'
 
 import { MessageAgentTools } from './MessageAgentTools'
 import { AgentToolsType } from './MessageAgentTools/types'
+import { isDraftRenderToolName, DRAFT_RENDER_TOOL_NAME } from './MessageAgentTools/draftRenderTool'
 import { MessageKnowledgeSearchToolTitle } from './MessageKnowledgeSearch'
 import { MessageMemorySearchToolTitle } from './MessageMemorySearch'
 import { MessageWebSearchToolTitle } from './MessageWebSearch'
@@ -25,6 +26,11 @@ const isAgentTool = (toolName: AgentToolsType) => {
 const ChooseTool = (toolResponse: NormalToolResponse): React.ReactNode | null => {
   let toolName = toolResponse.tool.name
   const toolType = toolResponse.tool.type
+  // Aggregated MCP results can carry a bare tool name + serverName, or server:tool.
+  // Normalize only for dispatch; keep the display title localized as 预渲染.
+  if (isDraftRenderToolName(toolName, (toolResponse.tool as { serverName?: string }).serverName)) {
+    return <MessageAgentTools toolResponse={{ ...toolResponse, tool: { ...toolResponse.tool, name: DRAFT_RENDER_TOOL_NAME } }} />
+  }
   if (toolName.startsWith(builtinToolsPrefix)) {
     toolName = toolName.slice(builtinToolsPrefix.length)
     switch (toolName) {

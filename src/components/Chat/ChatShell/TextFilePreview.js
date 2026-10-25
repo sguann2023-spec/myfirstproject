@@ -211,10 +211,22 @@ const TextFilePreview = ({
   const modelName = String(currentModelMeta?.name || '').trim();
   const modelFallback = (modelName || 'M').charAt(0).toUpperCase();
   const bodyRef = React.useRef(null);
+  const mediaRef = React.useRef(null);
+  React.useEffect(() => {
+    const media = mediaRef.current;
+    if (media) media.src = src;
+    return () => {
+      if (!media) return;
+      media.pause();
+      media.removeAttribute('src');
+      media.load();
+    };
+  }, [src, kind, supportsContentPreview, isMediaPreview]);
   const [commentDraft, setCommentDraft] = React.useState('');
   const [editDraft, setEditDraft] = React.useState(() => String(content || ''));
   const [isEditing, setIsEditing] = React.useState(false);
   const [savingEdit, setSavingEdit] = React.useState(false);
+  const [mediaError, setMediaError] = React.useState(false);
   const supportsLineComments = supportsContentPreview && !isMediaPreview && !isEditing;
   const [commentPopover, setCommentPopover] = React.useState({
     open: false,
@@ -225,6 +237,10 @@ const TextFilePreview = ({
   });
   const canSubmitComment = Boolean(String(commentDraft || '').trim());
   const canSaveEdit = supportsEditing && isEditing && !savingEdit && editDraft !== String(content || '');
+
+  React.useEffect(() => {
+    setMediaError(false);
+  }, [src]);
 
   React.useEffect(() => {
     setEditDraft(String(content || ''));
@@ -426,29 +442,35 @@ const TextFilePreview = ({
         )}
         {supportsContentPreview && !isEditing && isMediaPreview && (
           <div className={`chat-file-preview__media-shell chat-file-preview__media-shell--${kind}`.trim()}>
+            {mediaError ? <div className="chat-file-preview__state" role="status">无法加载媒体，请检查文件或链接是否有效。</div> : null}
             {kind === 'image' && (
               <img
                 className="chat-file-preview__media chat-file-preview__media--image"
                 src={src}
                 alt={name || '图片预览'}
                 draggable={false}
+                onError={() => setMediaError(true)}
               />
             )}
             {kind === 'video' && (
               <video
+                ref={mediaRef}
                 className="chat-file-preview__media chat-file-preview__media--video"
                 src={src}
                 controls
                 playsInline
                 preload="metadata"
+                onError={() => setMediaError(true)}
               />
             )}
             {kind === 'audio' && (
               <audio
+                ref={mediaRef}
                 className="chat-file-preview__media chat-file-preview__media--audio"
                 src={src}
                 controls
                 preload="metadata"
+                onError={() => setMediaError(true)}
               />
             )}
           </div>

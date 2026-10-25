@@ -203,7 +203,7 @@ class DraftManagementServer {
     })
   }
 
-  private async ensureValidAccessToken(forceRefresh = false): Promise<string> {
+  private async ensureValidAccessToken(forceRefresh = false, signal?: AbortSignal): Promise<string> {
     if (!forceRefresh && this.accessToken && Date.now() < this.accessToken.expiresAt - 30_000) {
       return this.accessToken.accessToken
     }
@@ -217,7 +217,8 @@ class DraftManagementServer {
       throw new Error('No refresh token found, please sign in first')
     }
 
-    this.refreshPromise = this.refreshAccessToken(refreshToken)
+    signal?.throwIfAborted()
+    this.refreshPromise = this.refreshAccessToken(refreshToken, signal)
 
     try {
       return await this.refreshPromise
@@ -226,7 +227,7 @@ class DraftManagementServer {
     }
   }
 
-  private async refreshAccessToken(refreshToken: string): Promise<string> {
+  private async refreshAccessToken(refreshToken: string, signal?: AbortSignal): Promise<string> {
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
@@ -239,7 +240,8 @@ class DraftManagementServer {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      signal
     })
 
     if (!response.ok) {
@@ -271,11 +273,13 @@ class DraftManagementServer {
     return accessToken
   }
 
-  private async requestWithAuth(
+  public async requestWithAuth(
     endpoint: string,
-    body: Record<string, unknown>
+    body: Record<string, unknown>,
+    signal?: AbortSignal
   ): Promise<Response> {
-    const token = await this.ensureValidAccessToken()
+    signal?.throwIfAborted()
+    const token = await this.ensureValidAccessToken(false, signal)
 
     const doFetch = async (accessToken: string): Promise<Response> =>
       net.fetch(`${API_HOST}${endpoint}`, {
@@ -284,12 +288,13 @@ class DraftManagementServer {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal
       })
 
     let response = await doFetch(token)
     if (response.status === 401) {
-      const refreshedToken = await this.ensureValidAccessToken(true)
+      const refreshedToken = await this.ensureValidAccessToken(true, signal)
       response = await doFetch(refreshedToken)
     }
     return response
@@ -588,6 +593,24 @@ class DraftManagementServer {
       action: 'modify_draft',
       ...result
     })
+  }
+
+  /** Internal query: no workspace artifact and no script content exposed to the agent. */
+  public async queryScriptInMemory(draftId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    const response = await this.requestWithAuth(QUERY_SCRIPT_ENDPOINT, { draft_id: draftId, force_update: true }, signal)
+    if (!response.ok) throw new Error(`Query draft script failed (${response.status})`)
+    const result = await response.json() as QueryScriptResponse
+    if (result.success === false) throw new Error('Query draft script failed')
+    let script: unknown
+    try {
+      script = typeof result.output === 'string' ? JSON.parse(result.output) : result.output
+    } catch {
+      throw new Error('Query draft script returned invalid JSON')
+    }
+    if (!script || typeof script !== 'object' || Array.isArray(script)) {
+      throw new Error('Query draft script returned no script object')
+    }
+    return script as Record<string, unknown>
   }
 
   private async queryScript(args: Record<string, unknown>) {

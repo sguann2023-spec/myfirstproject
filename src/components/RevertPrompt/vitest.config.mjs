@@ -14,6 +14,7 @@ export default defineConfig({
   }],
   resolve: {
     alias: {
+      '@types': fileURLToPath(new URL('../../renderer/src/types/index.ts', import.meta.url)),
       '@renderer': fileURLToPath(new URL('../../renderer/src', import.meta.url)),
       '@main': fileURLToPath(new URL('../../main', import.meta.url)),
       '@shared': fileURLToPath(new URL('../../packages/shared', import.meta.url)),
@@ -24,6 +25,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: [
       'src/components/RevertPrompt/*.test.jsx',
+      'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/draftRender*.test.*',
       'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/mediaGenerationBilling.test.ts',
       'src/renderer/src/pages/home/Messages/__tests__/MessageTokens.test.tsx',
     ],

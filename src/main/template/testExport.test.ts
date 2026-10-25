@@ -15,13 +15,22 @@ const dependencies = () => ({
 })
 
 describe('测试执行与草稿导出', () => {
-  it('执行当前文档后导出返回的草稿，保留编译警告', async () => {
+  it('执行当前文档后导出返回的草稿，无未适配配置时不产生警告', async () => {
     const deps = dependencies()
     const output = await new TemplateTestExporter(deps).run(1, payload())
     expect(output).toMatchObject({ draftId: 'draft-1', status: 'queued' })
-    expect(output.warnings.length).toBeGreaterThan(0)
+    expect(output.warnings).toEqual([])
     expect(deps.exportDraft).toHaveBeenCalledWith({ draft_id: 'draft-1', draft_name: '模版测试-draft-1' })
     expect(deps.execute.mock.invocationCallOrder[0]).toBeLessThan(deps.exportDraft.mock.invocationCallOrder[0])
+  })
+
+  it('导出结果完整保留实际产生的编译警告', async () => {
+    const template = structuredClone(editorInitialTemplate)
+    template.scenes[0].clip = { alpha: 0.5 }
+    const warnings = compileDraftTemplate(template).warnings
+    expect(warnings).toContain('scene-1.clip 已保留，当前 Workflow 尚未适配分镜整体变换')
+    const output = await new TemplateTestExporter(dependencies()).run(1, { templateJson: JSON.stringify(template) })
+    expect(output.warnings).toEqual(warnings)
   })
 
   it('执行适配使用变量保护普通字符串，不修改界面 workflow', () => {

@@ -6,12 +6,19 @@ import { setEditorClipTiming, type ClipTimingAction } from './editorClipTiming'
 import { mediaDurationMicros } from '../../shared/templateMediaTiming'
 import { pasteEditorElement, type PasteEditorAction } from './editorClipboard'
 import { dropEditorLayer, type LayerDropAction } from './editorLayerDrop'
+import { keyframeProperty, keyframePropertiesFor, validateKeyframeValue } from '../../shared/templateKeyframes'
+import { randomUUID } from 'node:crypto'
+import { templateProperty, writeStaticProperty, type PropertyAction } from '../../shared/templateProperties'
+import { configurationProperty } from '../../shared/templateConfiguration'
+import { applyConfiguration } from './configurationWorkflow'
 
 export type EditorAction =
+  | PropertyAction
   | ClipDropAction
   | ClipSceneDropAction
   | ClipTimingAction
   | { type: 'clip-loop'; id: string; enabled: boolean }
+  | { type: 'keyframe'; id: string; property: string; time: number; value?: number; remove?: boolean; removeGroup?: boolean }
   | PasteEditorAction
   | LayerDropAction
   | { type: 'rename'; id: string; name: string }
@@ -22,6 +29,14 @@ export type EditorAction =
 
 // All visual edits are transactional: normalize the copy before returning any JSON.
 export function applyEditorAction(payload: EditorPayload, action: EditorAction) {
+  if (action.type === 'property') {
+    if (!['static', 'keyframe'].includes(action.mode)) throw new Error('属性模式无效')
+    if (action.mode === 'keyframe') {
+      if (action.value !== undefined && typeof action.value !== 'number') throw new Error('关键帧值必须是数字')
+      return applyEditorAction(payload, { ...action, value: action.value as number | undefined, type: 'keyframe', time: action.time! })
+    }
+    if (action.remove || action.removeGroup || action.time !== undefined) throw new Error('静态属性不接受关键帧操作')
+  }
   const { draft, normalized } = parseEditorDocument(payload)
   if (!draft || !normalized) throw new Error('交互编辑仅支持剪映结构模版')
   type Entry = { item: DraftScene | DraftTrackItem; scene?: DraftScene; track?: DraftTrack; remove: () => void }
@@ -138,6 +153,52 @@ export function applyEditorAction(payload: EditorPayload, action: EditorAction) 
       track.scene.tracks.splice(track.scene.tracks.indexOf(track.track), 1)
       selectedId = track.scene.id
     } else throw new Error('元素不存在')
+  } else if (action.type === 'property') {
+    const entry = entries.get(action.id)
+    const time = times.get(action.id)
+    if (!entry || !time) throw new Error('元素不存在')
+    if (configurationProperty(time.type, action.property)) {
+      applyConfiguration(draft, entry.item as DraftSegment, time.type, action.property, action.value)
+    } else {
+      if (typeof action.value !== 'number') throw new Error('静态变换值必须是数字')
+      Object.assign(entry.item, writeStaticProperty(entry.item, time.type, action.property, action.value))
+    }
+  } else if (action.type === 'keyframe') {
+    const entry = entries.get(action.id)
+    const time = times.get(action.id)
+    const property = keyframeProperty(action.property)
+    if (!entry || !time || !property || !keyframePropertiesFor(time.type).some(item => item.key === property.key)) {
+      throw new Error('当前元素不支持此关键帧属性')
+    }
+    const item = entry.item
+    const groups = item.common_keyframes ??= []
+    let group = groups.find(group => keyframeProperty(group.property_type)?.key === property.key)
+    if (action.removeGroup) {
+      item.common_keyframes = groups.filter(candidate => candidate !== group)
+      if (group) item.keyframe_refs = item.keyframe_refs?.filter(id => id !== group!.id)
+    } else {
+      const offset = micros(action.time)
+      if (action.remove) {
+        if (group) group.keyframe_list = group.keyframe_list.filter(frame => frame.time_offset !== offset)
+      } else {
+        if (offset > Math.round(time.duration * 1_000_000)) throw new Error('关键帧时间不能超出片段时长')
+        validateKeyframeValue(property.key, action.value!)
+        if (groups.some(group => {
+          const key = keyframeProperty(group.property_type)?.key
+          return group.keyframe_list.length && (property.key === 'uniform_scale'
+            ? key === 'scale_x' || key === 'scale_y' : ['scale_x', 'scale_y'].includes(property.key) && key === 'uniform_scale')
+        })) throw new Error('整体缩放不能与 X/Y 缩放关键帧同时使用')
+        if (!group) {
+          group = { id: randomUUID(), property_type: templateProperty(time.type, property.key).native, keyframe_list: [] }
+          groups.push(group)
+        }
+        group.property_type = templateProperty(time.type, property.key).native
+        const frame = group.keyframe_list.find(frame => frame.time_offset === offset)
+        if (frame) frame.values = [action.value!]
+        else group.keyframe_list.push({ id: randomUUID(), time_offset: offset, values: [action.value!], curveType: 'Line' })
+        group.keyframe_list.sort((a, b) => a.time_offset - b.time_offset)
+      }
+    }
   } else if (action.type === 'clip-loop') {
     const entry = entries.get(action.id)
     const time = times.get(action.id)

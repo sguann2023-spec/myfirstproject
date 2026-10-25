@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const server = await createServer({
   configFile: false, root, appType: 'custom', plugins: [react()],
-  server: { host: '127.0.0.1', port: 5198, strictPort: true },
+  server: { host: '127.0.0.1', port: Number(process.env.TEMPLATE_PREVIEW_PORT ?? 5198), strictPort: true },
 });
 server.middlewares.use('/__template_api', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -22,7 +22,8 @@ server.middlewares.use('/__template_api', async (req, res) => {
     const presets = await server.ssrLoadModule('/src/main/template/editorPresets.ts');
     const actions = await server.ssrLoadModule('/src/main/template/editorActions.ts');
     const handlers = {
-      'template:editor-defaults': id => ({ templateJson: JSON.stringify(presets.createEditorPreset(id), null, 2) }),
+      'template:editor-defaults': options => ({ templateJson: JSON.stringify(
+        presets.createEditorPreset(typeof options === 'string' ? options : options?.presetId ?? 'empty'), null, 2) }),
       'template:editor-analyze': model.analyzeEditorDocument,
       'template:editor-compile': model.compileEditorDocument,
       'template:editor-add': model.addEditorElement,
@@ -43,4 +44,4 @@ server.middlewares.use('/__template_preview', async (req, res) => {
 <body><div id="root"></div><script type="module" src="/scripts/template-editor-preview.jsx"></script></body></html>`));
 });
 await server.listen();
-console.log('Template editor: http://127.0.0.1:5198/__template_preview?preset=sentence-image');
+console.log(`Template editor: http://127.0.0.1:${process.env.TEMPLATE_PREVIEW_PORT ?? 5198}/__template_preview?preset=sentence-image`);

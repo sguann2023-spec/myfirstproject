@@ -169,7 +169,7 @@ describe('Scene 包裹剪映草稿轨道', () => {
     expect(native.materials.videos[0].path).not.toBe('/changed')
   })
 
-  it('关键帧保持原生配置与偏移，自动对齐不改写，导出明确拒绝', () => {
+  it('关键帧保持原生配置与偏移，自动对齐不改写，导出支持线性动画', () => {
     const template = fixture()
     image(template).common_keyframes = [{
       id: 'scale-group', property_type: 'KFTypeScaleY', material_id: '',
@@ -183,7 +183,7 @@ describe('Scene 包裹剪映草稿轨道', () => {
     expect(analyzeDraftTemplate(template).timeline.find(({ id }) => id === 'image-1'))
       .toMatchObject({ start: 9.2838, end: 21.6308 })
     expect(template).toEqual(before)
-    expect(() => compileDraftTemplate(template)).toThrow('关键帧')
+    expect(JSON.stringify(compileDraftTemplate(template).workflow)).toContain('add_video_keyframe')
     const added = addEditorElement(payload(template), { type: 'text', selectedId: 'scene-1' })
     expect(image(JSON.parse(added.templateJson)).common_keyframes).toEqual(image(template).common_keyframes)
     image(template).common_keyframes![0].keyframe_list[1].time_offset = 0

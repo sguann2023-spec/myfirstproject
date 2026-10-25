@@ -78,7 +78,7 @@ describe('剪映字段 dynamic 输入', () => {
     expect(track.segments).toHaveLength(1)
   })
 
-  it('关键帧声明原生数组与微秒字段，仅校验保留，不放开动画导出', () => {
+  it('关键帧声明原生数组与微秒字段，编译时应用动态替换并导出动画', () => {
     const template = fixture()
     const segment = template.scenes[0].tracks[1].segments[0]
     segment.common_keyframes = [{
@@ -91,7 +91,7 @@ describe('剪映字段 dynamic 输入', () => {
     expect(result.scenes[0].tracks[1].segments[0].common_keyframes![0].keyframe_list[0])
       .toMatchObject({ time_offset: 1_000_000, values: [1.5] })
     expect(analyzeDraftTemplate(template, modifications).timeline).toHaveLength(7)
-    expect(() => compileDraftTemplate(template, modifications)).toThrow('关键帧')
+    expect(JSON.stringify(compileDraftTemplate(template, modifications).workflow)).toContain('add_video_keyframe')
     expect(() => analyzeDraftTemplate(template, { 'keyframe-1.values': [] })).toThrow('values')
   })
 

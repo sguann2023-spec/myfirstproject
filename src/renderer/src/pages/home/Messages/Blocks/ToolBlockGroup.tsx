@@ -17,6 +17,8 @@ import { getEffectiveStatus, type ToolStatus } from '../Tools/MessageAgentTools/
 import MessageTools from '../Tools/MessageTools'
 import ToolApprovalActionsComponent from '../Tools/ToolApprovalActions'
 import ToolHeader from '../Tools/ToolHeader'
+import { isDraftRenderToolName } from '../Tools/MessageAgentTools/draftRenderTool'
+import { DraftRenderBillingBadge } from '../Tools/MessageAgentTools/DraftRenderToolRenderer'
 import BlockErrorFallback from './BlockErrorFallback'
 
 const logger = loggerService.withContext('NewBlocks/ToolBlockGroup')
@@ -184,6 +186,13 @@ const GroupHeaderContent = React.memo(({ blocks, allCompleted }: GroupHeaderCont
       <GroupHeader>
         <Wrench size={14} className="tool-icon" />
         <span className="tool-count">{t('message.tools.groupHeader', { count: blocks.length })}</span>
+        {blocks.map((block) => {
+          const result = block.metadata?.rawMcpToolResponse
+          const serverName = (result?.tool as { serverName?: string } | undefined)?.serverName
+          return isDraftRenderToolName(result?.tool?.name || '', serverName)
+            ? <DraftRenderBillingBadge key={block.id} output={{ response: result?.response, responseRaw: result?.responseRaw }} />
+            : null
+        })}
       </GroupHeader>
     )
   }

@@ -5,6 +5,9 @@ import { backendTrackType, isSceneSegment, logicalTrackLayout, mapWorkflowTracks
 import { mediaDurationMicros } from '../../shared/templateMediaTiming'
 import { stickerClipTransforms, stickerIdentifier } from './stickerWorkflow'
 import { resourceFields } from './resourceWorkflow'
+import { executableKeyframes } from './keyframeWorkflow'
+import { staticPropertyParams } from '../../shared/templateProperties'
+import { nativeConfigurationParams } from './configurationWorkflow'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -287,12 +290,14 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
           id: segment.id, name: segment.name ?? String(material.material_name ?? material.name ?? segment.id),
           type, track_name: track.id, track_relative_index: relative, ...timing(segment)
         }
+        element.configuration = nativeConfigurationParams(draft, segment, material, type)
+        const speed = Number(element.configuration.speed ?? 1)
         if (segment.duration_mode === 'media') {
           const duration = mediaDurationMicros(segment, material)
           if (duration === undefined) throw new Error(`${segment.id} 媒体模式缺少有效源时长`)
           if (segment.auto_timing?.start && segment.auto_timing.end) throw new Error(`${segment.id} 媒体时长不能同时使用自动结束`)
           if (!segment.auto_timing?.end) delete element.target_end_time
-          element.duration = duration / 1_000_000
+          element.duration = duration / 1_000_000 / speed
         }
         if (segment.loop !== undefined) {
           element.loop = segment.loop
@@ -304,7 +309,6 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
           try { content = JSON.parse(material.content ?? '') } catch { throw new Error(`${material.id}.content 必须是文字 JSON 字符串`) }
           if (!content || typeof content.text !== 'string') throw new Error(`${material.id}.content 缺少 text`)
           element.text = content.text
-          warnings.push(`${segment.id} 暂仅转换文字内容，富文本样式未适配`)
         } else if (type === 'sticker') {
           element.sticker_id = stickerIdentifier(material)
           Object.assign(element, stickerClipTransforms(segment.clip, segment.id))
@@ -324,10 +328,11 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
                 }
               }
             }
-            if (segment.speed !== undefined && segment.speed !== 1) throw new Error(`${segment.id} 暂不支持非 1 倍速`)
+            if (type !== 'audio' && segment.speed !== undefined && segment.speed !== 1) throw new Error(`${segment.id} 暂不支持视频非 1 倍速`)
           }
         }
-        if (segment.clip && type !== 'sticker') warnings.push(`${segment.id}.clip 已保留，当前 Workflow 尚未适配画面变换`)
+        if (['image', 'video', 'text'].includes(type)) Object.assign(element, staticPropertyParams(segment, type))
+        else if (segment.clip && type !== 'sticker') warnings.push(`${segment.id}.clip 已保留，当前 Workflow 尚未适配画面变换`)
         if (Array.isArray(segment.extra_material_refs) && segment.extra_material_refs.length) {
           warnings.push(`${segment.id}.extra_material_refs 已保留，当前 Workflow 尚未适配附加素材`)
         }
@@ -366,10 +371,21 @@ export function compileDraftTemplate(draft: DraftTemplate, modifications: Record
   const dynamicInputs = getDynamicInputs(draft)
   draft = applyDynamicInputs(draft, modifications)
   const normalized = normalizeDraftTemplate(draft)
-  if (normalized.hasKeyframes) throw new Error('模版包含关键帧，当前尚未支持关键帧 Workflow 执行，禁止丢弃动画后导出')
+  const animationTypes = new Map(normalized.analysis.timeline.map(element => [element.id, element.type]))
+  function validateAnimation(scene: DraftScene) {
+    executableKeyframes(scene, 'composition')
+    for (const track of scene.tracks) for (const segment of track.segments) {
+      if (isSceneSegment(segment)) validateAnimation(segment)
+      else {
+        executableKeyframes(segment, animationTypes.get(segment.id)!)
+      }
+    }
+    scene.scenes?.forEach(validateAnimation)
+  }
+  draft.scenes.forEach(validateAnimation)
   const backend = mapWorkflowTracks(normalized.template, normalized.logicalTracks)
   const result = compileSceneTemplate(backend.template)
-  const dynamic = getDynamicInputs(draft).length
+  const dynamic = getDynamicInputs(draft).length || normalized.hasKeyframes
     ? compileDynamicWorkflow(draft, backend.template, result.duration) : undefined
   return { ...result, ...normalized.analysis, template: structuredClone(draft), dynamicInputs,
     workflow: dynamic?.workflow ?? result.workflow,
