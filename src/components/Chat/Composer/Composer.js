@@ -95,6 +95,12 @@ import {
 } from '../../../shared/musicGenerateReferences';
 
 const { shell } = window.require('electron');
+
+const CHAT_MODEL_ANALYTICS_EVENTS = new Map([
+  ['qwen3.8-flash', { exposure: 'qwen_3_8_flash_expore', click: 'qwen_3_8_flash_click' }],
+  ['gemini-3.8-flash', { exposure: 'gemini_3_8_flash_expore', click: 'gemini_3_8_flash_click' }],
+  ['gemini-4-argon', { exposure: 'gemini_4_argon_expore', click: 'gemini_4_argon_click' }],
+]);
 const MAX_UPLOAD_COUNT = 100;
 const SKILL_MENTION_CLOSE_DELAY = 120;
 const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
@@ -5404,18 +5410,22 @@ const Composer = ({
                 optionLabelProp="selectedLabel"
                 loading={modelListLoading}
                 onChange={(value) => {
-                  if (String(value || '').trim().toLowerCase() === 'qwen3.8-flash') {
-                    trackEvent('qwen_3_8_flash_click', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
+                  const modelId = String(value || '').trim().toLowerCase();
+                  const events = CHAT_MODEL_ANALYTICS_EVENTS.get(modelId);
+                  if (events) {
+                    trackEvent(events.click, { source: 'chat_model_picker', model: modelId });
                   }
                   onModelChange && onModelChange(value);
                 }}
                 onOpenChange={(open) => {
                   setModelPickerOpen(open);
-                  if (open && availableModelOptions.some((item) => {
-                    const value = String(item?.value || '').trim().toLowerCase();
-                    return value === 'qwen3.8-flash';
-                  })) {
-                    trackEvent('qwen_3_8_flash_expore', { source: 'chat_model_picker', model: 'qwen3.8-flash' });
+                  if (open) {
+                    const availableModelIds = new Set(availableModelOptions.map((item) => String(item?.value || '').trim().toLowerCase()));
+                    CHAT_MODEL_ANALYTICS_EVENTS.forEach((events, modelId) => {
+                      if (availableModelIds.has(modelId)) {
+                        trackEvent(events.exposure, { source: 'chat_model_picker', model: modelId });
+                      }
+                    });
                   }
                   if (!open) clearHoveredModelCard();
                 }}
