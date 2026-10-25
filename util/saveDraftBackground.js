@@ -181,6 +181,44 @@ function shouldUseElectronSessionDownload(source) {
   return typeof source === 'string' && /^https?:\/\//i.test(source);
 }
 
+function getTextTemplateDownloadUrls(effectId) {
+  const objectPath = `text_template/${effectId}/${effectId}.zip`;
+  return [
+    `https://player.install-ai-guider.top/${objectPath}`,
+    `https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/${objectPath}`
+  ];
+}
+
+async function downloadDraftAsset(task, onTaskProgress) {
+  const urls = [task.url, ...(task.downloadOptions.fallbackUrls || [])];
+  for (let index = 0; index < urls.length; index++) {
+    const url = urls[index];
+    try {
+      if (shouldUseElectronSessionDownload(url)) {
+        logger.info(`[DLTRACE][Worker] 使用 Electron session 下载素材: ${url}`);
+        await downloadViaElectronSession(
+          url, task.localPath, onTaskProgress, task.downloadOptions.timeout
+        );
+      } else {
+        await downloader.downloadFile(
+          url, task.localPath, onTaskProgress,
+          task.downloadOptions.retry, task.downloadOptions.timeout,
+          task.downloadOptions.context
+        );
+      }
+      await fs.promises.stat(task.localPath);
+      task.url = url;
+      return;
+    } catch (error) {
+      if (index === urls.length - 1) throw error;
+      logger.warn(`素材下载失败，将尝试备用地址: ${url}: ${error.message}`);
+      await fs.promises.rm(task.localPath, { force: true });
+      task.downloaded = 0;
+      task.total = 0;
+    }
+  }
+}
+
 function buildSessionDownloadHeaders() {
   return {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -842,7 +880,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
     if (textTemplates && textTemplates.length > 0) {
       for (const template of textTemplates) {
         const effectId = template.effect_id;
-        const downloadUrl = `https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/text_template/${effectId}/${effectId}.zip`;
+        const [downloadUrl, fallbackUrl] = getTextTemplateDownloadUrls(effectId);
         const localPath = path.join(draftPath, "assets", "textTemplate", `${effectId}.zip`);
 
         // 注意：这里需要传递下载所需的额外选项
@@ -851,7 +889,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
             template, 
             downloadUrl, 
             localPath, 
-            { retry: 3, timeout: 180000, context: 'text_template' } // 额外选项
+            { retry: 3, timeout: 180000, context: 'text_template', fallbackUrls: [fallbackUrl] }
         );
       }
     }
@@ -973,7 +1011,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
             const effectId = template.effect_id;
             if (!effectId) continue;
             
-            const downloadUrl = `https://oss-jianying-resource.oss-cn-hangzhou.aliyuncs.com/text_template/${effectId}/${effectId}.zip`;
+            const [downloadUrl, fallbackUrl] = getTextTemplateDownloadUrls(effectId);
             const localZipPath = path.join(draftPath, "assets", "textTemplate", `${effectId}.zip`);
 
             // 文本模板不需要提前更新 path，下载完成后会解压到对应目录
@@ -983,7 +1021,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
                 template, 
                 downloadUrl, 
                 localZipPath, 
-                { retry: 3, timeout: 180000, context: 'text_template' }
+                { retry: 3, timeout: 180000, context: 'text_template', fallbackUrls: [fallbackUrl] }
             );
           }
         }
@@ -1030,24 +1068,7 @@ async function saveDraftBackground(draftId, draftName, draftFolder, taskId, prog
                     reportDownloadProgress(30, i18next.t('downloading'), downloadTasks);
                 };
 
-                if (shouldUseElectronSessionDownload(task.url)) {
-                    logger.info(`[DLTRACE][Worker] 使用 Electron session 下载素材: ${task.url}`);
-                    await downloadViaElectronSession(
-                        task.url,
-                        task.localPath,
-                        onTaskProgress,
-                        task.downloadOptions.timeout
-                    );
-                } else {
-                    await downloader.downloadFile(
-                        task.url, 
-                        task.localPath, 
-                        onTaskProgress,
-                        task.downloadOptions.retry,
-                        task.downloadOptions.timeout,
-                        task.downloadOptions.context
-                    );
-                }
+                await downloadDraftAsset(task, onTaskProgress);
               
               // 3. 下载成功逻辑
               let finalSize = 0;
