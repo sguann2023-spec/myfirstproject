@@ -54,6 +54,8 @@ describe('mcpToolDisplay', () => {
 
   it.each([
     ['mcp__vectcut__draft-render__render_draft', '预渲染', '預渲染', 'Pre-render'],
+    ['mcp__vectcut__draft-elements__add_text_template', '草稿处理：添加文字模板', '草稿處理：添加文字範本', 'Draft Processing: Add Text Template'],
+    ['mcp__vectcut__draft-elements__get_text_template_previews', '草稿处理：查看文字模板预览', '草稿處理：查看文字範本預覽', 'Draft Processing: Preview Text Templates'],
     ['mcp__draft-render__render_draft', '预渲染', '預渲染', 'Pre-render'],
     ['draft-render:render_draft', '预渲染', '預渲染', 'Pre-render'],
     ['mcp__vectcut__remove-bg__submit_remove_bg_text_behind_task', '人物抠像：字在人后', '人物去背：文字置於人物後方', 'Portrait Cutout: Text Behind Person'],
