@@ -103,6 +103,7 @@ describe('DraftElementsServer', () => {
       'remove_text',
       'modify_text',
       'add_subtitle',
+      'add_text_template',
       'get_text_intro_types',
       'get_text_outro_types',
       'get_text_loop_anim_types',
@@ -140,7 +141,8 @@ describe('DraftElementsServer', () => {
       'get_combo_animation_types',
       'get_text_position_preview',
       'get_text_style_preview',
-      'get_font_previews'
+      'get_font_previews',
+      'get_text_template_previews'
     ])
   })
 
@@ -223,6 +225,124 @@ describe('DraftElementsServer', () => {
       expect.arrayContaining(['track_name', 'relative_index', 'intensity', 'width', 'height'])
     )
     expect(toolsByName.get('modify_filter').inputSchema.required).toEqual(['material_id'])
+  })
+
+  it('should add a text template with aliases normalized to official fields', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          refresh_token: 'refresh-token-next',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          output: {
+            draft_id: 'dfd_template_1',
+            draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_template_1'
+          },
+          success: true
+        })
+      )
+
+    const server = createServer()
+    const result = await callTool(server, 'add_text_template', {
+      templateId: '7393022390638251303',
+      texts: ['重点标题'],
+      draftId: 'dfd_template_1',
+      start: 1,
+      end: 4,
+      transformXPx: 120,
+      trackName: 'text_template_main'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/cut_jianying/add_text_template',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          template_id: '7393022390638251303',
+          texts: ['重点标题'],
+          draft_id: 'dfd_template_1',
+          start: 1,
+          end: 4,
+          transform_x_px: 120,
+          track_name: 'text_template_main'
+        })
+      })
+    )
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      provider: 'vectcut',
+      action: 'add_text_template',
+      success: true,
+      error: '',
+      output: {
+        draft_id: 'dfd_template_1',
+        draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_template_1'
+      }
+    })
+  })
+
+  it('should fetch text template previews with inline sprite images', async () => {
+    const pngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          access_token: 'access-token',
+          refresh_token: 'refresh-token-next',
+          expires_in: 3600
+        })
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          error: '',
+          success: true,
+          output: {
+            page: 2,
+            page_size: 8,
+            total: 12,
+            total_pages: 2,
+            items: [
+              {
+                orientation: 'portrait',
+                preview_url: 'https://example.com/sprite.png',
+                preview_video_url: 'https://example.com/video.mp4',
+                text_template_id: '8012240580843515483',
+                texts_count: 2
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => Buffer.from(pngBase64, 'base64')
+      } as unknown as Response)
+
+    const server = createServer()
+    const result = await callTool(server, 'get_text_template_previews', {
+      page: 2,
+      orientation: 'portrait',
+      textTemplateId: '8012240580843515483'
+    })
+
+    expect(mockNetFetch).toHaveBeenNthCalledWith(
+      2,
+      'https://open.vectcut.com/cut_jianying/get_text_template_previews?page=2&page_size=8&text_template_id=8012240580843515483&orientation=portrait',
+      expect.objectContaining({ method: 'GET' })
+    )
+    const text = result.content.find((part: { type: string }) => part.type === 'text')
+    const image = result.content.find((part: { type: string }) => part.type === 'image')
+    expect(text.text).toContain('Text templates page 2/2')
+    expect(text.text).toContain('text_template_id=8012240580843515483 orientation=portrait texts_count=2')
+    expect(text.text).toContain('motion_preview=https://example.com/video.mp4')
+    expect(image.mimeType).toBe('image/png')
+    expect(typeof image.data).toBe('string')
   })
 
   it('should normalize add_batch_text official end param into runtime ends', async () => {

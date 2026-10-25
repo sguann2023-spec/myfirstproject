@@ -343,6 +343,8 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add(vt('draft-elements', 'get_text_loop_animation_previews'))
     }
     if (shouldMountCapability('fontList')) autoAllowTools.add(vt('draft-elements', 'get_font_previews'))
+    if (shouldMountCapability('textTemplatePreview')) autoAllowTools.add(vt('draft-elements', 'get_text_template_previews'))
+    if (shouldMountCapability('textTemplateAdd')) autoAllowTools.add(vt('draft-elements', 'add_text_template'))
     if (shouldMountCapability('imageAdd')) autoAllowTools.add(vt('draft-elements', 'add_image'))
     if (shouldMountCapability('imageAddBatch')) autoAllowTools.add(vt('draft-elements', 'add_batch_image'))
     if (shouldMountCapability('presetAdd')) autoAllowTools.add(vt('draft-elements', 'add_preset'))
