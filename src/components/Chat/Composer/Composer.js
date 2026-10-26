@@ -97,6 +97,7 @@ import {
 const { shell } = window.require('electron');
 
 const CHAT_MODEL_ANALYTICS_EVENTS = new Map([
+  ['deepseek-v4.1-flash', { exposure: 'deepseek_v4_1_flash_expore', click: 'deepseek_v4_1_flash_click' }],
   ['qwen3.8-flash', { exposure: 'qwen_3_8_flash_expore', click: 'qwen_3_8_flash_click' }],
   ['gemini-3.8-flash', { exposure: 'gemini_3_8_flash_expore', click: 'gemini_3_8_flash_click' }],
   ['gemini-4-argon', { exposure: 'gemini_4_argon_expore', click: 'gemini_4_argon_click' }],
