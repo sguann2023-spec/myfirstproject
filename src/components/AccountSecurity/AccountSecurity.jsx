@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import useDailyCheckin from '../DailyCheckin/useDailyCheckin';
 import ImgCrop from 'antd-img-crop';
 import { ExclamationCircleOutlined, LoadingOutlined, UserOutlined } from '@ant-design/icons';
 import { Avatar, Input, Modal, Tooltip, Typography, Upload, message } from 'antd';
@@ -97,6 +98,9 @@ const AccountSecurity = () => {
   const [syncing, setSyncing] = useState(false);
   const [copying, setCopying] = useState(false);
   const [sessionSignature, setSessionSignature] = useState(() => getVectcutSessionSignature());
+  const { reward: dailyReward, claiming: claimingDailyReward, claim: handleClaimDailyReward } = useDailyCheckin({
+    enabled: Boolean(sessionSignature), sessionKey: sessionSignature,
+  });
   const [membershipSummary, setMembershipSummary] = useState(() => normalizeMembershipSummary());
   const [profileLoading, setProfileLoading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(() => normalizeProfileText(electronStore.get('user')?.avatar));
@@ -857,6 +861,17 @@ const AccountSecurity = () => {
               <Tooltip title={canCopy ? '点击复制' : null} placement="topRight">
                 <span className="account-security-value-text">{displayValue}</span>
               </Tooltip>
+            </button>
+          </div>
+          <div className="account-security-row account-security-row--grouped">
+            <div className="account-security-label">每日签到积分</div>
+            <button
+              type="button"
+              className="account-security-button account-security-button--compact account-security-button--daily-reward"
+              disabled={!isLoggedIn || !dailyReward || claimingDailyReward || dailyReward.claimed_today}
+              onClick={handleClaimDailyReward}
+            >
+              {dailyReward?.claimed_today ? '今日已领取' : claimingDailyReward ? '领取中…' : '领取积分'}
             </button>
           </div>
         </div>
