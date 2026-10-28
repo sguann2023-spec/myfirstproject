@@ -286,6 +286,10 @@
   white-space: nowrap;
 }
 
+.account-security-button--daily-reward {
+  margin-left: auto;
+}
+
 .account-security-icon-button {
   display: inline-flex;
   align-items: center;

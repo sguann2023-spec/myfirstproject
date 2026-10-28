@@ -12,6 +12,7 @@ import VipIcon from '../../../public/vip_icon.png';
 import { countTodayDrafts } from '../../api/capcut';
 import { fetchMessagesSummary, getChatModelList } from '../../api/chat';
 import DPane from '../../components/DPane/DPane';
+import DailyCheckin from '../../components/DailyCheckin/DailyCheckin';
 import DraftList from '../../components/DraftList';
 import DownloadDualList from '../../components/DownloadDualList/DownloadDualList';
 import DraftPreview from '../../components/DraftPreview/DraftPreview';
@@ -32,7 +33,7 @@ import {
 } from '../../components/Chat/Composer/skillExample';
 import SkillStorePage from '../../components/SkillStore';
 import { getMembershipSummary } from '../../api/membership';
-import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
+import { getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError } from '../../shared/chatError';
@@ -2897,17 +2898,9 @@ const HomePage = () => {
       .catch(() => setTodayCount(0));
   };
 
-  const refreshRechargeBalance = useCallback(async ({ withCheckin = false } = {}) => {
+  const refreshRechargeBalance = useCallback(async () => {
     if (creditsBalanceMountedRef.current) {
       setCreditsLoading(true);
-    }
-
-    if (withCheckin) {
-      try {
-        await checkinRechargeDaily();
-      } catch (error) {
-        logger.warn('Failed to complete daily recharge check-in on init.', error);
-      }
     }
 
     try {
@@ -2955,7 +2948,7 @@ const HomePage = () => {
   }, [refreshRechargeBalance]);
 
   const handleCreditsButtonClick = useCallback(async () => {
-    await refreshRechargeBalance({ withCheckin: true });
+    await refreshRechargeBalance();
   }, [refreshRechargeBalance]);
 
   const handleDraftDeleted = async (deletedDraftOrDrafts) => {
@@ -3025,7 +3018,7 @@ const HomePage = () => {
 
   useEffect(() => {
     creditsBalanceMountedRef.current = true;
-    void refreshRechargeBalance({ withCheckin: true });
+    void refreshRechargeBalance();
     return () => { creditsBalanceMountedRef.current = false; };
   }, [refreshRechargeBalance]);
 
@@ -7139,6 +7132,7 @@ const HomePage = () => {
 
   return (
     <div className="home-container" style={{ WebkitAppRegion: 'no-drag' }}>
+        <DailyCheckin onClaimed={refreshRechargeBalance} />
         <div className="home-header">
             <div className="header-avatar-wrapper">
               <img
