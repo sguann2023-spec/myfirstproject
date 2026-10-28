@@ -160,6 +160,8 @@ export async function buildClaudeCodeInvokeContext(input: {
     currentUserPrompt: string
     activeSegmentId?: string
     currentTurnId?: string
+    userMessageId?: string
+    assistantMessageId?: string
     piSessionId?: string
     assistantSystemPrompt?: string
     clawSystemPrompt?: string
@@ -223,6 +225,8 @@ export async function buildClaudeCodeInvokeContext(input: {
     traceId,
     topicId: session.id,
     turnId: promptSnapshot.currentTurnId,
+    userMessageId: promptSnapshot.userMessageId,
+    assistantMessageId: promptSnapshot.assistantMessageId,
     segmentId: promptSnapshot.activeSegmentId,
     piSessionId: promptSnapshot.piSessionId || session.id
   })
@@ -419,14 +423,18 @@ function buildProjectionContext(input: {
   traceId: string
   topicId: string
   turnId?: string
+  userMessageId?: string
+  assistantMessageId?: string
   segmentId?: string
   piSessionId: string
 }): ProjectionContext {
-  const { traceId, topicId, turnId, segmentId, piSessionId } = input
+  const { traceId, topicId, turnId, userMessageId, assistantMessageId, segmentId, piSessionId } = input
   return {
     traceId,
     topicId,
     turnId,
+    userMessageId,
+    assistantMessageId,
     segmentId,
     piSessionId,
     artifactStrategy: 'store_large_results',

@@ -135,6 +135,8 @@ const MessagePane = ({
   const groupSizeMapRef = React.useRef(new Map());
   const autoScrollEnabledRef = React.useRef(true);
   const autoScrollFrameRef = React.useRef(null);
+  const sessionBottomFrameRef = React.useRef(null);
+  const sessionBottomSyncRef = React.useRef(false);
   const previousScrollStateRef = React.useRef({
     count: 0,
     signature: ''
@@ -150,21 +152,42 @@ const MessagePane = ({
     return distanceToBottom <= 48;
   }, []);
 
-  const scrollToBottom = React.useCallback(() => {
+  const scrollToBottom = React.useCallback((force = false, repeatAfterLayout = false) => {
     const element = getScrollElement();
     if (!element) return;
 
     if (autoScrollFrameRef.current) {
       window.cancelAnimationFrame(autoScrollFrameRef.current);
     }
+    if (repeatAfterLayout && sessionBottomFrameRef.current) {
+      window.cancelAnimationFrame(sessionBottomFrameRef.current);
+      sessionBottomFrameRef.current = null;
+    }
 
-    autoScrollFrameRef.current = window.requestAnimationFrame(() => {
-      autoScrollFrameRef.current = null;
-      if (!autoScrollEnabledRef.current || element !== getScrollElement()) return;
+    const applyScroll = () => {
+      if ((!force && !autoScrollEnabledRef.current) || element !== getScrollElement()) return false;
       // Use the rendered height, including the scroller's padding.
       element.scrollTo({
         top: Math.max(element.scrollHeight - element.clientHeight, 0),
         behavior: 'auto'
+      });
+      return true;
+    };
+
+    autoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      autoScrollFrameRef.current = null;
+      if (!applyScroll() || !repeatAfterLayout) {
+        sessionBottomSyncRef.current = false;
+        return;
+      }
+
+      // The virtual list recalculates its total height after the first paint. A
+      // second pass prevents a restored session from stopping at the bottom of
+      // the previous session's (or the estimated) layout.
+      sessionBottomFrameRef.current = window.requestAnimationFrame(() => {
+        sessionBottomFrameRef.current = null;
+        applyScroll();
+        sessionBottomSyncRef.current = false;
       });
     });
   }, [getScrollElement]);
@@ -204,9 +227,16 @@ const MessagePane = ({
     }));
   }, [visibleMessages]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     autoScrollEnabledRef.current = true;
-    if (hasMessages) scrollToBottom();
+    sessionBottomSyncRef.current = hasMessages;
+
+    // Measurements are indexed, so carrying them across conversations can
+    // make the new session's virtual height look like the old session's.
+    groupSizeMapRef.current.clear();
+    virtualListRef.current?.measure?.();
+
+    if (hasMessages) scrollToBottom(true, true);
   }, [hasMessages, runtimeSessionId, scrollToBottom]);
 
   React.useEffect(() => {
@@ -218,8 +248,12 @@ const MessagePane = ({
       const target = event.currentTarget;
       // Content growth and programmatic downward scrolling are not an opt-out.
       if (target.scrollTop < previousScrollTop) {
-        // Removing the loading indicator clamps scrollTop to the new bottom.
-        if (!isNearBottom(target)) autoScrollEnabledRef.current = false;
+        // Session replacement can clamp the old scroll offset while the
+        // virtual list is still measuring. Do not treat that as user intent.
+        // Removing the loading indicator can clamp it for the same reason.
+        if (!sessionBottomSyncRef.current && !isNearBottom(target)) {
+          autoScrollEnabledRef.current = false;
+        }
       } else if (isNearBottom(target)) {
         autoScrollEnabledRef.current = true;
       }
@@ -229,6 +263,15 @@ const MessagePane = ({
     const handleWheelCapture = (event) => {
       if (event.deltaY < 0) {
         autoScrollEnabledRef.current = false;
+        sessionBottomSyncRef.current = false;
+        if (autoScrollFrameRef.current) {
+          window.cancelAnimationFrame(autoScrollFrameRef.current);
+          autoScrollFrameRef.current = null;
+        }
+        if (sessionBottomFrameRef.current) {
+          window.cancelAnimationFrame(sessionBottomFrameRef.current);
+          sessionBottomFrameRef.current = null;
+        }
       }
     };
 
@@ -269,6 +312,9 @@ const MessagePane = ({
   React.useEffect(() => () => {
     if (autoScrollFrameRef.current) {
       window.cancelAnimationFrame(autoScrollFrameRef.current);
+    }
+    if (sessionBottomFrameRef.current) {
+      window.cancelAnimationFrame(sessionBottomFrameRef.current);
     }
   }, []);
 

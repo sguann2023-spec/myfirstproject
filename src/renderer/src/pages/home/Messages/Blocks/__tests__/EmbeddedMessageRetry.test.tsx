@@ -25,6 +25,9 @@ vi.mock('@renderer/store', () => ({
   useAppDispatch: () => mocks.dispatch,
   useAppSelector: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state)
 }))
+vi.mock('@renderer/store/messageBlock', () => ({
+  messageBlocksSelectors: { selectById: (state: any, id: string) => state.messageBlocks?.entities?.[id] }
+}))
 vi.mock('@renderer/services/SpanManagerService', () => ({ restartTrace: mocks.restartTrace }))
 vi.mock('@renderer/store/thunk/messageThunk', () => ({ regenerateAssistantResponseThunk: vi.fn() }))
 vi.mock('@renderer/services/ErrorDiagnosisService', () => ({ classifyErrorByAI: vi.fn() }))

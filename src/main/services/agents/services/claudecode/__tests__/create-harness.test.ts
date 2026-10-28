@@ -13,7 +13,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 let mockIsWin = false
 
 vi.mock('electron', () => ({
-  net: { fetch: vi.fn() }
+  net: { fetch: vi.fn() },
+  app: { getPath: vi.fn(() => os.tmpdir()) }
 }))
 
 vi.mock('@main/services/WindowService', () => ({

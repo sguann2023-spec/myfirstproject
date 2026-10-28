@@ -45,7 +45,7 @@ import fontList from 'font-list'
 import ImageGenerateServer from './mcpServers/image-generate'
 import VideoGenerateServer from './mcpServers/video-generate'
 
-import { agentMessageRepository } from './services/agents/database'
+import { agentHistoryService, agentMessageRepository } from './services/agents/database'
 import { skillService } from './services/agents/skills/SkillService'
 import { apiServerService } from './services/ApiServerService'
 import appService from './services/AppService'
@@ -918,7 +918,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     IpcChannel.AgentMessage_GetHistory,
     async (_event, { sessionId }: { sessionId: string }): Promise<AgentPersistedMessage[]> => {
       try {
-        return await agentMessageRepository.getSessionHistory(sessionId)
+        return (await agentHistoryService.getHistory(sessionId)).messages
       } catch (error) {
         logger.error('Failed to get agent session history', error as Error)
         throw error

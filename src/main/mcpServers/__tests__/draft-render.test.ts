@@ -35,6 +35,23 @@ function setup(draft = script(), generated: any = { success: true, output: { tas
 beforeEach(() => { vi.clearAllMocks(); setup() })
 afterEach(() => vi.useRealTimers())
 describe('cloud draft render', () => {
+  it('advertises draft rendering and acceptance needs before constraints, with a separate test-draft fallback', async () => {
+    const server = new DraftRenderServer('/workspace')
+    const handler = (server.mcpServer.server as any)._requestHandlers.get('tools/list')
+    const { tools } = await handler({ method: 'tools/list', params: {} })
+    const tool = tools.find((item: any) => item.name === 'render_draft')
+    const summary = tool.description.slice(0, 240)
+    for (const keyword of ['草稿渲染', '云渲染', '预渲染', '字幕验收', '动画时序', '轨道层叠', '声音效果', '声音大小', '字体效果', '转场效果', '组合画面']) {
+      expect(summary).toContain(keyword)
+    }
+    expect(tool.description).toContain('Prefer lightweight preview tools first')
+    expect(tool.description).toContain('last resort')
+    expect(tool.description).toContain('create a separate cloud test draft <=5 seconds')
+    expect(tool.description).toContain('without changing the working draft')
+    expect(tool.description).toContain('timeline trimming alone')
+    expect(tool.description).not.toMatch(/real billed render|very time-consuming/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it('returns only a compact cloud reference and never persists/downloads', async () => {
     const notify = vi.fn().mockResolvedValue(undefined)
     const result = await call(undefined, { _meta: { progressToken: 0 }, sendNotification: notify })

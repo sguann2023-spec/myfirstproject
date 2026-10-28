@@ -35,7 +35,7 @@ import { getMembershipSummary } from '../../api/membership';
 import { checkinRechargeDaily, getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
-import { normalizeChatError } from '../../shared/chatError';
+import { normalizeChatError, shouldSuppressCancelledTurnError } from '../../shared/chatError';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeImageAddRequestPayload } from '../../shared/imageAddRequest';
@@ -3828,8 +3828,13 @@ const HomePage = () => {
     if (!chatId || !assistantMessageId) return;
     const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
     updateChatAssistantMessage(chatId, assistantMessageId, (message) => {
+      // Stop is terminal for this turn. A late generic stream-close error must
+      // not undo it; preserve concrete failures that happened before/after stop.
+      const cancelled = aborted || hasInterruptedAssistantState(message);
+      const terminalError = error || (cancelled ? message?.error : null);
+      const turnError = shouldSuppressCancelledTurnError(terminalError, cancelled) ? null : terminalError;
       const sourceBlocks = snapshot?.blocks || message?.blocks || [];
-      const nextBlocks = finalizeStructuredBlocks(sourceBlocks, { aborted });
+      const nextBlocks = finalizeStructuredBlocks(sourceBlocks, { aborted: cancelled });
       const nextContent =
         snapshot?.content
         || buildAssistantDisplayContentFromBlocks(nextBlocks)
@@ -3860,8 +3865,8 @@ const HomePage = () => {
         metrics: snapshot?.metrics ? { ...snapshot.metrics } : message?.metrics,
         model: nextModel,
         modelId: nextModelId,
-        error,
-        aborted: Boolean(aborted),
+        error: turnError,
+        aborted: Boolean(cancelled),
         updatedAt: Date.now()
       };
     });

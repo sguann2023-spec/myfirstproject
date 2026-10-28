@@ -10,7 +10,9 @@ import {
   X
 } from 'lucide-react';
 import { loggerService } from '@logger';
+import { download as downloadFile } from '@renderer/utils/download';
 import { IpcChannel } from '@shared/IpcChannel';
+import ImageContextMenu from './ImageContextMenu';
 import TextFilePreview from './TextFilePreview';
 import './WebPagePreview.css';
 
@@ -117,6 +119,7 @@ const WebPagePreview = ({
   const [loading, setLoading] = React.useState(false);
   const [canGoBack, setCanGoBack] = React.useState(false);
   const [canGoForward, setCanGoForward] = React.useState(false);
+  const [imageContextMenu, setImageContextMenu] = React.useState(null);
   const tabsStateRef = React.useRef([]);
   const activeTabIdRef = React.useRef(readPreviewTabId(preview));
   const lastActiveWebTabIdRef = React.useRef(getPreviewType(preview) === FILE_PREVIEW_TYPE ? '' : readPreviewTabId(preview));
@@ -150,6 +153,10 @@ const WebPagePreview = ({
       lastActiveWebTabIdRef.current = activeTab.id;
     }
   }, [activeTab]);
+
+  React.useEffect(() => {
+    setImageContextMenu(null);
+  }, [activeTabId]);
 
   const updateActiveTab = React.useCallback((updater) => {
     setTabs((prev) => prev.map((tab) => {
@@ -677,6 +684,19 @@ const WebPagePreview = ({
       void syncPreviewState();
     };
 
+    const handleContextMenu = (event) => {
+      const params = event?.params;
+      if (String(params?.mediaType || '') !== 'image') return;
+      const srcUrl = normalizeUrl(params?.srcURL);
+      if (!srcUrl) return;
+      setImageContextMenu({
+        visible: true,
+        x: Number(params.x || 0),
+        y: Number(params.y || 0),
+        src: srcUrl
+      });
+    };
+
     const handleConsoleMessage = (event) => {
       const message = String(event?.message || '');
       if (message.startsWith(SEND_TO_MAIN_PREFIX) || message.startsWith(HOST_FILE_SELECT_PREFIX)) {
@@ -740,6 +760,7 @@ const WebPagePreview = ({
     webview.addEventListener('did-navigate', handleNavigate);
     webview.addEventListener('did-navigate-in-page', handleNavigate);
     webview.addEventListener('did-fail-load', handleFailLoad);
+    webview.addEventListener('context-menu', handleContextMenu);
     webview.addEventListener('console-message', handleConsoleMessage);
 
     return () => {
@@ -761,6 +782,7 @@ const WebPagePreview = ({
       webview.removeEventListener('did-navigate', handleNavigate);
       webview.removeEventListener('did-navigate-in-page', handleNavigate);
       webview.removeEventListener('did-fail-load', handleFailLoad);
+      webview.removeEventListener('context-menu', handleContextMenu);
       webview.removeEventListener('console-message', handleConsoleMessage);
     };
   }, [readWebviewUrl, syncActiveTabFavicon, syncNavigationState, syncWebviewZoomFactor, targetUrl, updateActiveTab]);
@@ -928,6 +950,15 @@ const WebPagePreview = ({
     });
   }, [tabs]);
 
+  const closeImageContextMenu = React.useCallback(() => {
+    setImageContextMenu(null);
+  }, []);
+
+  const handleDownloadImage = React.useCallback(({ src, fileName }) => {
+    if (!src) return;
+    downloadFile(src, fileName || undefined);
+  }, []);
+
   const handleOpenInExternalBrowser = React.useCallback(() => {
     if (!targetUrl || targetUrl === BLANK_TAB_URL) return;
     if (isLocalHtmlPreviewUrl(targetUrl)) {
@@ -1070,11 +1101,17 @@ const WebPagePreview = ({
               onRefresh={onRefreshFilePreview}
               onSaveEdit={onSaveFileEdit}
               onSubmitComment={onSubmitFileComment}
+              onDownloadImage={handleDownloadImage}
               submittingComment={submittingComment}
             />
           </div>
         ) : null}
       </div>
+      <ImageContextMenu
+        state={imageContextMenu}
+        onClose={closeImageContextMenu}
+        onDownload={handleDownloadImage}
+      />
     </div>
   );
 };

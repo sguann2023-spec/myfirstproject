@@ -74,6 +74,15 @@ describe('classifyError', () => {
     expect(result.category).toBe('quota')
   })
 
+  it('prefers an explicit upstream quota error over a generic HTTP 403', () => {
+    const result = classifyError(makeError({
+      statusCode: 403,
+      message: '403: {"code":"insufficient_user_quota","message":"Insufficient balance, please top up."}'
+    }))
+    expect(result.category).toBe('quota')
+    expect(result.i18nKey).toBe('error.diagnosis.quota')
+  })
+
   it('classifies rate_limit message as quota', () => {
     const result = classifyError(makeError({ message: 'rate limit exceeded' }))
     expect(result.category).toBe('quota')

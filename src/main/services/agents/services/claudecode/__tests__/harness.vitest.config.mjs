@@ -6,7 +6,8 @@ export default defineConfig({
     alias: {
       '@logger': fileURLToPath(new URL('../../../../LoggerService.ts', import.meta.url)),
       '@main': fileURLToPath(new URL('../../../../../', import.meta.url)),
-      '@shared': fileURLToPath(new URL('../../../../../../packages/shared/', import.meta.url))
+      '@shared': fileURLToPath(new URL('../../../../../../packages/shared/', import.meta.url)),
+      '@types': fileURLToPath(new URL('../../../../../../renderer/src/types/index.ts', import.meta.url))
     }
   },
   test: {
@@ -15,6 +16,8 @@ export default defineConfig({
       'src/main/services/agents/services/claudecode/__tests__/image-generation-action.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/image-inspection-state.test.ts',
       'src/main/services/agents/database/repositories/__tests__/agentTurnRepository.test.ts',
+      'src/main/services/agents/database/repositories/__tests__/agentTranscriptRepository.test.ts',
+      'src/main/services/agents/database/repositories/__tests__/piSessionStorage.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/cancelled-context.test.ts',
       'src/main/services/agents/services/cherryclaw/__tests__/prompt.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/provider-payload-summary.test.ts',
@@ -22,7 +25,10 @@ export default defineConfig({
       'src/main/services/agents/services/claudecode/__tests__/create-harness.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/mcp-result-storage.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/tool-result-payload.test.ts',
-      'src/main/services/agents/services/claudecode/__tests__/pi-query-stream.test.ts'
+      'src/main/services/agents/services/claudecode/__tests__/pi-query-stream.test.ts',
+      'src/main/services/agents/services/channels/__tests__/sessionStreamIpc.test.ts',
+      'src/main/services/agents/database/__tests__/sessionMessageDualWrite.test.ts',
+      'src/main/apiServer/routes/agents/handlers/__tests__/messages.test.ts'
     ]
   }
 })

@@ -84,6 +84,13 @@
       "when": 1788004800000,
       "tag": "0011_skill_registry_preview_video_url",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793059200000,
+      "tag": "0012_canonical_transcript",
+      "breakpoints": true
     }
   ],
   "version": "7"

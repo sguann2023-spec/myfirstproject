@@ -45,6 +45,7 @@ import { windowService } from '../../../WindowService'
 import { agentsTable } from '../../database/schema'
 import { agentMessageRepository } from '../../database/sessionMessageRepository'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
+import { allocateAgentInvocationIds } from '../agent-invocation-ids'
 import { sessionService } from '../SessionService'
 import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { conversationSegmentService } from '../claudecode/session-architecture/ConversationSegmentService'
@@ -2304,6 +2305,11 @@ function isRetriableSessionStartError(error: Error): boolean {
     || normalized.includes('enotfound')
     || normalized.includes('getaddrinfo')
     || normalized.includes('upstream request failed')
+    || normalized.includes('database is locked')
+    || normalized.includes('sqlite_busy')
+    || normalized.includes('unique constraint failed: agent_messages')
+    || normalized.includes('unique constraint failed: agent_message_parts')
+    || normalized.includes('unique constraint failed: pi_session_entries')
     || normalized.includes('上游请求失败')
     || normalized.includes('timed out')
     || normalized.includes('timeout')
@@ -2731,8 +2737,18 @@ export function registerSessionStreamIpc(): void {
     try {
       const sessionId = String(payload?.sessionId || '').trim()
       if (!sessionId) return { ok: false, error: 'sessionId is required', messages: [] }
-      const sessionMessageService = await getSessionMessageService()
-      const { messages } = await sessionMessageService.listSessionMessages(sessionId)
+      const { agentHistoryService } = await import('../../database/agentHistoryService')
+      const history = await agentHistoryService.getHistory(sessionId)
+      const messages = history.messages.map((content, index) => ({
+        id: Number.isFinite((content.message as any)?.sequence) ? Number((content.message as any).sequence) : index,
+        session_id: sessionId,
+        role: content.message.role,
+        content,
+        agent_session_id: '',
+        metadata: { sequence: history.sequences[index], canonical: true },
+        created_at: content.message.createdAt,
+        updated_at: content.message.updatedAt ?? content.message.createdAt
+      }))
       return { ok: true, messages }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error), messages: [] }
@@ -2744,6 +2760,8 @@ export function registerSessionStreamIpc(): void {
       const sessionId = String(payload?.sessionId || '').trim()
       const content = String(payload?.content || '').trim()
       const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const invocationIds = allocateAgentInvocationIds()
+      invocationIds.traceId = requestId
       const createdAt =
         typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
           ? Math.floor(payload.createdAt)
@@ -2836,7 +2854,8 @@ export function registerSessionStreamIpc(): void {
                 userMessageExtras: {
                   ...(draftInspectRequest ? { draftInspectRequest } : {}),
                   ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest } : {})
-                }
+                },
+                invocationIds
               }
             ),
             SESSION_MESSAGE_START_TIMEOUT_MS,

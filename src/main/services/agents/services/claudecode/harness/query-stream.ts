@@ -40,6 +40,8 @@ export type SessionArchitectureContext = {
   traceId: string
   topicId: string
   currentPrompt: string
+  userMessageId?: string
+  assistantMessageId?: string
   activeSegment: AgentConversationSegment | null
   currentTurn: AgentTurn | null
   promptEnvelope: SegmentPromptEnvelope

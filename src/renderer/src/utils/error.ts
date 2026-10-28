@@ -119,6 +119,11 @@ export const isAbortError = (error: any): boolean => {
     return true
   }
 
+  // Also recognize serialized errors crossing IPC (not DOMException instances).
+  if (error?.name === 'AbortError') {
+    return true
+  }
+
   // 检查是否为 DOMException 类型的中止错误
   if (error instanceof DOMException && error.name === 'AbortError') {
     return true

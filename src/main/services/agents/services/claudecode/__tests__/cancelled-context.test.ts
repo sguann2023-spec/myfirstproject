@@ -18,16 +18,30 @@ const cancelledTurns = [
 ]
 
 describe('cancelled requests in subsequent context', () => {
-  it('keeps only completed context after two cancellations and a successful third request', async () => {
+  it('records cancelled requests and partial replies as interrupted context', async () => {
     const view = await promptViewBuilder.build({
       currentPrompt: '继续第三个视频',
       recentTurns: [...cancelledTurns, turn('third', 'completed', '创建第三个视频', '第三个视频完成')]
     })
     expect(view.recentTurns).toEqual([
+      { role: 'user', text: '[该轮对话被用户中断]\n创建第一个视频' },
+      { role: 'user', text: '[该轮对话被用户中断]\n创建第二个视频' },
+      { role: 'assistant', text: '[以下是中断前产生的部分输出]\n准备生成第二个视频' },
       { role: 'user', text: '创建第三个视频' },
       { role: 'assistant', text: '第三个视频完成' }
     ])
     expect(view.currentPrompt).toBe('继续第三个视频')
+  })
+
+  it('labels process interruption neutrally while preserving partial output', async () => {
+    const view = await promptViewBuilder.build({
+      currentPrompt: '继续',
+      recentTurns: [turn('interrupted', 'interrupted', '分析数据库', '已经完成一半')]
+    })
+    expect(view.recentTurns).toEqual([
+      { role: 'user', text: '[该轮对话因进程中断而结束]\n分析数据库' },
+      { role: 'assistant', text: '[以下是进程中断前保存的部分输出]\n已经完成一半' }
+    ])
   })
 
   it('does not revive cancelled requests in continuation summaries or queue failed work', async () => {

@@ -25,7 +25,8 @@ import type {
   AgentServiceInterface,
   AgentStream,
   AgentStreamEvent,
-  AgentThinkingOptions
+  AgentThinkingOptions,
+  AgentInvocationIds
 } from '../../interfaces/AgentStreamInterface'
 import { resolveExplicitSkillMention } from '../../skill-mounting/ExplicitSkillMention'
 import { resolveWorkspaceSkillInvocation } from '../../skill-mounting/SkillInvokeService'
@@ -36,6 +37,7 @@ import { logPromptBudgetProbe } from './prompt-budget'
 import { buildToolSurface } from './tool-surface'
 import { createClaudeCodeHarness } from './harness/create-harness'
 import { processPiHarnessQuery } from './harness/pi-query-stream'
+import { allocateAgentInvocationIds } from '../agent-invocation-ids'
 import { buildInvocationPromptState } from './runtime/build-invocation-prompt'
 import { buildClaudeCodeInvokeContext, modelSupportsImageInput } from './runtime/build-invoke-context'
 import {
@@ -238,7 +240,8 @@ class ClaudeCodeService implements AgentServiceInterface {
     lastAgentSessionId?: string,
     thinkingOptions?: AgentThinkingOptions,
     modelOverride?: string,
-    images?: Array<{ data: string; media_type: string }>
+    images?: Array<{ data: string; media_type: string }>,
+    invocationIds?: AgentInvocationIds
   ): Promise<AgentStream> {
     const aiStream = new ClaudeCodeStream()
 
@@ -433,7 +436,8 @@ class ClaudeCodeService implements AgentServiceInterface {
       toolGuidanceOptions,
       isAssistant,
       agentConfig,
-      lastAgentSessionId
+      lastAgentSessionId,
+      invocationIds: invocationIds ?? allocateAgentInvocationIds()
     })
 
     logger.info('[SegmentCompose] start', {
@@ -653,6 +657,8 @@ class ClaudeCodeService implements AgentServiceInterface {
         currentUserPrompt: composedPrompt,
         activeSegmentId: activeSegment?.id,
         currentTurnId: currentTurn?.id,
+        userMessageId: currentTurn?.userMessageId,
+        assistantMessageId: currentTurn?.assistantMessageId,
         piSessionId: activeSegment?.sdkSessionId || lastAgentSessionId || session.id,
         assistantSystemPrompt,
         clawSystemPrompt
@@ -697,6 +703,8 @@ class ClaudeCodeService implements AgentServiceInterface {
         traceId,
         topicId: session.id,
         currentPrompt: prompt,
+        userMessageId: currentTurn?.userMessageId,
+        assistantMessageId: currentTurn?.assistantMessageId,
         activeSegment,
         currentTurn,
         promptEnvelope,

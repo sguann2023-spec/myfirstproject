@@ -24,7 +24,7 @@ type ExecutionExtra = {
 }
 const TOOL: Tool = {
   name: 'render_draft',
-  description: 'Cloud render an existing cloud draft_id for short preview verification only (draft <=5 seconds). Rejects local assets; full video/audio sources must be <=20 seconds and images <=20 MiB. No draft JSON, local output path, or MP4 download. Returns a cloud video URL and actual billing when reported.',
+  description: '草稿渲染（云渲染 / 渲染 / 预渲染，cloud draft render / preview）：用于字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面的真实效果验收。Verify subtitles, animation timing, track layering, audio effects and volume, fonts, transitions and compositing. Prefer lightweight preview tools first; use render_draft as a last resort when those cannot verify the actual result. Render an existing cloud draft_id. If the working draft exceeds the limits, create a separate cloud test draft <=5 seconds reproducing the relevant layers, timing, styles and audio, then render it without changing the working draft; do not abandon verification because the working draft is too long. Use cloud-accessible HTTP(S) assets; full video/audio sources must be <=20 seconds and images <=20 MiB. Prepare eligible short source assets when needed: timeline trimming alone does not shorten the full source. No draft JSON, local output path, or MP4 download. Returns a cloud video URL and actual billing when reported.',
   inputSchema: {
     type: 'object',
     properties: {

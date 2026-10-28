@@ -29,6 +29,8 @@ export type QueryArchitectureContext = {
   traceId: string
   topicId: string
   currentPrompt: string
+  userMessageId?: string
+  assistantMessageId?: string
   promptEnvelope: SegmentPromptEnvelope
   pendingFileChanges: Map<
     string,
@@ -99,12 +101,18 @@ export async function handleInitSystemMessage(input: {
     }
 
     if (!currentTurn && currentSegment) {
+      const userMessageId = String(architectureContext.userMessageId || '').trim()
+      const assistantMessageId = String(architectureContext.assistantMessageId || '').trim()
+      if (!userMessageId || !assistantMessageId) {
+        throw new Error('Cannot create fallback agent turn without stable message IDs')
+      }
       currentTurn = await agentTurnRepository.save({
         id: `turn_${randomUUID()}`,
         topicId: architectureContext.topicId,
         segmentId: currentSegment.id,
         traceId: architectureContext.traceId,
-        userMessageId: '',
+        userMessageId,
+        assistantMessageId,
         userText: architectureContext.currentPrompt,
         startedAt: new Date().toISOString(),
         status: 'running'

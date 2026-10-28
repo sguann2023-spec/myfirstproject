@@ -32,7 +32,7 @@ export interface AgentTurn {
   cumulativeInputTokens?: number
   startedAt: string
   completedAt?: string
-  status: 'running' | 'completed' | 'cancelled' | 'failed'
+  status: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
 }
 
 export interface AgentArtifact {

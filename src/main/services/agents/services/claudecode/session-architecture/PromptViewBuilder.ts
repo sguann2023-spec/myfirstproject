@@ -33,11 +33,25 @@ export interface PromptViewBuilder {
 export class PromptViewBuilderImpl implements PromptViewBuilder {
   async build(input: BuildPromptViewInput): Promise<PromptView> {
     const recentTurns = input.recentTurns
-      .filter((turn) => turn.status !== 'cancelled')
-      .flatMap((turn) => [
-        turn.userText ? { role: 'user' as const, text: truncatePromptTurnText(turn.userText) } : null,
-        turn.assistantText ? { role: 'assistant' as const, text: truncatePromptTurnText(turn.assistantText) } : null
-      ])
+      .flatMap((turn) => {
+        const userText = turn.userText ? truncatePromptTurnText(turn.userText) : ''
+        const assistantText = turn.assistantText ? truncatePromptTurnText(turn.assistantText) : ''
+        if (turn.status === 'cancelled' || turn.status === 'interrupted') {
+          const userLabel = turn.status === 'cancelled' ? '[该轮对话被用户中断]' : '[该轮对话因进程中断而结束]'
+          const assistantLabel =
+            turn.status === 'cancelled'
+              ? '[以下是中断前产生的部分输出]'
+              : '[以下是进程中断前保存的部分输出]'
+          return [
+            userText ? { role: 'user' as const, text: `${userLabel}\n${userText}` } : null,
+            assistantText ? { role: 'assistant' as const, text: `${assistantLabel}\n${assistantText}` } : null
+          ]
+        }
+        return [
+          userText ? { role: 'user' as const, text: userText } : null,
+          assistantText ? { role: 'assistant' as const, text: assistantText } : null
+        ]
+      })
       .filter((turn): turn is { role: 'user' | 'assistant'; text: string } => Boolean(turn?.text))
 
     const referencedArtifacts = (input.referencedArtifacts ?? []).slice(-MAX_REFERENCED_ARTIFACTS).map((artifact) => ({

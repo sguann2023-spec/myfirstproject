@@ -4,11 +4,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentStream } from '../../interfaces/AgentStreamInterface'
 
-const { invokeMock, persistExchangeMock, persistUserMessageMock, persistAssistantMessageMock } = vi.hoisted(() => ({
+const {
+  invokeMock,
+  persistExchangeMock,
+  persistUserMessageMock,
+  persistAssistantMessageMock,
+  upsertCanonicalMessageMock,
+  upsertCanonicalMessagesMock,
+  upsertCanonicalPartsMock,
+  getTurnMock,
+  updateTurnMock
+} = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   persistExchangeMock: vi.fn(),
   persistUserMessageMock: vi.fn(),
-  persistAssistantMessageMock: vi.fn()
+  persistAssistantMessageMock: vi.fn(),
+  upsertCanonicalMessageMock: vi.fn(),
+  upsertCanonicalMessagesMock: vi.fn(),
+  upsertCanonicalPartsMock: vi.fn(),
+  getTurnMock: vi.fn(),
+  updateTurnMock: vi.fn()
 }))
 
 vi.mock('@logger', () => ({
@@ -37,6 +52,21 @@ vi.mock('../../BaseService', () => ({
     async getDatabase() {
       throw new Error('getDatabase should be mocked in tests')
     }
+  }
+}))
+
+vi.mock('../../database/repositories/agentTranscriptRepository', () => ({
+  agentTranscriptRepository: {
+    upsertMessage: upsertCanonicalMessageMock,
+    upsertMessages: upsertCanonicalMessagesMock,
+    upsertParts: upsertCanonicalPartsMock
+  }
+}))
+
+vi.mock('../../database/repositories/agentTurnRepository', () => ({
+  agentTurnRepository: {
+    getById: getTurnMock,
+    update: updateTurnMock
   }
 }))
 
@@ -69,6 +99,11 @@ function createAgentStream(): AgentStream {
 describe('SessionMessageService cancelled persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    upsertCanonicalMessagesMock.mockResolvedValue([])
+    upsertCanonicalMessageMock.mockResolvedValue({})
+    upsertCanonicalPartsMock.mockResolvedValue([])
+    getTurnMock.mockResolvedValue(null)
+    updateTurnMock.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -377,6 +412,158 @@ describe('SessionMessageService cancelled persistence', () => {
     expect(persistSpy.mock.calls[0]?.[11]).toBe(true)
   })
 
+  it('allocates stable identities once, creates canonical envelopes, and finalizes the same assistant', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const agentStream = createAgentStream()
+    invokeMock.mockResolvedValue(agentStream)
+    vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
+
+    const stableIds = {
+      turnId: 'turn-stable',
+      traceId: 'trace-stable',
+      userMessageId: 'message-user-stable',
+      assistantMessageId: 'message-assistant-stable'
+    }
+    const result = await service.createSessionMessage(
+      { id: 'session-1', agent_id: 'agent-1', model: 'claude-3' } as any,
+      { content: '继续', model: 'openai:qwen3.7-plus' } as any,
+      new AbortController(),
+      { invocationIds: stableIds }
+    )
+
+    expect(invokeMock.mock.calls[0]?.[7]).toEqual(stableIds)
+    expect(upsertCanonicalMessagesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: stableIds.userMessageId,
+        turnId: stableIds.turnId,
+        role: 'user',
+        status: 'completed'
+      }),
+      expect.objectContaining({
+        id: stableIds.assistantMessageId,
+        turnId: stableIds.turnId,
+        parentMessageId: stableIds.userMessageId,
+        role: 'assistant',
+        status: 'streaming',
+        provider: expect.objectContaining({ requestId: stableIds.traceId })
+      })
+    ])
+
+    agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-start' } })
+    agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-delta', text: '完成' } })
+    agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-end' } })
+    agentStream.emit('data', { type: 'complete' })
+    await flushMicrotasks(8)
+    await expect(result.completion).resolves.toEqual({})
+
+    expect(upsertCanonicalMessageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: stableIds.assistantMessageId,
+        turnId: stableIds.turnId,
+        parentMessageId: stableIds.userMessageId,
+        status: 'completed'
+      })
+    )
+    expect(upsertCanonicalPartsMock).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          messageId: stableIds.assistantMessageId,
+          type: 'text',
+          data: expect.objectContaining({ text: '完成', status: 'completed' })
+        })
+      ])
+    )
+  })
+
+  it('reuses caller identities across retries without creating new canonical messages', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const stableIds = {
+      turnId: 'turn-retry',
+      traceId: 'trace-retry',
+      userMessageId: 'message-user-retry',
+      assistantMessageId: 'message-assistant-retry'
+    }
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const service = new SessionMessageService()
+      const agentStream = createAgentStream()
+      invokeMock.mockResolvedValueOnce(agentStream)
+      vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
+      const result = await service.createSessionMessage(
+        { id: 'session-1', agent_id: 'agent-1', model: 'claude-3' } as any,
+        { content: '重试请求', model: 'openai:qwen3.7-plus' } as any,
+        new AbortController(),
+        { invocationIds: stableIds }
+      )
+      agentStream.emit('data', { type: 'complete' })
+      await flushMicrotasks(8)
+      await result.completion
+    }
+
+    expect(invokeMock.mock.calls.map((call) => call[7])).toEqual([stableIds, stableIds])
+    expect(upsertCanonicalMessagesMock).toHaveBeenCalledTimes(2)
+    for (const call of upsertCanonicalMessagesMock.mock.calls) {
+      expect(call[0].map((message: { id: string }) => message.id)).toEqual([
+        stableIds.userMessageId,
+        stableIds.assistantMessageId
+      ])
+    }
+  })
+
+  it('finalizes canonical assistant as failed on stream errors', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const agentStream = createAgentStream()
+    invokeMock.mockResolvedValue(agentStream)
+    vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
+
+    const result = await service.createSessionMessage(
+      { id: 'session-1', agent_id: 'agent-1', model: 'claude-3' } as any,
+      { content: '失败请求', model: 'openai:qwen3.7-plus' } as any,
+      new AbortController()
+    )
+    void result.stream.getReader().read().catch(() => undefined)
+    agentStream.emit('data', { type: 'error', error: new Error('provider failed') })
+    await flushMicrotasks(8)
+
+    await expect(result.completion).rejects.toMatchObject({ message: 'provider failed' })
+    expect(upsertCanonicalMessageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error: expect.objectContaining({ message: 'provider failed' })
+      })
+    )
+  })
+
+  it('marks the agent turn failed when invoke initialization throws', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const stableIds = {
+      turnId: 'turn-init-failure',
+      traceId: 'trace-init-failure',
+      userMessageId: 'user-init-failure',
+      assistantMessageId: 'assistant-init-failure'
+    }
+    invokeMock.mockRejectedValue(new Error('bootstrap failed'))
+    getTurnMock.mockResolvedValue({ id: stableIds.turnId, status: 'running' })
+    vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('')
+
+    await expect(
+      service.createSessionMessage(
+        { id: 'session-1', agent_id: 'agent-1', model: 'claude-3' } as any,
+        { content: '失败请求', model: 'openai:qwen3.7-plus' } as any,
+        new AbortController(),
+        { invocationIds: stableIds }
+      )
+    ).rejects.toThrow('bootstrap failed')
+
+    expect(updateTurnMock).toHaveBeenCalledWith(stableIds.turnId, {
+      status: 'failed',
+      completedAt: expect.any(String)
+    })
+  })
+
   it('marks only the assistant message as cancelled in persisted history', async () => {
     const { SessionMessageService } = await import('../SessionMessageService')
     const service = new SessionMessageService()
@@ -408,5 +595,57 @@ describe('SessionMessageService cancelled persistence', () => {
       status: 'cancelled',
       aborted: true
     })
+  })
+
+  it('completes the stream even when canonical finalize persistence fails', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const agentStream = createAgentStream()
+
+    invokeMock.mockResolvedValue(agentStream)
+    vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
+    const persistSpy = vi.spyOn(service as any, 'persistHeadlessExchange').mockResolvedValue({})
+    upsertCanonicalMessageMock.mockImplementation(async (input: any) => {
+      if (input?.status === 'completed') {
+        throw new Error('SQLITE_BUSY: database is locked')
+      }
+      return {}
+    })
+
+    const result = await service.createSessionMessage(
+      {
+        id: 'session-1',
+        agent_id: 'agent-1',
+        model: 'claude-3'
+      } as any,
+      {
+        content: '正常完成',
+        model: 'openai:qwen3.7-plus'
+      } as any,
+      new AbortController(),
+      { persist: true }
+    )
+
+    const reader = result.stream.getReader()
+    const readAll = (async () => {
+      const chunks: unknown[] = []
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) return chunks
+        chunks.push(value)
+      }
+    })()
+
+    agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-start', id: 'text-1' } })
+    agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-delta', id: 'text-1', text: '答案' } })
+    agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-end', id: 'text-1' } })
+    agentStream.emit('data', { type: 'complete' })
+
+    await flushMicrotasks()
+    await expect(result.streamFinished).resolves.toBeUndefined()
+    // The reader must close normally instead of surfacing a stream error.
+    await expect(readAll).resolves.toHaveLength(3)
+    await expect(result.completion).resolves.toEqual({})
+    expect(persistSpy).toHaveBeenCalledTimes(1)
   })
 })

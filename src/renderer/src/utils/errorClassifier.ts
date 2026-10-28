@@ -68,6 +68,21 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     }
   }
 
+  // Some gateways return billing failures as HTTP 403. Prefer the explicit
+  // upstream quota code/message over the generic HTTP auth classification.
+  if (
+    numStatus === 429 ||
+    msg.includes('quota') ||
+    msg.includes('rate_limit') ||
+    msg.includes('rate limit') ||
+    msg.includes('insufficient_balance') ||
+    msg.includes('insufficient balance') ||
+    msg.includes('insufficient_quota') ||
+    msg.includes('insufficient_user_quota')
+  ) {
+    return { category: 'quota', i18nKey: 'error.diagnosis.quota', navTarget: `/settings/provider${providerSuffix}` }
+  }
+
   // Auth errors (401/403)
   if (
     numStatus === 401 ||
@@ -97,18 +112,6 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     (msg.includes('function.parameters') && msg.includes('invalid_request_error'))
   ) {
     return { category: 'mcp', i18nKey: 'error.diagnosis.tool_schema', navTarget: '/settings/mcp/servers' }
-  }
-
-  // Quota / rate limit (429)
-  if (
-    numStatus === 429 ||
-    msg.includes('quota') ||
-    msg.includes('rate_limit') ||
-    msg.includes('rate limit') ||
-    msg.includes('insufficient_balance') ||
-    msg.includes('insufficient_quota')
-  ) {
-    return { category: 'quota', i18nKey: 'error.diagnosis.quota', navTarget: `/settings/provider${providerSuffix}` }
   }
 
   // Context length exceeded

@@ -6,6 +6,8 @@ import {
   type StreamAbortController
 } from '@main/apiServer/utils/createStreamAbortController'
 import { agentService, sessionMessageService, sessionService } from '@main/services/agents'
+import { agentHistoryService } from '@main/services/agents/database/agentHistoryService'
+import { agentInvocationIdsFromIdempotencyKey, allocateAgentInvocationIds } from '@main/services/agents/services/agent-invocation-ids'
 import type { Request, Response } from 'express'
 
 const logger = loggerService.withContext('ApiServerMessagesHandlers')
@@ -38,8 +40,12 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
     const session = await verifyAgentAndSession(agentId, sessionId)
 
     const messageData = req.body
+    const idempotencyKey = String(req.get('Idempotency-Key') || req.body?.idempotency_key || '').trim()
+    const invocationIds = idempotencyKey
+      ? agentInvocationIdsFromIdempotencyKey(`${agentId}:${sessionId}`, idempotencyKey)
+      : allocateAgentInvocationIds()
 
-    logger.info('Creating streaming message', { agentId, sessionId })
+    logger.info('Creating streaming message', { agentId, sessionId, idempotencyKey: idempotencyKey || undefined })
     logger.debug('Streaming message payload', { messageData })
 
     // Set SSE headers
@@ -56,7 +62,8 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
     const { stream, completion } = await sessionMessageService.createSessionMessage(
       session,
       messageData,
-      abortController
+      abortController,
+      { persist: true, invocationIds }
     )
     const reader = stream.getReader()
 
@@ -261,10 +268,40 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
   }
 }
 
+export const getMessages = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { agentId, sessionId } = req.params
+    await verifyAgentAndSession(agentId, sessionId)
+    const afterSequenceRaw = req.query.after_sequence ?? req.query.afterSequence
+    const limitRaw = req.query.limit
+    const afterSequence = afterSequenceRaw === undefined ? undefined : Number(afterSequenceRaw)
+    const limit = limitRaw === undefined ? undefined : Number(limitRaw)
+    if ((afterSequence !== undefined && (!Number.isInteger(afterSequence) || afterSequence < -1)) ||
+        (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 500))) {
+      return res.status(400).json({
+        error: { message: 'Invalid history pagination', type: 'invalid_request', code: 'invalid_pagination' }
+      })
+    }
+    const page = await agentHistoryService.getHistory(sessionId, { afterSequence, limit })
+    return res.json({
+      messages: page.messages,
+      has_more: page.hasMore,
+      next_after_sequence: page.nextAfterSequence
+    })
+  } catch (error: any) {
+    if (error?.status === 404) {
+      return res.status(404).json({ error: { message: error.message, type: 'not_found', code: error.code } })
+    }
+    logger.error('Error loading session history', { error, sessionId: req.params.sessionId })
+    return res.status(500).json({
+      error: { message: 'Failed to load session history', type: 'internal_error', code: 'session_history_failed' }
+    })
+  }
+}
+
 export const deleteMessage = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { agentId, sessionId, messageId: messageIdParam } = req.params
-    const messageId = Number(messageIdParam)
+    const { agentId, sessionId, messageId } = req.params
 
     await verifyAgentAndSession(agentId, sessionId)
 
@@ -304,7 +341,7 @@ export const deleteMessage = async (req: Request, res: Response): Promise<Respon
       error,
       agentId: req.params.agentId,
       sessionId: req.params.sessionId,
-      messageId: Number(req.params.messageId)
+      messageId: req.params.messageId
     })
     return res.status(500).json({
       error: {

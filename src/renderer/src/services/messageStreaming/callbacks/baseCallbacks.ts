@@ -292,8 +292,12 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       const todoCleanupIds = cleanupInProgressTodos()
       updatedBlockIds.push(...todoCleanupIds)
 
-      const errorBlock = createErrorBlock(assistantMsgId, serializableError, { status: MessageBlockStatus.SUCCESS })
-      await blockManager.handleBlockTransition(errorBlock, MessageBlockType.ERROR)
+      // Stopping is a successful pause, not a recoverable failure. Keep partial
+      // content and cleanup above, but do not persist an error banner for it.
+      if (!isErrorTypeAbort) {
+        const errorBlock = createErrorBlock(assistantMsgId, serializableError, { status: MessageBlockStatus.SUCCESS })
+        await blockManager.handleBlockTransition(errorBlock, MessageBlockType.ERROR)
+      }
       const messageErrorUpdate = {
         status: isErrorTypeAbort ? AssistantMessageStatus.SUCCESS : AssistantMessageStatus.ERROR,
         usage: currentMessage?.usage,

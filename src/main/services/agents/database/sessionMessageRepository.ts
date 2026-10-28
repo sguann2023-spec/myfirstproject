@@ -10,6 +10,8 @@ import type {
 import { and, asc, eq, sql } from 'drizzle-orm'
 
 import { BaseService } from '../BaseService'
+import { persistedToCanonicalInputs } from './agentHistoryMapper'
+import { agentTranscriptRepository } from './repositories/agentTranscriptRepository'
 import type { InsertSessionMessageRow, SessionMessageRow } from './schema'
 import { sessionMessagesTable } from './schema'
 
@@ -157,12 +159,63 @@ class AgentMessageRepository extends BaseService {
     return this.deserialize(saved)
   }
 
+  private async dualWriteCanonical(
+    sessionId: string,
+    payload: AgentPersistedMessage,
+    metadata?: Record<string, unknown>
+  ): Promise<void> {
+    const canonical = persistedToCanonicalInputs(sessionId, payload, metadata)
+    if (!canonical) return
+    await agentTranscriptRepository.upsertMessage(canonical.message)
+    if (canonical.parts.length === 0) return
+    // The stream path may already own canonical parts for this message under
+    // different part ids (allocated at turn start). Reusing those ids makes the
+    // dual-write an idempotent update instead of appending duplicate text,
+    // reasoning, tool, or image parts to the same message.
+    const existingParts = await agentTranscriptRepository.listMessageParts(sessionId, canonical.message.id)
+    if (existingParts.length > 0) {
+      const firstByType = new Map<string, string>()
+      const toolByCallId = new Map<string, string>()
+      const imagePartIds: string[] = []
+      for (const part of existingParts) {
+        if (part.type === 'tool') {
+          const callId = String(part.data?.toolCallId ?? part.data?.toolId ?? '')
+          if (callId) toolByCallId.set(callId, part.id)
+        } else if (part.type === 'image') {
+          imagePartIds.push(part.id)
+        } else if (!firstByType.has(part.type)) {
+          firstByType.set(part.type, part.id)
+        }
+      }
+      let imageIndex = 0
+      canonical.parts = canonical.parts.map((part) => {
+        if (part.type === 'tool') {
+          const callId = String(part.data?.toolCallId ?? part.data?.toolId ?? '')
+          const existingId = callId ? toolByCallId.get(callId) : undefined
+          return existingId ? { ...part, id: existingId } : part
+        }
+        if (part.type === 'image') {
+          const existingId = imagePartIds[imageIndex]
+          imageIndex += 1
+          return existingId ? { ...part, id: existingId } : part
+        }
+        const existingId = firstByType.get(part.type)
+        return existingId ? { ...part, id: existingId } : part
+      })
+    }
+    await agentTranscriptRepository.upsertParts(canonical.parts)
+  }
+
   async persistUserMessage(params: PersistUserMessageParams): Promise<AgentSessionMessageEntity> {
-    return this.upsertMessage({ ...params, agentSessionId: params.agentSessionId ?? '' })
+    const saved = await this.upsertMessage({ ...params, agentSessionId: params.agentSessionId ?? '' })
+    await this.dualWriteCanonical(params.sessionId, params.payload, params.metadata)
+    return saved
   }
 
   async persistAssistantMessage(params: PersistAssistantMessageParams): Promise<AgentSessionMessageEntity> {
-    return this.upsertMessage(params)
+    const saved = await this.upsertMessage(params)
+    await this.dualWriteCanonical(params.sessionId, params.payload, params.metadata)
+    return saved
   }
 
   async persistExchange(params: AgentMessagePersistExchangePayload): Promise<AgentMessagePersistExchangeResult> {
@@ -200,7 +253,7 @@ class AgentMessageRepository extends BaseService {
         .select()
         .from(sessionMessagesTable)
         .where(eq(sessionMessagesTable.session_id, sessionId))
-        .orderBy(asc(sessionMessagesTable.created_at))
+        .orderBy(asc(sessionMessagesTable.created_at), asc(sessionMessagesTable.id))
 
       const messages: AgentPersistedMessage[] = []
 

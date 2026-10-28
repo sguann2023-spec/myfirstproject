@@ -19,6 +19,7 @@ import { buildVectcutMcpToolName } from '@shared/mcp'
 import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
+import { SqlitePiSessionStorage } from '../../../database/repositories/piSessionStorage'
 import { windowService } from '@main/services/WindowService'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
@@ -93,8 +94,8 @@ type PiApiModule = {
   streamSimple: unknown
 }
 type PiSession = import('@earendil-works/pi-agent-core').Session
+type PiSessionStorage = import('@earendil-works/pi-agent-core').SessionStorage
 type PiAgentHarness = import('@earendil-works/pi-agent-core').AgentHarness
-type PiInMemorySessionStorage = import('@earendil-works/pi-agent-core').InMemorySessionStorage
 type PiMutableModels = import('@earendil-works/pi-ai').MutableModels
 type PiModel = import('@earendil-works/pi-ai').Model<string>
 type PiProvider = import('@earendil-works/pi-ai').Provider<string>
@@ -131,7 +132,7 @@ function resolveRuntimeMcpNamespace(serverKey: string): string {
 }
 
 type PiRuntimeBridge = {
-  storage: PiInMemorySessionStorage
+  storage: PiSessionStorage
   session: PiSession
   models: PiMutableModels
   provider: PiProvider
@@ -924,7 +925,7 @@ export async function buildMcpTools(input: {
 
     for (const tool of listedTools) {
       const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
-      if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model.supportsImageInput) {
+      if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model?.supportsImageInput === true) {
         logger.info('[AgentCore] skipped image-understand MCP tool for multimodal model', {
           traceId: invokeContext.runtime.traceId,
           topicId: invokeContext.projection.topicId,
@@ -1652,10 +1653,13 @@ async function buildPiRuntimeBridge(input: {
   })
   models.setProvider(provider)
 
-  const storage = new packageBridge.agentCore.InMemorySessionStorage({
+  const storage = await SqlitePiSessionStorage.openOrCreate({
+    topicId: invokeContext.projection.topicId,
+    requestedSessionId: invokeContext.projection.piSessionId,
+    invocationId: invokeContext.projection.userMessageId ?? invokeContext.runtime.traceId,
     metadata: {
-      id: invokeContext.projection.piSessionId,
-      createdAt: new Date().toISOString()
+      agentId: invokeContext.runtime.agentId,
+      workspacePath: invokeContext.runtime.workspacePath
     }
   })
   const session = new packageBridge.agentCore.Session(storage)
