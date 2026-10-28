@@ -22,9 +22,11 @@ const mocks = vi.hoisted(() => ({
   restartTrace: vi.fn(),
   regenerate: vi.fn(),
   classifyByAI: vi.fn(),
+  openCreditsPayment: vi.fn().mockResolvedValue(undefined),
   toast: vi.fn()
 }))
 
+vi.mock('../../../../../../../shared/openCreditsPayment', () => ({ openCreditsPayment: mocks.openCreditsPayment }))
 vi.mock('@renderer/store', () => ({
   useAppDispatch: () => mocks.dispatch,
   useAppSelector: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state)
@@ -144,7 +146,28 @@ describe('ErrorRecoveryBlock', () => {
     expect(container.textContent).not.toContain('remaining:')
     expect(container.textContent).not.toContain(zhCN.error.diagnosis.go_to_settings)
     expect([...container.querySelectorAll('.error-recovery__actions button')].map((item) => item.textContent))
-      .toEqual([zhCN.common.retry, zhCN.network_check.button])
+      .toEqual([zhCN.common.retry, zhCN.error.diagnosis.buy_credits])
+    await act(async () => button('购买积分').click())
+    expect(mocks.openCreditsPayment).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it.each(['zh-CN', 'en-US', 'zh-TW'])('offers payment for the screenshot 400 error in %s without AI diagnosis', async (language) => {
+    await i18n.changeLanguage(language)
+    await render({ ...block, error: {
+      name: 'Error', statusCode: 400,
+      message: '400: {"error":{"message":"Insufficient remaining points (剩余点数不足)","type":"invalid_request_error"}}'
+    } } as ErrorMessageBlock)
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(i18n.t('error.diagnosis.quota'))
+    await act(async () => button(i18n.t('error.diagnosis.buy_credits')).click())
+    expect(mocks.openCreditsPayment).toHaveBeenCalledExactlyOnceWith()
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
+  })
+
+  it.each(['rate limit exceeded', 'quota exceeded', 'insufficient_quota'])('keeps network action for 429 %s', async (message) => {
+    await render({ ...block, error: { name: 'Error', statusCode: 429, message } } as ErrorMessageBlock)
+    expect(button('检测网络')).toBeDefined()
+    expect(container.textContent).not.toContain('购买积分')
+    expect(mocks.openCreditsPayment).not.toHaveBeenCalled()
   })
 
   it('explains expired sessions while preserving the same unified actions', async () => {

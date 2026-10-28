@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChatTaskContext } from './ChatTaskContext';
+import { resolveMarkdownFilePath } from '../../../shared/markdownFileLinks';
 import PartSplitToolDetail from '../../PartSplitToolDetail';
 import { Tooltip, Tour, message } from 'antd';
 import {
@@ -106,7 +107,7 @@ const createFilePreviewUrl = (filePath = '') => {
   const normalizedPath = normalizePath(filePath).trim();
   if (!normalizedPath) return '';
   const normalizedPathname = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
-  return encodeURI(`file://${normalizedPathname}`);
+  return `file://${normalizedPathname.split('/').map((part, index) => (index === 1 && /^[a-z]:$/i.test(part) ? part : encodeURIComponent(part))).join('/')}`;
 };
 const normalizeWebPreviewUrl = (value = '') => {
   const normalized = String(value || '').trim();
@@ -378,6 +379,19 @@ const ChatShell = ({
 }) => {
   const [resolvedSessionId, setResolvedSessionId] = React.useState(runtimeSessionId || '');
   const [runtimeSession, setRuntimeSession] = React.useState(null);
+  React.useEffect(() => {
+    const renamed = ({ detail: { source, target } }) => {
+      const remap = (value) => typeof value === 'string' && (value === source || value.startsWith(`${source}/`))
+        ? target + value.slice(source.length) : value;
+      setRuntimeSession((previous) => previous ? { ...previous,
+        accessible_paths: previous.accessible_paths?.map(remap),
+        configuration: { ...previous.configuration, selected_workspace_path: remap(previous.configuration?.selected_workspace_path) }
+      } : previous);
+      setSkillPreviewPaths({});
+    };
+    window.addEventListener('workspace-renamed', renamed);
+    return () => window.removeEventListener('workspace-renamed', renamed);
+  }, []);
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [titleDraft, setTitleDraft] = React.useState(sessionTitle);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
@@ -1374,6 +1388,14 @@ const ChatShell = ({
     }
   }, [openInlinePreviewPane]);
 
+  const openFilePath = React.useCallback(async (href) => {
+    try {
+      await loadFilePreviewByPath(resolveMarkdownFilePath(href, currentWorkspacePath));
+    } catch (error) {
+      message.warning(error?.message || '无法打开本地文件');
+    }
+  }, [currentWorkspacePath, loadFilePreviewByPath]);
+
   const openFilePreview = React.useCallback(async (rootPath, node) => {
     if (!rootPath || !node?.path || node.type !== 'file') return;
 
@@ -1650,6 +1672,7 @@ const ChatShell = ({
                 : { filePath, chatSessionId, workspacePath: currentWorkspacePath, open: true }
             )),
             openWebUrl: openWebUrlInPreview,
+            openFilePath,
             openAttachmentPreview: openInlinePreviewPane,
           }}>
             {children}

@@ -1380,6 +1380,46 @@ function describePiRequestTarget(input: {
   }
 }
 
+/** Repair only adjacent OpenAI tool-result blocks; never borrow results across turns.
+ * The returned array is new; input messages (including real failure/empty results) are untouched.
+ */
+export function normalizeOpenAiMessages(messages: readonly unknown[]): unknown[] {
+  const normalized: unknown[] = []
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown> : undefined
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = asRecord(messages[index])
+    // Orphans, duplicates and late results must not leak into a different turn.
+    if (message?.role === 'tool') continue
+    normalized.push(messages[index])
+    if (message?.role !== 'assistant' || !Array.isArray(message.tool_calls) || !message.tool_calls.length) continue
+
+    const pending = new Set<string>()
+    for (const call of message.tool_calls) {
+      const id = asRecord(call)?.id
+      if (typeof id === 'string' && id.length > 0) pending.add(id)
+    }
+    while (index + 1 < messages.length) {
+      const result = asRecord(messages[index + 1])
+      if (result?.role !== 'tool') break
+      index++
+      if (typeof result.tool_call_id === 'string' && pending.delete(result.tool_call_id)) {
+        normalized.push(messages[index])
+      }
+    }
+    for (const id of pending) {
+      normalized.push({
+        role: 'tool',
+        tool_call_id: id,
+        content: 'Tool failed or was interrupted: no result was received. Execution success is unknown; do not assume the tool completed successfully.'
+      })
+    }
+  }
+  return normalized
+}
+
 function normalizeProviderPayload(input: {
   payload: unknown
   providerApiType: 'anthropic-messages' | 'openai-completions'
@@ -1395,6 +1435,10 @@ function normalizeProviderPayload(input: {
   delete record.reasoning_effort
   delete record.chat_template_kwargs
 
+  if (input.providerApiType === 'openai-completions' && Array.isArray(record.messages)) {
+    record.messages = normalizeOpenAiMessages(record.messages)
+  }
+
   const tools = Array.isArray(record.tools) ? record.tools : []
   if (tools.length === 0) return
   if (record.tool_choice !== undefined) return
@@ -1402,7 +1446,7 @@ function normalizeProviderPayload(input: {
   record.tool_choice = 'auto'
 }
 
-function wrapPiApiModuleWithLogging(input: {
+export function wrapPiApiModuleWithLogging(input: {
   apiModule: PiApiModule
   invokeContext: ClaudeCodeInvokeContext
   providerApiType: 'anthropic-messages' | 'openai-completions'
@@ -1431,13 +1475,9 @@ function wrapPiApiModuleWithLogging(input: {
       const requestOptions = {
         ...typedOptions,
         onPayload: async (payload: unknown, payloadModel: unknown) => {
-          normalizeProviderPayload({
-            payload,
-            providerApiType,
-            invokeContext
-          })
           const originalOnPayload = typeof typedOptions.onPayload === "function" ? typedOptions.onPayload : undefined
           const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
           logger.info('[AgentCore] pi provider payload', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1492,13 +1532,9 @@ function wrapPiApiModuleWithLogging(input: {
       const requestOptions = {
         ...typedOptions,
         onPayload: async (payload: unknown, payloadModel: unknown) => {
-          normalizeProviderPayload({
-            payload,
-            providerApiType,
-            invokeContext
-          })
           const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
           const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
           logger.info('[AgentCore] pi provider payload', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,

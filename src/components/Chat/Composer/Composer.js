@@ -2303,6 +2303,16 @@ const Composer = ({
     end: -1,
     activeIndex: 0,
   });
+  React.useEffect(() => {
+    const invalidate = () => {
+      setWorkspaceReferenceTrees({});
+      setSkillReferenceTrees({});
+      setExpandedReferenceNodeKeys(new Set());
+      setMentionState((previous) => ({ ...previous, open: false }));
+    };
+    window.addEventListener('workspace-renamed', invalidate);
+    return () => window.removeEventListener('workspace-renamed', invalidate);
+  }, []);
   const [mentionPanelPosition, setMentionPanelPosition] = React.useState({
     left: MENTION_PANEL_EDGE_OFFSET,
     top: 8,

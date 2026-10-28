@@ -902,6 +902,7 @@ const legacyElectronAPI = {
   agentSessionStreamV2: api.agentSessionStream,
   networkCheck: (payload?: { modelId?: string; accessToken?: string }) => ipcRenderer.invoke('chat:network-check', payload),
   cherryChatStream: {
+    renameWorkspace: (payload: { source: string; name: string }) => ipcRenderer.invoke(IpcChannel.CherryChatStream_WorkspaceRename, payload),
     createSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionCreate, payload),
     getSession: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionGet, { sessionId }),
     updateSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionUpdate, payload),

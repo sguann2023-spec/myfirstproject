@@ -6,6 +6,7 @@ import React from 'react';
  * running: boolean,
  * openSubtitleStoryboard: ((filePath: string) => void) | null,
  * openAttachmentPreview: ((preview: Record<string, unknown>) => void) | null,
+ * openFilePath: ((path: string) => void) | null,
  * openWebUrl: ((url: string, title?: string) => void) | null
  * }>} */
 export const ChatTaskContext = React.createContext({
@@ -13,5 +14,6 @@ export const ChatTaskContext = React.createContext({
   running: false,
   openSubtitleStoryboard: null,
   openWebUrl: null,
+  openFilePath: null,
   openAttachmentPreview: null
 });

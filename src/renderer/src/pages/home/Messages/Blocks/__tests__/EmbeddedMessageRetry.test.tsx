@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn()
 }))
 
+vi.mock('../../../../../../../shared/openCreditsPayment', () => ({ openCreditsPayment: vi.fn() }))
 vi.mock('@renderer/store', () => ({
   default: {},
   useAppDispatch: () => mocks.dispatch,

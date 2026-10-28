@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { workspaceActivity } from './workspaceRename'
 
 import { loggerService } from '@logger'
 import type {
@@ -192,7 +193,17 @@ export class SessionMessageService extends BaseService {
     abortController: AbortController,
     options?: CreateMessageOptions
   ): Promise<SessionStreamResult> {
-    return await this.startSessionMessageStream(session, messageData, abortController, options)
+    if (workspaceActivity.renaming) throw new Error('工作空间正在重命名，请稍后重试')
+    workspaceActivity.runs++
+    try {
+      const result = await this.startSessionMessageStream(session, messageData, abortController, options)
+      void Promise.allSettled([result.streamFinished, result.completion]).then(
+        () => { workspaceActivity.runs-- })
+      return result
+    } catch (error) {
+      workspaceActivity.runs--
+      throw error
+    }
   }
 
   private async startSessionMessageStream(

@@ -5,7 +5,8 @@ import { messageBlocksSelectors } from '@renderer/store/messageBlock'
 import { regenerateAssistantResponseThunk } from '@renderer/store/thunk/messageThunk'
 import type { ErrorMessageBlock, Message } from '@renderer/types/newMessage'
 import { MessageBlockType } from '@renderer/types/newMessage'
-import type { ErrorClassification } from '@renderer/utils/errorClassifier'
+import { isInsufficientBalanceError, type ErrorClassification } from '@renderer/utils/errorClassifier'
+import { openCreditsPayment } from '../../../../../../shared/openCreditsPayment'
 import { CircleAlert, LoaderCircle, X } from 'lucide-react'
 import React, { useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -60,7 +61,8 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
     hostRetry ? hostRetry.disabled : topicLoading || !assistant || !message.askId
   )
   const isAborted = classification.category === 'aborted'
-  const needsExplanation = !isAborted && classification.i18nKey === 'error.diagnosis.unknown'
+  const needsCredits = isInsufficientBalanceError(block.error)
+  const needsExplanation = !isAborted && !needsCredits && classification.i18nKey === 'error.diagnosis.unknown'
   const requiresRelogin = classification.category === 'auth_session'
   const errorMessage = block.error?.message?.trim() || ''
   const summaryKey = JSON.stringify([block.error?.name, errorMessage, i18n.language])
@@ -172,8 +174,8 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
             <button
               type="button"
               className="error-recovery__retry error-recovery__network"
-              onClick={() => setNetworkCheckOpen(true)}>
-              {t('network_check.button')}
+              onClick={() => needsCredits ? void openCreditsPayment() : setNetworkCheckOpen(true)}>
+              {t(needsCredits ? 'error.diagnosis.buy_credits' : 'network_check.button')}
             </button>
           </div>
         </div>

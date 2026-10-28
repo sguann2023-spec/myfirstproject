@@ -1,4 +1,5 @@
 export enum IpcChannel {
+  CherryChatStream_WorkspaceRename = 'cherry-chat-stream:workspace-rename',
   App_GetCacheSize = 'app:get-cache-size',
   App_ClearCache = 'app:clear-cache',
   App_SetLaunchOnBoot = 'app:set-launch-on-boot',

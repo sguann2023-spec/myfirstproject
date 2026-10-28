@@ -114,6 +114,7 @@
 }
 
 .chat-history-list__group-title {
+  min-width: 0;
   font-weight: 400;
   text-align: left;
   padding-right: 0;
@@ -162,6 +163,7 @@
 }
 
 .chat-history-list__item {
+  --chat-history-item-background: #f5f5f5;
   position: relative;
   padding: 10px;
   border-radius: 6px;
@@ -170,11 +172,13 @@
 }
 
 .chat-history-list__item:hover {
-  background: #ebebeb;
+  --chat-history-item-background: #ebebeb;
+  background: var(--chat-history-item-background);
 }
 
 .chat-history-list__item.active {
-  background: #e2e2e2;
+  --chat-history-item-background: #e2e2e2;
+  background: var(--chat-history-item-background);
 }
 
 .chat-history-list__item-top {
@@ -196,6 +200,17 @@
 
 .chat-history-list__item-title:not(.chat-history-list__group-title) {
   padding-left: 4px;
+}
+
+.chat-history-list__confirmation-badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 16px;
+  background: #e5f5e9;
+  color: #278545;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
 }
 
 .chat-history-list__status-slot {
@@ -245,11 +260,20 @@
 
 .chat-history-list__delete-btn {
   position: absolute;
+  z-index: 1;
   right: 8px;
-  bottom: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  box-sizing: border-box;
+  width: 48px;
+  height: 28px;
+  padding: 0 4px 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
   border: none;
-  background: transparent;
-  color: #999;
+  background: linear-gradient(to right, transparent, var(--chat-history-item-background) 55%);
+  color: #666;
   font-size: 11px;
   cursor: pointer;
   opacity: 0;
@@ -257,7 +281,8 @@
   transition: opacity 0.15s ease;
 }
 
-.chat-history-list__item:hover .chat-history-list__delete-btn {
+.chat-history-list__item:hover .chat-history-list__delete-btn,
+.chat-history-list__item:focus-within .chat-history-list__delete-btn {
   opacity: 1;
   pointer-events: auto;
 }
@@ -282,4 +307,52 @@
   100% {
     box-shadow: 0 0 0 0 rgba(250, 173, 20, 0);
   }
+}
+
+.chat-history-list__rename-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 0 4px;
+  border: 1px solid #5a95f0;
+  border-radius: 3px;
+  background: #fff;
+  color: #000;
+  font: inherit;
+  font-size: 14px;
+}
+
+.chat-history-list__rename-input:focus {
+  outline: 1px solid #5a95f0;
+}
+
+.chat-history-list__rename-input[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.chat-history-list__rename-editor {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  margin-right: 72px;
+}
+.chat-history-list__rename-input[aria-invalid="true"],
+.chat-history-list__rename-input[aria-invalid="true"]:focus {
+  border-color: #dc2626;
+  outline-color: #dc2626;
+}
+.chat-history-list__rename-error {
+  color: #dc2626;
+  font-size: 12px;
+  position: absolute;
+  max-width: 100%;
+  height: 18px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 2;
+  background: #f5f5f5;
 }

@@ -105,9 +105,25 @@ describe('cloud draft render', () => {
     expect(result.data.error).not.toContain(path)
     expect(fetchMock.mock.calls).toHaveLength(2)
   })
-  it('rejects nested local sticker paths and missing material sources', async () => {
-    await expect(validateRenderDraft(script({ stickers: [{ resource: { file_path: '/private/a' } }] }), signal())).rejects.toThrow('Local')
-    await expect(validateRenderDraft(script({ videos: [{ id: 'opaque' }] }), signal())).rejects.toThrow('Cannot verify')
+  it('submits drafts with local effect, template, sticker and font dependencies', async () => {
+    setup(script({
+      videos: [{ type: 'video', path: 'https://cdn/video.mp4', duration: 5_000_000, metadata: { path: '/cache/metadata' } }],
+      effects: [{ type: 'text_effect', path: '/cache/effect', resource_id: 'effect-id' }],
+      text_templates: [{ path: '/cache/template', resources: [{ panel: 'fonts', path: '/cache/font.ttf' }] }],
+      stickers: [{ resource: { file_path: '/cache/sticker.png' } }],
+      fonts: [{ path: '/cache/font.ttf' }],
+      material_animations: [{ path: '/cache/animation' }],
+      transitions: [{ path: '/cache/transition' }]
+    }))
+    const result = await call()
+    expect(result.isError).toBeUndefined()
+    expect(result.data.status).toBe('SUCCESS')
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/generate_video'))).toHaveLength(1)
+    expect(execMock).not.toHaveBeenCalled()
+  })
+  it.each(['videos', 'audios', 'images', 'photos'])('rejects local or missing %s sources', async group => {
+    await expect(validateRenderDraft(script({ [group]: [{ path: '/private/source' }] }), signal())).rejects.toThrow('Local')
+    await expect(validateRenderDraft(script({ [group]: [{ id: 'opaque' }] }), signal())).rejects.toThrow('Cannot verify')
   })
   it('ignores incidental draft metadata paths', async () => {
     await expect(validateRenderDraft({ ...script(), path: '/draft/storage', config: { path: '/metadata' } }, signal())).resolves.toBeUndefined()

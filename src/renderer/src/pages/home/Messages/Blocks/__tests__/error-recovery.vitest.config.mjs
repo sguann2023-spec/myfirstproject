@@ -22,6 +22,7 @@ export default defineConfig({
       'src/renderer/src/pages/home/Messages/Blocks/__tests__/ErrorRecoveryBlock.test.tsx',
       'src/renderer/src/pages/home/Messages/Blocks/__tests__/EmbeddedMessageRetry.test.tsx',
       'src/components/Chat/NetworkCheck/NetworkCheck.test.jsx',
+      'src/shared/openCreditsPayment.test.ts',
       'src/renderer/src/utils/__tests__/errorClassifier.test.ts'
     ]
   }

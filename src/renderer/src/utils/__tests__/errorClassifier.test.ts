@@ -1,7 +1,7 @@
 import type { SerializedError } from '@renderer/types/error'
 import { describe, expect, it } from 'vitest'
 
-import { classifyError } from '../errorClassifier'
+import { classifyError, isInsufficientBalanceError } from '../errorClassifier'
 
 function makeError(overrides: Partial<SerializedError> = {}): SerializedError {
   return { name: 'Error', message: 'test error', stack: null, ...overrides }
@@ -69,6 +69,26 @@ describe('classifyError', () => {
   })
 
   // Quota
+  it.each([
+    '400: {"error":{"message":"Insufficient remaining points (剩余点数不足)","type":"invalid_request_error"}}',
+    'Insufficient balance', 'insufficient_balance', 'Insufficient credits',
+    '余额不足', '积分不足', '餘額不足', '剩餘點數不足'
+  ])('recognizes explicit balance failures: %s', (message) => {
+    const error = makeError({ statusCode: 400, message })
+    expect(isInsufficientBalanceError(error)).toBe(true)
+    expect(classifyError(error).i18nKey).toBe('error.diagnosis.quota')
+  })
+
+  it.each(['rate limit exceeded', 'rate_limit', 'quota exhausted', 'insufficient_quota', 'insufficient_user_quota'])('does not offer payment for generic quota: %s', (message) => {
+    const error = makeError({ statusCode: 429, message })
+    expect(isInsufficientBalanceError(error)).toBe(false)
+    expect(classifyError(error).category).toBe('quota')
+  })
+
+  it('recognizes explicit balance codes without a message', () => {
+    expect(isInsufficientBalanceError(makeError({ message: '', code: 'insufficient_balance' }))).toBe(true)
+    expect(isInsufficientBalanceError(undefined)).toBe(false)
+  })
   it('classifies 429 as quota', () => {
     const result = classifyError(makeError({ statusCode: 429 }))
     expect(result.category).toBe('quota')

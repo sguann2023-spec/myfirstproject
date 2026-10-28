@@ -64,32 +64,28 @@ export async function validateRenderDraft(script: ObjectValue, signal: AbortSign
   const media: Array<{ value: ObjectValue; location: string; kind: string }> = []
   const references: Array<{ url: string; location: string; kind: string; owner: ObjectValue }> = []
   const referenceKey = /^(?:(?:.*_)?(?:path|url|uri)|.*(?:Path|Url|URL|Uri)|src|source|filename|file_name)$/
-  function visit(value: unknown, location: string, kind = 'asset', inMaterials = false) {
-    if (!value || typeof value !== 'object') return
-    if (Array.isArray(value)) {
-      value.forEach((item, i) => visit(item, `${location}[${i}]`, kind, inMaterials))
-      return
-    }
-    const object = value as ObjectValue
-    const type = String(object.type || '').toLowerCase()
-    const resolvedKind = /^(photo|image|still)$/.test(type) ? 'image' : /^(video|audio)$/.test(type) ? type : kind
-    if (inMaterials && ['image', 'video', 'audio'].includes(resolvedKind) && /\[\d+\]$/.test(location)) {
+  for (const [group, kind] of Object.entries({ videos: 'video', audios: 'audio', images: 'image', photos: 'image' })) {
+    const items = script.materials?.[group]
+    if (!Array.isArray(items)) continue
+    for (const [index, object] of items.entries()) {
+      if (!object || typeof object !== 'object') continue
+      const location = `materials.${group}[${index}]`
+      const type = String(object.type || '').toLowerCase()
+      const resolvedKind = /^(photo|image|still)$/.test(type) ? 'image' : kind
       media.push({ value: object, location, kind: resolvedKind })
-    }
-    for (const [key, child] of Object.entries(object)) {
-      const field = location ? `${location}.${key}` : key
-      if (typeof child === 'string' && child.trim() && referenceKey.test(key) && (inMaterials || resolvedKind !== 'asset')) {
+      // Only source fields on media records are checked; effect/template dependencies
+      // may use local cache paths that the render service resolves by resource id.
+      for (const [key, child] of Object.entries(object)) {
+        if (typeof child !== 'string' || !child.trim() || !referenceKey.test(key)) continue
+        const field = `${location}.${key}`
         if (!remoteUrl(child)) {
           // Never echo user directory names, credentials, or unbounded source values.
           throw new Error(`Local or unverifiable ${resolvedKind} asset at ${field}: [redacted local reference]. Replace it with a cloud-accessible HTTP(S) URL.`)
         }
         references.push({ url: child, location: field, kind: resolvedKind, owner: object })
       }
-      const groupKind = key === 'videos' ? 'video' : key === 'audios' ? 'audio' : /^(images|photos)$/.test(key) ? 'image' : key === 'stickers' ? 'sticker' : resolvedKind
-      visit(child, field, groupKind, inMaterials || key === 'materials')
     }
   }
-  visit(script, '')
   // Explicit material records must prove their source, not just carry an opaque material id.
   for (const item of media) {
     if (!references.some(ref => ref.location.startsWith(`${item.location}.`))) {

@@ -1,5 +1,5 @@
 // HomePage 组件
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import { validateTextStyleRanges } from '../../shared/textTypography';
@@ -57,7 +57,7 @@ import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk'
 import { MessageBlockStatus } from '../../renderer/src/types/newMessage';
 import { createImageBlock, createMainTextBlock, createMessage } from '../../renderer/src/utils/messageUtils/create';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
-import { isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
+import { isChatSessionAwaitingConfirmation, isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
 import { useChatModelPreference } from './useChatModelPreference';
@@ -2534,6 +2534,7 @@ const HomePage = () => {
   // 用“选中项”驱动右侧展示
   const [selectedCompleted, setSelectedCompleted] = useState(null);
   const [selectedCompletedKey, setSelectedCompletedKey] = useState(null);
+  const workspaceRenameVersionRef = useRef(0);
   const [chatSessions, setChatSessions] = useState(() => [createEmptyChatSession()]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatSending, setChatSending] = useState(false);
@@ -3878,18 +3879,26 @@ const HomePage = () => {
     (activeChatId && chatWorkspaceStatusMap[String(activeChatId || '').trim()]) || ''
   ).trim();
   const isChatSessionSending = (chatId) => Boolean(chatId) && Boolean(chatSessionSendingMap[chatId]);
+  const toolPermissionRequests = useSyncExternalStore(
+    appStore.subscribe,
+    () => appStore.getState().toolPermissions.requests
+  );
   const chatSessionsWithStatus = useMemo(
     () =>
       chatSessions.map((session) => ({
         ...session,
         isPending: Boolean(chatSessionInFlightMap[session.id]),
+        isAwaitingConfirmation: isChatSessionAwaitingConfirmation({
+          runtimeSessionId: session.runtimeSessionId,
+          isPending: Boolean(chatSessionInFlightMap[session.id])
+        }, toolPermissionRequests),
         isFulfilled: Boolean(chatSessionFulfilledMap[session.id]),
         isCompleted: isChatSessionCompleted({
           isPending: Boolean(chatSessionInFlightMap[session.id]),
           isFulfilled: Boolean(chatSessionFulfilledMap[session.id])
         }),
       })),
-    [chatSessions, chatSessionInFlightMap, chatSessionFulfilledMap]
+    [chatSessions, chatSessionInFlightMap, chatSessionFulfilledMap, toolPermissionRequests]
   );
 
   useEffect(() => {
@@ -3916,10 +3925,11 @@ const HomePage = () => {
       const runtimeSessionId = String(session?.runtimeSessionId || '').trim();
       if (!chatId || !runtimeSessionId) return;
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       chatWorkspaceMetaHydratingRef.current.add(chatId);
       void window.electronAPI.cherryChatStream.getSession(runtimeSessionId)
         .then((result) => {
-          if (cancelled) return;
+          if (cancelled || workspaceVersion !== workspaceRenameVersionRef.current) return;
           const runtimeSession = result?.session || null;
           const accessiblePaths = Array.isArray(runtimeSession?.accessible_paths)
             ? runtimeSession.accessible_paths.map((path) => normalizeLocalPath(path).trim()).filter(Boolean)
@@ -3942,7 +3952,8 @@ const HomePage = () => {
             });
 
           setChatSessions((prev) => prev.map((item) => {
-            if (item.id !== chatId) return item;
+            if (item.id !== chatId || item.runtimeSessionId !== runtimeSessionId
+              || workspaceVersion !== workspaceRenameVersionRef.current) return item;
             return {
               ...item,
               accessible_paths: accessiblePaths.length > 0 ? accessiblePaths : item.accessible_paths,
@@ -4750,12 +4761,15 @@ const HomePage = () => {
     if (!inheritedWorkspacePath) {
       const runtimeSessionId = String(activeChatSession?.runtimeSessionId || '').trim();
       if (runtimeSessionId) {
+        const workspaceVersion = workspaceRenameVersionRef.current;
         const ensuredSession = await window.electronAPI.cherryChatStream.getSession(runtimeSessionId);
+        if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
         const runtimeSession = ensuredSession?.session || null;
         inheritedWorkspacePath = getSessionWorkspacePath(runtimeSession);
         if (inheritedWorkspacePath && activeChatSession?.id) {
           setChatSessions((prev) => prev.map((item) => (
-            item.id === activeChatSession.id
+            item.id === activeChatSession.id && item.runtimeSessionId === runtimeSessionId
+              && workspaceVersion === workspaceRenameVersionRef.current
               ? {
                 ...item,
                 runtimeSessionId,
@@ -4828,7 +4842,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -4912,7 +4928,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -4990,7 +5008,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -5068,7 +5088,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -5146,7 +5168,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -5224,7 +5248,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -5302,7 +5328,9 @@ const HomePage = () => {
         await seedWorkspaceSkeleton(workspacePath);
       }
 
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       const configuration = ensuredSession?.session?.configuration && typeof ensuredSession.session.configuration === 'object'
         ? ensuredSession.session.configuration
         : {};
@@ -5429,6 +5457,34 @@ const HomePage = () => {
 
   const handleDeleteChatSession = (sessionId) => {
     deleteChatSessionsByIds([sessionId]);
+  };
+
+  const handleRenameWorkspace = async (source, name) => {
+    if (Object.values(chatSessionSendingMap).some(Boolean) || Object.values(chatSessionInFlightMap).some(Boolean)) {
+      throw new Error('请等待运行中的会话结束后重命名');
+    }
+    if (typeof window.electronAPI?.cherryChatStream?.renameWorkspace !== 'function') {
+      throw new Error('当前版本不支持重命名工作空间，请重启或更新应用');
+    }
+    workspaceRenameVersionRef.current += 1;
+    let result;
+    try {
+      result = await window.electronAPI.cherryChatStream.renameWorkspace({ source, name });
+    } finally {
+      workspaceRenameVersionRef.current += 1;
+    }
+    if (!result?.ok) throw new Error(result?.error || '重命名失败');
+    const remap = (value) => typeof value === 'string' && (value === source || value.startsWith(`${source}/`))
+      ? result.target + value.slice(source.length) : value;
+    setChatSessions((previous) => previous.map((session) => ({
+      ...session,
+      accessible_paths: session.accessible_paths?.map(remap),
+      configuration: { ...session.configuration, selected_workspace_path: remap(session.configuration?.selected_workspace_path) }
+    })));
+    const store = readWorkspaceStore();
+    writeWorkspaceStore({ ...store, library: store.library.map(remap), recent: store.recent.map(remap),
+      accessTimes: Object.fromEntries(Object.entries(store.accessTimes || {}).map(([key, value]) => [remap(key), value])) });
+    window.dispatchEvent(new CustomEvent('workspace-renamed', { detail: { source, target: result.target } }));
   };
 
   const handleDeleteWorkspace = async (workspacePath) => {
@@ -5834,7 +5890,9 @@ const HomePage = () => {
         });
         return;
       }
+      const workspaceVersion = workspaceRenameVersionRef.current;
       const ensuredSession = await window.electronAPI.cherryChatStream.getSession(agentSessionId);
+      if (workspaceVersion !== workspaceRenameVersionRef.current) throw new Error('工作空间信息已变更，请重试');
       let runtimeSession = ensuredSession?.session || null;
       if (!getSessionWorkspacePath(runtimeSession)) {
         setChatWorkspaceStatus(targetSessionId, AUTO_WORKSPACE_STATUS_TEXT);
@@ -7229,6 +7287,7 @@ const HomePage = () => {
                 onSelectSession={handleSelectChatSession}
                 onDeleteSession={handleDeleteChatSession}
                 onDeleteWorkspace={handleDeleteWorkspace}
+                onRenameWorkspace={handleRenameWorkspace}
                 visible={chatHistoryVisible}
               />
             )}

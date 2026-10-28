@@ -24,6 +24,12 @@ export interface ErrorClassification {
   navTarget: string | null
 }
 
+// Only explicit monetary/points failures qualify for payment, not generic quota or throttling.
+export function isInsufficientBalanceError(error?: SerializedError): boolean {
+  const text = `${error?.message ?? ''} ${error?.code ?? ''}`
+  return /\binsufficient[\s_]+(?:remaining[\s_]+)?(?:balance|points?|credits?)\b|\b(?:balance|points?|credits?)[\s_]+(?:is[\s_]+)?insufficient\b|(?:余额|餘額|积分|積分|剩余点数|剩餘點數|点数|點數)不足/i.test(text)
+}
+
 export function classifyError(error?: SerializedError, providerId?: string): ErrorClassification {
   if (!error) {
     return { category: 'unknown', i18nKey: 'error.diagnosis.unknown', navTarget: null }
@@ -71,6 +77,7 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
   // Some gateways return billing failures as HTTP 403. Prefer the explicit
   // upstream quota code/message over the generic HTTP auth classification.
   if (
+    isInsufficientBalanceError(error) ||
     numStatus === 429 ||
     msg.includes('quota') ||
     msg.includes('rate_limit') ||

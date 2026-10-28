@@ -8,13 +8,14 @@ import { parseSubtitleStoryboardLink } from '../../../../../shared/subtitleRecog
 
 import CitationTooltip, { CitationSchema } from './CitationTooltip'
 import Hyperlink from './Hyperlink'
+import { openMarkdownFileLink } from '../../../../../shared/markdownFileLinks'
 
 interface LinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
   node?: Omit<Node, 'type'>
 }
 
 const Link: React.FC<LinkProps> = (props) => {
-  const { openSubtitleStoryboard, openWebUrl } = React.useContext(ChatTaskContext)
+  const { openSubtitleStoryboard, openWebUrl, openFilePath } = React.useContext(ChatTaskContext)
   const citationData = useMemo(() => {
     const raw = parseJSON(findCitationInChildren(props.children))
     const parsed = CitationSchema.safeParse(raw)
@@ -62,6 +63,7 @@ const Link: React.FC<LinkProps> = (props) => {
       openWebUrl(props.href || '', props.title || '')
       return
     }
+    if (openMarkdownFileLink(props.href || '', openFilePath)) return
     if (props.href) {
       window.open(props.href, '_blank', 'noopener,noreferrer')
     }

@@ -1859,6 +1859,7 @@
       "parse": "AI returned an invalid response, please retry or switch model",
       "payload": "Request content too large, please reduce file or text size",
       "proxy": "Proxy or SSL certificate error, check proxy and network settings",
+      "buy_credits": "Buy credits",
       "quota": "Account quota exhausted, please recharge or switch provider",
       "server": "Server error, please retry later",
       "stream": "Response interrupted, check network stability or retry",

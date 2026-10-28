@@ -76,7 +76,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
+import { normalizeOpenAiMessages, wrapPiApiModuleWithLogging, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -97,6 +97,109 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('OpenAI tool message normalization', () => {
+  const call = (...ids: string[]) => ({ role: 'assistant', content: null, tool_calls: ids.map(id => ({ id, type: 'function', function: { name: 'test', arguments: '{}' } })) })
+  const tool = (id: string, content: unknown = 'ok') => ({ role: 'tool', tool_call_id: id, content })
+  const user = { role: 'user', content: 'continue' }
+  const missing = (id: string) => expect.objectContaining({
+    role: 'tool', tool_call_id: id, content: expect.stringMatching(/failed or was interrupted.*no result.*do not assume/)
+  })
+
+  it('fills missing results before the next turn and at end of history', () => {
+    expect(normalizeOpenAiMessages([call('A'), user, call('B')]))
+      .toEqual([call('A'), missing('A'), user, call('B'), missing('B')])
+  })
+
+  it('pairs parallel results by ID and fills only missing results', () => {
+    expect(normalizeOpenAiMessages([call('A', 'B', 'C'), tool('C'), tool('A'), user]))
+      .toEqual([call('A', 'B', 'C'), tool('C'), tool('A'), missing('B'), user])
+  })
+
+  it.each(['', 'Error: tool execution failed', null, [{ type: 'text', text: 'failed' }]])('preserves real empty or failed content %j', content => {
+    const messages = [call('A'), tool('A', content)]
+    expect(normalizeOpenAiMessages(messages)).toEqual(messages)
+  })
+
+  it('filters orphan and duplicate results without changing non-tool messages', () => {
+    expect(normalizeOpenAiMessages([tool('orphan'), user, call('A'), tool('wrong'), tool('A'), tool('A', 'duplicate')]))
+      .toEqual([user, call('A'), tool('A')])
+  })
+
+  it('drops late results after a user turn and never borrows across reused IDs', () => {
+    expect(normalizeOpenAiMessages([call('A'), user, tool('A', 'late'), call('A'), tool('A', 'new')]))
+      .toEqual([call('A'), missing('A'), user, call('A'), tool('A', 'new')])
+    expect(normalizeOpenAiMessages([call('A'), user, call('A'), tool('A')]))
+      .toEqual([call('A'), missing('A'), user, call('A'), tool('A')])
+  })
+
+  it('does not mutate frozen input and is idempotent', () => {
+    const messages = [call('A', 'B'), tool('B'), user, tool('A', 'late')]
+    const snapshot = structuredClone(messages)
+    const freeze = (value: any): any => {
+      if (value && typeof value === 'object') {
+        Object.values(value).forEach(freeze)
+        Object.freeze(value)
+      }
+      return value
+    }
+    freeze(messages)
+    const result = normalizeOpenAiMessages(messages)
+    expect(messages).toEqual(snapshot)
+    expect(normalizeOpenAiMessages(result)).toEqual(result)
+    expect(result).not.toBe(messages)
+  })
+
+  it.each(['stream', 'streamSimple'] as const)('%s normalizes callback replacements and original payloads without tools', async method => {
+    const underlying = vi.fn((_model, _context, options) => options)
+    const wrapper = wrapPiApiModuleWithLogging({
+      apiModule: { stream: underlying, streamSimple: underlying } as any,
+      invokeContext: { runtime: { traceId: 'test' }, projection: {} } as any,
+      providerApiType: 'openai-completions'
+    })
+    for (const mode of ['replacement', 'mutated', 'absent', 'null'] as const) {
+      const originalMessages = [call('A'), user]
+      const original: any = { messages: originalMessages }
+      const replacement: any = { messages: [call('B')], tools: [{}], thinking: {}, reasoning_effort: 'high' }
+      const callback = vi.fn((payload) => {
+        expect(payload).toBe(original)
+        if (mode === 'mutated') payload.messages = [call('B')]
+        return mode === 'replacement' ? replacement : mode === 'null' ? null : undefined
+      })
+      const options = (wrapper[method] as any)({}, {}, mode === 'absent' ? {} : { onPayload: callback })
+      const returned = await options.onPayload(original, { id: 'model' })
+      const effective = returned ?? original
+      expect(effective.messages).toEqual(mode === 'replacement' || mode === 'mutated'
+        ? [call('B'), missing('B')]
+        : [call('A'), missing('A'), user])
+      expect(originalMessages).toEqual([call('A'), user])
+      if (mode === 'replacement') {
+        expect(returned).toBe(replacement)
+        expect(effective.tool_choice).toBe('auto')
+        expect(effective.thinking).toBeUndefined()
+        expect(effective.reasoning_effort).toBeUndefined()
+      }
+    }
+  })
+
+  it.each(['stream', 'streamSimple'] as const)('%s preserves Anthropic messages and existing parameter semantics', async method => {
+    const underlying = vi.fn((_model, _context, options) => options)
+    const wrapper = wrapPiApiModuleWithLogging({
+      apiModule: { stream: underlying, streamSimple: underlying } as any,
+      invokeContext: { runtime: {}, projection: {} } as any,
+      providerApiType: 'anthropic-messages'
+    })
+    const messages = [{ role: 'assistant', content: [{ type: 'tool_use', id: 'A' }] }]
+    const payload: any = { messages, tools: [{}], tool_choice: { type: 'any' }, enable_thinking: true, thinking: {}, reasoning: {}, reasoning_effort: 'high', chat_template_kwargs: {} }
+    const options = (wrapper[method] as any)({}, {}, {})
+    await options.onPayload(payload, {})
+    expect(payload.messages).toBe(messages)
+    expect(payload.tool_choice).toEqual({ type: 'any' })
+    for (const key of ['enable_thinking', 'thinking', 'reasoning', 'reasoning_effort', 'chat_template_kwargs']) {
+      expect(payload).not.toHaveProperty(key)
+    }
+  })
 })
 
 describe('ReadImageAsContent input validation', () => {
